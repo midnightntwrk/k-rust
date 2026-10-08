@@ -2,6 +2,8 @@
 members = [
     "packages/bool-ops",
     "packages/bytes-ops",
+    "packages/float-java-only",
+    "packages/floats",
     "packages/int-ops",
     "packages/int-sign",
     "packages/int-sign-unsigned",

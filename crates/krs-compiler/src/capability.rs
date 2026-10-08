@@ -11,8 +11,11 @@
 //! Features are appended at the tail of [`CapabilityFeature`] and of the
 //! derivation in [`sentence_features`].
 
-use krs_ir::SourceMapKey;
-use krs_ir_levels::{DefinitionIr, DefinitionSentence, RuleSentence};
+use krs_ir::{ApplicationRef, BuiltinOperation, BuiltinSort, CellPost, SourceMapKey};
+use krs_ir_levels::{
+    DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    RuleBodyRef, RuleSentence,
+};
 use serde::{Deserialize, Serialize};
 
 /// One language feature that some backend route cannot run.
@@ -21,17 +24,29 @@ use serde::{Deserialize, Serialize};
 pub enum CapabilityFeature {
     /// A rule with K's `anywhere` attribute (`#[k::rule(anywhere)]`).
     AnywhereRule,
+    /// A `FLOAT`-hooked application whose arguments are all tokens, which the
+    /// native frontend folds at compile time and can fold only with MPFR.
+    GroundFloatFolding,
+    /// A Float token, or a `round`, `max_value`, or `from_int` format argument
+    /// pair, whose precision is neither binary32 (`p24x8`) nor binary64 (`p53x11`).
+    FloatPrecisionBeyondBinary64,
 }
 
 impl CapabilityFeature {
     /// Every feature, in catalog order.
-    pub const ALL: &'static [Self] = &[Self::AnywhereRule];
+    pub const ALL: &'static [Self] = &[
+        Self::AnywhereRule,
+        Self::GroundFloatFolding,
+        Self::FloatPrecisionBeyondBinary64,
+    ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Self::AnywhereRule => "AnywhereRule",
+            Self::GroundFloatFolding => "GroundFloatFolding",
+            Self::FloatPrecisionBeyondBinary64 => "FloatPrecisionBeyondBinary64",
         }
     }
 
@@ -40,6 +55,8 @@ impl CapabilityFeature {
     pub const fn description(self) -> &'static str {
         match self {
             Self::AnywhereRule => "anywhere rules",
+            Self::GroundFloatFolding => "Float applications to tokens only",
+            Self::FloatPrecisionBeyondBinary64 => "Float formats other than f32 and f64",
         }
     }
 }
@@ -81,7 +98,137 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     if sentence.anywhere().is_some() {
         features.push(CapabilityFeature::AnywhereRule);
     }
+    let mut floats = FloatUse::default();
+    for term in sentence_terms(sentence) {
+        floats.term(term);
+    }
+    if floats.ground {
+        features.push(CapabilityFeature::GroundFloatFolding);
+    }
+    if floats.beyond_binary64 {
+        features.push(CapabilityFeature::FloatPrecisionBeyondBinary64);
+    }
     features
+}
+
+/// Every term of a rule, equation, or claim sentence.
+fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
+    let mut terms = Vec::new();
+    match sentence.relational_body() {
+        RuleBodyRef::Term(rewrite) => {
+            terms.push(rewrite.from());
+            terms.push(rewrite.to());
+        }
+        RuleBodyRef::Configuration { body, .. } => {
+            for clause in body.clauses() {
+                terms.push(clause.before());
+                if let CellPost::Replace { term } = clause.after() {
+                    terms.push(term);
+                }
+            }
+        }
+    }
+    if let Some(condition) = sentence.requires() {
+        terms.push(condition.term());
+    }
+    if let Some(condition) = sentence.claim().and_then(|claim| claim.ensures()) {
+        terms.push(condition.term());
+    }
+    terms
+}
+
+fn token(term: &DefinitionTerm) -> Option<&str> {
+    match term.kind() {
+        DefinitionTermKind::Token { value } => Some(value),
+        _ => None,
+    }
+}
+
+/// The Float capabilities one sentence's terms need.
+#[derive(Default)]
+struct FloatUse {
+    ground: bool,
+    beyond_binary64: bool,
+}
+
+impl FloatUse {
+    fn term(&mut self, term: &DefinitionTerm) {
+        match term.kind() {
+            DefinitionTermKind::Variable { .. } => {}
+            DefinitionTermKind::Token { value } => {
+                if matches!(term.sort(), DefinitionSortRef::Builtin(BuiltinSort::Float))
+                    && krs_ir::float_token::validate(value)
+                        .is_ok_and(|format| !format.is_binary32_or_binary64())
+                {
+                    self.beyond_binary64 = true;
+                }
+            }
+            DefinitionTermKind::Application {
+                application,
+                arguments,
+            } => {
+                if let ApplicationRef::Builtin(operation) = application {
+                    self.operation(*operation, arguments);
+                }
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::KSequence { items, .. } => {
+                for item in items {
+                    self.term(item);
+                }
+            }
+            DefinitionTermKind::Map(operands) => {
+                for operand in operands.operands() {
+                    self.term(operand);
+                }
+            }
+            DefinitionTermKind::List(operands) => {
+                for operand in operands.operands() {
+                    self.term(operand);
+                }
+            }
+            DefinitionTermKind::Set(operands) => {
+                for operand in operands.operands() {
+                    self.term(operand);
+                }
+            }
+            DefinitionTermKind::Rewrite { from, to } => {
+                self.term(from);
+                self.term(to);
+            }
+            DefinitionTermKind::Cell { children, .. } => {
+                for child in children {
+                    self.term(child);
+                }
+            }
+        }
+    }
+
+    fn operation(&mut self, operation: BuiltinOperation, arguments: &[DefinitionTerm]) {
+        // k-rust folds every hooked application whose arguments are all tokens
+        // (`constant_folding.rs`); its FLOAT hooks need the MPFR build.
+        if operation
+            .spec()
+            .k_hook
+            .is_some_and(|hook| hook.starts_with("FLOAT."))
+            && arguments.iter().all(|argument| token(argument).is_some())
+        {
+            self.ground = true;
+        }
+        let format = match operation {
+            BuiltinOperation::FloatRound | BuiltinOperation::FloatFromInt => arguments.get(1..3),
+            BuiltinOperation::FloatMaxValue => arguments.get(0..2),
+            _ => None,
+        };
+        if let Some([precision, exponent_bits]) = format
+            && let (Some(precision), Some(exponent_bits)) = (token(precision), token(exponent_bits))
+            && !matches!((precision, exponent_bits), ("24", "8") | ("53", "11"))
+        {
+            self.beyond_binary64 = true;
+        }
+    }
 }
 
 /// Every capability requirement of a definition, ordered by feature, then sentence name.
@@ -123,4 +270,103 @@ pub fn unavailable_message(
         "definition contains {} [{symbols}]; {route_reason}",
         feature.description()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use krs_ir::{BuiltinOperation, BuiltinSort, NodeOrigin};
+    use krs_ir_levels::{DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm};
+
+    use super::FloatUse;
+
+    fn node(key: &str) -> NodeOrigin {
+        krs_ir::testing::origin_in(
+            key,
+            krs_ir::testing::package("KRS-CAPABILITY-TEST", "capability-test"),
+            "src/lib.rs",
+            krs_ir::testing::digest(),
+            0,
+            1,
+        )
+    }
+
+    fn token(sort: BuiltinSort, value: &str) -> DefinitionTerm {
+        DefinitionTerm::token(node(value), DefinitionSortRef::Builtin(sort), value).unwrap()
+    }
+
+    fn variable(sort: BuiltinSort) -> DefinitionTerm {
+        DefinitionTerm::variable(
+            node("variable"),
+            DefinitionSortRef::Builtin(sort),
+            krs_ir::SemanticId::new("x".to_owned()).unwrap(),
+        )
+    }
+
+    fn apply(operation: BuiltinOperation, arguments: Vec<DefinitionTerm>) -> DefinitionTerm {
+        let sort = operation.result_sort().builtin().unwrap();
+        DefinitionTerm::application(
+            node("application"),
+            DefinitionSortRef::Builtin(sort),
+            DefinitionApplicationRef::Builtin(operation),
+            arguments,
+        )
+    }
+
+    fn uses(term: &DefinitionTerm) -> (bool, bool) {
+        let mut floats = FloatUse::default();
+        floats.term(term);
+        (floats.ground, floats.beyond_binary64)
+    }
+
+    #[test]
+    fn ground_float_applications_need_mpfr_folding() {
+        let float = |value| token(BuiltinSort::Float, value);
+        let int = |value| token(BuiltinSort::Int, value);
+        let ground = apply(BuiltinOperation::FloatAdd, vec![float("0.1"), float("0.2")]);
+        assert_eq!(uses(&ground), (true, false));
+        let nested = apply(
+            BuiltinOperation::FloatEqual,
+            vec![variable(BuiltinSort::Float), ground],
+        );
+        assert_eq!(uses(&nested), (true, false));
+        let open = apply(
+            BuiltinOperation::FloatAdd,
+            vec![variable(BuiltinSort::Float), float("0.2")],
+        );
+        assert_eq!(uses(&open), (false, false));
+        assert_eq!(
+            uses(&apply(
+                BuiltinOperation::FloatMaxValue,
+                vec![int("53"), int("11")]
+            )),
+            (true, false)
+        );
+        // `sqrtFloat` and `=/=Float` are unhooked, so k-rust does not fold them.
+        assert_eq!(
+            uses(&apply(BuiltinOperation::FloatSqrt, vec![float("2.0")])),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn formats_beyond_binary64_are_java_only() {
+        let float = |value| token(BuiltinSort::Float, value);
+        let int = |value| token(BuiltinSort::Int, value);
+        assert_eq!(uses(&float("1.0p113x15")), (false, true));
+        assert_eq!(uses(&float("1.0f")), (false, false));
+        assert_eq!(uses(&float("1.0p53x11")), (false, false));
+        let round = |precision, exponent| {
+            apply(
+                BuiltinOperation::FloatRound,
+                vec![variable(BuiltinSort::Float), int(precision), int(exponent)],
+            )
+        };
+        assert_eq!(uses(&round("24", "8")), (false, false));
+        assert_eq!(uses(&round("113", "15")), (false, true));
+        let from_int = apply(
+            BuiltinOperation::FloatFromInt,
+            vec![variable(BuiltinSort::Int), int("11"), int("53")],
+        );
+        assert_eq!(uses(&from_int), (false, true));
+    }
 }

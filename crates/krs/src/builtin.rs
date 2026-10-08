@@ -807,3 +807,165 @@ pub mod string {
 }
 /// Convenient root spelling of the builtin integer sort marker.
 pub use int::Int;
+
+/// Convenient root spelling of the builtin floating-point sort marker.
+pub use float::Float;
+
+/// Builtin operations and sort marker from K's pinned `FLOAT` domain.
+///
+/// K has one `Float` sort, and every value carries its precision and exponent
+/// range: a Rust float literal is a Float token, `f32` values are K's binary32
+/// (`0.1f32` is `0.1f`), and unsuffixed and `f64` values are binary64. The
+/// operations follow IEEE 754 in the operands' format.
+pub mod float {
+    use super::int::Int;
+
+    /// Host marker for K's `Float` sort.
+    ///
+    /// A Rust float literal (`1.5`, `0.1f32`, `-0.0`, K's `1.0p113x15`) or one
+    /// of `f32::`/`f64::` `NAN`, `INFINITY`, `NEG_INFINITY` in a term is a
+    /// Float token; this marker is never a host float value.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Float;
+
+    /// Marker for addition `+Float`, rounding to nearest, ties to even.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Add(pub Float, pub Float);
+
+    /// Marker for subtraction `-Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Sub(pub Float, pub Float);
+
+    /// Marker for multiplication `*Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Mul(pub Float, pub Float);
+
+    /// Marker for division `/Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Div(pub Float, pub Float);
+
+    /// Marker for sign negation `--Float`; the negation of `0.0` is `-0.0`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Neg(pub Float);
+
+    /// Marker for IEEE equality `==Float`: NaN equals nothing, and `0.0` equals `-0.0`. `kequal::eq` instead compares the terms, so it holds for two NaN tokens.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Eq(pub Float, pub Float);
+
+    /// Marker for `=/=Float`, the negation of `==Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ne(pub Float, pub Float);
+
+    /// Marker for `<Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Lt(pub Float, pub Float);
+
+    /// Marker for `<=Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Le(pub Float, pub Float);
+
+    /// Marker for `>Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Gt(pub Float, pub Float);
+
+    /// Marker for `>=Float`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ge(pub Float, pub Float);
+
+    /// Marker for `absFloat`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Abs(pub Float);
+
+    /// Marker for `floorFloat`, rounding toward negative infinity.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Floor(pub Float);
+
+    /// Marker for `ceilFloat`, rounding toward positive infinity.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ceil(pub Float);
+
+    /// Marker for `truncFloat`, rounding toward zero.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Trunc(pub Float);
+
+    /// Marker for `roundFloat(f, precision, exponent_bits)`, which rounds to another format.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Round(pub Float, pub Int, pub Int);
+
+    /// Marker for `rootFloat(f, n)`, the n-th root.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Root(pub Float, pub Int);
+
+    /// Marker for `sqrtFloat`, defined in K as `rootFloat(f, 2)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Sqrt(pub Float);
+
+    /// Marker for `minFloat`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Min(pub Float, pub Float);
+
+    /// Marker for `maxFloat`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Max(pub Float, pub Float);
+
+    /// Marker for `isNaN`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct IsNan(pub Float);
+
+    /// Marker for `isInfinite`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct IsInfinite(pub Float);
+
+    /// Marker for `signFloat`, true when the sign bit is set.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Sign(pub Float);
+
+    /// Marker for `precisionFloat`, the bits of precision of the value's format.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Precision(pub Float);
+
+    /// Marker for `exponentBitsFloat`, the exponent bits of the value's format.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ExponentBits(pub Float);
+
+    /// Marker for `maxValueFloat(precision, exponent_bits)`, the largest finite value of a format.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct MaxValue(pub Int, pub Int);
+
+    /// Marker for `Int2Float(i, precision, exponent_bits)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromInt(pub Int, pub Int, pub Int);
+
+    /// Marker for `Float2Int`, rounding ties to even.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ToInt(pub Float);
+
+    pub use self::Eq as eq;
+    pub use Abs as abs;
+    pub use Add as add;
+    pub use Ceil as ceil;
+    pub use Div as div;
+    pub use ExponentBits as exponent_bits;
+    pub use Floor as floor;
+    pub use FromInt as from_int;
+    pub use Ge as ge;
+    pub use Gt as gt;
+    pub use IsInfinite as is_infinite;
+    pub use IsNan as is_nan;
+    pub use Le as le;
+    pub use Lt as lt;
+    pub use Max as max;
+    pub use MaxValue as max_value;
+    pub use Min as min;
+    pub use Mul as mul;
+    pub use Ne as ne;
+    pub use Neg as neg;
+    pub use Precision as precision;
+    pub use Root as root;
+    pub use Round as round;
+    pub use Sign as sign;
+    pub use Sqrt as sqrt;
+    pub use Sub as sub;
+    pub use ToInt as to_int;
+    pub use Trunc as trunc;
+}

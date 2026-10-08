@@ -438,6 +438,14 @@ fn validate_native_pattern(
                     path.span(),
                 ));
             }
+            if path.path.leading_colon.is_none()
+                && let Some(constant) = crate::term::float_constant_path(&path.path)
+            {
+                let literal =
+                    TermLiteral::Float(crate::term::float_constant(&path.path, constant?, None)?);
+                nodes.push(TermNode::Literal(literal.clone()));
+                return Ok(TermTree::Literal(literal));
+            }
             paths.push(path.path.clone());
             nodes.push(TermNode::Reference(path.path.clone()));
             Ok(TermTree::Reference(path.path.clone()))
@@ -638,6 +646,26 @@ fn validate_pattern_literal(
         }
         syn::Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
         syn::Lit::Str(string) => TermLiteral::String(crate::term::string_literal(string)?),
+        float
+            if matches!(float, syn::Lit::Float(_)) || crate::term::is_float_suffixed_int(float) =>
+        {
+            // syn reads a negative literal pattern such as `-1.5` as one signed token;
+            // its `-` span comes from the scan, in token order.
+            let negative = match float {
+                syn::Lit::Float(value) => value.base10_digits().starts_with('-'),
+                syn::Lit::Int(value) => value.base10_digits().starts_with('-'),
+                _ => false,
+            };
+            let sign = if negative { signs.next() } else { None };
+            TermLiteral::Float(
+                crate::term::float_literal_spanning(
+                    float,
+                    sign.map(|(minus, _)| minus),
+                    sign.map(|(_, digits)| digits),
+                )?
+                .expect("a float literal pattern"),
+            )
+        }
         syn::Lit::Int(_) => {
             return Err(unsupported_pattern(
                 "only unsuffixed decimal Int (optionally negative), Bool, and String literals are term patterns",
@@ -820,6 +848,7 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
     match node {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
         TermNode::Literal(TermLiteral::Integer(literal)) => Ok(literal.range()),
+        TermNode::Literal(TermLiteral::Float(literal)) => Ok(literal.range()),
         TermNode::Literal(TermLiteral::Boolean(literal)) => TokenRange::for_tokens(literal),
         TermNode::Literal(TermLiteral::String(literal)) | TermNode::IdToken(literal) => {
             TokenRange::for_tokens(literal)

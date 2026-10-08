@@ -193,12 +193,26 @@ pub struct RouteCapability {
 }
 
 /// The backend capability table, one row per feature (append-only).
-pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[RouteCapability {
-    feature: "AnywhereRule",
-    unavailable_on: &[Route::JavaHaskellReference],
-    reason: "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route",
-    evidence: "Java kompile --backend haskell refuses an `anywhere` rule unless --allow-anywhere-haskell, which drops it; k-rust implements anywhere rules (docs/compatibility.md)",
-}];
+pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
+    RouteCapability {
+        feature: "AnywhereRule",
+        unavailable_on: &[Route::JavaHaskellReference],
+        reason: "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route",
+        evidence: "Java kompile --backend haskell refuses an `anywhere` rule unless --allow-anywhere-haskell, which drops it; k-rust implements anywhere rules (docs/compatibility.md)",
+    },
+    RouteCapability {
+        feature: "GroundFloatFolding",
+        unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
+        reason: "the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal",
+        evidence: "k-rust 195a7718 kompile/passes/constant_folding.rs refuses FLOAT.* folding without the mpfr-folding feature, which KRS does not enable (FRONTEND_CAPABILITIES.mpfr_folding)",
+    },
+    RouteCapability {
+        feature: "FloatPrecisionBeyondBinary64",
+        unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
+        reason: "k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+        evidence: "k-rust 195a7718 k-rust-backend builtin/float.rs rejects other precisions and exponent ranges",
+    },
+];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.
 #[must_use]

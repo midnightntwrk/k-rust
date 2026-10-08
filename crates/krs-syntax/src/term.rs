@@ -79,6 +79,61 @@ impl IntegerLiteral {
     }
 }
 
+/// A Rust float literal or `f32::`/`f64::` constant, as one K `Float` token.
+///
+/// The sign belongs to the literal, as for a negative integer: `-0.0` is the
+/// token `-0.0`, and the source range runs from the `-` through the literal.
+/// The token is the canonical spelling of [`krs_ir::float_token`]: the digits
+/// without separators, `f32` as K's `f`, `f64` as `d`, and K's `pNxM` kept.
+#[derive(Clone, Debug)]
+pub struct FloatLiteral {
+    digits: String,
+    suffix: String,
+    negative: bool,
+    token: String,
+    range: TokenRange,
+}
+
+impl FloatLiteral {
+    /// Returns the canonical K Float token.
+    #[must_use]
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Returns the authored digits without separators, or the constant name
+    /// (`NAN`, `INFINITY`, `NEG_INFINITY`) of a constant path.
+    #[must_use]
+    pub fn digits(&self) -> &str {
+        &self.digits
+    }
+
+    /// Returns the authored Rust suffix (`f32`, `f64`, `pNxM`, or empty); a
+    /// constant path's suffix is its type, `f32` or `f64`.
+    #[must_use]
+    pub fn suffix(&self) -> &str {
+        &self.suffix
+    }
+
+    /// Whether the literal is negated by a leading `-`.
+    #[must_use]
+    pub const fn negative(&self) -> bool {
+        self.negative
+    }
+
+    /// Returns the source range from the sign (if any) through the literal.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
+    /// Returns the span at which the literal begins.
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        self.range.first()
+    }
+}
+
 /// Exact literal families admitted by the term grammar.
 #[derive(Clone, Debug)]
 pub enum TermLiteral {
@@ -89,6 +144,9 @@ pub enum TermLiteral {
     /// Rust string literal, ordinary or raw, as a K `String` token. Its value
     /// holds code points in U+0000..=U+00FF only.
     String(LitStr),
+    /// Rust float literal, optionally negative, or an `f32::`/`f64::` `NAN`,
+    /// `INFINITY`, or `NEG_INFINITY` constant, as a K `Float` token.
+    Float(FloatLiteral),
 }
 
 impl TermLiteral {
@@ -100,6 +158,7 @@ impl TermLiteral {
             Self::Integer(literal) => literal.base10_digits().replace('_', ""),
             Self::Boolean(literal) => literal.value.to_string(),
             Self::String(literal) => literal.value(),
+            Self::Float(literal) => literal.token().to_owned(),
         }
     }
 
@@ -108,6 +167,7 @@ impl TermLiteral {
             Self::Integer(literal) => Ok(literal.range()),
             Self::Boolean(literal) => TokenRange::for_tokens(literal),
             Self::String(literal) => TokenRange::for_tokens(literal),
+            Self::Float(literal) => Ok(literal.range()),
         }
     }
 }
@@ -533,11 +593,14 @@ impl TermExpression {
     ) -> Result<Self, SyntaxError> {
         let root = transparent_expression(&expression);
         let root_kind = match root {
+            Expr::Path(path) if float_constant_path(&path.path).is_some() => {
+                TermRootKind::Literal
+            }
             Expr::Path(_) => TermRootKind::Named,
             Expr::Call(_) => TermRootKind::Call,
             Expr::Struct(_) => TermRootKind::Record,
             Expr::Lit(literal) if is_supported_literal(literal) => TermRootKind::Literal,
-            // `validate_expression` reports a minus on anything but an integer literal.
+            // `validate_expression` reports a minus on anything but a numeric literal.
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
@@ -740,7 +803,10 @@ fn validate_expression(
         }
         Expr::Lit(literal) => validate_literal(literal, nodes),
         Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => {
-            let literal = TermLiteral::Integer(negative_integer(unary)?);
+            let literal = match negative_float(unary)? {
+                Some(float) => TermLiteral::Float(float),
+                None => TermLiteral::Integer(negative_integer(unary)?),
+            };
             nodes.push(TermNode::Literal(literal.clone()));
             Ok(TermTree::Literal(literal))
         }
@@ -1045,6 +1111,13 @@ fn validate_path_expression(
             expression.span(),
         ));
     }
+    if expression.path.leading_colon.is_none()
+        && let Some(constant) = float_constant_path(&expression.path)
+    {
+        let literal = TermLiteral::Float(float_constant(&expression.path, constant?, None)?);
+        nodes.push(TermNode::Literal(literal.clone()));
+        return Ok(TermTree::Literal(literal));
+    }
     symbols.push(TermSymbol {
         path: expression.path.clone(),
         kind: TermSymbolKind::Reference,
@@ -1222,6 +1295,177 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     ))
 }
 
+/// Whether `literal` is an integer literal that K reads as a Float: decimal
+/// digits with a float suffix (`1f32`, `1f64`, or K's `1p24x8`).
+pub(crate) fn is_float_suffixed_int(literal: &Lit) -> bool {
+    let Lit::Int(integer) = literal else {
+        return false;
+    };
+    let suffix = integer.suffix();
+    (matches!(suffix, "f32" | "f64") || (suffix.starts_with('p') && suffix.contains('x')))
+        && integer
+            .to_string()
+            .trim_start_matches('-')
+            .strip_suffix(suffix)
+            .is_some_and(|digits| {
+                digits
+                    .chars()
+                    .all(|character| character.is_ascii_digit() || character == '_')
+            })
+}
+
+fn float_error(error: krs_ir::float_token::FloatLiteralError, span: Span) -> SyntaxError {
+    let reason = match error {
+        krs_ir::float_token::FloatLiteralError::Suffix => FLOAT_SUFFIX,
+        krs_ir::float_token::FloatLiteralError::PrecisionSuffix => FLOAT_PRECISION_SUFFIX,
+        krs_ir::float_token::FloatLiteralError::NegatedNan => FLOAT_NEGATED_NAN,
+        krs_ir::float_token::FloatLiteralError::NegatedInfinity => FLOAT_NEGATED_INFINITY,
+        krs_ir::float_token::FloatLiteralError::NegatedNegInfinity => FLOAT_NEGATED_NEG_INFINITY,
+        krs_ir::float_token::FloatLiteralError::Digits => FLOAT_DIGITS,
+    };
+    SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
+}
+
+/// The reason given for a float suffix K has no spelling for.
+pub(crate) const FLOAT_SUFFIX: &str =
+    "Float literal suffix must be f32, f64, or K's p<precision>x<exponent>";
+/// The reason given for a `pNxM` suffix with a zero or a leading zero.
+pub(crate) const FLOAT_PRECISION_SUFFIX: &str = "a p<precision>x<exponent> Float suffix takes two positive decimal numbers without leading zeros";
+/// The reason given for `-f64::NAN`.
+pub(crate) const FLOAT_NEGATED_NAN: &str =
+    "NaN has no sign in K's token syntax; write f64::NAN or f32::NAN";
+/// The reason given for `-f64::INFINITY`.
+pub(crate) const FLOAT_NEGATED_INFINITY: &str =
+    "a minus on INFINITY is not a Float literal; write f64::NEG_INFINITY (or f32::NEG_INFINITY)";
+/// The reason given for `-f64::NEG_INFINITY`.
+pub(crate) const FLOAT_NEGATED_NEG_INFINITY: &str =
+    "a minus on NEG_INFINITY is not a Float literal; write f64::INFINITY (or f32::INFINITY)";
+/// The reason given for an `f32::`/`f64::` path that is not one of K's constants.
+pub(crate) const FLOAT_CONSTANT: &str = "the f32 and f64 constants with K Float tokens are NAN, INFINITY, and NEG_INFINITY; write other values as literals";
+const FLOAT_DIGITS: &str = "Float literals must be decimal Rust float literals";
+
+/// Reads a float literal (or a float-suffixed integer literal) as a Float token;
+/// `minus` is the span of a `-` written before it. syn may already carry the
+/// sign in the literal's digits (a negative literal pattern). Returns `None`
+/// for a literal that is not a float.
+pub(crate) fn float_literal(
+    literal: &Lit,
+    minus: Option<Span>,
+) -> Result<Option<FloatLiteral>, SyntaxError> {
+    float_literal_spanning(literal, minus, None)
+}
+
+/// [`float_literal`] with the source span of the digits when syn's literal is
+/// a signed token it built itself (a negative literal pattern), whose own span
+/// is not the authored one.
+pub(crate) fn float_literal_spanning(
+    literal: &Lit,
+    minus: Option<Span>,
+    digits_span: Option<Span>,
+) -> Result<Option<FloatLiteral>, SyntaxError> {
+    let (digits, suffix, span) = match literal {
+        Lit::Float(float) => (float.base10_digits(), float.suffix(), float.span()),
+        Lit::Int(integer) if is_float_suffixed_int(literal) => {
+            (integer.base10_digits(), integer.suffix(), integer.span())
+        }
+        _ => return Ok(None),
+    };
+    let (signed, digits) = match digits.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, digits),
+    };
+    let negative = signed || minus.is_some();
+    let span = digits_span.unwrap_or(span);
+    let start = minus.unwrap_or(span);
+    let token = krs_ir::float_token::from_literal(negative, digits, suffix)
+        .map_err(|error| float_error(error, span))?;
+    Ok(Some(FloatLiteral {
+        digits: digits.replace('_', ""),
+        suffix: suffix.to_owned(),
+        negative,
+        token,
+        range: TokenRange::new(start, span),
+    }))
+}
+
+/// Recognises `f32::NAME` and `f64::NAME`: `None` for any other path,
+/// `Some(Err(..))` for an `f32`/`f64` name that is not one of K's constants.
+pub(crate) fn float_constant_path(
+    path: &Path,
+) -> Option<Result<krs_ir::float_token::FloatConstant, SyntaxError>> {
+    if path.segments.len() != 2 || !is_plain_path(path) {
+        return None;
+    }
+    let width = path.segments.first()?.ident.to_string();
+    krs_ir::float_token::FloatWidth::from_name(&width)?;
+    let name = path.segments.last()?.ident.to_string();
+    Some(
+        krs_ir::float_token::FloatConstant::from_name(&name).ok_or_else(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: FLOAT_CONSTANT,
+                },
+                path.span(),
+            )
+        }),
+    )
+}
+
+/// The Float token of the constant `path` (`f32::NAN`, ...), negated when
+/// `minus` holds the span of a `-` before it.
+pub(crate) fn float_constant(
+    path: &Path,
+    constant: krs_ir::float_token::FloatConstant,
+    minus: Option<Span>,
+) -> Result<FloatLiteral, SyntaxError> {
+    let width_name = path
+        .segments
+        .first()
+        .map(|segment| segment.ident.to_string())
+        .unwrap_or_default();
+    let width = krs_ir::float_token::FloatWidth::from_name(&width_name)
+        .expect("float_constant_path recognised the width");
+    let path_range = TokenRange::for_tokens(path)?;
+    let token = krs_ir::float_token::from_constant(width, constant, minus.is_some())
+        .map_err(|error| float_error(error, minus.unwrap_or_else(|| path.span())))?;
+    Ok(FloatLiteral {
+        digits: constant.name().to_owned(),
+        suffix: width.name().to_owned(),
+        negative: minus.is_some(),
+        token,
+        range: minus.map_or(path_range, |minus| {
+            TokenRange::new(minus, path_range.last())
+        }),
+    })
+}
+
+/// Accepts `-` applied directly to a float literal or an `f32::`/`f64::`
+/// constant as one Float token; `None` when the operand is neither.
+fn negative_float(unary: &ExprUnary) -> Result<Option<FloatLiteral>, SyntaxError> {
+    let UnOp::Neg(minus) = unary.op else {
+        return Ok(None);
+    };
+    match &*unary.expr {
+        Expr::Lit(literal) => {
+            if float_literal(&literal.lit, None).is_ok_and(|float| float.is_none()) {
+                return Ok(None);
+            }
+            reject_attributes(&unary.attrs, unary.span())?;
+            reject_attributes(&literal.attrs, literal.span())?;
+            float_literal(&literal.lit, Some(minus.span))
+        }
+        Expr::Path(path) if path.qself.is_none() && path.path.leading_colon.is_none() => {
+            let Some(constant) = float_constant_path(&path.path) else {
+                return Ok(None);
+            };
+            reject_attributes(&unary.attrs, unary.span())?;
+            reject_attributes(&path.attrs, path.span())?;
+            float_constant(&path.path, constant?, Some(minus.span)).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
 /// The reason given for a string holding a code point above U+00FF.
 pub(crate) const STRING_OUT_OF_RANGE: &str = "K 7.1.337 Strings are defined for U+0000..U+00FF only (domains.md, Strings); use Bytes for other data";
 
@@ -1256,7 +1500,7 @@ pub(crate) fn unsupported_literal(literal: &Lit) -> SyntaxError {
         Lit::Char(_) => "K has no Char sort; write \"a\"",
         Lit::ByteStr(_) | Lit::CStr(_) => "write k::bytes!(b\"..\") for a Bytes value",
         Lit::Byte(_) => "K has no byte literal; write an Int or k::bytes!(b\"..\")",
-        _ => "only Int, Bool, and String Rust literals are term values",
+        _ => "only Int, Bool, String, and Float Rust literals are term values",
     };
     SyntaxError::new(
         SyntaxErrorKind::UnsupportedTermExpression { reason },
@@ -1272,6 +1516,12 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
         }
         Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
         Lit::Str(string) => TermLiteral::String(string_literal(string)?),
+        Lit::Float(_) => {
+            TermLiteral::Float(float_literal(&literal.lit, None)?.expect("a float literal"))
+        }
+        Lit::Int(_) if is_float_suffixed_int(&literal.lit) => {
+            TermLiteral::Float(float_literal(&literal.lit, None)?.expect("a float-suffixed int"))
+        }
         Lit::Int(_) => {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
@@ -1305,7 +1555,8 @@ pub(crate) fn push_record_field_anchors(
 
 fn is_supported_literal(literal: &ExprLit) -> bool {
     match &literal.lit {
-        Lit::Bool(_) | Lit::Str(_) => literal.attrs.is_empty(),
+        Lit::Bool(_) | Lit::Str(_) | Lit::Float(_) => literal.attrs.is_empty(),
+        Lit::Int(_) if is_float_suffixed_int(&literal.lit) => literal.attrs.is_empty(),
         Lit::Int(integer) => literal.attrs.is_empty() && is_unsuffixed_decimal(integer),
         _ => false,
     }
@@ -1485,6 +1736,107 @@ mod string_literal_tests {
                 r#"Greet(b"ab")"#,
                 "write k::bytes!(b\"..\") for a Bytes value",
             ),
+        ] {
+            let error = TermExpression::parse_source(source).unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    SyntaxErrorKind::UnsupportedTermExpression { reason } if *reason == expected
+                ),
+                "{source}: {error:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod float_literal_tests {
+    use super::{
+        FLOAT_CONSTANT, FLOAT_NEGATED_INFINITY, FLOAT_NEGATED_NAN, FLOAT_NEGATED_NEG_INFINITY,
+        FLOAT_PRECISION_SUFFIX, FLOAT_SUFFIX, TermExpression, TermLiteral, TermNode, TermRootKind,
+    };
+    use crate::{KrsSyntax, ProvenanceRole, SyntaxErrorKind};
+
+    fn floats(source: &str) -> Vec<String> {
+        TermExpression::parse_source(source)
+            .unwrap()
+            .nodes()
+            .iter()
+            .filter_map(|node| match node {
+                TermNode::Literal(literal @ TermLiteral::Float(_)) => Some(literal.spelling()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn float_literals_map_to_k_tokens() {
+        assert_eq!(
+            floats("Floats(1.5, 1.5f64, 0.1f32, 1f32, 1.0p113x15, -0.0, -2.5e-3, 1_000.25, 2f64)"),
+            [
+                "1.5",
+                "1.5d",
+                "0.1f",
+                "1f",
+                "1.0p113x15",
+                "-0.0",
+                "-2.5e-3",
+                "1000.25",
+                "2d"
+            ]
+        );
+        let root = TermExpression::parse_source("-0.5").unwrap();
+        assert_eq!(root.root_kind(), TermRootKind::Literal);
+        assert_eq!(floats("-0.5"), ["-0.5"]);
+    }
+
+    #[test]
+    fn float_constant_paths_are_tokens() {
+        assert_eq!(
+            floats(
+                "float::add(f64::NAN, f32::NAN, f64::INFINITY, f32::INFINITY, f64::NEG_INFINITY, f32::NEG_INFINITY)"
+            ),
+            [
+                "NaN",
+                "NaNf",
+                "Infinity",
+                "Infinityf",
+                "-Infinity",
+                "-Infinityf"
+            ]
+        );
+        let root = TermExpression::parse_source("f64::NAN").unwrap();
+        assert_eq!(root.root_kind(), TermRootKind::Literal);
+        assert!(root.symbols().is_empty());
+    }
+
+    #[test]
+    fn the_float_anchor_spans_the_sign_through_the_literal() {
+        let expression = TermExpression::parse_source("Neg(-1.25f32)").unwrap();
+        let anchor = expression
+            .full_provenance()
+            .unwrap()
+            .into_iter()
+            .find(|anchor| anchor.role() == ProvenanceRole::TermLiteral)
+            .unwrap();
+        assert_eq!(anchor.range().start().column, 4);
+        assert_eq!(anchor.range().end().column, 12);
+    }
+
+    #[test]
+    fn unsupported_floats_are_rejected() {
+        for (source, expected) in [
+            ("F(1.0f16)", FLOAT_SUFFIX),
+            ("F(1.0u8)", FLOAT_SUFFIX),
+            ("F(1.0P24X8)", FLOAT_SUFFIX),
+            ("F(1.0p0x8)", FLOAT_PRECISION_SUFFIX),
+            ("F(1.0p24x08)", FLOAT_PRECISION_SUFFIX),
+            ("F(-f64::NAN)", FLOAT_NEGATED_NAN),
+            ("F(-f32::NAN)", FLOAT_NEGATED_NAN),
+            ("F(-f64::INFINITY)", FLOAT_NEGATED_INFINITY),
+            ("F(-f64::NEG_INFINITY)", FLOAT_NEGATED_NEG_INFINITY),
+            ("F(f64::MAX)", FLOAT_CONSTANT),
+            ("F(f32::EPSILON)", FLOAT_CONSTANT),
         ] {
             let error = TermExpression::parse_source(source).unwrap_err();
             assert!(

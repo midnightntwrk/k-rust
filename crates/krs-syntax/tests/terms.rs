@@ -90,7 +90,7 @@ fn out_of_scope_rust_expressions_are_rejected() {
         "if test { A } else { B }",
         "Ctor { field, ..base }",
         "42u32",
-        "1.0",
+        "1.0f16",
         "'x'",
         "Ctor::<Value>(value)",
         "outer!(value)",

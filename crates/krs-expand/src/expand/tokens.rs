@@ -29,6 +29,7 @@ pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
         }
         TermLiteral::Boolean(value) => krs_ir::DescriptorLiteral::Bool(value.value),
         TermLiteral::String(value) => krs_ir::DescriptorLiteral::String(value.value()),
+        TermLiteral::Float(value) => krs_ir::DescriptorLiteral::Float(value.token().to_owned()),
     }
 }
 

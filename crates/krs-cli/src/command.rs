@@ -378,8 +378,13 @@ fn execute_with_sources(
         Command::EmitK { output } => emit(&prepared, output, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
         Command::Parse(_) | Command::Run(_) | Command::Search(_) | Command::Prove(_) => {
-            exec::execute(&prepared, &request.command, &*sources, measurement)
-                .map(CommandExecution::without_artifacts)
+            // krs-exec compiles the definition natively in the symbolic dialect.
+            require_route(
+                prepared.lowered.definition(),
+                krs_k_rust::Route::native(Backend::Haskell),
+            )
+            .and_then(|()| exec::execute(&prepared, &request.command, &*sources, measurement))
+            .map(CommandExecution::without_artifacts)
         }
     };
     measurement.timings.span("release", |_| drop(prepared));

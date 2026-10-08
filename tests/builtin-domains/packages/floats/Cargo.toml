@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-floats"
+description = "Float literals and FLOAT operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_floats"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-FLOATS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

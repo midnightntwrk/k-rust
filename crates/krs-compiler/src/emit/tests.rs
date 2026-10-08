@@ -197,6 +197,97 @@ fn builtin_bytes_operations_have_exact_canonical_k_source() {
     }
 }
 
+fn float(key: &str, value: &str) -> DefinitionTerm {
+    DefinitionTerm::token(
+        node(key),
+        DefinitionSortRef::Builtin(BuiltinSort::Float),
+        value,
+    )
+    .unwrap()
+}
+
+#[test]
+fn builtin_float_operations_have_exact_canonical_k_source() {
+    let float_sort = || DefinitionSortRef::Builtin(BuiltinSort::Float);
+    let apply = |key: &str, sort, operation, arguments| {
+        DefinitionTerm::application(
+            node(key),
+            sort,
+            DefinitionApplicationRef::Builtin(operation),
+            arguments,
+        )
+    };
+    let terms = [
+        (
+            apply(
+                "float.add",
+                float_sort(),
+                BuiltinOperation::FloatAdd,
+                vec![
+                    float("float.add.left", "0.1f"),
+                    float("float.add.right", "NaN"),
+                ],
+            ),
+            "0.1f +Float NaN",
+        ),
+        (
+            apply(
+                "float.neg",
+                float_sort(),
+                BuiltinOperation::FloatNeg,
+                vec![float("float.neg.operand", "-Infinity")],
+            ),
+            "--Float -Infinity",
+        ),
+        (
+            apply(
+                "float.root",
+                float_sort(),
+                BuiltinOperation::FloatRoot,
+                vec![
+                    float("float.root.base", "2.0"),
+                    int("float.root.degree", "2"),
+                ],
+            ),
+            "rootFloat(2.0, 2)",
+        ),
+        (
+            apply(
+                "float.from-int",
+                float_sort(),
+                BuiltinOperation::FloatFromInt,
+                vec![
+                    int("float.from-int.value", "7"),
+                    int("float.from-int.precision", "53"),
+                    int("float.from-int.exponent", "11"),
+                ],
+            ),
+            "Int2Float(7, 53, 11)",
+        ),
+        (
+            apply(
+                "float.eq",
+                DefinitionSortRef::Builtin(BuiltinSort::Bool),
+                BuiltinOperation::FloatEqual,
+                vec![
+                    apply(
+                        "float.eq.left",
+                        float_sort(),
+                        BuiltinOperation::FloatNeg,
+                        vec![float("float.eq.zero", "0.0")],
+                    ),
+                    float("float.eq.right", "1.0p113x15"),
+                ],
+            ),
+            "(--Float 0.0) ==Float 1.0p113x15",
+        ),
+    ];
+    let context = context();
+    for (term, expected) in terms {
+        assert_eq!(render(&term, &context), expected);
+    }
+}
+
 #[test]
 fn builtin_map_lookup_and_set_operations_have_exact_canonical_k_source() {
     let map = || DefinitionTerm::map(node("map.empty"), MapOperands::Empty);
@@ -339,6 +430,9 @@ fn tokens_print_bare_only_when_k_lexes_them_back() {
         (BuiltinSort::Bool, "true", "true"),
         (BuiltinSort::Bytes, r#"b"\x00""#, r#"b"\x00""#),
         (BuiltinSort::String, r#""a\"b""#, r#""a\"b""#),
+        (BuiltinSort::Float, "-0.0", "-0.0"),
+        (BuiltinSort::Float, "NaNf", "NaNf"),
+        (BuiltinSort::Float, "1.5F", r#"#token("1.5F","Float")"#),
         // `ID-SYNTAX` gives `Id` no rule-grammar lexical syntax, so no Id spelling is bare.
         (BuiltinSort::Id, "$x", r#"#token("$x","Id")"#),
         (BuiltinSort::Id, "x", r#"#token("x","Id")"#),

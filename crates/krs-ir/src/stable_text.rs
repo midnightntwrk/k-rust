@@ -114,6 +114,7 @@ mod tests {
             BuiltinSort::Set => "Set",
             BuiltinSort::Endianness => "Endianness",
             BuiltinSort::Signedness => "Signedness",
+            BuiltinSort::Float => "Float",
         }
     }
 
@@ -163,6 +164,7 @@ mod tests {
                 "Bool",
                 "Bytes",
                 "Endianness",
+                "Float",
                 "Id",
                 "Int",
                 "KSequence",

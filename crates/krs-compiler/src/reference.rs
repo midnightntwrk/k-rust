@@ -1368,6 +1368,23 @@ fn render_rule_cell_field(
     Ok(quote!(#owner::#field))
 }
 
+/// The Rust spelling that reads back as the canonical Float `token`: one literal
+/// token (so `-0.0` stays signed) or an `f32::`/`f64::` constant path.
+fn float_literal(token: &str) -> Result<TokenStream, ReferenceExpansionError> {
+    let invalid = || ReferenceExpansionError::InvalidLiteral(token.to_owned());
+    match krs_ir::float_token::rust_spelling(token).map_err(|_| invalid())? {
+        krs_ir::float_token::RustFloat::Literal(literal) => literal
+            .parse::<proc_macro2::Literal>()
+            .map(|literal| TokenTree::Literal(literal).into())
+            .map_err(|_| invalid()),
+        krs_ir::float_token::RustFloat::Constant(width, constant) => {
+            let width = syn::Ident::new(width.name(), Span::call_site());
+            let constant = syn::Ident::new(constant.name(), Span::call_site());
+            Ok(quote!(#width::#constant))
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Exhaustive rendering mirrors the closed descriptor term sum."
@@ -1481,6 +1498,7 @@ fn render_term(
                 let value = syn::LitStr::new(value, Span::call_site());
                 Ok(quote!(#value))
             }
+            krs_ir::DescriptorLiteral::Float(token) => float_literal(token),
         },
         DescriptorTerm::Wildcard { .. } => Ok(quote!(_)),
         DescriptorTerm::BuiltinToken { sort, value, .. } => match sort {

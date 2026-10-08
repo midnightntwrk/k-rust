@@ -924,13 +924,15 @@ impl Sample for DescriptorLiteral {
                 Self::Int(sample::<String>()),
                 Self::Bool(sample::<bool>()),
                 Self::String(sample::<String>()),
+                Self::Float(sample::<String>()),
             ],
-            3,
+            4,
             "DescriptorLiteral",
             |value| match value {
                 Self::Int(..) => 0,
                 Self::Bool(..) => 1,
                 Self::String(..) => 2,
+                Self::Float(..) => 3,
             },
         )
     }

@@ -448,6 +448,16 @@ macro_rules! __krs_builtin_sort_catalog {
                 k_syntax_module: Some("BYTES"),
                 k_program_syntax_module: None
             }
+            /// Floating-point domain from pinned module `FLOAT`; every value
+            /// carries its precision and exponent range, and its tokens come
+            /// from `FLOAT-SYNTAX`.
+            Float {
+                marker_name: Float,
+                k_name: "Float",
+                k_module: Some("FLOAT"),
+                k_syntax_module: Some("FLOAT-SYNTAX"),
+                k_program_syntax_module: Some("FLOAT-SYNTAX")
+            }
         }
     };
 }
@@ -1566,6 +1576,370 @@ macro_rules! __krs_builtin_operation_catalog {
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["#if ", " #then ", " #else ", " #fi"] },
                 argument_sorts: [Bool, Parameter, Parameter],
                 result_sort: Parameter,
+                functional: true
+            }
+            /// `_+Float_` (`FLOAT.add`), rounding to nearest, ties to even.
+            FloatAdd {
+                rust_module: float,
+                rust_name: add,
+                description: "floating-point addition",
+                k_label: "_+Float__FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.add"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " +Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `_-Float_` (`FLOAT.sub`).
+            FloatSub {
+                rust_module: float,
+                rust_name: sub,
+                description: "floating-point subtraction",
+                k_label: "_-Float__FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.sub"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " -Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `_*Float_` (`FLOAT.mul`).
+            FloatMul {
+                rust_module: float,
+                rust_name: mul,
+                description: "floating-point multiplication",
+                k_label: "_*Float__FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.mul"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " *Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `_/Float_` (`FLOAT.div`).
+            FloatDiv {
+                rust_module: float,
+                rust_name: div,
+                description: "floating-point division",
+                k_label: "_/Float__FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.div"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " /Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `--Float_`, sign negation (`FLOAT.neg`); `--Float 0.0` is `-0.0`.
+            FloatNeg {
+                rust_module: float,
+                rust_name: neg,
+                description: "floating-point negation",
+                k_label: "--Float__FLOAT_Float_Float",
+                k_hook: Some("FLOAT.neg"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["--Float ", ""] },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `_==Float_`, IEEE equality (`FLOAT.eq`): NaN equals nothing, and `0.0` equals `-0.0`.
+            FloatEqual {
+                rust_module: float,
+                rust_name: eq,
+                description: "floating-point equality",
+                k_label: "_==Float_",
+                k_hook: Some("FLOAT.eq"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ==Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_=/=Float_`, the negation of `==Float` (unhooked; defined in `FLOAT`).
+            FloatNotEqual {
+                rust_module: float,
+                rust_name: ne,
+                description: "floating-point inequality",
+                k_label: "_=/=Float__FLOAT_Bool_Float_Float",
+                k_hook: None,
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " =/=Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_<Float_` (`FLOAT.lt`).
+            FloatLess {
+                rust_module: float,
+                rust_name: lt,
+                description: "floating-point less-than comparison",
+                k_label: "_<Float__FLOAT_Bool_Float_Float",
+                k_hook: Some("FLOAT.lt"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_<=Float_` (`FLOAT.le`).
+            FloatLessEqual {
+                rust_module: float,
+                rust_name: le,
+                description: "floating-point less-than-or-equal comparison",
+                k_label: "_<=Float__FLOAT_Bool_Float_Float",
+                k_hook: Some("FLOAT.le"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <=Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_>Float_` (`FLOAT.gt`).
+            FloatGreater {
+                rust_module: float,
+                rust_name: gt,
+                description: "floating-point greater-than comparison",
+                k_label: "_>Float__FLOAT_Bool_Float_Float",
+                k_hook: Some("FLOAT.gt"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_>=Float_` (`FLOAT.ge`).
+            FloatGreaterEqual {
+                rust_module: float,
+                rust_name: ge,
+                description: "floating-point greater-than-or-equal comparison",
+                k_label: "_>=Float__FLOAT_Bool_Float_Float",
+                k_hook: Some("FLOAT.ge"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >=Float ", ""] },
+                argument_sorts: [Float, Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `absFloat` (`FLOAT.abs`).
+            FloatAbs {
+                rust_module: float,
+                rust_name: abs,
+                description: "floating-point absolute value",
+                k_label: "absFloat(_)_FLOAT_Float_Float",
+                k_hook: Some("FLOAT.abs"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "absFloat" },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `floorFloat` (`FLOAT.floor`).
+            FloatFloor {
+                rust_module: float,
+                rust_name: floor,
+                description: "round toward negative infinity",
+                k_label: "floorFloat(_)_FLOAT_Float_Float",
+                k_hook: Some("FLOAT.floor"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "floorFloat" },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `ceilFloat` (`FLOAT.ceil`).
+            FloatCeil {
+                rust_module: float,
+                rust_name: ceil,
+                description: "round toward positive infinity",
+                k_label: "ceilFloat(_)_FLOAT_Float_Float",
+                k_hook: Some("FLOAT.ceil"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "ceilFloat" },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `truncFloat` (`FLOAT.trunc`).
+            FloatTrunc {
+                rust_module: float,
+                rust_name: trunc,
+                description: "round toward zero",
+                k_label: "truncFloat(_)_FLOAT_Float_Float",
+                k_hook: Some("FLOAT.trunc"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "truncFloat" },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `roundFloat(f, precision, exponentBits)` (`FLOAT.round`).
+            FloatRound {
+                rust_module: float,
+                rust_name: round,
+                description: "round to a precision and exponent range",
+                k_label: "roundFloat(_,_,_)_FLOAT_Float_Float_Int_Int",
+                k_hook: Some("FLOAT.round"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "roundFloat" },
+                argument_sorts: [Float, Int, Int],
+                result_sort: Float,
+                functional: true
+            }
+            /// `rootFloat(f, n)`, the n-th root (`FLOAT.root`).
+            FloatRoot {
+                rust_module: float,
+                rust_name: root,
+                description: "floating-point n-th root",
+                k_label: "rootFloat(_,_)_FLOAT_Float_Float_Int",
+                k_hook: Some("FLOAT.root"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "rootFloat" },
+                argument_sorts: [Float, Int],
+                result_sort: Float,
+                functional: true
+            }
+            /// `sqrtFloat`, `rootFloat(f, 2)` (unhooked; defined in `FLOAT`).
+            FloatSqrt {
+                rust_module: float,
+                rust_name: sqrt,
+                description: "floating-point square root",
+                k_label: "sqrtFloat(_)_FLOAT_Float_Float",
+                k_hook: None,
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "sqrtFloat" },
+                argument_sorts: [Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `minFloat` (`FLOAT.min`).
+            FloatMin {
+                rust_module: float,
+                rust_name: min,
+                description: "floating-point minimum",
+                k_label: "minFloat(_,_)_FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.min"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "minFloat" },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `maxFloat` (`FLOAT.max`).
+            FloatMax {
+                rust_module: float,
+                rust_name: max,
+                description: "floating-point maximum",
+                k_label: "maxFloat(_,_)_FLOAT_Float_Float_Float",
+                k_hook: Some("FLOAT.max"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "maxFloat" },
+                argument_sorts: [Float, Float],
+                result_sort: Float,
+                functional: true
+            }
+            /// `isNaN` (`FLOAT.isNaN`).
+            FloatIsNan {
+                rust_module: float,
+                rust_name: is_nan,
+                description: "not-a-number test",
+                k_label: "isNaN(_)_FLOAT_Bool_Float",
+                k_hook: Some("FLOAT.isNaN"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "isNaN" },
+                argument_sorts: [Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `isInfinite` (unhooked; defined in `FLOAT`).
+            FloatIsInfinite {
+                rust_module: float,
+                rust_name: is_infinite,
+                description: "infinity test",
+                k_label: "isInfinite(_)_FLOAT_Bool_Float",
+                k_hook: None,
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "isInfinite" },
+                argument_sorts: [Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `signFloat`, true when the sign bit is set (`FLOAT.sign`).
+            FloatSign {
+                rust_module: float,
+                rust_name: sign,
+                description: "sign bit",
+                k_label: "signFloat(_)_FLOAT_Bool_Float",
+                k_hook: Some("FLOAT.sign"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "signFloat" },
+                argument_sorts: [Float],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `precisionFloat` (`FLOAT.precision`).
+            FloatPrecision {
+                rust_module: float,
+                rust_name: precision,
+                description: "bits of precision",
+                k_label: "precisionFloat(_)_FLOAT_Int_Float",
+                k_hook: Some("FLOAT.precision"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "precisionFloat" },
+                argument_sorts: [Float],
+                result_sort: Int,
+                functional: true
+            }
+            /// `exponentBitsFloat` (`FLOAT.exponentBits`).
+            FloatExponentBits {
+                rust_module: float,
+                rust_name: exponent_bits,
+                description: "bits of exponent range",
+                k_label: "exponentBitsFloat(_)_FLOAT_Int_Float",
+                k_hook: Some("FLOAT.exponentBits"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "exponentBitsFloat" },
+                argument_sorts: [Float],
+                result_sort: Int,
+                functional: true
+            }
+            /// `maxValueFloat(precision, exponentBits)` (`FLOAT.maxValue`).
+            FloatMaxValue {
+                rust_module: float,
+                rust_name: max_value,
+                description: "largest finite value of a format",
+                k_label: "maxValueFloat(_,_)_FLOAT_Float_Int_Int",
+                k_hook: Some("FLOAT.maxValue"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "maxValueFloat" },
+                argument_sorts: [Int, Int],
+                result_sort: Float,
+                functional: true
+            }
+            /// `Int2Float(i, precision, exponentBits)` (`FLOAT.int2float`).
+            FloatFromInt {
+                rust_module: float,
+                rust_name: from_int,
+                description: "integer to float",
+                k_label: "Int2Float(_,_,_)_FLOAT_Float_Int_Int_Int",
+                k_hook: Some("FLOAT.int2float"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Int2Float" },
+                argument_sorts: [Int, Int, Int],
+                result_sort: Float,
+                functional: true
+            }
+            /// `Float2Int`, rounding ties to even (`FLOAT.float2int`).
+            FloatToInt {
+                rust_module: float,
+                rust_name: to_int,
+                description: "float to integer",
+                k_label: "Float2Int(_)_FLOAT_Int_Float",
+                k_hook: Some("FLOAT.float2int"),
+                k_module: "FLOAT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Float2Int" },
+                argument_sorts: [Float],
+                result_sort: Int,
                 functional: true
             }
         }

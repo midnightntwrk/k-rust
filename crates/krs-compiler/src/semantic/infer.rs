@@ -72,6 +72,9 @@ impl StructuredTermBuilder<'_> {
                     krs_ir::DescriptorLiteral::String(_) => {
                         SemanticSortRef::Builtin(BuiltinSort::String)
                     }
+                    krs_ir::DescriptorLiteral::Float(_) => {
+                        SemanticSortRef::Builtin(BuiltinSort::Float)
+                    }
                 };
                 if let Some(expected) = expected_sort
                     && !semantic_is_subsort(&sort, expected, self.sort_parents)
@@ -524,6 +527,12 @@ impl StructuredTermBuilder<'_> {
                             self.invalid_term(format!("string literal: {error}"))
                         })?,
                     ),
+                    krs_ir::DescriptorLiteral::Float(token) => {
+                        krs_ir::float_token::validate(token).map_err(|error| {
+                            self.invalid_term(format!("float literal `{token}`: {error}"))
+                        })?;
+                        (SemanticSortRef::Builtin(BuiltinSort::Float), token.clone())
+                    }
                 };
                 Ok(SemanticTerm::token(
                     semantic_origin(self.descriptor, key.clone(), "term-literal")?,

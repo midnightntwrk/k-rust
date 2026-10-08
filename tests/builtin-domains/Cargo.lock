@@ -63,6 +63,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-builtin-float-java-only"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-floats"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-builtin-int-ops"
 version = "0.1.0"
 dependencies = [

@@ -200,6 +200,24 @@ fn frontend_failures_retain_stage_and_structured_diagnostics() {
 }
 
 #[test]
+fn the_route_table_runs_ground_and_wide_floats_only_on_java_k() {
+    for feature in ["GroundFloatFolding", "FloatPrecisionBeyondBinary64"] {
+        for route in crate::Route::ALL {
+            let availability = crate::route_capability(feature, route);
+            assert_eq!(
+                matches!(availability, CapabilityAvailability::Unavailable(_)),
+                matches!(
+                    route,
+                    crate::Route::NativeRust | crate::Route::NativeLlvm | crate::Route::Browser
+                ),
+                "{feature} on {}",
+                route.name()
+            );
+        }
+    }
+}
+
+#[test]
 fn the_route_table_refuses_anywhere_rules_only_on_the_java_haskell_reference() {
     for route in crate::Route::ALL {
         assert_eq!(crate::Route::from_name(route.name()), Some(route));

@@ -23,6 +23,7 @@ pub mod descriptor_index;
 mod detail_macros;
 mod display;
 mod error_detail;
+pub mod float_token;
 pub mod generated;
 pub mod grammar;
 pub mod host;
@@ -182,7 +183,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(45);
+    pub const CURRENT: Self = Self(46);
 }
 
 impl Default for SchemaVersion {

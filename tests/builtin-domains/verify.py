@@ -21,7 +21,16 @@ operation, and a corpus of programs that apply them to concrete values:
   must be the ones in k-rust's KORE;
 - `strings`: String literals (KF-008) in equations, readable patterns, results,
   and programs, including the Latin-1 code point `\xc1`, and the STRING
-  operations with `bytes::from_string`/`to_string`.
+  operations with `bytes::from_string`/`to_string`;
+- `floats`: Float literals and constants (KF-033) in equations and readable
+  patterns, and every FLOAT operation: `0.1 + 0.2` in binary32 and binary64,
+  NaN under `float::eq` and `kequal::eq`, signed zero, `sqrt`, `to_int` ties,
+  and `max_value`. Programs supply every operand, so no application is ground,
+  and every result is a Bool or an Int;
+- `float-java-only`: a ground FLOAT application and a binary128 token, which
+  KRS records as the `GroundFloatFolding` and `FloatPrecisionBeyondBinary64`
+  requirements; the native and browser routes refuse the definition before
+  compiling it, and its programs run on Java K's LLVM backend.
 
 `known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
@@ -205,6 +214,48 @@ STRINGS = (
     case("match-latin-1", r'greet("\xc1")', r'"\xc1!"'),
 )
 
+FLOATS = (
+    case("sum-binary64", "sumIs(0.1, 0.2, 0.3)", "false"),
+    case("sum-binary64-exact", "sumIs(0.1, 0.2, 0.30000000000000004)", "true"),
+    case("sum-binary32", "sumIs(0.1f, 0.2f, 0.3f)", "true"),
+    case("arithmetic", "arithmetic(1.5, 0.25)", "true"),
+    case("nan-ieee-eq", "ieeeEq(NaN, NaN)", "false"),
+    case("nan-ieee-ne", "ieeeNe(NaN, NaN)", "true"),
+    case("nan-term-eq", "termEq(NaN, NaN)", "true"),
+    case("nan", "nan(NaN)", "true"),
+    case("not-nan", "nan(1.0)", "false"),
+    case("signed-zero-ieee-eq", "ieeeEq(0.0, -0.0)", "true"),
+    case("signed-zero-term-eq", "termEq(0.0, -0.0)", "false"),
+    case("signed-zero-neg", "negativeSign(0.0)", "true"),
+    case("infinite", "infinite(Infinity)", "true"),
+    case("finite", "infinite(1.0e308)", "false"),
+    case("ordered-nan", "ordered(NaN, 1.0)", "false"),
+    case("ordered-infinity", "ordered(-Infinity, 0.0)", "true"),
+    case("sqrt", "sqrtIs(2.25, 1.5)", "true"),
+    case("rounding", "rounding(-2.5)", "true"),
+    case("to-int-tie-down", "toInt(2.5)", "2"),
+    case("to-int-tie-up", "toInt(3.5)", "4"),
+    case("to-int-tie-negative", "toInt(-2.5)", "-2"),
+    case("from-int", "fromIntIs(7, 53, 11, 7.0)", "true"),
+    case("from-int-binary32", "fromIntIs(16777217, 24, 8, 16777216.0f)", "true"),
+    case("round-binary32", "roundIs(0.1, 24, 8, 0.1f)", "true"),
+    case("max-value", "maxValueIs(53, 11, 1.7976931348623157e308)", "true"),
+    case("format-binary32", "format(0.1f)", "2408"),
+    case("format-binary64", "format(1.5)", "5311"),
+    case("format-binary64-suffix", "format(1.5d)", "5311"),
+    case("match-literal", "classify(1.5)", "1"),
+    case("match-binary32", "classify(0.1f)", "2"),
+    case("match-infinity", "classify(Infinity)", "3"),
+    case("match-negative-infinity", "classify(-Infinity)", "4"),
+    case("match-negative-zero", "classify(-0.0)", "5"),
+)
+
+FLOAT_JAVA_ONLY = Fixture(MANIFEST, "krs-builtin-float-java-only")
+FLOAT_JAVA_ONLY_PROGRAMS = (
+    case("ground", "isHalf(0.5)", "true"),
+    case("binary128", "belowOne(0.5p113x15)", "true"),
+)
+
 K_EQUAL = (
     case("if-true", "if (true) 1 else 2", "1"),
     case("if-false", "if (false) 1 else 2", "2"),
@@ -228,6 +279,7 @@ CASES = (
     ("krs-builtin-set-ops", SET_OPS),
     ("krs-builtin-map-ops", MAP_OPS),
     ("krs-builtin-strings", STRINGS),
+    ("krs-builtin-floats", FLOATS),
 )
 
 
@@ -269,6 +321,42 @@ def ite_instances(harness: FixtureGate, emitted) -> None:
         raise GateError(f"k-rust instantiates ite at {native['ite']}, not at KRS's {sorted(set(krs))}")
 
 
+def java_only_floats(harness: FixtureGate) -> None:
+    """Require the Float capability rows and pin each route's refusal (V8, KF-033)."""
+
+    harness.check(FLOAT_JAVA_ONLY)
+    harness.expand(FLOAT_JAVA_ONLY)
+    emitted = harness.emit(FLOAT_JAVA_ONLY)
+    symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
+    features = sorted(row["feature"] for row in symbols.get("capability_requirements") or ())
+    if features != ["FloatPrecisionBeyondBinary64", "GroundFloatFolding"]:
+        raise GateError(f"symbols.json records {features!r} as the capability requirements")
+    source = emitted.source.read_text(encoding="utf-8")
+    for feature in features:
+        if f"  // krs-capability: {feature} " not in source:
+            raise GateError(f"emitted K does not mark the sentence that needs {feature}")
+    krs_gate.require_route(
+        harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment,
+    )
+    java = harness._java_outcomes(emitted, FLOAT_JAVA_ONLY_PROGRAMS, sort="Exp")
+    for program in FLOAT_JAVA_ONLY_PROGRAMS:
+        expected = {"parse": program.parse, "run": program.run}
+        if java[program.name] != expected:
+            raise GateError(f"{FLOAT_JAVA_ONLY.package} {program.name}: Java K observed {java[program.name]}")
+    harness.pins.expect(("outcomes", FLOAT_JAVA_ONLY.package), java)
+    for route in ("native-rust", "native-llvm", "browser"):
+        try:
+            krs_gate.require_route(harness.gate, emitted.directory, route, environment=harness.environment)
+        except GateError as refusal:
+            harness.pins.expect(("capability_refusals", route), str(refusal))
+        else:
+            raise GateError(f"the {route} route accepted a ground Float application")
+    print(
+        "PASS krs-builtin-float-java-only: Java K runs it; the native and browser routes refuse it "
+        "before compiling"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -304,6 +392,8 @@ def main() -> int:
                 f"PASS {package}: {len(programs) - pinned} programs agree natively and on Java K"
                 + (f"; {pinned} pinned divergences unchanged" if pinned else "")
             )
+
+        java_only_floats(harness)
 
     pins.finish("builtin-domains")
     print("PASS builtin-domains")

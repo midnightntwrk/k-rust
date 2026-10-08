@@ -141,6 +141,8 @@ impl KItemSort for builtin::Bytes {}
 impl KResultSort for builtin::Bytes {}
 impl KItemSort for builtin::String {}
 impl KResultSort for builtin::String {}
+impl KItemSort for builtin::Float {}
+impl KResultSort for builtin::Float {}
 
 macro_rules! builtin_sort_registry {
     ($(

@@ -106,6 +106,9 @@ fn builtin_token_precedence(sort: BuiltinSort, value: &str) -> Option<Precedence
         BuiltinSort::String => is_string(value).then_some(Precedence::Regex(0)),
         // BYTES-SYNTAX: the bytes-literal regex [token]
         BuiltinSort::Bytes => is_bytes(value).then_some(Precedence::Regex(0)),
+        // FLOAT-SYNTAX: the numeric regex [token, prec(1)]; the `Infinity` and `NaN`
+        // regexes [token, prec(3)]
+        BuiltinSort::Float => float_precedence(value),
         BuiltinSort::Id
         | BuiltinSort::KSequence
         | BuiltinSort::Map
@@ -113,6 +116,20 @@ fn builtin_token_precedence(sort: BuiltinSort, value: &str) -> Option<Precedence
         | BuiltinSort::Set
         | BuiltinSort::Endianness
         | BuiltinSort::Signedness => None,
+    }
+}
+
+/// The precedence of the `FLOAT-SYNTAX` token production that lexes exactly `value`.
+///
+/// Only canonical KRS Float tokens (`krs_ir::float_token`) are printed bare; each is matched in
+/// full by exactly one of K's three Float regexes, and is longer than any `Int` prefix of it.
+fn float_precedence(value: &str) -> Option<Precedence> {
+    krs_ir::float_token::validate(value).ok()?;
+    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    if unsigned.starts_with("Infinity") || unsigned.starts_with("NaN") {
+        Some(Precedence::Regex(3))
+    } else {
+        Some(Precedence::Regex(1))
     }
 }
 
@@ -262,6 +279,17 @@ mod tests {
             (BuiltinSort::Id, "x", false),
             (BuiltinSort::Id, "$x", false),
             (BuiltinSort::KSequence, "x", false),
+            (BuiltinSort::Float, "1.5", true),
+            (BuiltinSort::Float, "-0.0", true),
+            (BuiltinSort::Float, "0.1f", true),
+            (BuiltinSort::Float, "1.5d", true),
+            (BuiltinSort::Float, "1.0p113x15", true),
+            (BuiltinSort::Float, "1e10", true),
+            (BuiltinSort::Float, "NaN", true),
+            (BuiltinSort::Float, "-Infinityf", true),
+            (BuiltinSort::Float, "1", false),
+            (BuiltinSort::Float, "1.5F", false),
+            (BuiltinSort::Float, "-NaN", false),
         ] {
             assert_eq!(
                 builtin_token_precedence(sort, value).is_some(),
@@ -299,6 +327,10 @@ mod tests {
         let high = lexicon(&[], Some(2));
         assert!(!high.is_bare(BuiltinSort::Int, "1"));
         assert!(high.is_bare(BuiltinSort::Bool, "false"));
+        // A user regex at prec(2) may claim `1.5` but not `NaN`, which K lexes at prec(3).
+        assert!(!high.is_bare(BuiltinSort::Float, "1.5"));
+        assert!(high.is_bare(BuiltinSort::Float, "NaN"));
+        assert!(!lexicon(&["NaN"], None).is_bare(BuiltinSort::Float, "NaN"));
     }
 
     #[test]

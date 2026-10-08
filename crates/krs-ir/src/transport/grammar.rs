@@ -972,6 +972,9 @@ pub enum DescriptorLiteral {
     /// The value of a Rust string literal, a K `String` of code points in
     /// U+0000..=U+00FF; its token is [`crate::string_token::encode`] of it.
     String(String),
+    /// The canonical K `Float` token of a Rust float literal or `f32::`/`f64::`
+    /// constant ([`crate::float_token`]), such as `0.1f`, `-0.0`, or `NaN`.
+    Float(String),
 }
 
 /// Rust syntax class of a term node which resolves semantically to an
@@ -1690,7 +1693,10 @@ impl DescriptorLiteral {
             Self::Int(value) if is_canonical_int(value) => Ok(()),
             Self::Bool(_) => Ok(()),
             Self::String(value) if crate::string_token::encode(value).is_ok() => Ok(()),
-            Self::Int(_) | Self::String(_) => Err(GrammarTransportError::InvalidLiteral),
+            Self::Float(token) if crate::float_token::validate(token).is_ok() => Ok(()),
+            Self::Int(_) | Self::String(_) | Self::Float(_) => {
+                Err(GrammarTransportError::InvalidLiteral)
+            }
         }
     }
 }

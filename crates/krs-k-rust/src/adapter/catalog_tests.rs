@@ -28,6 +28,7 @@ const CATALOG_MODULES: &[&str] = &[
     "BOOL",
     "BYTES",
     "COLLECTIONS",
+    "FLOAT",
     "INT",
     "K-EQUAL",
     "LIST",
@@ -238,6 +239,10 @@ fn builtin(operation: BuiltinOperation, arguments: &[String]) -> String {
     apply(operation.spec().k_label, arguments)
 }
 
+fn float(token: &str) -> String {
+    format!("\\dv{{SortFloat{{}}}}(\"{token}\")")
+}
+
 fn string(value: &str) -> String {
     format!("\\dv{{SortString{{}}}}(\"{value}\")")
 }
@@ -293,6 +298,10 @@ fn list_of(values: &[i64]) -> String {
 }
 
 /// Ground arguments of one application of each builtin operation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One arm per group of catalog operations."
+)]
 fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
     use BuiltinOperation as Op;
     match operation {
@@ -375,6 +384,34 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
         Op::BytesFromString => vec![string("hi")],
         Op::KEqualEq | Op::KEqualNe => vec![sequence(1), sequence(2)],
         Op::KEqualIte => vec![boolean(false), int(1), int(2)],
+        Op::FloatAdd
+        | Op::FloatSub
+        | Op::FloatMul
+        | Op::FloatDiv
+        | Op::FloatEqual
+        | Op::FloatNotEqual
+        | Op::FloatLess
+        | Op::FloatLessEqual
+        | Op::FloatGreater
+        | Op::FloatGreaterEqual
+        | Op::FloatMin
+        | Op::FloatMax => vec![float("1.5"), float("0.25")],
+        Op::FloatNeg
+        | Op::FloatAbs
+        | Op::FloatFloor
+        | Op::FloatCeil
+        | Op::FloatTrunc
+        | Op::FloatSqrt
+        | Op::FloatIsNan
+        | Op::FloatIsInfinite
+        | Op::FloatSign
+        | Op::FloatPrecision
+        | Op::FloatExponentBits
+        | Op::FloatToInt => vec![float("2.25")],
+        Op::FloatRound => vec![float("1.5"), int(24), int(8)],
+        Op::FloatRoot => vec![float("2.25"), int(2)],
+        Op::FloatMaxValue => vec![int(53), int(11)],
+        Op::FloatFromInt => vec![int(5), int(53), int(11)],
     }
 }
 

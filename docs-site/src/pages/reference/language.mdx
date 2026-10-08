@@ -151,6 +151,8 @@ The claim-only boundary is enforced during macro expansion rather than being a s
 | `-N` on an unsuffixed integer | signed `Int` |
 | `true`, `false` | `Bool` |
 | `"..."` and raw `r"..."` | `String` |
+| float literal, optionally suffixed `f32`, `f64`, or K's `pNxM`; `-` on it | `Float` |
+| `f32::`/`f64::` `NAN`, `INFINITY`, `NEG_INFINITY` | `Float` |
 
 The sign belongs to the literal: `-1` is one K `Int` token wherever a term may appear, in patterns as well as results, so `Sgn(-1)` and `Div { lhs, rhs: -1 }` match it.
 A literal is a value; `int::sub(0, 3)` is a call and cannot be matched as `-3`.
@@ -163,12 +165,28 @@ KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` i
 A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
 Code points from U+0080 to U+00FF do not yet behave the same on every backend: k-rust stores `"\xc1"` as one raw byte, so `string::ord` and `bytes::from_string` do not evaluate on it and `string::chr(193)` is a different value, and Java K's LLVM backend does not match a rule's `"\xc1"` against a program's.
 
+K has one `Float` sort, and every value carries its precision and exponent range in its token.
+Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.
+`1f32` is a Float, while an unsuffixed `1` stays an `Int`.
+K's own suffix `pNxM` (N bits of precision, M exponent bits) is kept as written, as in `1.0p113x15`; any other suffix is rejected.
+As for integers, the sign belongs to the literal, so `-0.0` is one token and keeps its sign.
+`f64::NAN`, `f64::INFINITY`, and `f64::NEG_INFINITY` are `NaN`, `Infinity`, and `-Infinity`, and their `f32` forms are `NaNf`, `Infinityf`, and `-Infinityf`.
+NaN has no sign in K's token syntax, so `-f64::NAN` is rejected, and `-f64::INFINITY` is rejected in favour of `f64::NEG_INFINITY`.
+The operations follow IEEE 754 in their operands' format: `float::eq(NaN, NaN)` is false and `float::eq(0.0, -0.0)` is true, while `kequal::eq` compares the terms, so it holds for two NaN tokens and fails for `0.0` and `-0.0`.
+`float::to_int` rounds ties to even, so `2.5` gives `2` and `3.5` gives `4`.
+
+Not every Float runs on every route.
+The pinned k-rust frontend folds an application of a `FLOAT` operation whose arguments are all tokens, such as `float::add(0.1, 0.2)`, while compiling, and KRS builds it without the MPFR library that folding needs; it also evaluates only binary32 and binary64.
+KRS records both as capability requirements (`GroundFloatFolding`, `FloatPrecisionBeyondBinary64`), and the native and browser routes refuse such a definition before compiling it, while Java K's LLVM backend runs it.
+Bind a variable or write the folded literal instead of applying an operation to tokens.
+Java K's Haskell backend has no Float evaluator, so Float definitions are compared with Java K on the LLVM route.
+
 ## Framework and builtin sorts
 
 `KItem` is the framework top sort for computation items.
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
-The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
+The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Float` (also `float::Float`), `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
 K's `String` sort is `string::String`: write `use k::builtin::string;` and `string::String`, so Rust's own `String` stays in scope (`k::builtin::String` remains as a root spelling).
 
 ## Builtin operation catalog
@@ -186,10 +204,11 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 | `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `pad_left`, `substr`, `concat`, `reverse`, `replace_at`, `from_int`, `from_int_no_len`, `to_int`, `from_string`, `to_string`, `little_endian`, `big_endian`, `signed`, `unsigned` |
 | `builtin::string` | `concat`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `length`, `substr`, `find`, `chr`, `ord`, `from_int`, `to_int`, `from_bool`, `to_bool` |
 | `builtin::kequal` | `eq`, `ne`, `ite` |
+| `builtin::float` | `add`, `sub`, `mul`, `div`, `neg`, `abs`, `floor`, `ceil`, `trunc`, `round`, `root`, `sqrt`, `min`, `max`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_nan`, `is_infinite`, `sign`, `precision`, `exponent_bits`, `max_value`, `from_int`, `to_int` |
 
 Every name follows one rule, so you can find an operation from K's documentation (`domains.md`) without a table.
 Find the K production; its module is the production's hook namespace in lowercase (`INT.tdiv` is in `int`, `SET.set2list` in `set`).
-Its name is the operator's word for an `Int` or `Bool` operator (`+Int` is `add`, `%Int` is `rem`, `==Bool` is `eq`); the hook's word, in snake case, for a symbolic `String`, `Bytes`, `Map`, `List`, or `Set` operator (`-Set` is `difference`, `M [ K ]` is `get`, `.Bytes` is `empty`); otherwise K's own name without its sort word (`minInt` is `min`, `andThenBool` is `and_then`); and `A2B` conversions are `from_a` or `to_b` in the module that owns them (`Int2Bytes` is `bytes::from_int`, `Set2List` is `set::to_list`).
+Its name is the operator's word for an `Int`, `Float`, or `Bool` operator (`+Int` is `add`, `%Int` is `rem`, `--Float` is `neg`, `==Bool` is `eq`); the hook's word, in snake case, for a symbolic `String`, `Bytes`, `Map`, `List`, or `Set` operator (`-Set` is `difference`, `M [ K ]` is `get`, `.Bytes` is `empty`); otherwise K's own name without its sort word, in snake case with `NaN` as one word (`minInt` is `min`, `andThenBool` is `and_then`, `isNaN` is `is_nan`); and `A2B` conversions are `from_a` or `to_b` in the module that owns them (`Int2Bytes` is `bytes::from_int`, `Set2List` is `set::to_list`, `Int2Float` is `float::from_int`).
 When that name is a Rust keyword or is already taken in the module, KRS uses the Rust standard method with the same meaning: `modInt` is `rem_euclid`, `divInt` is `div_euclid`, and K's `in` is `contains`.
 The four integer divisions therefore read exactly like Rust's: `int::div` and `int::rem` truncate like `/` and `%`, and `int::div_euclid` and `int::rem_euclid` are `i64::div_euclid` and `i64::rem_euclid`.
 `int::rem_euclid` was called `int::modulo` before this rule.
