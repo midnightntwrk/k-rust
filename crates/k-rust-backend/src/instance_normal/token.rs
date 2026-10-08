@@ -10,6 +10,7 @@
 //! the one `decide` answers for.
 
 use crate::{
+    confluence::UntaintedIndex,
     definition::{BackendDefinition, SelectionComplete},
     rule::{RewriteRule, TermIndex, term_index},
     term::{HeadRole, Term, TermKind, head::Shape},
@@ -76,18 +77,20 @@ impl InstanceNormal {
                     Self::of_free_constructor(term, NormalSubterms::of(term, subterm))
                 }
                 HeadRole::EquationHead => {
+                    let untainted = definition.value_claims().admit(&term_index(term))?;
                     let arguments = NormalSubterms::of(term, subterm)?;
                     let reach = no_equation_reaches(&arguments)?;
-                    Self::of_equation_head(term, &arguments, reach)
+                    Self::of_equation_head(term, &arguments, reach, untainted)
                 }
                 // A function application is rewritten by evaluation; an uninterpreted
                 // application or a macro/alias has no structural normal-form guarantee.
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => None,
             },
             Shape::Collection(_) => {
+                let untainted = definition.value_claims().admit(&term_index(term))?;
                 let elements = NormalSubterms::of(term, subterm)?;
                 let reach = no_equation_reaches(&elements)?;
-                Self::of_collection(term, &elements, reach)
+                Self::of_collection(term, &elements, reach, untainted)
             }
             Shape::And => None,
         }
@@ -149,6 +152,7 @@ impl InstanceNormal {
         term: &Term,
         arguments: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
+        _untainted: UntaintedIndex,
     ) -> Option<Self> {
         match term.shape() {
             Shape::Application(role) => match role {
@@ -177,6 +181,7 @@ impl InstanceNormal {
         term: &Term,
         elements: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
+        _untainted: UntaintedIndex,
     ) -> Option<Self> {
         match term.shape() {
             Shape::Collection(_) => {

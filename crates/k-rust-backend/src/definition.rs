@@ -603,6 +603,10 @@ pub struct BackendDefinition {
     /// theories are fixed by `internalize`, so the facts hold for every later use and for the
     /// definition's clones, which share the equations.
     pattern_facts: OnceLock<crate::instance_normal::PatternFacts>,
+    /// The verdict of the load-time critical-pair check (`confluence::check`): which indexes may
+    /// carry value claims. [`crate::confluence::ValueClaims::withheld`] until `internalize`
+    /// computes it, so that the check itself runs with every claim withheld.
+    value_claims: crate::confluence::ValueClaims,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -1805,6 +1809,7 @@ impl BackendDefinition {
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             pattern_facts: OnceLock::new(),
+            value_claims: crate::confluence::ValueClaims::withheld(),
             term_equation_in_predicate_theory: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
@@ -1862,8 +1867,17 @@ impl BackendDefinition {
             .flatten()
             .any(|rule| has_term_component(&rule.lhs));
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
+        // The check runs while the definition still withholds every claim, and before the
+        // rewrite rules' definedness is discharged, which reads the claims.
+        result.value_claims = crate::confluence::check(&result);
         result.discharge_rewrite_definedness();
         Ok(result)
+    }
+
+    /// The verdict of the load-time critical-pair check: which term indexes may carry value
+    /// claims, and the pairs that withdrew the others (`confluence`).
+    pub fn value_claims(&self) -> &crate::confluence::ValueClaims {
+        &self.value_claims
     }
 
     /// Returns the equations for function applications.

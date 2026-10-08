@@ -366,6 +366,37 @@ impl SortGraph {
         self.below.iter()
     }
 
+    /// The maximal sorts below both `left` and `right` in the exact order: every common subsort
+    /// is below one of them, and none of them is strictly below another. `None` when either
+    /// sort has a sort variable or an unknown head, so that the order does not decide the
+    /// question; an empty list when the two sorts have no common subsort. A closed sort absent
+    /// from the axioms has the singleton down-set containing itself.
+    pub(crate) fn maximal_common_subsorts(&self, left: &Sort, right: &Sort) -> Option<Vec<Sort>> {
+        self.known_overlap(left, right)?;
+        let down = |sort: &Sort| -> BTreeSet<Sort> {
+            match self.below.get(sort) {
+                Some(below) => below.iter().map(|sort| sort.sort().clone()).collect(),
+                None => BTreeSet::from([sort.clone()]),
+            }
+        };
+        let (left_down, right_down) = (down(left), down(right));
+        let common = left_down
+            .intersection(&right_down)
+            .cloned()
+            .collect::<Vec<_>>();
+        Some(
+            common
+                .iter()
+                .filter(|candidate| {
+                    !common.iter().any(|other| {
+                        other != *candidate && self.check_subsort(candidate, other) == Ok(true)
+                    })
+                })
+                .cloned()
+                .collect(),
+        )
+    }
+
     /// An over-approximation over heads; must never answer a question about one closed sort.
     pub(crate) fn heads_possibly_below(&self, head: &str) -> Option<&BTreeSet<Name>> {
         self.heads_below.get(head)
@@ -549,6 +580,46 @@ pub(crate) fn match_term_pairs_in_definition(
     matcher.finish(|| pairs)
 }
 
+/// Match an equation's left-hand side `pattern` against `subject` in `Evaluate` mode, as the
+/// critical-pair join of the load-time check does (`confluence::join`): the root of `subject` is
+/// the term the equation is tried on, and an equation-head application below it is read as a
+/// value only with the evidence `settled` gives, never with the simplifier's certificate or the
+/// instance-normal scan, which are the claims the check decides.
+pub(crate) fn match_with_settled_evidence(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    settled: &SettledEvidence<'_>,
+) -> MatchResult {
+    let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
+    measure::bump(Counter::MatchingProblems);
+    if pattern == subject {
+        return MatchResult::Success(Substitution::new());
+    }
+    if !pattern
+        .attributes()
+        .variables
+        .is_disjoint(&subject.attributes().variables)
+    {
+        let shared = pattern
+            .attributes()
+            .variables
+            .intersection(&subject.attributes().variables)
+            .cloned()
+            .collect();
+        return MatchResult::Failed(FailReason::SharedVariables(shared));
+    }
+    let mut matcher = Matcher::new(
+        MatchMode::Evaluate,
+        definition.sort_graph(),
+        Some(definition),
+        VecDeque::from([(pattern.clone(), subject.clone())]),
+    );
+    matcher.normal_forms.settled = Some(settled);
+    matcher.normal_forms.given.equation_root(subject.clone());
+    matcher.finish(|| vec![(pattern.clone(), subject.clone())])
+}
+
 /// `equation_root`: `subject` is the term an equation with left-hand side `pattern` is tried on,
 /// so its own head is taken as it stands (see [`match_terms_in_definition`]).
 fn match_terms_with_context(
@@ -639,6 +710,9 @@ impl GivenHeads {
     }
 }
 
+/// The evidence the critical-pair join gives the matcher for an equation-head application.
+type SettledEvidence<'a> = dyn Fn(&Term) -> Option<NormalEvidence> + 'a;
+
 /// The matcher's evidence that an equation-head subject application is a normal form on every
 /// instance, so that its root is the root of every value it denotes: its root is given
 /// ([`GivenHeads`]), the simplifier certified it ([`NormalEvidence::certified`]), or it is
@@ -646,6 +720,10 @@ impl GivenHeads {
 struct SubjectNormalForms<'a> {
     definition: Option<&'a BackendDefinition>,
     given: GivenHeads,
+    /// For the critical-pair join (`confluence::join`): the only evidence besides the given
+    /// heads, in place of the certificate and the instance-normal scan, which the join must not
+    /// read (`match_with_settled_evidence`).
+    settled: Option<&'a SettledEvidence<'a>>,
     /// Instance normality of the subject terms asked about or implied so far: every argument of
     /// an instance-normal constructor or equation-head application, and the operand of an
     /// instance-normal injection, is instance-normal, so one scan covers the whole subterm.
@@ -656,6 +734,9 @@ impl NormalForms for SubjectNormalForms<'_> {
     fn evidence(&mut self, application: &Term) -> Option<NormalEvidence> {
         if self.given.contains(application) {
             return Some(NormalEvidence::given());
+        }
+        if let Some(settled) = self.settled {
+            return settled(application);
         }
         // Certified by the simplifier: no equation applies to it on any path, so no scan.
         if let Some(certified) = NormalEvidence::certified(application) {
@@ -728,6 +809,7 @@ impl<'a> Matcher<'a> {
             normal_forms: SubjectNormalForms {
                 definition,
                 given: GivenHeads::default(),
+                settled: None,
                 instance_normal: FxHashMap::default(),
             },
         }
@@ -2350,6 +2432,22 @@ impl OverloadView {
         let application = Term::application(common, sort_arguments.to_vec(), arguments);
         inject_to_sort(application, self.original_sort.clone(), sorts)
     }
+}
+
+/// `term`, an application or an injection of one, lifted to the overload `common` with
+/// `sort_arguments`, as overload resolution lifts it ([`Matcher::resolve_overloads`]): each
+/// argument injected into `common`'s argument sort, and the application injected back into
+/// `term`'s sort. `None` when a sort does not fit. The overload equation of `common` over the
+/// application's symbol rewrites the lifted term to `term`, so the two are equal modulo the
+/// overload axioms. For the critical-pair unifier (`confluence::unify`), which reads the
+/// overload axioms as the matcher does.
+pub(crate) fn lift_to_overload(
+    term: &Term,
+    common: Arc<crate::term::Symbol>,
+    sort_arguments: &[Sort],
+    sorts: &SortGraph,
+) -> Option<Term> {
+    OverloadView::new(term)?.lift(common, sort_arguments, sorts)
 }
 
 fn inject_to_sort(term: Term, target: Sort, sorts: &SortGraph) -> Option<Term> {

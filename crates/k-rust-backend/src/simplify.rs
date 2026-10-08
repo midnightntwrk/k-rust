@@ -4473,7 +4473,12 @@ fn simplify_root(
     {
         term.with_evaluated_cache(
             definition,
-            NormalFormCertificate::new(selection, function_scan, simplification_scan),
+            NormalFormCertificate::new(
+                selection,
+                function_scan,
+                simplification_scan,
+                definition.value_claims().admit(&term_index(term)),
+            ),
         )
     } else {
         term.clone()

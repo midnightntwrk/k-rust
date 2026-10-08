@@ -141,6 +141,13 @@ enum Source {
     /// The root of the subject the instance-normal scan tries an equation on: the equation's
     /// left-hand side rewrites that root as it stands.
     ScannedSubject,
+    /// A settled equation-head application of the load-time critical-pair join
+    /// (`confluence::join`): a normal form on every instance of the pair the join decides, because
+    /// no left-hand side of an executable equation unifies with it, or because it is the value of
+    /// a variable of one of the pair's left-hand sides. It is read only by the matcher the join
+    /// runs (`matching::match_with_settled_evidence`), never by a claim: neither the
+    /// instance-normal token nor the simplifier's certificate is built from evidence.
+    Settled,
 }
 
 impl NormalEvidence {
@@ -193,6 +200,13 @@ impl NormalEvidence {
         (term.shape() == Shape::Application(HeadRole::EquationHead)
             && term.attributes().certified_value())
         .then_some(Self(Source::Certified))
+    }
+
+    /// A settled root of the critical-pair join; the witness is minted only by the join's
+    /// settledness test (`confluence::join`).
+    #[must_use]
+    pub(crate) fn settled(_witness: crate::confluence::SettledRoot) -> Self {
+        Self(Source::Settled)
     }
 
     /// An instance-normal token: the term, or a term it is a subterm of, is a normal form on
@@ -251,9 +265,12 @@ impl NormalFormCertificate {
         _selection: SelectionComplete,
         function_scan: NoOfferedEquationMatched<FunctionTheory>,
         simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+        untainted: Option<crate::confluence::UntaintedIndex>,
     ) -> Self {
         Self {
-            values: function_scan.certifies_values() && simplification_scan.certifies_values(),
+            values: untainted.is_some()
+                && function_scan.certifies_values()
+                && simplification_scan.certifies_values(),
         }
     }
 
