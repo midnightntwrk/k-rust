@@ -80,8 +80,6 @@ use std::{cell::RefCell, collections::HashMap};
 
 use rustc_hash::FxHashMap;
 
-#[cfg(test)]
-pub(crate) use patterns::last_facts_cost;
 pub(crate) use patterns::{PatternFacts, pattern_facts};
 pub(crate) use token::{InstanceNormal, NormalArguments};
 
@@ -374,7 +372,7 @@ const PATTERN_FACTS_WORK: usize = 200_000;
 /// The bounds of the questions instance normality and the pattern facts ask. Past each bound
 /// the answer is the conservative one ("not excluded", "not normal", representatives without
 /// bindings, unbounded overlaps, a peak counted), so lowering any of them may only lose
-/// precision. Tests lower them ([`with_bounds`]) to reach those answers on small definitions.
+/// precision.
 /// (The work bounds also end every computation the others leave exponential.)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Bounds {
@@ -413,36 +411,9 @@ impl Bounds {
     };
 }
 
-#[cfg(test)]
-thread_local! {
-    /// The bounds a test set on this thread ([`with_bounds`]).
-    static BOUNDS: std::cell::Cell<Bounds> = const { std::cell::Cell::new(Bounds::DEFAULT) };
-}
-
-/// The bounds in force on this thread: [`Bounds::DEFAULT`] outside tests.
+/// The bounds in force: [`Bounds::DEFAULT`].
 fn bounds() -> Bounds {
-    #[cfg(test)]
-    {
-        BOUNDS.with(std::cell::Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        Bounds::DEFAULT
-    }
-}
-
-/// Runs `run` with `bounds` in force on this thread. The pattern facts of a definition are
-/// computed on its first use, so a test builds the definition it asks inside `run`.
-#[cfg(test)]
-pub(crate) fn with_bounds<R>(bounds: Bounds, run: impl FnOnce() -> R) -> R {
-    struct Restore(Bounds);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            BOUNDS.with(|cell| cell.set(self.0));
-        }
-    }
-    let _restore = Restore(BOUNDS.with(|cell| cell.replace(bounds)));
-    run()
+    Bounds::DEFAULT
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

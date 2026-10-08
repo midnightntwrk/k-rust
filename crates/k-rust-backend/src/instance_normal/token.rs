@@ -14,7 +14,7 @@
 //! no token is minted for an index the critical-pair check withdrew, nor while the check runs.
 
 use crate::{
-    confluence::UntaintedIndex,
+    confluence::{GateSite, UntaintedIndex},
     definition::{BackendDefinition, SelectionComplete},
     rule::{RewriteRule, TermIndex, term_index},
     term::{HeadRole, Term, TermKind, head::Shape},
@@ -81,7 +81,9 @@ impl InstanceNormal {
                     Self::of_free_constructor(term, NormalSubterms::of(term, subterm))
                 }
                 HeadRole::EquationHead => {
-                    let untainted = definition.value_claims().admit(&term_index(term))?;
+                    let untainted = definition
+                        .value_claims()
+                        .admit_at(&term_index(term), GateSite::EquationHead)?;
                     let arguments = NormalSubterms::of(term, subterm)?;
                     let reach = no_equation_reaches(&arguments)?;
                     Self::of_equation_head(term, &arguments, reach, untainted)
@@ -91,7 +93,9 @@ impl InstanceNormal {
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => None,
             },
             Shape::Collection(_) => {
-                let untainted = definition.value_claims().admit(&term_index(term))?;
+                let untainted = definition
+                    .value_claims()
+                    .admit_at(&term_index(term), GateSite::Collection)?;
                 let elements = NormalSubterms::of(term, subterm)?;
                 let reach = no_equation_reaches(&elements)?;
                 Self::of_collection(term, &elements, reach, untainted)

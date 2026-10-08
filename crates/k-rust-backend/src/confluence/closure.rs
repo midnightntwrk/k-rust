@@ -33,7 +33,7 @@ use super::{Equation, UnjoinedPair};
 use crate::{
     definition::BackendDefinition,
     rule::{RewriteRule, RuleRhs},
-    term::{CollectionMetadata, HeadRole, Name, Sort, Symbol, Term},
+    term::{CollectionMetadata, FunctionType, HeadRole, Name, Sort, Symbol, SymbolType, Term},
 };
 
 /// ```toml algorithm-site
@@ -88,6 +88,17 @@ impl<'e> Closure<'e> {
         let mut tainted_equations = vec![false; self.equations.len()];
         let mut tainted = BTreeSet::new();
         let mut queue = VecDeque::new();
+        let switches = super::switches::active();
+        if switches.seed_heads_only {
+            for pair in unjoined {
+                for rule in [&pair.first, &pair.second] {
+                    if let crate::term::TermKind::Application { symbol, .. } = rule.lhs.kind() {
+                        tainted.insert(symbol.name.clone());
+                    }
+                }
+            }
+            return tainted;
+        }
         for pair in unjoined {
             for rule in [&pair.first, &pair.second] {
                 if let Some(&id) = self.id_of.get(&std::sync::Arc::as_ptr(rule))
@@ -100,12 +111,14 @@ impl<'e> Closure<'e> {
         }
         while let Some(id) = queue.pop_front() {
             let rule = &self.equations[id].rule;
-            let mut touched = mentioned_symbols(rule);
-            for variable in &rule.computed_attributes.variables {
-                touched.extend(self.reach.heads(&variable.sort));
+            let mut touched = mentioned_symbols(rule, !switches.drop_tsym_rhs);
+            if !switches.drop_tobs {
+                for variable in &rule.computed_attributes.variables {
+                    touched.extend(self.reach.heads(&variable.sort));
+                }
             }
             for symbol in touched {
-                if tainted.insert(symbol.clone()) {
+                if tainted.insert(symbol.clone()) && !switches.drop_t1 {
                     for &other in self.lhs_index.get(&symbol).into_iter().flatten() {
                         if !tainted_equations[other] {
                             tainted_equations[other] = true;
@@ -124,8 +137,9 @@ fn taintable(symbol: &Symbol) -> bool {
     symbol.attributes.head_role() != HeadRole::FreeConstructor && symbol.attributes.hook.is_none()
 }
 
-/// The taintable symbols `rule` mentions anywhere.
-fn mentioned_symbols(rule: &RewriteRule) -> BTreeSet<Name> {
+/// The taintable symbols `rule` mentions: anywhere, or in its left-hand side only when not
+/// `everywhere` (a test switch).
+fn mentioned_symbols(rule: &RewriteRule, everywhere: bool) -> BTreeSet<Name> {
     let mut symbols = BTreeSet::new();
     let mut visit_term = |term: &Term| {
         term.visit_symbols(&mut |symbol| {
@@ -135,6 +149,9 @@ fn mentioned_symbols(rule: &RewriteRule) -> BTreeSet<Name> {
         });
     };
     visit_term(&rule.lhs);
+    if !everywhere {
+        return symbols;
+    }
     match &rule.rhs {
         RuleRhs::Term(term) => visit_term(term),
         RuleRhs::Disjunction(alternatives) => {
@@ -160,8 +177,9 @@ fn mentioned_symbols(rule: &RewriteRule) -> BTreeSet<Name> {
 
 /// For each sort, the equation heads whose applications can occur inside an element of it: the
 /// least fixpoint over the graph whose edges go from a sort to its subsorts, and from a sort to
-/// the argument sorts of every constructor and equation head of that sort and to the element,
-/// key and value sorts of a collection sort. A sort parameter is read as every sort. Computed by
+/// the argument sorts of every constructor and equation head of that sort, and of every declared
+/// total function of that sort unless the sort is a builtin carrier (3.13 (l)), and to the
+/// element, key and value sorts of a collection sort. A sort parameter is read as every sort. Computed by
 /// one depth-first walk per sort asked, memoized.
 pub(crate) struct SortReach {
     edges: FxHashMap<Sort, BTreeSet<Sort>>,
@@ -212,8 +230,15 @@ impl SortReach {
                     .extend(parts.into_iter().map(Sort::simple));
             }
             let role = symbol.attributes.head_role();
+            // A declared total function's stuck application is a normal form (3.13 (k)), an
+            // element of its result sort holding its arguments, unless that sort is a builtin
+            // carrier (a hook or domain values), whose elements are literals.
+            let stuck_total = matches!(role, HeadRole::Function { .. })
+                && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+                && symbol.attributes.hook.is_none()
+                && !builtin_carrier(definition, &symbol.result_sort);
             // A sort injection's edges are the subsort edges above.
-            if !matches!(role, HeadRole::FreeConstructor | HeadRole::EquationHead)
+            if !(matches!(role, HeadRole::FreeConstructor | HeadRole::EquationHead) || stuck_total)
                 || symbol.is(WellKnownSymbol::Inj)
             {
                 continue;
@@ -276,6 +301,17 @@ impl SortReach {
         }
         self.memo.insert(sort.clone(), heads.clone());
         heads
+    }
+}
+
+/// Whether `sort` is a builtin carrier: declared with a hook or with domain values.
+fn builtin_carrier(definition: &BackendDefinition, sort: &Sort) -> bool {
+    match sort {
+        Sort::Application { name, .. } => definition
+            .sorts()
+            .get(name)
+            .is_some_and(|info| info.hook.is_some() || info.has_domain_values),
+        Sort::Variable(_) => false,
     }
 }
 

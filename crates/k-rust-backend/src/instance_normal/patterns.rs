@@ -1893,36 +1893,8 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
             break;
         }
     }
-    #[cfg(test)]
-    {
-        let work = SCAN.with(|scan| scan.borrow().facts_work.unwrap_or_default());
-        LAST_FACTS_COST.with(|cost| cost.set(Some(FactsCost { rounds, work })));
-    }
-    #[cfg(not(test))]
     let _ = rounds;
     facts
-}
-
-/// What one [`pattern_facts`] computation cost: its rounds and the narrowing steps they took
-/// (tests).
-#[cfg(test)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FactsCost {
-    pub(crate) rounds: usize,
-    pub(crate) work: usize,
-}
-
-#[cfg(test)]
-thread_local! {
-    /// The cost of the last [`pattern_facts`] computation on this thread.
-    static LAST_FACTS_COST: std::cell::Cell<Option<FactsCost>> =
-        const { std::cell::Cell::new(None) };
-}
-
-/// The cost of the last [`pattern_facts`] computation on this thread, if any.
-#[cfg(test)]
-pub(crate) fn last_facts_cost() -> Option<FactsCost> {
-    LAST_FACTS_COST.with(std::cell::Cell::get)
 }
 
 /// Whether the left-hand side `left` has a root its instances keep: one whose equations the

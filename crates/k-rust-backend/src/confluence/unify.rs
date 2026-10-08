@@ -303,6 +303,9 @@ impl Unifier<'_> {
         left: &Sort,
         right: &Sort,
     ) -> Result<Vec<Sort>, UnresolvedShape> {
+        if super::switches::active().drop_glb_branches {
+            return Ok(Vec::new());
+        }
         self.definition
             .sort_graph()
             .maximal_common_subsorts(left, right)
@@ -614,6 +617,9 @@ impl Unifier<'_> {
             // different terms modulo the matching theory.
             return Ok(Outcome::Clash);
         }
+        if super::switches::active().drop_lifting {
+            return Ok(Outcome::Clash);
+        }
         self.may_lift(&left_symbol.name)?;
         let overloads = self.definition.overloads();
         let (greater, greater_sorts, lesser) =
@@ -672,6 +678,9 @@ impl Unifier<'_> {
             // No overload axiom gives an application of `g` the value of an injection.
             return Ok(Outcome::Clash);
         }
+        if super::switches::active().drop_lifting {
+            return Ok(Outcome::Clash);
+        }
         self.may_lift(&greater.name)?;
         if (self.known_normal)(application) {
             // A normal form is in lowest form: no overload equation rewrites it to an injection.
@@ -706,6 +715,9 @@ impl Unifier<'_> {
                     return Err(UnresolvedShape::SetVariable);
                 }
                 let mut branches = Vec::new();
+                if super::switches::active().drop_lesser_productions {
+                    return Ok(Outcome::Branch(branches));
+                }
                 for lesser in lessers {
                     let Some(symbol) = self.definition.symbols().get(&lesser) else {
                         return Err(UnresolvedShape::Family(greater.name.clone()));

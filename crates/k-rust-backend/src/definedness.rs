@@ -481,7 +481,11 @@ pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) 
 /// by the `evaluated` bit (a constructor or injection over certified arguments, a domain value,
 /// or an `anywhere` application the simplifier cached as a fixed point). Requiring failure in
 /// both directions keeps the decision independent of matching orientation.
-fn elements_are_apart(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
+pub(crate) fn elements_are_apart(
+    definition: &BackendDefinition,
+    left: &Term,
+    right: &Term,
+) -> bool {
     #[cfg(test)]
     APARTNESS_CHECKS.set(APARTNESS_CHECKS.get() + 1);
     if terms_apart(Some(definition.sort_graph()), left, right).is_some() {

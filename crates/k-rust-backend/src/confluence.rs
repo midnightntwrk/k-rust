@@ -62,6 +62,7 @@
 mod closure;
 mod conditions;
 mod join;
+pub(crate) mod switches;
 #[cfg(test)]
 mod tests;
 mod unify;
@@ -101,7 +102,7 @@ pub struct ValueClaims(Arc<Verdict>);
 enum Verdict {
     /// The check has not run, or is running: no claim is admitted.
     Withheld,
-    Checked(Checked),
+    Checked(Box<Checked>),
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +112,20 @@ struct Checked {
     unjoined: Vec<UnjoinedPair>,
     violations: Vec<Violation>,
     counts: CheckCounts,
+    /// Test builds: the overload families, with stage 1's verdicts.
+    #[cfg(test)]
+    families: Option<Families>,
+}
+
+/// The constructions of a value claim that ask the gate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GateSite {
+    /// The instance-normal scan of an equation-head application.
+    EquationHead,
+    /// The instance-normal scan of a collection.
+    Collection,
+    /// The simplifier's normal-form certificate.
+    Certificate,
 }
 
 /// Evidence that an index may carry value claims: minted only by [`ValueClaims::admit`].
@@ -133,6 +148,27 @@ impl ValueClaims {
                 (!checked.tainted_indexes.contains(index)).then_some(UntaintedIndex(()))
             }
         }
+    }
+
+    /// [`Self::admit`] at one of the gate's sites, unless a test switch admits every index there.
+    #[must_use]
+    pub(crate) fn admit_at(&self, index: &TermIndex, site: GateSite) -> Option<UntaintedIndex> {
+        let switches = switches::active();
+        let forced = match site {
+            GateSite::EquationHead => switches.admit_equation_heads,
+            GateSite::Collection => false,
+            GateSite::Certificate => switches.admit_certificates,
+        };
+        if forced {
+            return Some(UntaintedIndex(()));
+        }
+        self.admit(index)
+    }
+
+    /// Test builds: a verdict that admits every index, as if the check had found nothing.
+    #[cfg(test)]
+    pub(crate) fn admitting_everything() -> Self {
+        Self(Arc::new(Verdict::Checked(Box::default())))
     }
 
     /// The pairs that do not provably join and withdrew claims, in the order they were found.
@@ -637,6 +673,9 @@ impl<'d> Context<'d> {
         if predicates.is_empty() {
             return Conditions::Open(Substitution::new());
         }
+        if switches::active().refute_every_condition {
+            return Conditions::Refuted;
+        }
         let Some(simplified) = self.simplify(Predicate::And(predicates)) else {
             return Conditions::Open(Substitution::new());
         };
@@ -671,6 +710,61 @@ impl<'d> Context<'d> {
             }
         }
     }
+}
+
+/// Test builds: unify `left` and `right` over normal-form instances of `definition` as stage 2
+/// does: with the overload axioms of the families stage 1 found confluent.
+#[cfg(test)]
+pub(crate) fn unify_for_tests(
+    definition: &BackendDefinition,
+    left: &Term,
+    right: &Term,
+) -> Result<Vec<Substitution>, UnresolvedShape> {
+    let families = match &*definition.value_claims().0 {
+        Verdict::Checked(checked) => checked
+            .families
+            .clone()
+            .unwrap_or_else(|| Families::of(definition)),
+        Verdict::Withheld => Families::of(definition),
+    };
+    let mut fresh = 0;
+    let nothing_normal = |_: &Term| false;
+    Unifier {
+        definition,
+        families: &families,
+        lifting: true,
+        known_normal: &nothing_normal,
+        fresh: &mut fresh,
+        branches: 0,
+    }
+    .unify(left, right)
+}
+
+/// Test builds: one candidate pair's unification, as [`recording_overlaps`] records it.
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct RecordedOverlap {
+    pub(crate) first: Arc<RewriteRule>,
+    /// The second equation, renamed apart from the first.
+    pub(crate) second: Arc<RewriteRule>,
+    pub(crate) position: Vec<usize>,
+    pub(crate) unifiers: Result<Vec<Substitution>, UnresolvedShape>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static RECORDED: std::cell::RefCell<Option<Vec<RecordedOverlap>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Test builds: runs `run` and returns, beside its result, every candidate pair the checks it
+/// ran on this thread unified, with the unifiers.
+#[cfg(test)]
+pub(crate) fn recording_overlaps<R>(run: impl FnOnce() -> R) -> (R, Vec<RecordedOverlap>) {
+    let previous = RECORDED.replace(Some(Vec::new()));
+    let result = run();
+    let recorded = RECORDED.replace(previous).unwrap_or_default();
+    (result, recorded)
 }
 
 /// The equation iterations a condition of the check may take to simplify. A condition the
@@ -708,8 +802,8 @@ impl Context<'_> {
         let first = candidate.first;
         let second = match rename_apart(candidate.second, &first.computed_attributes.variables, &[])
         {
-            Some((renamed, _)) => Arc::new(renamed),
-            None => Arc::clone(candidate.second),
+            Some((renamed, _)) if !switches::active().no_rename_apart => Arc::new(renamed),
+            _ => Arc::clone(candidate.second),
         };
         let not_joined = |reason: UnjoinedReason| {
             Classified::NotJoined(Box::new(unjoined_report(candidate, reason)))
@@ -740,6 +834,17 @@ impl Context<'_> {
             let branches = unifier.branches;
             self.counts.unifier_branches += branches;
             measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
+            #[cfg(test)]
+            RECORDED.with_borrow_mut(|recorded| {
+                if let Some(recorded) = recorded {
+                    recorded.push(RecordedOverlap {
+                        first: Arc::clone(first),
+                        second: Arc::clone(&second),
+                        position: candidate.position.clone(),
+                        unifiers: result.clone(),
+                    });
+                }
+            });
             match result {
                 Ok(unifiers) => unifiers,
                 Err(shape) => return not_joined(UnjoinedReason::Unresolved(shape)),
@@ -765,7 +870,7 @@ impl Context<'_> {
                 conjuncts
             };
             let overlap = instantiate(&first.lhs);
-            if ensures(first) != ensures(&second) {
+            if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
                 return Classified::NotJoined(Box::new(UnjoinedPair {
                     overlap: Some(overlap),
                     ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
@@ -903,7 +1008,7 @@ impl Context<'_> {
 
 /// An over-approximation of the sorts that have a normal form: the least set closed under a sort
 /// with a hook, domain values or a collection, the result sort of a symbol whose applications may
-/// be normal forms (any symbol but a declared function) when its argument sorts are in the set,
+/// be normal forms (any symbol but a declared partial function) when its argument sorts are in the set,
 /// and a supersort of a sort in the set. A sort with a parameter, an instance of a parametric
 /// symbol, and a sort the order does not know are counted inhabited.
 fn inhabited(definition: &BackendDefinition) -> FxHashSet<Sort> {
@@ -925,10 +1030,16 @@ fn inhabited(definition: &BackendDefinition) -> FxHashSet<Sort> {
             inhabited.insert(Sort::simple(sort));
         }
     }
+    // A declared total function's stuck application is a normal form (3.13 (k)); only a
+    // partial function's never is.
     let builders = definition
         .symbols()
         .values()
-        .filter(|symbol| !matches!(symbol.attributes.head_role(), HeadRole::Function { .. }))
+        .filter(|symbol| {
+            !matches!(symbol.attributes.head_role(), HeadRole::Function { .. })
+                || symbol.attributes.symbol_type
+                    == crate::term::SymbolType::Function(crate::term::FunctionType::Total)
+        })
         .collect::<Vec<_>>();
     loop {
         let before = inhabited.len();
@@ -997,7 +1108,7 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     for (index, priorities) in definition.function_theory() {
         for (priority, rules) in priorities {
             for rule in rules {
-                if symbolic(rule) {
+                if symbolic(rule) && !switches::active().join_with_symbolic {
                     continue;
                 }
                 groups
@@ -1043,7 +1154,7 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     if !heads {
         // No claim is about an equation-head application, and the collection claims read only
         // equations indexed at a collection or a bare variable, which the rows above taint.
-        return ValueClaims(Arc::new(Verdict::Checked(checked)));
+        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
     }
 
     let mut context = Context {
@@ -1198,10 +1309,19 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
             }
         }
     }
+    let switches = switches::active();
     for equation in &equations {
+        if switches.drop_inner_positions {
+            break;
+        }
         for (position, subterm) in inner_positions(&equation.rule.lhs) {
             let index = term_index(&subterm);
             for second in context.candidates(&index) {
+                if switches.separate_inner_by_priority
+                    && second.attributes.priority != equation.rule.attributes.priority
+                {
+                    continue;
+                }
                 let candidate = Candidate {
                     first: &equation.rule,
                     second: &second,
@@ -1217,6 +1337,10 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
 
     checked.counts = context.counts;
     checked.counts.unjoined = unjoined.len();
+    #[cfg(test)]
+    {
+        checked.families = Some(context.families.clone());
+    }
     let mut closure = closure::Closure::new(definition, &equations);
     let is_head = |symbol: &Name| {
         definition
@@ -1239,7 +1363,7 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     }
     checked.tainted_symbols = tainted;
     checked.unjoined = unjoined;
-    ValueClaims(Arc::new(Verdict::Checked(checked)))
+    ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))))
 }
 
 /// The lesser production an overload equation of `rule`'s greater root lowers to, when `rule`

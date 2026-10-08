@@ -1869,6 +1869,16 @@ impl BackendDefinition {
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
         // The check runs while the definition still withholds every claim, and before the
         // rewrite rules' definedness is discharged, which reads the claims.
+        #[cfg(test)]
+        {
+            let switches = crate::confluence::switches::active();
+            if switches.claims_during_check || switches.discharge_before_check {
+                result.value_claims = crate::confluence::ValueClaims::admitting_everything();
+            }
+            if switches.discharge_before_check {
+                result.discharge_rewrite_definedness();
+            }
+        }
         result.value_claims = crate::confluence::check(&result);
         result.discharge_rewrite_definedness();
         Ok(result)

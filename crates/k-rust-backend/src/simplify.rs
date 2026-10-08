@@ -4477,7 +4477,9 @@ fn simplify_root(
                 selection,
                 function_scan,
                 simplification_scan,
-                definition.value_claims().admit(&term_index(term)),
+                definition
+                    .value_claims()
+                    .admit_at(&term_index(term), crate::confluence::GateSite::Certificate),
             ),
         )
     } else {

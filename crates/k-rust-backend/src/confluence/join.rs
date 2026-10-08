@@ -66,6 +66,14 @@ const SIZE_FACTOR: usize = 4;
 /// `NormalEvidence::settled`.
 pub(crate) struct SettledRoot(());
 
+#[cfg(test)]
+impl SettledRoot {
+    /// Test builds: the witness, for tests that state settledness from an independent oracle.
+    pub(crate) fn for_tests() -> Self {
+        Self(())
+    }
+}
+
 /// What the join found.
 pub(super) enum Outcome {
     Joined,
@@ -282,6 +290,9 @@ impl Join<'_, '_> {
                     }
                 }
                 Step::Settled => self.mark_settled(&redex),
+                Step::Residual if super::switches::active().decompose_refused_redex => {
+                    self.mark_settled(&redex);
+                }
                 Step::Residual => {
                     if self.residual.insert(redex.clone()) {
                         self.residuals.push((redex, self.side));
@@ -429,7 +440,7 @@ impl Join<'_, '_> {
                     refuted = false;
                 }
             }
-            if !refuted {
+            if !refuted && !super::switches::active().ignore_higher_groups {
                 return Step::Residual;
             }
         }
@@ -546,6 +557,7 @@ impl Join<'_, '_> {
             if holds_residual
                 && !result_variables.contains(variable)
                 && !self.defined_everywhere(&substitution[variable])
+                && !super::switches::active().erase_partial_residuals
             {
                 self.refused = Some(subject.clone());
                 return Some(Step::Residual);

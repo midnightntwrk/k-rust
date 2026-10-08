@@ -55,6 +55,45 @@ jobs:
       - name: Run the portable feature set's doc-tests
         run: cargo test --doc --locked --no-default-features -p k-rust -p k-rust-wasm -p k-rust-backend
 
+  # The value contract's oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000
+  # random definitions, with a seed derived from the date and printed in hexadecimal, so that a
+  # failure is reproduced with `KRUST_DEFINEDNESS_ORACLE_SEED=<seed>`. The mutation switches run
+  # at their default size on every push (ci.yml); each takes under a second, so none is held back
+  # for this run.
+  value-contract-oracle:
+    name: Value-contract oracle, long run
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
+      - name: Derive the seed from the date
+        id: seed
+        run: echo "seed=$(printf '0x%x' "$(date -u +%Y%m%d)")" >> "$GITHUB_OUTPUT"
+
+      - name: Run the oracle at 20,000 cases
+        env:
+          KRUST_DEFINEDNESS_ORACLE_CASES: "20000"
+          KRUST_DEFINEDNESS_ORACLE_SEED: ${{ steps.seed.outputs.seed }}
+        run: |
+          echo "value-contract oracle seed: ${KRUST_DEFINEDNESS_ORACLE_SEED}"
+          cargo nextest run --locked --no-fail-fast --profile ci --cargo-profile release \
+            -p k-rust-backend --lib --no-capture \
+            -E 'test(/definedness_oracle::/) and not test(/definedness_oracle::mutations::/)'
+
   z3-acquisition:
     name: System-linked Z3 acquisition
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.z3-acquisition

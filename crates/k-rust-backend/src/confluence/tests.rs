@@ -467,3 +467,54 @@ fn the_overload_family_is_confluent_and_its_equations_join() {
     assert!(counts.families > 0);
     assert!(definition.value_claims().unjoined().is_empty());
 }
+
+/// An anywhere equation of the value production `vp` from `pattern` to `right`.
+fn vp_equation(pattern: &str, right: &str) -> String {
+    w_equation(pattern, right).replace("w{}(X0", "vp{}(X0")
+}
+
+/// Whether every rewrite rule of a definition whose value production `vp` the check withdraws
+/// (`vp(z) = m(z)` beside `vp(z) = m(s(z))`) is marked as preserving definedness; its one rule
+/// rewrites `m(s(z))` to the irreducible `vp(s(z))`.
+fn withdrawn_rule_preserves_definedness() -> bool {
+    let definition = definition(&format!(
+        r#"symbol vp{{}}(SortNat{{}}) : SortS{{}} [anywhere{{}}(), value-production{{}}()]
+        {} {}
+        axiom{{}} \rewrites{{SortS{{}}}}(
+            \and{{SortS{{}}}}(m{{}}(s{{}}(z{{}}())), \top{{SortS{{}}}}()),
+            \and{{SortS{{}}}}(vp{{}}(s{{}}(z{{}}())), \top{{SortS{{}}}}())
+        ) [label{{}}("r")]"#,
+        vp_equation("z{}()", "m{}(z{}())"),
+        vp_equation("z{}()", "m{}(s{}(z{}()))"),
+    ));
+    assert_eq!(
+        definition.value_claims().tainted_symbols(),
+        vec![crate::term::Name::from("vp")]
+    );
+    definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|groups| groups.values().flatten())
+        .all(|rule| rule.rule.attributes.preserves_definedness)
+}
+
+/// The rewrite rules' definedness is discharged after the check and reads its verdict: the
+/// right-hand side of the rule is an application of a withdrawn head, so the rule keeps its
+/// obligation.
+#[test]
+fn a_rewrite_rule_over_a_withdrawn_head_keeps_its_definedness_obligation() {
+    assert!(!withdrawn_rule_preserves_definedness());
+}
+
+/// V7: discharging before the check (with every claim admitted) is caught by the test above.
+#[test]
+fn discharging_before_the_check_is_caught() {
+    let switches = super::switches::Switches {
+        discharge_before_check: true,
+        ..super::switches::Switches::default()
+    };
+    assert!(super::switches::with(
+        switches,
+        withdrawn_rule_preserves_definedness
+    ));
+}
