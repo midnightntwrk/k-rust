@@ -1381,7 +1381,9 @@ fn version_8_document() -> (String, SourceTable) {
 }
 
 /// The reader of version 8 checks what the writer guarantees, entry by entry, and refuses
-/// anything else as invalid provenance: a set reference that is not to an earlier entry, an
+/// anything else as invalid provenance: a source table naming one source twice (references are
+/// table indices, so a repeat would shift every later one), a reference to an absent source, a
+/// set reference that is not to an earlier entry, an
 /// entry that is not in normal form (naming the empty entry, repeating a part, being a single
 /// reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
 /// that repeats another or extends no earlier entry, a receipt naming an absent anchor, and
@@ -1442,7 +1444,14 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         envelope[table].as_array_mut().unwrap().push(entry);
     };
     type Change<'a> = Box<dyn Fn(&mut Value) + 'a>;
-    let refused: [(&str, Change<'_>); 25] = [
+    let refused: [(&str, Change<'_>); 26] = [
+        (
+            "a source table naming one source twice",
+            Box::new(|e| {
+                let source = e["sources"][0].clone();
+                push(e, "sources", source);
+            }),
+        ),
         (
             "a link naming an absent source",
             Box::new(|e| e["originSets"][0][0]["source"] = value!(1)),

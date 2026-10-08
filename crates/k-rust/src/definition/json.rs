@@ -1279,8 +1279,9 @@ fn collect_definition_metadata(
 /// address unique with one comparison per entry. Each field that has entries is walked once in
 /// preorder, until its last entry: the node whose index is the next entry's receives its
 /// metadata before its children are pushed, so no borrow of a child is outstanding when the
-/// node is rewrapped. An entry not consumed by its field's walk is out of order, repeated, or
-/// past the end of the field.
+/// node is rewrapped. One check refuses every misplaced entry: the groups of entries must have
+/// strictly increasing fields, and an entry its field's walk does not consume (out of order,
+/// repeated, or past the end of the field) starts another group of the same field.
 fn attach_term_metadata(
     definition: &mut Definition,
     entries: Vec<JsonTermMetadataEntry>,
@@ -1293,7 +1294,8 @@ fn attach_term_metadata(
         let field = (first.module_index, first.sentence_index, first.field);
         if previous_field.is_some_and(|previous| previous >= field) {
             return Err(invalid(
-                "term-metadata entries are not in increasing address order",
+                "term-metadata entries are not in strictly increasing address order, or one \
+                 addresses a node past the end of its field",
             ));
         }
         previous_field = Some(field);
@@ -1327,14 +1329,6 @@ fn attach_term_metadata(
             }
             node = node.saturating_add(1);
             push_children_mut(term, &mut pending);
-        }
-        if entries
-            .peek()
-            .is_some_and(|entry| (entry.module_index, entry.sentence_index, entry.field) == field)
-        {
-            return Err(invalid(
-                "a term-metadata entry is out of order, repeated, or past the end of its field",
-            ));
         }
     }
     Ok(())
@@ -2989,12 +2983,27 @@ mod tests {
             reach.sentence_passes,
             reach.receipts
         );
-        let root = definition.modules[0].local_sentences[0]
+        // The deepest receipt: its set names its counterpart's and its parent's, so it reaches
+        // the set of every node of every pass, along the most paths. (The root's set names only
+        // the root's earlier sets and the flat sentence set, which no walk can make expensive.)
+        let mut node = definition.modules[0].local_sentences[0]
             .term(0)
-            .and_then(|body| body.metadata())
-            .and_then(|metadata| metadata.origin.clone())
-            .expect("the rebuilt root has a receipt");
-        assert!(!root.origins.is_flat());
+            .expect("a rule has a body");
+        let mut deepest = None;
+        loop {
+            if let Some(origin) = node.metadata().and_then(|metadata| metadata.origin.clone()) {
+                deepest = Some(origin);
+            }
+            if let Term::Apply { arguments, .. } = node.unannotated()
+                && let Some(first) = arguments.first()
+            {
+                node = first;
+            } else {
+                break;
+            }
+        }
+        let deepest = deepest.expect("the rebuilt chain has receipts");
+        assert!(!deepest.origins.is_flat());
 
         let counted = |counter: Counter, work: &mut dyn FnMut()| {
             let start = measure::snapshot();
@@ -3003,11 +3012,11 @@ mod tests {
         };
         let flattened = counted(Counter::ProvenanceLinksSteps, &mut || {
             // The spans of levels 1 to DEPTH - 1; the leaf has none.
-            assert_eq!(root.origins.links().len(), DEPTH - 1);
+            assert_eq!(deepest.origins.links().len(), DEPTH - 1);
         });
         assert!(
             flattened <= (reach.sets + reach.parts) as u64,
-            "flattening the root's set took {flattened} steps over {} sets of {} parts",
+            "flattening the deepest set took {flattened} steps over {} sets of {} parts",
             reach.sets,
             reach.parts
         );
