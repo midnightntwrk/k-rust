@@ -2387,6 +2387,11 @@ mod tests {
         }
         let mut paths = Vec::<AnchorPath>::new();
         let mut built = Vec::new();
+        // One allocation per distinct name, shared by every pool anchor that uses it, so that
+        // anchors sharing a name pair may differ in their sentence index alone (design §14.2).
+        let mut names = HashMap::<String, Arc<str>>::new();
+        let mut name =
+            |text: String| Arc::clone(names.entry(text.clone()).or_insert_with(|| text.into()));
         for ((module, sentence, index), parent, step) in anchors {
             let base = parent
                 .as_ref()
@@ -2397,8 +2402,8 @@ mod tests {
             let path = base.child(*step);
             paths.push(path.clone());
             built.push(DestinationAnchor {
-                module: format!("M{}", module % 2).into(),
-                sentence: format!("rule:{}", sentence % 2).into(),
+                module: name(format!("M{}", module % 2)),
+                sentence: name(format!("rule:{}", sentence % 2)),
                 sentence_index: index % 2,
                 path,
             });

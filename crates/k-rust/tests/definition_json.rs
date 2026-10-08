@@ -1715,3 +1715,80 @@ fn a_path_shared_by_two_roots_is_written_under_each() {
         assert_eq!(receipt(sentence), receipt(expected));
     }
 }
+
+/// Each component of a root anchor's key distinguishes roots on its own (design §14.2): receipts
+/// whose destinations share a pair of name allocations but differ in sentence index, share a
+/// sentence name allocation under different modules, or share a module allocation under
+/// different sentences, are written under roots of their own, and each decodes to its own
+/// module, sentence and index. No compiler or decoder producer builds such anchors (names are
+/// allocated once per sentence and pass, or per root entry), so the case is built by hand. Two
+/// destinations whose names are equal but separately allocated name one root.
+#[test]
+fn roots_that_differ_in_one_component_are_written_apart() {
+    let path = k_rust::provenance::AnchorPath::from(vec![0]);
+    let main: Arc<str> = "MAIN".into();
+    let other: Arc<str> = "OTHER".into();
+    let rule: Arc<str> = "rule".into();
+    let second: Arc<str> = "second".into();
+    let receipt = |module: &Arc<str>, sentence: &Arc<str>, index| {
+        Arc::new(OriginRecord {
+            pass: GeneratingPass::MacroExpansion,
+            origins: k_rust::provenance::OriginSet::new(),
+            destination: Some(DestinationAnchor {
+                module: Arc::clone(module),
+                sentence: Arc::clone(sentence),
+                sentence_index: index,
+                path: path.clone(),
+            }),
+        })
+    };
+    let receipts = [
+        receipt(&main, &rule, 0),
+        receipt(&main, &rule, 1),
+        receipt(&other, &rule, 0),
+        receipt(&main, &second, 0),
+        receipt(&"MAIN".into(), &"rule".into(), 0),
+    ];
+    let sentences = receipts
+        .iter()
+        .map(|receipt| Sentence::Rule {
+            body: Term::apply("f", Vec::new()).with_metadata(TermMetadata {
+                origin: Some(Arc::clone(receipt)),
+                ..TermMetadata::default()
+            }),
+            requires: bool_token("true"),
+            ensures: bool_token("true"),
+            attributes: empty_attributes(),
+        })
+        .collect();
+    let definition = complete_definition(sentences);
+    let encoded = json::to_provenance_string(&definition, &SourceTable::default()).unwrap();
+    let envelope: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(
+        envelope["anchors"],
+        value!([
+            {"module": "MAIN", "sentence": "rule", "sentenceIndex": 0},
+            {"parent": 0, "step": 0},
+            {"module": "MAIN", "sentence": "rule", "sentenceIndex": 1},
+            {"parent": 2, "step": 0},
+            {"module": "OTHER", "sentence": "rule", "sentenceIndex": 0},
+            {"parent": 4, "step": 0},
+            {"module": "MAIN", "sentence": "second", "sentenceIndex": 0},
+            {"parent": 6, "step": 0}
+        ])
+    );
+    let destinations = envelope["termMetadata"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["metadata"]["origin"]["destination"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(destinations, [1, 3, 5, 7, 1].map(|index| value!(index)));
+    let decoded = json::from_provenance_str(&encoded).unwrap().definition;
+    for (sentence, expected) in decoded.modules[0].local_sentences.iter().zip(&receipts) {
+        let Sentence::Rule { body, .. } = &**sentence else {
+            unreachable!()
+        };
+        assert_eq!(body.metadata().unwrap().origin.as_ref().unwrap(), expected);
+    }
+}
