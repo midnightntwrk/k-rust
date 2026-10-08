@@ -717,7 +717,11 @@ impl<'d> Context<'d> {
     /// A condition of a definition whose evaluation does not end (outside precondition P0) can
     /// keep the simplifier evaluating without bound, so each call runs under a step deadline of
     /// [`CONDITION_SECONDS`]; a stopped call decides nothing. Under P0 every condition the
-    /// corpus has simplifies in microseconds, far from it.
+    /// corpus has simplifies in microseconds, far from it. The check runs detached from the
+    /// loading request ([`check`]), so that deadline, and a stack-exhaustion stop on a condition
+    /// far deeper than any in the corpus, are the only stops it can meet; both lose precision
+    /// only. `wasm32` has no clock: there a condition outside P0 keeps the load from ending, as
+    /// an evaluation of it would.
     fn simplify(&mut self, predicate: Predicate) -> Option<Predicate> {
         self.counts.simplifier_calls += 1;
         measure::bump(Counter::ConfluenceSimplifierCalls);
@@ -1076,6 +1080,13 @@ fn flatten(predicate: Predicate, into: &mut BTreeSet<Predicate>) {
 
 /// Run the check on `definition`, which must hold [`ValueClaims::withheld`].
 pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
+    // The verdict is cached with the definition, so it must not depend on the request that loads
+    // it: the check reads no request cancellation and no outer step deadline, only the deadline
+    // it arms for each condition (R1.6).
+    crate::stop::detached(|| check_detached(definition))
+}
+
+fn check_detached(definition: &BackendDefinition) -> ValueClaims {
     let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
     let _apart = ApartScope::enter();
     let mut checked = Checked::default();

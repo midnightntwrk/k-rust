@@ -869,6 +869,43 @@ fn review_1_n1_through_a_subsort() {
     assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
 }
 
+/// Review 1 of the check, F4: the verdict is cached with the definition, so a definition loaded
+/// inside a cancelled request gets the verdict it gets outside one.
+#[test]
+fn review_1_f4_a_cancelled_request_gets_the_same_verdict() {
+    let build = || {
+        definition(
+            "symbol f{}(SortInt{}) : SortS{} [anywhere{}(), value-production{}()]",
+            &[
+                equation(
+                    "f",
+                    &["SortInt{}"],
+                    "SortS{}",
+                    &["VarX:SortInt{}"],
+                    "mk{}(VarX:SortInt{})",
+                    &int_equals("VarX", 1),
+                    "anywhere{}()",
+                ),
+                equation(
+                    "f",
+                    &["SortInt{}"],
+                    "SortS{}",
+                    &["VarX:SortInt{}"],
+                    &format!("mk{{}}({})", int(7)),
+                    &int_equals("VarX", 2),
+                    "anywhere{}()",
+                ),
+            ],
+        )
+    };
+    let plain = build();
+    assert_confluent(&plain);
+    let token = k_rust_backend::stop::CancellationToken::new();
+    token.cancel();
+    let cancelled = token.scope(build);
+    assert_confluent(&cancelled);
+}
+
 /// A total injective function into a builtin carrier cannot be interpreted on new elements (it
 /// would need a fresh literal for each), so the heads its argument sort can hold are withdrawn.
 #[test]
