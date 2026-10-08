@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Grammar and lexing feature gate: program-syntax partition (KF-005) and formats (KF-018).
+"""Grammar and lexing feature gate: program-syntax partition (KF-005), formats
+(KF-018), and production keys (KF-002).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -13,6 +14,12 @@ partition end to end on both routes:
   `krs check --partition` text is pinned and programs cannot contain them;
 - `program-warning`: the same production marked `program` gives the pinned
   `krs::partition::not-program-syntax` warning;
+- `prefer`: `prefer` on `IfThen` resolves the dangling else, so
+  `if true then if false then first else second` parses as
+  `ifThen(true, ifThenElse(false, first, second))` on both routes and runs to
+  `second`, and an unambiguous program is unaffected; `prefer` is a parser
+  attribute that K 7.1.337 does not write to KORE, and the native
+  `syntaxDefinition.kore` agrees (pinned);
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
   position; Java K accepts the emitted `.k`, the native and Java
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
@@ -20,8 +27,9 @@ partition end to end on both routes:
   `krs run --color always` must print it byte for byte (KF-017);
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
-  and program syntax, an unsigned package importing signed program syntax, and
-  a `colors` list that does not match the printed terminals.
+  and program syntax, an unsigned package importing signed program syntax, a
+  `colors` list that does not match the printed terminals, and `prefer` with
+  `avoid`.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -57,6 +65,7 @@ PARTITION = Fixture(MANIFEST, "krs-grammar-partition")
 KEVM_CASE = Fixture(MANIFEST, "krs-grammar-kevm-case")
 PROGRAM_WARNING = Fixture(MANIFEST, "krs-grammar-program-warning")
 FORMAT = Fixture(MANIFEST, "krs-grammar-format")
+PREFER = Fixture(MANIFEST, "krs-grammar-prefer")
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
 FORMAT_ATTRIBUTES = ("format", "color", "colors")
 FORMAT_PROGRAM = "while (1) { x = 2; }"
@@ -74,6 +83,18 @@ PARTITION_PROGRAMS = (
     Program("unsigned-literal", "-1", "accepted", "0", kast='neg(#token("1","Int"))'),
     Program("spaced-negation", "- 1", "accepted", "0"),
 )
+PREFER_PROGRAMS = (
+    Program(
+        "dangling-else", "if true then if false then first else second", "accepted", "second",
+        kast='ifThen(#token("true","Bool"),ifThenElse(#token("false","Bool"),first(.KList),second(.KList)))',
+    ),
+    Program(
+        "if-then-else", "if true then first else second", "accepted", "first",
+        kast='ifThenElse(#token("true","Bool"),first(.KList),second(.KList))',
+    ),
+    Program("if-then", "if false then first", "accepted", "skip"),
+)
+PREFER_ATTRIBUTES = (("ifThen", "ifThenElse"), ("prefer", "avoid"))
 KEVM_PROGRAMS = (
     Program("emit", "emit(1)", "accepted", "done"),
     Program("log-entry", "logEntry(1, .List, .Bytes)", "rejected"),
@@ -90,6 +111,7 @@ NEGATIVE = (
         ("krs-grammar-signed-base:main",),
     ),
     ("colors-mismatch", "colors-mismatch", "krs-grammar-colors-mismatch", ()),
+    ("prefer-avoid", "prefer-avoid", "krs-grammar-prefer-avoid", ()),
 )
 
 
@@ -239,6 +261,12 @@ def main() -> int:
             "PASS format: terminals by position; colours agree in native and Java KORE; "
             "krun --color on pinned and printed identically by krs run"
         )
+
+        harness.check(PREFER)
+        harness.expand(PREFER)
+        prefer = harness.emit(PREFER)
+        harness.compare(prefer, PREFER_PROGRAMS, sort="Stmt", attributes=PREFER_ATTRIBUTES)
+        print("PASS prefer: the dangling else binds to the inner if on both routes; KORE attributes agree")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

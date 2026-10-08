@@ -3,6 +3,7 @@ members = [
     "packages/format",
     "packages/kevm-case",
     "packages/partition",
+    "packages/prefer",
     "packages/program-warning",
 ]
 resolver = "3"

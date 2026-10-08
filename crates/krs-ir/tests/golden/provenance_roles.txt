@@ -162,3 +162,4 @@ RulePriority=rule_priority
 EquationOwise=equation_owise
 RuleNondetGroup=rule_nondet_group
 RuleAnywhere=rule_anywhere
+ConstructorPrefer=constructor_prefer

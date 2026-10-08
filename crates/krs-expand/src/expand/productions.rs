@@ -102,6 +102,7 @@ pub(super) struct ColorMetadata<'a> {
 pub(super) fn constructor_metadata_wire(
     group: Option<String>,
     avoid: bool,
+    prefer: bool,
     placement: Option<krs_syntax::PlacementFlag>,
     colors: &ColorMetadata<'_>,
     format: Option<&krs_syntax::StructuredFormat>,
@@ -124,6 +125,11 @@ pub(super) fn constructor_metadata_wire(
     if avoid {
         attributes.push(Attribute::Avoid {
             key: wire_key(ProvenanceRole::ConstructorAvoid, 0),
+        });
+    }
+    if prefer {
+        attributes.push(Attribute::Prefer {
+            key: wire_key(ProvenanceRole::ConstructorPrefer, 0),
         });
     }
     match placement {

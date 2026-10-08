@@ -202,6 +202,7 @@ fn emit_production_attribute(
             writer.push(")");
         }
         ProductionAttribute::Avoid { .. } => writer.push("avoid"),
+        ProductionAttribute::Prefer { .. } => writer.push("prefer"),
         ProductionAttribute::Format { fragments, .. } => {
             writer.push("format(");
             for fragment in fragments {

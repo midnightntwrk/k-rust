@@ -370,6 +370,8 @@ provenance_roles! {
     RuleNondetGroup => "rule_nondet_group",
     /// Bare `anywhere` marker on a term-shaped transition rule.
     RuleAnywhere => "rule_anywhere",
+    /// Typed `prefer` flag in a constructor attribute.
+    ConstructorPrefer => "constructor_prefer",
 }
 
 impl Serialize for ProvenanceRole {

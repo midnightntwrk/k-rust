@@ -350,6 +350,7 @@ fn materialize_enum_productions(
         })?;
         // Keys in the canonical order of decision X2.
         let avoid = syntax.avoid().then(|| quote!(avoid = true,));
+        let prefer = syntax.prefer().then(|| quote!(prefer = true,));
         let placement = syntax.placement().map(|flag| {
             let key = format_ident!("{}", flag.as_str());
             quote!(#key = true,)
@@ -362,6 +363,7 @@ fn materialize_enum_productions(
             #template,
             group = #group,
             #avoid
+            #prefer
             #placement
             #color
             #colors

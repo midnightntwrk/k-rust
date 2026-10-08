@@ -510,6 +510,7 @@ fn expand_enum_variant(
         super::productions::constructor_metadata_wire(
             group.or_else(|| syntax.group().map(syn::LitStr::value)),
             syntax.avoid(),
+            syntax.prefer(),
             syntax.placement(),
             &super::productions::ColorMetadata {
                 color: syntax.color(),

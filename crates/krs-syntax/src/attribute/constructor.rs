@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::value::{
-    parse_avoid_value, parse_format_value, parse_group_value, parse_sort_value, parse_syntax_value,
+    parse_avoid_value, parse_format_value, parse_group_value, parse_prefer_value, parse_sort_value,
+    parse_syntax_value,
 };
 
 /// Arguments of `#[k::constructor(...)]`.
@@ -30,6 +31,7 @@ pub struct ConstructorAttribute {
     syntax_template: Option<SyntaxTemplate>,
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
+    prefer_literal: Option<LitBool>,
     placement: PlacementFlags,
     colors: ProductionColors,
 }
@@ -491,6 +493,7 @@ pub struct VariantSyntaxAttribute {
     syntax_template: SyntaxTemplate,
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
+    prefer_literal: Option<LitBool>,
     placement: PlacementFlags,
     colors: ProductionColors,
 }
@@ -518,6 +521,12 @@ impl VariantSyntaxAttribute {
     #[must_use]
     pub const fn avoid(&self) -> bool {
         self.avoid
+    }
+
+    /// Returns whether the production carries K's parser `prefer` preference.
+    #[must_use]
+    pub const fn prefer(&self) -> bool {
+        self.prefer_literal.is_some()
     }
 
     /// Returns the authored structured-format literal, when present.
@@ -633,6 +642,13 @@ impl VariantSyntaxAttribute {
                 TokenRange::for_tokens(avoid)?,
             ));
         }
+        if let Some(prefer) = &self.prefer_literal {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorPrefer,
+                0,
+                TokenRange::for_tokens(prefer)?,
+            ));
+        }
         anchors.extend(self.placement.anchors()?);
         anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
@@ -648,6 +664,12 @@ impl VariantSyntaxAttribute {
 }
 
 impl ConstructorAttribute {
+    /// Returns whether the production carries K's parser `prefer` preference.
+    #[must_use]
+    pub const fn prefer(&self) -> bool {
+        self.prefer_literal.is_some()
+    }
+
     /// Returns the production's `internal` or `program` flag.
     #[must_use]
     pub fn placement(&self) -> Option<PlacementFlag> {
@@ -766,6 +788,13 @@ impl ConstructorAttribute {
                 TokenRange::for_tokens(avoid)?,
             ));
         }
+        if let Some(prefer) = &self.prefer_literal {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorPrefer,
+                0,
+                TokenRange::for_tokens(prefer)?,
+            ));
+        }
         anchors.extend(self.placement.anchors()?);
         anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
@@ -841,6 +870,7 @@ enum ConstructorKey {
     Syntax,
     Group,
     Avoid,
+    Prefer,
     Format,
 }
 
@@ -851,6 +881,7 @@ impl ConstructorKey {
             "syntax" => Ok(Self::Syntax),
             "group" => Ok(Self::Group),
             "avoid" => Ok(Self::Avoid),
+            "prefer" => Ok(Self::Prefer),
             "format" => Ok(Self::Format),
             _ => Err(SyntaxError::new(
                 SyntaxErrorKind::UnknownArgument {
@@ -867,6 +898,7 @@ impl ConstructorKey {
 enum VariantSyntaxKey {
     Group,
     Avoid,
+    Prefer,
     Format,
 }
 
@@ -875,6 +907,7 @@ impl VariantSyntaxKey {
         match key.to_string().as_str() {
             "group" => Ok(Self::Group),
             "avoid" => Ok(Self::Avoid),
+            "prefer" => Ok(Self::Prefer),
             "format" => Ok(Self::Format),
             _ => Err(SyntaxError::new(
                 SyntaxErrorKind::UnknownArgument {
@@ -897,6 +930,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
     let mut syntax = None;
     let mut group = None;
     let mut avoid = None;
+    let mut prefer = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
     let mut colors = ProductionColors::default();
@@ -950,6 +984,18 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
                 )
                 .into());
             }
+            ConstructorKey::Prefer if prefer.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "prefer" },
+                    key.span(),
+                )
+                .into());
+            }
+            ConstructorKey::Avoid | ConstructorKey::Prefer
+                if avoid.is_some() || prefer.is_some() =>
+            {
+                return Err(preference_conflict(&key).into());
+            }
             ConstructorKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
@@ -967,6 +1013,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
             ConstructorKey::Syntax => syntax = Some(parse_syntax_value(value)?),
             ConstructorKey::Group => group = Some(parse_group_value(value)?),
             ConstructorKey::Avoid => avoid = Some(parse_avoid_value(value)?),
+            ConstructorKey::Prefer => prefer = Some(parse_prefer_value(value)?),
             ConstructorKey::Format => format = Some(parse_format_value(value)?),
         }
 
@@ -1014,9 +1061,22 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         syntax_template,
         structured_format,
         avoid_literal: avoid,
+        prefer_literal: prefer,
         placement,
         colors,
     })
+}
+
+/// K applies `prefer` and `avoid` as one pair of parse-forest filters and
+/// lets `prefer` win silently, so a production takes at most one of them.
+fn preference_conflict(key: &Ident) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidArgumentValue {
+            name: if key == "prefer" { "prefer" } else { "avoid" },
+            expected: "omitted: a production is either preferred or avoided, not both",
+        },
+        key.span(),
+    )
 }
 
 fn placement_flag(key: &Ident) -> Option<PlacementFlag> {
@@ -1138,6 +1198,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             syntax_template: Some(syntax_template),
             structured_format: None,
             avoid_literal: None,
+            prefer_literal: None,
             placement,
             colors: ProductionColors::default(),
         },
@@ -1282,6 +1343,10 @@ fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttri
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One keyed loop parses every variant production argument."
+)]
 fn parse_variant_syntax_stream(
     input: ParseStream<'_>,
 ) -> Result<VariantSyntaxAttribute, ParseError> {
@@ -1296,6 +1361,7 @@ fn parse_variant_syntax_stream(
     let syntax = parse_syntax_value(input.parse()?)?;
     let mut group = None;
     let mut avoid = None;
+    let mut prefer = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
     let mut colors = ProductionColors::default();
@@ -1338,6 +1404,18 @@ fn parse_variant_syntax_stream(
                 )
                 .into());
             }
+            VariantSyntaxKey::Prefer if prefer.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "prefer" },
+                    key.span(),
+                )
+                .into());
+            }
+            VariantSyntaxKey::Avoid | VariantSyntaxKey::Prefer
+                if avoid.is_some() || prefer.is_some() =>
+            {
+                return Err(preference_conflict(&key).into());
+            }
             VariantSyntaxKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
@@ -1349,12 +1427,15 @@ fn parse_variant_syntax_stream(
         }
         if matches!(key_kind, VariantSyntaxKey::Avoid) && !input.peek(Token![=]) {
             avoid = Some(LitBool::new(true, key.span()));
+        } else if matches!(key_kind, VariantSyntaxKey::Prefer) && !input.peek(Token![=]) {
+            prefer = Some(LitBool::new(true, key.span()));
         } else {
             input.parse::<Token![=]>()?;
             let value: Expr = input.parse()?;
             match key_kind {
                 VariantSyntaxKey::Group => group = Some(parse_group_value(value)?),
                 VariantSyntaxKey::Avoid => avoid = Some(parse_avoid_value(value)?),
+                VariantSyntaxKey::Prefer => prefer = Some(parse_prefer_value(value)?),
                 VariantSyntaxKey::Format => format = Some(parse_format_value(value)?),
             }
         }
@@ -1381,6 +1462,7 @@ fn parse_variant_syntax_stream(
         syntax_template,
         structured_format,
         avoid_literal: avoid,
+        prefer_literal: prefer,
         placement,
         colors,
     })

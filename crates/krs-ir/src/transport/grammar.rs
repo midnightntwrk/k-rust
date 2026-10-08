@@ -677,6 +677,11 @@ stage_shape! {
             /// Colour names with their own literal provenance, in source order.
             values: Vec<DescriptorColorEntry> => [keep],
         },
+        /// Typed parser preference, the counterpart of `avoid`.
+        Prefer {
+            /// Prefer-attribute provenance.
+            key: ProvenanceKey => [keep],
+        },
     }
 }
 
@@ -2090,6 +2095,10 @@ impl DescriptorProduction {
                     }
                     "color"
                 }
+                DescriptorProductionAttribute::Prefer { key } => {
+                    require_key(key, provenance)?;
+                    "prefer"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -2117,6 +2126,11 @@ impl DescriptorProduction {
         if families.contains("internal") && families.contains("program") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::InternalProgramMetadata,
+            ));
+        }
+        if families.contains("prefer") && families.contains("avoid") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::PreferAvoidMetadata,
             ));
         }
         let regex_count = self
@@ -2552,6 +2566,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Avoid { key } => {
                     insert_exact(keys, key, ProvenanceRole::ConstructorAvoid, 0)?;
+                }
+                DescriptorProductionAttribute::Prefer { key } => {
+                    insert_exact(keys, key, ProvenanceRole::ConstructorPrefer, 0)?;
                 }
                 DescriptorProductionAttribute::Format { key, fragments } => {
                     insert_exact(keys, key, ProvenanceRole::ConstructorFormat, 0)?;

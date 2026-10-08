@@ -221,6 +221,9 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Avoid { .. } => {
                 attributes.insert("avoid", json!(""));
             }
+            DefinitionProductionAttribute::Prefer { .. } => {
+                attributes.insert("prefer", json!(""));
+            }
             DefinitionProductionAttribute::Format { fragments, .. } => {
                 attributes.insert("format", json!(native_format(fragments)));
             }

@@ -33,12 +33,22 @@ pub(crate) fn string_attribute<'a>(
         .map_err(|_| StringAttributeError::NonUtf8)
 }
 
+/// Whether the attributes hold exactly one argument-free application of `name`.
+fn flag_attribute(attributes: &Attributes, name: &str) -> bool {
+    let mut matches = attributes.0.iter().filter_map(|attribute| match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == name => Some(arguments),
+        _ => None,
+    });
+    matches!((matches.next(), matches.next()), (Some(arguments), None) if arguments.is_empty())
+}
+
 /// The named string attributes of the named labels' symbol declarations.
 ///
 /// Labels are K label names (`while`, not the KORE symbol name); attributes a
-/// declaration lacks are omitted from its object. Java K writes each
-/// declaration on one line and k-rust across several, so the definition is
-/// parsed rather than compared as text.
+/// declaration lacks are omitted from its object. A flag attribute without
+/// arguments, such as `prefer{}()` or `memo{}()`, reads as the empty string.
+/// Java K writes each declaration on one line and k-rust across several, so
+/// the definition is parsed rather than compared as text.
 ///
 /// # Errors
 ///
@@ -76,6 +86,10 @@ pub(crate) fn symbol_attributes(
         }
         let mut row = serde_json::Map::new();
         for name in names {
+            if flag_attribute(attributes, name) {
+                row.insert(name.clone(), serde_json::Value::String(String::new()));
+                continue;
+            }
             let value = string_attribute(attributes, name).map_err(|error| {
                 let reason = match error {
                     StringAttributeError::NonUtf8 => "is not UTF-8",
@@ -195,7 +209,7 @@ mod tests {
         std::fs::write(
             &path,
             "[]\nmodule M\n  sort SortStmt{} []\n  symbol Lblwhile{}(SortStmt{}) : SortStmt{} \
-             [format{}(\"%cwhile%r %1\"), colors{}(\"red\"), functional{}()]\n  \
+             [format{}(\"%cwhile%r %1\"), colors{}(\"red\"), prefer{}(), functional{}()]\n  \
              symbol Lblskip{}() : SortStmt{}\n    [format{}(\"%cskip%r\")]\nendmodule []\n",
         )
         .unwrap();
@@ -208,13 +222,13 @@ mod tests {
         let rows = symbol_attributes(
             &path,
             &strings(&["while", "skip"]),
-            &strings(&["format", "colors", "color"]),
+            &strings(&["format", "colors", "color", "prefer"]),
         )
         .unwrap();
         assert_eq!(
             rows,
             serde_json::json!({
-                "while": {"format": "%cwhile%r %1", "colors": "red"},
+                "while": {"format": "%cwhile%r %1", "colors": "red", "prefer": ""},
                 "skip": {"format": "%cskip%r"},
             })
         );

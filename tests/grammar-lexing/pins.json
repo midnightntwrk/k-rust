@@ -2,7 +2,8 @@
   "schema": 1,
   "expand": {
     "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282",
-    "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4"
+    "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4",
+    "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -13,6 +14,9 @@
     },
     "krs-grammar-format": {
       "definition.k": "c7c532a70e9b597e36ca2428459ec156fac752e9c71339f00d5c444fa47ccc52"
+    },
+    "krs-grammar-prefer": {
+      "definition.k": "67edfbe87cfcc6c657016bb16f8ddeed61c6f3e2c9e11e0668daadd77ba85966"
     }
   },
   "partition": {
@@ -30,7 +34,8 @@
   "reference_sha256": {
     "krs-grammar-partition": "b5efe564c517d4efa254ef508c6ae714bbc9ad77f899e512bce5bd4b6fe54bdb",
     "krs-grammar-kevm-case": "cd3b6a00d3e958f904a49796b8d252b6ec46ded60fdea007d54bfe7b8245f0ab",
-    "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961"
+    "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961",
+    "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -72,6 +77,20 @@
         "parse": "rejected",
         "run": null
       }
+    },
+    "krs-grammar-prefer": {
+      "dangling-else": {
+        "parse": "accepted",
+        "run": "second"
+      },
+      "if-then-else": {
+        "parse": "accepted",
+        "run": "first"
+      },
+      "if-then": {
+        "parse": "accepted",
+        "run": "skip"
+      }
     }
   },
   "diagnostics": {
@@ -95,11 +114,17 @@
     ],
     "colors-mismatch": [
       "error[krs::rust-expansion::uncoded-error]: invalid production colours: `colors` needs one colour per terminal of the syntax template plus one per `%c`"
+    ],
+    "prefer-avoid": [
+      "error[krs::rust-expansion::uncoded-error]: `prefer` must be omitted: a production is either preferred or avoided, not both"
     ]
   },
   "format": {
     "kore_attributes": "while colors='magenta,magenta,magenta' format='%cwhile%r %c(%r%1%c)%r %2'\nblock colors='blue,blue' format='%c{%r%i%n%1%d%n%c}%r'\nassignX colors='green,red,red,red' format='%c// assign%r%n%cx%r %c=%r %1%c;%r'\nskip format='%cskip%r'\n",
     "krun_color": "<k>\u001b[0m\n  \u001b[38;5;201mwhile\u001b[0m \u001b[38;5;201m(\u001b[0m1\u001b[38;5;201m)\u001b[0m \u001b[38;5;21m{\u001b[0m\n    \u001b[38;5;46m// assign\u001b[0m\n    \u001b[38;5;196mx\u001b[0m \u001b[38;5;196m=\u001b[0m 2\u001b[38;5;196m;\u001b[0m\n  \u001b[38;5;21m}\u001b[0m ~> .K\n</k>\u001b[0m\n",
     "krs_parse_program": "while (1) {\n  c// assignr\n  x = 2;\n}\n"
+  },
+  "kore_attributes": {
+    "krs-grammar-prefer": "ifThen \nifThenElse \n"
   }
 }

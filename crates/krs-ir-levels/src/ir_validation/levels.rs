@@ -64,6 +64,8 @@ macro_rules! validation_error {
             ValidationError::InvalidFormat => $public::InvalidFormat,
             ValidationError::InvalidColors => $public::InvalidColors,
             ValidationError::InternalWithProgram => $public::InternalWithProgram,
+            ValidationError::PreferAndAvoid => $public::PreferAndAvoid,
+            ValidationError::PreferOnParseOnlyProduction => $public::PreferOnParseOnlyProduction,
             ValidationError::InvalidFunctionProduction => $public::InvalidFunctionProduction,
             ValidationError::InvalidBn128PointConstructor {
                 hook,

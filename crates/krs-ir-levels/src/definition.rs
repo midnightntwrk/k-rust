@@ -1351,6 +1351,10 @@ pub enum DefinitionValidationError {
     InvalidColors,
     /// A production was marked both `internal` and `program`.
     InternalWithProgram,
+    /// A production was marked both `prefer` and `avoid`.
+    PreferAndAvoid,
+    /// A token or bracket production was marked `prefer`.
+    PreferOnParseOnlyProduction,
     /// A production kept `internal` or `program`, which lowering consumes when
     /// it places productions in the program-syntax or semantics module.
     SemanticOnlyProductionAttribute(SymbolId),
@@ -1520,6 +1524,12 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::InternalWithProgram => {
                 formatter.write_str("a production cannot be both `internal` and `program`")
+            }
+            Self::PreferAndAvoid => {
+                formatter.write_str("a production is either preferred or avoided, not both")
+            }
+            Self::PreferOnParseOnlyProduction => {
+                formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")
             }
             Self::SemanticOnlyProductionAttribute(id) => write!(
                 formatter,
@@ -1770,7 +1780,8 @@ fn validate_production(
             | ProductionAttribute::Avoid { .. }
             | ProductionAttribute::Format { .. }
             | ProductionAttribute::Color { .. }
-            | ProductionAttribute::Colors { .. } => {}
+            | ProductionAttribute::Colors { .. }
+            | ProductionAttribute::Prefer { .. } => {}
             ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),

@@ -995,8 +995,11 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     values: sample::<Vec<DescriptorColorEntry>>(),
                 },
+                Self::Prefer {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            15,
+            16,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1014,6 +1017,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Program { .. } => 12,
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
+                Self::Prefer { .. } => 15,
             },
         )
     }
@@ -1409,8 +1413,11 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                     origin: sample::<NodeOrigin>(),
                     values: sample::<Vec<String>>(),
                 },
+                Self::Prefer {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            15,
+            16,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1428,6 +1435,7 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                 Self::Program { .. } => 12,
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
+                Self::Prefer { .. } => 15,
             },
         )
     }
@@ -1901,8 +1909,11 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     values: sample::<Vec<DescriptorColorEntry>>(),
                 },
+                Self::Prefer {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            15,
+            16,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1920,6 +1931,7 @@ impl Sample for WireProductionAttribute {
                 Self::Program { .. } => 12,
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
+                Self::Prefer { .. } => 15,
             },
         )
     }

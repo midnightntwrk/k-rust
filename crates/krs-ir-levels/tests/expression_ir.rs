@@ -804,6 +804,55 @@ fn rejects_regex_without_classified_token_metadata() {
 }
 
 #[test]
+fn rejects_prefer_with_avoid_and_on_parse_only_productions() {
+    let prefer = |key: &str| {
+        serde_json::json!({
+            "attribute_kind": "prefer",
+            "origin": serde_json::to_value(node(key)).unwrap(),
+        })
+    };
+    let mut with_avoid = expression_json();
+    production_mut(&mut with_avoid, "production.neg")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "attribute_kind": "avoid",
+            "origin": serde_json::to_value(node("production.neg.avoid")).unwrap(),
+        }));
+    let mut accepted = with_avoid.clone();
+    production_mut(&mut with_avoid, "production.neg")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap()
+        .push(prefer("production.neg.prefer"));
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(with_avoid),
+        DefinitionValidationError::PreferAndAvoid,
+    );
+    let attributes = production_mut(&mut accepted, "production.neg")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap();
+    attributes.pop();
+    attributes.push(prefer("production.neg.prefer"));
+    serde_json::from_value::<DefinitionIr>(accepted).unwrap();
+
+    for (production, key) in [
+        ("production.paren", "production.paren.prefer"),
+        ("production.id", "production.id.prefer"),
+    ] {
+        let mut json = expression_json();
+        let attributes = production_mut(&mut json, production)["sentence"]["attributes"]
+            .as_array_mut()
+            .unwrap();
+        attributes.retain(|attribute| attribute["attribute_kind"] != "avoid");
+        attributes.push(prefer(key));
+        assert_rejects_with_message(
+            serde_json::from_value::<DefinitionIr>(json),
+            DefinitionValidationError::PreferOnParseOnlyProduction,
+        );
+    }
+}
+
+#[test]
 fn rejects_strictness_for_an_unknown_field() {
     let mut json = expression_json();
     let attributes = production_mut(&mut json, "production.add")["sentence"]["attributes"]

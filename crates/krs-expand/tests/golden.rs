@@ -205,6 +205,19 @@ pub enum StaticExpr {
 "#,
     ),
     (
+        "constructors_prefer",
+        r#"
+#[k::constructors(sort = Stmt, result = k::KResult)]
+#[k::precedence((IfThen, IfThenElse))]
+pub enum StmtSyntax {
+    #[k::syntax("if {condition} then {body}", prefer)]
+    IfThen { condition: Bool, body: Stmt },
+    #[k::syntax("if {condition} then {then_branch} else {else_branch}")]
+    IfThenElse { condition: Bool, then_branch: Stmt, else_branch: Stmt },
+}
+"#,
+    ),
+    (
         "constructors_records",
         r#"
 #[k::constructors(sort = Value)]

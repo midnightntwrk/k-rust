@@ -1420,6 +1420,7 @@ fn lower_production_attributes(
                 },
                 ProductionAttribute::Bracket { .. } => ProductionAttribute::Bracket { origin },
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
+                ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
                 ProductionAttribute::Format { fragments, .. } => ProductionAttribute::Format {
                     origin,
                     fragments: fragments.clone(),

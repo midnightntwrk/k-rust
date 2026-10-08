@@ -253,6 +253,16 @@ pub(super) fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseError> 
 }
 
 pub(super) fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseError> {
+    parse_true_flag_value("avoid", value)
+}
+
+pub(super) fn parse_prefer_value(value: Expr) -> Result<LitBool, ParseError> {
+    parse_true_flag_value("prefer", value)
+}
+
+/// Parses the reference spelling `key = true` of a parser-preference flag;
+/// `false` is rejected because it is not metadata.
+fn parse_true_flag_value(name: &'static str, value: Expr) -> Result<LitBool, ParseError> {
     let Expr::Lit(ExprLit {
         attrs,
         lit: Lit::Bool(literal),
@@ -260,7 +270,7 @@ pub(super) fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseError> {
     else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidArgumentValue {
-                name: "avoid",
+                name,
                 expected: "a Rust Boolean literal",
             },
             value.span(),
@@ -270,7 +280,7 @@ pub(super) fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseError> {
     if !attrs.is_empty() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidArgumentValue {
-                name: "avoid",
+                name,
                 expected: "an unadorned Rust Boolean literal",
             },
             literal.span(),
@@ -280,7 +290,7 @@ pub(super) fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseError> {
     if !literal.value {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidArgumentValue {
-                name: "avoid",
+                name,
                 expected: "the Rust Boolean literal `true`",
             },
             literal.span(),

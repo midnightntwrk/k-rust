@@ -725,6 +725,7 @@ fn constructor_grammar(
     let mut attributes = super::productions::constructor_metadata_wire(
         attribute.group.as_ref().map(syn::LitStr::value),
         attribute.avoid,
+        attribute.prefer(),
         attribute.placement(),
         &super::productions::ColorMetadata {
             color: attribute.color(),

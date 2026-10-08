@@ -126,6 +126,8 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidFormat,
     InvalidColors,
     InternalWithProgram,
+    PreferAndAvoid,
+    PreferOnParseOnlyProduction,
     InvalidFunctionProduction,
     InvalidHookSignature(HookOperation),
     InvalidBn128PointConstructor {
@@ -1253,6 +1255,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut internal = false;
     let mut program = false;
     let mut colors = None;
+    let mut prefer = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1274,6 +1277,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Colors { values, .. } => colors
                 .replace(values.iter().map(String::as_str).collect())
                 .is_some(),
+            ProductionAttribute::Prefer { .. } => std::mem::replace(&mut prefer, true),
         };
         if already {
             let name = attribute
@@ -1315,11 +1319,21 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Internal { .. }
             | ProductionAttribute::Program { .. }
             | ProductionAttribute::Color { .. }
-            | ProductionAttribute::Colors { .. } => {}
+            | ProductionAttribute::Colors { .. }
+            | ProductionAttribute::Prefer { .. } => {}
         }
     }
     if internal && program {
         return Err(L::error(ValidationError::InternalWithProgram));
+    }
+    // K lets `prefer` win silently over `avoid`; a production takes one.
+    if prefer && avoid {
+        return Err(L::error(ValidationError::PreferAndAvoid));
+    }
+    // Token and bracket productions never compete in a parse forest as
+    // constructors, so a preference on them has no meaning.
+    if prefer && (token || bracket) {
+        return Err(L::error(ValidationError::PreferOnParseOnlyProduction));
     }
     validate_production_colors::<L>(items, attributes, colors.as_deref())?;
     if total && !function {

@@ -82,6 +82,7 @@ details! {
         Internal => "internal",
         Program => "program",
         Color => "color",
+        Prefer => "prefer",
     }
 }
 

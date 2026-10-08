@@ -40,7 +40,7 @@ from support.hashing import sha256_file
 from support.krs import Invocation
 from support.pins import Ledger
 from support.process import run
-from support.reference import Key, Pin, Snapshot, repository_inputs, substitute
+from support.reference import Key, Output, Pin, Snapshot, repository_inputs, substitute
 
 
 UNDEFINED = "undefined"
@@ -194,6 +194,7 @@ class FixtureGate:
 
     def compare(
         self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
+        attributes: tuple[Sequence[str], Sequence[str]] | None = None,
     ) -> dict[str, Any]:
         """Run every program on both routes and require the pinned outcomes to agree.
 
@@ -201,10 +202,17 @@ class FixtureGate:
         with a `search` expectation is also searched on both routes: native
         `search` and `krun --search` must reach the same multiset of final
         computation cells.
+
+        With `attributes` (labels, attribute names), the named attributes of
+        the labels' KORE symbol declarations must also agree between the
+        native `syntaxDefinition.kore` and Java's; the agreed lines are pinned
+        as `kore_attributes.<package>`.
         """
 
         native = self._native_outcomes(emitted, programs)
-        java = self._java_outcomes(emitted, programs, sort=sort, search=search)
+        java = self._java_outcomes(emitted, programs, sort=sort, search=search, attributes=attributes)
+        if attributes is not None:
+            self._compare_kore_attributes(emitted, attributes)
         observed: dict[str, Any] = {}
         known = self.divergences.get(emitted.fixture.package, {})
         for program in programs:
@@ -274,8 +282,36 @@ class FixtureGate:
                     outcomes[program.name]["search"] = _native_search(session, program, pattern)
         return outcomes
 
+    def _attribute_text(self, emitted: Emitted) -> Path:
+        return self.workspace / "kore-attributes" / f"{emitted.fixture.package}.txt"
+
+    def _compare_kore_attributes(
+        self, emitted: Emitted, attributes: tuple[Sequence[str], Sequence[str]],
+    ) -> None:
+        labels, names = attributes
+        native_kore = self.build(emitted.fixture) / "syntaxDefinition.kore"
+        native = kore_attribute_lines(self.gate, native_kore, labels, names, environment=self.environment)
+        java = self._attribute_text(emitted).read_text(encoding="utf-8")
+        if native != java:
+            raise GateError(
+                f"{emitted.fixture.package}: native and Java KORE attributes differ:\n"
+                f"native:\n{native}java:\n{java}"
+            )
+        self.pins.expect(("kore_attributes", emitted.fixture.package), native)
+
+    def _attribute_reducer(self, emitted: Emitted, attributes: tuple[Sequence[str], Sequence[str]]):
+        labels, names = attributes
+
+        def reduce(text: str) -> str:
+            kore = self.workspace / "kore-attributes" / f"{emitted.fixture.package}.java.kore"
+            kore.write_text(text, encoding="utf-8")
+            return kore_attribute_lines(self.gate, kore, labels, names, environment=self.environment)
+
+        return reduce
+
     def _java_outcomes(
         self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
+        attributes: tuple[Sequence[str], Sequence[str]] | None = None,
     ) -> dict[str, dict[str, Any]]:
         sources = [emitted.source]
         program_directory = self.workspace / "programs" / emitted.fixture.package
@@ -292,6 +328,16 @@ class FixtureGate:
             pin=Pin(self.pins, emitted.fixture.package),
         )
         compiled = self.workspace / "kompiled" / emitted.fixture.package
+        outputs: tuple[Output, ...] = ()
+        if attributes is not None:
+            self._attribute_text(emitted).parent.mkdir(parents=True, exist_ok=True)
+            # The reduced evidence is written beside the kompiled directory,
+            # whose own syntaxDefinition.kore krun still reads.
+            outputs = (Output(
+                self._attribute_text(emitted),
+                self._attribute_reducer(emitted, attributes),
+                lambda: compiled / "syntaxDefinition.kore",
+            ),)
         process = k.run(
             "kompile/definition", "kompile",
             [
@@ -301,6 +347,7 @@ class FixtureGate:
                 *(("--enable-search",) if search else ()),
             ],
             timeout=900,
+            outputs=outputs,
         )
         if process.returncode != 0:
             raise GateError(f"{emitted.fixture.package}: kompile rejected the emitted definition:\n{process.stderr}")

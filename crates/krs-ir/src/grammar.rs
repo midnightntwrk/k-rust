@@ -426,6 +426,11 @@ pub enum ProductionAttribute<S> {
         /// Colour names in printing order.
         values: Vec<String>,
     },
+    /// K's typed `prefer` parser preference, the counterpart of `avoid`.
+    Prefer {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
 }
 
 impl<S> ProductionAttribute<S> {
@@ -447,7 +452,8 @@ impl<S> ProductionAttribute<S> {
             | Self::Internal { origin }
             | Self::Program { origin }
             | Self::Color { origin, .. }
-            | Self::Colors { origin, .. } => origin,
+            | Self::Colors { origin, .. }
+            | Self::Prefer { origin } => origin,
         }
     }
 
@@ -471,6 +477,7 @@ impl<S> ProductionAttribute<S> {
             Self::Color { .. } | Self::Colors { .. } => {
                 Some(crate::ProductionAttributeFamily::Color)
             }
+            Self::Prefer { .. } => Some(crate::ProductionAttributeFamily::Prefer),
         }
     }
 }

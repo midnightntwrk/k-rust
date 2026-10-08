@@ -272,5 +272,8 @@ fn lower_production_attribute(
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
             values: values.iter().map(|entry| entry.value.clone()).collect(),
         },
+        DescriptorProductionAttribute::Prefer { key } => ProductionAttribute::Prefer {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+        },
     })
 }

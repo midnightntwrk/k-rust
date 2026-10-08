@@ -36,7 +36,9 @@ The family form is preferred when a closed set of alternatives shares an open re
 Enum helper `#[k::precedence(...)]` names intra-family tiers, using explicit `left`, `right`, or `non_assoc` and leaving bare groups unconstrained.
 Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` and `k::associativity! { left: pair; non_associative: atoms; }`.
 
-Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` syntax flag.
+Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` and `prefer` syntax flags.
+`avoid` and `prefer` are one pair of parse-forest filters: where a program has several parses, K drops those whose top production is `avoid` or keeps those whose top production is `prefer`; an unambiguous program is unaffected, and they are not first-match ordering.
+`#[k::syntax("if {condition} then {body}", prefer)]` resolves the dangling else so that `else` binds to the inner `if`; the reference layer and `#[k::constructor]` write `prefer = true`, and a production cannot take both flags.
 A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the colour codes `%c` and `%r`, and `%%`; KRS emits each terminal by its position, so `while ({condition}) {body}` prints with `format(%1 %2%3%4 %5)`.
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
 `krun --color on` and `krs run --color always` print them; `kast --output program` does not, and prints an authored `%c` or `%r` as the letter `c` or `r`.

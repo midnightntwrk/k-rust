@@ -1314,6 +1314,10 @@ pub enum SemanticValidationError {
     InvalidColors,
     /// A production was marked both `internal` and `program`.
     InternalWithProgram,
+    /// A production was marked both `prefer` and `avoid`.
+    PreferAndAvoid,
+    /// A token or bracket production was marked `prefer`.
+    PreferOnParseOnlyProduction,
     /// A bracket production did not have exactly one nonterminal.
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
@@ -1468,6 +1472,12 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InternalWithProgram => {
                 formatter.write_str("a production cannot be both `internal` and `program`")
+            }
+            Self::PreferAndAvoid => {
+                formatter.write_str("a production is either preferred or avoided, not both")
+            }
+            Self::PreferOnParseOnlyProduction => {
+                formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")
             }
             Self::InvalidBracketProduction => formatter
                 .write_str("bracket metadata requires exactly one nonterminal grammar item"),
