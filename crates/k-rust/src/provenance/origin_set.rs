@@ -101,6 +101,25 @@ impl OriginSet {
         }
     }
 
+    /// The node whose parts are `parts`, which already satisfy the node rules: at least one
+    /// part, no empty set, no repeated link or allocation, not a single set. Checked in debug
+    /// builds only; the reader checks them on the document before building.
+    pub(crate) fn from_normal_parts(parts: Vec<OriginPart>) -> Self {
+        debug_assert!(!parts.is_empty() && !matches!(parts.as_slice(), [OriginPart::Set(_)]));
+        debug_assert!(parts.iter().all(|part| match part {
+            OriginPart::Link(_) => true,
+            OriginPart::Set(set) => !set.is_empty(),
+        }));
+        Self(Some(parts.into()))
+    }
+
+    /// The node whose parts are exactly `parts`, applying none of the node rules: test support
+    /// for showing that the bytes of a document do not depend on whether they were applied.
+    #[cfg(test)]
+    pub(crate) fn from_raw_parts(parts: Vec<OriginPart>) -> Self {
+        Self(Some(parts.into()))
+    }
+
     /// Whether the set holds no link.
     pub fn is_empty(&self) -> bool {
         self.0.is_none()
@@ -147,8 +166,8 @@ impl OriginSet {
     /// each part of an entered node once, whatever the number of paths through the DAG.
     pub fn links(&self) -> Vec<ProvenanceLink> {
         let parts = self.parts();
-        measure::add(Counter::ProvenanceLinksSteps, 1 + parts.len() as u64);
         if self.is_flat() {
+            measure::add(Counter::ProvenanceLinksSteps, 1 + parts.len() as u64);
             return parts
                 .iter()
                 .map(|part| match part {
@@ -163,7 +182,8 @@ impl OriginSet {
         let mut entered = FxHashSet::<usize>::default();
         entered.insert(self.address());
         let mut stack = vec![(parts, 0usize)];
-        let mut steps = 0u64;
+        // One for the root node; then one per part examined and one per node entered.
+        let mut steps = 1u64;
         // Invariant: `links` is the first-occurrence union of the parts already examined, in
         // order, and `entered` names every node pushed so far.
         while let Some((parts, next)) = stack.last_mut() {

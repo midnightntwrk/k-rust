@@ -43,8 +43,11 @@ enum Shape {
     Rule,
 }
 
-/// The definition of `shape` at `n` operands, its main module named `module`.
+/// The definition of `shape` at `n` operands, its main module named `module`. Every line that
+/// names a module ends in a comment that pads it to a width fixed by the longest name the tests
+/// use, so that the length of the name moves no source offset.
 fn source(shape: Shape, n: usize, module: &str) -> String {
+    let pad = |line: String| format!("{line} //{}", "-".repeat(256 - line.len()));
     let chain = (0..n)
         .map(|operand| (operand % 10).to_string())
         .collect::<Vec<_>>()
@@ -59,17 +62,20 @@ fn source(shape: Shape, n: usize, module: &str) -> String {
         Shape::Rule => format!("configuration <k> $PGM:K </k>\n  rule foo({chain}) => .K"),
     };
     format!(
-        r#"module {module}-SYNTAX
+        r#"{}
   imports INT-SYNTAX
   syntax E ::= Int | E "+" E [left, symbol(plus)]
   syntax KItem ::= foo(E) [symbol(foo)]
 endmodule
-module {module}
-  imports {module}-SYNTAX
+{}
+{}
   imports INT
   {body}
 endmodule
-"#
+"#,
+        pad(format!("module {module}-SYNTAX")),
+        pad(format!("module {module}")),
+        pad(format!("  imports {module}-SYNTAX")),
     )
 }
 
@@ -180,7 +186,6 @@ fn ratio_failures(shape: Shape, n: usize, small: &Cost, large: &Cost) -> Vec<Str
 /// Recording, encoding and decoding provenance is linear in a deep configuration, a wide one and
 /// a deep rule body, and the compile flattens no term origin set.
 #[test]
-#[ignore = "provenance is quadratic until KRUST-PROVENANCE version 8 (unit provenance-v8 step 6)"]
 fn provenance_work_and_bytes_grow_linearly() {
     let failures = on_large_stack(|| {
         let mut failures = Vec::new();
@@ -194,25 +199,23 @@ fn provenance_work_and_bytes_grow_linearly() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A name is written once, not once per receipt: lengthening the main module's name by `k`
-/// characters lengthens the document of a configuration of 200 operands by a constant multiple
-/// of `k`, not by the number of its receipts times `k`.
+/// A name is written once per sentence that holds receipts, not once per receipt: the bytes
+/// that lengthening the main module's name adds to the documents of a configuration do not grow
+/// with the configuration. Every receipt names its destination module, so a per-receipt copy of
+/// the name makes them grow in proportion to the receipts, about twice as many at 200 operands
+/// as at 100.
 #[test]
-#[ignore = "names are copied per receipt until KRUST-PROVENANCE version 8 (unit provenance-v8 step 6)"]
 fn provenance_bytes_hold_each_name_once() {
     const PAD: usize = 64;
-    let (short, long) = on_large_stack(|| {
+    let extra = |n: usize| {
         let short = format!("MAIN{}", "A".repeat(PAD));
         let long = format!("MAIN{}", "A".repeat(2 * PAD));
-        (
-            cost(Shape::Config, 200, &short).bytes,
-            cost(Shape::Config, 200, &long).bytes,
-        )
-    });
-    let extra = long - short;
-    println!("{PAD} more characters of module name add {extra} bytes");
+        cost(Shape::Config, n, &long).bytes - cost(Shape::Config, n, &short).bytes
+    };
+    let (small, large) = on_large_stack(|| (extra(100), extra(200)));
+    println!("{PAD} more characters of module name add {small} bytes at 100, {large} at 200");
     assert!(
-        extra <= 64 * PAD,
-        "{PAD} more characters of module name add {extra} bytes, more than 64 x {PAD}"
+        large <= small + PAD,
+        "{PAD} more characters of module name add {small} bytes at 100 operands and {large} at 200"
     );
 }

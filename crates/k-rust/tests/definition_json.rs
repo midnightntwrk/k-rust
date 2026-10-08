@@ -921,10 +921,18 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
         &format!("\"version\":{}", json::PROVENANCE_VERSION),
         &format!("\"version\":{previous}"),
     );
+    let error = json::from_provenance_str(&old_version).unwrap_err();
     assert!(matches!(
-        json::from_provenance_str(&old_version),
-        Err(json::Error::UnsupportedVersion(version)) if version == previous
+        error,
+        json::Error::UnsupportedProvenanceVersion(version) if version == previous
     ));
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "KRUST-PROVENANCE version {previous} is not supported; this build reads version {}",
+            json::PROVENANCE_VERSION
+        )
+    );
     let kast: Value = serde_json::from_str(&json::to_string(&context_alias).unwrap()).unwrap();
     let mut kast_with_alias = kast;
     kast_with_alias["term"]["modules"][0]["localSentences"][0] =
@@ -1121,7 +1129,7 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
     envelope["version"] = value!(2);
     assert!(matches!(
         json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
-        Err(json::Error::UnsupportedVersion(2))
+        Err(json::Error::UnsupportedProvenanceVersion(2))
     ));
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
@@ -1352,4 +1360,277 @@ fn module_list_reader_rejects_bad_main_modules_and_other_nodes() {
         json::from_str_omitting_unrepresentable(&alias_definition.to_string()),
         Err(json::Error::UnsupportedSentence("KContextAlias"))
     ));
+}
+
+/// A document of version 8 whose tables hold every kind of entry: a rule `f(X)` (spans `f` at
+/// 0..1 and `X` at 1..2) rebuilt as `h(X)` by a generating pass. The sentence receipt names the
+/// flat set of the rule's spans (entry 0) and the root anchor of the rule (anchor 0); `h`'s
+/// receipt names a set holding `f`'s span and entry 0 (entry 1), and the anchor one step below
+/// the root (anchor 1). `h` is node 0 of the body, `X` node 1.
+fn version_8_document() -> (String, SourceTable) {
+    let mut sources = SourceTable::default();
+    let source = sources.intern(LogicalSourceId::new("src/definition.k", b"fX"));
+    let spanned = |term: Term, start: usize| {
+        term.with_metadata(TermMetadata {
+            span: Some(TermSpan {
+                source,
+                start,
+                end: start + 1,
+            }),
+            ..TermMetadata::default()
+        })
+    };
+    let rule = |body: Term| Sentence::Rule {
+        body,
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: Attributes::new(BTreeMap::from([("label".into(), value!("MAIN.rule"))])),
+    };
+    let x = spanned(Term::variable("X"), 1);
+    let before = complete_definition(vec![rule(spanned(Term::apply("f", vec![x.clone()]), 0))]);
+    let after = k_rust::provenance::record_generated_origins(
+        &before,
+        complete_definition(vec![rule(Term::apply("h", vec![x]))]),
+        GeneratingPass::MacroExpansion,
+    );
+    (
+        json::to_provenance_string(&after, &sources).unwrap(),
+        sources,
+    )
+}
+
+/// The reader of version 8 checks what the writer guarantees, entry by entry, and refuses
+/// anything else as invalid provenance: a set reference that is not to an earlier entry, an
+/// entry that is not in normal form (naming the empty entry, repeating a part, being a single
+/// reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
+/// that repeats another or extends no earlier entry, a receipt naming an absent anchor, and
+/// metadata addresses out of order, repeated or past their field. A document of version 7 is
+/// refused by version.
+#[test]
+fn provenance_version_8_tables_reject_malformed_entries() {
+    let (encoded, _) = version_8_document();
+    let envelope: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(envelope["version"], 8);
+    let source = value!({
+        "logical": envelope["sources"][0]["logical"],
+        "contentHash": envelope["sources"][0]["contentHash"],
+    });
+    let span =
+        |start: u64| value!({"kind": "source", "source": source, "start": start, "end": start + 1});
+    assert_eq!(
+        envelope["originSets"],
+        value!([[span(0), span(1)], [span(0), {"kind": "set", "set": 0}]])
+    );
+    assert_eq!(
+        envelope["anchors"],
+        value!([
+            {"module": "MAIN", "sentence": "MAIN.rule", "sentenceIndex": 0},
+            {"parent": 0, "step": 0}
+        ])
+    );
+    assert_eq!(
+        envelope["termMetadata"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["node"].clone())
+            .collect::<Vec<_>>(),
+        [value!(0), value!(1)]
+    );
+    assert!(json::from_provenance_str(&encoded).is_ok());
+
+    let invalid = |change: &dyn Fn(&mut Value)| {
+        let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+        change(&mut envelope);
+        json::from_provenance_str(&envelope.to_string())
+    };
+    let set = |index: u64| value!({"kind": "set", "set": index});
+    let sentence = |id: &str| value!({"kind": "sentence", "uniqueId": id});
+    let push = |envelope: &mut Value, table: &str, entry: Value| {
+        envelope[table].as_array_mut().unwrap().push(entry);
+    };
+    type Change<'a> = Box<dyn Fn(&mut Value) + 'a>;
+    let refused: [(&str, Change<'_>); 21] = [
+        (
+            "a set naming itself",
+            Box::new(|e| e["originSets"][1][1] = set(1)),
+        ),
+        (
+            "a set naming an absent set",
+            Box::new(|e| e["originSets"][1][1] = set(9)),
+        ),
+        (
+            "a set naming a later set",
+            Box::new(|e| e["originSets"][0].as_array_mut().unwrap().push(set(1))),
+        ),
+        (
+            "a set naming the empty set",
+            Box::new(|e| {
+                push(e, "originSets", value!([]));
+                push(e, "originSets", value!([set(2), sentence("x")]));
+            }),
+        ),
+        (
+            "a set repeating a link",
+            Box::new(|e| {
+                let link = e["originSets"][1][0].clone();
+                e["originSets"][1].as_array_mut().unwrap().push(link);
+            }),
+        ),
+        (
+            "a set repeating a set",
+            Box::new(|e| push(e, "originSets", value!([set(0), sentence("x"), set(0)]))),
+        ),
+        (
+            "a set that is one reference",
+            Box::new(|e| push(e, "originSets", value!([set(0)]))),
+        ),
+        (
+            "a set repeating another",
+            Box::new(|e| {
+                let entry = e["originSets"][1].clone();
+                push(e, "originSets", entry);
+            }),
+        ),
+        (
+            "a sentence receipt naming a set that names sets",
+            Box::new(|e| {
+                e["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"] =
+                    value!(1);
+            }),
+        ),
+        (
+            "a repeated root",
+            Box::new(|e| {
+                let root = e["anchors"][0].clone();
+                push(e, "anchors", root);
+            }),
+        ),
+        (
+            "a repeated step",
+            Box::new(|e| {
+                let step = e["anchors"][1].clone();
+                push(e, "anchors", step);
+            }),
+        ),
+        (
+            "a step extending itself",
+            Box::new(|e| e["anchors"][1]["parent"] = value!(1)),
+        ),
+        (
+            "a step extending an absent anchor",
+            Box::new(|e| e["anchors"][1]["parent"] = value!(7)),
+        ),
+        (
+            "a receipt naming an absent anchor",
+            Box::new(|e| e["termMetadata"][0]["metadata"]["origin"]["destination"] = value!(9)),
+        ),
+        (
+            "a receipt naming an absent set",
+            Box::new(|e| e["termMetadata"][0]["metadata"]["origin"]["origins"] = value!(9)),
+        ),
+        (
+            "metadata in decreasing order",
+            Box::new(|e| e["termMetadata"].as_array_mut().unwrap().swap(0, 1)),
+        ),
+        (
+            "metadata repeating a node",
+            Box::new(|e| e["termMetadata"][1]["node"] = value!(0)),
+        ),
+        (
+            "metadata past the end of its field",
+            Box::new(|e| e["termMetadata"][1]["node"] = value!(2)),
+        ),
+        (
+            "metadata naming no field",
+            Box::new(|e| e["termMetadata"][1]["field"] = value!(3)),
+        ),
+        (
+            "metadata naming no sentence",
+            Box::new(|e| e["termMetadata"][1]["sentenceIndex"] = value!(1)),
+        ),
+        (
+            "metadata naming no module",
+            Box::new(|e| e["termMetadata"][1]["moduleIndex"] = value!(4)),
+        ),
+    ];
+    for (what, change) in &refused {
+        let result = invalid(change.as_ref());
+        assert!(
+            matches!(result, Err(json::Error::InvalidProvenance(_))),
+            "{what}: {result:?}"
+        );
+    }
+    assert!(matches!(
+        invalid(&|e| push(
+            e,
+            "anchors",
+            value!({"parent": 0, "step": 1, "module": "MAIN"})
+        )),
+        Err(json::Error::Json(_))
+    ));
+    assert!(matches!(
+        invalid(&|e| e["version"] = value!(7)),
+        Err(json::Error::UnsupportedProvenanceVersion(7))
+    ));
+}
+
+/// A path allocation may extend different roots (anchors built by hand share whatever they
+/// like): two receipts holding one path under two sentences are written as two step chains,
+/// one under each root, and each decodes to its own module, sentence and full path.
+#[test]
+fn a_path_shared_by_two_roots_is_written_under_each() {
+    let path = k_rust::provenance::AnchorPath::from(vec![0, 0]);
+    let receipt = |module: &str, sentence: &str, index| {
+        Arc::new(OriginRecord {
+            pass: GeneratingPass::MacroExpansion,
+            origins: k_rust::provenance::OriginSet::new(),
+            destination: Some(DestinationAnchor {
+                module: module.into(),
+                sentence: sentence.into(),
+                sentence_index: index,
+                path: path.clone(),
+            }),
+        })
+    };
+    let rule = |origin| Sentence::Rule {
+        body: Term::apply("f", vec![Term::variable("X")]).with_metadata(TermMetadata {
+            origin: Some(origin),
+            ..TermMetadata::default()
+        }),
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: empty_attributes(),
+    };
+    let definition = complete_definition(vec![
+        rule(receipt("MAIN", "first", 0)),
+        rule(receipt("OTHER", "second", 1)),
+    ]);
+    let encoded = json::to_provenance_string(&definition, &SourceTable::default()).unwrap();
+    let envelope: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(
+        envelope["anchors"],
+        value!([
+            {"module": "MAIN", "sentence": "first", "sentenceIndex": 0},
+            {"parent": 0, "step": 0},
+            {"parent": 1, "step": 0},
+            {"module": "OTHER", "sentence": "second", "sentenceIndex": 1},
+            {"parent": 3, "step": 0},
+            {"parent": 4, "step": 0}
+        ])
+    );
+    let decoded = json::from_provenance_str(&encoded).unwrap().definition;
+    for (sentence, expected) in decoded.modules[0]
+        .local_sentences
+        .iter()
+        .zip(&definition.modules[0].local_sentences)
+    {
+        let receipt = |sentence: &Sentence| {
+            let Sentence::Rule { body, .. } = sentence else {
+                unreachable!()
+            };
+            body.metadata().unwrap().origin.clone().unwrap()
+        };
+        assert_eq!(receipt(sentence), receipt(expected));
+    }
 }

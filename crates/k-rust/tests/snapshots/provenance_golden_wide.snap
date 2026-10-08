@@ -1,0 +1,337 @@
+---
+source: crates/k-rust/tests/provenance_routes.rs
+expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
+---
+{
+  "format": "KRUST-PROVENANCE",
+  "version": 8,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "MAIN",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "MAIN",
+        "imports": [],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KSequence",
+              "arity": 3,
+              "items": [
+                {
+                  "node": "KApply",
+                  "label": {
+                    "node": "KLabel",
+                    "name": "w",
+                    "params": []
+                  },
+                  "arity": 1,
+                  "args": [
+                    {
+                      "node": "KApply",
+                      "label": {
+                        "node": "KLabel",
+                        "name": "a",
+                        "params": []
+                      },
+                      "arity": 0,
+                      "args": []
+                    }
+                  ]
+                },
+                {
+                  "node": "KApply",
+                  "label": {
+                    "node": "KLabel",
+                    "name": "w",
+                    "params": []
+                  },
+                  "arity": 1,
+                  "args": [
+                    {
+                      "node": "KApply",
+                      "label": {
+                        "node": "KLabel",
+                        "name": "b",
+                        "params": []
+                      },
+                      "arity": 0,
+                      "args": []
+                    }
+                  ]
+                },
+                {
+                  "node": "KApply",
+                  "label": {
+                    "node": "KLabel",
+                    "name": "w",
+                    "params": []
+                  },
+                  "arity": 1,
+                  "args": [
+                    {
+                      "node": "KApply",
+                      "label": {
+                        "node": "KLabel",
+                        "name": "c",
+                        "params": []
+                      },
+                      "arity": 0,
+                      "args": []
+                    }
+                  ]
+                }
+              ]
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "MAIN.rule",
+                "org.krust.provenance.Origin": {
+                  "destination": 0,
+                  "origins": 0,
+                  "pass": "configuration-expansion"
+                }
+              }
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      }
+    ],
+    "att": {
+      "node": "KAtt",
+      "att": {}
+    }
+  },
+  "sources": [
+    {
+      "logical": "fixture.k",
+      "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+    }
+  ],
+  "originSets": [
+    [
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 0,
+        "end": 1
+      },
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 1,
+        "end": 2
+      },
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 2,
+        "end": 3
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 0,
+        "end": 1
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 1,
+        "end": 2
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": {
+          "logical": "fixture.k",
+          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+        },
+        "start": 2,
+        "end": 3
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ]
+  ],
+  "anchors": [
+    {
+      "module": "MAIN",
+      "sentence": "MAIN.rule",
+      "sentenceIndex": 0
+    },
+    {
+      "parent": 0,
+      "step": 0
+    },
+    {
+      "parent": 1,
+      "step": 0
+    },
+    {
+      "parent": 1,
+      "step": 1
+    },
+    {
+      "parent": 1,
+      "step": 2
+    }
+  ],
+  "termMetadata": [
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 0,
+      "metadata": {
+        "origin": {
+          "pass": "configuration-expansion",
+          "origins": 0,
+          "destination": 1
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 1,
+      "metadata": {
+        "origin": {
+          "pass": "configuration-expansion",
+          "origins": 1,
+          "destination": 2
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 2,
+      "metadata": {
+        "span": {
+          "source": {
+            "logical": "fixture.k",
+            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "start": 0,
+          "end": 1
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 3,
+      "metadata": {
+        "origin": {
+          "pass": "configuration-expansion",
+          "origins": 2,
+          "destination": 3
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 4,
+      "metadata": {
+        "span": {
+          "source": {
+            "logical": "fixture.k",
+            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "start": 1,
+          "end": 2
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 5,
+      "metadata": {
+        "origin": {
+          "pass": "configuration-expansion",
+          "origins": 3,
+          "destination": 4
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 6,
+      "metadata": {
+        "span": {
+          "source": {
+            "logical": "fixture.k",
+            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+          },
+          "start": 2,
+          "end": 3
+        }
+      }
+    }
+  ]
+}

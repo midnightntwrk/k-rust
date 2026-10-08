@@ -798,6 +798,17 @@ impl AnchorPath {
         self.0.is_none()
     }
 
+    /// The path without its last step, and that step; `None` for the empty path.
+    pub(crate) fn split_last(&self) -> Option<(&AnchorPath, u32)> {
+        self.0.as_ref().map(|step| (&step.parent, step.step))
+    }
+
+    /// The address of the path's last step, null for the empty path: an identity for memo
+    /// tables that also hold the path, so that the address cannot be reused while they live.
+    pub(crate) fn address(&self) -> usize {
+        self.0.as_ref().map_or(0, |step| Arc::as_ptr(step) as usize)
+    }
+
     /// The steps of the path, from the field down.
     pub fn to_vec(&self) -> Vec<u32> {
         let mut steps = Vec::with_capacity(self.len());
