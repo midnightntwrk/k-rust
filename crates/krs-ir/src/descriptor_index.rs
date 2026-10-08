@@ -359,6 +359,7 @@ mod tests {
                 sentence_kind: SentenceKind::Transition,
                 label: None,
                 priority: None,
+                nondet: None,
                 pattern_key: key(),
                 result_key: key(),
                 head_sort: None,

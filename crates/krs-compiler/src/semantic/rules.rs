@@ -9,9 +9,9 @@ use krs_ir::{
     ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
-    MapOperands, SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
-    SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef, SemanticTerm,
-    SemanticVariable,
+    MapOperands, SemanticNondetGroup, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
+    SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef,
+    SemanticTerm, SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -111,6 +111,21 @@ pub(super) fn lower_rule_priority(
             Ok(SemanticRulePriority::new(
                 semantic_origin(descriptor, priority.key.clone(), role)?,
                 priority.value,
+            ))
+        })
+        .transpose()
+}
+
+/// Lowers the optional check-only `nondet = group` key of a transition.
+pub(super) fn lower_nondet_group(
+    descriptor: &Descriptor,
+    nondet: Option<&krs_ir::DescriptorNondetGroup>,
+) -> Result<Option<SemanticNondetGroup>, DescriptorLoweringError> {
+    nondet
+        .map(|group| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticNondetGroup::new(
+                semantic_origin(descriptor, group.key.clone(), "rule-nondet-group")?,
+                group.name.clone(),
             ))
         })
         .transpose()
@@ -235,6 +250,7 @@ pub(super) fn lower_head_rule_descriptor(
     )?
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
+    .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
     .with_requires(requires)?)
 }
 
@@ -742,6 +758,7 @@ pub(super) fn lower_structured_rule_descriptor(
     )?
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
+    .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
     .with_simplification(simplification)
     .with_requires(requires)?)
 }

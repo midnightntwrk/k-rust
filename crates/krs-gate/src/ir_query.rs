@@ -1951,6 +1951,7 @@ mod tests {
                 name: "eval-add".into(),
             }),
             priority: None,
+            nondet: None,
             pattern_key: key(ProvenanceRole::RulePattern),
             result_key: key(ProvenanceRole::RuleResult),
             head_sort: None,

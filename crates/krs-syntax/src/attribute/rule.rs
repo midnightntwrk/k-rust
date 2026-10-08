@@ -8,12 +8,13 @@ use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, Toke
 
 use super::value::parse_rule_label_value;
 
-/// Typed metadata of `#[k::rule(owise | priority = N, label = "...")]`.
+/// Typed metadata of `#[k::rule(owise | priority = N, nondet = group, label = "...")]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
+    nondet: Option<Ident>,
 }
 
 /// One authored `priority = N` integer and its parsed value.
@@ -34,6 +35,8 @@ pub(crate) const PRIORITY_RANGE: &str = "k-rust ranks rule priorities 0..=254";
 pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
     "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
 pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
+pub(crate) const NONDET_ON_FUNCTION: &str =
+    "functions are deterministic in K; overlapping equations make the function ill-defined";
 
 /// Parses the value of one `priority = N` key.
 pub(crate) fn parse_priority_value(value: Expr) -> Result<PriorityValue, ParseError> {
@@ -228,6 +231,12 @@ impl RuleAttribute {
         self.priority.as_ref().map(|priority| priority.value)
     }
 
+    /// Returns the `nondet = group` identifier, when authored.
+    #[must_use]
+    pub const fn nondet(&self) -> Option<&Ident> {
+        self.nondet.as_ref()
+    }
+
     /// Returns the effective authored transition priority and the role that
     /// anchors it: `owise` is priority 200 under [`ProvenanceRole::RuleOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::RulePriority`].
@@ -267,6 +276,13 @@ impl RuleAttribute {
                 ProvenanceRole::RulePriority,
                 0,
                 TokenRange::for_tokens(&priority.literal)?,
+            ));
+        }
+        if let Some(nondet) = &self.nondet {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleNondetGroup,
+                0,
+                TokenRange::for_tokens(nondet)?,
             ));
         }
         Ok(anchors)
@@ -421,6 +437,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     let mut label = None;
     let mut owise = None;
     let mut priority: Option<PriorityValue> = None;
+    let mut nondet = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
@@ -462,6 +479,20 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
+            "nondet" if nondet.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "nondet" },
+                    key.span(),
+                )
+                .into());
+            }
+            "nondet" => {
+                input.parse::<Token![=]>()?;
+                let value: Expr = input.parse()?;
+                nondet = Some(super::value::parse_unqualified_identifier_value(
+                    "nondet", value,
+                )?);
+            }
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -482,5 +513,6 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
         label,
         owise,
         priority,
+        nondet,
     })
 }

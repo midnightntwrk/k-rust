@@ -27,7 +27,8 @@ pub use reference::{
     expand_reference_source,
 };
 pub use semantic::{
-    DescriptorLoweringError, OpenSortAnalysis, analyze_open_sorts, lower_descriptor_bundle,
+    DescriptorLoweringError, NondetGroupProblem, OpenSortAnalysis, analyze_open_sorts,
+    lower_descriptor_bundle,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

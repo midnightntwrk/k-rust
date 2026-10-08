@@ -316,6 +316,19 @@ impl Sample for DescriptorRulePriority {
         }]
     }
 }
+impl Sample for DescriptorNondetGroup {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+        }]
+    }
+}
+impl Sample for SemanticNondetGroup {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(sample::<NodeOrigin>(), sample::<String>())]
+    }
+}
 impl Sample for DescriptorSimplification {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -2252,6 +2265,7 @@ impl Sample for DescriptorConfigurationRule {
             sentence_kind: sample::<ConfigurationSentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<crate::DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
             claim: sample::<Option<DescriptorClaim>>(),
             pattern_key: sample::<ProvenanceKey>(),
@@ -2302,6 +2316,7 @@ impl Sample for DescriptorHeadRule {
             sentence_kind: sample::<SentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<DescriptorSortReference>>(),
@@ -2639,6 +2654,7 @@ impl Sample for StructuredRuleDescriptor {
             label: sample::<Option<DescriptorRuleLabel>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
@@ -2679,6 +2695,7 @@ impl Sample for WireHeadRule {
             sentence_kind: sample::<SentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<WireSortReference>>(),
@@ -2761,6 +2778,7 @@ impl Sample for WireConfigurationRule {
             sentence_kind: sample::<ConfigurationSentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             requires: sample::<Option<WireRuleCondition>>(),
             claim: sample::<Option<WireClaim>>(),
             pattern_key: sample::<ProvenanceKey>(),
@@ -2815,6 +2833,7 @@ impl Sample for WireStructuredRule {
             label: sample::<Option<DescriptorRuleLabel>>(),
             requires: sample::<Option<WireRuleCondition>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
+            nondet: sample::<Option<DescriptorNondetGroup>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),
             result_key: sample::<ProvenanceKey>(),
@@ -3025,6 +3044,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<SemanticRuleCondition>(corpus, "SemanticRuleCondition");
     insert::<SemanticRuleLabel>(corpus, "SemanticRuleLabel");
     insert::<SemanticRulePriority>(corpus, "SemanticRulePriority");
+    insert::<SemanticNondetGroup>(corpus, "SemanticNondetGroup");
     insert::<SemanticSimplification>(corpus, "SemanticSimplification");
     insert::<SemanticSimplificationPriority>(corpus, "SemanticSimplificationPriority");
     insert::<SemanticSort>(corpus, "SemanticSort");

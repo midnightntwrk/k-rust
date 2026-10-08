@@ -855,9 +855,12 @@ stage_shape! {
         /// Optional explicit emitted K label.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub label: Option<DescriptorRuleLabel> => [keep],
-        /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+        /// Optional priority transported from `#[k::rule(owise)]` or `#[k::rule(priority = N)]`.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub priority: Option<crate::DescriptorRulePriority> => [keep],
+        /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
         /// Optional object-language Boolean applicability condition.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub requires: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
@@ -1333,6 +1336,15 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::ConfigurationRuleOrderedFallbackPriority,
+            ));
+        }
+    }
+    if let Some(nondet) = &rule.nondet {
+        insert_rule_exact(keys, &nondet.key, ProvenanceRole::RuleNondetGroup, 0)?;
+        if rule.sentence_kind != crate::ConfigurationSentenceKind::Transition || !nondet.is_valid()
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidNondetGroup,
             ));
         }
     }

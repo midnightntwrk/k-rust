@@ -53,6 +53,16 @@ K rules are unordered, and every rule has a priority, 50 by default; a rule is t
 A sentence takes `owise` or `priority = N`, not both.
 `#[k::simplification(priority = N)]` is a hint to the simplifier and emits `simplification(N)`; `owise` has no meaning on a simplification, and an alias clause has no priority.
 The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and names `#[k::equation(priority = N)]`.
+
+### Intended nondeterminism
+
+K does not forbid overlapping rules: when two rules can apply to one configuration, `krun` takes one and `krun --search` finds both.
+KRS reports such a pair, because in Rust two arms matching one input are usually a mistake (`krs::analysis::overlapping-rule-heads`).
+The check covers every transition: readable clauses, `#[k::rule]` functions (completed to the head of the computation cell), and `cells!` rules; equations are not checked.
+Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate; any other pair of guards is treated as possibly overlapping.
+When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
+The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
+Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 

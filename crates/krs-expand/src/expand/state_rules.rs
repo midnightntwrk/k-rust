@@ -345,10 +345,17 @@ pub(super) fn configuration_rule(
     }
     let island_import_checks = consumed_state_island_import_checks(original);
 
+    let nondet = attribute
+        .nondet()
+        .map(|group| krs_ir::DescriptorNondetGroup {
+            key: ProvenanceRole::RuleNondetGroup.key(0),
+            name: syn::ext::IdentExt::unraw(group).to_string(),
+        });
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label,
         priority,
+        nondet,
         requires,
         claim: None,
         pattern_key: wire_key(ProvenanceRole::RulePattern, 0),

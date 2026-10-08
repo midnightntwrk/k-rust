@@ -487,6 +487,7 @@ fn configuration_rule() -> DescriptorConfigurationRule {
         sentence_kind: crate::ConfigurationSentenceKind::Claim,
         label: None,
         priority: None,
+        nondet: None,
         requires: Some(DescriptorRuleCondition {
             key: key(0),
             term: term(1),
@@ -650,6 +651,7 @@ fn head_rule() -> DescriptorHeadRule {
         sentence_kind: SentenceKind::Transition,
         label: None,
         priority: None,
+        nondet: None,
         pattern_key: key(0),
         result_key: key(1),
         head_sort: None,
@@ -679,6 +681,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
             term: term(1),
         }),
         priority: None,
+        nondet: None,
         simplification: None,
         pattern_key: key(2),
         result_key: key(3),

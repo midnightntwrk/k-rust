@@ -104,7 +104,12 @@ class Program:
     kast: str | None = None
     """When set, the Java `kast` output (KAST text) of an accepted program."""
     search: tuple[str, ...] | None = None
-    """When set, the computation cells of every final state `search` reaches, as a multiset."""
+    """When set, the computation cells of every final state `search` reaches, as a multiset.
+
+    A nondeterministic program sets `run` to `None`: `krun` picks one of its
+    outcomes, so only the search is compared."""
+    variables: tuple[tuple[str, str], ...] = ()
+    """Further configuration variables `(NAME, text)`, bound beside `$PGM` on both routes."""
 
 
 @dataclass
@@ -235,12 +240,14 @@ class FixtureGate:
             session.load(emitted.definition_ir, emitted.main_module)
             for program in programs:
                 try:
-                    pattern = session.configure({"PGM": program.text})["pattern"]
+                    pattern = session.configure({"PGM": program.text, **dict(program.variables)})["pattern"]
                 except GateError:
                     outcomes[program.name] = {"parse": REJECTED, "run": None}
                     continue
                 if program.run is None:
                     outcomes[program.name] = {"parse": ACCEPTED, "run": None}
+                    if program.search is not None:
+                        outcomes[program.name]["search"] = _native_search(session, program, pattern)
                     continue
                 leaves = session.execute(pattern).get("leaves") or []
                 if not leaves or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves):
@@ -305,21 +312,22 @@ class FixtureGate:
                     f"{emitted.fixture.package} {program.name}: kast printed {parsed.stdout.strip()!r}, "
                     f"expected {program.kast!r}"
                 )
+            bindings = [f"-c{name}={value}" for name, value in program.variables]
             if program.run is None:
                 outcomes[program.name] = {"parse": ACCEPTED, "run": None}
-                continue
-            executed = k.run(
-                f"krun/{program.name}", "krun",
-                ["--definition", compiled, paths[program.name]],
-                timeout=120,
-            )
-            outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
+            else:
+                executed = k.run(
+                    f"krun/{program.name}", "krun",
+                    ["--definition", compiled, *bindings, paths[program.name]],
+                    timeout=120,
+                )
+                outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
             if program.search is not None:
                 if not search:
                     raise GateError(f"{program.name}: a search expectation needs compare(..., search=True)")
                 searched = k.run(
                     f"krun-search/{program.name}", "krun",
-                    ["--definition", compiled, "--search", paths[program.name]],
+                    ["--definition", compiled, "--search", *bindings, paths[program.name]],
                     timeout=120,
                 )
                 outcomes[program.name]["search"] = java_search_outcome(searched)

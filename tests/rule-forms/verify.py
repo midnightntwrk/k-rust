@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: rule and equation priority (KF-010).
+"""Rule-forms feature gate: rule and equation priority (KF-010), nondet (KF-012).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -10,9 +10,15 @@ the outcomes must agree:
   250 loses to an `owise` one (priority 200) on both routes; guarded
   equations at priorities 50 to 54, and the same function with an
   `#[k::equation(owise)]` fallback, grade 95/85/75/65/10 identically;
+- `nondet`: `#[k::rule(nondet = toss)]` groups two overlapping rules, and
+  native search and `krun --search` both reach `heads` and `tails`; bare
+  `#[k::strict]` reaches counters 3 and 4 on both routes; two `#[k::rule]`
+  fns with complementary guards need no group; the key emits nothing;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
-  `#[k::priority(N)]`, `owise` on a simplification, and `priority` on an
-  alias clause each fail `krs check` with a pinned diagnostic.
+  `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
+  clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
+  one rule, a stale group member, a group mixing priorities, and `nondet` on
+  an equation each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -62,12 +68,26 @@ PRIORITY_PROGRAMS = (
     ),
 )
 
+NONDET = Fixture(MANIFEST, "krs-rule-forms-nondet")
+COUNTER = (("COUNTER", "1"),)
+NONDET_PROGRAMS = (
+    Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
+    Program("strict-order", "add(inc, dbl)", "accepted", None, search=("3", "4"), variables=COUNTER),
+    Program("div", "div(6, 3)", "accepted", "2", variables=COUNTER),
+    Program("div-zero", "div(1, 0)", "accepted", "divByZero", variables=COUNTER),
+)
+
 NEGATIVE = (
     "owise-with-priority",
     "priority-out-of-range",
     "retired-priority",
     "owise-simplification",
     "priority-alias",
+    "unannotated-overlap",
+    "single-member-group",
+    "stale-member",
+    "mixed-priorities",
+    "nondet-equation",
 )
 
 
@@ -127,6 +147,14 @@ def main() -> int:
         ))
         harness.compare(priority, PRIORITY_PROGRAMS, sort="Pgm", search=True)
         print("PASS priority: priority 40 wins, owise (200) beats priority 250, equation priorities and owise grade alike")
+
+        harness.check(NONDET)
+        harness.expand(NONDET)
+        nondet = harness.emit(NONDET)
+        if "nondet" in nondet.source.read_text(encoding="utf-8"):
+            raise GateError("the check-only nondet key reached the emitted K")
+        harness.compare(nondet, NONDET_PROGRAMS, sort="Exp", search=True)
+        print("PASS nondet: toss reaches heads and tails, strictness order reaches 3 and 4, guards separate div")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

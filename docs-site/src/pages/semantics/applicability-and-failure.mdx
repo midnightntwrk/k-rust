@@ -27,7 +27,8 @@ An unproved or false symbolic condition makes the rule inapplicable; it does not
 ## Overlap and explicit fallback
 
 Transition rules have no source-order priority; their only order is an explicit `priority = N` or `owise`.
-When KRS can establish that two ordinary heads overlap without sufficient narrowing, analysis rejects the ambiguity.
+When KRS can establish that two transitions can apply to one configuration at one priority, analysis rejects the ambiguity: K would take either rule.
+Literal complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)` separate two rules; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
 
 This negative fixture deliberately gives two rules the same `Foo()` head:
 

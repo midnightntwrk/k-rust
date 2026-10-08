@@ -1340,6 +1340,38 @@ impl DescriptorRulePriority {
     }
 }
 
+/// The `nondet = group` key of a transition: check-only, never emitted.
+///
+/// Rules of one group may overlap at one priority; the overlap check (F2)
+/// skips their pairs and validates the group instead. Groups are scoped to
+/// the package that declares the rules.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorNondetGroup {
+    /// Group-identifier provenance.
+    pub key: ProvenanceKey,
+    /// Authored group identifier.
+    pub name: String,
+}
+
+impl DescriptorNondetGroup {
+    /// Whether the key is the one `nondet` anchor and the name a nonempty identifier.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.key.role() == ProvenanceRole::RuleNondetGroup
+            && self.key.ordinal() == 0
+            && self
+                .name
+                .chars()
+                .next()
+                .is_some_and(|first| first == '_' || first.is_alphabetic())
+            && self
+                .name
+                .chars()
+                .all(|character| character == '_' || character.is_alphanumeric())
+    }
+}
+
 /// Optional simplification metadata, kept distinct from equation priority.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1396,6 +1428,9 @@ stage_shape! {
         /// Simplifier classification and optional hint.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub simplification: Option<DescriptorSimplification> => [keep],
+        /// Optional check-only nondeterminism group of a transition.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub nondet: Option<DescriptorNondetGroup> => [keep],
         /// Complete subject-pattern provenance.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete result-expression provenance.
@@ -1677,6 +1712,14 @@ impl StructuredRuleDescriptor {
             if priority.role_for(self.sentence_kind).is_none() {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidPriorityKind,
+                ));
+            }
+        }
+        if let Some(nondet) = &self.nondet {
+            require_key(&nondet.key, provenance)?;
+            if self.sentence_kind != SentenceKind::Transition || !nondet.is_valid() {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidNondetGroup,
                 ));
             }
         }
@@ -2591,6 +2634,9 @@ impl StructuredRuleDescriptor {
             );
             insert_exact(&mut keys, &priority.key, role, 0)?;
         }
+        if let Some(nondet) = &self.nondet {
+            insert_exact(&mut keys, &nondet.key, ProvenanceRole::RuleNondetGroup, 0)?;
+        }
         if let Some(simplification) = &self.simplification {
             insert_exact(
                 &mut keys,
@@ -3042,6 +3088,7 @@ mod traversal_tests {
                 term: anonymous(),
             }),
             priority: None,
+            nondet: None,
             simplification: None,
             pattern_key: key(1),
             result_key: key(2),

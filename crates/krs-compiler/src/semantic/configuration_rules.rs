@@ -19,8 +19,8 @@ use super::infer::{StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 use super::rules::{
-    framework_k_item_sort, lower_rule_label, lower_rule_priority, omitted_leaf_cells,
-    require_fixed_configuration,
+    framework_k_item_sort, lower_nondet_group, lower_rule_label, lower_rule_priority,
+    omitted_leaf_cells, require_fixed_configuration,
 };
 
 /// Stable rule cell as transported for configuration rules and context aliases.
@@ -293,6 +293,7 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
+    .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
     .with_requires(requires)?
     .with_claim(claim))
 }

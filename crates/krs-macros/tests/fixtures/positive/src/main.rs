@@ -224,12 +224,20 @@ mod readable_imp_grammar {
     language_host::rules! {
         for Stmt;
 
+        // Each readable rule and its `explicit_*` twin below overlap on purpose.
+        #[language_host::rule(nondet = step_forms)]
         step:     Sequence(s1, s2) => k![s1, s2];
+        #[language_host::rule(nondet = if_true_forms)]
         if_true:  IfThenElse(true, s1, _)  => s1;
+        #[language_host::rule(nondet = if_false_forms)]
         if_false: IfThenElse(false, _, s2) => s2;
+        #[language_host::rule(nondet = if_else_forms)]
         if_else:  IfThen(c, s) => StmtSyntax::IfThenElse(c, s, StmtSyntax::EmptyBlock());
+        #[language_host::rule(nondet = while_forms)]
         r#while:  While(c, s) => StmtSyntax::IfThen(c, StmtSyntax::Block(StmtSyntax::Sequence(s, StmtSyntax::While(c, s))));
+        #[language_host::rule(nondet = block_forms)]
         block:    Block(s) => k![s, StmtSyntax::EmptyBlock()];
+        #[language_host::rule(nondet = done_forms)]
         done:     EmptyBlock() => ();
 
     }
@@ -238,6 +246,7 @@ mod readable_imp_grammar {
         for ReadableRuleMachine;
         use StmtSyntax::Assign;
 
+        #[language_host::rule(nondet = var_forms)]
         var: {
             computation: [name, ..],
             env: { name -> value, .. },
@@ -246,6 +255,7 @@ mod readable_imp_grammar {
         }
         where name: Id;
 
+        #[language_host::rule(nondet = assign_forms)]
         assign: {
             computation: [Assign(name, value), ..],
             env: e,
@@ -260,7 +270,7 @@ mod readable_imp_grammar {
     use language_host::configuration::{Cell, KCell};
     use language_host::map;
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = step_forms)]
     fn explicit_step(
         s1: language_host::Term<Stmt>,
         s2: language_host::Term<Stmt>,
@@ -275,7 +285,7 @@ mod readable_imp_grammar {
         }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = if_true_forms)]
     fn explicit_if_true(
         s1: language_host::Term<Stmt>,
         language_host::cells! {
@@ -286,7 +296,7 @@ mod readable_imp_grammar {
         language_host::cells! { computation: KCell(s1, ..tail), ..state }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = if_false_forms)]
     fn explicit_if_false(
         s2: language_host::Term<Stmt>,
         language_host::cells! {
@@ -297,7 +307,7 @@ mod readable_imp_grammar {
         language_host::cells! { computation: KCell(s2, ..tail), ..state }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = if_else_forms)]
     fn explicit_if_else(
         c: language_host::Term<Expr>,
         s: language_host::Term<Stmt>,
@@ -315,7 +325,7 @@ mod readable_imp_grammar {
         }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = while_forms)]
     fn explicit_while(
         c: language_host::Term<Expr>,
         s: language_host::Term<Stmt>,
@@ -339,7 +349,7 @@ mod readable_imp_grammar {
         }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = block_forms)]
     fn explicit_block(
         s: language_host::Term<Stmt>,
         language_host::cells! {
@@ -353,7 +363,7 @@ mod readable_imp_grammar {
         }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = done_forms)]
     fn explicit_done(
         language_host::cells! {
             computation: KCell(StmtSyntax::EmptyBlock(), tail @ ..),
@@ -363,7 +373,7 @@ mod readable_imp_grammar {
         language_host::cells! { computation: KCell(..tail), ..state }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = var_forms)]
     fn explicit_var(
         name: language_host::Term<Id>,
         value: language_host::Term<Value>,
@@ -379,7 +389,7 @@ mod readable_imp_grammar {
         }
     }
 
-    #[language_host::rule]
+    #[language_host::rule(nondet = assign_forms)]
     fn explicit_assign(
         name: language_host::Term<Id>,
         value: language_host::Term<Value>,

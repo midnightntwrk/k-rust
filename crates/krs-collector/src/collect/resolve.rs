@@ -1182,6 +1182,7 @@ mod tests {
             sentence_kind: krs_ir::SentenceKind::Transition,
             label: None,
             priority: None,
+            nondet: None,
             pattern_key: key.clone(),
             result_key: key.clone(),
             head_sort: Some(unresolved_sort("Header")),

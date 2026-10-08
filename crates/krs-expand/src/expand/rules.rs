@@ -297,11 +297,18 @@ fn expand_ordinary_rule(
     });
     let item_kind_variant = format_ident!("{}", sentence_kind.item_kind().stable_text());
     let item_kind = quote!(#facade::ItemKind::#item_kind_variant);
+    let nondet = attribute
+        .nondet()
+        .map(|group| krs_ir::DescriptorNondetGroup {
+            key: ProvenanceRole::RuleNondetGroup.key(0),
+            name: group.unraw().to_string(),
+        });
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
         label,
         requires,
         priority,
+        nondet,
         simplification,
         pattern_key: wire_key(rule_pattern_role, 0),
         result_key: wire_key(rule_result_role, 0),

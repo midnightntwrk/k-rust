@@ -322,10 +322,18 @@ fn expand_head_rule(
         )
     };
 
+    let nondet = clause
+        .attribute()
+        .nondet()
+        .map(|group| krs_ir::DescriptorNondetGroup {
+            key: ProvenanceRole::RuleNondetGroup.key(0),
+            name: group.unraw().to_string(),
+        });
     let wire = krs_ir::wire::WirePayload::HeadRule(Box::new(krs_ir::wire::WireHeadRule {
         sentence_kind: krs_ir::SentenceKind::Transition,
         label,
         priority,
+        nondet,
         pattern_key: rule_pattern_role.key(0),
         result_key: rule_result_role.key(0),
         head_sort,

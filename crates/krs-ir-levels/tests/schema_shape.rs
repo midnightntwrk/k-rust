@@ -168,6 +168,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "SemanticClaimBinder",
     "SemanticContextAlias",
     "SemanticModule",
+    "SemanticNondetGroup",
     "SemanticProduction",
     "SemanticRule",
     "SemanticRuleCondition",
@@ -662,6 +663,7 @@ fn registry() -> Registry {
     trace!(DescriptorPrecedenceChainWire: krs_ir::transport::grammar::DescriptorPrecedenceChainWire);
     trace!(DescriptorRuleLabel: DescriptorRuleLabel);
     trace!(DescriptorRulePriority: DescriptorRulePriority);
+    trace!(DescriptorNondetGroup: DescriptorNondetGroup);
     trace!(DescriptorSimplification: DescriptorSimplification);
     trace!(DescriptorSimplificationPriority: DescriptorSimplificationPriority);
     trace!(ExplicitSymbol: ExplicitSymbol);
@@ -844,6 +846,7 @@ fn registry() -> Registry {
     unsupported!(SemanticClaimBinder: SemanticClaimBinder);
     unsupported!(SemanticContextAlias: SemanticContextAlias);
     unsupported!(SemanticModule: SemanticModule);
+    unsupported!(SemanticNondetGroup: SemanticNondetGroup);
     unsupported!(SemanticProduction: SemanticProduction);
     unsupported!(SemanticRule: SemanticRule);
     unsupported!(SemanticRuleBody: SemanticRuleBody);

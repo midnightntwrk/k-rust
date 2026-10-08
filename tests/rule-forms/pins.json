@@ -1,15 +1,20 @@
 {
   "schema": 1,
   "expand": {
-    "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e"
+    "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
+    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77"
   },
   "emitted": {
     "krs-rule-forms-priority": {
       "definition.k": "ae24e87b44019cb73f8d92516fffd48264ab29642fdfce613935e6ccd310f840"
+    },
+    "krs-rule-forms-nondet": {
+      "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
     }
   },
   "reference_sha256": {
-    "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789"
+    "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
+    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -67,6 +72,32 @@
         "parse": "accepted",
         "run": "letterF"
       }
+    },
+    "krs-rule-forms-nondet": {
+      "toss": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "heads",
+          "tails"
+        ]
+      },
+      "strict-order": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "3",
+          "4"
+        ]
+      },
+      "div": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "div-zero": {
+        "parse": "accepted",
+        "run": "divByZero"
+      }
     }
   },
   "diagnostics": {
@@ -84,6 +115,21 @@
     ],
     "priority-alias": [
       "error[krs::rust-expansion::uncoded-error]: static rules have no priority"
+    ],
+    "unannotated-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
+    "single-member-group": [
+      "error[krs::analysis::nondet-group]: nondet group `toss` has only one rule"
+    ],
+    "stale-member": [
+      "error[krs::analysis::nondet-group]: rule `flip` is in nondet group `toss` but overlaps no other rule of the group"
+    ],
+    "mixed-priorities": [
+      "error[krs::analysis::nondet-group]: nondet group `toss` mixes priorities 50 and 200; rules at different priorities never compete"
+    ],
+    "nondet-equation": [
+      "error[krs::rust-expansion::uncoded-error]: functions are deterministic in K; overlapping equations make the function ill-defined"
     ]
   }
 }

@@ -40,9 +40,9 @@ pub use ir_level::{
 };
 pub use semantic::{
     SemanticApplicationRef, SemanticClaim, SemanticClaimBinder, SemanticConfiguration,
-    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionAttribute,
-    SemanticProductionItem, SemanticRule, SemanticRuleBody, SemanticRuleCondition,
-    SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
+    SemanticContextAlias, SemanticModule, SemanticNondetGroup, SemanticProduction,
+    SemanticProductionAttribute, SemanticProductionItem, SemanticRule, SemanticRuleBody,
+    SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
     SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
     SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
 };

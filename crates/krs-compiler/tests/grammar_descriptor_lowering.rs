@@ -508,6 +508,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             label: None,
             requires: None,
             priority: None,
+            nondet: None,
             simplification: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             result_key: key(ProvenanceRole::RuleResult, 0),
@@ -1279,6 +1280,23 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
         .unwrap()
         .clone();
     duplicate.id = id("other_rule", ItemKind::Rule);
+    // A different priority keeps the overlap check (F2) from rejecting the
+    // duplicate before the label collision is reached.
+    let priority_key = key(ProvenanceRole::RulePriority, 0);
+    let primary = duplicate.provenance.primary_key().clone();
+    let mut origins = duplicate.provenance.origins().to_vec();
+    origins.push(DescriptorNodeOrigin::new(
+        priority_key.clone(),
+        label_origin.clone(),
+    ));
+    duplicate.provenance = DescriptorProvenance::new(primary, origins).unwrap();
+    let DescriptorPayload::StructuredRule(rule) = &mut duplicate.payload else {
+        unreachable!()
+    };
+    rule.priority = Some(krs_ir::DescriptorRulePriority {
+        key: priority_key,
+        value: 40,
+    });
     collision.descriptors.push(duplicate);
     let semantic = lower_descriptor_bundle(&collision.build().unwrap()).unwrap();
     assert!(matches!(

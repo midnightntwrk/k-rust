@@ -122,8 +122,10 @@ stage_shape! {
         pub sentence_kind: SentenceKind => [keep],
         /// Optional emitted K label.
         pub label: Option<DescriptorRuleLabel> => [keep],
-        /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+        /// Optional priority transported from `#[k::rule(owise)]` or `#[k::rule(priority = N)]`.
         pub priority: Option<DescriptorRulePriority> => [keep],
+        /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
+        pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
         /// Complete authored head pattern.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete authored right-hand side.
@@ -145,7 +147,7 @@ stage_shape! {
         /// Explicit non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
     }
-    map_order: [extras, result, sentence_kind, label, priority, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, subject, requires];
+    map_order: [extras, result, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, subject, requires];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -168,9 +170,12 @@ stage_shape! {
         /// Optional emitted K label.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub label: Option<DescriptorRuleLabel> => [keep],
-        /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+        /// Optional priority transported from `#[k::rule(owise)]` or `#[k::rule(priority = N)]`.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub priority: Option<DescriptorRulePriority> => [keep],
+        /// Optional check-only nondeterminism group from `#[k::rule(nondet = group)]`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub nondet: Option<crate::DescriptorNondetGroup> => [keep],
         /// Complete authored head pattern.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete authored right-hand side.
@@ -202,6 +207,20 @@ stage_shape! {
 
 /// Stable collector-resolved head rule.
 pub type DescriptorHeadRule = ResolvedHeadRule<DescriptorStage>;
+
+fn validate_nondet(
+    kind: SentenceKind,
+    nondet: Option<&crate::DescriptorNondetGroup>,
+) -> Result<(), StateTransportError> {
+    if let Some(nondet) = nondet
+        && (kind != SentenceKind::Transition || !nondet.is_valid())
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidNondetGroup,
+        ));
+    }
+    Ok(())
+}
 
 fn validate_owise_priority(
     kind: SentenceKind,
@@ -262,6 +281,7 @@ impl HostHeadRule {
             });
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
+        validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
         if self.pattern_key.role() != ProvenanceRole::RulePattern
             || self.pattern_key.ordinal() != 0
             || self.result_key.role() != ProvenanceRole::RuleResult
@@ -356,6 +376,7 @@ impl DescriptorHeadRule {
             });
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
+        validate_nondet(self.sentence_kind, self.nondet.as_ref())?;
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
                 field: TransportField::HeadRuleConfiguration,
@@ -563,6 +584,7 @@ mod tests {
             sentence_kind: SentenceKind::Transition,
             label: None,
             priority: None,
+            nondet: None,
             pattern_key: key.clone(),
             result_key: key.clone(),
             head_sort: Some(wire_sort()),
@@ -671,6 +693,7 @@ mod tests {
             sentence_kind: SentenceKind::Transition,
             label: None,
             priority: None,
+            nondet: None,
             pattern_key: key.clone(),
             result_key: key.clone(),
             head_sort: Some(descriptor_sort()),

@@ -366,6 +366,8 @@ provenance_roles! {
     RulePriority => "rule_priority",
     /// Bare `owise` marker on an equation (priority 200).
     EquationOwise => "equation_owise",
+    /// Group identifier of `nondet = group` on a transition rule.
+    RuleNondetGroup => "rule_nondet_group",
 }
 
 impl Serialize for ProvenanceRole {

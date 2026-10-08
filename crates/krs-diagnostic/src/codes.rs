@@ -171,6 +171,7 @@ register_codes! {
         UNRESOLVED_REFERENCE: "krs::analysis::unresolved-reference" => "An analysis reference names no declaration.",
         SORT_CYCLE: "krs::analysis::sort-cycle" => "The direct subsort relation contains a cycle.",
         OVERLAPPING_RULE_HEADS: "krs::analysis::overlapping-rule-heads" => "Two rules have overlapping application heads.",
+        NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name.",
         NAME_COLLISION: "krs::analysis::name-collision" => "Two declarations have the same name in a lowering namespace.",
     }

@@ -318,6 +318,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label: None,
         priority: None,
+        nondet: None,
         requires: None,
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern, 0),

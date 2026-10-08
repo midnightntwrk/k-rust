@@ -476,6 +476,18 @@
       }
     ]
   },
+  "DescriptorNondetGroup": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
   "DescriptorPrecedenceChain": {
     "STRUCT": [
       {

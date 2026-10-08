@@ -902,6 +902,41 @@ impl SemanticRuleLabel {
     }
 }
 
+/// The check-only `nondet = group` key of a transition.
+///
+/// Rules of one group may overlap at one priority: the overlap check skips
+/// their pairs and validates the group instead. A group is scoped to the
+/// package of its rules. It never reaches Definition IR or emitted K.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SemanticNondetGroup {
+    origin: NodeOrigin,
+    name: String,
+}
+
+impl SemanticNondetGroup {
+    /// Creates a group key with its authored identifier provenance.
+    #[must_use]
+    pub fn new(origin: NodeOrigin, name: impl Into<String>) -> Self {
+        Self {
+            origin,
+            name: name.into(),
+        }
+    }
+
+    /// Returns the authored identifier provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the authored group identifier.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 /// One relational semantic sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
 #[serde(
@@ -916,6 +951,7 @@ pub struct SemanticRule {
     priority: Option<SemanticRulePriority>,
     simplification: Option<SemanticSimplification>,
     claim: Option<SemanticClaim>,
+    nondet_group: Option<SemanticNondetGroup>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -931,6 +967,7 @@ impl Serialize for SemanticRule {
             priority: self.priority.as_ref().map(Cow::Borrowed),
             simplification: self.simplification.as_ref().map(Cow::Borrowed),
             claim: self.claim.as_ref().map(Cow::Borrowed),
+            nondet_group: self.nondet_group.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -954,6 +991,8 @@ struct SemanticRuleWire<'a, B> {
     simplification: Option<Cow<'a, SemanticSimplification>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     claim: Option<Cow<'a, SemanticClaim>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nondet_group: Option<Cow<'a, SemanticNondetGroup>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -987,6 +1026,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             priority: value.priority.map(Cow::into_owned),
             simplification: value.simplification.map(Cow::into_owned),
             claim: value.claim.map(Cow::into_owned),
+            nondet_group: value.nondet_group.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1023,6 +1063,7 @@ impl SemanticRule {
             priority: None,
             simplification: None,
             claim: None,
+            nondet_group: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1064,6 +1105,7 @@ impl SemanticRule {
             priority: None,
             simplification: None,
             claim: None,
+            nondet_group: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1110,6 +1152,17 @@ impl SemanticRule {
     #[must_use]
     pub const fn priority(&self) -> Option<&SemanticRulePriority> {
         self.priority.as_ref()
+    }
+    /// Attaches the check-only nondeterminism group of a transition.
+    #[must_use]
+    pub fn with_nondet_group(mut self, group: Option<SemanticNondetGroup>) -> Self {
+        self.nondet_group = group;
+        self
+    }
+    /// Returns the check-only nondeterminism group.
+    #[must_use]
+    pub const fn nondet_group(&self) -> Option<&SemanticNondetGroup> {
+        self.nondet_group.as_ref()
     }
     /// Attaches typed simplification metadata.
     #[must_use]
@@ -1715,6 +1768,7 @@ mod tests {
             requires: None,
             priority: None,
             simplification: None,
+            nondet_group: None,
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,

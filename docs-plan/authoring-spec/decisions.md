@@ -190,6 +190,66 @@ bug — report it, don't guess.
   The unifier is cross-table (`for Machine` can overlap `for Stmt` at the k head), sort-aware (`where` refinements separate the `Eq`/`Ne` pairs), constructor- and literal-aware, and preserves repeated-variable equality constraints.
   Two framed map-item requirements remain conservatively overlapping because distinct entries may satisfy them.
   The first overlapping pair is a typed lowering error; rule order is never a tie-breaker. [r5, r6b; resolved 2026-08-26]
+  *F2 amendment (2026-10 workflow decision, revised in review 2026-10-07).*
+  Each clause names the feature that implements it; the clauses not yet
+  built are part of this decision and are implemented later in
+  `overlap.rs` without editing this section.
+  1. *Scope (KF-012).* The check covers every transition on every
+     surface: readable tables; `#[k::rule]` term rules, completed to the
+     computation-cell head (`KCell(subject, tail @ ..)`); and `cells!`
+     rules. It excludes equations (guard-separated equation chains are the
+     K norm), heat, cool, and anywhere rules, generated strictness rules,
+     contexts, and `raw_k!` sentences, which are never transition
+     descriptors.
+  2. *Different priorities* never overlap (existing). `owise` is priority
+     200 and `#[k::rule(priority = N)]` is N (KF-010).
+  3. *One `nondet = g` group (KF-012).* Overlap within a group is
+     intended. The group is validated: it has at least two rules, every
+     rule overlaps another rule of the group, and all its rules share one
+     priority. A group is scoped to its package; the key is check-only and
+     emits nothing.
+  4. *Complementary guards (KF-012)* separate two rules, decided
+     syntactically after unification with the unifier's substitution: a
+     conjunct `bool::not(g)` against a conjunct `g`; `int::lt`/`int::ge`,
+     `int::le`/`int::gt`, `int::eq`/`int::ne`, and `bool::eq`/`bool::ne`
+     on identical operands, with operand swaps normalised. Any other guard
+     pair is treated as possibly overlapping.
+  5. *Disjoint footprints* are independent, because the rules commute
+     (KF-015). The footprint of a rule is the cells it reads or writes
+     (every cell in its pattern or result, the computation cell included
+     when present) plus the transitive cell context of every
+     function-context equation reachable from its requires clause and
+     right-hand side: the closure over the function symbols applied there,
+     then in those functions' equations' requires clauses and right-hand
+     sides (decided in review, R5). Rules that share a cell are unified on
+     the shared cells; a cell in a footprint only through a function
+     context is unified as an unconstrained variable (conservative).
+     KF-015 implements the clause without function contexts and KF-025
+     adds them.
+  6. *Cell collections* are unified per instance (KF-023): two rules
+     overlap only if some pair of their instance patterns, or the
+     computation heads of the same implicit instance, unify;
+     cross-instance interleaving is intended concurrency and is not
+     reported.
+  7. *Unifier extensions:* (a) tokens are literals compared by canonical
+     text (KF-003, KF-006, KF-008, KF-033); (b) `#as` unifies as its
+     subpattern with the alias equal to the subpattern, and `#Or`
+     contributes the cross product of its alternatives (KF-029, KF-030);
+     (c) members of one overload family count as unifiable heads when their
+     argument sorts are compatible (KF-038, after the KF-012 collection);
+     (d) a parametric application's identity is its (symbol, instance)
+     pair (KF-027).
+  8. *Intra-pattern check (KF-030),* for every sentence kind: two
+     variable-binding or-alternatives that unify are rejected.
+
+  The overlap error reads: "rules `A` and `B` can both apply to the same
+  configuration at the same priority; K would take either one
+  (nondeterminism). If that is intended, put both in one group with
+  `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint
+  `where` sorts or complementary requires guards, or order them with
+  `owise` or `priority = N`." Rejected: reporting pairs with disjoint
+  footprints; footprints from written clauses only; Z3-decided guards
+  (machine-dependent diagnostics); first-match ordering (E2).
 - **F3 — The four method gates** every construct must pass: (1) rustc/
   rust-analyzer visibility, measured by the LSP goldens; (2) the
   collector's re-parse of authored source with byte-exact provenance

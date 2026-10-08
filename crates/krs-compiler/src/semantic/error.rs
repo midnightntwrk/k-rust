@@ -58,10 +58,41 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second rule's application head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// A `nondet = group` key is not a valid nondeterminism group.
+    NondetGroup {
+        /// The rule the diagnostic points at.
+        rule: Box<StableItemId>,
+        /// Exact authored range of that rule's subject head or name.
+        range: Option<Box<SourceRange>>,
+        /// What is wrong with the group.
+        problem: NondetGroupProblem,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
     InvalidSemanticTheory(SemanticValidationError),
+}
+
+/// How a `nondet = group` key fails group validation (F2 amendment, clause 3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NondetGroupProblem {
+    /// The group has one rule.
+    SingleMember {
+        /// Authored group identifier.
+        group: String,
+    },
+    /// The rule overlaps no other rule of its group.
+    StaleMember {
+        /// Authored group identifier.
+        group: String,
+    },
+    /// The group's rules have different priorities.
+    MixedPriorities {
+        /// Authored group identifier.
+        group: String,
+        /// The first rule's priority and the differing one.
+        priorities: (u32, u32),
+    },
 }
 
 impl fmt::Display for DescriptorLoweringError {
@@ -100,8 +131,27 @@ impl fmt::Display for DescriptorLoweringError {
             }
             Self::OverlappingRules { first, second, .. } => write!(
                 formatter,
-                "readable rules {first} and {second} have overlapping left-hand patterns at the same priority; refine a pattern, add disjoint `where` sorts, or mark the fallback `#[k::rule(owise)]`"
+                "rules `{}` and `{}` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.",
+                first.item_name(),
+                second.item_name()
             ),
+            Self::NondetGroup { rule, problem, .. } => match problem {
+                NondetGroupProblem::SingleMember { group } => {
+                    write!(formatter, "nondet group `{group}` has only one rule")
+                }
+                NondetGroupProblem::StaleMember { group } => write!(
+                    formatter,
+                    "rule `{}` is in nondet group `{group}` but overlaps no other rule of the group",
+                    rule.item_name()
+                ),
+                NondetGroupProblem::MixedPriorities {
+                    group,
+                    priorities: (first, second),
+                } => write!(
+                    formatter,
+                    "nondet group `{group}` mixes priorities {first} and {second}; rules at different priorities never compete"
+                ),
+            },
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -121,6 +171,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
+            Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -131,6 +182,10 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
+            Self::NondetGroup { range, .. } => range
+                .as_deref()
+                .cloned()
+                .map_or(Location::None, Location::Source),
             _ => Location::None,
         };
         let diagnostic = Diagnostic::error(code, self.to_string(), location);
@@ -138,6 +193,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingRules { first, second, .. } => diagnostic
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
+            Self::NondetGroup { rule, .. } => diagnostic.with_note(format!("rule: {rule}")),
             _ => diagnostic,
         }
     }

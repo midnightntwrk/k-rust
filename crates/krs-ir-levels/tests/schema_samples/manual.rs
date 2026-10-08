@@ -439,6 +439,7 @@ impl Sample for SemanticRule {
         .with_label(Some(sample::<SemanticRuleLabel>()))
         .with_priority(Some(sample::<SemanticRulePriority>()))
         .unwrap()
+        .with_nondet_group(Some(sample::<SemanticNondetGroup>()))
         .with_simplification(Some(sample::<SemanticSimplification>()))
         .with_claim(Some(sample::<SemanticClaim>()))
         .with_requires(Some(condition))

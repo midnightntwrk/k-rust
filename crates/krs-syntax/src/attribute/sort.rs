@@ -6,8 +6,8 @@ use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::rule::{
-    OWISE_ON_SIMPLIFICATION, OWISE_PRIORITY, OWISE_WITH_PRIORITY, PRIORITY_ON_STATIC_RULE,
-    PriorityValue, parse_priority_value, rule_key_error,
+    NONDET_ON_FUNCTION, OWISE_ON_SIMPLIFICATION, OWISE_PRIORITY, OWISE_WITH_PRIORITY,
+    PRIORITY_ON_STATIC_RULE, PriorityValue, parse_priority_value, rule_key_error,
 };
 
 use super::value::{
@@ -347,6 +347,7 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
+            "nondet" => return Err(rule_key_error(NONDET_ON_FUNCTION, key.span())),
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -380,6 +381,9 @@ impl KrsSyntax for SimplificationAttribute {
                 if key == "owise" {
                     return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
                 }
+                if key == "nondet" {
+                    return Err(rule_key_error(NONDET_ON_FUNCTION, key.span()));
+                }
                 if key != "priority" {
                     return Err(syn::Error::new(key.span(), "expected `priority = N`").into());
                 }
@@ -405,17 +409,22 @@ impl KrsSyntax for AliasAttribute {
     /// # Errors
     ///
     /// Rejects `priority` and `owise` (static rules have no priority),
-    /// recursive mode, and every other payload at its first token.
+    /// `nondet`, recursive mode, and every other payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next()
-            && (first == "priority" || first == "owise")
-        {
-            return Err(SyntaxError::new(
-                SyntaxErrorKind::InvalidRuleKey {
-                    reason: PRIORITY_ON_STATIC_RULE,
-                },
-                first.span(),
-            ));
+        if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
+            let reason = if first == "priority" || first == "owise" {
+                Some(PRIORITY_ON_STATIC_RULE)
+            } else if first == "nondet" {
+                Some(NONDET_ON_FUNCTION)
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidRuleKey { reason },
+                    first.span(),
+                ));
+            }
         }
         parse_empty_tokens(tokens, "alias").map(|()| AliasAttribute)
     }

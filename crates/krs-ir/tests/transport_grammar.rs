@@ -303,6 +303,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             label: None,
             requires: None,
             priority: None,
+            nondet: None,
             simplification: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             result_key: key(ProvenanceRole::RuleResult, 0),

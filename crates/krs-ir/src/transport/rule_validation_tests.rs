@@ -616,6 +616,7 @@ fn empty_rule<S: RuleValidationStage>(
             name: "step".into(),
         }),
         priority: None,
+        nondet: None,
         requires: None,
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern),

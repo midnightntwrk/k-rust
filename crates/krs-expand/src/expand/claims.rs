@@ -265,6 +265,7 @@ fn configuration_claim(
             name: label_name,
         }),
         priority: None,
+        nondet: None,
         requires,
         claim: Some(WireClaim {
             declaration_key: wire_key(ProvenanceRole::ClaimDeclaration, 0),
