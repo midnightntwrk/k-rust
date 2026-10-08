@@ -1384,8 +1384,8 @@ fn version_8_document() -> (String, SourceTable) {
 /// anything else as invalid provenance: a source table naming one source twice (references are
 /// table indices, so a repeat would shift every later one), a reference to an absent source, a
 /// set reference that is not to an earlier entry, an
-/// entry that is not in normal form (naming the empty entry, repeating a part, being a single
-/// reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
+/// entry that is not in normal form (naming the empty entry, repeating a part in a short or a
+/// long entry, being a single reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
 /// that repeats another or extends no earlier entry, a receipt naming an absent anchor, and
 /// metadata addresses out of order (between fields, or within one), repeated or past their
 /// field.
@@ -1443,8 +1443,25 @@ fn provenance_version_8_tables_reject_malformed_entries() {
     let push = |envelope: &mut Value, table: &str, entry: Value| {
         envelope[table].as_array_mut().unwrap().push(entry);
     };
+    // `repeated`, seventeen distinct sentence links, and `repeated` again: eighteen parts.
+    let long_entry = |repeated: Value| {
+        let mut parts = vec![repeated.clone()];
+        parts.extend((1..=17).map(|link| sentence(&format!("s{link}"))));
+        parts.push(repeated);
+        Value::Array(parts)
+    };
+    // The same entries without their last part repeat nothing and are accepted, so the cases
+    // below are refused by the repeat alone.
+    for repeated in [sentence("s0"), set(0)] {
+        let mut entry = long_entry(repeated);
+        entry.as_array_mut().unwrap().pop();
+        let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+        push(&mut envelope, "originSets", entry);
+        let result = json::from_provenance_str(&envelope.to_string());
+        assert!(result.is_ok(), "{result:?}");
+    }
     type Change<'a> = Box<dyn Fn(&mut Value) + 'a>;
-    let refused: [(&str, Change<'_>); 26] = [
+    let refused: [(&str, Change<'_>); 28] = [
         (
             "a source table naming one source twice",
             Box::new(|e| {
@@ -1496,6 +1513,16 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         (
             "a set repeating a set",
             Box::new(|e| push(e, "originSets", value!([set(0), sentence("x"), set(0)]))),
+        ),
+        // An entry of more than `KeptParts::DIRECT` (16) parts is checked for repeats through
+        // a hash set rather than by direct comparison, so each rule has a case on that arm too.
+        (
+            "a set of more than sixteen parts repeating a link",
+            Box::new(|e| push(e, "originSets", long_entry(sentence("s0")))),
+        ),
+        (
+            "a set of more than sixteen parts repeating a set",
+            Box::new(|e| push(e, "originSets", long_entry(set(0)))),
         ),
         (
             "a set that is one reference",
