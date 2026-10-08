@@ -5766,8 +5766,10 @@ fn apply_equation(
             // helper's stable sorted order is then as good as any for the result. The
             // `requires` is decided on this substitution only, so an equation whose `requires`
             // reads a variable the decomposition chooses may be refuted here although another
-            // decomposition satisfies it: an evaluation that differs from `->E`, which makes no
-            // claim (a refuted `requires` is context dependent and sets no certificate).
+            // decomposition satisfies it, and evaluation falls through to a lower priority group:
+            // a result that can be false in every model of the definition (an open issue; see
+            // `docs/compatibility.md`, "Anywhere rules"). No value claim is made from it: a
+            // refuted `requires` is context dependent and sets no certificate.
             solutions
                 .into_iter()
                 .next()
