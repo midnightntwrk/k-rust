@@ -4,6 +4,11 @@
 Each package exercises one part of the catalog with one equation or rule per
 operation, and a corpus of programs that apply them to concrete values:
 
+- `int-sign`: negative Int literals (KF-006) in equation heads, readable
+  patterns, results, and programs, and `int::div` on the four sign
+  combinations; `int-sign-unsigned`: a rule literal `-1` in a package whose
+  programs use unsigned literals and that uses no `int::` operation;
+
 - `int-ops`, `bool-ops`, `bytes-ops`: one function and equation per INT, BOOL,
   and BYTES operation (KF-007), including the Euclidean and truncating
   divisions, `bitRangeInt`, and the `Endianness`/`Signedness` conversions;
@@ -137,8 +142,29 @@ MAP_OPS = (
     case("get-or-default-absent", "lookup(9, 7)", "7"),
 )
 
+INT_SIGN = (
+    case("quot-positive", "quot(7, 3)", "2"),
+    case("quot-negative-dividend", "quot(-7, 3)", "-2"),
+    case("quot-negative-divisor", "quot(7, -3)", "-2"),
+    case("quot-negative-both", "quot(-7, -3)", "2"),
+    case("sgn-minus-one", "sgn(-1)", "-1"),
+    case("sgn-negative", "sgn(-5)", "-1"),
+    case("sgn-zero", "sgn(0)", "0"),
+    case("sgn-positive", "sgn(4)", "1"),
+    case("div-by-minus-one", "7 / -1", "-7"),
+    case("div-by-one", "-7 / 1", "-7"),
+)
+
+INT_SIGN_UNSIGNED = (
+    case("rule-literal", "check(minusOne())", "true"),
+    case("positive", "check(1)", "false"),
+    Program("program-literal", "check(-1)", "rejected"),
+)
+
 CASES = (
     ("krs-builtin-int-ops", INT_OPS),
+    ("krs-builtin-int-sign", INT_SIGN),
+    ("krs-builtin-int-sign-unsigned", INT_SIGN_UNSIGNED),
     ("krs-builtin-bool-ops", BOOL_OPS),
     ("krs-builtin-bytes-ops", BYTES_OPS),
     ("krs-builtin-set-ops", SET_OPS),

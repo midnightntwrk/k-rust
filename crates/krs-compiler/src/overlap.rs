@@ -1015,6 +1015,9 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
 mod rule_keys_tests;
 
 #[cfg(test)]
+mod token_literal_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use krs_ir::{ApplicationRef, ItemKind, PackageId};

@@ -70,6 +70,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-builtin-int-sign"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-int-sign-unsigned"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-builtin-map-ops"
 version = "0.1.0"
 dependencies = [

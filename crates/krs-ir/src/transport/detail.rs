@@ -129,7 +129,7 @@ details! {
         HeadRuleRequiresProvenanceKey => "head-rule requires provenance key",
         HeadRuleStructuralProvenanceKey => "head-rule structural provenance key",
         InitializerRecordFieldProvenance => "initializer syntax has no exact record-field provenance",
-        NonCanonicalIntegerLiteral => "integer literal is not canonical unsigned decimal",
+        NonCanonicalIntegerLiteral => "integer literal is not a canonical signed decimal",
         InvalidAnonymousSort => "invalid anonymous sort",
         InvalidApplicationTarget => "invalid application target",
         InvalidCellSortArgument => "invalid cell sort argument",

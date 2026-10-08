@@ -5,7 +5,9 @@
     "krs-builtin-bool-ops": "57f55087ec0741edf63b488a53fd13a6e079b0ed3b1f019097d2a1a2f5c919bc",
     "krs-builtin-bytes-ops": "563494860541932f270323b17c09cb13455d77809821e0f7c8ef450cd3a15a7d",
     "krs-builtin-set-ops": "4982a447eb3ec15b98fb6deb6a6b2cb9639877baba1cc762916b5da5832827eb",
-    "krs-builtin-map-ops": "b60d9bfe74a78cfd0d374c0fc01a084929f4b60ea2a3008fa0bf3bbec02ec8a1"
+    "krs-builtin-map-ops": "b60d9bfe74a78cfd0d374c0fc01a084929f4b60ea2a3008fa0bf3bbec02ec8a1",
+    "krs-builtin-int-sign": "e1a2cfafcd110b748449853e8fd98af2b2e0de92a30976572d17dbabc01f10b6",
+    "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -22,6 +24,12 @@
     },
     "krs-builtin-map-ops": {
       "definition.k": "0fbeaf57c811f2b930b953a11116e418d3de872c07139bbe882515e5278b0a17"
+    },
+    "krs-builtin-int-sign": {
+      "definition.k": "e0a448da699ceea224bf3085be8d5ccb2694ba4a0fff66f9e9b97247009962f0"
+    },
+    "krs-builtin-int-sign-unsigned": {
+      "definition.k": "3cf4d7d4238851c3876170431ca2db23e25f1c54caa5b62981f974d80818c1b7"
     }
   },
   "reference_sha256": {
@@ -29,7 +37,9 @@
     "krs-builtin-bool-ops": "cc859734215c55f5b93bb49e459e6ac25daa22ea67dc3e90dfe55b28528ac976",
     "krs-builtin-bytes-ops": "3305bf128f6d52349f475b2607265e49918542ba97e440c55359e12c8bb3e164",
     "krs-builtin-set-ops": "547e8bfbb49db07d6bde2380c1f63239e906bf72f213e38fd55f90edc1899e2b",
-    "krs-builtin-map-ops": "ca7ca06593d1c493e998bda7764c454fd95d68e78f92d937086dbd35767178ae"
+    "krs-builtin-map-ops": "ca7ca06593d1c493e998bda7764c454fd95d68e78f92d937086dbd35767178ae",
+    "krs-builtin-int-sign": "bc698f50ed325be1fd86baddf573d2352df71d7a8ea11c54468b32cac0810453",
+    "krs-builtin-int-sign-unsigned": "243df2ced4c3da8960392438b8619be7832a59800e04135360237226a6a95162"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -332,6 +342,62 @@
       "get-or-default-absent": {
         "parse": "accepted",
         "run": "7"
+      }
+    },
+    "krs-builtin-int-sign": {
+      "quot-positive": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "quot-negative-dividend": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "quot-negative-divisor": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "quot-negative-both": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "sgn-minus-one": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "sgn-negative": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "sgn-zero": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "sgn-positive": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "div-by-minus-one": {
+        "parse": "accepted",
+        "run": "-7"
+      },
+      "div-by-one": {
+        "parse": "accepted",
+        "run": "-7"
+      }
+    },
+    "krs-builtin-int-sign-unsigned": {
+      "rule-literal": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "positive": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "program-literal": {
+        "parse": "rejected",
+        "run": null
       }
     }
   }

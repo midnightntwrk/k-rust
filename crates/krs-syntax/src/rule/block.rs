@@ -3,7 +3,7 @@ use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Pat, Path, Token, Type, UseTree};
+use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type, UseTree};
 
 use super::condition::{
     HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
@@ -13,6 +13,7 @@ use super::item::RuleItem;
 use super::machine::parse_machine_clause;
 use super::pattern::{
     RuleTermCounters, RuleTermSide, append_rule_pattern_anchors, append_rule_term_anchors,
+    parse_pattern_with_signs,
 };
 use crate::parse::{
     KrsSyntax, ParseError, checked_ordinal, structured,
@@ -526,7 +527,7 @@ impl RuleBlock {
                 )?);
                 continue;
             }
-            let pattern = input.call(Pat::parse_single)?;
+            let (pattern, signs) = parse_pattern_with_signs(input)?;
             input.parse::<Token![=>]>()?;
             let result: Expr = input.parse()?;
             let head_result = parse_head_result(result.clone())?;
@@ -595,7 +596,7 @@ impl RuleBlock {
                 #(#retained)*
                 pub fn #name(#pattern: #sort_type) -> #sort_type { #placeholder }
             })?;
-            let rule = RuleItem::from_readable_item(item)?;
+            let rule = RuleItem::from_readable_item(item, signs)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
             for extra in &extras {
                 let introduced = extra.introduced_binding();

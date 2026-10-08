@@ -1,11 +1,11 @@
 use krs_ir::AtLeastTwo;
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{
-    Expr, ExprCall, ExprGroup, ExprLit, ExprMacro, ExprParen, ExprPath, ExprStruct, Lit, LitBool,
-    LitByteStr, LitInt, LitStr, Member, Path, Token,
+    Expr, ExprCall, ExprGroup, ExprLit, ExprMacro, ExprParen, ExprPath, ExprStruct, ExprUnary, Lit,
+    LitBool, LitByteStr, LitInt, LitStr, Member, Path, Token, UnOp,
 };
 
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -27,11 +27,63 @@ pub enum TermRootKind {
     Wildcard,
 }
 
+/// An unsuffixed decimal Rust integer literal, optionally negative (`-1`).
+///
+/// The sign belongs to the literal: a negative literal's token carries it, so
+/// its spelling is the signed K `Int` token, and its source range runs from the
+/// `-` through the digits.
+#[derive(Clone, Debug)]
+pub struct IntegerLiteral {
+    literal: LitInt,
+    range: TokenRange,
+}
+
+impl IntegerLiteral {
+    /// An unsigned literal, ranging over its own token.
+    pub(crate) fn unsigned(literal: LitInt) -> Result<Self, SyntaxError> {
+        let range = TokenRange::for_tokens(&literal)?;
+        Ok(Self { literal, range })
+    }
+
+    /// A negative literal from its `-` and its digits' spans; `literal` holds the
+    /// signed value.
+    pub(crate) const fn negative(literal: LitInt, minus: Span, digits: Span) -> Self {
+        Self {
+            literal,
+            range: TokenRange::new(minus, digits),
+        }
+    }
+
+    /// Returns the literal token; a negative literal's token carries its sign.
+    #[must_use]
+    pub const fn literal(&self) -> &LitInt {
+        &self.literal
+    }
+
+    /// Returns the base-10 value, signed, without separators or leading zeros.
+    #[must_use]
+    pub fn base10_digits(&self) -> &str {
+        self.literal.base10_digits()
+    }
+
+    /// Returns the source range from the sign (if any) through the digits.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
+    /// Returns the span at which the literal begins.
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        self.range.first()
+    }
+}
+
 /// Exact literal families admitted by the term grammar.
 #[derive(Clone, Debug)]
 pub enum TermLiteral {
-    /// Unsuffixed decimal Rust integer literal.
-    Integer(LitInt),
+    /// Unsuffixed decimal Rust integer literal, optionally negative (`-1`).
+    Integer(IntegerLiteral),
     /// Rust Boolean literal.
     Boolean(LitBool),
 }
@@ -49,7 +101,7 @@ impl TermLiteral {
 
     fn range(&self) -> Result<TokenRange, SyntaxError> {
         match self {
-            Self::Integer(literal) => TokenRange::for_tokens(literal),
+            Self::Integer(literal) => Ok(literal.range()),
             Self::Boolean(literal) => TokenRange::for_tokens(literal),
         }
     }
@@ -457,6 +509,10 @@ impl TermExpression {
             Expr::Call(_) => TermRootKind::Call,
             Expr::Struct(_) => TermRootKind::Record,
             Expr::Lit(literal) if is_supported_literal(literal) => TermRootKind::Literal,
+            // `validate_expression` reports a minus on anything but an integer literal.
+            Expr::Unary(ExprUnary {
+                op: UnOp::Neg(_), ..
+            }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| {
@@ -654,6 +710,11 @@ fn validate_expression(
             validate_expression(expr, context, symbols, nodes)
         }
         Expr::Lit(literal) => validate_literal(literal, nodes),
+        Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => {
+            let literal = TermLiteral::Integer(negative_integer(unary)?);
+            nodes.push(TermNode::Literal(literal.clone()));
+            Ok(TermTree::Literal(literal))
+        }
         Expr::Infer(infer) if context == TermExpressionContext::Pattern => {
             reject_attributes(&infer.attrs, infer.span())?;
             Ok(TermTree::Wildcard(TokenRange::for_tokens(infer)?))
@@ -970,17 +1031,89 @@ fn validate_record(
     }))
 }
 
+/// The reason given for a unary minus that is not part of an Int literal.
+pub(crate) const UNARY_MINUS: &str =
+    "unary minus is part of a literal only; K has no unary minus on Int, write int::sub(0, x)";
+
+/// The reason given for `-0`, which is not a canonical K `Int` token.
+pub(crate) const NEGATIVE_ZERO: &str = "`-0` is not an Int literal; write 0";
+
+/// Whether an integer literal is unsuffixed and written in decimal digits and `_`.
+pub(crate) fn is_unsuffixed_decimal(integer: &LitInt) -> bool {
+    integer.suffix().is_empty()
+        && integer
+            .to_string()
+            .trim_start_matches('-')
+            .chars()
+            .all(|character| character.is_ascii_digit() || character == '_')
+}
+
+/// Whether an integer literal's value is zero.
+pub(crate) fn is_zero(integer: &LitInt) -> bool {
+    integer
+        .base10_digits()
+        .trim_start_matches('-')
+        .bytes()
+        .all(|digit| digit == b'0')
+}
+
+/// Accepts `-N`, a unary minus applied directly to an unsuffixed decimal integer
+/// literal, as one signed literal ranging from the `-` through the digits.
+fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
+    reject_attributes(&unary.attrs, unary.span())?;
+    let UnOp::Neg(minus) = unary.op else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: UNARY_MINUS,
+            },
+            unary.span(),
+        ));
+    };
+    let Expr::Lit(literal) = &*unary.expr else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: UNARY_MINUS,
+            },
+            unary.span(),
+        ));
+    };
+    reject_attributes(&literal.attrs, literal.span())?;
+    let Lit::Int(integer) = &literal.lit else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "only Int and Bool Rust literals are term values",
+            },
+            literal.span(),
+        ));
+    };
+    if !is_unsuffixed_decimal(integer) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "Int literals must be unsuffixed decimal Rust integers",
+            },
+            literal.span(),
+        ));
+    }
+    if is_zero(integer) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: NEGATIVE_ZERO,
+            },
+            unary.span(),
+        ));
+    }
+    Ok(IntegerLiteral::negative(
+        LitInt::new(&format!("-{integer}"), minus.span),
+        minus.span,
+        integer.span(),
+    ))
+}
+
 fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<TermTree, SyntaxError> {
     reject_attributes(&literal.attrs, literal.span())?;
     let literal = match &literal.lit {
-        Lit::Int(integer)
-            if integer.suffix().is_empty()
-                && integer
-                    .to_string()
-                    .chars()
-                    .all(|character| character.is_ascii_digit() || character == '_') =>
-        {
-            TermLiteral::Integer(integer.clone())
+        Lit::Int(integer) if is_unsuffixed_decimal(integer) => {
+            TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
         Lit::Int(_) => {
@@ -1024,14 +1157,7 @@ pub(crate) fn push_record_field_anchors(
 fn is_supported_literal(literal: &ExprLit) -> bool {
     match &literal.lit {
         Lit::Bool(_) => literal.attrs.is_empty(),
-        Lit::Int(integer) => {
-            literal.attrs.is_empty()
-                && integer.suffix().is_empty()
-                && integer
-                    .to_string()
-                    .chars()
-                    .all(|character| character.is_ascii_digit() || character == '_')
-        }
+        Lit::Int(integer) => literal.attrs.is_empty() && is_unsuffixed_decimal(integer),
         _ => false,
     }
 }
@@ -1105,5 +1231,72 @@ mod bytes_token_tests {
                 SyntaxErrorKind::RustSyntax(message) if message == "expected byte string literal"
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod negative_literal_tests {
+    use super::{NEGATIVE_ZERO, TermExpression, TermLiteral, TermNode, TermRootKind, UNARY_MINUS};
+    use crate::{KrsSyntax, ProvenanceRole, SyntaxErrorKind};
+
+    fn literals(source: &str) -> Vec<String> {
+        TermExpression::parse_source(source)
+            .unwrap()
+            .nodes()
+            .iter()
+            .filter_map(|node| match node {
+                TermNode::Literal(literal @ TermLiteral::Integer(_)) => Some(literal.spelling()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_minus_on_an_integer_literal_is_one_signed_literal() {
+        assert_eq!(literals("Sgn(-1)"), ["-1"]);
+        assert_eq!(literals("int::div(7, -3)"), ["7", "-3"]);
+        assert_eq!(literals("Div { lhs, rhs: -1_000 }"), ["-1000"]);
+        let root = TermExpression::parse_source("-42").unwrap();
+        assert_eq!(root.root_kind(), TermRootKind::Literal);
+        assert_eq!(literals("-42"), ["-42"]);
+    }
+
+    #[test]
+    fn the_literal_anchor_spans_the_sign_through_the_digits() {
+        let expression = TermExpression::parse_source("Sgn(-12)").unwrap();
+        let anchor = expression
+            .full_provenance()
+            .unwrap()
+            .into_iter()
+            .find(|anchor| anchor.role() == ProvenanceRole::TermLiteral)
+            .unwrap();
+        assert_eq!(anchor.range().start().column, 4);
+        assert_eq!(anchor.range().end().column, 7);
+    }
+
+    #[test]
+    fn a_minus_on_anything_else_is_rejected() {
+        for (source, expected) in [
+            ("-x", UNARY_MINUS),
+            ("Sgn(-x)", UNARY_MINUS),
+            ("Sgn(-(1))", UNARY_MINUS),
+            ("Sgn(--1)", UNARY_MINUS),
+            ("Sgn(-Zero())", UNARY_MINUS),
+            ("Sgn(-0)", NEGATIVE_ZERO),
+            ("Sgn(-0_0)", NEGATIVE_ZERO),
+            (
+                "Sgn(-1i32)",
+                "Int literals must be unsuffixed decimal Rust integers",
+            ),
+        ] {
+            let error = TermExpression::parse_source(source).unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    SyntaxErrorKind::UnsupportedTermExpression { reason } if *reason == expected
+                ),
+                "{source}: {error:?}"
+            );
+        }
     }
 }

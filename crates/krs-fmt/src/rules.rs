@@ -568,6 +568,24 @@ fn atoms(stream: TokenStream) -> Vec<Atom> {
                 });
                 index += 1;
             }
+            // A minus after an operator or at the start, followed by a literal,
+            // is the sign of a negative literal such as `-1`: keep it attached.
+            TokenTree::Punct(punct)
+                if punct.as_char() == '-'
+                    && matches!(tokens.get(index + 1), Some(TokenTree::Literal(_)))
+                    && output.last().is_none_or(|atom: &Atom| {
+                        matches!(atom.kind, AtomKind::Punctuation(_))
+                    }) =>
+            {
+                let Some(TokenTree::Literal(literal)) = tokens.get(index + 1) else {
+                    unreachable!("the guard requires a following literal");
+                };
+                output.push(Atom {
+                    text: format!("-{literal}"),
+                    kind: AtomKind::Word,
+                });
+                index += 2;
+            }
             TokenTree::Punct(punct) => {
                 let mut text = punct.as_char().to_string();
                 index += 1;
@@ -662,6 +680,31 @@ mod tests {
                 tiny  : A(x)           => x;
                 longer: Pair(lhs, rhs) => k![lhs, rhs] where lhs: Value;"]]
         .assert_eq(&actual);
+    }
+
+    #[test]
+    fn negative_literals_keep_their_sign_attached_and_format_idempotently() {
+        let source = r"
+            for Expr;
+            use Op::*;
+
+            div_by_minus_one:Div{lhs,rhs:- 1}=>int::sub(0,lhs);
+            sign: Sgn(-1) => -1;
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Expr;
+                use Op::*;
+
+                div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs);
+                sign            : Sgn(-1)              => -1;"]]
+        .assert_eq(&actual);
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(again, output);
     }
 
     #[test]

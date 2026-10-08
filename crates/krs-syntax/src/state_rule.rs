@@ -1342,7 +1342,7 @@ fn map_terms(map: &MapExpression) -> Vec<&TermExpression> {
 fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
     match node {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
-        TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value),
+        TermNode::Literal(TermLiteral::Integer(value)) => Ok(value.range()),
         TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value),
         TermNode::IdToken(value) => TokenRange::for_tokens(value),
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),

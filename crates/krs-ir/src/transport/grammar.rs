@@ -888,8 +888,8 @@ pub type HostGrammarDescriptor = StageGrammarDescriptor<HostStage>;
     deny_unknown_fields
 )]
 pub enum DescriptorLiteral {
-    /// Canonical unsigned decimal digits. Negative values use builtin
-    /// operations rather than smuggling a signed lexer token through Rust.
+    /// The canonical K `Int` token: `0` or an optionally negative decimal
+    /// without leading zeros (`0|-?[1-9][0-9]*`), so `-0` and `007` are rejected.
     Int(String),
     /// Rust Boolean literal.
     Bool(bool),
@@ -1595,15 +1595,24 @@ impl DescriptorApplicationRef {
 impl DescriptorLiteral {
     pub(super) fn validate(&self) -> Result<(), GrammarTransportError> {
         match self {
-            Self::Int(value)
-                if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) =>
-            {
-                Ok(())
-            }
+            Self::Int(value) if is_canonical_int(value) => Ok(()),
             Self::Bool(_) => Ok(()),
             Self::Int(_) => Err(GrammarTransportError::InvalidLiteral),
         }
     }
+}
+
+/// Whether `value` matches `0|-?[1-9][0-9]*`.
+fn is_canonical_int(value: &str) -> bool {
+    if value == "0" {
+        return true;
+    }
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    digits
+        .bytes()
+        .next()
+        .is_some_and(|first| first.is_ascii_digit() && first != b'0')
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn validate_collection_application_shape(
@@ -3272,6 +3281,35 @@ mod traversal_tests {
             let mapped = descriptor.try_map_refs::<WireStage, _>(&mut map).unwrap();
             assert_eq!(serde_json::to_vec(&mapped).unwrap(), original);
             assert!(map.calls.is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod literal_tests {
+    use super::{DescriptorLiteral, GrammarTransportError};
+
+    #[test]
+    fn int_literals_are_canonical_signed_decimals() {
+        for value in [
+            "0",
+            "7",
+            "-1",
+            "-1000",
+            "1234567890123456789012345678901234567890",
+        ] {
+            assert_eq!(
+                DescriptorLiteral::Int(value.into()).validate(),
+                Ok(()),
+                "{value}"
+            );
+        }
+        for value in ["", "-", "-0", "007", "-01", "+1", "1_000", "--1", "1-"] {
+            assert_eq!(
+                DescriptorLiteral::Int(value.into()).validate(),
+                Err(GrammarTransportError::InvalidLiteral),
+                "{value}"
+            );
         }
     }
 }

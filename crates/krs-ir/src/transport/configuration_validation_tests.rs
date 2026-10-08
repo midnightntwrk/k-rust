@@ -519,7 +519,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
     assert_eq!(
         initializer_term::<S>(Term::Literal {
             key: key(ProvenanceRole::InitializerTermPath),
-            literal: DescriptorLiteral::Int("-1".into()),
+            literal: DescriptorLiteral::Int("-0".into()),
         }),
         Err(StateTransportError::UnexpectedProvenance {
             expected: key(ProvenanceRole::InitializerTerm),
@@ -529,7 +529,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
     assert_eq!(
         initializer_term::<S>(Term::Literal {
             key: key(ProvenanceRole::InitializerTerm),
-            literal: DescriptorLiteral::Int("-1".into()),
+            literal: DescriptorLiteral::Int("-0".into()),
         }),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::NonCanonicalIntegerLiteral

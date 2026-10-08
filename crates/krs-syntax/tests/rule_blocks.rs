@@ -475,3 +475,46 @@ fn reserved_marker_remains_allowed_in_readable_item_and_constructor_names() {
     assert_eq!(block.clauses()[0].bindings(), ["a"]);
     assert!(block.clauses()[1].bindings().is_empty());
 }
+
+#[test]
+fn readable_patterns_and_results_accept_negative_int_literals() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Expr;
+        use Op::*;
+
+        div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs);
+        sign:             Sgn(-12)              => -1;
+        ",
+    )
+    .unwrap();
+    let pattern = &block.clauses()[0].rule().parameter().pattern;
+    assert_eq!(pattern.bindings(), ["lhs"]);
+    let anchors = block.clauses()[1].rule().full_provenance().unwrap();
+    let literal = |role| {
+        anchors
+            .iter()
+            .find(|anchor| anchor.role() == role)
+            .map(|anchor| (anchor.range().start().column, anchor.range().end().column))
+            .unwrap()
+    };
+    // `-12` and `-1` are each one literal anchor that starts at the sign.
+    let left = literal(ProvenanceRole::RuleLeftLiteral);
+    assert_eq!(left.1 - left.0, 3);
+    let right = literal(ProvenanceRole::RuleRightLiteral);
+    assert_eq!(right.1 - right.0, 2);
+}
+
+#[test]
+fn readable_patterns_reject_negative_zero() {
+    let error = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Expr;
+        use Op::*;
+
+        zero: Sgn(-0) => 0;
+        ",
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("write 0"), "{error}");
+}

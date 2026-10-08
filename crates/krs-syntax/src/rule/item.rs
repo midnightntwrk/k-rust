@@ -4,8 +4,9 @@ use syn::{Expr, FnArg, ItemFn, ReturnType, Stmt, Type};
 
 use super::condition::{RuleCondition, take_requires_helper};
 use super::pattern::{
-    RulePattern, canonical_key, is_bound_path, is_bound_reference, parse_rule_pattern,
-    push_candidate, push_term_node_anchors, push_term_reference_candidates, push_wildcard_anchors,
+    NegativeLiteralSpans, RulePattern, canonical_key, is_bound_path, is_bound_reference,
+    parse_rule_pattern, push_candidate, push_term_node_anchors, push_term_reference_candidates,
+    push_wildcard_anchors,
 };
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
@@ -44,12 +45,23 @@ impl RuleItem {
     ///
     /// Rejects signature modifiers, arity other than one, receivers, non-term
     /// types, unsupported patterns, and bodies other than one named term.
-    pub fn from_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_term_sort, false, false)
+    pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with_signs(item, NegativeLiteralSpans::default())
     }
 
-    pub(super) fn from_readable_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_readable_sort, true, true)
+    /// [`Self::from_item`] with the negative-literal spans of the item's source tokens.
+    fn from_item_with_signs(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(&mut item, parse_term_sort, false, false, signs)
+    }
+
+    pub(super) fn from_readable_item(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(&mut item, parse_readable_sort, true, true, signs)
     }
 
     fn from_item_with_sort_parser(
@@ -57,6 +69,7 @@ impl RuleItem {
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
         allow_record_rest: bool,
         root_identifier_is_binding: bool,
+        signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
         let argument = item.sig.inputs.first().ok_or_else(|| {
@@ -81,6 +94,7 @@ impl RuleItem {
             (*argument.pat).clone(),
             allow_record_rest,
             root_identifier_is_binding,
+            signs,
         )?;
         let parameter_sort = sort_parser((*argument.ty).clone())?;
 
@@ -362,7 +376,8 @@ impl RuleItem {
 
 impl KrsSyntax for RuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        Self::from_item(syn::parse2::<ItemFn>(tokens)?)
+        let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs)
     }
 }
 

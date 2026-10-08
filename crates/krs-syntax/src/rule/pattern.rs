@@ -1,4 +1,5 @@
 use krs_ir::ProvenanceKey;
+use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Member, Pat, PatIdent, PatMacro, Path};
@@ -7,10 +8,91 @@ use crate::parse::{checked_ordinal, unsupported_rule_pattern as unsupported_patt
 use crate::path::is_plain_path;
 use crate::term::{is_term_macro, unexpected_macro};
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermApplication,
-    TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode, TermSymbolKind,
-    TermTree, TokenRange,
+    IntegerLiteral, ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError,
+    TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode,
+    TermSymbolKind, TermTree, TokenRange,
 };
+
+/// The `-` and digits spans of each negative literal in a pattern's source
+/// tokens, in source order.
+///
+/// syn reads `-1` in a pattern as one literal token whose span covers the
+/// digits only where spans can be joined, which a compiler-hosted macro cannot
+/// do; a negative pattern literal takes its range from these source spans so
+/// that it is the same in every host.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NegativeLiteralSpans(std::collections::VecDeque<(Span, Span)>);
+
+impl NegativeLiteralSpans {
+    /// Collects every `-` immediately followed by a numeric literal, in token order.
+    pub(crate) fn scan(tokens: TokenStream) -> Self {
+        let mut spans = std::collections::VecDeque::new();
+        collect_negative_literals(tokens, &mut spans);
+        Self(spans)
+    }
+
+    /// Scans the parameter list of the `fn` item in `tokens`.
+    pub(crate) fn of_fn_parameters(tokens: TokenStream) -> Self {
+        let mut after_fn = false;
+        for token in tokens {
+            match token {
+                TokenTree::Ident(ident) if ident == "fn" => after_fn = true,
+                TokenTree::Group(group)
+                    if after_fn && group.delimiter() == Delimiter::Parenthesis =>
+                {
+                    return Self::scan(group.stream());
+                }
+                _ => {}
+            }
+        }
+        Self::default()
+    }
+
+    fn next(&mut self) -> Option<(Span, Span)> {
+        self.0.pop_front()
+    }
+}
+
+/// Parses one pattern with the spans of its negative literals.
+pub(super) fn parse_pattern_with_signs(
+    input: syn::parse::ParseStream<'_>,
+) -> syn::Result<(Pat, NegativeLiteralSpans)> {
+    let start = input.cursor();
+    let pattern = input.call(Pat::parse_single)?;
+    let end = input.cursor();
+    let mut tokens = TokenStream::new();
+    let mut cursor = start;
+    while cursor != end {
+        let Some((token, next)) = cursor.token_tree() else {
+            break;
+        };
+        tokens.extend([token]);
+        cursor = next;
+    }
+    Ok((pattern, NegativeLiteralSpans::scan(tokens)))
+}
+
+fn collect_negative_literals(
+    tokens: TokenStream,
+    spans: &mut std::collections::VecDeque<(Span, Span)>,
+) {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            TokenTree::Group(group) => collect_negative_literals(group.stream(), spans),
+            TokenTree::Punct(punct) if punct.as_char() == '-' => {
+                if let Some(TokenTree::Literal(literal)) = tokens.get(index + 1)
+                    && literal
+                        .to_string()
+                        .starts_with(|character: char| character.is_ascii_digit())
+                {
+                    spans.push_back((punct.span(), literal.span()));
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 /// Supported subject-pattern shell.
 #[derive(Clone, Debug)]
@@ -266,6 +348,7 @@ pub(super) fn parse_rule_pattern(
     pattern: Pat,
     allow_record_rest: bool,
     root_identifier_is_binding: bool,
+    mut signs: NegativeLiteralSpans,
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
     match pattern {
         Pat::Macro(macro_pattern) => {
@@ -302,6 +385,7 @@ pub(super) fn parse_rule_pattern(
                         &mut paths,
                         &mut bindings,
                         &mut nodes,
+                        &mut signs,
                     )?,
                 }
             } else {
@@ -312,6 +396,7 @@ pub(super) fn parse_rule_pattern(
                     &mut paths,
                     &mut bindings,
                     &mut nodes,
+                    &mut signs,
                 )?
             };
             Ok((
@@ -338,6 +423,7 @@ fn validate_native_pattern(
     paths: &mut Vec<Path>,
     bindings: &mut Vec<Ident>,
     nodes: &mut Vec<TermNode>,
+    signs: &mut NegativeLiteralSpans,
 ) -> Result<TermTree, SyntaxError> {
     match pattern {
         Pat::Ident(identifier) if is_root => validate_root_identifier(identifier, paths, nodes),
@@ -371,6 +457,7 @@ fn validate_native_pattern(
                     paths,
                     bindings,
                     nodes,
+                    signs,
                 )?);
             }
             Ok(TermTree::Application(TermApplication {
@@ -416,6 +503,7 @@ fn validate_native_pattern(
                         paths,
                         bindings,
                         nodes,
+                        signs,
                     )?,
                 });
             }
@@ -431,6 +519,7 @@ fn validate_native_pattern(
             paths,
             bindings,
             nodes,
+            signs,
         ),
         Pat::Wild(wildcard) if !is_root => {
             if wildcard.attrs.is_empty() {
@@ -443,7 +532,7 @@ fn validate_native_pattern(
             }
         }
         Pat::Lit(literal) => {
-            let literal = validate_pattern_literal(literal, nodes)?;
+            let literal = validate_pattern_literal(literal, nodes, signs)?;
             Ok(TermTree::Literal(literal))
         }
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
@@ -494,6 +583,7 @@ fn validate_native_binding(
 fn validate_pattern_literal(
     literal: &syn::ExprLit,
     nodes: &mut Vec<TermNode>,
+    signs: &mut NegativeLiteralSpans,
 ) -> Result<TermLiteral, SyntaxError> {
     if !literal.attrs.is_empty() {
         return Err(unsupported_pattern(
@@ -503,18 +593,32 @@ fn validate_pattern_literal(
     }
     let literal = match &literal.lit {
         syn::Lit::Int(integer)
-            if integer.suffix().is_empty()
-                && integer
-                    .to_string()
-                    .chars()
-                    .all(|character| character.is_ascii_digit() || character == '_') =>
+            if crate::term::is_unsuffixed_decimal(integer)
+                && integer.base10_digits().starts_with('-')
+                && crate::term::is_zero(integer) =>
         {
-            TermLiteral::Integer(integer.clone())
+            return Err(unsupported_pattern(
+                crate::term::NEGATIVE_ZERO,
+                literal.span(),
+            ));
+        }
+        // syn reads a negative literal pattern such as `-1` as one signed token.
+        syn::Lit::Int(integer)
+            if crate::term::is_unsuffixed_decimal(integer)
+                && integer.base10_digits().starts_with('-') =>
+        {
+            let (minus, digits) = signs
+                .next()
+                .unwrap_or_else(|| (integer.span(), integer.span()));
+            TermLiteral::Integer(IntegerLiteral::negative(integer.clone(), minus, digits))
+        }
+        syn::Lit::Int(integer) if crate::term::is_unsuffixed_decimal(integer) => {
+            TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         syn::Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
         _ => {
             return Err(unsupported_pattern(
-                "only unsuffixed decimal Int and Bool literals are term patterns",
+                "only unsuffixed decimal Int (optionally negative) and Bool literals are term patterns",
                 literal.span(),
             ));
         }
@@ -690,7 +794,7 @@ pub(super) fn push_term_reference_candidates(
 fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
     match node {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
-        TermNode::Literal(TermLiteral::Integer(literal)) => TokenRange::for_tokens(literal),
+        TermNode::Literal(TermLiteral::Integer(literal)) => Ok(literal.range()),
         TermNode::Literal(TermLiteral::Boolean(literal)) => TokenRange::for_tokens(literal),
         TermNode::IdToken(literal) => TokenRange::for_tokens(literal),
         TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),

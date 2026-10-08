@@ -77,8 +77,8 @@ pub use state_rule::{
     StateRuleBindingKind, StateRuleItem, StateRuleReferenceKind, parse_state_context_alias_item,
 };
 pub use term::{
-    CellTerm, TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument,
-    TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
+    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
+    TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
 };
 pub use term_sort::TermSort;
 pub use trivia::{

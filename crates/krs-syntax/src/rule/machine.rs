@@ -11,14 +11,16 @@ use super::block::{
 };
 use super::condition::{MapUpdateExtra, RuleExtra, condition_token_range, parse_map_update};
 use super::item::RuleItem;
-use super::pattern::{RulePattern, parse_rule_pattern};
+use super::pattern::{
+    NegativeLiteralSpans, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
+};
 use crate::parse::{ParseError, validate_authored_binder};
 use crate::path::is_plain_path;
 use crate::{TermExpression, TermTree, TokenRange};
 
 #[derive(Clone)]
 enum MachinePatternCell {
-    KHead(Pat),
+    KHead(Pat, NegativeLiteralSpans),
     MapItem {
         key: Expr,
         value: Ident,
@@ -68,7 +70,7 @@ fn parse_machine_pattern_record(
                     .error("a machine-rule pattern must match one k head before `..`")
                     .into());
             }
-            let head = sequence.call(Pat::parse_single)?;
+            let (head, signs) = parse_pattern_with_signs(&sequence)?;
             sequence.parse::<Token![,]>()?;
             sequence.parse::<Token![..]>()?;
             if sequence.peek(Token![,]) {
@@ -79,7 +81,7 @@ fn parse_machine_pattern_record(
                     .error("a machine-rule k pattern is `[head, ..]`")
                     .into());
             }
-            MachinePatternCell::KHead(head)
+            MachinePatternCell::KHead(head, signs)
         } else if content.peek(syn::token::Brace) {
             let map = content.call(|input| {
                 let map;
@@ -102,8 +104,8 @@ fn parse_machine_pattern_record(
             }
             MachinePatternCell::MapItem { key, value }
         } else {
-            let pattern = content.call(Pat::parse_single)?;
-            let (pattern, tree) = parse_rule_pattern(pattern, true, true)?;
+            let (pattern, signs) = parse_pattern_with_signs(&content)?;
+            let (pattern, tree) = parse_rule_pattern(pattern, true, true, signs)?;
             MachinePatternCell::Term {
                 pattern: Box::new(pattern),
                 tree: Box::new(tree),
@@ -249,8 +251,11 @@ pub(super) fn parse_machine_clause(
     let mut extra_bindings = Vec::new();
     for (cell, pattern) in &subject_cells {
         match pattern {
-            MachinePatternCell::KHead(head) => {
-                if subject_k.replace((cell.clone(), head.clone())).is_some() {
+            MachinePatternCell::KHead(head, signs) => {
+                if subject_k
+                    .replace((cell.clone(), head.clone(), signs.clone()))
+                    .is_some()
+                {
                     return Err(syn::Error::new(
                         cell.span(),
                         "a machine rule has exactly one sequence-pattern cell",
@@ -323,7 +328,7 @@ pub(super) fn parse_machine_clause(
             .into());
         }
     }
-    let (computation_cell, subject_k) = subject_k.ok_or_else(|| {
+    let (computation_cell, subject_k, subject_signs) = subject_k.ok_or_else(|| {
         syn::Error::new(
             name.span(),
             "a machine rule must match one computation-cell sequence",
@@ -361,7 +366,7 @@ pub(super) fn parse_machine_clause(
         #(#retained)*
         pub fn #name(#subject_k: #configuration_type) -> #configuration_type { #placeholder }
     })?;
-    let rule = RuleItem::from_readable_item(item)?;
+    let rule = RuleItem::from_readable_item(item, subject_signs)?;
     let mut bindings = rule.parameter.pattern.bindings().to_vec();
     for introduced in extra_bindings {
         if bindings

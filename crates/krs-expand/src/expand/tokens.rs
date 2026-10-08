@@ -25,7 +25,7 @@ pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> crate::
 pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
     match literal {
         TermLiteral::Integer(value) => {
-            krs_ir::DescriptorLiteral::Int(value.base10_digits().replace('_', ""))
+            krs_ir::DescriptorLiteral::Int(value.base10_digits().to_owned())
         }
         TermLiteral::Boolean(value) => krs_ir::DescriptorLiteral::Bool(value.value),
     }

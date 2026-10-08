@@ -112,6 +112,19 @@ These are restricted object-language grammars embedded in Rust tokens.
 They do not evaluate arbitrary Rust expressions, methods, closures, or control flow.
 The claim-only boundary is enforced during macro expansion rather than being a style convention.
 
+## Literals
+
+| Rust literal | K token |
+| --- | --- |
+| unsuffixed decimal integer `N` (with `_` separators) | `Int` |
+| `-N` on an unsuffixed integer | signed `Int` |
+| `true`, `false` | `Bool` |
+
+The sign belongs to the literal: `-1` is one K `Int` token wherever a term may appear, in patterns as well as results, so `Sgn(-1)` and `Div { lhs, rhs: -1 }` match it.
+A literal is a value; `int::sub(0, 3)` is a call and cannot be matched as `-3`.
+K has no unary minus on `Int`, so a minus on anything but an integer literal (`-x`, `-(1)`, `--1`) is rejected with a pointer to `int::sub(0, x)`, and `-0` is rejected in favour of `0`.
+Rules lex `-1` with K's signed `INT-SYNTAX` even in a package with `int-literals = "unsigned"`, where a program's `-1` is instead a unary minus applied to `1`.
+
 ## Framework and builtin sorts
 
 `KItem` is the framework top sort for computation items.

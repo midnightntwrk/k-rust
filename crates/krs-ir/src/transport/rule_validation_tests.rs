@@ -221,7 +221,7 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
     {
         *arguments.first_mut().value = Term::Literal {
             key: key(ProvenanceRole::RuleLeftLiteral),
-            literal: DescriptorLiteral::Int("-1".to_owned()),
+            literal: DescriptorLiteral::Int("-0".to_owned()),
         };
     }
     assert_eq!(

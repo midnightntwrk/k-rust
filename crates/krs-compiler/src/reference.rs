@@ -18,7 +18,7 @@ use krs_ir::{
 };
 use krs_ir_levels::{SemanticRule, SemanticSortRef, SemanticTheory};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
 use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
@@ -1346,8 +1346,10 @@ fn render_term(
             Ok(quote!(#head(#(#values),*)))
         }
         DescriptorTerm::Literal { literal, .. } => match literal {
+            // One literal token, so a negative value prints as `-1`, not `- 1`.
             krs_ir::DescriptorLiteral::Int(value) => value
-                .parse::<TokenStream>()
+                .parse::<proc_macro2::Literal>()
+                .map(|literal| TokenTree::Literal(literal).into())
                 .map_err(|_| ReferenceExpansionError::InvalidLiteral(value.clone())),
             krs_ir::DescriptorLiteral::Bool(value) => Ok(quote!(#value)),
         },
