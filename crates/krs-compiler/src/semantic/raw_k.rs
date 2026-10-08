@@ -51,33 +51,16 @@ pub fn raw_k_policy(
                 allowed: "unchecked K text, opaque to KRS; K parses it with this package's grammar"
                     .to_owned(),
             }],
-            GrammarDescriptor::Production(production) => production
-                .attributes
+            GrammarDescriptor::Production(production) => raw_hook_uses(&production.attributes),
+            GrammarDescriptor::Tokens { productions } => productions
                 .iter()
-                .filter_map(|attribute| match attribute {
-                    DescriptorProductionAttribute::RawHook {
-                        key,
-                        namespace,
-                        name,
-                    } => {
-                        let hook = format!("{namespace}.{name}");
-                        let capability = krs_ir::hook_registry::registered_hook(&hook)
-                            .map_or("unknown", |registered| registered.capability.as_str());
-                        Some(RawUse {
-                            key,
-                            what: format!("quoted hook `{hook}`"),
-                            allowed_code: codes::expand::RAW_HOOK,
-                            allowed: format!(
-                                "signature unchecked; native capability: {capability}"
-                            ),
-                        })
-                    }
-                    _ => None,
-                })
+                .flat_map(|production| raw_hook_uses(&production.attributes))
                 .collect(),
             GrammarDescriptor::Subsort { .. }
             | GrammarDescriptor::Precedence { .. }
-            | GrammarDescriptor::Associativity { .. } => Vec::new(),
+            | GrammarDescriptor::Associativity { .. }
+            | GrammarDescriptor::Lexical { .. }
+            | GrammarDescriptor::Layout { .. } => Vec::new(),
         };
         if uses.is_empty() {
             continue;
@@ -133,4 +116,29 @@ fn location(
         .origin()
         .exact_authored_range()
         .map_or(Location::None, Location::Source))
+}
+
+/// The quoted hooks among one production's attributes.
+fn raw_hook_uses(attributes: &[DescriptorProductionAttribute]) -> Vec<RawUse<'_>> {
+    attributes
+        .iter()
+        .filter_map(|attribute| match attribute {
+            DescriptorProductionAttribute::RawHook {
+                key,
+                namespace,
+                name,
+            } => {
+                let hook = format!("{namespace}.{name}");
+                let capability = krs_ir::hook_registry::registered_hook(&hook)
+                    .map_or("unknown", |registered| registered.capability.as_str());
+                Some(RawUse {
+                    key,
+                    what: format!("quoted hook `{hook}`"),
+                    allowed_code: codes::expand::RAW_HOOK,
+                    allowed: format!("signature unchecked; native capability: {capability}"),
+                })
+            }
+            _ => None,
+        })
+        .collect()
 }

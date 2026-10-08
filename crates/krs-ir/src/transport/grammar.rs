@@ -1967,6 +1967,10 @@ impl GrammarDescriptor {
     ///
     /// Returns [`GrammarTransportError`] for wrong ownership, malformed
     /// productions/relations, typed references, or missing provenance.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One validation arm per grammar descriptor variant."
+    )]
     pub fn validate(
         &self,
         descriptor_kind: ItemKind,
@@ -2513,6 +2517,10 @@ fn validate_layout(
 }
 
 impl GrammarDescriptor {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One provenance arm per grammar descriptor variant."
+    )]
     pub(crate) fn expected_provenance_keys(
         &self,
     ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {

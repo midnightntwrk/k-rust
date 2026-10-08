@@ -84,8 +84,9 @@ pub use krs_ir::{
 pub use krs_macros::{
     alias, anonymous, associativity, bracket, bytes, cell, cells, claim, configuration,
     constructor, constructors, context_alias, ensures, equation, exists, fragment, function, id,
-    init, k, layout, lexeme, lexical, map, or_bool, precedence, priority, raw_k, requires, rule, rules,
-    seqstrict, simplification, sort, sorts, strict, subsort, symbol, syntax_list, term, token,
+    init, k, layout, lexeme, lexical, map, or_bool, precedence, priority, raw_k, requires, rule,
+    rules, seqstrict, simplification, sort, sorts, strict, subsort, symbol, syntax_list, term,
+    token,
 };
 
 /// Rust-resolved metadata for an unqualified constructor application in a

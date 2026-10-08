@@ -191,101 +191,6 @@
         },
         "value": "bag"
       }
-    },
-    {
-      "attribute_kind": "stream",
-      "value": {
-        "origin": {
-          "key": "source-map",
-          "origin": [
-            {
-              "frame_type": "ranged",
-              "kind": "authored",
-              "range": {
-                "end_byte": 3,
-                "file": {
-                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
-                  "package": {
-                    "cargo_name": "schema",
-                    "cargo_source": "workspace",
-                    "cargo_version": "0.1.0",
-                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
-                  },
-                  "package_relative_path": "src/lib.rs"
-                },
-                "start_byte": 0
-              }
-            },
-            {
-              "frame_type": "transformation",
-              "item": {
-                "disambiguator": "",
-                "item_kind": "sort",
-                "item_name": "Value",
-                "module_path": [
-                  "syntax"
-                ],
-                "package": {
-                  "cargo_name": "schema",
-                  "cargo_source": "workspace",
-                  "cargo_version": "0.1.0",
-                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
-                }
-              },
-              "kind": "semantic_ir",
-              "label": "transform"
-            }
-          ]
-        },
-        "value": "stdin"
-      }
-    },
-    {
-      "attribute_kind": "exit",
-      "value": {
-        "origin": {
-          "key": "source-map",
-          "origin": [
-            {
-              "frame_type": "ranged",
-              "kind": "authored",
-              "range": {
-                "end_byte": 3,
-                "file": {
-                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
-                  "package": {
-                    "cargo_name": "schema",
-                    "cargo_source": "workspace",
-                    "cargo_version": "0.1.0",
-                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
-                  },
-                  "package_relative_path": "src/lib.rs"
-                },
-                "start_byte": 0
-              }
-            },
-            {
-              "frame_type": "transformation",
-              "item": {
-                "disambiguator": "",
-                "item_kind": "sort",
-                "item_name": "Value",
-                "module_path": [
-                  "syntax"
-                ],
-                "package": {
-                  "cargo_name": "schema",
-                  "cargo_source": "workspace",
-                  "cargo_version": "0.1.0",
-                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
-                }
-              },
-              "kind": "semantic_ir",
-              "label": "transform"
-            }
-          ]
-        }
-      }
     }
   ],
   "CellContentFrame": [
@@ -341,51 +246,6 @@
     {
       "binding": "semantic",
       "frame_kind": "map_remainder",
-      "origin": {
-        "key": "source-map",
-        "origin": [
-          {
-            "frame_type": "ranged",
-            "kind": "authored",
-            "range": {
-              "end_byte": 3,
-              "file": {
-                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
-                "package": {
-                  "cargo_name": "schema",
-                  "cargo_source": "workspace",
-                  "cargo_version": "0.1.0",
-                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
-                },
-                "package_relative_path": "src/lib.rs"
-              },
-              "start_byte": 0
-            }
-          },
-          {
-            "frame_type": "transformation",
-            "item": {
-              "disambiguator": "",
-              "item_kind": "sort",
-              "item_name": "Value",
-              "module_path": [
-                "syntax"
-              ],
-              "package": {
-                "cargo_name": "schema",
-                "cargo_source": "workspace",
-                "cargo_version": "0.1.0",
-                "k_namespace": "ORG-EXAMPLE-SCHEMA"
-              }
-            },
-            "kind": "semantic_ir",
-            "label": "transform"
-          }
-        ]
-      }
-    },
-    {
-      "frame_kind": "list_remainder",
       "origin": {
         "key": "source-map",
         "origin": [
@@ -6245,12 +6105,6 @@
               },
               "value": "sample"
             },
-            "exit": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              }
-            },
             "multiplicity": {
               "key": {
                 "ordinal": 0,
@@ -6281,14 +6135,7 @@
                 "role": "sort_declaration"
               }
             },
-            "rust_field": "sample",
-            "stream": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              },
-              "value": "stdin"
-            }
+            "rust_field": "sample"
           }
         ],
         "key": {
@@ -7087,12 +6934,6 @@
                 },
                 "value": "sample"
               },
-              "exit": {
-                "key": {
-                  "ordinal": 0,
-                  "role": "sort_declaration"
-                }
-              },
               "multiplicity": {
                 "key": {
                   "ordinal": 0,
@@ -7123,14 +6964,7 @@
                   "role": "sort_declaration"
                 }
               },
-              "rust_field": "sample",
-              "stream": {
-                "key": {
-                  "ordinal": 0,
-                  "role": "sort_declaration"
-                },
-                "value": "stdin"
-              }
+              "rust_field": "sample"
             }
           ],
           "key": {
@@ -7352,12 +7186,6 @@
               },
               "value": "sample"
             },
-            "exit": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              }
-            },
             "multiplicity": {
               "key": {
                 "ordinal": 0,
@@ -7388,14 +7216,7 @@
                 "role": "sort_declaration"
               }
             },
-            "rust_field": "sample",
-            "stream": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              },
-              "value": "stdin"
-            }
+            "rust_field": "sample"
           }
         ],
         "key": {
@@ -12994,12 +12815,6 @@
         },
         "value": "sample"
       },
-      "exit": {
-        "key": {
-          "ordinal": 0,
-          "role": "sort_declaration"
-        }
-      },
       "multiplicity": {
         "key": {
           "ordinal": 0,
@@ -13030,14 +12845,7 @@
           "role": "sort_declaration"
         }
       },
-      "rust_field": "sample",
-      "stream": {
-        "key": {
-          "ordinal": 0,
-          "role": "sort_declaration"
-        },
-        "value": "stdin"
-      }
+      "rust_field": "sample"
     }
   ],
   "ProtocolContextAliasBinding": [
@@ -14289,9 +14097,7 @@
     "rule_anywhere",
     "constructor_prefer",
     "constructor_overload",
-    "function_memo",
-    "configuration_cell_stream",
-    "configuration_cell_exit"
+    "function_memo"
   ],
   "RuleSentence": [
     {
@@ -20465,12 +20271,6 @@
               },
               "value": "sample"
             },
-            "exit": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              }
-            },
             "multiplicity": {
               "key": {
                 "ordinal": 0,
@@ -20488,14 +20288,7 @@
                 "role": "sort_declaration"
               }
             },
-            "rust_field": "sample",
-            "stream": {
-              "key": {
-                "ordinal": 0,
-                "role": "sort_declaration"
-              },
-              "value": "stdin"
-            }
+            "rust_field": "sample"
           }
         ],
         "key": {

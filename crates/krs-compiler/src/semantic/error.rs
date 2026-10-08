@@ -291,8 +291,8 @@ impl fmt::Display for DescriptorLoweringError {
             ),
             Self::InvalidTokenSort { reason, .. }
             | Self::InvalidLexical { reason, .. }
-            | Self::InvalidSyntaxList { reason, .. } => formatter.write_str(reason),
-            Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
+            | Self::InvalidSyntaxList { reason, .. }
+            | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }

@@ -309,6 +309,15 @@
       },
       "102": {
         "float_to_int": "UNIT"
+      },
+      "103": {
+        "io_write": "UNIT"
+      },
+      "104": {
+        "io_putc": "UNIT"
+      },
+      "105": {
+        "io_log": "UNIT"
       }
     }
   },
@@ -352,6 +361,16 @@
       }
     }
   },
+  "CellClauseKind": {
+    "ENUM": {
+      "0": {
+        "content": "UNIT"
+      },
+      "1": {
+        "whole": "UNIT"
+      }
+    }
+  },
   "CellCollectionType": {
     "ENUM": {
       "0": {
@@ -372,6 +391,16 @@
     "ENUM": {
       "0": {
         "star": "UNIT"
+      }
+    }
+  },
+  "CellStream": {
+    "ENUM": {
+      "0": {
+        "stdin": "UNIT"
+      },
+      "1": {
+        "stdout": "UNIT"
       }
     }
   },
@@ -556,6 +585,15 @@
       }
     ]
   },
+  "DescriptorCellExit": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      }
+    ]
+  },
   "DescriptorCellIdentity": {
     "STRUCT": [
       {
@@ -602,6 +640,20 @@
       {
         "cell": {
           "TYPENAME": "DescriptorCellIdentity"
+        }
+      }
+    ]
+  },
+  "DescriptorCellStream": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "value": {
+          "TYPENAME": "CellStream"
         }
       }
     ]
@@ -694,6 +746,38 @@
         "dot_k": "UNIT"
       }
     }
+  },
+  "DescriptorLayoutRegex": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
+  },
+  "DescriptorLexical": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "regex_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
   },
   "DescriptorLexicalPrecedence": {
     "STRUCT": [
@@ -1002,6 +1086,14 @@
         "int_literals": {
           "TYPENAME": "IntLiterals"
         }
+      },
+      {
+        "allow_raw_k": "BOOL"
+      },
+      {
+        "profile": {
+          "TYPENAME": "RawKProfile"
+        }
       }
     ]
   },
@@ -1228,6 +1320,29 @@
       },
       "3": {
         "frontend_diagnostic": "UNIT"
+      }
+    }
+  },
+  "RawKProfile": {
+    "ENUM": {
+      "0": {
+        "standard": "UNIT"
+      },
+      "1": {
+        "strict": "UNIT"
+      }
+    }
+  },
+  "RawSentenceKind": {
+    "ENUM": {
+      "0": {
+        "rule": "UNIT"
+      },
+      "1": {
+        "claim": "UNIT"
+      },
+      "2": {
+        "context": "UNIT"
       }
     }
   },

@@ -201,10 +201,13 @@ fn every_code_has_a_rejecting_and_an_accepted_fixture() {
         }
     }
     // Request-level codes are exercised by the request and protocol tests below.
-    for code in rules::CODES
-        .iter()
-        .filter(|code| **code != rules::EDITABLE_FILE && **code != protocol::PROTOCOL_ERROR)
-    {
+    // `raw-k-not-allowed` is the compiler's package-metadata check
+    // (`krs_compiler::raw_k_policy`), not a lesson source rule.
+    for code in rules::CODES.iter().filter(|code| {
+        **code != rules::EDITABLE_FILE
+            && **code != protocol::PROTOCOL_ERROR
+            && **code != krs_diagnostic::codes::policy::RAW_K_NOT_ALLOWED
+    }) {
         assert!(
             rejected.contains(code.as_str()),
             "no fixture rejecting {code}"

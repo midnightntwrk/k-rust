@@ -103,10 +103,11 @@ pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
-    CellMultiplicity, CellPost, CellStream, ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent,
-    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, ListOperation,
-    MapOperation, SetOperation, StateShapeError, TermMapOperation,
+    CellMultiplicity, CellPost, CellStream, ConfigurationRoot, FixedCell, FixedCellClause,
+    FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
+    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
+    FixedInitializerContent, ListOperation, MapOperation, SetOperation, StateShapeError,
+    TermMapOperation,
 };
 pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
