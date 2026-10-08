@@ -384,3 +384,94 @@ fn cell_properties_use_kstring_escapes() {
     );
     assert_eq!(quoted_kstring("é→"), "\"é→\"");
 }
+
+#[test]
+fn operator_shaped_collection_operands_are_parenthesized_where_k_could_misread_them() {
+    let item = |key: &str, value: &str| {
+        DefinitionTerm::set(
+            node(key),
+            DefinitionSortRef::set(),
+            SetOperands::Item {
+                element: int(&format!("{key}.value"), value),
+            },
+        )
+    };
+    let union = |key: &str, left: DefinitionTerm, right: DefinitionTerm| {
+        DefinitionTerm::set(
+            node(key),
+            DefinitionSortRef::set(),
+            SetOperands::Union { left, right },
+        )
+    };
+    let map = || DefinitionTerm::map(node("map.empty"), MapOperands::Empty);
+    let update = || {
+        DefinitionTerm::map(
+            node("map.update"),
+            MapOperands::Update {
+                map: map(),
+                key: int("map.update.key", "1"),
+                value: int("map.update.value", "2"),
+            },
+        )
+    };
+    let terms = [
+        (
+            DefinitionTerm::set(
+                node("set.difference"),
+                DefinitionSortRef::set(),
+                SetOperands::Difference {
+                    left: union("set.union", item("a", "1"), item("b", "2")),
+                    right: item("c", "2"),
+                },
+            ),
+            "(SetItem(1) |Set SetItem(2)) -Set SetItem(2)",
+        ),
+        (
+            DefinitionTerm::set(
+                node("set.contains"),
+                DefinitionSortRef::bool(),
+                SetOperands::Contains {
+                    element: int("set.contains.element", "1"),
+                    set: union("set.union", item("a", "1"), item("b", "2")),
+                },
+            ),
+            "1 in (SetItem(1) |Set SetItem(2))",
+        ),
+        // `|Set` is left-associative, so a union in its own left operand needs no parentheses.
+        (
+            union(
+                "set.outer",
+                union("set.inner", item("a", "1"), item("b", "2")),
+                item("c", "3"),
+            ),
+            "SetItem(1) |Set SetItem(2) |Set SetItem(3)",
+        ),
+        // A postfix update closes on the right, so a removal applies to it directly.
+        (
+            DefinitionTerm::map(
+                node("map.remove"),
+                MapOperands::Remove {
+                    map: update(),
+                    key: int("map.remove.key", "1"),
+                },
+            ),
+            ".Map [ 1 <- 2 ] [ 1 <- undef ]",
+        ),
+        (
+            DefinitionTerm::typed_map(
+                node("map.get-or-default"),
+                DefinitionSortRef::int(),
+                MapOperands::GetOrDefault {
+                    map: map(),
+                    key: int("map.get-or-default.key", "1"),
+                    default: int("map.get-or-default.default", "0"),
+                },
+            ),
+            "{.Map [ 1 ] orDefault 0}:>Int",
+        ),
+    ];
+    let context = context();
+    for (term, expected) in terms {
+        assert_eq!(render(&term, &context), expected);
+    }
+}
