@@ -3360,8 +3360,16 @@ fn load_prepared_definition(
         .into());
     }
     let text = fs::read_to_string(&resolved)?;
-    definition_json::from_provenance_str(&text)
-        .map_err(|error| format!("could not decode {}: {error}", file.display()).into())
+    definition_json::from_provenance_str(&text).map_err(|error| {
+        let remedy = match error {
+            // Written by another krust: the directory is sound, only older than this build.
+            definition_json::Error::UnsupportedProvenanceVersion(_) => {
+                "; prepare the semantics again with `kcompile --for-proving`"
+            }
+            _ => "",
+        };
+        format!("could not decode {}: {error}{remedy}", file.display()).into()
+    })
 }
 
 fn prepared_artifact_directory(path: &Path) -> PathBuf {

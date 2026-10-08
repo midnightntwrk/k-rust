@@ -566,6 +566,7 @@ impl ResolvedDefinition {
             let (same, same_syntax) =
                 modules_identical(previous_by_name[name.as_str()], next_by_name[name.as_str()]);
             if !same {
+                measure::bump(Counter::KompileResolveModuleRebuilds);
                 graph[id.0] = ResolvedModule::from(next_by_name[name.as_str()]);
                 changed[id.0.index()] = true;
                 syntax_changed[id.0.index()] = !same_syntax;

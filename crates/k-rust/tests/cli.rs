@@ -15,6 +15,10 @@ use regex::Regex;
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
 
+/// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
+/// artifact or prepared directory of that krust holds.
+const PROVENANCE_VERSION_7: &str = include_str!("fixtures/provenance-version-7.json");
+
 const DEFINITION: &str = r#"
 requires "base.k"
 
@@ -679,6 +683,49 @@ endmodule
     );
     assert!(stderr.contains("fresh runnable artifact"), "{stderr}");
     fs::write(compiled.join("execution.json"), execution).unwrap();
+
+    // A payload written in an earlier provenance version (here by the version 7 writer), with a
+    // valid digest, is refused by its version, not reported as corrupt.
+    let frontend = fs::read(compiled.join("frontend.json")).unwrap();
+    let mut earlier: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
+    earlier["frontend"]["sha256"] = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(PROVENANCE_VERSION_7.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+            .into()
+    };
+    fs::write(compiled.join("frontend.json"), PROVENANCE_VERSION_7).unwrap();
+    fs::write(
+        compiled.join("runtime.json"),
+        serde_json::to_vec(&earlier).unwrap(),
+    )
+    .unwrap();
+    let earlier_version = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            "--definition",
+            compiled.to_str().unwrap(),
+            "-s",
+            "Input",
+            "-e",
+            "zero",
+        ])
+        .output()
+        .unwrap();
+    assert!(!earlier_version.status.success());
+    let stderr = String::from_utf8(earlier_version.stderr).unwrap();
+    assert!(
+        stderr.contains(
+            "runnable artifact payload `frontend.json` was written by another krust: \
+             KRUST-PROVENANCE version 7 is not supported; this build reads version 8; \
+             run `krust kcompile` again"
+        ),
+        "{stderr}"
+    );
+    fs::write(compiled.join("frontend.json"), frontend).unwrap();
+    fs::write(compiled.join("runtime.json"), &manifest).unwrap();
 
     let mut incompatible: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
     incompatible["version"] = 2.into();
@@ -7967,6 +8014,23 @@ fn kprove_rejects_a_prepared_directory_without_its_lossless_definition() {
         serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
     let definition = compiled.join(manifest["definition"].as_str().unwrap());
     assert!(definition.is_file(), "{manifest}");
+
+    // A definition written in an earlier provenance version (here by the version 7 writer) is
+    // refused by its version, with the remedy, not as a malformed document.
+    let current = fs::read(&definition).unwrap();
+    fs::write(&definition, PROVENANCE_VERSION_7).unwrap();
+    let earlier = kprove_spec_against(&specification, &compiled);
+    assert!(!earlier.status.success());
+    let stderr = String::from_utf8_lossy(&earlier.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "could not decode {}: KRUST-PROVENANCE version 7 is not supported; this build reads \
+             version 8; prepare the semantics again with `kcompile --for-proving`",
+            definition.display()
+        )),
+        "{stderr}"
+    );
+    fs::write(&definition, current).unwrap();
 
     // The named file is a symbolic link to a definition outside the bundle.
     let outside = root.join("outside.provenance.json");

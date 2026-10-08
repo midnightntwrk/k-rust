@@ -1,0 +1,318 @@
+---
+source: crates/k-rust/tests/provenance_routes.rs
+expression: "json::to_provenance_string_pretty(&second, &sources).unwrap()"
+---
+{
+  "format": "KRUST-PROVENANCE",
+  "version": 8,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "MAIN",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "MAIN",
+        "imports": [],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "s",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KApply",
+                  "label": {
+                    "node": "KLabel",
+                    "name": "s",
+                    "params": []
+                  },
+                  "arity": 1,
+                  "args": [
+                    {
+                      "node": "KApply",
+                      "label": {
+                        "node": "KLabel",
+                        "name": "s",
+                        "params": []
+                      },
+                      "arity": 1,
+                      "args": [
+                        {
+                          "node": "KApply",
+                          "label": {
+                            "node": "KLabel",
+                            "name": "z2",
+                            "params": []
+                          },
+                          "arity": 0,
+                          "args": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "MAIN.rule",
+                "org.krust.provenance.Origin": {
+                  "destination": 0,
+                  "origins": 0,
+                  "pass": "add-sort-injections"
+                }
+              }
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      }
+    ],
+    "att": {
+      "node": "KAtt",
+      "att": {}
+    }
+  },
+  "sources": [
+    {
+      "logical": "fixture.k",
+      "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+    }
+  ],
+  "originSets": [
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 3,
+        "end": 4
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 3
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 1,
+        "end": 2
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 3,
+        "end": 4
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 1
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 3,
+        "end": 4
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 3
+      },
+      {
+        "kind": "set",
+        "set": 1
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 3
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 3
+      },
+      {
+        "kind": "set",
+        "set": 2
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 1,
+        "end": 2
+      },
+      {
+        "kind": "set",
+        "set": 3
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 5
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 1,
+        "end": 2
+      },
+      {
+        "kind": "set",
+        "set": 4
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 5
+      },
+      {
+        "kind": "set",
+        "set": 6
+      }
+    ]
+  ],
+  "anchors": [
+    {
+      "module": "MAIN",
+      "sentence": "MAIN.rule",
+      "sentenceIndex": 0
+    },
+    {
+      "parent": 0,
+      "step": 0
+    },
+    {
+      "parent": 1,
+      "step": 0
+    },
+    {
+      "parent": 2,
+      "step": 0
+    },
+    {
+      "parent": 3,
+      "step": 0
+    }
+  ],
+  "termMetadata": [
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 3,
+          "end": 4
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 2,
+          "destination": 1
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 1,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 2,
+          "end": 3
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 4,
+          "destination": 2
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 2,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 1,
+          "end": 2
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 6,
+          "destination": 3
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 3,
+      "metadata": {
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 7,
+          "destination": 4
+        }
+      }
+    }
+  ]
+}

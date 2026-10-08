@@ -809,7 +809,7 @@ fn configuration_expansion_emits_origin_records() {
         origin.destination,
         Some(DestinationAnchor {
             module: "MAIN".into(),
-            sentence: sentence_anchor,
+            sentence: sentence_anchor.into(),
             sentence_index: u32::try_from(initializer_index).unwrap(),
             path: vec![0].into(),
         }),

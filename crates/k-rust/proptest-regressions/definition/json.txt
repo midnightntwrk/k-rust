@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2bdd4d334a140087f4dde69575fe9b24746440fbfdbccfa45de2c75302af4dcf # shrinks to flat = [[]], dag = [[(false, (false, 0), Index(0))], [(true, (false, 0), Index(0))]], anchors = [((0, 0, 0), None, 0)], plans = [SentencePlan { receipt: None, body_receipt: None, child_receipt: Some((5, 0, None)) }]

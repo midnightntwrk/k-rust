@@ -5,6 +5,8 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::names::BuiltinSort;
 #[cfg(test)]
 use crate::names::WellKnownSymbol;
@@ -191,6 +193,40 @@ pub struct TermMetadata {
     /// projection metadata; equal, wider, and unrelated sorts do not authorize a projection.
     pub sort: Option<Sort>,
     pub origin: Option<Arc<OriginRecord>>,
+}
+
+impl TermMetadata {
+    /// Strict equality for incremental definition resolution ([`Term::identical`]), counted in
+    /// `kompile.resolve_metadata_compares`.
+    ///
+    /// The span, production and sort are the node's own data and are compared by value; a receipt
+    /// is identical only to itself, one allocation. A resolved module is reused only when this
+    /// says its sentences are unchanged, so it must imply that the kept node is interchangeable
+    /// with a rebuilt one, while a false "changed" only costs a rebuild. One allocation is equal
+    /// to itself in every respect, so pointer identity is sound, and it reads none of the
+    /// receipt's origin set or destination path, so the comparison costs the same whatever their
+    /// size. It forgoes no reuse in the pipeline: a pass gives a node a new receipt only when
+    /// the node differs from its counterpart ignoring metadata, so wherever two receipts are
+    /// separate allocations the terms differ at that position too, and every other node keeps
+    /// its receipt by `Arc` clone.
+    ///
+    /// [`Term::identical`] has two other callers, in sort inference
+    /// (`LoweredTerm::same_lowering` and the checked engines' `checked_lowered_result`). Both
+    /// compare lowered parse results, whose metadata holds a span, a production and a sort and
+    /// never a receipt: receipts are allocated only by the generating passes' recorder and by the
+    /// provenance reader. There the receipts are both absent, which is "identical" by pointer as
+    /// by value, so comparing receipts by identity changes neither caller's verdict.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        measure::bump(Counter::KompileResolveMetadataCompares);
+        self.span == other.span
+            && self.production == other.production
+            && self.sort == other.sort
+            && match (&self.origin, &other.origin) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                (None, Some(_)) | (Some(_), None) => false,
+            }
+    }
 }
 
 /// A K term. Its total order (`Ord`) ranks the variants in declaration order before comparing
@@ -558,7 +594,7 @@ impl Term {
                     term: right,
                     metadata: right_metadata,
                 },
-            ) => left_metadata == right_metadata && left.identical(right),
+            ) => left_metadata.identical(right_metadata) && left.identical(right),
             (Self::Annotated { .. }, _) | (_, Self::Annotated { .. }) => false,
             (Self::InjectedLabel(left), Self::InjectedLabel(right)) => left == right,
             (
@@ -875,7 +911,7 @@ mod tests {
     fn origin() -> Arc<OriginRecord> {
         Arc::new(OriginRecord {
             pass: crate::provenance::GeneratingPass::ResolveFun,
-            origins: Arc::from(Vec::new()),
+            origins: crate::provenance::OriginSet::new(),
             destination: None,
         })
     }

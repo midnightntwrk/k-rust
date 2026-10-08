@@ -1,0 +1,750 @@
+---
+source: crates/k-rust/tests/provenance_routes.rs
+expression: document
+---
+{
+  "format": "KRUST-PROVENANCE",
+  "version": 8,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "MAIN",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "MAIN",
+        "imports": [],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "r",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KRewrite",
+                  "lhs": {
+                    "node": "KAs",
+                    "pattern": {
+                      "node": "KApply",
+                      "label": {
+                        "node": "KLabel",
+                        "name": "inj",
+                        "params": []
+                      },
+                      "arity": 1,
+                      "args": [
+                        {
+                          "node": "KApply",
+                          "label": {
+                            "node": "KLabel",
+                            "name": "f",
+                            "params": []
+                          },
+                          "arity": 1,
+                          "args": [
+                            {
+                              "node": "KVariable",
+                              "name": "X"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "alias": {
+                      "node": "KVariable",
+                      "name": "W"
+                    }
+                  },
+                  "rhs": {
+                    "node": "KSequence",
+                    "arity": 2,
+                    "items": [
+                      {
+                        "node": "KApply",
+                        "label": {
+                          "node": "KLabel",
+                          "name": "g",
+                          "params": []
+                        },
+                        "arity": 0,
+                        "args": []
+                      },
+                      {
+                        "node": "KToken",
+                        "sort": {
+                          "node": "KSort",
+                          "name": "Int",
+                          "params": []
+                        },
+                        "token": "2"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "requires": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "c",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KVariable",
+                  "name": "X"
+                }
+              ]
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "MAIN.shapes",
+                "org.krust.provenance.Origin": {
+                  "destination": 0,
+                  "origins": 0,
+                  "pass": "add-sort-injections"
+                }
+              }
+            }
+          },
+          {
+            "node": "KConfiguration",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "cell",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "InjectedKLabel",
+                  "label": {
+                    "node": "KLabel",
+                    "name": "h",
+                    "params": []
+                  }
+                }
+              ]
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "MAIN.config"
+              }
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      },
+      {
+        "node": "KFlatModule",
+        "name": "OTHER",
+        "imports": [],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "o",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KVariable",
+                  "name": "Z"
+                }
+              ]
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "OTHER.rule",
+                "org.krust.provenance.Origin": {
+                  "destination": null,
+                  "origins": 1,
+                  "pass": "macro-expansion"
+                }
+              }
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      }
+    ],
+    "att": {
+      "node": "KAtt",
+      "att": {}
+    }
+  },
+  "sources": [
+    {
+      "logical": "fixture.k",
+      "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+    },
+    {
+      "logical": "other.k",
+      "contentHash": "d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa"
+    }
+  ],
+  "originSets": [
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 0,
+        "end": 2
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 4
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 4,
+        "end": 6
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 6,
+        "end": 8
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 8,
+        "end": 10
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 12,
+        "end": 14
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 14,
+        "end": 16
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 16,
+        "end": 18
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 20,
+        "end": 22
+      },
+      {
+        "kind": "source",
+        "source": 1,
+        "start": 0,
+        "end": 2
+      },
+      {
+        "kind": "source",
+        "source": 1,
+        "start": 2,
+        "end": 4
+      },
+      {
+        "kind": "source",
+        "source": 1,
+        "start": 4,
+        "end": 6
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 1,
+        "start": 6,
+        "end": 8
+      },
+      {
+        "kind": "sentence",
+        "uniqueId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 0,
+        "end": 2
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 2
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 0,
+        "end": 2
+      },
+      {
+        "kind": "set",
+        "set": 0
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 4
+      },
+      {
+        "kind": "set",
+        "set": 2
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 4
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 2,
+        "end": 4
+      },
+      {
+        "kind": "set",
+        "set": 3
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 4,
+        "end": 6
+      },
+      {
+        "kind": "set",
+        "set": 4
+      }
+    ],
+    [
+      {
+        "kind": "set",
+        "set": 6
+      },
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 4,
+        "end": 6
+      },
+      {
+        "kind": "set",
+        "set": 5
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 6,
+        "end": 8
+      },
+      {
+        "kind": "set",
+        "set": 7
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 12,
+        "end": 14
+      },
+      {
+        "kind": "set",
+        "set": 6
+      }
+    ],
+    [
+      {
+        "kind": "source",
+        "source": 0,
+        "start": 14,
+        "end": 16
+      },
+      {
+        "kind": "set",
+        "set": 4
+      }
+    ]
+  ],
+  "anchors": [
+    {
+      "module": "MAIN",
+      "sentence": "MAIN.shapes",
+      "sentenceIndex": 0
+    },
+    {
+      "parent": 0,
+      "step": 0
+    },
+    {
+      "parent": 1,
+      "step": 0
+    },
+    {
+      "parent": 2,
+      "step": 0
+    },
+    {
+      "parent": 3,
+      "step": 0
+    },
+    {
+      "parent": 3,
+      "step": 1
+    },
+    {
+      "parent": 2,
+      "step": 1
+    }
+  ],
+  "termMetadata": [
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 0,
+          "end": 2
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 3,
+          "destination": 1
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 1,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 2,
+          "end": 4
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 5,
+          "destination": 2
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 2,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 4,
+          "end": 6
+        },
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 7,
+          "destination": 3
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 3,
+      "metadata": {
+        "origin": {
+          "pass": "add-sort-injections",
+          "origins": 8,
+          "destination": 4
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 4,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 6,
+          "end": 8
+        },
+        "production": "0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 5,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 8,
+          "end": 10
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 6,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 12,
+          "end": 14
+        },
+        "sort": {
+          "node": "KSort",
+          "name": "Exp",
+          "params": []
+        },
+        "origin": {
+          "pass": "concretize-cells",
+          "origins": 9,
+          "destination": 5
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 7,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 14,
+          "end": 16
+        },
+        "origin": {
+          "pass": "concretize-cells",
+          "origins": 10,
+          "destination": 6
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 8,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 16,
+          "end": 18
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 9,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 20,
+          "end": 22
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 1,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 1,
+          "start": 0,
+          "end": 2
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 1,
+      "node": 1,
+      "metadata": {
+        "span": {
+          "source": 1,
+          "start": 2,
+          "end": 4
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 2,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 1,
+          "start": 4,
+          "end": 6
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 1,
+      "field": 0,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 24,
+          "end": 26
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 1,
+      "field": 0,
+      "node": 1,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 26,
+          "end": 28
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 1,
+      "field": 1,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 0,
+          "start": 30,
+          "end": 32
+        }
+      }
+    },
+    {
+      "moduleIndex": 1,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 0,
+      "metadata": {
+        "span": {
+          "source": 1,
+          "start": 8,
+          "end": 10
+        }
+      }
+    },
+    {
+      "moduleIndex": 1,
+      "sentenceIndex": 0,
+      "field": 0,
+      "node": 1,
+      "metadata": {
+        "span": {
+          "source": 1,
+          "start": 10,
+          "end": 12
+        }
+      }
+    }
+  ]
+}

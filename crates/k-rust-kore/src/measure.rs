@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 16;
+pub const COUNTER_SCHEMA_VERSION: u64 = 17;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -349,6 +349,13 @@ pub enum Counter {
     KompileResolveUpdates,
     /// Flat-definition sentences examined while deciding whether a resolved module is reusable.
     KompileResolveUpdateSentenceVisits,
+    /// Term-metadata comparisons made while deciding whether a resolved module is reusable: one
+    /// per annotated node compared. A receipt is compared by identity; any work done on its
+    /// origin set or destination path shows in `provenance.links_steps` and
+    /// `provenance.anchor_path_steps`.
+    KompileResolveMetadataCompares,
+    /// Resolved modules that an incremental resolution rebuilt rather than reused.
+    KompileResolveModuleRebuilds,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
     KompileRuleBubblesParsed,
     /// Sentence count of the transformed definition, written once per compile.
@@ -372,10 +379,35 @@ pub enum Counter {
     KompileMacroSubjectWalks,
     /// Candidate rules scanned while building owise guards.
     KompileOwiseCompetitorScans,
-    /// Membership probes used to deduplicate provenance links.
-    ProvenanceLinkDedupProbes,
     /// Structured provenance receipts rendered into their JSON wire form.
     ProvenanceReceiptRenders,
+    /// Origin-set nodes built by the recorder: one per set it allocates.
+    ProvenanceSetNodesBuilt,
+    /// Parts (links and named sets) of the origin-set nodes the recorder builds.
+    ProvenanceSetPartsBuilt,
+    /// Work of walking origin sets: set nodes entered plus parts examined, by flattening a set
+    /// into its link list and by every other read of a node's parts, which is where any walk
+    /// over a set's nodes starts.
+    ProvenanceLinksSteps,
+    /// Flattenings of an origin set that names another set.
+    ProvenanceNonflatFlattens,
+    /// Origin-set keys the provenance encoder computes, one per distinct set allocation.
+    ProvenanceEncoderSetKeys,
+    /// Destination-anchor entries the provenance encoder resolves or interns.
+    ProvenanceEncoderAnchorInternings,
+    /// Work of the provenance reader: table entries and their parts, metadata entries, and the
+    /// term nodes or path steps it walks to attach metadata.
+    ProvenanceDecoderSteps,
+    /// Destination-anchor roots the provenance encoder interns by value, hashing their names:
+    /// one per distinct pair of name allocations and sentence index it meets.
+    ProvenanceEncoderAnchorRoots,
+    /// Parts compared while making sure an origin-set key repeats no part, in the provenance
+    /// encoder and reader: one per earlier part compared directly, or one per hash-set probe.
+    ProvenanceNormalPartComparisons,
+    /// Steps of destination-anchor paths created or walked: one per step a path is extended by,
+    /// one per step that flattening, comparing or formatting a path visits, and one per step
+    /// handed to a caller that walks a path itself.
+    ProvenanceAnchorPathSteps,
     /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
     KompileSentenceCopies,
     /// Production identity digests computed while building catalogs.
@@ -504,13 +536,15 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 76;
+    pub const COUNT: usize = 87;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
         Counter::KompileResolveCalls,
         Counter::KompileResolveUpdates,
         Counter::KompileResolveUpdateSentenceVisits,
+        Counter::KompileResolveMetadataCompares,
+        Counter::KompileResolveModuleRebuilds,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
         Counter::KompileSentenceEquivalenceChecks,
@@ -522,8 +556,17 @@ impl Counter {
         Counter::KompileMacroMeasuredNodes,
         Counter::KompileMacroSubjectWalks,
         Counter::KompileOwiseCompetitorScans,
-        Counter::ProvenanceLinkDedupProbes,
         Counter::ProvenanceReceiptRenders,
+        Counter::ProvenanceSetNodesBuilt,
+        Counter::ProvenanceSetPartsBuilt,
+        Counter::ProvenanceLinksSteps,
+        Counter::ProvenanceNonflatFlattens,
+        Counter::ProvenanceEncoderSetKeys,
+        Counter::ProvenanceEncoderAnchorInternings,
+        Counter::ProvenanceDecoderSteps,
+        Counter::ProvenanceEncoderAnchorRoots,
+        Counter::ProvenanceNormalPartComparisons,
+        Counter::ProvenanceAnchorPathSteps,
         Counter::KompileSentenceCopies,
         Counter::KompileProductionIdentityDigests,
         Counter::ParserCompletedNodesInvalidated,
@@ -592,6 +635,8 @@ impl Counter {
             Counter::KompileResolveCalls => "kompile.resolve_calls",
             Counter::KompileResolveUpdates => "kompile.resolve_updates",
             Counter::KompileResolveUpdateSentenceVisits => "kompile.resolve_update_sentence_visits",
+            Counter::KompileResolveMetadataCompares => "kompile.resolve_metadata_compares",
+            Counter::KompileResolveModuleRebuilds => "kompile.resolve_module_rebuilds",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
             Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
@@ -603,8 +648,17 @@ impl Counter {
             Counter::KompileMacroMeasuredNodes => "kompile.macro_measured_nodes",
             Counter::KompileMacroSubjectWalks => "kompile.macro_subject_walks",
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
-            Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
+            Counter::ProvenanceSetNodesBuilt => "provenance.set_nodes_built",
+            Counter::ProvenanceSetPartsBuilt => "provenance.set_parts_built",
+            Counter::ProvenanceLinksSteps => "provenance.links_steps",
+            Counter::ProvenanceNonflatFlattens => "provenance.nonflat_flattens",
+            Counter::ProvenanceEncoderSetKeys => "provenance.encoder_set_keys",
+            Counter::ProvenanceEncoderAnchorInternings => "provenance.encoder_anchor_internings",
+            Counter::ProvenanceDecoderSteps => "provenance.decoder_steps",
+            Counter::ProvenanceEncoderAnchorRoots => "provenance.encoder_anchor_roots",
+            Counter::ProvenanceNormalPartComparisons => "provenance.normal_part_comparisons",
+            Counter::ProvenanceAnchorPathSteps => "provenance.anchor_path_steps",
             Counter::KompileSentenceCopies => "kompile.sentence_copies",
             Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
             Counter::ParserCompletedNodesInvalidated => "parser.completed_nodes_invalidated",
