@@ -1,0 +1,17 @@
+<generatedTop>
+  <k>
+    .K
+  </k>
+  <env>
+    x1 |-> 9
+    x2 |-> 2
+    x10 |-> 10
+    y |-> 100
+  </env>
+  <seen>
+    SetItem ( 2 )
+    SetItem ( 9 )
+    SetItem ( 10 )
+    SetItem ( 100 )
+  </seen>
+</generatedTop>

@@ -1,0 +1,6 @@
+zero ;
+sq ( 3 ) ;
+3 * 4 ;
+one ;
+inc4 ( 5 ) ;
+inc ( inc2 ( 6 ) ) ;

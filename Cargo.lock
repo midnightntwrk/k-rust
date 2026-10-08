@@ -791,6 +791,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-unparse"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "serde_json",
+]
+
+[[package]]
 name = "krs-wasm-abi"
 version = "0.1.0"
 dependencies = [

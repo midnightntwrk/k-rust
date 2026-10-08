@@ -1,0 +1,17 @@
+[package]
+name = "krs-unparse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Grammar-directed printing of KORE terms, as K's kprint and kast --output program print them"
+
+[dependencies]
+k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
