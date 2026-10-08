@@ -324,3 +324,21 @@ pub fn associativity(input: TokenStream) -> TokenStream {
 pub fn lexeme(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Lexeme, input)
 }
+
+/// Names regex fragments, K's `syntax lexical Name = r".."`.
+///
+/// Each `Name = r"..";` entry adds no syntax; token, layout, and lexical
+/// regexes refer to it as `{Name}`.
+#[proc_macro]
+pub fn lexical(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Lexical, input)
+}
+
+/// Declares the layout regexes the program scanner discards, K's
+/// `syntax #Layout ::= r".." [token]`.
+///
+/// Declaring any layout replaces K's default whitespace and comments.
+#[proc_macro]
+pub fn layout(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Layout, input)
+}

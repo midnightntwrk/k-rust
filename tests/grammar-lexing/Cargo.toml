@@ -2,6 +2,7 @@
 members = [
     "packages/format",
     "packages/kevm-case",
+    "packages/layout",
     "packages/memo",
     "packages/overload",
     "packages/overload-ambiguous",

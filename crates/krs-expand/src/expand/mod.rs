@@ -22,7 +22,7 @@ pub(crate) use claims::claim;
 pub(crate) use configuration::{cell, configuration};
 pub(crate) use constructors::{constructor, function, orphan_strictness, symbol, token};
 pub(crate) use enum_family::constructors;
-pub(crate) use grammar::{associativity, precedence};
+pub(crate) use grammar::{associativity, layout, lexical, precedence};
 pub(crate) use initializer::init;
 pub(crate) use rule_block::rules;
 pub(crate) use rules::{alias, equation, orphan_rule_helper, priority, rule, simplification};

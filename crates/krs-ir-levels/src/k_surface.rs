@@ -68,7 +68,9 @@ impl<'a> DefinitionIndex<'a> {
                     DefinitionSentence::Subsort(_)
                     | DefinitionSentence::Precedence(_)
                     | DefinitionSentence::Associativity(_)
-                    | DefinitionSentence::Rule(_) => {}
+                    | DefinitionSentence::Rule(_)
+                    | DefinitionSentence::Lexical(_)
+                    | DefinitionSentence::Layout(_) => {}
                 }
             }
         }
@@ -179,7 +181,9 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
         match sentence {
             DefinitionSentence::SyntaxSort(_)
             | DefinitionSentence::Precedence(_)
-            | DefinitionSentence::Associativity(_) => {}
+            | DefinitionSentence::Associativity(_)
+            | DefinitionSentence::Lexical(_)
+            | DefinitionSentence::Layout(_) => {}
             DefinitionSentence::Subsort(sentence) => {
                 requirements.sort(sentence.subsort());
                 requirements.sort(sentence.supersort());

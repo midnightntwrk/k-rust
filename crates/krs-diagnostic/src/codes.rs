@@ -181,6 +181,9 @@ register_codes! {
         GROUP_AND_DESCENDANT: "krs::analysis::group-and-descendant" => "A rule selects a nested cell together with a cell inside it.",
         AMBIGUOUS_CELL_SORT: "krs::analysis::ambiguous-cell-sort" => "One cell declaration is the content of two cell fields, so its K cell sort is ambiguous.",
         INVALID_TOKEN_SORT: "krs::analysis::invalid-token-sort" => "A token sort has constructors or a repeated token, a token alias names a sort that cannot take tokens, or `k::lexeme!` names a sort that is not a token sort.",
+        DUPLICATE_LEXICAL: "krs::analysis::duplicate-lexical" => "A `k::lexical!` name is declared more than once in the definition.",
+        UNDEFINED_LEXICAL: "krs::analysis::undefined-lexical" => "A token, layout, or lexical regex refers to a `{Name}` that no `k::lexical!` declares.",
+        RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -243,6 +246,7 @@ register_codes! {
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, or alias attribute combines keys K does not accept together.",
         RETIRED_ATTRIBUTE: "krs::syntax::retired-attribute" => "A retired KRS attribute was used; its replacement is named in the message.",
         INVALID_TOKEN_ATTRIBUTE: "krs::syntax::invalid-token-attribute" => "A token attribute or `k::lexeme!` term was malformed: a token attribute takes exactly one nonempty `regex` or single-terminal `terminal`, `prec` only with `regex`, and no stacked duplicate.",
+        INVALID_LEXICAL_MACRO: "krs::syntax::invalid-lexical-macro" => "A `k::lexical!` or `k::layout!` block was malformed: it is empty, repeats a lexical name, names a lexical outside `[A-Z][A-Za-z0-9]*`, or has a malformed entry.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

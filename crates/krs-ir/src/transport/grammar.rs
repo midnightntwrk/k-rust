@@ -848,6 +848,30 @@ pub struct DescriptorAssociativitySentence {
     pub groups: Vec<DescriptorGroupReference>,
 }
 
+/// One `Name = r".."` entry of a `k::lexical!` block.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorLexical {
+    /// Entry provenance (`lexical_declaration`).
+    pub key: ProvenanceKey,
+    /// Lexical name, referenced from regexes as `{Name}`.
+    pub name: String,
+    /// Regex-literal provenance (`lexical_regex`).
+    pub regex_key: ProvenanceKey,
+    /// Unescaped regex text.
+    pub regex: String,
+}
+
+/// One regex of a `k::layout!` block.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorLayoutRegex {
+    /// Regex-literal provenance (`layout_regex`).
+    pub key: ProvenanceKey,
+    /// Unescaped regex text.
+    pub regex: String,
+}
+
 stage_shape! {
     /// Typed after-the-fact object-grammar sentence.
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -893,6 +917,16 @@ stage_shape! {
         Tokens {
             /// One `regex` or `terminal` token production per attribute.
             productions: Vec<Production<S>> => [vec nested],
+        },
+        /// The named regex fragments of one `k::lexical!` block, in source order.
+        Lexical {
+            /// One entry per `Name = r".."`.
+            lexicals: Vec<DescriptorLexical> => [keep],
+        },
+        /// The layout regexes of one `k::layout!` block, in source order.
+        Layout {
+            /// One entry per regex literal.
+            regexes: Vec<DescriptorLayoutRegex> => [keep],
         },
     }
 }
@@ -1874,6 +1908,8 @@ impl GrammarDescriptor {
                 canonical_key(ProvenanceRole::AssociativityDeclaration, 0)
             }
             Self::Tokens { .. } => canonical_key(ProvenanceRole::TokenDeclaration, 0),
+            Self::Lexical { .. } => canonical_key(ProvenanceRole::LexicalDeclaration, 0),
+            Self::Layout { .. } => canonical_key(ProvenanceRole::LayoutRegex, 0),
         }
     }
 
@@ -1958,6 +1994,8 @@ impl GrammarDescriptor {
                 }
                 Ok(())
             }
+            Self::Lexical { lexicals } => validate_lexicals(lexicals, provenance),
+            Self::Layout { regexes } => validate_layout(regexes, provenance),
             Self::Associativity { key, sentences } => {
                 require_key(key, provenance)?;
                 if sentences.is_empty() {
@@ -2333,6 +2371,52 @@ impl DescriptorProduction {
     }
 }
 
+fn validate_lexicals(
+    lexicals: &[DescriptorLexical],
+    provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+) -> Result<(), GrammarTransportError> {
+    if lexicals.is_empty() {
+        return Err(GrammarTransportError::EmptyCollection(
+            TransportField::LexicalEntries,
+        ));
+    }
+    for lexical in lexicals {
+        require_key(&lexical.key, provenance)?;
+        require_key(&lexical.regex_key, provenance)?;
+        if lexical.name.is_empty() {
+            return Err(GrammarTransportError::EmptyCollection(
+                TransportField::LexicalName,
+            ));
+        }
+        if lexical.regex.is_empty() {
+            return Err(GrammarTransportError::EmptyCollection(
+                TransportField::ProductionRegex,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_layout(
+    regexes: &[DescriptorLayoutRegex],
+    provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+) -> Result<(), GrammarTransportError> {
+    if regexes.is_empty() {
+        return Err(GrammarTransportError::EmptyCollection(
+            TransportField::LayoutRegexes,
+        ));
+    }
+    for regex in regexes {
+        require_key(&regex.key, provenance)?;
+        if regex.regex.is_empty() {
+            return Err(GrammarTransportError::EmptyCollection(
+                TransportField::ProductionRegex,
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl GrammarDescriptor {
     pub(crate) fn expected_provenance_keys(
         &self,
@@ -2384,6 +2468,33 @@ impl GrammarDescriptor {
                         )?;
                         group_ordinal = increment(group_ordinal)?;
                     }
+                }
+            }
+            Self::Lexical { lexicals } => {
+                for (ordinal, lexical) in lexicals.iter().enumerate() {
+                    let ordinal = checked_index(ordinal)?;
+                    insert_exact(
+                        &mut keys,
+                        &lexical.key,
+                        ProvenanceRole::LexicalDeclaration,
+                        ordinal,
+                    )?;
+                    insert_exact(
+                        &mut keys,
+                        &lexical.regex_key,
+                        ProvenanceRole::LexicalRegex,
+                        ordinal,
+                    )?;
+                }
+            }
+            Self::Layout { regexes } => {
+                for (ordinal, regex) in regexes.iter().enumerate() {
+                    insert_exact(
+                        &mut keys,
+                        &regex.key,
+                        ProvenanceRole::LayoutRegex,
+                        checked_index(ordinal)?,
+                    )?;
                 }
             }
             Self::Associativity { key, sentences } => {

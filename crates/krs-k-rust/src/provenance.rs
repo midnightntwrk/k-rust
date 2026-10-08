@@ -202,9 +202,10 @@ impl Error for ProvenanceError {}
 fn input_kind(sentence: &DefinitionSentence) -> InputSentenceKind {
     match sentence {
         DefinitionSentence::SyntaxSort(_) => InputSentenceKind::SyntaxSort,
-        DefinitionSentence::Subsort(_) | DefinitionSentence::Production(_) => {
-            InputSentenceKind::Production
-        }
+        DefinitionSentence::Subsort(_)
+        | DefinitionSentence::Production(_)
+        | DefinitionSentence::Layout(_) => InputSentenceKind::Production,
+        DefinitionSentence::Lexical(_) => InputSentenceKind::SyntaxLexical,
         DefinitionSentence::Precedence(_) => InputSentenceKind::SyntaxPriority,
         DefinitionSentence::Associativity(_) => InputSentenceKind::SyntaxAssociativity,
         DefinitionSentence::Configuration(_) => InputSentenceKind::Configuration,

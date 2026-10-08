@@ -5,6 +5,17 @@ use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SourceRange, StableItemId};
 use krs_ir_levels::SemanticValidationError;
 
+/// The lexical rule a definition breaks (KF-004).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LexicalProblem {
+    /// A lexical name is declared twice.
+    Duplicate,
+    /// A regex refers to a `{Name}` no lexical declares.
+    Undefined,
+    /// Lexicals refer to each other in a cycle.
+    Recursive,
+}
+
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorLoweringError {
@@ -129,6 +140,15 @@ pub enum DescriptorLoweringError {
         /// Stable reason naming the sort and the fix.
         reason: String,
         /// Sole exact authored range of the offending occurrence.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A `k::lexical!` name or a `{Name}` regex reference is invalid (KF-004).
+    InvalidLexical {
+        /// Which rule the definition breaks.
+        problem: LexicalProblem,
+        /// Stable reason naming the lexical and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending declaration.
         range: Option<Box<SourceRange>>,
     },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
@@ -256,7 +276,9 @@ impl fmt::Display for DescriptorLoweringError {
                 "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
                 rule.item_name()
             ),
-            Self::InvalidTokenSort { reason, .. } => formatter.write_str(reason),
+            Self::InvalidTokenSort { reason, .. } | Self::InvalidLexical { reason, .. } => {
+                formatter.write_str(reason)
+            }
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -284,6 +306,11 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
             Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
+            Self::InvalidLexical { problem, .. } => match problem {
+                LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
+                LexicalProblem::Undefined => codes::analysis::UNDEFINED_LEXICAL,
+                LexicalProblem::Recursive => codes::analysis::RECURSIVE_LEXICAL,
+            },
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -301,7 +328,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::AlwaysEnabledRule { range, .. }
             | Self::GroupAndDescendant { range, .. }
             | Self::AmbiguousCellSort { range, .. }
-            | Self::InvalidTokenSort { range, .. } => range
+            | Self::InvalidTokenSort { range, .. }
+            | Self::InvalidLexical { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

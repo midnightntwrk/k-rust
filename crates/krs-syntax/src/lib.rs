@@ -13,6 +13,7 @@ mod grammar;
 mod initializer;
 mod item;
 pub mod keyword;
+mod lexical;
 pub mod parse;
 mod path;
 mod provenance;
@@ -55,6 +56,7 @@ pub use initializer::{
 pub use item::{
     ConstructorDeclaration, ConstructorField, ProductionDocumentation, SortDeclaration,
 };
+pub use lexical::{LayoutDeclaration, LexicalDeclaration, LexicalEntry, regex_references};
 pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;

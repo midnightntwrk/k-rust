@@ -308,6 +308,25 @@ k::associativity! {
 }
 ",
     ),
+    (
+        "lexical",
+        r#"
+k::lexical! {
+    /// One ASCII letter.
+    Alpha = r"[a-zA-Z]";
+    AlphaNum = r"[a-zA-Z0-9_]";
+}
+"#,
+    ),
+    (
+        "layout",
+        r#"
+k::layout! {
+    r"(;[^\n\r]*)",
+    r"([\ \n\r\t])",
+}
+"#,
+    ),
     // Configuration and initializers.
     (
         "configuration",

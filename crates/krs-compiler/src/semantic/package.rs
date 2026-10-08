@@ -5,10 +5,11 @@ use krs_ir::{
     DescriptorFixedConfiguration, DescriptorInitializerCell, DescriptorInitializerStateTerm,
     DescriptorPayload, DescriptorProductionAttribute, DescriptorProductionItem,
     DescriptorProductionOwner, DescriptorRuleCells, DescriptorSortRef, DescriptorTerm,
-    GrammarDescriptor, GroupAssociativitySentence, ModuleId, PackageId, PrecedenceRelation,
-    ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, SortDescriptor, StableItemId,
+    GrammarDescriptor, GroupAssociativitySentence, LayoutSentence, LexicalSentence, ModuleId,
+    PackageId, PrecedenceRelation, ProtocolCellContent, ProtocolContextAliasBindingKind,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
+    ProtocolRuleBindingKind, ProtocolRuleMapBody, ProtocolRuleStateTerm, SortDescriptor,
+    StableItemId,
 };
 use krs_ir_levels::{
     SemanticConfiguration, SemanticContextAlias, SemanticModule, SemanticProduction, SemanticRule,
@@ -38,6 +39,8 @@ pub(super) struct ModuleSentences {
     pub(super) configuration: Option<SemanticConfiguration>,
     pub(super) rules: Vec<SemanticRule>,
     pub(super) context_aliases: Vec<SemanticContextAlias>,
+    pub(super) lexicals: Vec<LexicalSentence>,
+    pub(super) layouts: Vec<LayoutSentence>,
 }
 
 pub(super) fn lower_package_module(
@@ -95,6 +98,8 @@ pub(super) fn lower_package_module(
         configuration,
         mut rules,
         mut context_aliases,
+        lexicals,
+        layouts,
     } = sentences;
     sorts.sort_by(|left, right| left.id().cmp(right.id()));
     subsorts.sort();
@@ -115,7 +120,9 @@ pub(super) fn lower_package_module(
         configuration,
         context_aliases,
         rules,
-    ))
+    )
+    .with_lexicals(lexicals)
+    .with_layouts(layouts))
 }
 
 /// Lowers one descriptor into the sentences of its package module.
@@ -343,7 +350,10 @@ fn collect_grammar_packages(grammar: &GrammarDescriptor, packages: &mut BTreeSet
             collect_sort_ref_package(&subsort.sort, packages);
             collect_sort_ref_package(&supersort.sort, packages);
         }
-        GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
+        GrammarDescriptor::Precedence { .. }
+        | GrammarDescriptor::Associativity { .. }
+        | GrammarDescriptor::Lexical { .. }
+        | GrammarDescriptor::Layout { .. } => {}
     }
 }
 

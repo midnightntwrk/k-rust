@@ -474,13 +474,15 @@ fn is_claim(sentence: &DefinitionSentence) -> bool {
 fn sentence_group(sentence: &DefinitionSentence) -> u8 {
     match sentence {
         DefinitionSentence::SyntaxSort(_) => 0,
-        DefinitionSentence::Production(_) => 1,
-        DefinitionSentence::Subsort(_) => 2,
-        DefinitionSentence::Precedence(_) => 3,
-        DefinitionSentence::Associativity(_) => 4,
-        DefinitionSentence::Configuration(_) => 5,
-        DefinitionSentence::ContextAlias(_) => 6,
-        DefinitionSentence::Rule(_) => 7,
+        DefinitionSentence::Lexical(_) => 1,
+        DefinitionSentence::Layout(_) => 2,
+        DefinitionSentence::Production(_) => 3,
+        DefinitionSentence::Subsort(_) => 4,
+        DefinitionSentence::Precedence(_) => 5,
+        DefinitionSentence::Associativity(_) => 6,
+        DefinitionSentence::Configuration(_) => 7,
+        DefinitionSentence::ContextAlias(_) => 8,
+        DefinitionSentence::Rule(_) => 9,
     }
 }
 
@@ -494,6 +496,8 @@ enum SentenceOrderKey {
     Configuration(String),
     ContextAlias(String),
     Rule(String),
+    Lexical(String),
+    Layout(String),
 }
 
 fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
@@ -524,6 +528,12 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
         }
         DefinitionSentence::Rule(sentence) => {
             SentenceOrderKey::Rule(sentence.label().emitted_name().to_owned())
+        }
+        DefinitionSentence::Lexical(sentence) => {
+            SentenceOrderKey::Lexical(sentence.name().to_owned())
+        }
+        DefinitionSentence::Layout(sentence) => {
+            SentenceOrderKey::Layout(sentence.origin().key().stable_text().into_owned())
         }
     }
 }

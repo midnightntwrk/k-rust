@@ -32,6 +32,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 | repeated cells | qualified | `multiplicity = "*"` parses with Bag/List/Map/Set; only Map has language-scale end-to-end evidence |
 | program syntax | qualified | each package emits `<NS>-SYNTAX` and `<NS>`; a production over `Map`, `List`, or `Set` is never program syntax, because K has no `-SYNTAX` module for them |
 | token sorts | qualified | `#[k::token]` adds regex or terminal token productions to a closed struct sort, another token sort, or builtin `Id`, and `k::lexeme!` writes a token in rules and claims, not in initializers; KRS does not check a lexeme's text against the regex, and does not detect a token regex that shadows K's own rule-level tokens |
+| layout and lexicals | qualified | `k::layout!` replaces K's default layout and also applies when K parses the emitted rules, which KRS does not check; a layout regex that swallows a terminal breaks Java K's rule parsing but not the native route |
 | typed hooks | qualified | only the typed catalog exported by KRS; no arbitrary hook or raw-attribute escape hatch |
 | anywhere rules | qualified | `#[k::rule(anywhere)]` on term-shaped rules runs on the k-rust and Java LLVM routes; the Java Haskell route refuses it (`krs::capability::unavailable`), and k-rust leaves a left-hand side that nests the rule's own head unreduced |
 | KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |

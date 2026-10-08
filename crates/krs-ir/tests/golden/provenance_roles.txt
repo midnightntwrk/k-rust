@@ -168,3 +168,6 @@ FunctionMemo=function_memo
 TokenTerminal=token_terminal
 LexemeSort=lexeme_sort
 LexemeText=lexeme_text
+LexicalDeclaration=lexical_declaration
+LexicalRegex=lexical_regex
+LayoutRegex=layout_regex

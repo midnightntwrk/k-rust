@@ -4,7 +4,9 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{GroupAssociativitySentence, ModuleId, PrecedenceRelation};
+use crate::{
+    GroupAssociativitySentence, LayoutSentence, LexicalSentence, ModuleId, PrecedenceRelation,
+};
 
 /// Supplies the canonical ordering key for a sequence element.
 pub trait SortKey {
@@ -37,6 +39,20 @@ impl SortKey for GroupAssociativitySentence {
     }
 }
 
+impl SortKey for LexicalSentence {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for LayoutSentence {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
 /// A sequence kept in stable key order, including equal-key elements.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct SortedByKey<T>(Vec<T>);
@@ -55,6 +71,12 @@ impl<T: SortKey> SortedByKey<T> {
             .0
             .partition_point(|existing| existing.sort_key() <= element.sort_key());
         self.0.insert(index, element);
+    }
+}
+
+impl<T> Default for SortedByKey<T> {
+    fn default() -> Self {
+        Self(Vec::new())
     }
 }
 

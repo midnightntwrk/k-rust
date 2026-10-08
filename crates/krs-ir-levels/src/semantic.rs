@@ -273,6 +273,12 @@ impl SemanticTheory {
             for associativity in &module.associativities {
                 insert_node::<SemanticLevel>(&mut node_keys, associativity.origin().key())?;
             }
+            for lexical in &module.lexicals {
+                insert_node::<SemanticLevel>(&mut node_keys, lexical.origin().key())?;
+            }
+            for layout in &module.layouts {
+                insert_node::<SemanticLevel>(&mut node_keys, layout.origin().key())?;
+            }
             for rule in &module.rules {
                 let expected = rule.kind().item_kind();
                 validate_item_kind(&rule.id, expected)?;
@@ -501,6 +507,21 @@ pub struct SemanticModule {
     rules: SortedByKey<SemanticRule>,
     #[serde(default, skip_serializing_if = "is_signed")]
     int_literals: krs_ir::IntLiterals,
+    #[serde(default, skip_serializing_if = "is_empty_sentences")]
+    lexicals: SortedByKey<krs_ir::LexicalSentence>,
+    #[serde(default, skip_serializing_if = "is_empty_sentences")]
+    layouts: SortedByKey<krs_ir::LayoutSentence>,
+}
+
+fn is_empty_sentences<T>(value: &SortedByKey<T>) -> bool {
+    value.is_empty()
+}
+
+#[cfg(feature = "test-support")]
+fn permuted<T: Clone>(values: &[T], seed: u64) -> Vec<T> {
+    let mut values = values.to_vec();
+    krs_ir::testing::permute(&mut values, seed);
+    values
 }
 
 #[expect(
@@ -578,7 +599,35 @@ impl SemanticModule {
             context_aliases: SortedByKey::new(context_aliases),
             rules: SortedByKey::new(rules),
             int_literals: krs_ir::IntLiterals::Signed,
+            lexicals: SortedByKey::default(),
+            layouts: SortedByKey::default(),
         }
+    }
+
+    /// Sets the module's named lexicals (`k::lexical!`).
+    #[must_use]
+    pub fn with_lexicals(mut self, lexicals: Vec<krs_ir::LexicalSentence>) -> Self {
+        self.lexicals = SortedByKey::new(lexicals);
+        self
+    }
+
+    /// Sets the module's layout regexes (`k::layout!`).
+    #[must_use]
+    pub fn with_layouts(mut self, layouts: Vec<krs_ir::LayoutSentence>) -> Self {
+        self.layouts = SortedByKey::new(layouts);
+        self
+    }
+
+    /// Returns the module's named lexicals.
+    #[must_use]
+    pub fn lexicals(&self) -> &[krs_ir::LexicalSentence] {
+        &self.lexicals
+    }
+
+    /// Returns the module's layout regexes.
+    #[must_use]
+    pub fn layouts(&self) -> &[krs_ir::LayoutSentence] {
+        &self.layouts
     }
 
     /// Sets the package's program-syntax integer literal module.
@@ -628,6 +677,8 @@ impl SemanticModule {
             rules,
         )
         .with_int_literals(self.int_literals)
+        .with_lexicals(permuted(&self.lexicals, seed))
+        .with_layouts(permuted(&self.layouts, seed))
     }
 
     /// Returns this module's stable identity.

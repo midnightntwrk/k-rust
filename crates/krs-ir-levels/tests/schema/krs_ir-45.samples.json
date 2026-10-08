@@ -4325,6 +4325,103 @@
         ]
       },
       "sentence_kind": "rule"
+    },
+    {
+      "sentence": {
+        "name": "Alpha",
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "regex": "[a-zA-Z]"
+      },
+      "sentence_kind": "lexical"
+    },
+    {
+      "sentence": {
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "regex": "[\\ \\n]"
+      },
+      "sentence_kind": "layout"
     }
   ],
   "DefinitionSimplification": [
@@ -10518,6 +10615,39 @@
         ]
       },
       "grammar_kind": "tokens"
+    },
+    {
+      "grammar": {
+        "lexicals": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "regex": "sample",
+            "regex_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ]
+      },
+      "grammar_kind": "lexical"
+    },
+    {
+      "grammar": {
+        "regexes": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "regex": "sample"
+          }
+        ]
+      },
+      "grammar_kind": "layout"
     }
   ],
   "GrammarProductionItem": [
@@ -10800,6 +10930,101 @@
         "term_kind": "variable",
         "variable": "semantic"
       }
+    }
+  ],
+  "LayoutSentence": [
+    {
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "regex": "[\\ \\n]"
+    }
+  ],
+  "LexicalSentence": [
+    {
+      "name": "Alpha",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "regex": "[a-zA-Z]"
     }
   ],
   "NodeOrigin": [
@@ -13777,7 +14002,10 @@
     "function_memo",
     "token_terminal",
     "lexeme_sort",
-    "lexeme_text"
+    "lexeme_text",
+    "lexical_declaration",
+    "lexical_regex",
+    "layout_regex"
   ],
   "RuleSentence": [
     {
@@ -20256,6 +20484,39 @@
         ]
       },
       "grammar_kind": "tokens"
+    },
+    {
+      "grammar": {
+        "lexicals": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "regex": "sample",
+            "regex_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ]
+      },
+      "grammar_kind": "lexical"
+    },
+    {
+      "grammar": {
+        "regexes": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "regex": "sample"
+          }
+        ]
+      },
+      "grammar_kind": "layout"
     }
   ],
   "WireHeadRule": [

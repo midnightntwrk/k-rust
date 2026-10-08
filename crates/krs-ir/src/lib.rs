@@ -76,9 +76,9 @@ pub use generated::{
 pub use grammar::{
     ApplicationRef, BuiltinOperation, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
-    HookOperation, PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
-    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
-    StrictnessKind,
+    HookOperation, LayoutSentence, LexicalSentence, PrecedenceRelation, ProductionAttribute,
+    ProductionContextAliasReference, ProductionFieldId, ProductionFieldReference,
+    ProductionGroupId, ProductionResultSort, StrictnessKind,
 };
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
@@ -128,10 +128,10 @@ pub use transport::grammar::{
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
     DescriptorCellTermField, DescriptorColorEntry, DescriptorContextAliasReference,
     DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
-    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorNondetGroup,
-    DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
-    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRuleCondition,
-    DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
+    DescriptorLayoutRegex, DescriptorLexical, DescriptorLexicalPrecedence, DescriptorLiteral,
+    DescriptorNondetGroup, DescriptorPrecedenceChain, DescriptorProduction,
+    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
+    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
     DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
     DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
     GrammarTransportError, HostApplicationIdentity, HostApplicationReference,

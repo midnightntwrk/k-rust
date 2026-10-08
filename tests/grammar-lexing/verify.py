@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
-(KF-018), production keys (KF-002, KF-038, KF-045, KF-046 memo), and user
-token sorts (KF-003).
+(KF-018), production keys (KF-002, KF-038, KF-045, KF-046 memo), user
+token sorts (KF-003), and layout and named lexicals (KF-004).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -46,6 +46,12 @@ partition end to end on both routes:
   and a quote-bearing
   regex lexes `"hi"`; `k::lexeme!` terms on a `cells!` rule and in readable
   rules fire on both routes, and `call bar` matches neither rule;
+- `layout`: `k::layout!` declares a `;` line comment and whitespace, which
+  replaces K's default layout, and `k::lexical!` names the fragments of
+  `Name`'s regex; both are emitted in `KRS-LAYOUT-SYNTAX`. Programs with `;`
+  comments and newlines parse to the same KAST in Java `kast` and run to the
+  same result on both routes, and a program with a `//` comment is now
+  rejected on both;
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
@@ -54,7 +60,9 @@ partition end to end on both routes:
   its target's, two productions that overload each other, a dependent that
   names a private production (E0603), a claim that names one, a constructor
   of a token sort, a lexeme of a sort without tokens or of a builtin sort, a
-  token declared twice on one sort, and a token alias of `Int`.
+  token declared twice on one sort, a token alias of `Int`, a lexical
+  declared twice, a regex that refers to an undefined lexical, and two
+  lexicals that refer to each other.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -121,6 +129,25 @@ TOKENS_SOURCE_FRAGMENTS = (
     'syntax Name ::= r"[a-z][a-z0-9_]*" [token]',
     '<k> call #token("main","Name") ~> Tail:K => halt ~> Tail:K </k>',
     '<k> call #token("foo","Name") => other ... </k>',
+)
+LAYOUT = Fixture(MANIFEST, "krs-grammar-layout")
+LAYOUT_PROGRAMS = (
+    Program(
+        "comment", "call main ; jump to main", "accepted", "halt",
+        kast='call(#token("main","Name"))',
+    ),
+    Program(
+        "multiline", "; a leading comment\ncall\n\tFoo_1 ; a trailing comment\n", "accepted", "other",
+        kast='call(#token("Foo_1","Name"))',
+    ),
+    Program("double-slash", "call main // not a comment here", "rejected"),
+)
+LAYOUT_SYNTAX_FRAGMENTS = (
+    'syntax lexical Alpha = r"[a-zA-Z]"',
+    'syntax lexical AlphaNum = r"[a-zA-Z0-9_]"',
+    'syntax #Layout ::= r"(;[^\\\\n\\\\r]*)" [token]',
+    'syntax #Layout ::= r"([\\\\ \\\\n\\\\r\\\\t])" [token]',
+    'syntax Name ::= r"{Alpha}{AlphaNum}*" [token]',
 )
 MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
 MEMO_ATTRIBUTES = (("square",), ("memo",))
@@ -198,6 +225,9 @@ NEGATIVE = (
     ("lexeme-builtin", "lexeme-builtin", "krs-grammar-lexeme-builtin", ()),
     ("token-duplicate", "token-duplicate", "krs-grammar-token-duplicate", ()),
     ("token-alias-builtin", "token-alias-builtin", "krs-grammar-token-alias-builtin", ()),
+    ("lexical-duplicate", "lexical-duplicate", "krs-grammar-lexical-duplicate", ()),
+    ("lexical-undefined", "lexical-undefined", "krs-grammar-lexical-undefined", ()),
+    ("lexical-recursive", "lexical-recursive", "krs-grammar-lexical-recursive", ()),
 )
 
 
@@ -442,6 +472,19 @@ def main() -> int:
             raise GateError("token-id: emitted K omits the Id token production")
         harness.compare(token_id, TOKEN_ID_PROGRAMS, sort="Stmt")
         print("PASS token-id: a type alias adds @ labels to the builtin Id on both routes")
+
+        harness.check(LAYOUT)
+        harness.expand(LAYOUT)
+        layout = harness.emit(LAYOUT)
+        layout_source = layout.source.read_text(encoding="utf-8")
+        syntax_start = layout_source.find(f"module {layout.syntax_module}\n")
+        syntax_end = layout_source.find("endmodule", syntax_start)
+        syntax_text = layout_source[syntax_start:syntax_end] if syntax_start >= 0 else ""
+        for fragment in LAYOUT_SYNTAX_FRAGMENTS:
+            if fragment not in syntax_text:
+                raise GateError(f"layout: {layout.syntax_module} omits {fragment!r}")
+        harness.compare(layout, LAYOUT_PROGRAMS, sort="Stmt")
+        print("PASS layout: ; comments and newlines are layout on both routes; // is no longer a comment")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

@@ -67,6 +67,19 @@ pub(super) fn emit_sentence(
             emit_context_alias(sentence, context, writer)?;
         }
         DefinitionSentence::Rule(sentence) => emit_rule(sentence, context, writer)?,
+        DefinitionSentence::Lexical(sentence) => {
+            writer.push("syntax lexical ");
+            writer.push(sentence.name());
+            writer.push(" = r");
+            writer.push(&quoted_outer(sentence.regex()));
+        }
+        DefinitionSentence::Layout(sentence) => {
+            // Java K 7.1.337 requires `[token]` on a layout production
+            // ("Symbol ..#Layout is not unique" otherwise).
+            writer.push("syntax #Layout ::= r");
+            writer.push(&quoted_outer(sentence.regex()));
+            writer.push(" [token]");
+        }
     }
     writer.push("\n");
     writer.record(sentence.origin().key(), start, writer.source.len())?;

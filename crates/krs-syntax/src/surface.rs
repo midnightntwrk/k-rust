@@ -166,6 +166,10 @@ entry_points! {
         Associativity = "associativity",
         /// `k::lexeme!`.
         Lexeme = "lexeme",
+        /// `k::lexical!`.
+        Lexical = "lexical",
+        /// `k::layout!`.
+        Layout = "layout",
     }
 }
 

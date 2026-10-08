@@ -143,7 +143,10 @@ fn validate_grammar_references(
             validate_sort_ref(&subsort.sort, declarations)?;
             validate_sort_ref(&supersort.sort, declarations)?;
         }
-        GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
+        GrammarDescriptor::Precedence { .. }
+        | GrammarDescriptor::Associativity { .. }
+        | GrammarDescriptor::Lexical { .. }
+        | GrammarDescriptor::Layout { .. } => {}
     }
     Ok(())
 }

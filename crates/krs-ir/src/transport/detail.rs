@@ -53,6 +53,9 @@ details! {
         RequiredGrammarPrimaryProvenanceKey => "required grammar primary provenance key",
         Color => "production color",
         Colors => "production colors",
+        LexicalEntries => "lexical entries",
+        LexicalName => "lexical name",
+        LayoutRegexes => "layout regexes",
     }
 }
 

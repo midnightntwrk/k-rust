@@ -169,7 +169,9 @@ impl SymbolMap {
                     )?,
                     DefinitionSentence::Subsort(_)
                     | DefinitionSentence::Precedence(_)
-                    | DefinitionSentence::Associativity(_) => {}
+                    | DefinitionSentence::Associativity(_)
+                    | DefinitionSentence::Lexical(_)
+                    | DefinitionSentence::Layout(_) => {}
                 }
             }
         }
@@ -280,6 +282,10 @@ pub enum SourceMapNodeKind {
     SimplificationPriority,
     /// Nested structured term.
     Term,
+    /// Named lexical sentence.
+    Lexical,
+    /// Layout regex sentence.
+    Layout,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -461,6 +467,8 @@ impl SourceMap {
                         SourceMapNodeKind::Claim
                     }
                     DefinitionSentence::Rule(_) => SourceMapNodeKind::Rule,
+                    DefinitionSentence::Lexical(_) => SourceMapNodeKind::Lexical,
+                    DefinitionSentence::Layout(_) => SourceMapNodeKind::Layout,
                 };
                 insert_origin(&mut entries, sentence.origin(), kind)?;
                 match sentence {

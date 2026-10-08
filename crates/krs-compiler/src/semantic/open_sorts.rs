@@ -171,7 +171,9 @@ fn open_sort_edges(
                 }
                 GrammarDescriptor::Precedence { .. }
                 | GrammarDescriptor::Associativity { .. }
-                | GrammarDescriptor::Tokens { .. } => {}
+                | GrammarDescriptor::Tokens { .. }
+                | GrammarDescriptor::Lexical { .. }
+                | GrammarDescriptor::Layout { .. } => {}
             },
         }
     }

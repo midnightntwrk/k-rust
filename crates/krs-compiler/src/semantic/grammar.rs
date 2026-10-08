@@ -1,8 +1,9 @@
 use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    GeneratedProductionKind, GrammarDescriptor, GroupAssociativitySentence, PrecedenceRelation,
-    ProductionAttribute, StableItemId, TokenProductionContent, generated_production_id,
+    GeneratedProductionKind, GrammarDescriptor, GroupAssociativitySentence, LayoutSentence,
+    LexicalSentence, PrecedenceRelation, ProductionAttribute, StableItemId, TokenProductionContent,
+    generated_production_id,
 };
 use krs_ir_levels::{SemanticProduction, SemanticProductionItem, SemanticSortRef, SemanticSubsort};
 
@@ -68,6 +69,9 @@ pub(super) fn lower_grammar_descriptor(
                 }
             }
         }
+        GrammarDescriptor::Lexical { .. } | GrammarDescriptor::Layout { .. } => {
+            lower_lexing_descriptor(descriptor, grammar, module)?;
+        }
         GrammarDescriptor::Associativity { sentences, .. } => {
             for sentence in sentences {
                 module.associativities.push(
@@ -89,6 +93,47 @@ pub(super) fn lower_grammar_descriptor(
                 );
             }
         }
+    }
+    Ok(())
+}
+
+/// Lowers the entries of one `k::lexical!` or `k::layout!` block (KF-004).
+fn lower_lexing_descriptor(
+    descriptor: &Descriptor,
+    grammar: &GrammarDescriptor,
+    module: &mut ModuleSentences,
+) -> Result<(), DescriptorLoweringError> {
+    let shape = |node: &'static str| {
+        move |error: krs_ir::GrammarShapeError| DescriptorLoweringError::UnsupportedShape {
+            node,
+            detail: error.to_string(),
+        }
+    };
+    match grammar {
+        GrammarDescriptor::Lexical { lexicals } => {
+            for lexical in lexicals {
+                module.lexicals.push(
+                    LexicalSentence::new(
+                        semantic_origin(descriptor, lexical.key.clone(), "lexical")?,
+                        lexical.name.clone(),
+                        lexical.regex.clone(),
+                    )
+                    .map_err(shape("lexical"))?,
+                );
+            }
+        }
+        GrammarDescriptor::Layout { regexes } => {
+            for regex in regexes {
+                module.layouts.push(
+                    LayoutSentence::new(
+                        semantic_origin(descriptor, regex.key.clone(), "layout")?,
+                        regex.regex.clone(),
+                    )
+                    .map_err(shape("layout"))?,
+                );
+            }
+        }
+        _ => {}
     }
     Ok(())
 }

@@ -382,6 +382,12 @@ provenance_roles! {
     LexemeSort => "lexeme_sort",
     /// Text literal of one `k::lexeme!(Sort, "text")` token term.
     LexemeText => "lexeme_text",
+    /// One `Name = r".."` entry of `k::lexical!`, in source order.
+    LexicalDeclaration => "lexical_declaration",
+    /// Regex literal of one `k::lexical!` entry, in source order.
+    LexicalRegex => "lexical_regex",
+    /// One regex literal of `k::layout!`, in source order.
+    LayoutRegex => "layout_regex",
 }
 
 impl Serialize for ProvenanceRole {

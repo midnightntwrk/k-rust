@@ -90,6 +90,12 @@ const snippets = [
     end: '/// Double-quoted text',
   },
   {
+    source: '../tests/grammar-lexing/packages/layout/src/lib.rs',
+    mirror: 'src/snippets/layout.rs',
+    start: 'k::lexical! {',
+    end: '#[k::constructors',
+  },
+  {
     source: '../semantics/kevm/src/lib.rs',
     mirror: 'src/snippets/kevm-accounts.rs',
     start: '#[k::cell]\npub struct Account {',

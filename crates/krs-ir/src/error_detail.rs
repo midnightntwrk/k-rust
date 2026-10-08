@@ -42,6 +42,7 @@ details! {
         FollowRegex => "follow regex",
         InitializerChildren => "initializer children",
         LabelName => "label name",
+        LexicalName => "lexical name",
         MultipleMainConfigurationVariables => "multiple main configuration variables",
         NestedCellChildren => "nested cell children",
         PrecedeRegex => "precede regex",

@@ -880,7 +880,7 @@ fn validate_token_terminal(literal: &LitStr) -> ParseResult<()> {
     Ok(())
 }
 
-fn validate_regex(literal: &LitStr) -> ParseResult<()> {
+pub(crate) fn validate_regex(literal: &LitStr) -> ParseResult<()> {
     let text = literal.value();
     if text.is_empty() {
         return Err(ParseError::Structured(SyntaxError::new(

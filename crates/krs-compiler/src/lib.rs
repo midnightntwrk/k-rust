@@ -28,8 +28,8 @@ pub use reference::{
     expand_reference_source,
 };
 pub use semantic::{
-    DescriptorLoweringError, NondetGroupProblem, OpenSortAnalysis, analyze_open_sorts,
-    lower_descriptor_bundle,
+    DescriptorLoweringError, LexicalProblem, NondetGroupProblem, OpenSortAnalysis,
+    analyze_open_sorts, lower_descriptor_bundle,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

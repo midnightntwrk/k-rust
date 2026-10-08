@@ -147,6 +147,8 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "FixedConfigurationVariable",
     "FixedInitializerCell",
     "GroupAssociativitySentence",
+    "LayoutSentence",
+    "LexicalSentence",
     "NodeOrigin",
     "PrecedenceRelation",
     "ProductionContextAliasReference",
@@ -637,6 +639,8 @@ fn registry() -> Registry {
     trace!(CountersDocument: CountersDocument);
     trace!(DescriptorApplicationHeadClass: DescriptorApplicationHeadClass);
     trace!(DescriptorAssociativitySentence: DescriptorAssociativitySentence);
+    trace!(DescriptorLexical: DescriptorLexical);
+    trace!(DescriptorLayoutRegex: DescriptorLayoutRegex);
     trace!(DescriptorCellColor: DescriptorCellColor);
     trace!(DescriptorCellDeclarationReference: DescriptorCellDeclarationReference);
     trace!(DescriptorCellIdentity: DescriptorCellIdentity);
@@ -833,6 +837,8 @@ fn registry() -> Registry {
     unsupported!(FormatFragment: FormatFragment);
     unsupported!(GrammarDescriptor: GrammarDescriptor);
     unsupported!(GroupAssociativitySentence: GroupAssociativitySentence);
+    unsupported!(LayoutSentence: LayoutSentence);
+    unsupported!(LexicalSentence: LexicalSentence);
     unsupported!(NodeOrigin: NodeOrigin);
     unsupported!(OriginFrame: OriginFrame);
     unsupported!(OriginStack: OriginStack);

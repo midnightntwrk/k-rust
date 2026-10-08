@@ -890,6 +890,28 @@ fn collect_macro_invocations(
                 ParsedInvocationPayload::Declaration,
             )?);
         }
+        FunctionMacro::Lexical => {
+            let declaration =
+                krs_syntax::LexicalDeclaration::parse_tokens(item_macro.mac.tokens.clone())
+                    .map_err(source_syntax)?;
+            output.push(parsed_invocation(
+                ProvenanceRole::LexicalDeclaration,
+                String::new(),
+                declaration.provenance().map_err(source_syntax)?,
+                ParsedInvocationPayload::Declaration,
+            )?);
+        }
+        FunctionMacro::Layout => {
+            let declaration =
+                krs_syntax::LayoutDeclaration::parse_tokens(item_macro.mac.tokens.clone())
+                    .map_err(source_syntax)?;
+            output.push(parsed_invocation(
+                ProvenanceRole::LayoutRegex,
+                String::new(),
+                declaration.provenance().map_err(source_syntax)?,
+                ParsedInvocationPayload::Declaration,
+            )?);
+        }
         _ => {}
     }
     Ok(())

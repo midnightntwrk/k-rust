@@ -8,10 +8,11 @@ use krs_ir::{
     FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
     FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    GroupAssociativitySentence, IntLiterals, IrIdentityError, ModuleId, NodeOrigin, OriginFrame,
-    OriginStack, PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SourceMapKey, StableItemId,
-    StableText, TransformationOriginKind, lower_hex,
+    GroupAssociativitySentence, IntLiterals, IrIdentityError, LayoutSentence, LexicalSentence,
+    ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
+    ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
+    ProductionResultSort, SourceMapKey, StableItemId, StableText, TransformationOriginKind,
+    lower_hex,
 };
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
@@ -786,6 +787,36 @@ fn lower_module(
                 detail: error.to_string(),
             })?,
         ));
+    }
+
+    // Lexicals and layout scan programs, so they live with the program
+    // syntax (KF-004).
+    if part.has_sorts() {
+        for lexical in module.lexicals() {
+            sentences.push(DefinitionSentence::Lexical(
+                LexicalSentence::new(
+                    origins.lower(lexical.origin(), "lexical", None, Some(lexical.name()))?,
+                    lexical.name(),
+                    lexical.regex(),
+                )
+                .map_err(|error| LoweringError::UnsupportedShape {
+                    node: "lexical",
+                    detail: error.to_string(),
+                })?,
+            ));
+        }
+        for (index, layout) in module.layouts().iter().enumerate() {
+            sentences.push(DefinitionSentence::Layout(
+                LayoutSentence::new(
+                    origins.lower(layout.origin(), "layout", None, Some(&index.to_string()))?,
+                    layout.regex(),
+                )
+                .map_err(|error| LoweringError::UnsupportedShape {
+                    node: "layout",
+                    detail: error.to_string(),
+                })?,
+            ));
+        }
     }
 
     if !part.has_semantics() {

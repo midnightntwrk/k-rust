@@ -53,6 +53,23 @@ The grammar-lexing gate's `tokens` fixture:
 // [!include ~/snippets/token.rs]
 ```
 
+### Layout and named lexicals
+
+Layout is what the scanner throws away between tokens.
+K's default layout is whitespace and the `//` and `/* */` comments; `k::layout!` replaces it, so a definition that declares any layout declares whitespace again.
+Each regex becomes `syntax #Layout ::= r"..." [token]` in the program-syntax module.
+Layout is global, including in the rule parser that reads the emitted rules, so pick a comment marker that no terminal starts with: a `#` comment would swallow K's own `#if` in rules.
+
+`k::lexical!` names a regex fragment, like a flex definitions section; it adds no syntax.
+A token, layout, or lexical regex refers to it as `{Name}`, and a name matches `[A-Z][A-Za-z0-9]*`.
+`krs check` rejects a name declared twice, a `{Name}` that no lexical declares, and lexicals that refer to each other in a cycle.
+
+The grammar-lexing gate's `layout` fixture, where `;` starts a comment and `//` is no longer one:
+
+```rust [tests/grammar-lexing/packages/layout/src/lib.rs]
+// [!include ~/snippets/layout.rs]
+```
+
 Beyond IMP's `Int`, `Bool`, `Map`, and `Id`, the facade exports:
 
 - `Bytes`, with length, indexed get/update, empty, left- and right-pad, substring, concatenation, reversal, replacement, and the `Int2Bytes`/`Bytes2Int` conversions over the `Endianness` and `Signedness` sorts;

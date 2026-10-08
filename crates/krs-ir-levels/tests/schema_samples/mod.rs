@@ -186,6 +186,24 @@ impl Sample for DescriptorAssociativitySentence {
         }]
     }
 }
+impl Sample for DescriptorLexical {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            regex_key: sample::<ProvenanceKey>(),
+            regex: sample::<String>(),
+        }]
+    }
+}
+impl Sample for DescriptorLayoutRegex {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            regex: sample::<String>(),
+        }]
+    }
+}
 impl Sample for DescriptorCellColor {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -764,8 +782,10 @@ impl Sample for DefinitionSentence {
                 Self::Configuration(sample::<ConfigurationSentence>()),
                 Self::ContextAlias(sample::<ContextAliasSentence>()),
                 Self::Rule(sample::<RuleSentence>()),
+                Self::Lexical(sample::<LexicalSentence>()),
+                Self::Layout(sample::<LayoutSentence>()),
             ],
-            8,
+            10,
             "DefinitionSentence",
             |value| match value {
                 Self::SyntaxSort(..) => 0,
@@ -776,6 +796,8 @@ impl Sample for DefinitionSentence {
                 Self::Configuration(..) => 5,
                 Self::ContextAlias(..) => 6,
                 Self::Rule(..) => 7,
+                Self::Lexical(..) => 8,
+                Self::Layout(..) => 9,
             },
         )
     }
@@ -1315,8 +1337,14 @@ impl Sample for GrammarDescriptor {
                 Self::Tokens {
                     productions: vec![sample::<DescriptorProduction>()],
                 },
+                Self::Lexical {
+                    lexicals: sample::<Vec<DescriptorLexical>>(),
+                },
+                Self::Layout {
+                    regexes: sample::<Vec<DescriptorLayoutRegex>>(),
+                },
             ],
-            5,
+            7,
             "GrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -1324,6 +1352,8 @@ impl Sample for GrammarDescriptor {
                 Self::Precedence { .. } => 2,
                 Self::Associativity { .. } => 3,
                 Self::Tokens { .. } => 4,
+                Self::Lexical { .. } => 5,
+                Self::Layout { .. } => 6,
             },
         )
     }
@@ -1897,8 +1927,14 @@ impl Sample for WireGrammarDescriptor {
                 Self::Tokens {
                     productions: vec![sample::<WireProduction>()],
                 },
+                Self::Lexical {
+                    lexicals: sample::<Vec<DescriptorLexical>>(),
+                },
+                Self::Layout {
+                    regexes: sample::<Vec<DescriptorLayoutRegex>>(),
+                },
             ],
-            5,
+            7,
             "WireGrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -1906,6 +1942,8 @@ impl Sample for WireGrammarDescriptor {
                 Self::Precedence { .. } => 2,
                 Self::Associativity { .. } => 3,
                 Self::Tokens { .. } => 4,
+                Self::Lexical { .. } => 5,
+                Self::Layout { .. } => 6,
             },
         )
     }
@@ -2519,6 +2557,16 @@ impl Sample for GroupAssociativitySentence {
         ]
     }
 }
+impl Sample for LexicalSentence {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(sample::<NodeOrigin>(), "Alpha", "[a-zA-Z]").unwrap()]
+    }
+}
+impl Sample for LayoutSentence {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(sample::<NodeOrigin>(), "[\\ \\n]").unwrap()]
+    }
+}
 impl Sample for PrecedenceRelation {
     fn samples() -> Vec<Self> {
         vec![
@@ -3105,6 +3153,8 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<FixedConfigurationVariable<SemanticSortRef>>(corpus, "FixedConfigurationVariable");
     insert::<FixedInitializerCell<SemanticId, SemanticTerm>>(corpus, "FixedInitializerCell");
     insert::<GroupAssociativitySentence>(corpus, "GroupAssociativitySentence");
+    insert::<LayoutSentence>(corpus, "LayoutSentence");
+    insert::<LexicalSentence>(corpus, "LexicalSentence");
     insert::<NodeOrigin>(corpus, "NodeOrigin");
     insert::<PrecedenceRelation>(corpus, "PrecedenceRelation");
     insert::<ProductionContextAliasReference>(corpus, "ProductionContextAliasReference");

@@ -608,6 +608,38 @@
       }
     }
   },
+  "DescriptorLayoutRegex": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
+  },
+  "DescriptorLexical": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "regex_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "regex": "STR"
+      }
+    ]
+  },
   "DescriptorLexicalPrecedence": {
     "STRUCT": [
       {

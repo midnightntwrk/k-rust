@@ -632,6 +632,104 @@ impl GroupAssociativitySentence {
     }
 }
 
+/// One named regex fragment, K's `syntax lexical Name = r".."`.
+///
+/// A lexical adds no syntax; token, layout, and lexical regexes refer to it
+/// as `{Name}`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LexicalSentence {
+    origin: NodeOrigin,
+    name: String,
+    regex: String,
+}
+
+impl LexicalSentence {
+    /// Creates a named lexical.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarShapeError`] for an empty name or regex.
+    pub fn new(
+        origin: NodeOrigin,
+        name: impl Into<String>,
+        regex: impl Into<String>,
+    ) -> Result<Self, GrammarShapeError> {
+        let name = name.into();
+        let regex = regex.into();
+        if name.is_empty() {
+            return Err(GrammarShapeError::EmptyText(crate::IrField::LexicalName));
+        }
+        if regex.is_empty() {
+            return Err(GrammarShapeError::EmptyText(
+                crate::IrField::ProductionRegex,
+            ));
+        }
+        Ok(Self {
+            origin,
+            name,
+            regex,
+        })
+    }
+
+    /// Returns sentence provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the lexical name, referenced as `{Name}`.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the unescaped regex text.
+    #[must_use]
+    pub fn regex(&self) -> &str {
+        &self.regex
+    }
+}
+
+/// One layout regex, K's `syntax #Layout ::= r".." [token]`.
+///
+/// Declaring any layout replaces K's default layout.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutSentence {
+    origin: NodeOrigin,
+    regex: String,
+}
+
+impl LayoutSentence {
+    /// Creates a layout regex sentence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarShapeError`] for an empty regex.
+    pub fn new(origin: NodeOrigin, regex: impl Into<String>) -> Result<Self, GrammarShapeError> {
+        let regex = regex.into();
+        if regex.is_empty() {
+            return Err(GrammarShapeError::EmptyText(
+                crate::IrField::ProductionRegex,
+            ));
+        }
+        Ok(Self { origin, regex })
+    }
+
+    /// Returns sentence provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the unescaped regex text.
+    #[must_use]
+    pub fn regex(&self) -> &str {
+        &self.regex
+    }
+}
+
 /// Invalid target-neutral grammar shape.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GrammarShapeError {

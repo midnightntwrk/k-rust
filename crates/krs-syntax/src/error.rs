@@ -227,6 +227,11 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: &'static str,
     },
+    /// A `k::lexical!` or `k::layout!` block was malformed.
+    InvalidLexicalMacro {
+        /// Complete stable explanation, naming the fix.
+        reason: &'static str,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -303,6 +308,7 @@ impl SyntaxErrorKind {
             Self::InvalidRuleKey { .. } => codes::syntax::INVALID_RULE_KEY,
             Self::RetiredAttribute { .. } => codes::syntax::RETIRED_ATTRIBUTE,
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
+            Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
         }
     }
 }
@@ -524,7 +530,8 @@ impl fmt::Display for SyntaxError {
                 )
             }
             SyntaxErrorKind::InvalidRuleKey { reason }
-            | SyntaxErrorKind::InvalidTokenAttribute { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidTokenAttribute { reason }
+            | SyntaxErrorKind::InvalidLexicalMacro { reason } => formatter.write_str(reason),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,

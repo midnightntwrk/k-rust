@@ -480,7 +480,10 @@ impl DefinitionIr {
                             }
                         }
                     }
-                    DefinitionSentence::Precedence(_) | DefinitionSentence::Associativity(_) => {}
+                    DefinitionSentence::Precedence(_)
+                    | DefinitionSentence::Associativity(_)
+                    | DefinitionSentence::Lexical(_)
+                    | DefinitionSentence::Layout(_) => {}
                     DefinitionSentence::Configuration(sentence) => {
                         configurations += 1;
                         insert_node::<DefinitionLevel>(
@@ -569,6 +572,7 @@ impl DefinitionIr {
                             require_definition_group(&groups, group)?;
                         }
                     }
+                    DefinitionSentence::Lexical(_) | DefinitionSentence::Layout(_) => {}
                     DefinitionSentence::Configuration(sentence) => {
                         validate_fixed_configuration::<DefinitionLevel>(
                             sentence,
@@ -798,6 +802,10 @@ pub enum DefinitionSentence {
     ContextAlias(ContextAliasSentence),
     /// Rule/equation/claim sentence.
     Rule(RuleSentence),
+    /// Named regex fragment, `syntax lexical Name = r".."`.
+    Lexical(krs_ir::LexicalSentence),
+    /// Layout regex, `syntax #Layout ::= r".." [token]`.
+    Layout(krs_ir::LayoutSentence),
 }
 
 impl DefinitionSentence {
@@ -813,6 +821,8 @@ impl DefinitionSentence {
             Self::Configuration(value) => value.origin(),
             Self::ContextAlias(value) => &value.origin,
             Self::Rule(value) => &value.origin,
+            Self::Lexical(value) => value.origin(),
+            Self::Layout(value) => value.origin(),
         }
     }
 }

@@ -93,6 +93,29 @@ impl Adapter<'_> {
                 self.context_alias(sentence, module, sentence_index)
             }
             DefinitionSentence::Rule(sentence) => self.rule(sentence, module, sentence_index),
+            // K's outer syntax desugars `syntax lexical` and `#Layout`
+            // privately; these are the flat sentences k-rust's outer lowering
+            // builds from the emitted `.k` (KF-004).
+            DefinitionSentence::Lexical(sentence) => Ok(NativeSentence::SyntaxLexical {
+                name: sentence.name().to_owned(),
+                regex: sentence.regex().to_owned(),
+                attributes: attributes_for_origin(sentence.origin()),
+            }),
+            DefinitionSentence::Layout(sentence) => {
+                let mut attributes = attributes_for_origin(sentence.origin());
+                attributes.insert("token", json!(""));
+                Ok(NativeSentence::Production {
+                    label: None,
+                    parameters: Vec::new(),
+                    sort: NativeSort::new("#Layout"),
+                    items: vec![NativeItem::RegexTerminal {
+                        precede_regex: None,
+                        regex: sentence.regex().to_owned(),
+                        follow_regex: None,
+                    }],
+                    attributes,
+                })
+            }
         }
     }
 

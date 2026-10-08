@@ -1,0 +1,21 @@
+[package]
+name = "krs-grammar-layout"
+description = "Layout fixture: a `;` comment layout and named lexicals used by a token regex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_layout"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-LAYOUT"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true
