@@ -1428,8 +1428,11 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     target: sample::<D>(),
                 },
+                Self::Private {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            17,
+            18,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1449,6 +1452,7 @@ impl<
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
+                Self::Private { .. } => 17,
             },
         )
     }

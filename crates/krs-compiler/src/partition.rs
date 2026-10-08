@@ -362,11 +362,18 @@ fn is_program(attribute: &krs_ir_levels::SemanticProductionAttribute) -> bool {
     matches!(attribute, ProductionAttribute::Program { .. })
 }
 
+/// Whether a production is K `private`: its Rust item is not `pub`
+/// (`pub(crate)` and `pub(in ..)` included). Generated token and bracket
+/// productions follow their sort and are never private.
+pub(crate) fn is_private(production: &SemanticProduction) -> bool {
+    production.visibility() != &RustVisibility::Public && !is_generated_syntax(production)
+}
+
 fn production_placement(production: &SemanticProduction) -> Option<PlacementReason> {
     if attribute_origin(production, is_internal).is_some() {
         return Some(PlacementReason::Internal);
     }
-    if production.visibility() != &RustVisibility::Public && !is_generated_syntax(production) {
+    if is_private(production) {
         return Some(PlacementReason::NotPublic);
     }
     needs_full_module(production)

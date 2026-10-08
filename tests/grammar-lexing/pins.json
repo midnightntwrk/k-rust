@@ -5,7 +5,8 @@
     "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4",
     "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
     "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
-    "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588"
+    "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588",
+    "krs-grammar-visibility": "d59404aefc321c16daaa16307186d698fd455474d963870b7764fe03135f650c"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -25,6 +26,9 @@
     },
     "krs-grammar-overload-ambiguous": {
       "definition.k": "221131bcd5c71af8eaea99e3629d6cef2233d3625ec7536860da1308424d0bd2"
+    },
+    "krs-grammar-visibility": {
+      "definition.k": "e0fd6ce94eefbb5693014f93ee8115936e226127712de80c873e00105d4e0fe7"
     }
   },
   "partition": {
@@ -45,7 +49,9 @@
     "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961",
     "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0",
     "krs-grammar-overload": "0f11b9406b0de0cfe1f0274e303ac8adef387b5e70ee05a3314c52117d9d99d1",
-    "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa"
+    "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa",
+    "krs-grammar-visibility": "45aea99e7f9058760e079dab8aedfe710e750c8a0e5db8ec791b29391477c61f",
+    "visibility-induced": "2e91577251f0ebc0ac37c92e144d73e9745bed4a11a7b4908859f54a089ad2e6"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -121,6 +127,16 @@
         "parse": "accepted",
         "run": "value"
       }
+    },
+    "krs-grammar-visibility": {
+      "inc": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "helper": {
+        "parse": "rejected",
+        "run": null
+      }
     }
   },
   "diagnostics": {
@@ -156,6 +172,12 @@
     ],
     "overload-cycle": [
       "error[krs::analysis::invalid-overload]: invalid `overload`: the overload targets form a cycle: `ExpSyntax::Dot` -> `LValSyntax::LvalDot` -> `ExpSyntax::Dot`"
+    ],
+    "visibility-dependent": [
+      "error[E0603]: enum `Helper` is private"
+    ],
+    "visibility-claim": [
+      "error[krs::analysis::private-production-in-spec]: `Helper::Wrap` is private to KRS-VISIBILITY-CLAIM; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
     ]
   },
   "format": {
@@ -166,6 +188,13 @@
   "kore_attributes": {
     "krs-grammar-prefer": "ifThen \nifThenElse \n",
     "krs-grammar-overload": "dot \nlvalDot \noverload Lbldot LbllvalDot\n",
-    "krs-grammar-overload-ambiguous": "dot \nlvalDot \n"
+    "krs-grammar-overload-ambiguous": "dot \nlvalDot \n",
+    "krs-grammar-visibility": "inc \nwrap \n"
+  },
+  "induced_rejections": {
+    "visibility": {
+      "java": "[Error] Inner Parser: Could not find any suitable productions for label helper",
+      "native": "{{work}}/induced.k:9:3: could not parse rule in module \"KRS-VISIBILITY-INDUCED\": could not find a production for K label \"helper\" with arity 1"
+    }
   }
 }

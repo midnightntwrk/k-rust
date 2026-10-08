@@ -1258,6 +1258,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut colors = None;
     let mut prefer = false;
     let mut overload = false;
+    let mut private = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1281,6 +1282,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
                 .is_some(),
             ProductionAttribute::Prefer { .. } => std::mem::replace(&mut prefer, true),
             ProductionAttribute::Overload { .. } => std::mem::replace(&mut overload, true),
+            ProductionAttribute::Private { .. } => std::mem::replace(&mut private, true),
         };
         if already {
             let name = attribute
@@ -1324,7 +1326,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Color { .. }
             | ProductionAttribute::Colors { .. }
             | ProductionAttribute::Prefer { .. }
-            | ProductionAttribute::Overload { .. } => {}
+            | ProductionAttribute::Overload { .. }
+            | ProductionAttribute::Private { .. } => {}
         }
     }
     if internal && program {

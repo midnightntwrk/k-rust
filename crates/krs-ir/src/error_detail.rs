@@ -84,6 +84,7 @@ details! {
         Color => "color",
         Prefer => "prefer",
         Overload => "overload",
+        Private => "private",
     }
 }
 

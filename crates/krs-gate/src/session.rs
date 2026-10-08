@@ -238,6 +238,7 @@ impl Session {
                 | "kore.digest"
                 | "kore.attributes"
                 | "kore.instances"
+                | "k.load"
                 | "ir.query"
                 | "registration.table"
                 | "kast.normalize"
@@ -256,6 +257,7 @@ impl Session {
                     | "kore.digest"
                     | "kore.attributes"
                     | "kore.instances"
+                    | "k.load"
                     | "ir.query"
                     | "registration.table"
                     | "kast.normalize"
@@ -286,6 +288,7 @@ impl Session {
             "kore.digest" => Self::digest(request),
             "kore.attributes" => Self::attributes(request),
             "kore.instances" => Self::instances(request),
+            "k.load" => Self::load_source(request),
             "ir.query" => crate::ir_query::dispatch(request),
             "registration.table" => crate::registration::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
@@ -565,6 +568,46 @@ impl Session {
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
         let instances = crate::kore_attributes::symbol_instances(kore, &labels)?;
         Ok(json!({"instances": instances}))
+    }
+
+    /// Loads a K source file with k-rust's outer loader, as Java's `kompile`
+    /// reads one, and reports whether it loads or the loader's error. A
+    /// `requires` names a builtin source or a file beside the entry; like
+    /// Java K's prelude, `domains.md` is always required.
+    fn load_source(request: &Value) -> Result<Value, Box<dyn Error>> {
+        let entry = Path::new(required_string(request, "entry")?);
+        let main_module = required_string(request, "main_module")?;
+        let directory = entry
+            .parent()
+            .ok_or("request field `entry` must name a file")?
+            .to_path_buf();
+        let name = entry
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .ok_or("request field `entry` must name a UTF-8 file")?;
+        let source = k_rust::outer::ResolvedSource::new(
+            "krs-gate://k-load.k",
+            format!("requires \"domains.md\"\nrequires {name:?}\n"),
+        );
+        let mut resolver = |_: &str, required: &str| {
+            k_rust::builtin::embedded(required).map_or_else(
+                || {
+                    let path = directory.join(required);
+                    std::fs::read_to_string(&path)
+                        .map(|text| {
+                            k_rust::outer::ResolvedSource::new(path.display().to_string(), text)
+                        })
+                        .map_err(|error| format!("cannot read {}: {error}", path.display()))
+                },
+                Ok,
+            )
+        };
+        Ok(
+            match k_rust::outer::load(source, main_module, &mut resolver) {
+                Ok(_) => json!({"loaded": true}),
+                Err(error) => json!({"loaded": false, "error": error.to_string()}),
+            },
+        )
     }
 
     fn state(&self, request: &Value) -> Result<&Pattern, Box<dyn Error>> {

@@ -446,6 +446,13 @@ pub enum ProductionAttribute<S, D> {
         /// The overloaded production.
         target: D,
     },
+    /// K's `private`: the production is visible only to its own module.
+    /// Definition IR only: lowering derives it for a production whose Rust
+    /// item is not `pub`.
+    Private {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -469,7 +476,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Color { origin, .. }
             | Self::Colors { origin, .. }
             | Self::Prefer { origin }
-            | Self::Overload { origin, .. } => origin,
+            | Self::Overload { origin, .. }
+            | Self::Private { origin } => origin,
         }
     }
 
@@ -495,6 +503,7 @@ impl<S, D> ProductionAttribute<S, D> {
             }
             Self::Prefer { .. } => Some(crate::ProductionAttributeFamily::Prefer),
             Self::Overload { .. } => Some(crate::ProductionAttributeFamily::Overload),
+            Self::Private { .. } => Some(crate::ProductionAttributeFamily::Private),
         }
     }
 }

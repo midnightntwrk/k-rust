@@ -39,6 +39,12 @@ The root imports package `base-semantics` as `semantic-base`, which Rust exposes
 That cross-package rule retains the base declaration's identity.
 KRS does not resolve a constructor by comparing the text `Same`; ordinary Rust path resolution identifies it before collection.
 
+Rust privacy is K privacy.
+A production whose Rust item is not `pub`, including `pub(crate)` and `pub(in ..)`, is emitted with K's `private` attribute, so only its own package's rules can use it.
+A dependent that names it is rejected by rustc (E0603), and K's private syntax is invisible to every importing module, programs and proof modules included.
+KRS keeps K imports public on purpose: imports follow references, and a claim may name a dependency's `pub` production.
+A production that rules everywhere need but programs must not contain is `pub` and `internal`.
+
 ## Select the composition
 
 The command shape is:

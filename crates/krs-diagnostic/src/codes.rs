@@ -175,6 +175,7 @@ register_codes! {
         SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name.",
         NAME_COLLISION: "krs::analysis::name-collision" => "Two declarations have the same name in a lowering namespace.",
         INVALID_OVERLOAD: "krs::analysis::invalid-overload" => "An `overload` key does not name a constructor production that its member specialises.",
+        PRIVATE_PRODUCTION_IN_SPEC: "krs::analysis::private-production-in-spec" => "A claim names a private production, which proof modules cannot see.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {

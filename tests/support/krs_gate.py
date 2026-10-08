@@ -364,6 +364,12 @@ class Session:
 
         return self.request("kore.instances", kore=os.fspath(kore), labels=labels)["instances"]
 
+    def load_k(self, entry: Path, main_module: str) -> str | None:
+        """Load a K source file with k-rust's outer loader; return its error, or `None` when it loads."""
+
+        response = self.request("k.load", entry=os.fspath(entry), main_module=main_module)
+        return None if response["loaded"] else response["error"]
+
     def observe(self, state: str, cells: list[str]) -> dict[str, Any]:
         """Read canonical cell contents and collection sizes."""
 

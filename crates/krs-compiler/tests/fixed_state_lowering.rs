@@ -81,7 +81,7 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
     let env = sid("cell.env");
     let configuration_id = sid("configuration.calc");
 
-    let assign = SemanticProduction::new(
+    let assign = SemanticProduction::with_api(
         origin("production.assign"),
         assign_id.clone(),
         stmt.clone(),
@@ -129,9 +129,11 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                 ],
             },
         ],
+        krs_ir::RustVisibility::Public,
+        None,
     )
     .unwrap();
-    let sequence = SemanticProduction::new(
+    let sequence = SemanticProduction::with_api(
         origin("production.sequence"),
         sequence_id.clone(),
         stmt.clone(),
@@ -161,6 +163,8 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
                 ],
             },
         ],
+        krs_ir::RustVisibility::Public,
+        None,
     )
     .unwrap();
 
@@ -537,22 +541,22 @@ fn assert_exact_source(source: &str) {
           syntax Stmt
           syntax Value
 
+          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
+
           syntax Expr ::= Id
           syntax Expr ::= Value
           syntax KResult ::= Value
+
+          syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
+
+          syntax right krsgroup-ef11204726b39d86ee1fe653
         endmodule
 
         module KRS-CALC
           imports ID-SYNTAX
           imports KRS-CALC-SYNTAX
           imports MAP
-
-          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
-          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
-
-          syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
-
-          syntax right krsgroup-ef11204726b39d86ee1fe653
 
           configuration
             <k color="green"> $PGM:Stmt </k>

@@ -1384,6 +1384,22 @@ fn lower_production_attributes(
     origins: &mut OriginPass,
 ) -> Result<Vec<krs_ir_levels::DefinitionProductionAttribute>, LoweringError> {
     let mut attributes = lower_authored_production_attributes(production, names, origins)?;
+    // A production whose Rust item is not `pub` is K `private`: only its own
+    // module, `<NS>`, sees it, so neither programs nor dependents nor proof
+    // modules can name it.
+    if crate::partition::is_private(production) {
+        let origin = origins.lower(
+            production.origin(),
+            "production-private",
+            Some(production.id()),
+            None,
+        )?;
+        let position = attributes
+            .iter()
+            .position(|attribute| !matches!(attribute, ProductionAttribute::Documentation { .. }))
+            .unwrap_or(attributes.len());
+        attributes.insert(position, ProductionAttribute::Private { origin });
+    }
     // An overload family's root carries the family key too: K identifies a
     // family by the root's symbol, and the root declares it.
     let marked = production
@@ -1498,6 +1514,13 @@ fn lower_authored_production_attributes(
                 },
                 ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
                     unreachable!("placement attributes are filtered above")
+                }
+                ProductionAttribute::Private { .. } => {
+                    return Err(LoweringError::UnsupportedShape {
+                        node: "production attribute",
+                        detail: "`private` is derived from Rust visibility, not authored"
+                            .to_owned(),
+                    });
                 }
                 ProductionAttribute::Strictness {
                     kind,

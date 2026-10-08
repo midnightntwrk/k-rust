@@ -224,6 +224,9 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Prefer { .. } => {
                 attributes.insert("prefer", json!(""));
             }
+            DefinitionProductionAttribute::Private { .. } => {
+                attributes.insert("private", json!(""));
+            }
             DefinitionProductionAttribute::Overload { target, .. } => {
                 attributes.insert(
                     "overload",

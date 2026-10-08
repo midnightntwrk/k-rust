@@ -76,6 +76,15 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the target path.
         range: Option<Box<SourceRange>>,
     },
+    /// A claim names a private production, which its proof module cannot see.
+    PrivateProductionInSpec {
+        /// The private production.
+        production: Box<StableItemId>,
+        /// The claim that names it.
+        claim: Box<StableItemId>,
+        /// Sole exact authored range of the claim.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -164,6 +173,9 @@ impl fmt::Display for DescriptorLoweringError {
             Self::InvalidOverload { reason, .. } => {
                 write!(formatter, "invalid `overload`: {reason}")
             }
+            Self::PrivateProductionInSpec { production, .. } => {
+                formatter.write_str(&super::visibility::private_production_message(production))
+            }
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -185,6 +197,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
+            Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -195,7 +208,9 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
-            Self::NondetGroup { range, .. } | Self::InvalidOverload { range, .. } => range
+            Self::NondetGroup { range, .. }
+            | Self::InvalidOverload { range, .. }
+            | Self::PrivateProductionInSpec { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
@@ -207,6 +222,9 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
             Self::NondetGroup { rule, .. } => diagnostic.with_note(format!("rule: {rule}")),
+            Self::PrivateProductionInSpec { claim, .. } => {
+                diagnostic.with_note(format!("claim: {claim}"))
+            }
             _ => diagnostic,
         }
     }

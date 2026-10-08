@@ -80,7 +80,7 @@ fn calc_syntax_module() -> SemanticModule {
     let stmt = sort("Stmt");
     let value = sort("Value");
     let kresult = sort("KResult");
-    let assign = SemanticProduction::new(
+    let assign = SemanticProduction::with_api(
         origin("calc.production.assign"),
         item("calc_syntax", "Assign", ItemKind::Constructor),
         stmt.clone(),
@@ -129,9 +129,11 @@ fn calc_syntax_module() -> SemanticModule {
                 ],
             },
         ],
+        krs_ir::RustVisibility::Public,
+        None,
     )
     .unwrap();
-    let sequence = SemanticProduction::new(
+    let sequence = SemanticProduction::with_api(
         origin("calc.production.sequence"),
         item("calc_syntax", "Sequence", ItemKind::Constructor),
         stmt.clone(),
@@ -161,6 +163,8 @@ fn calc_syntax_module() -> SemanticModule {
                 ],
             },
         ],
+        krs_ir::RustVisibility::Public,
+        None,
     )
     .unwrap();
     SemanticModule::new(
@@ -226,12 +230,14 @@ fn control_production(
     items: Vec<SemanticProductionItem>,
     attributes: Vec<ProductionAttribute<SemanticSortRef, krs_ir::StableItemId>>,
 ) -> SemanticProduction {
-    SemanticProduction::new(
+    SemanticProduction::with_api(
         origin(&format!("imp.production.{name}")),
         item("imp_syntax", name, ItemKind::Constructor),
         sort("Stmt"),
         items,
         attributes,
+        krs_ir::RustVisibility::Public,
+        None,
     )
     .unwrap()
 }
@@ -979,22 +985,21 @@ fn assert_exact_source(source: &str) {
           syntax Stmt
           syntax Value
 
+          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
+
           syntax Expr ::= Id
           syntax Expr ::= Value
           syntax Value ::= Bool
           syntax KResult ::= Value
-        endmodule
-
-        module KRS-CALC-GRAMMAR
-          imports ID-SYNTAX
-          imports KRS-CALC-GRAMMAR-SYNTAX
-
-          syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
-          syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
 
           syntax priority krsgroup-35f1322f2f4f01e6affff031 > krsgroup-ef11204726b39d86ee1fe653
 
           syntax right krsgroup-ef11204726b39d86ee1fe653
+        endmodule
+
+        module KRS-CALC-GRAMMAR
+          imports KRS-CALC-GRAMMAR-SYNTAX
         endmodule
 
         module KRS-IMP-SYNTAX
@@ -1024,17 +1029,17 @@ fn assert_exact_source(source: &str) {
 
         module KRS-IMP-GRAMMAR-SYNTAX
           imports KRS-CALC-GRAMMAR-SYNTAX
-        endmodule
-
-        module KRS-IMP-GRAMMAR
-          imports KRS-CALC-GRAMMAR
-          imports KRS-IMP-GRAMMAR-SYNTAX
 
           syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
           syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
           syntax Stmt ::= "if" "(" Expr ")" Stmt [symbol(ifThen), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
           syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
           syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+        endmodule
+
+        module KRS-IMP-GRAMMAR
+          imports KRS-CALC-GRAMMAR
+          imports KRS-IMP-GRAMMAR-SYNTAX
         endmodule
     "#]]
     .assert_eq(source);
@@ -1047,7 +1052,9 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
         .iter()
         .map(|module| (module.id().as_str(), module))
         .collect::<BTreeMap<_, _>>();
-    let syntax = modules[IMP_SYNTAX];
+    // The `pub` grammar is program syntax, so it lives in the grammar
+    // package's `-SYNTAX` module.
+    let syntax = modules[format!("{IMP_SYNTAX}-SYNTAX").as_str()];
     let productions = syntax
         .sentences()
         .iter()

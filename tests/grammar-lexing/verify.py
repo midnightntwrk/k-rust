@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
-(KF-018), and production keys (KF-002, KF-038).
+(KF-018), and production keys (KF-002, KF-038, KF-045).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -26,6 +26,11 @@ partition end to end on both routes:
   `symbol-overload` axiom of the family. `overload-ambiguous`, the same
   grammar without the key, makes `a.b` ambiguous on both routes and has no
   axiom;
+- `visibility`: the non-`pub` `Helper::Wrap` is emitted `private`; `inc 1`
+  runs to `2` through it on both routes, a program `helper(1)` is rejected on
+  both, and a module importing the definition cannot use `helper(..)` in a
+  rule: Java `kompile` and k-rust's outer loader both reject
+  `fixtures/visibility-induced/induced.k`;
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
   position; Java K accepts the emitted `.k`, the native and Java
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
@@ -35,8 +40,9 @@ partition end to end on both routes:
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
   `colors` list that does not match the printed terminals, `prefer` with
-  `avoid`, and an overload with another arity, one whose sort is not a
-  subsort of its target's, and two productions that overload each other.
+  `avoid`, an overload with another arity, one whose sort is not a subsort of
+  its target's, two productions that overload each other, a dependent that
+  names a private production (E0603), and a claim that names one.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -75,6 +81,13 @@ FORMAT = Fixture(MANIFEST, "krs-grammar-format")
 PREFER = Fixture(MANIFEST, "krs-grammar-prefer")
 OVERLOAD = Fixture(MANIFEST, "krs-grammar-overload")
 OVERLOAD_AMBIGUOUS = Fixture(MANIFEST, "krs-grammar-overload-ambiguous")
+VISIBILITY = Fixture(MANIFEST, "krs-grammar-visibility")
+VISIBILITY_PROGRAMS = (
+    Program("inc", "inc 1", "accepted", "2"),
+    Program("helper", "helper(1)", "rejected"),
+)
+VISIBILITY_ATTRIBUTES = (("inc", "wrap"), ("private",))
+INDUCED_MODULE = "KRS-VISIBILITY-INDUCED"
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
 FORMAT_ATTRIBUTES = ("format", "color", "colors")
 FORMAT_PROGRAM = "while (1) { x = 2; }"
@@ -139,6 +152,11 @@ NEGATIVE = (
     ("overload-arity", "overload-arity", "krs-grammar-overload-arity", ()),
     ("overload-not-subsort", "overload-not-subsort", "krs-grammar-overload-not-subsort", ()),
     ("overload-cycle", "overload-cycle", "krs-grammar-overload-cycle", ()),
+    (
+        "visibility-dependent", "visibility-dependent", "krs-grammar-visibility-dependent",
+        ("krs-grammar-visibility-dependent-base:main",),
+    ),
+    ("visibility-claim", "visibility-claim", "krs-grammar-visibility-claim", ()),
 )
 
 
@@ -240,6 +258,47 @@ def verify_format(harness: FixtureGate, pins: Ledger, workspace: Path, refresh: 
     print(f"PASS grammar-lexing {FORMAT.package} reference snapshot: {k.finish()}")
 
 
+def verify_induced_visibility(harness: FixtureGate, pins: Ledger, emitted, workspace: Path, refresh: bool) -> None:
+    """A module importing the emitted definition cannot use its private production on either route."""
+
+    directory = workspace / "visibility-induced"
+    directory.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(emitted.source, directory / "definition.k")
+    induced = directory / "induced.k"
+    shutil.copyfile(FIXTURES / "visibility-induced" / "induced.k", induced)
+    k = Snapshot(
+        "grammar-lexing/visibility-induced",
+        Key(
+            tools=("kompile",),
+            inputs={
+                **repository_inputs([FIXTURES / "visibility-induced" / "induced.k"]),
+                f"emitted/{VISIBILITY.package}/definition.k": directory / "definition.k",
+            },
+        ),
+        workspace=workspace, refresh=refresh, pin=Pin(pins, "visibility-induced"),
+    )
+    process = k.run(
+        "kompile/induced", "kompile",
+        [
+            induced, "--main-module", INDUCED_MODULE, "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--output-definition", workspace / "kompiled" / "visibility-induced",
+        ],
+        timeout=900,
+    )
+    if process.returncode == 0:
+        raise GateError("Java kompile accepted a rule that uses a private production of an imported module")
+    java = next((line for line in process.stderr.splitlines() if line.startswith("[Error]")), process.stderr)
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        native = session.load_k(induced, INDUCED_MODULE)
+    if native is None:
+        raise GateError("k-rust loaded a rule that uses a private production of an imported module")
+    pins.expect(("induced_rejections", "visibility"), {
+        "java": java,
+        "native": native.replace(os.fspath(directory), "{{work}}"),
+    })
+    print(f"PASS grammar-lexing visibility-induced reference snapshot: {k.finish()}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -309,6 +368,13 @@ def main() -> int:
         if len(axioms[OVERLOAD.package]) != 1 or axioms[OVERLOAD_AMBIGUOUS.package]:
             raise GateError(f"expected one overload axiom with the key and none without it: {axioms}")
         print("PASS overload: a.b is lvalDot on both routes and the LVal rule fires; one overload axiom; ambiguous without the key")
+
+        harness.check(VISIBILITY)
+        harness.expand(VISIBILITY)
+        visibility = harness.emit(VISIBILITY)
+        harness.compare(visibility, VISIBILITY_PROGRAMS, sort="Exp", attributes=VISIBILITY_ATTRIBUTES)
+        verify_induced_visibility(harness, pins, visibility, workspace, arguments.refresh_reference)
+        print("PASS visibility: inc 1 runs through the private helper; helper(..) is invisible to programs and importers on both routes")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

@@ -350,6 +350,11 @@ impl SemanticTheory {
                             ItemKind::ContextAlias,
                         )?;
                     }
+                    if matches!(attribute, ProductionAttribute::Private { .. }) {
+                        return Err(SemanticValidationError::DefinitionOnlyProductionAttribute(
+                            Box::new(production.id.clone()),
+                        ));
+                    }
                     if let ProductionAttribute::Overload { target, .. } = attribute {
                         require_kind::<SemanticLevel>(
                             &declarations,
@@ -1327,6 +1332,9 @@ pub enum SemanticValidationError {
     PreferOnParseOnlyProduction,
     /// A function, token, or bracket production carried `overload`.
     InvalidOverloadProduction,
+    /// A Semantic production carried `private`, which lowering derives from
+    /// Rust visibility.
+    DefinitionOnlyProductionAttribute(Box<StableItemId>),
     /// A bracket production did not have exactly one nonterminal.
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
@@ -1485,6 +1493,10 @@ impl fmt::Display for SemanticValidationError {
             Self::PreferAndAvoid => {
                 formatter.write_str("a production is either preferred or avoided, not both")
             }
+            Self::DefinitionOnlyProductionAttribute(id) => write!(
+                formatter,
+                "production {id} carries `private`, which lowering derives from Rust visibility"
+            ),
             Self::InvalidOverloadProduction => formatter.write_str(
                 "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
             ),

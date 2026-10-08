@@ -121,6 +121,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-grammar-visibility"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-ir"
 version = "0.1.0"
 dependencies = [
