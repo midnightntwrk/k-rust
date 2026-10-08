@@ -74,8 +74,10 @@
 //! bounded (`super::VALUE_QUESTIONS`, [`NARROWING_DEPTH`]), their breadth too
 //! ([`REPRESENTATIVES`], [`REPRESENTATIVE_SIZE`]), and so is their work: each narrowing step is
 //! taken from a budget of the outermost question (`super::SCAN_WORK`) and, while the facts are
-//! computed, of the whole computation (`super::PATTERN_FACTS_WORK`). Past any bound the term
-//! read stands for any value, the conservative answer.
+//! computed, of the whole computation (`super::PATTERN_FACTS_WORK`). So is the nesting across
+//! the rounds of the facts' computation, in which each round reads the previous round's stored
+//! overlaps ([`OVERLAP_CHANGES`]). Past any bound the term read stands for any value, the
+//! conservative answer.
 //!
 //! Narrowing ([`BackendDefinition::narrow`]) asks which right-hand sides an equation gives a
 //! reduct of a pattern, by matching the equation's left-hand side against the pattern. It reads
@@ -106,7 +108,9 @@ use std::{
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use self::hygiene::{Apart, Completion, Stored, minted, renamed_from, shape_hash};
+use self::hygiene::{
+    Apart, Completion, Stored, add_most_general, minted, renamed_from, shape_hash,
+};
 use super::{
     SCAN, Scan, ScanScope, ValueQuestion, bounds, compared_by_root, facts_work_spent, separated,
     sorts_differ, take_work, token, work_spent,
@@ -1170,7 +1174,12 @@ impl BackendDefinition {
     /// match the other left-hand side against it and compare the two sides, instance normality
     /// binds variables consistently), so a variable of `l` must not be merged with an
     /// independent one of the same name. The instances and the representatives are kept as
-    /// [`Stored`] terms, compared up to their variables' names.
+    /// [`Stored`] terms, and each list as its most general members ([`add_most_general`]): a
+    /// term that is an instance of another covers nothing the other does not, and every reader
+    /// of the cover answers for the instances of each member. Without that, an equation that
+    /// overlaps itself below its root (`p(Y, p(Z, W)) = j(W, p(W, Z))`) would store, in each
+    /// round, an instance one nesting deeper than the previous round's, and the rounds would
+    /// not settle.
     fn overlaps_of(&self, rule: &RewriteRule) -> Overlaps {
         let mut alternatives = Vec::new();
         let mut every = false;
@@ -1278,10 +1287,7 @@ impl BackendDefinition {
                     instances.clear();
                     break;
                 }
-                let instance = Stored::new(&instance);
-                if !instances.contains(&instance) {
-                    instances.push(instance);
-                }
+                add_most_general(&mut instances, Stored::new(&instance));
             }
         }
         if instances.is_empty() {
@@ -1293,13 +1299,29 @@ impl BackendDefinition {
                 return Overlaps::Unbounded;
             };
             for representative in representatives {
-                let representative = Stored::new(&representative);
-                if !reaching.contains(&representative) {
-                    reaching.push(representative);
-                }
+                add_most_general(&mut reaching, Stored::new(&representative));
             }
         }
         Overlaps::Reaching(reaching.into())
+    }
+
+    /// The [`Overlaps`] of `rule` that cover every instance of its left-hand side, overlapped
+    /// or not, without reading the facts of any round: the left-hand side and every right-hand
+    /// side the equations of its root reach (`PatternFacts::value_roots`), as the
+    /// representatives are past their bounds; [`Overlaps::Unbounded`] when those are not
+    /// bounded. [`pattern_facts`] fixes an equation's overlaps to these once they have changed
+    /// in [`OVERLAP_CHANGES`] rounds.
+    fn coarse_overlaps(&self, rule: &RewriteRule) -> Overlaps {
+        match self.reachable_representatives(&rule.lhs) {
+            Some(representatives) => {
+                let mut reaching = Vec::new();
+                for representative in representatives {
+                    add_most_general(&mut reaching, Stored::new(&representative));
+                }
+                Overlaps::Reaching(reaching.into())
+            }
+            None => Overlaps::Unbounded,
+        }
     }
 
     /// Whether the peak at `lσ` (`l` the left-hand side of `rule`, `σ` the valuation
@@ -1768,6 +1790,16 @@ fn contains_conjunction(pattern: &Term) -> bool {
 /// budget (`super::PATTERN_FACTS_WORK`) is spent, whose facts are sound too: past the budget
 /// every narrowing binds nothing.
 ///
+/// The overlaps need not settle by themselves: an equation that overlaps itself below its root
+/// can store, in each round, terms built from the previous round's. Kept as their most general
+/// members, terms that only nest the previous ones deeper add nothing and the rounds settle;
+/// for any other chain, an equation's overlaps that have changed in [`OVERLAP_CHANGES`] rounds
+/// are fixed, at the next change, to the coarse cover
+/// ([`BackendDefinition::coarse_overlaps`]), which reads no round's facts and so stays sound
+/// and unchanged. Each equation's overlaps then change a bounded number of times and the
+/// normal-argument set only grows, so a round that changes nothing comes after a number of
+/// rounds bounded by the number of equations.
+///
 /// The exclusion of an equation outside the set decides the instance normality of terms that are
 /// not subterms of the term asked: the arguments of other left-hand sides and right-hand sides
 /// instantiated by narrowing ([`BackendDefinition::misses_values`]). Those decisions can come back
@@ -1803,7 +1835,13 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
         overlaps: None,
         exposed: Arc::new(ExposedSorts::of(definition)),
     };
+    // How often each equation's overlaps have changed from one round to the next, and the
+    // equations whose overlaps are fixed to their coarse cover.
+    let mut changes = FxHashMap::<usize, usize>::default();
+    let mut fixed = FxHashMap::<usize, Overlaps>::default();
+    let mut rounds = 0;
     for _ in 0..bounds().pattern_fact_rounds {
+        rounds += 1;
         let approximation = Rc::new(facts.clone());
         APPROXIMATION.with(|slot| *slot.borrow_mut() = Some(approximation));
         let added = rules
@@ -1815,14 +1853,35 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
             })
             .map(|rule| rule_key(rule))
             .collect::<Vec<_>>();
-        let overlaps = rules
+        let mut overlaps = rules
             .iter()
             .filter(|rule| has_fixed_root(&rule.lhs))
             .map(|rule| {
+                let key = rule_key(rule);
+                if let Some(fixed) = fixed.get(&key) {
+                    return (key, fixed.clone());
+                }
                 let _scope = ScanScope::enter();
-                (rule_key(rule), definition.overlaps_of(rule))
+                (key, definition.overlaps_of(rule))
             })
             .collect::<FxHashMap<_, _>>();
+        if let Some(previous) = facts.overlaps.as_deref() {
+            for rule in &rules {
+                let key = rule_key(rule);
+                let Some(current) = overlaps.get_mut(&key) else {
+                    continue;
+                };
+                if fixed.contains_key(&key) || previous.get(&key) == Some(&*current) {
+                    continue;
+                }
+                let count = changes.entry(key).or_insert(0);
+                *count += 1;
+                if *count > bounds().overlap_changes {
+                    *current = definition.coarse_overlaps(rule);
+                    fixed.insert(key, current.clone());
+                }
+            }
+        }
         let unchanged = added.is_empty()
             && facts
                 .overlaps
@@ -1834,7 +1893,36 @@ pub(crate) fn pattern_facts(definition: &BackendDefinition) -> PatternFacts {
             break;
         }
     }
+    #[cfg(test)]
+    {
+        let work = SCAN.with(|scan| scan.borrow().facts_work.unwrap_or_default());
+        LAST_FACTS_COST.with(|cost| cost.set(Some(FactsCost { rounds, work })));
+    }
+    #[cfg(not(test))]
+    let _ = rounds;
     facts
+}
+
+/// What one [`pattern_facts`] computation cost: its rounds and the narrowing steps they took
+/// (tests).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FactsCost {
+    pub(crate) rounds: usize,
+    pub(crate) work: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The cost of the last [`pattern_facts`] computation on this thread.
+    static LAST_FACTS_COST: std::cell::Cell<Option<FactsCost>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The cost of the last [`pattern_facts`] computation on this thread, if any.
+#[cfg(test)]
+pub(crate) fn last_facts_cost() -> Option<FactsCost> {
+    LAST_FACTS_COST.with(std::cell::Cell::get)
 }
 
 /// Whether the left-hand side `left` has a root its instances keep: one whose equations the
@@ -1855,6 +1943,16 @@ fn has_fixed_root(left: &Term) -> bool {
 /// The most rounds [`pattern_facts`] computes. Each round's facts are sound, so stopping before
 /// they settle loses precision only.
 pub(super) const PATTERN_FACT_ROUNDS: usize = 64;
+
+/// The most rounds, after the first that computes them, in which [`pattern_facts`] lets an
+/// equation's overlaps differ from the previous round's; a further change fixes them to the
+/// coarse cover ([`BackendDefinition::coarse_overlaps`]). A change exists only because the
+/// previous round's stored facts were read to build new terms, so a chain of changes is
+/// nesting across rounds, bounded like the nesting inside one question ([`NARROWING_DEPTH`]);
+/// and each round reads the whole stored set again, so a longer chain costs more per round.
+/// The definitions measured (FUN, the krust-compiled KEVM, MIR and WASM) change an equation's
+/// overlaps at most once.
+pub(super) const OVERLAP_CHANGES: usize = 3;
 
 /// [`PatternFacts::value_roots`] for every index of `theories` with a fixed root.
 fn value_roots(
@@ -1955,9 +2053,9 @@ mod tests {
 
     use super::*;
 
-    /// One sort `A`: constructors `k, s, m, m2 : A -> A` and `c, d : A`; value productions
-    /// `p, h, n, v : A x A -> A` or `A -> A` with the equations `{equations}`, each written
-    /// `head(arguments) = right` over variables of sort `A`.
+    /// One sort `A`: constructors `k, s, m, m2 : A -> A`, `j : A x A -> A` and `c, d : A`;
+    /// value productions `p, h, n, v : A x A -> A` or `A -> A` with the equations
+    /// `{equations}`, each written `head(arguments) = right` over variables of sort `A`.
     fn definition(equations: &[(&str, &[&str], &str)]) -> BackendDefinition {
         let axioms = equations
             .iter()
@@ -1999,6 +2097,7 @@ mod tests {
                 constructor("s", 1),
                 constructor("m", 1),
                 constructor("m2", 1),
+                constructor("j", 2),
                 constructor("c", 0),
                 constructor("d", 0),
                 production("p", 2),
@@ -2216,5 +2315,30 @@ mod tests {
         assert!(definition.instance_normal(&subject).is_none());
         let unrelated = term(&definition, "v{}(s{}(d{}()))");
         assert!(definition.instance_normal(&unrelated).is_some());
+    }
+
+    /// `p(Y, p(Z, W)) = j(W, p(W, Z))`, the shape of generated case 2582 (an `anywhere`
+    /// equation `app11(V2, app11(V3, V4)) => pick1(V4, app11(V4, V3))`): the equation overlaps
+    /// itself below its root, at its argument `p(Z, W)`, and its right-hand side holds its own
+    /// head again. Each round of the pattern facts narrows that argument against the previous
+    /// round's overlap representatives of the equation and stores instances one nesting
+    /// deeper, so the overlaps change in every round. Each deeper instance is an instance of
+    /// the one stored in round 2, so with the stored terms kept as their most general members
+    /// the overlaps are the same in rounds 2 and 3 and the facts settle there, in few
+    /// narrowing steps (without that, `OVERLAP_CHANGES` fixes them after 6 rounds). At
+    /// `a6261f58` they ran 56 rounds and spent the whole `PATTERN_FACTS_WORK` budget (200,000
+    /// steps), most of the cost in copying the stored representatives.
+    #[test]
+    fn an_equation_whose_overlaps_change_every_round_settles_within_bounded_work() {
+        let definition = definition(&[(
+            "p",
+            &["Y:SortA{}", "p{}(Z:SortA{}, W:SortA{})"],
+            "j{}(W:SortA{}, p{}(W:SortA{}, Z:SortA{}))",
+        )]);
+        let subject = term(&definition, "p{}(c{}(), d{}())");
+        let _ = definition.instance_normal(&subject);
+        let cost = last_facts_cost().expect("the question computes the pattern facts");
+        assert!(cost.rounds <= 4, "{cost:?}");
+        assert!(cost.work <= 1_000, "{cost:?}");
     }
 }

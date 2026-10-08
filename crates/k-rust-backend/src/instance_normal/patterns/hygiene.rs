@@ -38,7 +38,7 @@ use rustc_hash::FxHasher;
 use super::super::token;
 use crate::{
     substitution::{Substitution, substitute},
-    term::{Term, TermKind, Variable},
+    term::{Term, TermKind, Variable, VariableKind},
 };
 
 /// A term whose variables, other than those of the term being read, carry names minted for it
@@ -156,6 +156,93 @@ impl Stored {
     pub(super) fn fresh(&self) -> Apart {
         Apart::copy(&self.0)
     }
+
+    /// Whether every instance of `other` is an instance of `self`: `other` is `self` with each
+    /// variable replaced by a term of exactly that variable's sort, the same term at each of
+    /// its occurrences. Applications, injections and conjunctions are compared by their
+    /// structure, anything else by equality, which only answers `false` more often. Both terms
+    /// are read, neither is built on, so their names may coincide: only `self`'s variables are
+    /// bound, to subterms of `other`.
+    fn covers(&self, other: &Self) -> bool {
+        fn walk<'a>(
+            general: &'a Term,
+            specific: &'a Term,
+            binding: &mut Vec<(&'a Variable, &'a Term)>,
+        ) -> bool {
+            match (general.kind(), specific.kind()) {
+                (TermKind::Variable(variable), _)
+                    if variable.kind == VariableKind::Element
+                        && variable.sort == specific.sort() =>
+                {
+                    match binding.iter().find(|(bound, _)| *bound == variable) {
+                        Some((_, term)) => *term == specific,
+                        None => {
+                            binding.push((variable, specific));
+                            true
+                        }
+                    }
+                }
+                (
+                    TermKind::Application {
+                        symbol: general_symbol,
+                        sort_arguments: general_sorts,
+                        arguments: general_arguments,
+                    },
+                    TermKind::Application {
+                        symbol: specific_symbol,
+                        sort_arguments: specific_sorts,
+                        arguments: specific_arguments,
+                    },
+                ) => {
+                    general_symbol.name == specific_symbol.name
+                        && general_sorts == specific_sorts
+                        && general_arguments.len() == specific_arguments.len()
+                        && general_arguments
+                            .iter()
+                            .zip(specific_arguments)
+                            .all(|(general, specific)| walk(general, specific, binding))
+                }
+                (
+                    TermKind::Injection {
+                        source: general_source,
+                        target: general_target,
+                        term: general,
+                    },
+                    TermKind::Injection {
+                        source: specific_source,
+                        target: specific_target,
+                        term: specific,
+                    },
+                ) => {
+                    general_source == specific_source
+                        && general_target == specific_target
+                        && walk(general, specific, binding)
+                }
+                (
+                    TermKind::And(general_left, general_right),
+                    TermKind::And(specific_left, specific_right),
+                ) => {
+                    walk(general_left, specific_left, binding)
+                        && walk(general_right, specific_right, binding)
+                }
+                _ => general == specific,
+            }
+        }
+        walk(&self.0, &other.0, &mut Vec::new())
+    }
+}
+
+/// Adds `term` to `members`, a cover kept as its most general members: nothing when a member
+/// covers `term` ([`Stored::covers`], a renaming of it included), since every instance of
+/// `term` is then an instance of that member; otherwise `term`, in place of the members it
+/// covers. The result covers the instances of every term added, with no member an instance of
+/// another.
+pub(super) fn add_most_general(members: &mut Vec<Stored>, term: Stored) {
+    if members.iter().any(|member| member.covers(&term)) {
+        return;
+    }
+    members.retain(|member| !term.covers(member));
+    members.push(term);
 }
 
 /// The counter of the names [`fresh_names`] mints. One counter for the process, so no two

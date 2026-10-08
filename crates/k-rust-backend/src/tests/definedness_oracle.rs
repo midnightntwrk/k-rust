@@ -84,7 +84,7 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     definition::BackendDefinition,
-    instance_normal::{Bounds, with_bounds},
+    instance_normal::{Bounds, last_facts_cost, with_bounds},
     rule::Predicate,
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
     smt::NoSolver,
@@ -105,6 +105,7 @@ const MINIMAL: Bounds = Bounds {
     narrowing_depth: 1,
     join_steps: 1,
     pattern_fact_rounds: 2,
+    overlap_changes: 0,
     scan_work: 40,
     pattern_facts_work: 400,
 };
@@ -2210,6 +2211,28 @@ fn random_definitions_claim_no_definedness_the_axioms_refute() {
             total.failures.len()
         );
         assert!(total.failures.is_empty(), "{}", total.failures.join("\n"));
+    });
+}
+
+/// Random case 2433 of the default seed: its equations' overlaps keep changing from round to
+/// round with stored terms that are not instances of each other, so keeping only the most
+/// general ones does not settle them (without `OVERLAP_CHANGES`, the facts ran 18 rounds and
+/// spent the whole `PATTERN_FACTS_WORK` budget). Each equation's overlaps may change in at most
+/// `OVERLAP_CHANGES` rounds, after which they are fixed to their coarse cover, so the rounds
+/// settle before the budget is spent.
+#[test]
+fn overlaps_that_keep_changing_are_fixed_before_the_work_budget_is_spent() {
+    on_large_stack(|| {
+        let case: u64 = 2433;
+        let mut rng = Rng(DEFAULT_SEED ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let definition = random_definition(&mut rng);
+        let syntax = parse_definition(&definition.kore()).expect("the definition parses");
+        let backend =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+        let _ = backend.pattern_facts();
+        let cost = last_facts_cost().expect("the pattern facts were computed");
+        assert!(cost.rounds <= 8, "{cost:?}");
+        assert!(cost.work < Bounds::DEFAULT.pattern_facts_work, "{cost:?}");
     });
 }
 
