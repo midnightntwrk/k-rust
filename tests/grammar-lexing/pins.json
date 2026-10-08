@@ -315,6 +315,9 @@
     ],
     "list-constructor": [
       "error[krs::analysis::invalid-syntax-list]: `IntsSyntax::Empty` constructs `Ints`, a syntactic list: a `#[k::syntax_list]` enum is the whole definition of its sort, so the list has no other constructors; give the constructor another sort, or use a function"
+    ],
+    "overload-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `general` and `specific` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
     ]
   },
   "format": {

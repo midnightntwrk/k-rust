@@ -68,6 +68,7 @@ K does not forbid overlapping rules: when two rules can apply to one configurati
 KRS reports such a pair, because in Rust two arms matching one input are usually a mistake (`krs::analysis::overlapping-rule-heads`).
 The check covers every transition: readable clauses, `#[k::rule]` functions (completed to the head of the computation cell), and `cells!` rules; equations are not checked.
 Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate; any other pair of guards is treated as possibly overlapping.
+Members of one `overload` family are one head, as K's overload axioms make them: a rule on `Dot` whose base is an `LVal` overlaps a rule on `LvalDot`, while a rule on `Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.

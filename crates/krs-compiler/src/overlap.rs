@@ -5,13 +5,16 @@
 //! simplifications, aliases, claims, and anywhere rules are not. Rules at
 //! different priorities never overlap; rules of one `nondet` group may, and
 //! the group is validated instead; and literal complementary guards separate
-//! two rules after unification.
+//! two rules after unification. Members of one `overload` family are one
+//! head: K's overload axioms identify `expDot(inj(L), F)` with
+//! `inj(lValDot(L, F))`, so their applications unify when their arguments do
+//! (clause 7c).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, ListOperation, MapOperation, SemanticId,
-    SetOperation, StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, ListOperation, MapOperation,
+    ProductionAttribute, SemanticId, SetOperation, StableItemId,
 };
 use krs_ir_levels::{
     RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule, SemanticSortRef,
@@ -107,6 +110,8 @@ struct SortGraph {
     compatible: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     /// Every cell below each group cell (KF-016).
     descendants: BTreeMap<SemanticId, BTreeSet<SemanticId>>,
+    /// The root of each `overload` family member's chain of targets (clause 7c).
+    overload_roots: BTreeMap<StableItemId, StableItemId>,
 }
 
 impl SortGraph {
@@ -122,6 +127,21 @@ impl SortGraph {
                     .iter()
                     .map(|sort| SemanticSortRef::Declared(sort.id().clone())),
             );
+            for production in module.productions() {
+                if let Some(target) =
+                    production
+                        .attributes()
+                        .iter()
+                        .find_map(|attribute| match attribute {
+                            ProductionAttribute::Overload { target, .. } => Some(target),
+                            _ => None,
+                        })
+                {
+                    graph
+                        .overload_roots
+                        .insert(production.id().clone(), target.clone());
+                }
+            }
             for edge in module.subsorts() {
                 graph.candidates.insert(edge.subsort().clone());
                 graph.candidates.insert(edge.supersort().clone());
@@ -159,7 +179,40 @@ impl SortGraph {
             }
         }
         graph.build_closure();
+        graph.resolve_overload_roots();
         graph
+    }
+
+    /// Replaces each member's authored target by the root of its chain.
+    /// Semantic lowering has rejected cycles; a cycle stops at the first
+    /// repeated production all the same.
+    fn resolve_overload_roots(&mut self) {
+        let targets = self.overload_roots.clone();
+        for root in self.overload_roots.values_mut() {
+            let mut visited = BTreeSet::new();
+            while visited.insert(root.clone()) {
+                let Some(next) = targets.get(root) else {
+                    break;
+                };
+                root.clone_from(next);
+            }
+        }
+    }
+
+    /// Whether two application heads are one head for unification: the same
+    /// symbol, or members of one `overload` family (clause 7c), whose
+    /// argument sorts the unifier then checks argument by argument.
+    fn same_head(&self, left: &SemanticApplicationRef, right: &SemanticApplicationRef) -> bool {
+        left == right
+            || matches!(
+                (left, right),
+                (ApplicationRef::Declared(left), ApplicationRef::Declared(right))
+                    if self.overload_root(left) == self.overload_root(right)
+            )
+    }
+
+    fn overload_root<'id>(&'id self, production: &'id StableItemId) -> &'id StableItemId {
+        self.overload_roots.get(production).unwrap_or(production)
     }
 
     fn build_closure(&mut self) {
@@ -259,7 +312,7 @@ impl<'graph> Unifier<'graph> {
                     arguments: right_arguments,
                 },
             ) => {
-                left_application == right_application
+                self.graph.same_head(&left_application, &right_application)
                     && self.graph.compatible(&left_sort, &right_sort)
                     && self.unify_arguments(left_arguments, right_arguments)
             }
@@ -967,7 +1020,7 @@ fn transitions_overlap(
         return false;
     }
     if let (Some(left), Some(right)) = (left.head, right.head)
-        && left != right
+        && !graph.same_head(left, right)
     {
         return false;
     }
@@ -1124,6 +1177,9 @@ mod framing_tests;
 
 #[cfg(test)]
 mod lexeme_tests;
+
+#[cfg(test)]
+mod overload_tests;
 
 #[cfg(test)]
 mod tests {

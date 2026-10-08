@@ -62,11 +62,13 @@ partition end to end on both routes:
   and program syntax, an unsigned package importing signed program syntax, a
   `colors` list that does not match the printed terminals, `prefer` with
   `avoid`, an overload with another arity, one whose sort is not a subsort of
-  its target's, two productions that overload each other, a dependent that
-  names a private production (E0603), a claim that names one, a constructor
-  of a token sort, a lexeme of a sort without tokens or of a builtin sort, a
-  token declared twice on one sort, a token alias of `Int`, a lexical
-  declared twice, a regex that refers to an undefined lexical, two
+  its target's, two productions that overload each other, a rule on a family's
+  root whose base is an `LVal` beside a rule on its `LVal` member (one head
+  for the F2 overlap check, as K's overload axioms make them), a dependent
+  that names a private production (E0603), a claim that names one, a
+  constructor of a token sort, a lexeme of a sort without tokens or of a
+  builtin sort, a token declared twice on one sort, a token alias of `Int`, a
+  lexical declared twice, a regex that refers to an undefined lexical, two
   lexicals that refer to each other, a production whose symbol is a list's
   derived `intsCons`, and a constructor of a list sort.
 
@@ -243,6 +245,7 @@ NEGATIVE = (
     ("overload-arity", "overload-arity", "krs-grammar-overload-arity", ()),
     ("overload-not-subsort", "overload-not-subsort", "krs-grammar-overload-not-subsort", ()),
     ("overload-cycle", "overload-cycle", "krs-grammar-overload-cycle", ()),
+    ("overload-overlap", "overload-overlap", "krs-grammar-overload-overlap", ()),
     (
         "visibility-dependent", "visibility-dependent", "krs-grammar-visibility-dependent",
         ("krs-grammar-visibility-dependent-base:main",),
