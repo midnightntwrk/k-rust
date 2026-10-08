@@ -126,6 +126,21 @@ def main() -> None:
             "the update base must be the cell `env`",
             "other",
         ),
+        (
+            "prefer_with_avoid",
+            "`prefer` must be omitted: a production is either preferred or avoided, not both",
+            "prefer",
+        ),
+        (
+            "overload_unknown_target",
+            "no variant named `Missing` found for enum `ExpSyntax`",
+            "Missing",
+        ),
+        (
+            "overload_private_target",
+            "enum `ExpSyntax` is private",
+            "ExpSyntax",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)
