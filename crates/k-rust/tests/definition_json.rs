@@ -783,10 +783,8 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
         wire_source["offsetMap"]["semanticLength"],
         "module MAIN\n".len()
     );
-    let wire_identity = value!({
-        "logical": wire_source["logical"],
-        "contentHash": wire_source["contentHash"],
-    });
+    // Every source reference is the index of its entry in the sources table.
+    let wire_identity = value!(0);
     assert_eq!(
         &envelope["termMetadata"][0]["metadata"]["span"]["source"],
         &wire_identity
@@ -1411,10 +1409,7 @@ fn provenance_version_8_tables_reject_malformed_entries() {
     let (encoded, _) = version_8_document();
     let envelope: Value = serde_json::from_str(&encoded).unwrap();
     assert_eq!(envelope["version"], 8);
-    let source = value!({
-        "logical": envelope["sources"][0]["logical"],
-        "contentHash": envelope["sources"][0]["contentHash"],
-    });
+    let source = value!(0);
     let span =
         |start: u64| value!({"kind": "source", "source": source, "start": start, "end": start + 1});
     assert_eq!(
@@ -1450,7 +1445,22 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         envelope[table].as_array_mut().unwrap().push(entry);
     };
     type Change<'a> = Box<dyn Fn(&mut Value) + 'a>;
-    let refused: [(&str, Change<'_>); 21] = [
+    let refused: [(&str, Change<'_>); 24] = [
+        (
+            "a link naming an absent source",
+            Box::new(|e| e["originSets"][0][0]["source"] = value!(1)),
+        ),
+        (
+            "a span naming an absent source",
+            Box::new(|e| e["termMetadata"][1]["metadata"]["span"]["source"] = value!(1)),
+        ),
+        (
+            "a sentence naming an absent source",
+            Box::new(|e| {
+                e["term"]["modules"][0]["localSentences"][0]["att"]["att"]
+                    [k_rust::definition::SOURCE_ID_ATTRIBUTE] = value!(1);
+            }),
+        ),
         (
             "a set naming itself",
             Box::new(|e| e["originSets"][1][1] = set(1)),

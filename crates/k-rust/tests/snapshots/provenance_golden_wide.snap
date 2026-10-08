@@ -137,28 +137,19 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
     [
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 0,
         "end": 1
       },
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 1,
         "end": 2
       },
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 2,
         "end": 3
       }
@@ -166,10 +157,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
     [
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 0,
         "end": 1
       },
@@ -181,10 +169,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
     [
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 1,
         "end": 2
       },
@@ -196,10 +181,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
     [
       {
         "kind": "source",
-        "source": {
-          "logical": "fixture.k",
-          "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-        },
+        "source": 0,
         "start": 2,
         "end": 3
       },
@@ -266,10 +248,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
       "node": 2,
       "metadata": {
         "span": {
-          "source": {
-            "logical": "fixture.k",
-            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-          },
+          "source": 0,
           "start": 0,
           "end": 1
         }
@@ -295,10 +274,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
       "node": 4,
       "metadata": {
         "span": {
-          "source": {
-            "logical": "fixture.k",
-            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-          },
+          "source": 0,
           "start": 1,
           "end": 2
         }
@@ -324,10 +300,7 @@ expression: "json::to_provenance_string_pretty(&wide, &sources).unwrap()"
       "node": 6,
       "metadata": {
         "span": {
-          "source": {
-            "logical": "fixture.k",
-            "contentHash": "f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
-          },
+          "source": 0,
           "start": 2,
           "end": 3
         }

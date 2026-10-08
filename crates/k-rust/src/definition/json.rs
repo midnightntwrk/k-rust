@@ -331,19 +331,10 @@ struct ProvenanceEnvelope<S = JsonSentence> {
     term_metadata: Vec<JsonTermMetadataEntry>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// The identity of one entry of the envelope's `sources` table.
 struct JsonLogicalSource {
     logical: String,
     content_hash: String,
-    /// Which of the source table's extractions of this logical source is meant, counted in table
-    /// order; omitted for the first.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    extraction: usize,
-}
-
-fn is_zero(value: &usize) -> bool {
-    *value == 0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -400,7 +391,8 @@ struct JsonTermMetadata {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JsonTermSpan {
-    source: JsonLogicalSource,
+    /// The index of the span's source in the envelope's `sources` table.
+    source: usize,
     start: usize,
     end: usize,
 }
@@ -445,7 +437,8 @@ enum MemoryProvenanceLink {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum JsonOriginPart {
     Source {
-        source: JsonLogicalSource,
+        /// The index of the link's source in the envelope's `sources` table.
+        source: usize,
         start: usize,
         end: usize,
     },
@@ -568,7 +561,6 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
             JsonLogicalSource {
                 logical: source.logical,
                 content_hash: source.content_hash,
-                extraction: 0,
             }
             .try_into()?,
             source.offset_map.map(TryInto::try_into).transpose()?,
@@ -655,8 +647,9 @@ impl KeptParts {
 /// memos keyed by allocation only avoid recomputing an index already known, which keeps the
 /// encoder linear in the number of distinct allocations however many paths reach them.
 struct ProvenanceEncoder {
-    // The wire reference of every source id, indexed by id.
-    source_references: Vec<JsonLogicalSource>,
+    // The number of entries of the source table: a source id is written as itself, an index
+    // below it.
+    sources: usize,
     origin_sets: Vec<Vec<JsonOriginPart>>,
     // Table index of every origin-set entry, keyed by its normal key.
     set_keys: HashMap<Vec<NormalPart>, u32>,
@@ -693,22 +686,8 @@ fn str_address(name: &Arc<str>) -> usize {
 
 impl ProvenanceEncoder {
     fn new(source_table: &SourceTable) -> Self {
-        let source_references = (0..source_table.iter().len())
-            .map(|index| {
-                let id = SourceId(index);
-                let mut reference = JsonLogicalSource::from(
-                    source_table
-                        .get(id)
-                        .expect("every index below the length is interned"),
-                );
-                reference.extraction = source_table
-                    .extraction_ordinal(id)
-                    .expect("every index below the length is interned");
-                reference
-            })
-            .collect();
         Self {
-            source_references,
+            sources: source_table.iter().len(),
             origin_sets: Vec::new(),
             set_keys: HashMap::new(),
             set_memo: HashMap::new(),
@@ -796,7 +775,7 @@ impl ProvenanceEncoder {
         let entry = key
             .iter()
             .map(|part| match part {
-                NormalPart::Link(link) => encode_link(link, &self.source_references),
+                NormalPart::Link(link) => encode_link(link, self.sources),
                 NormalPart::Set(set) => Ok(JsonOriginPart::Set { set: *set }),
             })
             .collect::<Result<_, _>>()?;
@@ -889,8 +868,8 @@ impl ProvenanceEncoder {
         })
     }
 
-    /// The wire attributes: the source id becomes its logical identity and the origin receipt
-    /// refers to its origin set by table index.
+    /// The wire attributes: the source id stays the index of its source-table entry, checked,
+    /// and the origin receipt refers to its origin set and anchor by table index.
     fn attributes(&mut self, attributes: &Attributes) -> Result<JsonAttributes, Error> {
         let mut att = attributes.semantic_entries().clone();
         if let Some(source) = att.get_mut(AttributeKey::SourceId.as_str()) {
@@ -899,7 +878,7 @@ impl ProvenanceEncoder {
                 .and_then(|source| usize::try_from(source).ok())
                 .map(SourceId)
                 .ok_or_else(|| Error::InvalidProvenance("source id is not a valid index".into()))?;
-            *source = serde_json::to_value(json_source(&self.source_references, id)?)?;
+            *source = Value::from(source_index(self.sources, id)?);
         }
         if let Some(receipt) = attributes.origin_receipt() {
             // Every sentence-level set is built from flat link lists (the flat-sentence
@@ -929,7 +908,7 @@ impl ProvenanceEncoder {
         Ok(JsonTermMetadata {
             span: metadata
                 .span
-                .map(|span| encode_span(span, &self.source_references))
+                .map(|span| encode_span(span, self.sources))
                 .transpose()?,
             production: metadata.production.map(ProductionIdentity::to_hex),
             sort: metadata.sort.as_ref().map(Into::into),
@@ -1170,8 +1149,11 @@ fn decode_attribute_sources(
 }
 
 fn source_id_from_value(value: Value, source_table: &SourceTable) -> Result<SourceId, Error> {
-    let source: JsonLogicalSource = serde_json::from_value(value)?;
-    source_id(source_table, &source)
+    let index = value
+        .as_u64()
+        .and_then(|index| usize::try_from(index).ok())
+        .ok_or_else(|| invalid("a source id is not an index of the source table"))?;
+    source_id(source_table, index)
 }
 
 /// The children of `term`, its annotations removed, pushed onto `stack` last first, so that
@@ -1347,9 +1329,9 @@ fn decode_term_metadata(
     })
 }
 
-fn encode_span(span: TermSpan, sources: &[JsonLogicalSource]) -> Result<JsonTermSpan, Error> {
+fn encode_span(span: TermSpan, sources: usize) -> Result<JsonTermSpan, Error> {
     Ok(JsonTermSpan {
-        source: json_source(sources, span.source)?,
+        source: source_index(sources, span.source)?,
         start: span.start,
         end: span.end,
     })
@@ -1357,19 +1339,16 @@ fn encode_span(span: TermSpan, sources: &[JsonLogicalSource]) -> Result<JsonTerm
 
 fn decode_span(span: JsonTermSpan, source_table: &SourceTable) -> Result<TermSpan, Error> {
     Ok(TermSpan {
-        source: source_id(source_table, &span.source)?,
+        source: source_id(source_table, span.source)?,
         start: span.start,
         end: span.end,
     })
 }
 
-fn encode_link(
-    link: &ProvenanceLink,
-    sources: &[JsonLogicalSource],
-) -> Result<JsonOriginPart, Error> {
+fn encode_link(link: &ProvenanceLink, sources: usize) -> Result<JsonOriginPart, Error> {
     Ok(match link {
         ProvenanceLink::Source { span } => JsonOriginPart::Source {
-            source: json_source(sources, span.source)?,
+            source: source_index(sources, span.source)?,
             start: span.start,
             end: span.end,
         },
@@ -1384,7 +1363,7 @@ fn decode_link(link: JsonOriginPart, source_table: &SourceTable) -> Result<Prove
     Ok(match link {
         JsonOriginPart::Source { source, start, end } => ProvenanceLink::Source {
             span: TermSpan {
-                source: source_id(source_table, &source)?,
+                source: source_id(source_table, source)?,
                 start,
                 end,
             },
@@ -1433,36 +1412,23 @@ fn decode_destination(destination: JsonDestinationAnchor) -> DestinationAnchor {
     }
 }
 
-fn json_source(
-    sources: &[JsonLogicalSource],
-    source: SourceId,
-) -> Result<JsonLogicalSource, Error> {
-    sources
-        .get(source.0)
-        .cloned()
-        .ok_or_else(|| Error::InvalidProvenance(format!("source id {} is not interned", source.0)))
+/// The wire form of `source`: its index, which must name an entry of a table of `sources`.
+fn source_index(sources: usize, source: SourceId) -> Result<usize, Error> {
+    if source.0 < sources {
+        Ok(source.0)
+    } else {
+        Err(invalid(format!("source id {} is not interned", source.0)))
+    }
 }
 
-fn source_id(source_table: &SourceTable, source: &JsonLogicalSource) -> Result<SourceId, Error> {
-    let extraction = source.extraction;
-    let identity = LogicalSourceId::try_from(source.clone())?;
-    source_table
-        .find_extraction(&identity, extraction)
-        .ok_or_else(|| {
-            Error::InvalidProvenance(format!(
-                "logical source {:?} extraction {extraction} is absent from the source table",
-                identity.logical
-            ))
-        })
-}
-
-impl From<&LogicalSourceId> for JsonLogicalSource {
-    fn from(source: &LogicalSourceId) -> Self {
-        Self {
-            logical: source.logical.clone(),
-            content_hash: encode_hash(&source.content_hash),
-            extraction: 0,
-        }
+/// The source id a wire index names, which must be an entry of `source_table`.
+fn source_id(source_table: &SourceTable, index: usize) -> Result<SourceId, Error> {
+    if index < source_table.iter().len() {
+        Ok(SourceId(index))
+    } else {
+        Err(invalid(format!(
+            "source {index} is absent from the source table"
+        )))
     }
 }
 
