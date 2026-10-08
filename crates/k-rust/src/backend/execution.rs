@@ -237,12 +237,26 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     )
 }
 
-/// The warnings of the load-time critical-pair check of `definition`
-/// (`k_rust_backend::confluence`): one per row of the constructor and overload preconditions the
-/// definition violates, and one per pair of executable equations that does not provably join and
-/// withdraws a value claim, naming both equations with their written positions, the overlapped
-/// term, why the check does not join it, and the equation heads that get no value claim.
-pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
+/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`): what to tell
+/// the author, and the equation it is located at, if any.
+#[derive(Clone, Debug)]
+pub struct ValueClaimFinding {
+    /// The text, without a severity prefix.
+    pub message: String,
+    /// Whether the finding is a precondition row (`Violation`) rather than a pair.
+    pub precondition: bool,
+    /// The written position of the equation the finding is about (the pair's first equation).
+    pub origin: Option<RuleOrigin>,
+    /// That equation's unique id, which the compiler's sentence provenance is keyed by.
+    pub unique_id: Option<String>,
+}
+
+/// The findings of the load-time critical-pair check of `definition`: one per row of the
+/// constructor and overload preconditions the definition violates, and one per pair of
+/// executable equations that does not provably join and withdraws a value claim, naming both
+/// equations with their written positions, the overlapped term, why the check does not join
+/// it, and the equation heads that get no value claim.
+pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
     /// The characters of the overlapped term a warning prints before it cuts it short.
     const OVERLAP_CHARACTERS: usize = 240;
     let claims = definition.value_claims();
@@ -257,25 +271,46 @@ pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
             None => name,
         }
     };
-    let mut warnings = claims
+    let located = |rule: &k_rust_backend::rule::RewriteRule, message: String, precondition| {
+        ValueClaimFinding {
+            message,
+            precondition,
+            origin: rule.attributes.origins.first().cloned(),
+            unique_id: Some(rule.attributes.unique_id.clone()),
+        }
+    };
+    let mut findings = claims
         .violations()
         .iter()
         .map(|violation| match &violation.rule {
-            Some(rule) => format!(
-                "warning: {} ({}); value claims rest on it",
-                violation.kind,
-                equation(rule)
+            Some(rule) => located(
+                rule,
+                format!(
+                    "{} ({}); value claims rest on it",
+                    violation.kind,
+                    equation(rule)
+                ),
+                true,
             ),
-            None => format!("warning: {}; value claims rest on it", violation.kind),
+            None => ValueClaimFinding {
+                message: format!("{}; value claims rest on it", violation.kind),
+                precondition: true,
+                origin: None,
+                unique_id: None,
+            },
         })
         .collect::<Vec<_>>();
     for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
         if std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none() {
-            warnings.push(format!(
-                "warning: the equation {} is not checked ({}); no value claims are made for {}",
-                equation(&pair.first),
-                pair.reason,
-                withdrawn_heads(&pair.withdrawn)
+            findings.push(located(
+                &pair.first,
+                format!(
+                    "the equation {} is not checked ({}); no value claims are made for {}",
+                    equation(&pair.first),
+                    pair.reason,
+                    withdrawn_heads(&pair.withdrawn)
+                ),
+                false,
             ));
             continue;
         }
@@ -296,13 +331,91 @@ pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
                 format!(" overlap at {text} and")
             })
             .unwrap_or_default();
-        warnings.push(format!(
-            "warning: {equations}{overlap} are not shown to join ({}); no value claims are made for {}",
-            pair.reason,
-            withdrawn_heads(&pair.withdrawn)
+        findings.push(located(
+            &pair.first,
+            format!(
+                "{equations}{overlap} are not shown to join ({}); no value claims are made for {}",
+                pair.reason,
+                withdrawn_heads(&pair.withdrawn)
+            ),
+            false,
         ));
     }
-    warnings
+    findings
+}
+
+/// The warnings `krun`, `kprove` and the RPC server print for the findings of the load-time
+/// critical-pair check ([`value_claim_findings`]).
+pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
+    value_claim_findings(definition)
+        .into_iter()
+        .map(|finding| format!("warning: {}", finding.message))
+        .collect()
+}
+
+/// The located diagnostics `kompile` reports for the findings of the load-time critical-pair
+/// check ([`value_claim_findings`]): each at its equation's written position, with the input
+/// addresses the compiler recorded for that equation in `provenance`.
+pub fn value_claim_diagnostics(
+    definition: &BackendDefinition,
+    provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
+) -> Vec<crate::diagnostic::Diagnostic> {
+    use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity};
+    value_claim_findings(definition)
+        .into_iter()
+        .map(|finding| {
+            let (source, location) = finding
+                .origin
+                .as_ref()
+                .map_or((None, None), written_location);
+            Diagnostic {
+                severity: Severity::Warning,
+                code: if finding.precondition {
+                    DiagnosticCode::ValueClaimPrecondition
+                } else {
+                    DiagnosticCode::UnjoinedCriticalPair
+                },
+                message: finding.message,
+                source,
+                location,
+                input_addresses: finding
+                    .unique_id
+                    .as_ref()
+                    .and_then(|id| provenance.get(id))
+                    .map(|entry| entry.input_addresses.clone())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+/// The source path and the location a rule's `Source` and `Location` attributes write.
+fn written_location(origin: &RuleOrigin) -> (Option<String>, Option<crate::definition::Location>) {
+    let source = origin.source.as_deref().map(|source| {
+        source
+            .strip_prefix("Source(")
+            .and_then(|path| path.strip_suffix(')'))
+            .unwrap_or(source)
+            .to_owned()
+    });
+    let location = origin.location.as_deref().and_then(|location| {
+        let numbers = location
+            .strip_prefix("Location(")?
+            .strip_suffix(')')?
+            .split(',')
+            .map(|part| part.trim().parse::<u32>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        let [start_line, start_column, end_line, end_column] = numbers.as_slice() else {
+            return None;
+        };
+        Some(crate::definition::Location {
+            start_line: *start_line,
+            start_column: *start_column,
+            end_line: *end_line,
+            end_column: *end_column,
+        })
+    });
+    (source, location)
 }
 
 /// The equation heads a non-joined pair withdraws, by K label, sorted, the first five listed and

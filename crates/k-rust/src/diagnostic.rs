@@ -44,6 +44,9 @@ pub enum WarningCategory {
     SingletonOverload,
     DuplicateOverload,
     CellCollectionVarWithoutInitial,
+    /// k-rust's own: the load-time critical-pair check withdrew value claims, or a precondition
+    /// of the value claims does not hold (`k_rust_backend::confluence`). Shown by default.
+    ValueClaims,
     UselessRule,
     UnresolvedFunctionSymbol,
     MalformedMarkdown,
@@ -204,6 +207,8 @@ diagnostic_codes! {
     UnsupportedParametricSort => "UnsupportedParametricSort",
     UnusedSymbol => "UnusedSymbol",
     TermTooDeep => "TermTooDeep",
+    UnjoinedCriticalPair => "UnjoinedCriticalPair",
+    ValueClaimPrecondition => "ValueClaimPrecondition",
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -229,6 +234,9 @@ impl DiagnosticCode {
             Self::UnadmittedHookNamespace => Some(WarningCategory::MissingHook),
             Self::UnusedVariable => Some(WarningCategory::UnusedVar),
             Self::UnusedSymbol => Some(WarningCategory::UnusedSymbol),
+            Self::UnjoinedCriticalPair | Self::ValueClaimPrecondition => {
+                Some(WarningCategory::ValueClaims)
+            }
             Self::ClaimInDefinition
             | Self::DuplicateSentenceLabel
             | Self::DuplicateConfigurationCell

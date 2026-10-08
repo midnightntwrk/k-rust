@@ -8946,6 +8946,53 @@ fn a_pair_of_anywhere_rules_that_does_not_join_is_named_when_the_definition_is_l
     assert!(!stderr.contains("v(_)_NJ_Pgm_Int"), "{stderr}");
 }
 
+/// `kcompile` reports the same pair when it compiles the definition, located at the first rule,
+/// under the `ValueClaims` warning category: shown by default, and an error with
+/// `--warnings-to-errors`. The rules of `v` get nothing.
+#[test]
+fn kcompile_names_a_pair_of_anywhere_rules_that_does_not_join_at_its_first_rule() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NON_JOINING_ANYWHERE).unwrap();
+    let options = ["--main-module", "NJ", "--syntax-module", "NJ"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    assert!(
+        warning.starts_with(&format!(
+            "{}:6:3: Warning[UnjoinedCriticalPair]: the equations NJ.w-one at ",
+            definition.display()
+        )) && warning.contains("the two reducts reach different terms")
+            && warning.ends_with("no value claims are made for w(_)_NJ_Pgm_Int"),
+        "{warning}"
+    );
+    assert!(!stderr.contains("v(_)_NJ_Pgm_Int"), "{stderr}");
+
+    let promoted = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(options)
+        .arg("--warnings-to-errors")
+        .arg("--output-directory")
+        .arg(root.join("promoted"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let promoted_stderr = String::from_utf8_lossy(&promoted.stderr);
+    assert!(!promoted.status.success(), "{promoted_stderr}");
+    assert_eq!(
+        promoted_stderr
+            .matches("Error[UnjoinedCriticalPair]")
+            .count(),
+        1,
+        "{promoted_stderr}"
+    );
+}
+
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
 /// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still
