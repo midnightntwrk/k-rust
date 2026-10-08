@@ -790,6 +790,15 @@ impl AnchorPath {
         self.0.is_none()
     }
 
+    /// Whether both paths are the same allocation (or both empty).
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        }
+    }
+
     /// The steps of the path, from the field down.
     pub fn to_vec(&self) -> Vec<u32> {
         let mut steps = Vec::with_capacity(self.len());
@@ -916,6 +925,38 @@ fn link_value(link: &ProvenanceLink) -> Value {
     }
 }
 
+impl OriginRecord {
+    /// Whether two term receipts are interchangeable for incremental resolution, counting the
+    /// links and path steps read in `kompile.resolve_metadata_compares`.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        let mut work = 0u64;
+        let same = self.pass == other.pass
+            && {
+                if !Arc::ptr_eq(&self.origins, &other.origins) {
+                    work += self.origins.len().min(other.origins.len()) as u64;
+                }
+                self.origins == other.origins
+            }
+            && match (&self.destination, &other.destination) {
+                (None, None) => true,
+                (Some(left), Some(right)) => {
+                    left.module == right.module
+                        && left.sentence == right.sentence
+                        && left.sentence_index == right.sentence_index
+                        && {
+                            if !left.path.ptr_eq(&right.path) {
+                                work += left.path.len().min(right.path.len()) as u64;
+                            }
+                            left.path == right.path
+                        }
+                }
+                (None, Some(_)) | (Some(_), None) => false,
+            };
+        measure::add(Counter::KompileResolveMetadataCompares, work);
+        same
+    }
+}
+
 /// A sentence's compiler-only origin receipt.
 ///
 /// Kompile passes store the structured record, so every generated sentence of one module shares
@@ -1014,7 +1055,10 @@ impl OriginReceipt {
     /// The derivation links the receipt records, in stored order.
     pub fn origin_links(&self) -> Vec<ProvenanceLink> {
         match &self.record {
-            Some(record) => record.origins.to_vec(),
+            Some(record) => {
+                measure::add(Counter::ProvenanceLinksSteps, record.origins.len() as u64);
+                record.origins.to_vec()
+            }
             None => origin_links_from_value(self.value()),
         }
     }
@@ -1151,7 +1195,7 @@ fn sentence_origins(
     if origins.is_empty() {
         return Arc::clone(module_origins.get());
     }
-    origins.into()
+    built_set(origins)
 }
 
 /// Sentence equality that answers for one shared sentence without walking it.
@@ -1338,7 +1382,7 @@ impl<'a> CarrierOrigins<'a> {
                 let sentence = &before[*index];
                 stored_sentence_origins(sentence).or_else(|| {
                     let links = sentence_origin_links(sentence);
-                    (!links.is_empty()).then(|| links.into())
+                    (!links.is_empty()).then(|| built_set(links))
                 })
             }
             indices => {
@@ -1350,6 +1394,7 @@ impl<'a> CarrierOrigins<'a> {
                         if shared.iter().any(|seen| Arc::ptr_eq(seen, &stored)) {
                             continue;
                         }
+                        measure::add(Counter::ProvenanceLinksSteps, stored.len() as u64);
                         for link in stored.iter() {
                             insert_link(&mut links, link.clone());
                         }
@@ -1360,7 +1405,7 @@ impl<'a> CarrierOrigins<'a> {
                         }
                     }
                 }
-                (!links.is_empty()).then(|| links.into_iter().collect::<Vec<_>>().into())
+                (!links.is_empty()).then(|| built_set(links.into_iter().collect::<Vec<_>>()))
             }
         };
         self.by_carrier.insert(inputs.to_vec(), origins.clone());
@@ -1627,7 +1672,7 @@ pub(crate) fn seed_generated_sentence_origin(
 ) {
     sentence.attributes_mut().set_origin_record(OriginRecord {
         pass,
-        origins: origins.into(),
+        origins: built_set(origins),
         destination: None,
     });
 }
@@ -1650,7 +1695,7 @@ impl<'a> ModuleOrigins<'a> {
 
     fn get(&self) -> &Arc<[ProvenanceLink]> {
         self.links
-            .get_or_init(|| module_origin_links(self.before, self.pass).into())
+            .get_or_init(|| built_set(module_origin_links(self.before, self.pass)))
     }
 }
 
@@ -1684,6 +1729,7 @@ fn united_origin_links<'a>(
         match stored_sentence_origins(sentence) {
             Some(stored) => {
                 if united.insert(stored.as_ptr()) {
+                    measure::add(Counter::ProvenanceLinksSteps, stored.len() as u64);
                     links.extend(stored.iter().cloned());
                 }
             }
@@ -2111,8 +2157,15 @@ fn term_origin_links(
     if links.iter().copied().eq(inherited.iter()) {
         Arc::clone(inherited)
     } else {
-        links.into_iter().cloned().collect::<Vec<_>>().into()
+        built_set(links.into_iter().cloned().collect::<Vec<_>>())
     }
+}
+
+/// A newly allocated origin set, counted as built.
+fn built_set(links: Vec<ProvenanceLink>) -> Arc<[ProvenanceLink]> {
+    measure::bump(Counter::ProvenanceSetNodesBuilt);
+    measure::add(Counter::ProvenanceSetPartsBuilt, links.len() as u64);
+    links.into()
 }
 
 /// The children of `term`, its annotations removed, in order.
@@ -2221,6 +2274,64 @@ mod tests {
             }],
             attributes: Attributes::default(),
         }
+    }
+
+    /// A rule whose body is a sequence of `n` items, each carrying a span of its own, and the same
+    /// rule with every item wrapped in `bar(_)`.
+    fn wide_rewrap(n: usize) -> (Definition, Definition) {
+        let items = (0..n)
+            .map(|index| {
+                Term::apply("foo", Vec::new()).with_metadata(TermMetadata {
+                    span: Some(TermSpan {
+                        source: SourceId(0),
+                        start: index,
+                        end: index + 1,
+                    }),
+                    ..TermMetadata::default()
+                })
+            })
+            .collect::<Vec<_>>();
+        let wrapped = items
+            .iter()
+            .map(|item| Term::apply("bar", vec![item.clone()]))
+            .collect();
+        (
+            definition(Term::Sequence(items)),
+            definition(Term::Sequence(wrapped)),
+        )
+    }
+
+    /// The reuse test of incremental resolution compares a term receipt in constant work: two
+    /// runs of one pass over one change give every wrapped item a receipt whose origin set (the
+    /// rule's `n` spans) and destination are equal but separately allocated, and comparing the
+    /// two results reads at most one unit per annotated node, whatever `n`.
+    #[test]
+    #[ignore = "term receipts are compared by value until unit provenance-v8 step 2"]
+    fn reuse_test_compares_term_receipts_in_constant_work_per_node() {
+        let compares = |n: usize| {
+            let (before, after) = wide_rewrap(n);
+            let first =
+                record_generated_origins(&before, after.clone(), GeneratingPass::SemanticCasts);
+            let second = record_generated_origins(&before, after, GeneratingPass::SemanticCasts);
+            let body = |definition: &Definition| {
+                definition.modules[0].local_sentences[0]
+                    .term(0)
+                    .expect("a rule has a body")
+                    .clone()
+            };
+            let (first, second) = (body(&first), body(&second));
+            let start = measure::snapshot();
+            let _ = first.identical(&second);
+            measure::snapshot()
+                .delta(&start)
+                .get(Counter::KompileResolveMetadataCompares)
+        };
+        let (small, large) = (compares(200), compares(400));
+        assert!(
+            small <= 2 * 200 + 1 && large <= 2 * 400 + 1,
+            "comparing the receipts of 200 and 400 wrapped items read {small} and {large} units"
+        );
+        assert!(large * 10 <= small * 21, "{small} at 200, {large} at 400");
     }
 
     fn counterpart_sentence(

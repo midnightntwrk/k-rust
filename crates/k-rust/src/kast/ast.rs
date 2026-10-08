@@ -5,6 +5,8 @@ use std::{
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::names::BuiltinSort;
 #[cfg(test)]
 use crate::names::WellKnownSymbol;
@@ -191,6 +193,22 @@ pub struct TermMetadata {
     /// projection metadata; equal, wider, and unrelated sorts do not authorize a projection.
     pub sort: Option<Sort>,
     pub origin: Option<Arc<OriginRecord>>,
+}
+
+impl TermMetadata {
+    /// Strict equality for incremental definition resolution ([`Term::identical`]), counted in
+    /// `kompile.resolve_metadata_compares`.
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        measure::bump(Counter::KompileResolveMetadataCompares);
+        self.span == other.span
+            && self.production == other.production
+            && self.sort == other.sort
+            && match (&self.origin, &other.origin) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right) || left.identical(right),
+                (None, Some(_)) | (Some(_), None) => false,
+            }
+    }
 }
 
 /// A K term. Its total order (`Ord`) ranks the variants in declaration order before comparing
@@ -558,7 +576,7 @@ impl Term {
                     term: right,
                     metadata: right_metadata,
                 },
-            ) => left_metadata == right_metadata && left.identical(right),
+            ) => left_metadata.identical(right_metadata) && left.identical(right),
             (Self::Annotated { .. }, _) | (_, Self::Annotated { .. }) => false,
             (Self::InjectedLabel(left), Self::InjectedLabel(right)) => left == right,
             (

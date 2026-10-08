@@ -541,6 +541,7 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
     })?;
     let mut addresses = BTreeSet::new();
     for entry in envelope.term_metadata {
+        measure::add(Counter::ProvenanceDecoderSteps, entry.path.len() as u64 + 1);
         let address = (
             entry.module_index,
             entry.sentence_index,
@@ -625,6 +626,7 @@ impl ProvenanceEncoder {
         if let Some((index, _)) = self.by_allocation.get(&allocation) {
             return Ok(*index);
         }
+        measure::bump(Counter::ProvenanceEncoderSetKeys);
         let index = match self.by_links.get(origins) {
             Some(index) => *index,
             None => {
@@ -652,6 +654,12 @@ impl ProvenanceEncoder {
             destination: origin
                 .destination
                 .as_ref()
+                .inspect(|destination| {
+                    measure::add(
+                        Counter::ProvenanceEncoderAnchorInternings,
+                        destination.path.len() as u64 + 1,
+                    );
+                })
                 .map(|destination| JsonDestinationAnchor {
                     module: destination.module.clone(),
                     sentence: destination.sentence.clone(),
@@ -743,6 +751,7 @@ fn decode_origin_sets(
     let decoded = origin_sets
         .into_iter()
         .map(|links| {
+            measure::add(Counter::ProvenanceDecoderSteps, links.len() as u64 + 1);
             links
                 .into_iter()
                 .map(|link| decode_link(link, source_table))

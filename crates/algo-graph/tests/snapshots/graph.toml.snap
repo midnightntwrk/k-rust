@@ -184,6 +184,34 @@ symbol = "Counter::KompileResolveCalls"
 
 [[node]]
 kind = "observation"
+id = "KompileResolveMetadataCompares"
+provenance = "table"
+area = "kompile"
+name = "KompileResolveMetadataCompares"
+table = "Counter::ALL"
+registry_name = "kompile.resolve_metadata_compares"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileResolveMetadataCompares"
+
+[[node]]
+kind = "observation"
+id = "KompileResolveModuleRebuilds"
+provenance = "table"
+area = "kompile"
+name = "KompileResolveModuleRebuilds"
+table = "Counter::ALL"
+registry_name = "kompile.resolve_module_rebuilds"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KompileResolveModuleRebuilds"
+
+[[node]]
+kind = "observation"
 id = "KompileResolveUpdateSentenceVisits"
 provenance = "table"
 area = "kompile"
@@ -758,6 +786,48 @@ symbol = "Counter::ProofStatesExplored"
 
 [[node]]
 kind = "observation"
+id = "ProvenanceDecoderSteps"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceDecoderSteps"
+table = "Counter::ALL"
+registry_name = "provenance.decoder_steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceDecoderSteps"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceEncoderAnchorInternings"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceEncoderAnchorInternings"
+table = "Counter::ALL"
+registry_name = "provenance.encoder_anchor_internings"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceEncoderAnchorInternings"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceEncoderSetKeys"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceEncoderSetKeys"
+table = "Counter::ALL"
+registry_name = "provenance.encoder_set_keys"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceEncoderSetKeys"
+
+[[node]]
+kind = "observation"
 id = "ProvenanceLinkDedupProbes"
 provenance = "table"
 area = "provenance"
@@ -772,6 +842,34 @@ symbol = "Counter::ProvenanceLinkDedupProbes"
 
 [[node]]
 kind = "observation"
+id = "ProvenanceLinksSteps"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceLinksSteps"
+table = "Counter::ALL"
+registry_name = "provenance.links_steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceLinksSteps"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceNonflatFlattens"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceNonflatFlattens"
+table = "Counter::ALL"
+registry_name = "provenance.nonflat_flattens"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceNonflatFlattens"
+
+[[node]]
+kind = "observation"
 id = "ProvenanceReceiptRenders"
 provenance = "table"
 area = "provenance"
@@ -783,6 +881,34 @@ registry_name = "provenance.receipt_renders"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::ProvenanceReceiptRenders"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceSetNodesBuilt"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceSetNodesBuilt"
+table = "Counter::ALL"
+registry_name = "provenance.set_nodes_built"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceSetNodesBuilt"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceSetPartsBuilt"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceSetPartsBuilt"
+table = "Counter::ALL"
+registry_name = "provenance.set_parts_built"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceSetPartsBuilt"
 
 [[node]]
 kind = "observation"

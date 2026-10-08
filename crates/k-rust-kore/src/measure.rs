@@ -349,6 +349,11 @@ pub enum Counter {
     KompileResolveUpdates,
     /// Flat-definition sentences examined while deciding whether a resolved module is reusable.
     KompileResolveUpdateSentenceVisits,
+    /// Work of comparing term metadata while deciding whether a resolved module is reusable: one
+    /// per annotated node compared, plus whatever the comparison reads of the two receipts.
+    KompileResolveMetadataCompares,
+    /// Resolved modules that an incremental resolution rebuilt rather than reused.
+    KompileResolveModuleRebuilds,
     /// Rule bubbles parsed (one Earley parse plus sort inference each).
     KompileRuleBubblesParsed,
     /// Sentence count of the transformed definition, written once per compile.
@@ -376,6 +381,21 @@ pub enum Counter {
     ProvenanceLinkDedupProbes,
     /// Structured provenance receipts rendered into their JSON wire form.
     ProvenanceReceiptRenders,
+    /// Origin-set nodes built by the recorder: one per set it allocates.
+    ProvenanceSetNodesBuilt,
+    /// Parts (links and named sets) of the origin-set nodes the recorder builds.
+    ProvenanceSetPartsBuilt,
+    /// Work of flattening origin sets into link lists: set nodes entered plus parts examined.
+    ProvenanceLinksSteps,
+    /// Flattenings of an origin set that names another set.
+    ProvenanceNonflatFlattens,
+    /// Origin-set keys the provenance encoder computes, one per distinct set allocation.
+    ProvenanceEncoderSetKeys,
+    /// Destination-anchor entries the provenance encoder resolves or interns.
+    ProvenanceEncoderAnchorInternings,
+    /// Work of the provenance reader: table entries and their parts, metadata entries, and the
+    /// term nodes or path steps it walks to attach metadata.
+    ProvenanceDecoderSteps,
     /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
     KompileSentenceCopies,
     /// Production identity digests computed while building catalogs.
@@ -504,13 +524,15 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 76;
+    pub const COUNT: usize = 85;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
         Counter::KompileResolveCalls,
         Counter::KompileResolveUpdates,
         Counter::KompileResolveUpdateSentenceVisits,
+        Counter::KompileResolveMetadataCompares,
+        Counter::KompileResolveModuleRebuilds,
         Counter::KompileRuleBubblesParsed,
         Counter::KompileSentencesTransformed,
         Counter::KompileSentenceEquivalenceChecks,
@@ -524,6 +546,13 @@ impl Counter {
         Counter::KompileOwiseCompetitorScans,
         Counter::ProvenanceLinkDedupProbes,
         Counter::ProvenanceReceiptRenders,
+        Counter::ProvenanceSetNodesBuilt,
+        Counter::ProvenanceSetPartsBuilt,
+        Counter::ProvenanceLinksSteps,
+        Counter::ProvenanceNonflatFlattens,
+        Counter::ProvenanceEncoderSetKeys,
+        Counter::ProvenanceEncoderAnchorInternings,
+        Counter::ProvenanceDecoderSteps,
         Counter::KompileSentenceCopies,
         Counter::KompileProductionIdentityDigests,
         Counter::ParserCompletedNodesInvalidated,
@@ -592,6 +621,8 @@ impl Counter {
             Counter::KompileResolveCalls => "kompile.resolve_calls",
             Counter::KompileResolveUpdates => "kompile.resolve_updates",
             Counter::KompileResolveUpdateSentenceVisits => "kompile.resolve_update_sentence_visits",
+            Counter::KompileResolveMetadataCompares => "kompile.resolve_metadata_compares",
+            Counter::KompileResolveModuleRebuilds => "kompile.resolve_module_rebuilds",
             Counter::KompileRuleBubblesParsed => "kompile.rule_bubbles_parsed",
             Counter::KompileSentencesTransformed => "kompile.sentences_transformed",
             Counter::KompileSentenceEquivalenceChecks => "kompile.sentence_equivalence_checks",
@@ -605,6 +636,13 @@ impl Counter {
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
             Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
+            Counter::ProvenanceSetNodesBuilt => "provenance.set_nodes_built",
+            Counter::ProvenanceSetPartsBuilt => "provenance.set_parts_built",
+            Counter::ProvenanceLinksSteps => "provenance.links_steps",
+            Counter::ProvenanceNonflatFlattens => "provenance.nonflat_flattens",
+            Counter::ProvenanceEncoderSetKeys => "provenance.encoder_set_keys",
+            Counter::ProvenanceEncoderAnchorInternings => "provenance.encoder_anchor_internings",
+            Counter::ProvenanceDecoderSteps => "provenance.decoder_steps",
             Counter::KompileSentenceCopies => "kompile.sentence_copies",
             Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
             Counter::ParserCompletedNodesInvalidated => "parser.completed_nodes_invalidated",
