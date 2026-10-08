@@ -80,6 +80,8 @@ use std::{cell::RefCell, collections::HashMap};
 
 use rustc_hash::FxHashMap;
 
+#[cfg(test)]
+pub(crate) use patterns::last_facts_cost;
 pub(crate) use patterns::{PatternFacts, pattern_facts};
 pub(crate) use token::{InstanceNormal, NormalArguments};
 
@@ -388,6 +390,8 @@ pub(crate) struct Bounds {
     pub(crate) join_steps: usize,
     /// `patterns::PATTERN_FACT_ROUNDS`.
     pub(crate) pattern_fact_rounds: usize,
+    /// `patterns::OVERLAP_CHANGES`.
+    pub(crate) overlap_changes: usize,
     /// [`SCAN_WORK`].
     pub(crate) scan_work: usize,
     /// [`PATTERN_FACTS_WORK`].
@@ -403,6 +407,7 @@ impl Bounds {
         narrowing_depth: patterns::NARROWING_DEPTH,
         join_steps: patterns::JOIN_STEPS,
         pattern_fact_rounds: patterns::PATTERN_FACT_ROUNDS,
+        overlap_changes: patterns::OVERLAP_CHANGES,
         scan_work: SCAN_WORK,
         pattern_facts_work: PATTERN_FACTS_WORK,
     };
