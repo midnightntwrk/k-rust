@@ -733,8 +733,7 @@ fn pointee_ty_reference(
     pointee
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn pointee_ty_other(k::term![PointeeTy { info: _ }]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
 }
@@ -753,8 +752,7 @@ fn elem_ty_array(
     element
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn elem_ty_other(k::term![ElemTy { info: _ }]: k::Term<MaybeTy>) -> k::Term<MaybeTy> {
     k::term![MirMaybeTy::TyUnknown()]
 }
@@ -770,8 +768,7 @@ pub struct GetTyOf {
     pub projections: k::Term<ProjectionElems>,
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn get_ty_of_unknown(
     k::term![GetTyOf {
         types: _,
@@ -915,8 +912,7 @@ fn get_ty_of_downcast(
     }]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn get_ty_of_other(
     k::term![GetTyOf {
         types: _,
@@ -1452,8 +1448,7 @@ fn pointer_words_dynamic_array(
     k::term![2]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn pointer_words_thin(k::term![PointerWords { info: _ }]: k::Term<Int>) -> k::Term<Int> {
     k::term![1]
 }
@@ -1467,8 +1462,7 @@ fn is_void_type(
     k::term![true]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn is_not_void_type(k::term![IsVoidType { info: _ }]: k::Term<Bool>) -> k::Term<Bool> {
     k::term![false]
 }
@@ -1695,8 +1689,7 @@ fn size_of_reference(
     )]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn size_of_other(k::term![SizeOfTypeInfo { types: _, info: _ }]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
 }
@@ -1876,8 +1869,7 @@ fn align_of_reference(
     }]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn align_of_other(k::term![AlignOfTypeInfo { types: _, info: _ }]: k::Term<Int>) -> k::Term<Int> {
     k::term![0]
 }
@@ -3087,8 +3079,7 @@ pub struct ZeroSizedType {
     pub info: k::Term<TypeInfo>,
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn zero_sized_type_void(
     k::term![ZeroSizedType {
         info: MirTypeInfo::VoidType(),
@@ -3247,8 +3238,7 @@ pub struct ConvertPointerMetadata {
     pub target_size: k::Term<MetadataSize>,
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn convert_pointer_metadata_thin(
     k::term![ConvertPointerMetadata {
         metadata: MirMetadata::Metadata {
@@ -3450,8 +3440,7 @@ fn remove_index_tail_empty(
     k::term![Projections::ProjectionsEmpty()]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn remove_index_tail_zero(
     k::term![RemoveIndexTail {
         projections: Projections::ProjectionsCons {
@@ -3628,8 +3617,7 @@ pub struct MaybeDynamicSize {
     pub value: k::Term<MirValue>,
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn maybe_dynamic_size_range(
     k::term![MaybeDynamicSize {
         size: MirMetadataSize::DynamicSize(_),
@@ -3649,8 +3637,7 @@ fn maybe_dynamic_size_non_range(
     k::term![MirMetadataSize::NoMetadataSize()]
 }
 
-#[k::priority(60)]
-#[k::equation]
+#[k::equation(priority = 60)]
 fn maybe_dynamic_size_other(
     k::term![MaybeDynamicSize { size, value: _ }]: k::Term<MetadataSize>,
 ) -> k::Term<MetadataSize> {
@@ -5110,8 +5097,7 @@ fn append_cast_projections_done(
     k::term![second]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn append_cast_projections_cancel_singleton(
     k::term![AppendCastProjections {
         first: Projections::ProjectionsCons {
@@ -5131,8 +5117,7 @@ fn append_cast_projections_cancel_singleton(
     k::term![tail]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn append_cast_projections_cancel_element(
     k::term![AppendCastProjections {
         first: Projections::ProjectionsCons {
@@ -5152,8 +5137,7 @@ fn append_cast_projections_cancel_element(
     k::term![tail]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn append_cast_projections_cancel_wrapped_field(
     k::term![AppendCastProjections {
         first: Projections::ProjectionsCons {
@@ -5169,8 +5153,7 @@ fn append_cast_projections_cancel_wrapped_field(
     k::term![tail]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn append_cast_projections_cancel_to_zst(
     k::term![AppendCastProjections {
         first: Projections::ProjectionsCons {
@@ -5186,8 +5169,7 @@ fn append_cast_projections_cancel_to_zst(
     k::term![tail]
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn append_cast_projections_cancel_from_zst(
     k::term![AppendCastProjections {
         first: Projections::ProjectionsCons {

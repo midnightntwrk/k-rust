@@ -210,6 +210,18 @@ pub enum SyntaxErrorKind {
         /// Stable parser-owned role spelling.
         role: &'static str,
     },
+    /// A sentence attribute combined keys that K does not accept together.
+    InvalidRuleKey {
+        /// Complete stable explanation, naming the fix.
+        reason: &'static str,
+    },
+    /// A retired attribute was used.
+    RetiredAttribute {
+        /// Retired attribute as written, such as `#[k::priority(..)]`.
+        attribute: &'static str,
+        /// Replacement spelling, with the authored values filled in.
+        replacement: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -283,6 +295,8 @@ impl SyntaxErrorKind {
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
             }
+            Self::InvalidRuleKey { .. } => codes::syntax::INVALID_RULE_KEY,
+            Self::RetiredAttribute { .. } => codes::syntax::RETIRED_ATTRIBUTE,
         }
     }
 }
@@ -503,6 +517,11 @@ impl fmt::Display for SyntaxError {
                     "too many `{role}` nodes to assign provenance ordinals"
                 )
             }
+            SyntaxErrorKind::InvalidRuleKey { reason } => formatter.write_str(reason),
+            SyntaxErrorKind::RetiredAttribute {
+                attribute,
+                replacement,
+            } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
         }
     }
 }

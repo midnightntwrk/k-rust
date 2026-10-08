@@ -267,7 +267,7 @@ pub(super) fn lower_configuration_rule_descriptor(
             ))
         })
         .transpose()?;
-    let priority = lower_rule_priority(descriptor, rule.priority.as_ref(), "rule-owise")?;
+    let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let claim = rule
         .claim
         .as_ref()

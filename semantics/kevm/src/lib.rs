@@ -5217,9 +5217,8 @@ fn charge_fixed_fails(
     k::term![GasResult::InsufficientGas()]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_ecrec(
     k::term![ChargeStaticCall {
         gas,
@@ -5232,9 +5231,8 @@ fn charge_static_call_ecrec(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_sha256(
     k::term![ChargeStaticCall {
         gas,
@@ -5247,9 +5245,8 @@ fn charge_static_call_sha256(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_ripemd160(
     k::term![ChargeStaticCall {
         gas,
@@ -5262,9 +5259,8 @@ fn charge_static_call_ripemd160(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_identity(
     k::term![ChargeStaticCall {
         gas,
@@ -5277,9 +5273,8 @@ fn charge_static_call_identity(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_modexp(
     k::term![ChargeStaticCall {
         gas,
@@ -5292,9 +5287,8 @@ fn charge_static_call_modexp(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_ecadd(
     k::term![ChargeStaticCall {
         gas,
@@ -5307,9 +5301,8 @@ fn charge_static_call_ecadd(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_ecmul(
     k::term![ChargeStaticCall {
         gas,
@@ -5322,9 +5315,8 @@ fn charge_static_call_ecmul(
     }]
 }
 
-#[k::priority(40)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn charge_static_call_ecpairing(
     k::term![ChargeStaticCall {
         gas,
@@ -5337,9 +5329,8 @@ fn charge_static_call_ecpairing(
     }]
 }
 
-#[k::priority(50)]
 #[k::requires(int::ge(gas, cost))]
-#[k::equation]
+#[k::equation(priority = 50)]
 fn charge_static_call(
     k::term![ChargeStaticCall { gas, cost, account }]: k::Term<GasStep>,
 ) -> k::Term<GasStep> {

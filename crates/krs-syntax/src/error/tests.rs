@@ -71,6 +71,11 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::MissingTokenEndpoint,
         SyntaxErrorKind::TooManyProvenanceOccurrences { role: "example" },
         SyntaxErrorKind::InvalidColor { reason: "example" },
+        SyntaxErrorKind::InvalidRuleKey { reason: "example" },
+        SyntaxErrorKind::RetiredAttribute {
+            attribute: "example",
+            replacement: String::from("example"),
+        },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

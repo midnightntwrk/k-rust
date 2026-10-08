@@ -1,17 +1,83 @@
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream, Parser};
-use syn::{Expr, Ident, LitStr, Path, Token};
+use syn::spanned::Spanned;
+use syn::{Expr, ExprLit, Ident, Lit, LitInt, LitStr, Path, Token};
 
 use crate::parse::{KrsSyntax, ParseError, checked_ordinal, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::value::parse_rule_label_value;
 
-/// Typed metadata of `#[k::rule(label = "...", owise)]`.
+/// Typed metadata of `#[k::rule(owise | priority = N, label = "...")]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
     owise: Option<Ident>,
+    priority: Option<PriorityValue>,
+}
+
+/// One authored `priority = N` integer and its parsed value.
+#[derive(Clone, Debug)]
+pub(crate) struct PriorityValue {
+    pub(crate) literal: LitInt,
+    pub(crate) value: u32,
+}
+
+/// The priority K gives an `owise` rule or equation.
+pub const OWISE_PRIORITY: u32 = 200;
+
+/// The largest rule priority k-rust ranks.
+pub const MAX_RULE_PRIORITY: u32 = 254;
+
+pub(crate) const OWISE_WITH_PRIORITY: &str = "owise is priority 200; write one of them";
+pub(crate) const PRIORITY_RANGE: &str = "k-rust ranks rule priorities 0..=254";
+pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
+    "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
+pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
+
+/// Parses the value of one `priority = N` key.
+pub(crate) fn parse_priority_value(value: Expr) -> Result<PriorityValue, ParseError> {
+    let Expr::Lit(ExprLit {
+        attrs,
+        lit: Lit::Int(literal),
+    }) = value
+    else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "priority",
+                expected: "an unsuffixed integer literal",
+            },
+            value.span(),
+        )
+        .into());
+    };
+    if !attrs.is_empty() || !literal.suffix().is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "priority",
+                expected: "an unsuffixed integer literal",
+            },
+            literal.span(),
+        )
+        .into());
+    }
+    let value = literal
+        .base10_parse::<u32>()
+        .ok()
+        .filter(|value| *value <= MAX_RULE_PRIORITY)
+        .ok_or_else(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidRuleKey {
+                    reason: PRIORITY_RANGE,
+                },
+                literal.span(),
+            )
+        })?;
+    Ok(PriorityValue { literal, value })
+}
+
+pub(crate) fn rule_key_error(reason: &'static str, span: proc_macro2::Span) -> ParseError {
+    SyntaxError::new(SyntaxErrorKind::InvalidRuleKey { reason }, span).into()
 }
 
 /// Explicit reachability modality of a Rust-authored claim.
@@ -156,6 +222,25 @@ impl RuleAttribute {
         self.owise.is_some()
     }
 
+    /// Returns the explicit `priority = N` value, when authored.
+    #[must_use]
+    pub fn priority(&self) -> Option<u32> {
+        self.priority.as_ref().map(|priority| priority.value)
+    }
+
+    /// Returns the effective authored transition priority and the role that
+    /// anchors it: `owise` is priority 200 under [`ProvenanceRole::RuleOwise`],
+    /// and `priority = N` is N under [`ProvenanceRole::RulePriority`].
+    #[must_use]
+    pub fn transition_priority(&self) -> Option<(ProvenanceRole, u32)> {
+        if self.owise.is_some() {
+            return Some((ProvenanceRole::RuleOwise, OWISE_PRIORITY));
+        }
+        self.priority
+            .as_ref()
+            .map(|priority| (ProvenanceRole::RulePriority, priority.value))
+    }
+
     /// Returns the exact explicit-label provenance anchor.
     ///
     /// # Errors
@@ -175,6 +260,13 @@ impl RuleAttribute {
                 ProvenanceRole::RuleOwise,
                 0,
                 TokenRange::for_tokens(owise)?,
+            ));
+        }
+        if let Some(priority) = &self.priority {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RulePriority,
+                0,
+                TokenRange::for_tokens(&priority.literal)?,
             ));
         }
         Ok(anchors)
@@ -328,6 +420,7 @@ impl KrsSyntax for RuleAttribute {
 fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError> {
     let mut label = None;
     let mut owise = None;
+    let mut priority: Option<PriorityValue> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
@@ -351,7 +444,24 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                 )
                 .into());
             }
+            "owise" if priority.is_some() => {
+                return Err(rule_key_error(OWISE_WITH_PRIORITY, key.span()));
+            }
             "owise" => owise = Some(key),
+            "priority" if priority.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "priority" },
+                    key.span(),
+                )
+                .into());
+            }
+            "priority" if owise.is_some() => {
+                return Err(rule_key_error(OWISE_WITH_PRIORITY, key.span()));
+            }
+            "priority" => {
+                input.parse::<Token![=]>()?;
+                priority = Some(parse_priority_value(input.parse()?)?);
+            }
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -368,5 +478,9 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
             break;
         }
     }
-    Ok(RuleAttribute { label, owise })
+    Ok(RuleAttribute {
+        label,
+        owise,
+        priority,
+    })
 }

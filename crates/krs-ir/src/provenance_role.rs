@@ -362,6 +362,10 @@ provenance_roles! {
     ConstructorColor => "constructor_color",
     /// One literal of a production's `colors` list, in source order.
     ConstructorColorsEntry => "constructor_colors_entry",
+    /// Explicit `priority = N` integer on a transition rule.
+    RulePriority => "rule_priority",
+    /// Bare `owise` marker on an equation (priority 200).
+    EquationOwise => "equation_owise",
 }
 
 impl Serialize for ProvenanceRole {

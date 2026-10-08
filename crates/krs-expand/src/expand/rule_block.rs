@@ -276,10 +276,10 @@ fn expand_head_rule(
     });
     let priority = clause
         .attribute()
-        .is_owise()
-        .then(|| krs_ir::DescriptorRulePriority {
-            key: ProvenanceRole::RuleOwise.key(0),
-            value: 200,
+        .transition_priority()
+        .map(|(role, value)| krs_ir::DescriptorRulePriority {
+            key: role.key(0),
+            value,
         });
     let original = rule.item();
     let attrs = &original.attrs;

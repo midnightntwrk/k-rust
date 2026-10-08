@@ -1309,6 +1309,37 @@ pub struct DescriptorRulePriority {
     pub value: u32,
 }
 
+impl DescriptorRulePriority {
+    /// The priority K gives an `owise` rule or equation.
+    pub const OWISE: u32 = 200;
+    /// The largest rule priority k-rust ranks.
+    pub const MAX: u32 = 254;
+
+    /// The provenance role this priority must carry on a sentence of `kind`,
+    /// or `None` when the kind has no priority or the pair is invalid.
+    ///
+    /// A transition carries `owise` (value 200, [`ProvenanceRole::RuleOwise`])
+    /// or `priority = N` ([`ProvenanceRole::RulePriority`], `N <= 254`); an
+    /// equation carries `priority = N` ([`ProvenanceRole::EquationPriority`])
+    /// or `owise` (value 200, [`ProvenanceRole::EquationOwise`]).
+    #[must_use]
+    pub fn role_for(&self, kind: SentenceKind) -> Option<ProvenanceRole> {
+        let role = self.key.role();
+        let valid = match kind {
+            SentenceKind::Transition => {
+                (role == ProvenanceRole::RuleOwise && self.value == Self::OWISE)
+                    || (role == ProvenanceRole::RulePriority && self.value <= Self::MAX)
+            }
+            SentenceKind::Equation => {
+                role == ProvenanceRole::EquationPriority
+                    || (role == ProvenanceRole::EquationOwise && self.value == Self::OWISE)
+            }
+            _ => false,
+        };
+        (valid && self.key.ordinal() == 0).then_some(role)
+    }
+}
+
 /// Optional simplification metadata, kept distinct from equation priority.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1643,12 +1674,7 @@ impl StructuredRuleDescriptor {
         }
         if let Some(priority) = &self.priority {
             require_key(&priority.key, provenance)?;
-            let valid_equation = self.sentence_kind == SentenceKind::Equation
-                && priority.key.role() == ProvenanceRole::EquationPriority;
-            let valid_owise = self.sentence_kind == SentenceKind::Transition
-                && priority.key.role() == ProvenanceRole::RuleOwise
-                && priority.value == 200;
-            if !(valid_equation || valid_owise) {
+            if priority.role_for(self.sentence_kind).is_none() {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidPriorityKind,
                 ));
@@ -2556,11 +2582,13 @@ impl StructuredRuleDescriptor {
             insert_exact(&mut keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
         }
         if let Some(priority) = &self.priority {
-            let role = if self.sentence_kind == SentenceKind::Transition {
-                ProvenanceRole::RuleOwise
-            } else {
-                ProvenanceRole::EquationPriority
-            };
+            let role = priority.role_for(self.sentence_kind).unwrap_or(
+                if self.sentence_kind == SentenceKind::Transition {
+                    ProvenanceRole::RuleOwise
+                } else {
+                    ProvenanceRole::EquationPriority
+                },
+            );
             insert_exact(&mut keys, &priority.key, role, 0)?;
         }
         if let Some(simplification) = &self.simplification {

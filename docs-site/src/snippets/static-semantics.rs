@@ -34,14 +34,12 @@ fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term
     value
 }
 
-#[k::priority(40)]
-#[k::equation]
+#[k::equation(priority = 40)]
 fn priority_choice_zero(k::term![PriorityChoice(0)]: Term<Int>) -> Term<Int> {
     111
 }
 
-#[k::priority(80)]
-#[k::equation]
+#[k::equation(priority = 80)]
 fn priority_choice_fallback(k::term![PriorityChoice(_)]: Term<Int>) -> Term<Int> {
     222
 }

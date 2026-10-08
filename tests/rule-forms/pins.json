@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e"
+  },
+  "emitted": {
+    "krs-rule-forms-priority": {
+      "definition.k": "ae24e87b44019cb73f8d92516fffd48264ab29642fdfce613935e6ccd310f840"
+    }
+  },
+  "reference_sha256": {
+    "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789"
+  },
+  "outcomes": {
+    "krs-rule-forms-priority": {
+      "toss": {
+        "parse": "accepted",
+        "run": "heads",
+        "search": [
+          "heads"
+        ]
+      },
+      "flip": {
+        "parse": "accepted",
+        "run": "high",
+        "search": [
+          "high"
+        ]
+      },
+      "grade-95": {
+        "parse": "accepted",
+        "run": "letterA"
+      },
+      "grade-85": {
+        "parse": "accepted",
+        "run": "letterB"
+      },
+      "grade-75": {
+        "parse": "accepted",
+        "run": "letterC"
+      },
+      "grade-65": {
+        "parse": "accepted",
+        "run": "letterD"
+      },
+      "grade-10": {
+        "parse": "accepted",
+        "run": "letterF"
+      },
+      "grade-owise-95": {
+        "parse": "accepted",
+        "run": "letterA"
+      },
+      "grade-owise-85": {
+        "parse": "accepted",
+        "run": "letterB"
+      },
+      "grade-owise-75": {
+        "parse": "accepted",
+        "run": "letterC"
+      },
+      "grade-owise-65": {
+        "parse": "accepted",
+        "run": "letterD"
+      },
+      "grade-owise-10": {
+        "parse": "accepted",
+        "run": "letterF"
+      }
+    }
+  },
+  "diagnostics": {
+    "owise-with-priority": [
+      "error[krs::rust-expansion::uncoded-error]: owise is priority 200; write one of them"
+    ],
+    "priority-out-of-range": [
+      "error[krs::rust-expansion::uncoded-error]: k-rust ranks rule priorities 0..=254"
+    ],
+    "retired-priority": [
+      "error[krs::rust-expansion::uncoded-error]: `#[k::priority(..)]` is retired; write `#[k::equation(priority = 60)]`"
+    ],
+    "owise-simplification": [
+      "error[krs::rust-expansion::uncoded-error]: a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there"
+    ],
+    "priority-alias": [
+      "error[krs::rust-expansion::uncoded-error]: static rules have no priority"
+    ]
+  }
+}

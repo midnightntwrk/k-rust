@@ -92,14 +92,22 @@ pub(super) fn omitted_leaf_cells(
         .collect()
 }
 
-/// Lowers an optional rule priority with the given origin role.
+/// Lowers an optional rule priority; its origin label names the authored key.
+///
+/// `owise` lowers to priority 200 on transitions and equations alike, and
+/// `priority = N` to N, so both routes emit the same `priority(N)` attribute.
 pub(super) fn lower_rule_priority(
     descriptor: &Descriptor,
     priority: Option<&DescriptorRulePriority>,
-    role: &str,
 ) -> Result<Option<SemanticRulePriority>, DescriptorLoweringError> {
     priority
         .map(|priority| -> Result<_, DescriptorLoweringError> {
+            let role = match priority.key.role() {
+                ProvenanceRole::RuleOwise => "rule-owise",
+                ProvenanceRole::RulePriority => "rule-priority",
+                ProvenanceRole::EquationOwise => "equation-owise",
+                _ => "equation-priority",
+            };
             Ok(SemanticRulePriority::new(
                 semantic_origin(descriptor, priority.key.clone(), role)?,
                 priority.value,
@@ -198,7 +206,7 @@ pub(super) fn lower_head_rule_descriptor(
         omitted_siblings,
     )?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
-    let priority = lower_rule_priority(descriptor, rule.priority.as_ref(), "rule-owise")?;
+    let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let mut variables = rule
         .bindings
         .iter()
@@ -698,15 +706,7 @@ pub(super) fn lower_structured_rule_descriptor(
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
     let result = builder.lower(&rule.result, Some(&result_sort), false)?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
-    let priority = lower_rule_priority(
-        descriptor,
-        rule.priority.as_ref(),
-        if rule.sentence_kind == krs_ir::SentenceKind::Transition {
-            "rule-owise"
-        } else {
-            "equation-priority"
-        },
-    )?;
+    let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let mut variables = Vec::new();
     for binding in &rule.bindings {

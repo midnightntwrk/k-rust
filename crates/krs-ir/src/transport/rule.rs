@@ -1324,9 +1324,12 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         }
     }
     if let Some(priority) = &rule.priority {
-        insert_rule_exact(keys, &priority.key, ProvenanceRole::RuleOwise, 0)?;
+        let priority_role = priority
+            .role_for(crate::SentenceKind::Transition)
+            .unwrap_or(ProvenanceRole::RuleOwise);
+        insert_rule_exact(keys, &priority.key, priority_role, 0)?;
         if rule.sentence_kind != crate::ConfigurationSentenceKind::Transition
-            || priority.value != 200
+            || priority.role_for(crate::SentenceKind::Transition).is_none()
         {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::ConfigurationRuleOrderedFallbackPriority,

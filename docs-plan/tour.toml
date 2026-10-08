@@ -614,7 +614,7 @@ coverage = "advanced"
 chapter = "applicability"
 prerequisites = ["declarative-relational-rules", "requires"]
 evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs"]
-note = "Do not imply numeric priority for transition rules; numeric priority exists for equations and simplifications."
+note = "owise is priority 200; transitions and equations also take priority = N (0..=254). Never imply that source order is a priority."
 
 [[concept]]
 id = "outcomes"

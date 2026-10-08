@@ -464,6 +464,33 @@ fn priority_choice_zero(k::term![PriorityChoice(0)]: Term<Int>) -> Term<Int> {
 ",
     ),
     (
+        "equation_priority",
+        r"
+#[k::equation(priority = 40)]
+fn priority_choice_zero(k::term![PriorityChoice(0)]: Term<Int>) -> Term<Int> {
+    111
+}
+",
+    ),
+    (
+        "equation_owise",
+        r"
+#[k::equation(owise)]
+fn priority_choice_other(k::term![PriorityChoice(_)]: Term<Int>) -> Term<Int> {
+    0
+}
+",
+    ),
+    (
+        "rule_priority",
+        r#"
+#[k::rule(priority = 40, label = "prefer-zero")]
+fn prefer_zero(k::term![PriorityChoice(_)]: Term<Int>) -> Term<Int> {
+    0
+}
+"#,
+    ),
+    (
         "simplification",
         r"
 #[k::simplification]

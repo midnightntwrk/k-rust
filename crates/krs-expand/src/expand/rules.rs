@@ -1,4 +1,4 @@
-//! Function-form sentences: `#[k::rule]`, `#[k::equation]`, `#[k::simplification]`, `#[k::alias]`, `#[k::priority]`, and orphan rule helpers.
+//! Function-form sentences: `#[k::rule]`, `#[k::equation]`, `#[k::simplification]`, `#[k::alias]`, the retired `#[k::priority]`, and orphan rule helpers.
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
@@ -64,14 +64,14 @@ pub(crate) fn equation(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    krs_syntax::EquationAttribute::parse_tokens(attributes)?;
+    let equation = krs_syntax::EquationAttribute::parse_tokens(attributes)?;
     let attribute = krs_syntax::RuleAttribute::default();
     ordinary_rule(
         env,
         item,
         &attribute,
         krs_ir::SentenceKind::Equation,
-        None,
+        Some(&equation),
         None,
     )
 }
@@ -116,32 +116,12 @@ pub(crate) fn alias(
 }
 
 pub(crate) fn priority(
-    env: &dyn MacroEnvironment,
+    _env: &dyn MacroEnvironment,
     attributes: TokenStream,
-    item: TokenStream,
+    _item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let priority = krs_syntax::PriorityAttribute::parse_tokens(attributes)?;
-    let mut function: ItemFn = syn::parse2(item)?;
-    let Some(index) = function
-        .attrs
-        .iter()
-        .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Equation))
-    else {
-        return Err(ExpandError::new(
-            expand::ORPHAN_HELPER,
-            Span::call_site(),
-            "`#[k::priority]` is an equation helper; place it immediately before `#[k::equation]`",
-        ));
-    };
-    function.attrs.remove(index);
-    ordinary_rule(
-        env,
-        function.to_token_stream(),
-        &krs_syntax::RuleAttribute::default(),
-        krs_ir::SentenceKind::Equation,
-        Some(&priority),
-        None,
-    )
+    krs_syntax::PriorityAttribute::parse_tokens(attributes)?;
+    unreachable!("the retired priority attribute never parses")
 }
 
 fn ordinary_rule(
@@ -149,7 +129,7 @@ fn ordinary_rule(
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
-    priority: Option<&krs_syntax::PriorityAttribute>,
+    equation: Option<&krs_syntax::EquationAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
 ) -> crate::Result<TokenStream> {
     let rule = krs_syntax::RuleItem::parse_tokens(item)?;
@@ -158,7 +138,7 @@ fn ordinary_rule(
         &rule,
         attribute,
         sentence_kind,
-        priority,
+        equation,
         simplification,
         None,
         &[],
@@ -175,13 +155,12 @@ fn expand_ordinary_rule(
     rule: &krs_syntax::RuleItem,
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
-    priority: Option<&krs_syntax::PriorityAttribute>,
+    equation: Option<&krs_syntax::EquationAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
     let rule_requires_role = ProvenanceRole::RuleRequires;
-    let equation_priority_role = ProvenanceRole::EquationPriority;
     let simplification_priority_role = ProvenanceRole::SimplificationPriority;
     let simplification_marker_role = ProvenanceRole::SimplificationMarker;
     let rule_pattern_role = ProvenanceRole::RulePattern;
@@ -196,8 +175,8 @@ fn expand_ordinary_rule(
             TokenRange::for_tokens(&rule.item().sig.ident)?,
         ));
     }
-    if let Some(priority) = priority {
-        anchors.extend(priority.provenance()?);
+    if let Some(equation) = equation {
+        anchors.extend(equation.provenance()?);
     }
     if let Some(simplification) = simplification {
         anchors.push(ProvenanceAnchor::new(
@@ -300,17 +279,13 @@ fn expand_ordinary_rule(
         None
     };
     let term_key_functions = term_builder.key_functions;
-    let priority = if attribute.is_owise() {
-        Some(DescriptorRulePriority {
-            key: wire_key(ProvenanceRole::RuleOwise, 0),
-            value: 200,
-        })
-    } else {
-        priority.map(|priority| DescriptorRulePriority {
-            key: wire_key(equation_priority_role, 0),
-            value: priority.value(),
-        })
-    };
+    let priority = attribute
+        .transition_priority()
+        .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
+        .map(|(role, value)| DescriptorRulePriority {
+            key: wire_key(role, 0),
+            value,
+        });
     let simplification = simplification.map(|simplification| DescriptorSimplification {
         key: wire_key(simplification_marker_role, 0),
         priority: simplification
@@ -412,13 +387,18 @@ pub(crate) fn orphan_rule_helper(
                     .then_some((index, helper))
                 })
         {
-            function.attrs.remove(index);
+            let sentence = function.attrs.remove(index);
+            // The sentence attribute's own keys, such as `priority = N`, travel with it.
+            let sentence_payload = match &sentence.meta {
+                syn::Meta::List(list) => list.tokens.clone(),
+                _ => TokenStream::new(),
+            };
             let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
             function.attrs.insert(0, helper);
             return if outer == AttributeMacro::Equation {
-                equation(env, TokenStream::new(), function.to_token_stream())
+                equation(env, sentence_payload, function.to_token_stream())
             } else {
-                simplification(env, TokenStream::new(), function.to_token_stream())
+                simplification(env, sentence_payload, function.to_token_stream())
             };
         }
     }

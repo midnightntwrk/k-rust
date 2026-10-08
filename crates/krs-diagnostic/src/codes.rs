@@ -228,6 +228,8 @@ register_codes! {
         UNSUPPORTED_TERM_EXPRESSION: "krs::syntax::unsupported-term-expression" => "A Rust expression is outside the closed named-term grammar.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
+        INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, or alias attribute combines keys K does not accept together.",
+        RETIRED_ATTRIBUTE: "krs::syntax::retired-attribute" => "A retired KRS attribute was used; its replacement is named in the message.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

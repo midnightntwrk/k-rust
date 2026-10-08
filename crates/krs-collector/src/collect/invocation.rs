@@ -649,8 +649,16 @@ fn collect_fn_rules(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Equation))
     {
-        krs_syntax::EquationAttribute::parse_tokens(attribute_tokens(attribute)?)
+        let equation = krs_syntax::EquationAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
+        for priority in item_fn
+            .attrs
+            .iter()
+            .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Priority))
+        {
+            krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
+                .map_err(source_syntax)?;
+        }
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
@@ -660,18 +668,7 @@ fn collect_fn_rules(
             .map(ToString::to_string)
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        for priority in item_fn
-            .attrs
-            .iter()
-            .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Priority))
-        {
-            anchors.extend(
-                krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
-                    .map_err(source_syntax)?
-                    .provenance()
-                    .map_err(source_syntax)?,
-            );
-        }
+        anchors.extend(equation.provenance().map_err(source_syntax)?);
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
             item_fn.sig.ident.to_string(),

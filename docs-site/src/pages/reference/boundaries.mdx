@@ -59,7 +59,7 @@ General matching logic, fresh-variable sentences, `anywhere`, semantic casts, sy
 
 Method-call term sugar is deferred, and there is no `% ` format escape: a plain space in a format prints as written.
 Non-doc block comments inside DSL macro bodies are rejected.
-There is no numeric priority for transition rules, and source order is never a rule tie-breaker.
+Source order is never a rule tie-breaker: rules are ordered only by `priority = N` or `owise` (see [rule priority](/reference/language#rule-priority)).
 `krs run`, `krs search`, and `krs prove` always use the in-process k-rust backend; their results print through the grammar as `krun --output pretty` prints them, and the printer adds parentheses by K's simple algorithm, which is not guaranteed to reparse (as in K).
 There is no stepping debugger: `krs run --trace` lists the rewrite steps of a finished run.
 

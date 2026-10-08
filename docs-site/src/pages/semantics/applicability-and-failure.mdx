@@ -26,7 +26,7 @@ An unproved or false symbolic condition makes the rule inapplicable; it does not
 
 ## Overlap and explicit fallback
 
-Ordinary transition rules have no numeric source-order priority.
+Transition rules have no source-order priority; their only order is an explicit `priority = N` or `owise`.
 When KRS can establish that two ordinary heads overlap without sufficient narrowing, analysis rejects the ambiguity.
 
 This negative fixture deliberately gives two rules the same `Foo()` head:
@@ -42,7 +42,7 @@ The diagnostic does not guess that source order makes `first_foo` win.
 
 `owise` marks an explicit fallback rule that applies when the ordinary alternatives do not.
 It is semantic fallback, not “the last Rust match arm,” and its location in the source table does not select it.
-Numeric `priority` belongs to equations; simplifications have a separate priority payload.
+`owise` is priority 200, and `#[k::rule(priority = N)]` gives a transition any priority in `0..=254` (the default is 50); equations take the same keys, and simplifications have a separate priority hint.
 
 
 `tests/tour-negatives/verify.py` also pins four focused authoring failures to their exact tokens: a wrapper-free field missing `#[k::cell]`, forbidden initializer control flow, a constructor omitted from an exhaustive precedence chain, and an invalid rule-result update base.

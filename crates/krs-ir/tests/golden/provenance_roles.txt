@@ -158,3 +158,5 @@ ConstructorInternal=constructor_internal
 ConstructorProgram=constructor_program
 ConstructorColor=constructor_color
 ConstructorColorsEntry=constructor_colors_entry
+RulePriority=rule_priority
+EquationOwise=equation_owise

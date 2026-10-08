@@ -44,7 +44,15 @@ Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
 `#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
-`#[k::priority(N)]` is numeric equation priority, not transition-rule ordering.
+
+### Rule priority
+
+K rules are unordered, and every rule has a priority, 50 by default; a rule is tried only after every rule with a lower number failed.
+`#[k::rule(priority = N)]` sets a transition's priority and `#[k::equation(priority = N)]` an equation's, with `N` in `0..=254`, the range k-rust ranks.
+`owise` is priority 200 on both (`#[k::rule(owise)]`, `#[k::equation(owise)]`), and the emitted `[priority(200)]` shows it; it is a lower band, not Rust's `_ =>` arm: several `owise` rules are unordered among themselves, and a guarded one can still fail.
+A sentence takes `owise` or `priority = N`, not both.
+`#[k::simplification(priority = N)]` is a hint to the simplifier and emits `simplification(N)`; `owise` has no meaning on a simplification, and an alias clause has no priority.
+The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and names `#[k::equation(priority = N)]`.
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 

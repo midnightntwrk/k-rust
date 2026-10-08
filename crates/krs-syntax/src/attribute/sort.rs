@@ -5,6 +5,11 @@ use syn::{Expr, Ident, LitInt, LitStr, Path, Token};
 use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
+use super::rule::{
+    OWISE_ON_SIMPLIFICATION, OWISE_PRIORITY, OWISE_WITH_PRIORITY, PRIORITY_ON_STATIC_RULE,
+    PriorityValue, parse_priority_value, rule_key_error,
+};
+
 use super::value::{
     parse_empty_tokens, parse_parent_paths_value, parse_sort_value,
     parse_unqualified_identifier_value,
@@ -89,9 +94,64 @@ impl SymbolAttribute {
     }
 }
 
-/// Validated empty payload of `#[k::equation]`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct EquationAttribute;
+/// Checked payload of `#[k::equation]`, `#[k::equation(owise)]`, or
+/// `#[k::equation(priority = N)]`.
+#[derive(Clone, Debug, Default)]
+pub struct EquationAttribute {
+    owise: Option<Ident>,
+    priority: Option<PriorityValue>,
+}
+
+impl EquationAttribute {
+    /// Whether this equation is an ordered fallback (priority 200).
+    #[must_use]
+    pub const fn is_owise(&self) -> bool {
+        self.owise.is_some()
+    }
+
+    /// Returns the explicit `priority = N` value, when authored.
+    #[must_use]
+    pub fn priority(&self) -> Option<u32> {
+        self.priority.as_ref().map(|priority| priority.value)
+    }
+
+    /// Returns the effective authored equation priority and the role that
+    /// anchors it: `owise` is priority 200 under [`ProvenanceRole::EquationOwise`],
+    /// and `priority = N` is N under [`ProvenanceRole::EquationPriority`].
+    #[must_use]
+    pub fn equation_priority(&self) -> Option<(ProvenanceRole, u32)> {
+        if self.owise.is_some() {
+            return Some((ProvenanceRole::EquationOwise, OWISE_PRIORITY));
+        }
+        self.priority
+            .as_ref()
+            .map(|priority| (ProvenanceRole::EquationPriority, priority.value))
+    }
+
+    /// Returns exact provenance for an authored `owise` marker or priority literal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if an authored token has no range.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        if let Some(owise) = &self.owise {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::EquationOwise,
+                0,
+                TokenRange::for_tokens(owise)?,
+            ));
+        }
+        if let Some(priority) = &self.priority {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::EquationPriority,
+                0,
+                TokenRange::for_tokens(&priority.literal)?,
+            ));
+        }
+        Ok(anchors)
+    }
+}
 
 /// Checked payload of `#[k::simplification]` or `#[k::simplification(priority = N)]`.
 #[derive(Clone, Debug, Default)]
@@ -173,32 +233,12 @@ impl ContextAliasAttribute {
     }
 }
 
-/// Explicit numeric equation priority.
-#[derive(Clone, Debug)]
-pub struct PriorityAttribute {
-    literal: LitInt,
-    value: u32,
-}
-
-impl PriorityAttribute {
-    /// Returns the parsed priority.
-    #[must_use]
-    pub const fn value(&self) -> u32 {
-        self.value
-    }
-    /// Returns exact literal provenance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if the literal has no tokens.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![ProvenanceAnchor::new(
-            ProvenanceRole::EquationPriority,
-            0,
-            TokenRange::for_tokens(&self.literal)?,
-        )])
-    }
-}
+/// The retired standalone `#[k::priority(N)]` attribute.
+///
+/// Its only parse result is the retirement diagnostic, which names the
+/// replacement `#[k::equation(priority = N)]` with the authored value.
+#[derive(Clone, Copy, Debug)]
+pub struct PriorityAttribute;
 
 impl Parse for SortAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
@@ -264,14 +304,63 @@ impl KrsSyntax for SymbolAttribute {
 }
 
 impl KrsSyntax for EquationAttribute {
-    /// Parses the intentionally empty equation payload.
+    /// Parses an empty equation payload, `owise`, or `priority = N`.
     ///
     /// # Errors
     ///
-    /// Rejects labels and every other payload at its first token.
+    /// Rejects labels and other unknown keys, repeated keys, `owise` with
+    /// `priority`, and priorities outside `0..=254`.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        parse_empty_tokens(tokens, "equation").map(|()| EquationAttribute)
+        structured(tokens, parse_equation_stream)
     }
+}
+
+fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, ParseError> {
+    let mut owise: Option<Ident> = None;
+    let mut priority: Option<PriorityValue> = None;
+    while !input.is_empty() {
+        let key: Ident = input.parse()?;
+        let key_name = key.to_string();
+        match key_name.as_str() {
+            "owise" if owise.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "owise" },
+                    key.span(),
+                )
+                .into());
+            }
+            "priority" if priority.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "priority" },
+                    key.span(),
+                )
+                .into());
+            }
+            "owise" if priority.is_some() => {
+                return Err(rule_key_error(OWISE_WITH_PRIORITY, key.span()));
+            }
+            "owise" => owise = Some(key),
+            "priority" if owise.is_some() => {
+                return Err(rule_key_error(OWISE_WITH_PRIORITY, key.span()));
+            }
+            "priority" => {
+                input.parse::<Token![=]>()?;
+                priority = Some(parse_priority_value(input.parse()?)?);
+            }
+            _ => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::UnknownArgument { name: key_name },
+                    key.span(),
+                )
+                .into());
+            }
+        }
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(EquationAttribute { owise, priority })
 }
 
 impl KrsSyntax for SimplificationAttribute {
@@ -279,27 +368,34 @@ impl KrsSyntax for SimplificationAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects unknown, malformed, repeated, or out-of-range payloads.
+    /// Rejects `owise`, and unknown, malformed, repeated, or out-of-range payloads.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let parser = |input: ParseStream<'_>| -> syn::Result<SimplificationAttribute> {
-            if input.is_empty() {
-                return Ok(SimplificationAttribute::default());
-            }
-            let key: Ident = input.parse()?;
-            if key != "priority" {
-                return Err(syn::Error::new(key.span(), "expected `priority = N`"));
-            }
-            input.parse::<Token![=]>()?;
-            let literal: LitInt = input.parse()?;
-            if !input.is_empty() {
-                return Err(input.error("simplification accepts only `priority = N`"));
-            }
-            let value = literal.base10_parse::<u32>()?;
-            Ok(SimplificationAttribute {
-                priority: Some((literal, value)),
-            })
-        };
-        parser.parse2(tokens).map_err(SyntaxError::from)
+        structured(
+            tokens,
+            |input: ParseStream<'_>| -> Result<SimplificationAttribute, ParseError> {
+                if input.is_empty() {
+                    return Ok(SimplificationAttribute::default());
+                }
+                let key: Ident = input.parse()?;
+                if key == "owise" {
+                    return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
+                }
+                if key != "priority" {
+                    return Err(syn::Error::new(key.span(), "expected `priority = N`").into());
+                }
+                input.parse::<Token![=]>()?;
+                let literal: LitInt = input.parse()?;
+                if !input.is_empty() {
+                    return Err(input
+                        .error("simplification accepts only `priority = N`")
+                        .into());
+                }
+                let value = literal.base10_parse::<u32>()?;
+                Ok(SimplificationAttribute {
+                    priority: Some((literal, value)),
+                })
+            },
+        )
     }
 }
 
@@ -308,8 +404,19 @@ impl KrsSyntax for AliasAttribute {
     ///
     /// # Errors
     ///
-    /// Rejects recursive mode and every other payload at its first token.
+    /// Rejects `priority` and `owise` (static rules have no priority),
+    /// recursive mode, and every other payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next()
+            && (first == "priority" || first == "owise")
+        {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidRuleKey {
+                    reason: PRIORITY_ON_STATIC_RULE,
+                },
+                first.span(),
+            ));
+        }
         parse_empty_tokens(tokens, "alias").map(|()| AliasAttribute)
     }
 }
@@ -327,21 +434,31 @@ impl KrsSyntax for ContextAliasAttribute {
 }
 
 impl KrsSyntax for PriorityAttribute {
-    /// Parses one exact unsigned equation priority.
+    /// Rejects the retired standalone priority attribute.
     ///
     /// # Errors
     ///
-    /// Rejects missing, noninteger, repeated, or out-of-range values.
+    /// Always returns [`SyntaxErrorKind::RetiredAttribute`], naming
+    /// `#[k::equation(priority = N)]` with the authored value, at the payload.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let parser = |input: ParseStream<'_>| -> syn::Result<PriorityAttribute> {
-            let literal: LitInt = input.parse()?;
-            if !input.is_empty() {
-                return Err(input.error("priority accepts exactly one integer"));
-            }
-            let value = literal.base10_parse::<u32>()?;
-            Ok(PriorityAttribute { literal, value })
+        let span = tokens
+            .clone()
+            .into_iter()
+            .next()
+            .map_or_else(proc_macro2::Span::call_site, |token| token.span());
+        let value = tokens.to_string();
+        let value = if value.trim().is_empty() {
+            "N".to_owned()
+        } else {
+            value.trim().to_owned()
         };
-        parser.parse2(tokens).map_err(SyntaxError::from)
+        Err(SyntaxError::new(
+            SyntaxErrorKind::RetiredAttribute {
+                attribute: "#[k::priority(..)]",
+                replacement: format!("#[k::equation(priority = {value})]"),
+            },
+            span,
+        ))
     }
 }
 

@@ -45,8 +45,8 @@ This example is a static-semantics consequence, not a claimed `krun` trace: bott
 ## Equations and priority
 
 Equations define function results by matching symbolic terms.
-They may carry object-Boolean `requires` conditions and numeric `#[k::priority(N)]`.
-This numeric priority is an equation mechanism; it does not order transition rules.
+They may carry object-Boolean `requires` conditions and a priority, `#[k::equation(priority = N)]` or `#[k::equation(owise)]` (priority 200).
+An equation is tried only after every equation of the function with a lower priority failed; the default is 50.
 
 The explicit-priority example distinguishes the zero case from a wildcard fallback.
 Equation source order is not the priority value.

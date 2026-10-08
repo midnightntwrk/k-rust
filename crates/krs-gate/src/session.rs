@@ -103,10 +103,10 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
     Ok(serde_json::to_value(result)?)
 }
 
-fn search(
-    backend: &mut Backend,
-    request: &Value,
-) -> Result<(Value, Option<Pattern>), Box<dyn Error>> {
+/// A search result and the states a `keep` or `keep_each` request retains.
+type SearchOutcome = (Value, Option<Vec<Pattern>>);
+
+fn search(backend: &mut Backend, request: &Value) -> Result<SearchOutcome, Box<dyn Error>> {
     let limit = |key: &str| -> Result<Option<u64>, Box<dyn Error>> {
         match request.get(key) {
             None | Some(Value::Null) => Ok(None),
@@ -119,6 +119,17 @@ fn search(
     search.max_depth = limit("max_depth")?;
     search.max_results = limit("max_results")?.map(usize::try_from).transpose()?;
     let result = backend.search(search)?;
+    if request.get("keep_each").is_some() {
+        let mut retained = Vec::with_capacity(result.states.len());
+        for state in &result.states {
+            let source = serde_json::to_string(&state.state)?;
+            retained.push(kore_json::from_str(&source)?);
+        }
+        return Ok((
+            json!({"modality": result.modality, "states": result.states.len()}),
+            Some(retained),
+        ));
+    }
     if request.get("keep").is_some() {
         if result.states.len() != 1 {
             return Err(format!(
@@ -131,7 +142,7 @@ fn search(
         let retained = kore_json::from_str(&source)?;
         Ok((
             json!({"modality": result.modality, "states": result.states.len()}),
-            Some(retained),
+            Some(vec![retained]),
         ))
     } else {
         Ok((serde_json::to_value(result)?, None))
@@ -481,10 +492,26 @@ impl Session {
         let keep = request
             .get("keep")
             .map(|_| required_string(request, "keep"))
-            .transpose()?;
-        let (result, state) = search(self.backend()?, request)?;
-        if let (Some(name), Some(state)) = (keep, state) {
-            self.states.insert(name.to_owned(), state);
+            .transpose()?
+            .map(str::to_owned);
+        let keep_each = request
+            .get("keep_each")
+            .map(|_| required_string(request, "keep_each"))
+            .transpose()?
+            .map(str::to_owned);
+        if keep.is_some() && keep_each.is_some() {
+            return Err("search accepts `keep` or `keep_each`, not both".into());
+        }
+        let (result, states) = search(self.backend()?, request)?;
+        if let Some(states) = states {
+            if let Some(name) = keep {
+                self.states
+                    .insert(name, states.into_iter().next().expect("one kept state"));
+            } else if let Some(prefix) = keep_each {
+                for (index, state) in states.into_iter().enumerate() {
+                    self.states.insert(format!("{prefix}{index}"), state);
+                }
+            }
         }
         Ok(result)
     }
@@ -707,8 +734,27 @@ mod tests {
             assert_eq!(result["states"], 1);
             assert!(result["modality"].is_string());
             assert_eq!(result.as_object().unwrap().len(), 2);
-            assert_eq!(retained.unwrap(), parse_pattern(expected).unwrap());
+            assert_eq!(retained.unwrap(), [parse_pattern(expected).unwrap()]);
         }
+
+        let (result, retained) = search(
+            &mut backend,
+            &json!({
+                "id": "each", "operation": "search", "pattern": "initial{}()",
+                "keep_each": "final#"
+            }),
+        )
+        .unwrap();
+        assert_eq!(result["states"], 2);
+        let mut retained = retained.unwrap();
+        retained.sort_by_key(ToString::to_string);
+        assert_eq!(
+            retained,
+            [
+                parse_pattern("left{}()").unwrap(),
+                parse_pattern("right{}()").unwrap()
+            ]
+        );
     }
 
     #[test]

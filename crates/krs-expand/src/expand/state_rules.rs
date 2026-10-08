@@ -330,10 +330,12 @@ pub(super) fn configuration_rule(
         key: wire_key(ProvenanceRole::RuleLabel, 0),
         name: label.value(),
     });
-    let priority = attribute.is_owise().then(|| DescriptorRulePriority {
-        key: wire_key(ProvenanceRole::RuleOwise, 0),
-        value: 200,
-    });
+    let priority = attribute
+        .transition_priority()
+        .map(|(role, value)| DescriptorRulePriority {
+            key: wire_key(role, 0),
+            value,
+        });
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {

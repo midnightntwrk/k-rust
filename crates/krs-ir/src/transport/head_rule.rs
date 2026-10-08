@@ -208,10 +208,7 @@ fn validate_owise_priority(
     priority: Option<&DescriptorRulePriority>,
 ) -> Result<(), StateTransportError> {
     if let Some(priority) = priority
-        && (kind != SentenceKind::Transition
-            || priority.key.role() != ProvenanceRole::RuleOwise
-            || priority.key.ordinal() != 0
-            || priority.value != 200)
+        && (kind != SentenceKind::Transition || priority.role_for(kind).is_none())
     {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::HeadRuleOrderedFallbackPriority,

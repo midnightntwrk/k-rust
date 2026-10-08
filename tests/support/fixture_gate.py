@@ -103,6 +103,8 @@ class Program:
     sort: str | None = None
     kast: str | None = None
     """When set, the Java `kast` output (KAST text) of an accepted program."""
+    search: tuple[str, ...] | None = None
+    """When set, the computation cells of every final state `search` reaches, as a multiset."""
 
 
 @dataclass
@@ -184,11 +186,19 @@ class FixtureGate:
         self.pins.expect(("diagnostics", name), lines)
         return "\n".join(lines)
 
-    def compare(self, emitted: Emitted, programs: Sequence[Program], *, sort: str) -> dict[str, Any]:
-        """Run every program on both routes and require the pinned outcomes to agree."""
+    def compare(
+        self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
+    ) -> dict[str, Any]:
+        """Run every program on both routes and require the pinned outcomes to agree.
+
+        With `search`, Java K kompiles with `--enable-search`, and each program
+        with a `search` expectation is also searched on both routes: native
+        `search` and `krun --search` must reach the same multiset of final
+        computation cells.
+        """
 
         native = self._native_outcomes(emitted, programs)
-        java = self._java_outcomes(emitted, programs, sort=sort)
+        java = self._java_outcomes(emitted, programs, sort=sort, search=search)
         observed: dict[str, Any] = {}
         known = self.divergences.get(emitted.fixture.package, {})
         for program in programs:
@@ -207,7 +217,9 @@ class FixtureGate:
                     f"{emitted.fixture.package} {program.name}: native {routes['native']} "
                     f"differs from Java K {routes['java']}"
                 )
-            expected = {"parse": program.parse, "run": program.run}
+            expected: dict[str, Any] = {"parse": program.parse, "run": program.run}
+            if program.search is not None:
+                expected["search"] = sorted(program.search)
             if routes["native"] != expected:
                 raise GateError(
                     f"{emitted.fixture.package} {program.name}: both routes observed "
@@ -244,10 +256,12 @@ class FixtureGate:
                 except GateError as error:
                     actual = f"differs: {error}"
                 outcomes[program.name] = {"parse": ACCEPTED, "run": actual}
+                if program.search is not None:
+                    outcomes[program.name]["search"] = _native_search(session, program, pattern)
         return outcomes
 
     def _java_outcomes(
-        self, emitted: Emitted, programs: Sequence[Program], *, sort: str,
+        self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
     ) -> dict[str, dict[str, Any]]:
         sources = [emitted.source]
         program_directory = self.workspace / "programs" / emitted.fixture.package
@@ -270,6 +284,7 @@ class FixtureGate:
                 *sources, "--main-module", emitted.main_module,
                 "--syntax-module", emitted.syntax_module,
                 "--backend", "llvm", "--output-definition", compiled,
+                *(("--enable-search",) if search else ()),
             ],
             timeout=900,
         )
@@ -299,6 +314,15 @@ class FixtureGate:
                 timeout=120,
             )
             outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
+            if program.search is not None:
+                if not search:
+                    raise GateError(f"{program.name}: a search expectation needs compare(..., search=True)")
+                searched = k.run(
+                    f"krun-search/{program.name}", "krun",
+                    ["--definition", compiled, "--search", paths[program.name]],
+                    timeout=120,
+                )
+                outcomes[program.name]["search"] = java_search_outcome(searched)
         print(f"PASS {self.label} {emitted.fixture.package} reference snapshot: {k.finish()}")
         return outcomes
 
@@ -316,6 +340,41 @@ def java_run_outcome(process: subprocess.CompletedProcess[str]) -> str:
     cell = re.sub(r"\s+", " ", match.group(1)).strip()
     cell = re.sub(r"\s*~>\s*\.K$", "", cell)
     return ".K" if cell in ("", ".K") else cell
+
+
+def _native_search(session: krs_gate.Session, program: Program, pattern: str) -> list[str]:
+    """The multiset of final computation cells native search reaches, by the expected texts."""
+
+    prefix = f"{program.name}#search#"
+    count = session.search(pattern, keep_each=prefix)["states"]
+    candidates = sorted(set(program.search or ()))
+    observed = []
+    for index in range(count):
+        state = f"{prefix}{index}"
+        matched = [
+            candidate for candidate in candidates
+            if session.request(
+                "expect", state=state, cell="k",
+                **({"text": ".K"} if candidate == ".K" else {"head": candidate}),
+            )["met"]
+        ]
+        observed.append(matched[0] if len(matched) == 1 else f"unmatched state {index}")
+    return sorted(observed)
+
+
+def java_search_outcome(process: subprocess.CompletedProcess[str]) -> list[str]:
+    """Normalize `krun --search` output to the sorted computation cells of its solutions."""
+
+    if process.returncode != 0:
+        raise GateError(f"krun --search failed with status {process.returncode}:\n{process.stderr}")
+    cells = []
+    for match in _K_CELL.finditer(process.stdout):
+        cell = re.sub(r"\s+", " ", match.group(1)).strip()
+        cell = re.sub(r"\s*~>\s*\.K$", "", cell)
+        cells.append(".K" if cell in ("", ".K") else cell)
+    if not cells:
+        raise GateError(f"krun --search printed no computation cell:\n{process.stdout}")
+    return sorted(cells)
 
 
 def diagnostic_lines(stderr: str) -> list[str]:

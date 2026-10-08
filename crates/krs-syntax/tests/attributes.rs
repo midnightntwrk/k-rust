@@ -304,43 +304,113 @@ fn equation_does_not_invent_an_explicit_label_surface() {
         krs_syntax::EquationAttribute::parse_source(r#"label = "not-settled""#).unwrap_err();
     assert!(matches!(
         error.kind(),
-        SyntaxErrorKind::UnexpectedAttributePayload {
-            attribute: "equation"
-        }
+        SyntaxErrorKind::UnknownArgument { name } if name == "label"
     ));
 }
 
 #[test]
-fn priority_accepts_one_u32_and_anchors_its_literal() {
-    let priority = krs_syntax::PriorityAttribute::parse_source("40").unwrap();
-    assert_eq!(priority.value(), 40);
+fn equation_accepts_owise_or_one_priority_and_anchors_them() {
+    let plain = krs_syntax::EquationAttribute::parse_source("").unwrap();
+    assert_eq!(plain.equation_priority(), None);
+    assert!(plain.provenance().unwrap().is_empty());
+
+    let owise = krs_syntax::EquationAttribute::parse_source("owise").unwrap();
+    assert!(owise.is_owise());
+    assert_eq!(
+        owise.equation_priority(),
+        Some((ProvenanceRole::EquationOwise, 200))
+    );
+    let anchors = owise.provenance().unwrap();
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[0].role(), ProvenanceRole::EquationOwise);
+
+    let priority = krs_syntax::EquationAttribute::parse_source("priority = 40").unwrap();
+    assert_eq!(priority.priority(), Some(40));
+    assert_eq!(
+        priority.equation_priority(),
+        Some((ProvenanceRole::EquationPriority, 40))
+    );
     let anchors = priority.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
     assert_eq!(anchors[0].role(), ProvenanceRole::EquationPriority);
 }
 
 #[test]
-fn priority_rejects_missing_noninteger_multiple_and_overflow_values() {
+fn equation_rejects_owise_with_priority_out_of_range_and_duplicates() {
     for (source, expected_kind) in [
         (
-            "",
-            SyntaxErrorKind::RustSyntax("unexpected end of input, expected integer literal".into()),
+            "owise, priority = 40",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "owise is priority 200; write one of them",
+            },
         ),
         (
-            "high",
-            SyntaxErrorKind::RustSyntax("expected integer literal".into()),
+            "priority = 40, owise",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "owise is priority 200; write one of them",
+            },
         ),
         (
-            "40, 80",
-            SyntaxErrorKind::RustSyntax("priority accepts exactly one integer".into()),
+            "priority = 255",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "k-rust ranks rule priorities 0..=254",
+            },
         ),
         (
-            "4294967296",
-            SyntaxErrorKind::RustSyntax("number too large to fit in target type".into()),
+            "priority = 40, priority = 41",
+            SyntaxErrorKind::DuplicateArgument { name: "priority" },
+        ),
+        (
+            "owise, owise",
+            SyntaxErrorKind::DuplicateArgument { name: "owise" },
+        ),
+        (
+            "priority = high",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "priority",
+                expected: "an unsuffixed integer literal",
+            },
         ),
     ] {
-        let error = krs_syntax::PriorityAttribute::parse_source(source).unwrap_err();
+        let error = krs_syntax::EquationAttribute::parse_source(source).unwrap_err();
         assert_eq!(error.kind(), &expected_kind, "{source}");
+    }
+}
+
+#[test]
+fn standalone_priority_is_retired_with_its_replacement() {
+    let error = krs_syntax::PriorityAttribute::parse_source("40").unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::RetiredAttribute {
+            attribute: "#[k::priority(..)]",
+            replacement: "#[k::equation(priority = 40)]".into(),
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "`#[k::priority(..)]` is retired; write `#[k::equation(priority = 40)]`"
+    );
+}
+
+#[test]
+fn owise_on_a_simplification_and_priority_on_an_alias_are_rejected() {
+    let error = krs_syntax::SimplificationAttribute::parse_source("owise").unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::InvalidRuleKey {
+            reason: "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there",
+        }
+    );
+    for source in ["priority = 40", "owise"] {
+        let error = krs_syntax::AliasAttribute::parse_source(source).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidRuleKey {
+                reason: "static rules have no priority",
+            },
+            "{source}"
+        );
     }
 }
 
@@ -463,6 +533,29 @@ fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
 }
 
 #[test]
+fn rule_accepts_a_transition_priority_and_anchors_its_literal() {
+    let attribute =
+        krs_syntax::RuleAttribute::parse_source(r#"priority = 40, label = "prefer-heads""#)
+            .unwrap();
+    assert_eq!(attribute.priority(), Some(40));
+    assert!(!attribute.is_owise());
+    assert_eq!(
+        attribute.transition_priority(),
+        Some((ProvenanceRole::RulePriority, 40))
+    );
+    let anchors = attribute.provenance().unwrap();
+    assert_eq!(anchors.len(), 2);
+    assert_eq!(anchors[1].role(), ProvenanceRole::RulePriority);
+    let owise = krs_syntax::RuleAttribute::parse_source("owise").unwrap();
+    assert_eq!(
+        owise.transition_priority(),
+        Some((ProvenanceRole::RuleOwise, 200))
+    );
+    let edge = krs_syntax::RuleAttribute::parse_source("priority = 254").unwrap();
+    assert_eq!(edge.priority(), Some(254));
+}
+
+#[test]
 fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
     let cases = [
         (
@@ -478,6 +571,29 @@ fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
         (
             "owise, owise",
             SyntaxErrorKind::DuplicateArgument { name: "owise" },
+        ),
+        (
+            "owise, priority = 40",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "owise is priority 200; write one of them",
+            },
+        ),
+        (
+            "priority = 255",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "k-rust ranks rule priorities 0..=254",
+            },
+        ),
+        (
+            "priority = 40u8",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "priority",
+                expected: "an unsuffixed integer literal",
+            },
+        ),
+        (
+            "priority = 1, priority = 2",
+            SyntaxErrorKind::DuplicateArgument { name: "priority" },
         ),
         (
             "label = identifier",

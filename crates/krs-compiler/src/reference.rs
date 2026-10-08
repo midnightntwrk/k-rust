@@ -1185,13 +1185,7 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
-    let rule_attribute = if rule.priority.as_ref().is_some_and(|priority| {
-        priority.key.role() == ProvenanceRole::RuleOwise && priority.value == 200
-    }) {
-        quote!(#[k::rule(owise, label = #label)])
-    } else {
-        quote!(#[k::rule(label = #label)])
-    };
+    let rule_attribute = reference_rule_attribute(rule.priority.as_ref(), &label);
     syn::parse2(quote! {
         #(#attrs)*
         #rule_attribute
@@ -1209,6 +1203,25 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// Renders `#[k::rule(..)]` with its keys in the canonical order
+/// (`owise | priority = N`, then `label`).
+fn reference_rule_attribute(
+    priority: Option<&krs_ir::DescriptorRulePriority>,
+    label: &syn::LitStr,
+) -> TokenStream {
+    let mut keys = Vec::new();
+    if let Some(priority) = priority {
+        if priority.key.role() == ProvenanceRole::RuleOwise {
+            keys.push(quote!(owise));
+        } else {
+            let value = proc_macro2::Literal::u32_unsuffixed(priority.value);
+            keys.push(quote!(priority = #value));
+        }
+    }
+    keys.push(quote!(label = #label));
+    quote!(#[k::rule(#(#keys),*)])
 }
 
 fn render_rule_cell_field(
