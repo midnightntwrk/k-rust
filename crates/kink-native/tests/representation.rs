@@ -608,3 +608,132 @@ fn review1_input_renamed_int_values_must_be_canonical_decimal() {
         );
     }
 }
+
+/// TB-03M (TB-03 review 2): kompile emits macro and alias rules to `macros_kore` as bare
+/// sentences, without a module wrapper. The gate parses that form and scans every macro
+/// sentence: the clean macro and alias modules are admitted, a Float literal that occurs only in
+/// an unused macro body is refused by G-F, and a constant-folded String in a macro body is
+/// refused by G-S. Every row is measured before the first assertion.
+#[test]
+fn audit_vi_t12_macros_compiled_sentences_are_scanned() {
+    let file = Path::new(support::DIR).join("t12macro.k");
+    let mut rows = Vec::new();
+    for module in ["T12MACRO", "T12ALIAS", "T12MACROFLOAT", "T12MACROFOLD"] {
+        let side =
+            NativeValidator::bind(support::load_path(&file, module), CompileOptions::default())
+                .compile_baseline()
+                .unwrap_or_else(|error| panic!("{module}: {error}"));
+        let artifacts = side.artifacts();
+        eprintln!("TB-03M {module} macros_kore:\n{}", artifacts.macros_kore);
+        let result = validate_representation(&side);
+        let without_macros = validate_representation_kore(
+            &artifacts.definition_kore,
+            &artifacts.syntax_definition_kore,
+            "",
+            &artifacts.execution_definition,
+        );
+        eprintln!("TB-03M {module}: {result:?}; without macros_kore: {without_macros:?}");
+        rows.push((
+            module,
+            artifacts.macros_kore.clone(),
+            result.map_err(|error| match error {
+                RepresentationError::Finding(finding) => format!("{}", finding.clause),
+                RepresentationError::KoreParse(error) => format!("KoreParse: {error}"),
+            }),
+            without_macros.map_err(|error| error.to_string()),
+        ));
+    }
+    for (module, macros, result, without_macros) in rows {
+        // k-rust's emitted form: one or more bare sentences, no definition attributes or module.
+        let text = macros.trim_start();
+        assert!(text.starts_with("axiom{"), "{module}: {macros}");
+        assert!(!macros.contains("endmodule"), "{module}: {macros}");
+        match module {
+            "T12MACRO" | "T12ALIAS" => assert_eq!(result, Ok(()), "{module}"),
+            "T12MACROFLOAT" => {
+                assert_eq!(result, Err("G-F".to_owned()), "{module}");
+                // The Float literal is only in the macro sentence.
+                assert_eq!(without_macros, Ok(()), "{module}");
+            }
+            "T12MACROFOLD" => assert_eq!(result, Err("G-S".to_owned()), "{module}"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// TB-03M: the emitted bare-sentence form is parsed and every sentence in it is scanned; text
+/// that is not a sentence list (or that closes the synthetic module) stays refused, and an empty
+/// list is admitted.
+#[test]
+fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
+    let declarations = format!("[] module MAIN {DECLARATIONS} endmodule []");
+    let clean = r#"axiom{} \dv{SortInt{}}("1") [UNIQUE'Unds'ID{}("clean-id")]"#;
+    let float = r#"axiom{} \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    let mint = r#"axiom{} \dv{SortMInt{}}("1p8") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    let renamed = r#"axiom{} \dv{SortOtherInt{}}("007") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    let string = r#"axiom{} \dv{SortText{}}("\xe9") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    let alias = r#"alias lit{}() : SortFloat{} where lit{}() := \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    for (text, clause) in [
+        (format!("{float}\n"), RepresentationClause::FloatLiteral),
+        (
+            format!("{clean}\n{float}\n"),
+            RepresentationClause::FloatLiteral,
+        ),
+        (
+            format!("{clean}\n// comment\n{mint}"),
+            RepresentationClause::MIntLiteral,
+        ),
+        (
+            format!("{clean}\n{renamed}\n"),
+            RepresentationClause::RenamedIntLiteral,
+        ),
+        (
+            format!("{clean}\n{string}\n"),
+            RepresentationClause::StringSpelling,
+        ),
+        (format!("{alias}\n"), RepresentationClause::FloatLiteral),
+    ] {
+        match validate_representation_kore(&declarations, "", &text, &loaded(None)) {
+            Err(RepresentationError::Finding(finding)) => {
+                assert_eq!(finding.clause, clause, "{text}");
+                assert_eq!(
+                    finding.sentence_unique_id.as_deref(),
+                    Some("macro-id"),
+                    "{text}"
+                );
+            }
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+    for text in [
+        "",
+        "\n",
+        " \n\n",
+        &format!("{clean}\n"),
+        &format!("{clean}\n{clean}"),
+    ] {
+        assert_eq!(
+            validate_representation_kore(&declarations, "", text, &loaded(None)),
+            Ok(()),
+            "{text:?}"
+        );
+    }
+    for text in [
+        "invalid".to_owned(),
+        "axiom{}".to_owned(),
+        format!("{clean} endmodule []"),
+        format!("{clean} endmodule [] module EXTRA {float} endmodule []"),
+        format!("{clean} endmodule [] module EXTRA {clean}"),
+        format!("{clean} /*"),
+        format!("{clean} \"unterminated"),
+        format!("module EXTRA {clean} endmodule []"),
+    ] {
+        assert!(
+            matches!(
+                validate_representation_kore(&declarations, "", &text, &loaded(None)),
+                Err(RepresentationError::KoreParse(_))
+            ),
+            "{text}"
+        );
+    }
+}

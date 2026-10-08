@@ -1,7 +1,8 @@
 //! Admission of compiled sides whose token representations support syntactic comparison.
 //!
 //! This is a pure syntax gate (TB-03, VI-T12). It scans every compiled axiom, including
-//! equations, lemmas and generated axioms, alias bodies, and the separately emitted macros.
+//! equations, lemmas and generated axioms, alias bodies, and the separately emitted macro and
+//! alias rules, which k-rust prints as bare sentences (TB-03M).
 //! String tokens are checked in the loaded KAST and in the compiled execution definition, which
 //! holds the tokens kompile creates by constant folding (TB-03 review 1, F1). It does not
 //! rewrite tokens: respelling one literal cannot make it agree with every Float format.
@@ -143,12 +144,46 @@ fn validate_kore_texts(
     kast: &[&LoadedDefinition],
 ) -> Result<(), RepresentationError> {
     let mut parsed = vec![parse_definition(definition)?];
-    for text in [syntax, macros] {
-        if !text.trim().is_empty() {
-            parsed.push(parse_definition(text)?);
-        }
+    if !syntax.trim().is_empty() {
+        parsed.push(parse_definition(syntax)?);
     }
+    parsed.push(parse_macros(macros)?);
     validate_artifacts(&parsed.iter().collect::<Vec<_>>(), kast).map_err(Into::into)
+}
+
+/// Name of the synthetic module that holds the macro sentences; it appears only in diagnostics.
+const MACROS_MODULE: &str = "MACROS";
+
+/// Parse `macros_kore` in the form k-rust emits it (TB-03 review 2): the printed macro and alias
+/// rules joined by newlines, with no definition attributes and no module (`kompile/compile.rs`,
+/// Java's `macros.kore`). The text is read as the sentence list of one synthetic module, and the
+/// parse must yield exactly that module with no attributes; text that closes the module or adds
+/// another one is refused. A text whose first character is `[` cannot be a sentence list (every
+/// sentence starts with a keyword); it is read as a whole KORE definition, the earlier API form,
+/// which k-rust never emits. Every sentence either parse yields is scanned.
+fn parse_macros(text: &str) -> Result<Definition, ParseError> {
+    if text.trim_start().starts_with('[') {
+        return parse_definition(text);
+    }
+    let prefix = format!("[] module {MACROS_MODULE}\n");
+    let definition =
+        parse_definition(&format!("{prefix}{text}\nendmodule []")).map_err(|error| ParseError {
+            offset: error.offset.saturating_sub(prefix.len()),
+            message: format!("macros_kore is not a KORE sentence list: {}", error.message),
+        })?;
+    match definition.modules.as_slice() {
+        [module]
+            if module.name == MACROS_MODULE
+                && module.attributes.0.is_empty()
+                && definition.attributes.0.is_empty() =>
+        {
+            Ok(definition)
+        }
+        _ => Err(ParseError {
+            offset: 0,
+            message: "macros_kore is not a KORE sentence list: it closes the module".into(),
+        }),
+    }
 }
 
 /// The same gate on parsed artifacts; exposed for clause-level tests without compiling

@@ -567,6 +567,7 @@ reproducer = "rule start(I) => f(chrString(I)); rule f(\"\\xe9\") => done(7); ru
 local_workaround = "K-in-K2 TB-03 refuses a side whose KAST holds a STRING.String token with such an escape (zero hits in every scanned corpus)."
 requested_action = "In token_value, decode \\xHH and octal escapes in STRING.String tokens as the UTF-8 encoding of U+00HH; Bytes keep the byte reading; the KORE-level byte contract (kk/kore/string.rs) is unchanged. Acceptance: \"\\xe9\", \"é\" and \"\\u00e9\" compile to identical KORE bytes; lengthString(\"\\xc3\\xa9\") is 2; b\"\\xe9\" is still one byte; compiled definition.kore changes only for definitions holding such escapes."
 sources = ["k-in-k2 decisions/VI-T12-evidence/krust-audit.md section 3 String, section 5.C"]
+update_2026_10_08 = "MEASURED (K-in-K2 TB-03 review 1, handoffs/TB-03-review-1.json): the same mis-decoding is reached with no escape in the source. kompile's constant folding (kompile/passes/constant_folding.rs wrap()) re-quotes a folded String result with kast::string::quote, which spells U+0080..U+00FF as \\xHH, and term_to_kore reads it back with unquote_bytes as one byte. Example: rule p: chk(S) => done(7) requires S ==K chrChar(233); owise done(0); start(I) => chk(chrChar(I)). The compiled KORE holds \\dv{SortString{}}(\"\\xe9\") from the fold beside \\dv(\"\\xc3\\xa9\") from a raw \"\u00e9\" literal, so an equivalent mutant (chrChar(233) replaced by \"\u00e9\") is Killed, portable and Z3, Full and FirstKill. The requested decoding fix also fixes this route; acceptance should add: a folded chrChar(233) and \"\u00e9\" +String \"\" compile to the same bytes as the literal \"\u00e9\"."
 
 [[request]]
 id = "hooked-sort-identity-by-name"
@@ -581,6 +582,7 @@ reproducer = "syntax MyInt [hook(INT.Int)] with syntax MyInt ::= r\"[0-9]+\" [to
 local_workaround = "K-in-K2 TB-03 refuses declarations of token-creating hooks at Float, MInt, Bool and non-SortInt Int sorts, and non-canonical Int text in non-SortInt INT.Int sorts."
 requested_action = "Key builtin canonicalization and hook evaluation on the sort's hook, or refuse at load a builtin hook on a sort not named as its canonical sort. Run string2token's result through validate_domain_value and the canonicalizer (invalid text: NotApplicable with a diagnostic, never a verbatim value). Acceptance: string2token(\"1.0\") at Float equals Int2Float(1,53,11) byte for byte; string2token(\"TRUE\") at Bool is refused with a diagnostic; a renamed INT.Int sort either canonicalizes 07 to 7 or is refused at load."
 sources = ["k-in-k2 decisions/VI-T12-evidence/lens-soundness.md sections 1-2", "krust-audit.md section 3 Int/Bool"]
+update_2026_10_08 = "MEASURED test-side form (K-in-K2 TB-03 review 1 F2): a request/test value \\dv{SortMyInt{}}(\"007\") or \"+7\" of a renamed INT.Int-hooked sort is internalized verbatim and compared by spelling, so it differs from 7 although K reads both as 7; an equivalent mutant is Killed. Acceptance should add: request internalization canonicalizes (or refuses) non-canonical text for every INT.Int-hooked sort, not only SortInt."
 
 [[request]]
 id = "hook-result-sort-check"
@@ -637,3 +639,31 @@ reproducer = "Static. syntax Tok [token]; syntax Tok ::= addT(Int, Int) [functio
 local_workaround = "K-in-K2 TB-03 G-H requires natural signatures (so the declared sort is the hook's sort) and the exact prelude signature for the nine folded unimplemented hooks."
 requested_action = "Fold only applications whose declaration has the hook's natural signature (or only after hook-signature-validation accepts it); for the nine hooks, either implement them in the backend or stop folding them, so that fold and run time agree; add a differential test that folds each hook both sides implement on sample literals and compares with builtin::evaluate_hook. Acceptance: the differential test passes for every hook both implement; no folded token's sort differs from what evaluation would write; compiled definition.kore changes only for definitions that relied on folding a non-natural or unimplemented hook."
 sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T13-evidence/lens-soundness.md section 2 (constant folding)", "hook-inventory.md section 4 (last row)"]
+
+[[request]]
+id = "string2bytes-declared-total-returns-bottom"
+title = "String2Bytes is declared total but k-rust returns Bottom for characters above U+00FF"
+kind = "correctness"
+status = "open"
+status_basis = "measured in K-in-K2 TB-02 (README 16.9, handoffs/TB-02.toml) against 927b9ce6 on 2026-10-07, portable and Z3"
+blocking = false
+needed_by = ["K-in-K2 VI-T10 residue (T-UNSAT: a total-declared application must be defined)"]
+summary = "K declares String2Bytes [function, total] (encoding not re-checked against domains.md here; k-rust's bytes2string decodes Latin-1). k-rust's hook returns Bottom for a String holding U+0100, so \\ceil(String2Bytes(\"\\u0100\")) is Vacuous at depth 0 in both profiles. kink's input guard reads totality from the declaration, so a test predicate using it is admitted as total while k-rust treats it as undefined."
+reproducer = "Any definition importing BYTES; test predicate \\ceil(String2Bytes(\"\\u0100\")) or a rule that applies String2Bytes to chrChar(256). Expected: a defined Bytes value (total declaration). k-rust: Bottom."
+local_workaround = "None in kink; recorded as VI-T10 residue."
+requested_action = "Check K's specified encoding for BYTES.string2bytes and make the hook defined on every String as K specifies; if K itself is partial there, the K-side declaration and docs/compatibility.md should say so. Acceptance: String2Bytes(chrChar(256)) is defined and equal to what K specifies, and the round trip with Bytes2String holds wherever K says it does."
+sources = ["k-in-k2 draft/tasks/variable-identity/README.md 16.9", "handoffs/TB-02.toml limits", "tickets/VI-T10-test-input-boundary.md"]
+
+[[request]]
+id = "constant-folding-string-encoding"
+title = "Constant folding writes String results that kompile reads back as the wrong bytes (U+0080..U+00FF)"
+kind = "conformance"
+status = "open"
+status_basis = "measured in K-in-K2 TB-03 review 1 F1 and fix round 1 against 927b9ce6 on 2026-10-07 (portable and Z3, Full and FirstKill), before kink's gate"
+blocking = false
+needed_by = ["Retiring K-in-K2 TB-03's execution-definition G-S scan"]
+summary = "kompile/passes/constant_folding.rs wrap (:395-405) writes folded String results with kast::string::quote, which spells U+0080..U+00FF as \\xHH; term_to_kore.rs token_value/unquote_token (:698-732) reads them with unquote_bytes as one raw byte. So chrChar(233) compiles to the byte E9, and chrChar(195) +String chrChar(169) to the UTF-8 of e-acute, while run time gives C3 A9 and C3 83 C2 A9. Equivalent mutants were Killed through this before kink refused it. Related to string-hex-escape-code-point (same decoder), but reachable with no escape in the source."
+reproducer = "k-in-k2 testdata/k/t12fold.k (modules T12FOLDCHR, T12FOLDCAT, T12FOLDPAIR): rule chk(S) => done(7) requires S ==K chrChar(233); owise done(0); start(I) => chk(chrChar(I)); krun start(233)."
+local_workaround = "K-in-K2 TB-03 G-S scans the execution definition after the transform stages and refuses any divergent String token."
+requested_action = "Write folded String tokens so that term_to_kore yields the UTF-8 of the folded value (quote with \\u escapes above 0x7f, or quote the UTF-8 bytes), or fix the decoder per string-hex-escape-code-point. Acceptance: a differential test of fold vs run time over code points 0x80..0xff; chrChar(233) folds to the same KORE bytes as the literal e-acute."
+sources = ["k-in-k2 draft/tasks/variable-identity/handoffs/TB-03-review-1.json F1", "handoffs/TB-03-fix-1.toml proposed_requests", "testdata/k/t12fold.k"]

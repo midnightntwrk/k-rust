@@ -8955,3 +8955,90 @@ fn audit_vi_t12_review1_renamed_int_test_spelling_is_refused() {
         }
     });
 }
+
+/// TB-03M (TB-03 review 2): macro and alias rules reach `macros_kore` as bare sentences. A clean
+/// macro or alias definition now runs its campaign, and an equivalent mutant is never Killed; a
+/// Float literal in a macro body is refused by G-F, and a constant-folded String in a macro body
+/// by G-S, instead of by the earlier KORE parse failure. Every row is measured before the first
+/// assertion (complete failing-first logs).
+#[test]
+fn audit_vi_t12_macros_campaigns() {
+    with_stack(|| {
+        let file = std::path::Path::new(support::DIR).join("t12macro.k");
+        let mut rows = Vec::new();
+        for (id, module, inline, program) in [
+            ("macro-owise", "T12MACRO", false, 7),
+            ("macro-inline", "T12MACRO", true, 7),
+            ("alias-owise", "T12ALIAS", false, 7),
+            ("macro-float", "T12MACROFLOAT", false, 7),
+            ("macro-fold", "T12MACROFOLD", false, 233),
+        ] {
+            let validator =
+                NativeValidator::bind(support::load_path(&file, module), CompileOptions::default());
+            let baseline = validator.baseline();
+            let (label, path, replacement) = if inline {
+                // The macro application replaced by its expansion.
+                let label = format!("{module}.p");
+                let path = t12_find(baseline, &label, &t12_applies("seven"));
+                (label, path, int_token(7))
+            } else {
+                // The owise result changed to the `p` result: equal on the test below.
+                let label = format!("{module}.o");
+                let path = t12_token_path(baseline, &label, "0");
+                (label, path, int_token(7))
+            };
+            let patch = Patch::new(vec![replaced(baseline, &label, &path, replacement)])
+                .expect("macro patch");
+            let generation = fixed(baseline, &[(&label, &[0])], "tb03m-macro", &patch);
+            let tests = [case(
+                id,
+                support::initial_state(app("start", vec![support::int(program)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module,
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let detail = run_campaign(&campaign, &generation, mode)
+                    .err()
+                    .map(|failure| failure.to_string());
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB03M {id} {mode:?}: {result:?} {detail:?}");
+                rows.push((id, mode, result, detail));
+            }
+        }
+        for (id, mode, result, detail) in rows {
+            assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
+            match id {
+                // macro-inline is not classified Equivalent: the edited rule's identity differs.
+                "macro-owise" | "macro-inline" | "alias-owise" => assert_eq!(
+                    result,
+                    ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![]
+                    },
+                    "{id} {mode:?}"
+                ),
+                "macro-float" | "macro-fold" => {
+                    assert_eq!(
+                        result,
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                        "{id} {mode:?}"
+                    );
+                    let clause = if id == "macro-float" { "G-F" } else { "G-S" };
+                    assert!(
+                        detail.is_some_and(|detail| detail.contains(clause)),
+                        "{id} {mode:?}"
+                    );
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
+}
