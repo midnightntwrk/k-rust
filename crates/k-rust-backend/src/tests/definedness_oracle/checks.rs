@@ -1019,6 +1019,9 @@ pub(super) fn check_definition(
         }
     };
     let mut results = Vec::new();
+    // The claims' failures, from here on, are dropped for a definition found outside P2 by the
+    // end: its `total` declarations are false, and the contract makes no promise there.
+    let claim_failures_from = tally.failures.len();
     for id in asked.clone() {
         tally.queries += 1;
         let normal = universe.normalize(id);
@@ -1246,6 +1249,9 @@ pub(super) fn check_definition(
             }
         }
     }
+    if tally.outside_totality > 0 {
+        tally.failures.truncate(claim_failures_from);
+    }
     (tally, verdict)
 }
 
@@ -1311,6 +1317,18 @@ fn generalize(
             let instance = replace(universe, id, hole, value);
             let normal = universe.normalize(instance);
             if !normal.complete {
+                continue;
+            }
+            // An instance at which a total symbol is undefined on defined arguments puts the
+            // definition outside P2, where its `total` declarations are false.
+            let mut subterms = vec![instance];
+            let mut outside = false;
+            while let Some(subterm) = subterms.pop() {
+                outside |= universe.violates_totality(subterm);
+                subterms.extend(universe.children(subterm));
+            }
+            if outside {
+                tally.outside_totality = 1;
                 continue;
             }
             // An instance by a value holding a tainted application is an instance by an element

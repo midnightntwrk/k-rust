@@ -396,3 +396,45 @@ fn variants_of_the_reviewers_probes_keep_the_value_contract() {
         assert!(total.failures.is_empty(), "{}", total.failures.join("\n"));
     });
 }
+
+/// A definition outside P0 whose pair has a condition that evaluates without end
+/// (`pf(Y) = pf(k(Y))`, and `h(X) = mk(1) requires pf(c) ==K c` beside `h(X) = mk(2)`) still
+/// loads: the check's simplification of the condition stops at its deadline, decides nothing,
+/// and the pair is not joined.
+#[test]
+fn a_condition_whose_evaluation_does_not_end_does_not_keep_a_definition_from_loading() {
+    use language::{app, cons, int, var};
+    on_large_stack(|| {
+        let definition = Definition::new(&["A"])
+            .constructor("c", &[], "A")
+            .constructor("k", &["A"], "A")
+            .function("pf", &["A"], "A")
+            .equation(
+                app("pf", vec![var("VarY", "A")]),
+                app("pf", vec![app("k", vec![var("VarY", "A")])]),
+            )
+            .head("h", &["A"], "S")
+            .conditional(
+                app("h", vec![var("VarX", "A")]),
+                app("mk", vec![int(1)]),
+                Some(app("eqA", vec![app("pf", vec![cons("c")]), cons("c")])),
+            )
+            .equation(app("h", vec![var("VarX", "A")]), app("mk", vec![int(2)]));
+        let started = std::time::Instant::now();
+        let backend = checks::backend(&definition).expect("the definition loads");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "loading took {:?}",
+            started.elapsed()
+        );
+        assert!(
+            backend
+                .value_claims()
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "h"),
+            "{:?}",
+            backend.value_claims().unjoined()
+        );
+    });
+}

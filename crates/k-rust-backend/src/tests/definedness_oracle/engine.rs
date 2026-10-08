@@ -97,6 +97,7 @@ thread_local! {
 /// Bounds of one universe.
 const MAX_SIZE: u32 = 40;
 const MAX_WORK: usize = 60_000;
+const MAX_DEPTH: usize = 2_000;
 const MAX_COMBINATIONS: usize = 64;
 
 pub(super) struct Universe<'d> {
@@ -468,7 +469,13 @@ impl<'d> Universe<'d> {
             return Rc::new(Normal::incomplete());
         }
         self.work += 1;
-        let normal = if self.work > MAX_WORK || self.sizes[id as usize] > MAX_SIZE {
+        // The evaluations open at once nest on the stack: a chain of distinct terms whose sizes
+        // stay small (`f(m(I)) = f(m(I +Int 1))`) is cut where it would overflow it, as a term
+        // whose evaluation does not end within the bounds.
+        let normal = if self.work > MAX_WORK
+            || self.sizes[id as usize] > MAX_SIZE
+            || self.in_progress.len() > MAX_DEPTH
+        {
             Normal::incomplete()
         } else {
             self.evaluate(id).finish()

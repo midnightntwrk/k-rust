@@ -212,6 +212,12 @@ pub(super) fn check_completeness(
         definitions: 1,
         ..Completeness::default()
     };
+    if std::env::var_os("KRUST_DEFINEDNESS_ORACLE_PROGRESS").is_some() {
+        eprintln!("{label}");
+    }
+    if std::env::var_os("KRUST_DEFINEDNESS_ORACLE_VERBOSE").is_some() {
+        eprintln!("{label}:\n{}", super::checks::describe(definition));
+    }
     if !definition.symbols.iter().any(|symbol| symbol.is_head()) {
         // The check stops after the precondition rows: no pair is enumerated.
         return result;
@@ -338,6 +344,11 @@ pub(super) fn check_completeness(
 
 /// V3 over the templates, the probes and `cases` random definitions.
 pub(super) fn run_completeness(cases: u64, seed: u64) -> Completeness {
+    run_completeness_from(0, cases, seed)
+}
+
+/// [`run_completeness`] from the random case `first` on.
+pub(super) fn run_completeness_from(first: u64, cases: u64, seed: u64) -> Completeness {
     let mut total = Completeness::default();
     for (name, definition, _) in super::generator::templates() {
         let mut rng = Rng(seed);
@@ -347,7 +358,7 @@ pub(super) fn run_completeness(cases: u64, seed: u64) -> Completeness {
         let mut rng = Rng(seed);
         total.add(check_completeness(&probe.name, &probe.definition, &mut rng));
     }
-    for case in 0..cases * 4 {
+    for case in first..first + cases * 4 {
         let mut rng = Rng(seed ^ 0x5151 ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let (definition, _) = super::generator::random_definition(&mut rng);
         total.add(check_completeness(
@@ -367,7 +378,8 @@ fn every_overlap_of_random_equations_is_enumerated() {
     super::on_large_stack(|| {
         let cases = super::environment("KRUST_DEFINEDNESS_ORACLE_CASES", super::DEFAULT_CASES);
         let seed = super::environment("KRUST_DEFINEDNESS_ORACLE_SEED", super::DEFAULT_SEED);
-        let total = run_completeness(cases, seed);
+        let first = super::environment("KRUST_DEFINEDNESS_ORACLE_FIRST", 0);
+        let total = run_completeness_from(first, cases, seed);
         eprintln!(
             "overlap enumeration (seed {seed:#x}): {} definitions, {} redexes, {} covered by an unresolved shape, {} failures",
             total.definitions,
