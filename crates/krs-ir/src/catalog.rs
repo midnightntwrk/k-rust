@@ -405,11 +405,12 @@ macro_rules! __krs_builtin_sort_catalog {
                 k_syntax_module: Some("BYTES"),
                 k_program_syntax_module: Some("BYTES-SYNTAX")
             }
-            /// String token domain from pinned module `STRING-SYNTAX`.
+            /// Latin-1 string domain from pinned module `STRING`; its tokens come
+            /// from `STRING-SYNTAX`.
             String {
                 marker_name: String,
                 k_name: "String",
-                k_module: Some("STRING-SYNTAX"),
+                k_module: Some("STRING"),
                 k_syntax_module: Some("STRING-SYNTAX"),
                 k_program_syntax_module: Some("STRING-SYNTAX")
             }
@@ -1292,6 +1293,240 @@ macro_rules! __krs_builtin_operation_catalog {
                 argument_sorts: [],
                 result_sort: Signedness,
                 functional: false
+            }
+            /// `_+String_` (`STRING.concat`), linear in the operands' length.
+            StringConcat {
+                rust_module: string,
+                rust_name: concat,
+                description: "string concatenation",
+                k_label: "_+String__STRING-COMMON_String_String_String",
+                k_hook: Some("STRING.concat"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " +String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: String,
+                functional: true
+            }
+            /// `_==String_` (`STRING.eq`).
+            StringEqual {
+                rust_module: string,
+                rust_name: eq,
+                description: "string equality",
+                k_label: "_==String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.eq"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ==String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_=/=String_` (`STRING.ne`).
+            StringNotEqual {
+                rust_module: string,
+                rust_name: ne,
+                description: "string inequality",
+                k_label: "_=/=String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.ne"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " =/=String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_<String_` (`STRING.lt`).
+            StringLess {
+                rust_module: string,
+                rust_name: lt,
+                description: "string less-than comparison",
+                k_label: "_<String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.lt"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_<=String_` (`STRING.le`).
+            StringLessEqual {
+                rust_module: string,
+                rust_name: le,
+                description: "string less-than-or-equal comparison",
+                k_label: "_<=String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.le"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <=String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_>String_` (`STRING.gt`).
+            StringGreater {
+                rust_module: string,
+                rust_name: gt,
+                description: "string greater-than comparison",
+                k_label: "_>String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.gt"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_>=String_` (`STRING.ge`).
+            StringGreaterEqual {
+                rust_module: string,
+                rust_name: ge,
+                description: "string greater-than-or-equal comparison",
+                k_label: "_>=String__STRING-COMMON_Bool_String_String",
+                k_hook: Some("STRING.ge"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >=String ", ""] },
+                argument_sorts: [String, String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `lengthString`, the number of code points (`STRING.length`).
+            StringLength {
+                rust_module: string,
+                rust_name: length,
+                description: "string length",
+                k_label: "lengthString(_)_STRING-COMMON_Int_String",
+                k_hook: Some("STRING.length"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "lengthString" },
+                argument_sorts: [String],
+                result_sort: Int,
+                functional: true
+            }
+            /// `substrString(s, start, end)` over a half-open range (`STRING.substr`).
+            StringSubstring {
+                rust_module: string,
+                rust_name: substr,
+                description: "string substring",
+                k_label: "substrString(_,_,_)_STRING-COMMON_String_String_Int_Int",
+                k_hook: Some("STRING.substr"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "substrString" },
+                argument_sorts: [String, Int, Int],
+                result_sort: String,
+                functional: true
+            }
+            /// `findString(haystack, needle, from)`, or -1 (`STRING.find`).
+            StringFind {
+                rust_module: string,
+                rust_name: find,
+                description: "string search",
+                k_label: "findString(_,_,_)_STRING-COMMON_Int_String_String_Int",
+                k_hook: Some("STRING.find"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "findString" },
+                argument_sorts: [String, String, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `chrChar`, the one-character string of a code point (`STRING.chr`).
+            StringChr {
+                rust_module: string,
+                rust_name: chr,
+                description: "code point to character",
+                k_label: "chrChar(_)_STRING-COMMON_String_Int",
+                k_hook: Some("STRING.chr"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "chrChar" },
+                argument_sorts: [Int],
+                result_sort: String,
+                functional: true
+            }
+            /// `ordChar`, the code point of a one-character string (`STRING.ord`).
+            StringOrd {
+                rust_module: string,
+                rust_name: ord,
+                description: "character to code point",
+                k_label: "ordChar(_)_STRING-COMMON_Int_String",
+                k_hook: Some("STRING.ord"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "ordChar" },
+                argument_sorts: [String],
+                result_sort: Int,
+                functional: true
+            }
+            /// `Int2String`, decimal (`STRING.int2string`).
+            StringFromInt {
+                rust_module: string,
+                rust_name: from_int,
+                description: "integer to decimal string",
+                k_label: "Int2String(_)_STRING-COMMON_String_Int",
+                k_hook: Some("STRING.int2string"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Int2String" },
+                argument_sorts: [Int],
+                result_sort: String,
+                functional: true
+            }
+            /// `String2Int`, partial on non-numeric text (`STRING.string2int`).
+            StringToInt {
+                rust_module: string,
+                rust_name: to_int,
+                description: "decimal string to integer",
+                k_label: "String2Int(_)_STRING-COMMON_Int_String",
+                k_hook: Some("STRING.string2int"),
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "String2Int" },
+                argument_sorts: [String],
+                result_sort: Int,
+                functional: true
+            }
+            /// `Bool2String`, defined by prelude equations.
+            StringFromBool {
+                rust_module: string,
+                rust_name: from_bool,
+                description: "Boolean to string",
+                k_label: "Bool2String(_)_STRING-COMMON_String_Bool",
+                k_hook: None,
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Bool2String" },
+                argument_sorts: [Bool],
+                result_sort: String,
+                functional: true
+            }
+            /// `String2Bool`, defined by prelude equations.
+            StringToBool {
+                rust_module: string,
+                rust_name: to_bool,
+                description: "string to Boolean",
+                k_label: "String2Bool(_)_STRING-COMMON_Bool_String",
+                k_hook: None,
+                k_module: "STRING",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "String2Bool" },
+                argument_sorts: [String],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `String2Bytes`, the Latin-1 bytes of a string (`BYTES.string2bytes`).
+            BytesFromString {
+                rust_module: bytes,
+                rust_name: from_string,
+                description: "string to bytes",
+                k_label: "String2Bytes(_)_BYTES-HOOKED_Bytes_String",
+                k_hook: Some("BYTES.string2bytes"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "String2Bytes" },
+                argument_sorts: [String],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// `Bytes2String`, the Latin-1 string of bytes (`BYTES.bytes2string`).
+            BytesToString {
+                rust_module: bytes,
+                rust_name: to_string,
+                description: "bytes to string",
+                k_label: "Bytes2String(_)_BYTES-HOOKED_String_Bytes",
+                k_hook: Some("BYTES.bytes2string"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Bytes2String" },
+                argument_sorts: [Bytes],
+                result_sort: String,
+                functional: true
             }
         }
     };

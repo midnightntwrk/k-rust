@@ -261,7 +261,8 @@ class FixtureGate:
                         session.expect(program.name, "k", head=program.run)
                     actual = program.run
                 except GateError as error:
-                    actual = f"differs: {error}"
+                    # The session's request counter is not part of the outcome.
+                    actual = "differs: " + re.sub(r"^gate request \d+ failed: ", "", str(error))
                 outcomes[program.name] = {"parse": ACCEPTED, "run": actual}
                 if program.search is not None:
                     outcomes[program.name]["search"] = _native_search(session, program, pattern)

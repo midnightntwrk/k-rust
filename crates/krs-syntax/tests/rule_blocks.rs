@@ -518,3 +518,36 @@ fn readable_patterns_reject_negative_zero() {
     .unwrap_err();
     assert!(error.to_string().contains("write 0"), "{error}");
 }
+
+#[test]
+fn readable_patterns_match_string_literals() {
+    let block = krs_syntax::RuleBlock::parse_source(
+        r#"
+        for Exp;
+        use Greeting::*;
+
+        greet_world: Greet("world") => "hello, world";
+        greet_raw:   Greet(r"a\b")  => "raw";
+        "#,
+    )
+    .unwrap();
+    assert_eq!(block.clauses().len(), 2);
+    assert!(
+        block.clauses()[0]
+            .rule()
+            .parameter()
+            .pattern
+            .bindings()
+            .is_empty()
+    );
+    let error = krs_syntax::RuleBlock::parse_source(
+        r#"
+        for Exp;
+        use Greeting::*;
+
+        wide: Greet("\u{100}") => "no";
+        "#,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("U+00FF"), "{error}");
+}

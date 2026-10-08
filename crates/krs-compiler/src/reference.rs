@@ -1352,6 +1352,10 @@ fn render_term(
                 .map(|literal| TokenTree::Literal(literal).into())
                 .map_err(|_| ReferenceExpansionError::InvalidLiteral(value.clone())),
             krs_ir::DescriptorLiteral::Bool(value) => Ok(quote!(#value)),
+            krs_ir::DescriptorLiteral::String(value) => {
+                let value = syn::LitStr::new(value, Span::call_site());
+                Ok(quote!(#value))
+            }
         },
         DescriptorTerm::Wildcard { .. } => Ok(quote!(_)),
         DescriptorTerm::BuiltinToken { sort, value, .. } => match sort {

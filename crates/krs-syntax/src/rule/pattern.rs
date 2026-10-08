@@ -616,12 +616,14 @@ fn validate_pattern_literal(
             TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         syn::Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
-        _ => {
+        syn::Lit::Str(string) => TermLiteral::String(crate::term::string_literal(string)?),
+        syn::Lit::Int(_) => {
             return Err(unsupported_pattern(
-                "only unsuffixed decimal Int (optionally negative) and Bool literals are term patterns",
+                "only unsuffixed decimal Int (optionally negative), Bool, and String literals are term patterns",
                 literal.span(),
             ));
         }
+        other => return Err(crate::term::unsupported_literal(other)),
     };
     nodes.push(TermNode::Literal(literal.clone()));
     Ok(literal)
@@ -796,7 +798,9 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
         TermNode::Literal(TermLiteral::Integer(literal)) => Ok(literal.range()),
         TermNode::Literal(TermLiteral::Boolean(literal)) => TokenRange::for_tokens(literal),
-        TermNode::IdToken(literal) => TokenRange::for_tokens(literal),
+        TermNode::Literal(TermLiteral::String(literal)) | TermNode::IdToken(literal) => {
+            TokenRange::for_tokens(literal)
+        }
         TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
         TermNode::OrBool(range) => Ok(*range),

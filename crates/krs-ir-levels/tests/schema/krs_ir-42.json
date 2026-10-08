@@ -162,6 +162,60 @@
       },
       "53": {
         "bytes_unsigned": "UNIT"
+      },
+      "54": {
+        "string_concat": "UNIT"
+      },
+      "55": {
+        "string_equal": "UNIT"
+      },
+      "56": {
+        "string_not_equal": "UNIT"
+      },
+      "57": {
+        "string_less": "UNIT"
+      },
+      "58": {
+        "string_less_equal": "UNIT"
+      },
+      "59": {
+        "string_greater": "UNIT"
+      },
+      "60": {
+        "string_greater_equal": "UNIT"
+      },
+      "61": {
+        "string_length": "UNIT"
+      },
+      "62": {
+        "string_substring": "UNIT"
+      },
+      "63": {
+        "string_find": "UNIT"
+      },
+      "64": {
+        "string_chr": "UNIT"
+      },
+      "65": {
+        "string_ord": "UNIT"
+      },
+      "66": {
+        "string_from_int": "UNIT"
+      },
+      "67": {
+        "string_to_int": "UNIT"
+      },
+      "68": {
+        "string_from_bool": "UNIT"
+      },
+      "69": {
+        "string_to_bool": "UNIT"
+      },
+      "70": {
+        "bytes_from_string": "UNIT"
+      },
+      "71": {
+        "bytes_to_string": "UNIT"
       }
     }
   },

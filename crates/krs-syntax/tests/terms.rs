@@ -91,7 +91,6 @@ fn out_of_scope_rust_expressions_are_rejected() {
         "Ctor { field, ..base }",
         "42u32",
         "1.0",
-        "\"text\"",
         "'x'",
         "Ctor::<Value>(value)",
         "outer!(value)",

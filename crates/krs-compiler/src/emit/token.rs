@@ -294,6 +294,23 @@ mod tests {
     }
 
     #[test]
+    fn canonical_string_tokens_lex_back_bare() {
+        for value in [
+            "",
+            "plain",
+            "say \"hi\"",
+            "a\\b",
+            "line\nbreak\t\r\u{c}",
+            "\u{0}\u{7f}\u{c1}\u{ff}",
+        ] {
+            let token = krs_ir::string_token::encode(value).unwrap();
+            assert!(is_string(&token), "{token}");
+            assert_eq!(krs_ir::string_token::decode(&token).unwrap(), value);
+            assert!(lexicon(&[], None).is_bare(BuiltinSort::String, &token));
+        }
+    }
+
+    #[test]
     fn token_literals_read_back_exactly() {
         // Models K's `#KToken` conversion: drop the quotes, then replace `\"` with `"`.
         let read_back = |literal: &str| literal[1..literal.len() - 1].replace("\\\"", "\"");

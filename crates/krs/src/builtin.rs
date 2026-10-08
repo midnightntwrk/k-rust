@@ -637,7 +637,16 @@ pub mod bytes {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct ToInt(pub Bytes, pub Endianness, pub Signedness);
 
+    /// Marker for `String2Bytes`, the Latin-1 bytes of a string.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct StringToBytes(pub super::string::String);
+
+    /// Marker for `Bytes2String`, the Latin-1 string of bytes.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct BytesToString(pub Bytes);
+
     pub use BigEndian as big_endian;
+    pub use BytesToString as to_string;
     pub use Concat as concat;
     pub use Empty as empty;
     pub use FromInt as from_int;
@@ -650,6 +659,7 @@ pub mod bytes {
     pub use ReplaceAt as replace_at;
     pub use Reverse as reverse;
     pub use Signed as signed;
+    pub use StringToBytes as from_string;
     pub use Substr as substr;
     pub use ToInt as to_int;
     pub use Unsigned as unsigned;
@@ -664,8 +674,108 @@ pub use bytes::Bytes;
 pub use bytes::Endianness;
 /// Root spelling of the builtin integer-interpretation sort marker.
 pub use bytes::Signedness;
-/// Marker for K's string token sort from `STRING-SYNTAX`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct String;
+/// Root spelling of the builtin string sort marker, kept for compatibility.
+///
+/// Prefer `use k::builtin::string;` and `string::String`, which leaves
+/// `std::string::String` unshadowed.
+pub use string::String;
+
+/// Builtin operations and sort marker from K's pinned `STRING` domain.
+///
+/// Import the module, not the marker: `use k::builtin::string;` and then
+/// `string::String`, so the standard `String` stays in scope.
+pub mod string {
+    use super::{bool::Bool, int::Int};
+
+    /// Host marker for K's `String` sort: a sequence of code points in
+    /// U+0000..=U+00FF (Latin-1).
+    ///
+    /// A Rust string literal in a term is a String token; this marker is never
+    /// a host string value.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct String;
+
+    /// Marker for concatenation `+String`, linear in the operands' length.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Concat(pub String, pub String);
+
+    /// Marker for `==String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Eq(pub String, pub String);
+
+    /// Marker for `=/=String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ne(pub String, pub String);
+
+    /// Marker for `<String`, lexicographic by code point.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Lt(pub String, pub String);
+
+    /// Marker for `<=String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Le(pub String, pub String);
+
+    /// Marker for `>String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Gt(pub String, pub String);
+
+    /// Marker for `>=String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ge(pub String, pub String);
+
+    /// Marker for `lengthString`, the number of code points.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Length(pub String);
+
+    /// Marker for `substrString(s, start, end)` over a half-open range.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Substr(pub String, pub Int, pub Int);
+
+    /// Marker for `findString(haystack, needle, from)`, `-1` when absent.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Find(pub String, pub String, pub Int);
+
+    /// Marker for `chrChar`, the one-character string of a code point.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Chr(pub Int);
+
+    /// Marker for `ordChar`, the code point of a one-character string.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Ord(pub String);
+
+    /// Marker for `Int2String`, decimal.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromInt(pub Int);
+
+    /// Marker for `String2Int`: partial, undefined on text that is not a
+    /// decimal integer (the analogue of `str::parse` returning `Err`).
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ToInt(pub String);
+
+    /// Marker for `Bool2String`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromBool(pub Bool);
+
+    /// Marker for `String2Bool`, partial on text other than `"true"` and `"false"`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ToBool(pub String);
+
+    pub use self::Eq as eq;
+    pub use self::Ord as ord;
+    pub use Chr as chr;
+    pub use Concat as concat;
+    pub use Find as find;
+    pub use FromBool as from_bool;
+    pub use FromInt as from_int;
+    pub use Ge as ge;
+    pub use Gt as gt;
+    pub use Le as le;
+    pub use Length as length;
+    pub use Lt as lt;
+    pub use Ne as ne;
+    pub use Substr as substr;
+    pub use ToBool as to_bool;
+    pub use ToInt as to_int;
+}
 /// Convenient root spelling of the builtin integer sort marker.
 pub use int::Int;

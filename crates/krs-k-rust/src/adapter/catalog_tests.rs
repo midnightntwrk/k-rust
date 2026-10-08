@@ -24,7 +24,16 @@ use crate::{
 };
 
 /// Every builtin module the catalog's rows name, imported by the evaluation definition.
-const CATALOG_MODULES: &[&str] = &["BOOL", "BYTES", "COLLECTIONS", "INT", "LIST", "MAP", "SET"];
+const CATALOG_MODULES: &[&str] = &[
+    "BOOL",
+    "BYTES",
+    "COLLECTIONS",
+    "INT",
+    "LIST",
+    "MAP",
+    "SET",
+    "STRING",
+];
 
 /// A prelude production: its declaring module, hook, result sort, parameters,
 /// and nonterminal sorts.
@@ -228,6 +237,10 @@ fn builtin(operation: BuiltinOperation, arguments: &[String]) -> String {
     apply(operation.spec().k_label, arguments)
 }
 
+fn string(value: &str) -> String {
+    format!("\\dv{{SortString{{}}}}(\"{value}\")")
+}
+
 fn item(value: i64) -> String {
     format!("inj{{SortInt{{}}, SortKItem{{}}}}({})", int(value))
 }
@@ -303,7 +316,7 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
             vec![int(4660), int(4), int(8)]
         }
         Op::IntLog2 | Op::IntBitNot | Op::IntAbs => vec![int(1024)],
-        Op::BoolNot => vec![boolean(true)],
+        Op::BoolNot | Op::StringFromBool => vec![boolean(true)],
         Op::BoolEqual
         | Op::BoolNotEqual
         | Op::BoolAnd
@@ -317,7 +330,7 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
         | Op::BytesBigEndian
         | Op::BytesSigned
         | Op::BytesUnsigned => Vec::new(),
-        Op::BytesLength | Op::BytesReverse => vec![two_bytes()],
+        Op::BytesLength | Op::BytesReverse | Op::BytesToString => vec![two_bytes()],
         Op::BytesGet => vec![two_bytes(), int(1)],
         Op::BytesUpdate | Op::BytesPadRight | Op::BytesPadLeft | Op::BytesSubstring => {
             vec![two_bytes(), int(1), int(2)]
@@ -339,6 +352,21 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
             builtin(BuiltinOperation::BytesLittleEndian, &[]),
             builtin(BuiltinOperation::BytesUnsigned, &[]),
         ],
+        Op::StringConcat
+        | Op::StringEqual
+        | Op::StringNotEqual
+        | Op::StringLess
+        | Op::StringLessEqual
+        | Op::StringGreater
+        | Op::StringGreaterEqual => vec![string("ab"), string("ac")],
+        Op::StringLength | Op::StringToBool => vec![string("true")],
+        Op::StringSubstring => vec![string("hello"), int(1), int(3)],
+        Op::StringFind => vec![string("hello"), string("l"), int(0)],
+        Op::StringChr => vec![int(65)],
+        Op::StringOrd => vec![string("A")],
+        Op::StringFromInt => vec![int(-42)],
+        Op::StringToInt => vec![string("42")],
+        Op::BytesFromString => vec![string("hi")],
     }
 }
 

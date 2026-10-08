@@ -86,6 +86,9 @@ pub enum TermLiteral {
     Integer(IntegerLiteral),
     /// Rust Boolean literal.
     Boolean(LitBool),
+    /// Rust string literal, ordinary or raw, as a K `String` token. Its value
+    /// holds code points in U+0000..=U+00FF only.
+    String(LitStr),
 }
 
 impl TermLiteral {
@@ -96,6 +99,7 @@ impl TermLiteral {
         match self {
             Self::Integer(literal) => literal.base10_digits().replace('_', ""),
             Self::Boolean(literal) => literal.value.to_string(),
+            Self::String(literal) => literal.value(),
         }
     }
 
@@ -103,6 +107,7 @@ impl TermLiteral {
         match self {
             Self::Integer(literal) => Ok(literal.range()),
             Self::Boolean(literal) => TokenRange::for_tokens(literal),
+            Self::String(literal) => TokenRange::for_tokens(literal),
         }
     }
 }
@@ -1109,6 +1114,48 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     ))
 }
 
+/// The reason given for a string holding a code point above U+00FF.
+pub(crate) const STRING_OUT_OF_RANGE: &str = "K 7.1.337 Strings are defined for U+0000..U+00FF only (domains.md, Strings); use Bytes for other data";
+
+/// Accepts a string literal whose value a K `String` can hold.
+pub(crate) fn string_literal(literal: &LitStr) -> Result<LitStr, SyntaxError> {
+    if !literal.suffix().is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "String literals take no suffix",
+            },
+            literal.span(),
+        ));
+    }
+    if literal
+        .value()
+        .chars()
+        .any(|character| character > krs_ir::string_token::MAX_CODE_POINT)
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: STRING_OUT_OF_RANGE,
+            },
+            literal.span(),
+        ));
+    }
+    Ok(literal.clone())
+}
+
+/// The diagnostic for a Rust literal that is not a K term value.
+pub(crate) fn unsupported_literal(literal: &Lit) -> SyntaxError {
+    let reason = match literal {
+        Lit::Char(_) => "K has no Char sort; write \"a\"",
+        Lit::ByteStr(_) | Lit::CStr(_) => "write k::bytes!(b\"..\") for a Bytes value",
+        Lit::Byte(_) => "K has no byte literal; write an Int or k::bytes!(b\"..\")",
+        _ => "only Int, Bool, and String Rust literals are term values",
+    };
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression { reason },
+        literal.span(),
+    )
+}
+
 fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<TermTree, SyntaxError> {
     reject_attributes(&literal.attrs, literal.span())?;
     let literal = match &literal.lit {
@@ -1116,6 +1163,7 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
             TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
+        Lit::Str(string) => TermLiteral::String(string_literal(string)?),
         Lit::Int(_) => {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
@@ -1124,14 +1172,7 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
                 literal.span(),
             ));
         }
-        _ => {
-            return Err(SyntaxError::new(
-                SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "only Int and Bool Rust literals are term values",
-                },
-                literal.span(),
-            ));
-        }
+        other => return Err(unsupported_literal(other)),
     };
     nodes.push(TermNode::Literal(literal.clone()));
     Ok(TermTree::Literal(literal))
@@ -1156,7 +1197,7 @@ pub(crate) fn push_record_field_anchors(
 
 fn is_supported_literal(literal: &ExprLit) -> bool {
     match &literal.lit {
-        Lit::Bool(_) => literal.attrs.is_empty(),
+        Lit::Bool(_) | Lit::Str(_) => literal.attrs.is_empty(),
         Lit::Int(integer) => literal.attrs.is_empty() && is_unsuffixed_decimal(integer),
         _ => false,
     }
@@ -1287,6 +1328,54 @@ mod negative_literal_tests {
             (
                 "Sgn(-1i32)",
                 "Int literals must be unsuffixed decimal Rust integers",
+            ),
+        ] {
+            let error = TermExpression::parse_source(source).unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    SyntaxErrorKind::UnsupportedTermExpression { reason } if *reason == expected
+                ),
+                "{source}: {error:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod string_literal_tests {
+    use super::{STRING_OUT_OF_RANGE, TermExpression, TermLiteral, TermNode};
+    use crate::{KrsSyntax, SyntaxErrorKind};
+
+    fn strings(source: &str) -> Vec<String> {
+        TermExpression::parse_source(source)
+            .unwrap()
+            .nodes()
+            .iter()
+            .filter_map(|node| match node {
+                TermNode::Literal(literal @ TermLiteral::String(_)) => Some(literal.spelling()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn string_and_raw_string_literals_are_string_tokens() {
+        assert_eq!(strings(r#"Greet("world")"#), ["world"]);
+        assert_eq!(
+            strings(r#"string::concat("say \"hi\"", "\n\u{c1}")"#),
+            ["say \"hi\"", "\n\u{c1}"]
+        );
+    }
+
+    #[test]
+    fn non_latin_1_char_and_byte_literals_are_rejected() {
+        for (source, expected) in [
+            (r#"Greet("\u{100}")"#, STRING_OUT_OF_RANGE),
+            ("Greet('a')", "K has no Char sort; write \"a\""),
+            (
+                r#"Greet(b"ab")"#,
+                "write k::bytes!(b\"..\") for a Bytes value",
             ),
         ] {
             let error = TermExpression::parse_source(source).unwrap_err();

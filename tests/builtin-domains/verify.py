@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builtin domains feature gate: the builtin operation catalog end to end.
+r"""Builtin domains feature gate: the builtin operation catalog end to end.
 
 Each package exercises one part of the catalog with one equation or rule per
 operation, and a corpus of programs that apply them to concrete values:
@@ -15,7 +15,17 @@ operation, and a corpus of programs that apply them to concrete values:
 - `set-ops`: SET operations and `list::contains`, with `Set2List`/`List2Set`
   from K's `COLLECTIONS` module;
 - `map-ops`: MAP operations over a map held in a configuration cell, because K
-  has no MAP-SYNTAX module and a program cannot contain a map.
+  has no MAP-SYNTAX module and a program cannot contain a map;
+- `strings`: String literals (KF-008) in equations, readable patterns, results,
+  and programs, including the Latin-1 code point `\xc1`, and the STRING
+  operations with `bytes::from_string`/`to_string`.
+
+`known_divergences` in `pins.json` pins the `\xc1` programs on which the routes
+disagree. k-rust stores a `\xHH` escape as the raw byte, so its `ordChar`,
+`chrChar` (which yields UTF-8), and `String2Bytes` disagree with K's Latin-1
+code points; and Java K's LLVM backend does not match the rule literal
+`"\xc1"` against the same program literal, which k-rust does. The gate fails
+when either route's pinned outcome changes.
 
 Every program runs natively through k-rust and through Java K's LLVM backend;
 the normalized final computation cells must agree with each other and with the
@@ -161,6 +171,31 @@ INT_SIGN_UNSIGNED = (
     Program("program-literal", "check(-1)", "rejected"),
 )
 
+STRINGS = (
+    case("msg", 'msg("world")', r'"The string you provided: world\nHave a nice day!"'),
+    case("length", 'length("hello")', "5"),
+    case("length-latin-1", r'length("\xc1")', "1"),
+    case("substr", 'substr("hello", 1, 3)', '"el"'),
+    case("find", 'find("hello", "l", 0)', "2"),
+    case("find-absent", 'find("hello", "z", 0)', "-1"),
+    case("chr", "chr(65)", '"A"'),
+    case("ord", 'ord("A")', "65"),
+    case("ord-latin-1", r'ord("\xc1")', "193"),
+    case("chr-latin-1", "chr(193)", r'"\xc1"'),
+    case("from-string-latin-1", r'byteCount("\xc1")', "1"),
+    case("from-int", "fromInt(-42)", '"-42"'),
+    case("to-int", 'toInt("42")', "42"),
+    case("from-bool", "fromBool(true)", '"true"'),
+    case("to-bool", 'toBool("false")', "false"),
+    case("eq", 'same("a", "a")', "true"),
+    case("lt", 'before("abc", "abd")', "true"),
+    case("not-lt", 'before("b", "a")', "false"),
+    case("from-string", 'byteCount("hello")', "5"),
+    case("to-string", 'roundTrip("hi")', '"hi"'),
+    case("match-literal", 'greet("world")', '"hello, world"'),
+    case("match-latin-1", r'greet("\xc1")', r'"\xc1!"'),
+)
+
 CASES = (
     ("krs-builtin-int-ops", INT_OPS),
     ("krs-builtin-int-sign", INT_SIGN),
@@ -169,6 +204,7 @@ CASES = (
     ("krs-builtin-bytes-ops", BYTES_OPS),
     ("krs-builtin-set-ops", SET_OPS),
     ("krs-builtin-map-ops", MAP_OPS),
+    ("krs-builtin-strings", STRINGS),
 )
 
 
@@ -200,7 +236,11 @@ def main() -> int:
             harness.expand(fixture)
             emitted = harness.emit(fixture)
             harness.compare(emitted, programs, sort="Exp")
-            print(f"PASS {package}: {len(programs)} programs agree natively and on Java K")
+            pinned = len(harness.divergences.get(package, {}))
+            print(
+                f"PASS {package}: {len(programs) - pinned} programs agree natively and on Java K"
+                + (f"; {pinned} pinned divergences unchanged" if pinned else "")
+            )
 
     pins.finish("builtin-domains")
     print("PASS builtin-domains")

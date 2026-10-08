@@ -65,6 +65,9 @@ impl StructuredTermBuilder<'_> {
                     krs_ir::DescriptorLiteral::Bool(_) => {
                         SemanticSortRef::Builtin(BuiltinSort::Bool)
                     }
+                    krs_ir::DescriptorLiteral::String(_) => {
+                        SemanticSortRef::Builtin(BuiltinSort::String)
+                    }
                 };
                 if let Some(expected) = expected_sort
                     && !semantic_is_subsort(&sort, expected, self.sort_parents)
@@ -388,6 +391,12 @@ impl StructuredTermBuilder<'_> {
                     krs_ir::DescriptorLiteral::Bool(value) => (
                         SemanticSortRef::Builtin(BuiltinSort::Bool),
                         value.to_string(),
+                    ),
+                    krs_ir::DescriptorLiteral::String(value) => (
+                        SemanticSortRef::Builtin(BuiltinSort::String),
+                        krs_ir::string_token::encode(value).map_err(|error| {
+                            self.invalid_term(format!("string literal: {error}"))
+                        })?,
                     ),
                 };
                 Ok(SemanticTerm::token(

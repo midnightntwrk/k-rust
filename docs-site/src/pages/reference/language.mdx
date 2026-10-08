@@ -119,18 +119,26 @@ The claim-only boundary is enforced during macro expansion rather than being a s
 | unsuffixed decimal integer `N` (with `_` separators) | `Int` |
 | `-N` on an unsuffixed integer | signed `Int` |
 | `true`, `false` | `Bool` |
+| `"..."` and raw `r"..."` | `String` |
 
 The sign belongs to the literal: `-1` is one K `Int` token wherever a term may appear, in patterns as well as results, so `Sgn(-1)` and `Div { lhs, rhs: -1 }` match it.
 A literal is a value; `int::sub(0, 3)` is a call and cannot be matched as `-3`.
 K has no unary minus on `Int`, so a minus on anything but an integer literal (`-x`, `-(1)`, `--1`) is rejected with a pointer to `int::sub(0, x)`, and `-0` is rejected in favour of `0`.
 Rules lex `-1` with K's signed `INT-SYNTAX` even in a package with `int-literals = "unsigned"`, where a program's `-1` is instead a unary minus applied to `1`.
 
+A string literal is a K `String` token, in patterns as well as results, so `Greet("world")` matches it.
+K 7.1.337 strings hold code points U+0000 to U+00FF (Latin-1) only, so a code point above U+00FF is rejected; use `Bytes` for other data.
+KRS spells each value one way in the emitted K: `"\u{c1}"` in Rust is `"\xc1"` in K.
+A `char` literal is rejected (K has no `Char` sort; write `"a"`), and so is a byte string (write `k::bytes!(b"..")`).
+Code points from U+0080 to U+00FF do not yet behave the same on every backend: k-rust stores `"\xc1"` as one raw byte, so `string::ord` and `bytes::from_string` do not evaluate on it and `string::chr(193)` is a different value, and Java K's LLVM backend does not match a rule's `"\xc1"` against a program's.
+
 ## Framework and builtin sorts
 
 `KItem` is the framework top sort for computation items.
 `KResult` marks terms that count as evaluated results for strictness.
 `KSequence` is the symbolic computation sequence sort.
-The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
+The facade also exposes `Id`, `Int`, `Bool`, `Bytes`, `Endianness`, `Signedness`, `Map<K, V>`, `List<T>`, and `Set<T>`, plus `Cell<T>`, `KCell<T>`, and `CellFragment<Parent>` authoring wrappers.
+K's `String` sort is `string::String`: write `use k::builtin::string;` and `string::String`, so Rust's own `String` stays in scope (`k::builtin::String` remains as a root spelling).
 
 ## Builtin operation catalog
 
@@ -144,7 +152,8 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 | `builtin::map` | `update`, `get`, `get_or_default`, `in_keys`, `remove`, `remove_all`, `keys`, `keys_list`, `values`, `size`, `update_all` |
 | `builtin::list` | `empty`, `item`, `concat`, `get`, `update`, `size`, `make`, `range`, `update_all`, `contains` |
 | `builtin::set` | `empty`, `item`, `concat`, `union`, `difference`, `intersect`, `is_subset`, `size`, `contains`, `to_list`, `from_list` |
-| `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `pad_left`, `substr`, `concat`, `reverse`, `replace_at`, `from_int`, `from_int_no_len`, `to_int`, `little_endian`, `big_endian`, `signed`, `unsigned` |
+| `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `pad_left`, `substr`, `concat`, `reverse`, `replace_at`, `from_int`, `from_int_no_len`, `to_int`, `from_string`, `to_string`, `little_endian`, `big_endian`, `signed`, `unsigned` |
+| `builtin::string` | `concat`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `length`, `substr`, `find`, `chr`, `ord`, `from_int`, `to_int`, `from_bool`, `to_bool` |
 
 Every name follows one rule, so you can find an operation from K's documentation (`domains.md`) without a table.
 Find the K production; its module is the production's hook namespace in lowercase (`INT.tdiv` is in `int`, `SET.set2list` in `set`).
@@ -155,6 +164,7 @@ The four integer divisions therefore read exactly like Rust's: `int::div` and `i
 `bool::and_then` is K's `andThenBool`, not `Option::and_then`, and `map::get` and `map::get_or_default` are K's partial and total lookups, not `HashMap::get` returning an `Option`; a lookup's result is projected to the sort its position expects.
 `bytes::from_int`, `from_int_no_len`, and `to_int` take a byte order (`bytes::little_endian()` or `bytes::big_endian()`) and, where K does, a signedness (`bytes::signed()` or `bytes::unsigned()`), of the builtin sorts `Endianness` and `Signedness`.
 `set::to_list` and `set::from_list` come from K's `COLLECTIONS` module, which KRS imports when a rule uses them.
+`string::length` counts code points, `string::concat` (`+String`) takes time linear in its operands, and `string::to_int` is partial: it is undefined on text that is not a decimal integer, the analogue of `str::parse` returning `Err`.
 An operation enters the catalog only after one ground application evaluates both natively and on Java K's LLVM backend.
 
 Function hooks are a separate typed catalog selected in `#[k::function(..., hook = ...)]`.

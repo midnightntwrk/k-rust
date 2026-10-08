@@ -7,6 +7,7 @@ members = [
     "packages/int-sign-unsigned",
     "packages/map-ops",
     "packages/set-ops",
+    "packages/strings",
 ]
 resolver = "3"
 

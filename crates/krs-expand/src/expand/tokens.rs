@@ -28,6 +28,7 @@ pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
             krs_ir::DescriptorLiteral::Int(value.base10_digits().to_owned())
         }
         TermLiteral::Boolean(value) => krs_ir::DescriptorLiteral::Bool(value.value),
+        TermLiteral::String(value) => krs_ir::DescriptorLiteral::String(value.value()),
     }
 }
 

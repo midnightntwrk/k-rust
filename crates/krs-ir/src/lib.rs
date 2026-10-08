@@ -34,6 +34,7 @@ pub mod provenance;
 pub mod provenance_role;
 pub mod refined;
 pub mod sorted;
+pub mod string_token;
 pub use refined::{AtLeastTwo, AtLeastTwoError, NonEmpty};
 pub mod stable_text;
 pub mod stage;

@@ -891,12 +891,17 @@ impl Sample for DescriptorConfigurationRoot {
 impl Sample for DescriptorLiteral {
     fn samples() -> Vec<Self> {
         checked_samples(
-            vec![Self::Int(sample::<String>()), Self::Bool(sample::<bool>())],
-            2,
+            vec![
+                Self::Int(sample::<String>()),
+                Self::Bool(sample::<bool>()),
+                Self::String(sample::<String>()),
+            ],
+            3,
             "DescriptorLiteral",
             |value| match value {
                 Self::Int(..) => 0,
                 Self::Bool(..) => 1,
+                Self::String(..) => 2,
             },
         )
     }

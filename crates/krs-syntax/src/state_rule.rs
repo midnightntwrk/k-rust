@@ -1344,7 +1344,9 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
         TermNode::Literal(TermLiteral::Integer(value)) => Ok(value.range()),
         TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value),
-        TermNode::IdToken(value) => TokenRange::for_tokens(value),
+        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => {
+            TokenRange::for_tokens(value)
+        }
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
         TermNode::OrBool(range) => Ok(*range),
@@ -1356,7 +1358,7 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::ApplicationHead(path) | TermNode::Reference(path) => path.span(),
         TermNode::Literal(TermLiteral::Integer(value)) => value.span(),
         TermNode::Literal(TermLiteral::Boolean(value)) => value.span(),
-        TermNode::IdToken(value) => value.span(),
+        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
         TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
         TermNode::OrBool(range) => range.first(),
