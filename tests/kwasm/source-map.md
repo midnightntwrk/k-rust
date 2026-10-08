@@ -118,6 +118,8 @@ equation surface, and feed subtraction a nonnegative shifted value. This is an
 exact implementation for the selected rules and avoids expanding the builtin
 protocol without evidence that it is needed. A later operation that genuinely
 requires K's modulo identity may reopen the builtin question.
+KRS has since exposed `_modInt_` as `int::rem_euclid` (and `_%Int_` as
+`int::rem`); the KWasm port keeps its wrap function, whose emitted K is unchanged.
 
 The implemented constant rules also shift accepted signed literals by one modulus before applying the same reduction.
 This matches KWasm's accepted i32/i64 literal ranges, including `-1`, without adding a modulo builtin.

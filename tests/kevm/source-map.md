@@ -113,7 +113,7 @@ The token transport is canonical lower hexadecimal and rejects malformed or nonc
 Reference expansion reconstructs `k::bytes!(b"...")` without retaining target-specific token text in authored Rust.
 
 Descriptor protocol 19 and Definition IR schema 12 select K's builtin `INT.mod` operation.
-KRS emits `int::modulo(A, B)` exactly as `A modInt B` and preserves that typed builtin identity through descriptors, Semantic IR, Definition IR, reference expansion, and native adaptation.
+KRS emits `int::rem_euclid(A, B)` (named `int::modulo` before the builtin naming rule; Rust's `i64::rem_euclid` has the same semantics) exactly as `A modInt B` and preserves that typed builtin identity through descriptors, Semantic IR, Definition IR, reference expansion, and native adaptation.
 `#kevmChop` now uses the pinned operation directly, matching upstream behavior for negative subtraction intermediates rather than approximating Euclidean modulus with truncating division.
 
 Descriptor protocol 20 and Definition IR schema 13 select the pinned integer operations required by the Shanghai pure-word tranche: modular exponentiation, base-two logarithm, left and right shifts, and bitwise `and`, `xor`, and `or`.

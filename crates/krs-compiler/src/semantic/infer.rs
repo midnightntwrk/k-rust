@@ -148,6 +148,7 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorApplicationRef::Builtin(operation) => {
                 builtin_production_signature(*operation)
+                    .ok_or_else(|| self.sort_generic_builtin(*operation))?
             }
             DescriptorApplicationRef::Map(operation) => {
                 self.infer_collection_operation(*operation, arguments, expected_sort, subject)?;
@@ -454,7 +455,8 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorApplicationRef::Builtin(operation) => (
                 ApplicationRef::Builtin(*operation),
-                builtin_production_signature(*operation),
+                builtin_production_signature(*operation)
+                    .ok_or_else(|| self.sort_generic_builtin(*operation))?,
             ),
             DescriptorApplicationRef::Map(operation) => {
                 let (result_sort, operands) =
@@ -709,6 +711,12 @@ impl StructuredTermBuilder<'_> {
         ))
     }
 
+    fn sort_generic_builtin(&self, operation: BuiltinOperation) -> DescriptorLoweringError {
+        self.invalid_term(format!(
+            "builtin operation {operation} has a sort-generic signature"
+        ))
+    }
+
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::InvalidTerm {
             id: Box::new(self.descriptor.id().clone()),
@@ -765,22 +773,23 @@ fn most_specific_common_descendants(
         .collect()
 }
 
-fn builtin_production_signature(operation: BuiltinOperation) -> ProductionSignature {
-    ProductionSignature {
-        result_sort: SemanticSortRef::Builtin(operation.result_sort()),
+/// The fixed signature of a builtin operation whose catalog sorts are all builtin sorts.
+fn builtin_production_signature(operation: BuiltinOperation) -> Option<ProductionSignature> {
+    Some(ProductionSignature {
+        result_sort: SemanticSortRef::Builtin(operation.result_sort().builtin()?),
         fields: operation
             .argument_sorts()
             .iter()
             .enumerate()
             .map(|(index, sort)| {
-                (
+                Some((
                     ProductionFieldId::new(format!("argument_{index}"))
                         .expect("builtin field identity is valid"),
-                    SemanticSortRef::Builtin(*sort),
-                )
+                    SemanticSortRef::Builtin(sort.builtin()?),
+                ))
             })
-            .collect(),
-    }
+            .collect::<Option<_>>()?,
+    })
 }
 
 struct UpdateArguments<'a> {

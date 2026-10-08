@@ -102,7 +102,9 @@ fn builtin_token_precedence(sort: BuiltinSort, value: &str) -> Option<Precedence
         | BuiltinSort::KSequence
         | BuiltinSort::Map
         | BuiltinSort::List
-        | BuiltinSort::Set => None,
+        | BuiltinSort::Set
+        | BuiltinSort::Endianness
+        | BuiltinSort::Signedness => None,
     }
 }
 

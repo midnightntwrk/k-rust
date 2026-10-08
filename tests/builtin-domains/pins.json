@@ -1,0 +1,338 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-builtin-int-ops": "b4dfd882f87bc0ca7a0bb53c3979c433a3f270907ab42d655851158fe0da7f57",
+    "krs-builtin-bool-ops": "57f55087ec0741edf63b488a53fd13a6e079b0ed3b1f019097d2a1a2f5c919bc",
+    "krs-builtin-bytes-ops": "563494860541932f270323b17c09cb13455d77809821e0f7c8ef450cd3a15a7d",
+    "krs-builtin-set-ops": "4982a447eb3ec15b98fb6deb6a6b2cb9639877baba1cc762916b5da5832827eb",
+    "krs-builtin-map-ops": "b60d9bfe74a78cfd0d374c0fc01a084929f4b60ea2a3008fa0bf3bbec02ec8a1"
+  },
+  "emitted": {
+    "krs-builtin-int-ops": {
+      "definition.k": "0ccc40ede000a07eb39123f48809f7b70ad59b6d377650ca96e59e0f3a52215f"
+    },
+    "krs-builtin-bool-ops": {
+      "definition.k": "a384d55cae6d521a3a46db2d36ac51193f1f1df3b578d64b961f449324c9aa84"
+    },
+    "krs-builtin-bytes-ops": {
+      "definition.k": "b2d4d5573940430bf4b698ede52c46185135be5afa0c001f21cb0b2dc310b3e5"
+    },
+    "krs-builtin-set-ops": {
+      "definition.k": "1b68da78eb93fb66827a288b42e608ff3dceadfd28d02a5ea06e7be4d2a762d1"
+    },
+    "krs-builtin-map-ops": {
+      "definition.k": "0fbeaf57c811f2b930b953a11116e418d3de872c07139bbe882515e5278b0a17"
+    }
+  },
+  "reference_sha256": {
+    "krs-builtin-int-ops": "5b093634c8cb4154a501a79b7735bfb6199af89bb1bb2279d5cd987fee41885c",
+    "krs-builtin-bool-ops": "cc859734215c55f5b93bb49e459e6ac25daa22ea67dc3e90dfe55b28528ac976",
+    "krs-builtin-bytes-ops": "3305bf128f6d52349f475b2607265e49918542ba97e440c55359e12c8bb3e164",
+    "krs-builtin-set-ops": "547e8bfbb49db07d6bde2380c1f63239e906bf72f213e38fd55f90edc1899e2b",
+    "krs-builtin-map-ops": "ca7ca06593d1c493e998bda7764c454fd95d68e78f92d937086dbd35767178ae"
+  },
+  "outcomes": {
+    "krs-builtin-int-ops": {
+      "add": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "sub": {
+        "parse": "accepted",
+        "run": "-3"
+      },
+      "mul": {
+        "parse": "accepted",
+        "run": "-21"
+      },
+      "div": {
+        "parse": "accepted",
+        "run": "-2"
+      },
+      "rem": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "div-euclid": {
+        "parse": "accepted",
+        "run": "-3"
+      },
+      "rem-euclid": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "pow": {
+        "parse": "accepted",
+        "run": "1024"
+      },
+      "pow-mod": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "shift-left": {
+        "parse": "accepted",
+        "run": "48"
+      },
+      "shift-right": {
+        "parse": "accepted",
+        "run": "-4"
+      },
+      "bit-and": {
+        "parse": "accepted",
+        "run": "8"
+      },
+      "bit-or": {
+        "parse": "accepted",
+        "run": "14"
+      },
+      "bit-xor": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "bit-not": {
+        "parse": "accepted",
+        "run": "-6"
+      },
+      "min": {
+        "parse": "accepted",
+        "run": "-4"
+      },
+      "max": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "abs": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "log2": {
+        "parse": "accepted",
+        "run": "10"
+      },
+      "bit-range": {
+        "parse": "accepted",
+        "run": "35"
+      },
+      "sign-extend-bit-range": {
+        "parse": "accepted",
+        "run": "-1"
+      },
+      "divides": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-divides": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ne": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "lt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "le": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "gt": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ge": {
+        "parse": "accepted",
+        "run": "true"
+      }
+    },
+    "krs-builtin-bool-ops": {
+      "not": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "or": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "xor": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "implies": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "implies-vacuous": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "and-then": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "or-else": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "eq": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "ne": {
+        "parse": "accepted",
+        "run": "true"
+      }
+    },
+    "krs-builtin-bytes-ops": {
+      "empty": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "length": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "get": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "update": {
+        "parse": "accepted",
+        "run": "b\"\\xff\\x02\""
+      },
+      "substr": {
+        "parse": "accepted",
+        "run": "b\"\\x02\\x03\""
+      },
+      "pad-right": {
+        "parse": "accepted",
+        "run": "b\"\\x01\\x00\\x00\""
+      },
+      "pad-left": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\x00\\x01\""
+      },
+      "concat": {
+        "parse": "accepted",
+        "run": "b\"\\x01\\x02\\x03\""
+      },
+      "reverse": {
+        "parse": "accepted",
+        "run": "b\"\\x02\\x01\""
+      },
+      "replace-at": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\xff\\x00\""
+      },
+      "from-int": {
+        "parse": "accepted",
+        "run": "b\"\\x00\\x00\\x01\\x02\""
+      },
+      "from-int-no-len": {
+        "parse": "accepted",
+        "run": "b\"\\xff\""
+      },
+      "to-int-unsigned": {
+        "parse": "accepted",
+        "run": "513"
+      },
+      "to-int-signed": {
+        "parse": "accepted",
+        "run": "-2"
+      }
+    },
+    "krs-builtin-set-ops": {
+      "difference": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "intersect": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "union-size": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "is-subset": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-subset": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "contains": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "to-list": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "from-list": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "list-contains": {
+        "parse": "accepted",
+        "run": "false"
+      }
+    },
+    "krs-builtin-map-ops": {
+      "remove": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "remove-absent": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "remove-all": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "keys": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "keys-absent": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "keys-list": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "values": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "size": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "update-all": {
+        "parse": "accepted",
+        "run": "10"
+      },
+      "get-or-default": {
+        "parse": "accepted",
+        "run": "20"
+      },
+      "get-or-default-absent": {
+        "parse": "accepted",
+        "run": "7"
+      }
+    }
+  }
+}

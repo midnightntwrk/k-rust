@@ -1222,135 +1222,87 @@ macro_rules! type_keys {
 }
 
 type_keys! {
-    k_sequence_key => u8,
     int_key => u16,
-    bool_key => u32,
-    map_key => i8,
-    id_key => i16,
-    bytes_key => i32,
-    string_key => (u8,),
-    list_key => i64,
-    set_key => i128,
-    int_add_key => (u8, u8),
-    int_sub_key => (u8, u16),
-    int_mul_key => (u8, u32),
     int_tdiv_key => (u8, u64),
     int_mod_key => (u8, i8),
     int_pow_mod_key => (u8, i16),
-    int_log2_key => (u8, i32),
-    int_shift_right_key => (u8, i64),
     int_shift_left_key => (u16, i8),
-    int_bit_and_key => (u16, i16),
     int_bit_xor_key => (u16, i32),
-    int_bit_or_key => (u16, i64),
-    int_ge_key => (u16, u8),
-    int_gt_key => (u16, u16),
-    int_le_key => (u16, u32),
-    int_lt_key => (u16, u64),
-    int_eq_key => (u32, u8),
-    int_ne_key => (u32, u16),
-    bool_not_key => (u32, u32),
-    bool_eq_key => (u32, u64),
-    bool_ne_key => (u64, u8),
-    bool_and_key => (u64, u16),
-    bool_or_key => (u64, u32),
-    bytes_length_key => (i64, u8),
-    bytes_get_key => (i64, u16),
-    bytes_empty_key => (i64, u32),
-    bytes_update_key => (i64, u64),
-    bytes_pad_right_key => (i128, u8),
-    bytes_substring_key => (i128, u16),
     map_update_key => (u64, u64),
-    map_get_key => (u64, i8),
-    map_in_keys_key => (u64, i16),
-    list_empty_key => (i8, u8),
-    list_item_key => (i8, u16),
-    list_concat_key => (i8, u32),
     list_get_key => (i8, u64),
-    list_update_key => (i16, u8),
-    list_size_key => (i16, u16),
     list_make_key => (i16, i32),
     list_range_key => (i16, u32),
     list_update_all_key => (i16, u64),
-    set_empty_key => (i32, u8),
-    set_item_key => (i32, u16),
-    set_concat_key => (i32, u32),
-    set_union_key => (i32, i64),
-    set_contains_key => (i32, u64),
+}
+
+/// One distinct Rust type per index, for the catalog entries this test does not name.
+struct Marker<const N: usize>;
+
+fn marker<const N: usize>() -> TypeId {
+    TypeId::of::<Marker<N>>()
+}
+
+macro_rules! markers {
+    ($($index:literal)*) => {
+        [$(marker::<$index> as fn() -> TypeId),*]
+    };
+}
+
+fn filler<const N: usize>(offset: usize) -> [HostTypeKey; N] {
+    let table = markers!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191);
+    std::array::from_fn(|index| HostTypeKey(table[offset + index]))
+}
+
+fn place<T: PartialEq, const N: usize>(
+    keys: &mut [HostTypeKey; N],
+    all: &[T; N],
+    member: &T,
+    key: fn() -> TypeId,
+) {
+    let index = all
+        .iter()
+        .position(|candidate| candidate == member)
+        .expect("catalog member");
+    keys[index] = HostTypeKey(key);
 }
 
 fn registry() -> HostBuiltinRegistry {
-    let sorts = [
-        HostTypeKey(k_sequence_key),
-        HostTypeKey(int_key),
-        HostTypeKey(bool_key),
-        HostTypeKey(map_key),
-        HostTypeKey(id_key),
-        HostTypeKey(bytes_key),
-        HostTypeKey(string_key),
-        HostTypeKey(list_key),
-        HostTypeKey(set_key),
-    ];
-    let operations = [
-        HostTypeKey(int_add_key),
-        HostTypeKey(int_sub_key),
-        HostTypeKey(int_mul_key),
-        HostTypeKey(int_tdiv_key),
-        HostTypeKey(int_mod_key),
-        HostTypeKey(int_pow_mod_key),
-        HostTypeKey(int_log2_key),
-        HostTypeKey(int_shift_right_key),
-        HostTypeKey(int_shift_left_key),
-        HostTypeKey(int_bit_and_key),
-        HostTypeKey(int_bit_xor_key),
-        HostTypeKey(int_bit_or_key),
-        HostTypeKey(int_ge_key),
-        HostTypeKey(int_gt_key),
-        HostTypeKey(int_le_key),
-        HostTypeKey(int_lt_key),
-        HostTypeKey(int_eq_key),
-        HostTypeKey(int_ne_key),
-        HostTypeKey(bool_not_key),
-        HostTypeKey(bool_eq_key),
-        HostTypeKey(bool_ne_key),
-        HostTypeKey(bool_and_key),
-        HostTypeKey(bool_or_key),
-        HostTypeKey(bytes_length_key),
-        HostTypeKey(bytes_get_key),
-        HostTypeKey(bytes_empty_key),
-        HostTypeKey(bytes_update_key),
-        HostTypeKey(bytes_pad_right_key),
-        HostTypeKey(bytes_substring_key),
-    ];
-    let map_operations = [
-        HostTypeKey(map_update_key),
-        HostTypeKey(map_get_key),
-        HostTypeKey(map_in_keys_key),
-    ];
-    let list_operations = [
-        HostTypeKey(list_empty_key),
-        HostTypeKey(list_item_key),
-        HostTypeKey(list_concat_key),
-        HostTypeKey(list_get_key),
-        HostTypeKey(list_update_key),
-        HostTypeKey(list_size_key),
-        HostTypeKey(list_make_key),
-        HostTypeKey(list_range_key),
-        HostTypeKey(list_update_all_key),
-    ];
-    let set_operations = [
-        HostTypeKey(set_empty_key),
-        HostTypeKey(set_item_key),
-        HostTypeKey(set_concat_key),
-        HostTypeKey(set_union_key),
-        HostTypeKey(set_contains_key),
-    ];
+    let mut sorts = filler(0);
+    place(&mut sorts, &BuiltinSort::ALL, &BuiltinSort::Int, int_key);
+    let mut operations = filler(BuiltinSort::ALL.len());
+    for (operation, key) in [
+        (BuiltinOperation::IntTDiv, int_tdiv_key as fn() -> TypeId),
+        (BuiltinOperation::IntMod, int_mod_key),
+        (BuiltinOperation::IntPowMod, int_pow_mod_key),
+        (BuiltinOperation::IntShiftLeft, int_shift_left_key),
+        (BuiltinOperation::IntBitXor, int_bit_xor_key),
+    ] {
+        place(&mut operations, &BuiltinOperation::ALL, &operation, key);
+    }
+    let map_offset = BuiltinSort::ALL.len() + BuiltinOperation::ALL.len();
+    let mut map_operations = filler(map_offset);
+    place(
+        &mut map_operations,
+        &TermMapOperation::ALL,
+        &TermMapOperation::Update,
+        map_update_key,
+    );
+    let list_offset = map_offset + TermMapOperation::ALL.len();
+    let mut list_operations = filler(list_offset);
+    for (operation, key) in [
+        (ListOperation::Get, list_get_key as fn() -> TypeId),
+        (ListOperation::Make, list_make_key),
+        (ListOperation::Range, list_range_key),
+        (ListOperation::UpdateAll, list_update_all_key),
+    ] {
+        place(&mut list_operations, &ListOperation::ALL, &operation, key);
+    }
     HostBuiltinRegistry {
         sorts,
         operations,
         map_operations,
         list_operations,
-        set_operations,
+        set_operations: filler(list_offset + ListOperation::ALL.len()),
     }
 }
 

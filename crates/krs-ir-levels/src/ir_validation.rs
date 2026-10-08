@@ -10,8 +10,9 @@ use krs_ir::{
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
-    HookSortConstraint, ListOperation, MapOperation, PrecedenceRelation, ProductionAttribute,
-    ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind, SetOperation, SourceMapKey,
+    HookSortConstraint, ListOperation, MapOperation, OperationSort, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1031,20 +1032,24 @@ pub(crate) fn validate_term<L: Validation>(
             application,
             arguments,
         } => {
-            let signature = match application {
+            let holds = match application {
                 ApplicationRef::Declared(production) => {
-                    L::application_signature(declarations, signatures, production)?
+                    let (result_sort, argument_sorts) =
+                        L::application_signature(declarations, signatures, production)?;
+                    *term.sort() == result_sort
+                        && arguments.len() == argument_sorts.len()
+                        && arguments
+                            .iter()
+                            .zip(&argument_sorts)
+                            .all(|(argument, sort)| {
+                                is_subsort::<L>(argument.sort(), sort, sort_parents)
+                            })
                 }
-                ApplicationRef::Builtin(operation) => builtin_signature::<L>(*operation),
+                ApplicationRef::Builtin(operation) => {
+                    builtin_application_holds::<L>(*operation, term.sort(), arguments, sort_parents)
+                }
             };
-            let (result_sort, argument_sorts) = signature;
-            if *term.sort() != result_sort
-                || arguments.len() != argument_sorts.len()
-                || arguments
-                    .iter()
-                    .zip(&argument_sorts)
-                    .any(|(argument, sort)| !is_subsort::<L>(argument.sort(), sort, sort_parents))
-            {
+            if !holds {
                 return match application {
                     ApplicationRef::Declared(production) => Err(L::error(
                         ValidationError::ApplicationSignature(production.clone()),
@@ -1444,18 +1449,40 @@ fn has_duplicate_fields(fields: &[ProductionFieldId]) -> bool {
     fields.iter().any(|field| !unique.insert(field))
 }
 
-pub(crate) fn builtin_signature<L: Validation>(
+/// Whether a builtin application's sorts fit its catalog signature.
+///
+/// A `K` argument admits any sort. Every `Parameter` position shares one
+/// instance: the application's sort when the result is `Parameter`, so each
+/// `Parameter` argument must be a subsort of it.
+pub(crate) fn builtin_application_holds<L: Validation>(
     operation: BuiltinOperation,
-) -> (L::Sort, Vec<L::Sort>) {
-    (
-        L::builtin_sort(operation.result_sort()),
-        operation
-            .argument_sorts()
+    sort: &L::Sort,
+    arguments: &[IrTerm<L>],
+    sort_parents: &SortParents<L>,
+) -> bool {
+    let instance = match operation.result_sort() {
+        OperationSort::Builtin(result) => {
+            if *sort != L::builtin_sort(result) {
+                return false;
+            }
+            None
+        }
+        OperationSort::Parameter => Some(sort),
+        OperationSort::K => None,
+    };
+    arguments.len() == operation.argument_sorts().len()
+        && arguments
             .iter()
-            .copied()
-            .map(L::builtin_sort)
-            .collect(),
-    )
+            .zip(operation.argument_sorts())
+            .all(|(argument, expected)| match expected {
+                OperationSort::Builtin(expected) => {
+                    is_subsort::<L>(argument.sort(), &L::builtin_sort(*expected), sort_parents)
+                }
+                OperationSort::K => true,
+                OperationSort::Parameter => instance.is_none_or(|instance| {
+                    is_subsort::<L>(argument.sort(), instance, sort_parents)
+                }),
+            })
 }
 
 pub(crate) fn validate_precedence_order<L: Validation>(

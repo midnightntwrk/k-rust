@@ -2677,7 +2677,7 @@ fn decode_array_elements_done(
 #[k::requires(bool::and(
     int::gt(ElementSize { types, info }, 0),
     int::eq(
-        int::modulo(bytes::length(bytes), ElementSize { types, info }),
+        int::rem_euclid(bytes::length(bytes), ElementSize { types, info }),
         0,
     ),
 ))]
@@ -4545,7 +4545,7 @@ fn truncate_unsigned_nonpositive(
 fn truncate_unsigned_positive(
     k::term![TruncateUnsigned { value, width }]: k::Term<Int>,
 ) -> k::Term<Int> {
-    k::term![int::modulo(value, int::shift_left(1, width))]
+    k::term![int::rem_euclid(value, int::shift_left(1, width))]
 }
 
 #[k::requires(int::le(width, 0))]

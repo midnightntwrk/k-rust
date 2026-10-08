@@ -36,7 +36,12 @@ fn int(value: &str) -> Pattern {
 
 fn builtin(operation: BuiltinOperation, arguments: Vec<Pattern>) -> Pattern {
     Pattern::Application {
-        sort: SemanticSortRef::Builtin(operation.result_sort()),
+        sort: SemanticSortRef::Builtin(
+            operation
+                .result_sort()
+                .builtin()
+                .expect("these fixtures use operations with a fixed result sort"),
+        ),
         application: ApplicationRef::Builtin(operation),
         arguments,
     }

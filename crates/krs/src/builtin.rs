@@ -79,7 +79,7 @@ pub struct Map<K = Id, V = ()> {
 
 /// Ordinary finite-map term operations.
 pub mod map {
-    use super::{Id, Map};
+    use super::{Id, Map, Set};
 
     /// Persistent update of one typed map entry.
     ///
@@ -109,8 +109,50 @@ pub mod map {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct InKeys<K = Id, V = ()>(pub K, pub Map<K, V>);
 
+    /// Removal of one key, `M [ K <- undef ]`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Remove<K = Id, V = ()>(pub Map<K, V>, pub K);
+
+    /// Removal of every key of a set, `removeAll(M, S)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct RemoveAll<K = Id, V = ()>(pub Map<K, V>, pub Set<K>);
+
+    /// The set of keys, `keys(M)`, typed `Set<K>`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Keys<K = Id, V = ()>(pub Map<K, V>);
+
+    /// The keys as a list, `keys_list(M)`, typed `List<K>`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct KeysList<K = Id, V = ()>(pub Map<K, V>);
+
+    /// The values as a list, `values(M)`, typed `List<V>`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Values<K = Id, V = ()>(pub Map<K, V>);
+
+    /// The number of entries, `size(M)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Size<K = Id, V = ()>(pub Map<K, V>);
+
+    /// Update with every entry of a second map, `updateMap(M1, M2)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct UpdateAll<K = Id, V = ()>(pub Map<K, V>, pub Map<K, V>);
+
+    /// Total lookup with a default, `M [ K ] orDefault D`.
+    ///
+    /// Like [`get`], this is K's lookup, not `HashMap::get` returning an
+    /// `Option`: the result is the value itself, projected to the sort expected
+    /// where the application occurs.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct GetOrDefault<K = Id, V = ()>(pub Map<K, V>, pub K, pub V);
+
     pub use Get as get;
+    pub use GetOrDefault as get_or_default;
     pub use InKeys as in_keys;
+    pub use Keys as keys;
+    pub use KeysList as keys_list;
+    pub use Remove as remove;
+    pub use RemoveAll as remove_all;
+    pub use Size as size;
     /// Readable function-shaped spelling of a persistent update.
     ///
     /// Re-exporting the tuple struct, instead of defining a wrapper
@@ -118,6 +160,8 @@ pub mod map {
     /// namespaces. Module, facade, and local aliases therefore remain
     /// exact KRS application heads.
     pub use Update as update;
+    pub use UpdateAll as update_all;
+    pub use Values as values;
 }
 
 impl<K, V> Map<K, V> {
@@ -194,7 +238,12 @@ pub mod list {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct UpdateAll<T = ()>(pub List<T>, pub Int, pub List<T>);
 
+    /// Marker for list membership, `K in L` (K's `_inList_`).
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Contains<T = ()>(pub T, pub List<T>);
+
     pub use Concat as concat;
+    pub use Contains as contains;
     pub use Empty as empty;
     pub use Get as get;
     pub use Item as item;
@@ -224,7 +273,7 @@ impl<T> Set<T> {
 
 /// Ordinary operations from K's pinned `SET` module.
 pub mod set {
-    use super::Set;
+    use super::{List, Set};
 
     /// Marker for `.Set`.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -246,10 +295,40 @@ pub mod set {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Contains<T = ()>(pub T, pub Set<T>);
 
+    /// Marker for set difference, `S1 -Set S2`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Difference<T = ()>(pub Set<T>, pub Set<T>);
+
+    /// Marker for set intersection, `intersectSet(S1, S2)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Intersect<T = ()>(pub Set<T>, pub Set<T>);
+
+    /// Marker for `size(Set)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Size<T = ()>(pub Set<T>);
+
+    /// Marker for set inclusion, `S1 <=Set S2`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct IsSubset<T = ()>(pub Set<T>, pub Set<T>);
+
+    /// Marker for `Set2List(S)` from K's `COLLECTIONS` module.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ToList<T = ()>(pub Set<T>);
+
+    /// Marker for `List2Set(L)` from K's `COLLECTIONS` module.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromList<T = ()>(pub List<T>);
+
     pub use Concat as concat;
     pub use Contains as contains;
+    pub use Difference as difference;
     pub use Empty as empty;
+    pub use FromList as from_list;
+    pub use Intersect as intersect;
+    pub use IsSubset as is_subset;
     pub use Item as item;
+    pub use Size as size;
+    pub use ToList as to_list;
     pub use Union as union;
 }
 
@@ -279,9 +358,53 @@ pub mod int {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Div(pub Int, pub Int);
 
-    /// Marker for Euclidean integer modulus, with its Rust-checked operand shape.
+    /// Marker for the Euclidean remainder `modInt`, which is never negative,
+    /// exactly like `i64::rem_euclid`.
+    #[doc(alias = "modulo")]
+    #[doc(alias = "modInt")]
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    pub struct Mod(pub Int, pub Int);
+    pub struct RemEuclid(pub Int, pub Int);
+
+    /// Marker for the truncating remainder `%Int`, which takes the dividend's
+    /// sign, exactly like Rust's `%`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Rem(pub Int, pub Int);
+
+    /// Marker for the Euclidean quotient `divInt`, exactly like `i64::div_euclid`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct DivEuclid(pub Int, pub Int);
+
+    /// Marker for exponentiation `^Int`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Pow(pub Int, pub Int);
+
+    /// Marker for the two's-complement bitwise complement `~Int`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct BitNot(pub Int);
+
+    /// Marker for `minInt`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Min(pub Int, pub Int);
+
+    /// Marker for `maxInt`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Max(pub Int, pub Int);
+
+    /// Marker for `absInt`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Abs(pub Int);
+
+    /// Marker for `dividesInt`: whether the first operand divides the second.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Divides(pub Int, pub Int);
+
+    /// Marker for `bitRangeInt(value, index, length)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct BitRange(pub Int, pub Int, pub Int);
+
+    /// Marker for `signExtendBitRangeInt(value, index, length)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct SignExtendBitRange(pub Int, pub Int, pub Int);
 
     /// Marker for modular integer exponentiation.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -339,22 +462,32 @@ pub mod int {
     // therefore callable in value position and usable in
     // `TypeId::of::<...>()` in type position.
     pub use self::Eq as eq;
+    pub use Abs as abs;
     pub use Add as add;
     pub use BitAnd as bit_and;
+    pub use BitNot as bit_not;
     pub use BitOr as bit_or;
+    pub use BitRange as bit_range;
     pub use BitXor as bit_xor;
     pub use Div as div;
+    pub use DivEuclid as div_euclid;
+    pub use Divides as divides;
     pub use Ge as ge;
     pub use Gt as gt;
     pub use Le as le;
     pub use Log2 as log2;
     pub use Lt as lt;
-    pub use Mod as modulo;
+    pub use Max as max;
+    pub use Min as min;
     pub use Mul as mul;
     pub use Ne as ne;
+    pub use Pow as pow;
     pub use PowMod as pow_mod;
+    pub use Rem as rem;
+    pub use RemEuclid as rem_euclid;
     pub use ShiftLeft as shift_left;
     pub use ShiftRight as shift_right;
+    pub use SignExtendBitRange as sign_extend_bit_range;
     pub use Sub as sub;
 }
 
@@ -390,11 +523,33 @@ pub mod bool {
 
     // See the integer family: these aliases preserve constructor and type
     // identity while exposing the idiomatic authored spelling.
+    /// Marker for `xorBool`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Xor(pub Bool, pub Bool);
+
+    /// Marker for `impliesBool`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Implies(pub Bool, pub Bool);
+
+    /// Marker for `andThenBool`, a conjunction concrete backends may
+    /// short-circuit. It is K's operator, not `Option::and_then`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct AndThen(pub Bool, pub Bool);
+
+    /// Marker for `orElseBool`, a disjunction concrete backends may
+    /// short-circuit.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct OrElse(pub Bool, pub Bool);
+
     pub use self::Eq as eq;
     pub use And as and;
+    pub use AndThen as and_then;
+    pub use Implies as implies;
     pub use Ne as ne;
     pub use Not as not;
     pub use Or as or;
+    pub use OrElse as or_else;
+    pub use Xor as xor;
 }
 
 /// Builtin operations and sort marker from K's pinned `BYTES` domain.
@@ -429,11 +584,75 @@ pub mod bytes {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Substr(pub Bytes, pub Int, pub Int);
 
+    /// Marker for concatenation `+Bytes`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Concat(pub Bytes, pub Bytes);
+
+    /// Marker for left padding.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct PadLeft(pub Bytes, pub Int, pub Int);
+
+    /// Marker for `reverseBytes`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Reverse(pub Bytes);
+
+    /// Marker for `replaceAtBytes(dest, index, src)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ReplaceAt(pub Bytes, pub Int, pub Bytes);
+
+    /// Marker for K's `Endianness` sort (`LE` or `BE`).
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Endianness;
+
+    /// Marker for K's `Signedness` sort (`Signed` or `Unsigned`).
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Signedness;
+
+    /// Marker for `LE`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct LittleEndian;
+
+    /// Marker for `BE`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct BigEndian;
+
+    /// Marker for `Signed`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Signed;
+
+    /// Marker for `Unsigned`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Unsigned;
+
+    /// Marker for `Int2Bytes(length, value, endianness)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromInt(pub Int, pub Int, pub Endianness);
+
+    /// Marker for `Int2Bytes(value, endianness, signedness)`, the shortest
+    /// encoding of the value.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct FromIntNoLen(pub Int, pub Endianness, pub Signedness);
+
+    /// Marker for `Bytes2Int(bytes, endianness, signedness)`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct ToInt(pub Bytes, pub Endianness, pub Signedness);
+
+    pub use BigEndian as big_endian;
+    pub use Concat as concat;
     pub use Empty as empty;
+    pub use FromInt as from_int;
+    pub use FromIntNoLen as from_int_no_len;
     pub use Get as get;
     pub use Length as length;
+    pub use LittleEndian as little_endian;
+    pub use PadLeft as pad_left;
     pub use PadRight as pad_right;
+    pub use ReplaceAt as replace_at;
+    pub use Reverse as reverse;
+    pub use Signed as signed;
     pub use Substr as substr;
+    pub use ToInt as to_int;
+    pub use Unsigned as unsigned;
     pub use Update as update;
 }
 
@@ -441,6 +660,10 @@ pub mod bytes {
 pub use bool::Bool;
 /// Convenient root spelling of the builtin byte-string sort marker.
 pub use bytes::Bytes;
+/// Root spelling of the builtin byte-order sort marker.
+pub use bytes::Endianness;
+/// Root spelling of the builtin integer-interpretation sort marker.
+pub use bytes::Signedness;
 /// Marker for K's string token sort from `STRING-SYNTAX`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct String;

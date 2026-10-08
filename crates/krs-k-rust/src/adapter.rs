@@ -405,4 +405,6 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
 }
 
 #[cfg(test)]
+mod catalog_tests;
+#[cfg(test)]
 mod tests;

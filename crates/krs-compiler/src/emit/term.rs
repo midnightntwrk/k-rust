@@ -1,7 +1,7 @@
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperationNotation, CollectionNotation,
     CollectionOperationSpec, GrammarProductionItemKind, MapOperation, ProductionAttribute,
-    ProductionGroupId, SemanticId, SemanticIdKind, SourceMapKey,
+    ProductionGroupId, SemanticId, SemanticIdKind, SetOperation, SourceMapKey,
 };
 use krs_ir_levels::{
     DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands, ProductionSentence,
@@ -342,6 +342,89 @@ fn render_builtin_argument(
     Ok(output)
 }
 
+/// The open ends of an operator-shaped collection term: whether its K spelling
+/// begins (`.0`) or ends (`.1`) with one of its own operands, as `S1 -Set S2`,
+/// `K in S`, and `M [ K <- undef ]` (open at the left only) do. A projected
+/// lookup is braced, so it is closed.
+fn collection_open_ends(term: &DefinitionTerm) -> Option<(bool, bool)> {
+    let spec = match term.kind() {
+        DefinitionTermKind::Map(operands) => {
+            if matches!(**operands, MapOperands::Items(_)) {
+                return Some((true, true));
+            }
+            operands.operation().spec()
+        }
+        DefinitionTermKind::List(operands) => operands.operation().spec(),
+        DefinitionTermKind::Set(operands) => operands.operation().spec(),
+        _ => return None,
+    };
+    if spec.is_projected() {
+        return None;
+    }
+    match spec.k_notation {
+        CollectionNotation::Mixfix { pieces } if pieces.len() > 1 => Some((
+            pieces.first().is_some_and(|piece| piece.is_empty()),
+            pieces.last().is_some_and(|piece| piece.is_empty()),
+        )),
+        CollectionNotation::Mixfix { .. } | CollectionNotation::Call { .. } => None,
+    }
+}
+
+/// Whether a collection operand of a collection operator must be
+/// parenthesized: an open end of the operand faces operator text that does
+/// not delimit it, so K could attach the operand's own operand to the outer
+/// operator instead. The leftmost and rightmost operands face the outer
+/// term's context, which the enclosing term handles. Nesting an associative
+/// concatenation in itself, or the left-associative `|Set` in its own left
+/// operand, needs no parentheses.
+fn parenthesize_collection_operand(
+    outer: &CollectionOperationSpec,
+    position: usize,
+    operand: &DefinitionTerm,
+    before: &str,
+    after: &str,
+) -> bool {
+    let Some((open_left, open_right)) = collection_open_ends(operand) else {
+        return false;
+    };
+    if collection_label(operand) == Some(outer.k_label) {
+        let associative = matches!(outer.k_label, "_List_" | "_Set_" | "_Map_" | "_|->_");
+        let left_associative = outer.k_label == SetOperation::Union.spec().k_label;
+        if associative || (left_associative && position == 0) {
+            return false;
+        }
+    }
+    let left_danger = open_left && !before.is_empty() && !encloses_left(before);
+    let right_danger = open_right && !after.is_empty() && !encloses_right(after);
+    left_danger || right_danger
+}
+
+/// The native label of a collection term's operation (map items count as `_|->_`).
+fn collection_label(term: &DefinitionTerm) -> Option<&'static str> {
+    match term.kind() {
+        DefinitionTermKind::Map(operands) => Some(operands.operation().spec().k_label),
+        DefinitionTermKind::List(operands) => Some(operands.operation().spec().k_label),
+        DefinitionTermKind::Set(operands) => Some(operands.operation().spec().k_label),
+        _ => None,
+    }
+}
+
+/// Whether a mixfix piece ends with a delimiter that opens an operand slot.
+fn encloses_left(piece: &str) -> bool {
+    let piece = piece.trim_end();
+    ["(", "[", "<-", ","]
+        .iter()
+        .any(|delimiter| piece.ends_with(delimiter))
+}
+
+/// Whether a mixfix piece begins with a delimiter that closes an operand slot.
+fn encloses_right(piece: &str) -> bool {
+    let piece = piece.trim_start();
+    [")", "]", "<-", ","]
+        .iter()
+        .any(|delimiter| piece.starts_with(delimiter))
+}
+
 fn render_map(
     result_sort: &DefinitionSortRef,
     operands: &MapOperands<DefinitionTerm>,
@@ -389,8 +472,18 @@ fn render_collection<'a>(
     match spec.k_notation {
         CollectionNotation::Mixfix { pieces } => {
             output.push(pieces[0]);
-            for (operand, piece) in operands.zip(&pieces[1..]) {
+            for (position, ((operand, piece), before)) in
+                operands.zip(&pieces[1..]).zip(pieces).enumerate()
+            {
+                let parenthesize =
+                    parenthesize_collection_operand(spec, position, operand, before, piece);
+                if parenthesize {
+                    output.push("(");
+                }
                 output.append(render_term_with_binders(operand, context, false, names)?);
+                if parenthesize {
+                    output.push(")");
+                }
                 output.push(piece);
             }
         }

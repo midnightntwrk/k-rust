@@ -815,135 +815,77 @@ mod tests {
     struct Boolean;
     struct OtherBoolean;
     struct FalseMarker;
-    struct SortK;
-    struct SortInt;
-    struct SortBool;
-    struct SortMap;
-    struct SortId;
-    struct SortBytes;
-    struct SortString;
-    struct SortList;
-    struct SortSet;
-    struct Op0;
-    struct Op1;
-    struct Op2;
-    struct Op3;
-    struct Op4;
-    struct Op5;
-    struct Op6;
-    struct Op7;
-    struct Op8;
-    struct Op9;
-    struct Op10;
-    struct Op11;
-    struct Op12;
-    struct Op13;
-    struct Op14;
-    struct Op15;
-    struct Op16;
-    struct Op17;
-    struct Op18;
-    struct Op19;
-    struct Op20;
-    struct Op21;
-    struct Op22;
-    struct Op23;
-    struct Op24;
-    struct Op25;
-    struct Op26;
-    struct Op27;
-    struct Op28;
-    struct MapUpdateOp;
-    struct MapGetOp;
-    struct MapInKeysOp;
-    struct ListOp0;
-    struct ListOp1;
-    struct ListOp2;
-    struct ListOp3;
-    struct ListOp4;
-    struct ListOp5;
-    struct ListOp6;
-    struct ListOp7;
-    struct ListOp8;
-    struct SetOp0;
-    struct SetOp1;
-    struct SetOp2;
-    struct SetOp3;
-    struct SetOp4;
+    /// One distinct Rust type per index, standing in for the facade's marker types.
+    struct Marker<const N: usize>;
+
+    macro_rules! marker_table {
+        ($($index:literal)*) => {
+            [$(marker_key::<Marker<$index>> as fn() -> TypeId),*]
+        };
+    }
+
+    const MARKER_COUNT: usize = 192;
+
+    fn marker_table() -> [fn() -> TypeId; MARKER_COUNT] {
+        marker_table!(
+            0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+            32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60
+            61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89
+            90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113
+            114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135
+            136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157
+            158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179
+            180 181 182 183 184 185 186 187 188 189 190 191
+        )
+    }
 
     fn marker_key<T: 'static>() -> TypeId {
         TypeId::of::<T>()
     }
 
+    const SORT_OFFSET: usize = 0;
+    const OPERATION_OFFSET: usize = SORT_OFFSET + BuiltinSort::ALL.len();
+    const MAP_OFFSET: usize = OPERATION_OFFSET + krs_ir::BuiltinOperation::ALL.len();
+    const LIST_OFFSET: usize = MAP_OFFSET + TermMapOperation::ALL.len();
+    const SET_OFFSET: usize = LIST_OFFSET + ListOperation::ALL.len();
+    const _: () = assert!(SET_OFFSET + krs_ir::SetOperation::ALL.len() <= MARKER_COUNT);
+
+    fn keys<const N: usize>(offset: usize) -> [HostTypeKey; N] {
+        let table = marker_table();
+        std::array::from_fn(|index| HostTypeKey(table[offset + index]))
+    }
+
+    fn position<T: PartialEq>(all: &[T], value: &T) -> usize {
+        all.iter()
+            .position(|candidate| candidate == value)
+            .expect("catalog member")
+    }
+
+    fn sort_key(sort: BuiltinSort) -> HostTypeKey {
+        HostTypeKey(marker_table()[SORT_OFFSET + position(&BuiltinSort::ALL, &sort)])
+    }
+
+    fn operation_key(operation: krs_ir::BuiltinOperation) -> HostTypeKey {
+        HostTypeKey(
+            marker_table()[OPERATION_OFFSET + position(&krs_ir::BuiltinOperation::ALL, &operation)],
+        )
+    }
+
+    fn map_key(operation: TermMapOperation) -> HostTypeKey {
+        HostTypeKey(marker_table()[MAP_OFFSET + position(&TermMapOperation::ALL, &operation)])
+    }
+
+    fn list_key(operation: ListOperation) -> HostTypeKey {
+        HostTypeKey(marker_table()[LIST_OFFSET + position(&ListOperation::ALL, &operation)])
+    }
+
     fn registry() -> HostBuiltinRegistry {
-        let sort_keys = [
-            HostTypeKey(marker_key::<SortK>),
-            HostTypeKey(marker_key::<SortInt>),
-            HostTypeKey(marker_key::<SortBool>),
-            HostTypeKey(marker_key::<SortMap>),
-            HostTypeKey(marker_key::<SortId>),
-            HostTypeKey(marker_key::<SortBytes>),
-            HostTypeKey(marker_key::<SortString>),
-            HostTypeKey(marker_key::<SortList>),
-            HostTypeKey(marker_key::<SortSet>),
-        ];
-        let operation_keys = [
-            HostTypeKey(marker_key::<Op0>),
-            HostTypeKey(marker_key::<Op1>),
-            HostTypeKey(marker_key::<Op2>),
-            HostTypeKey(marker_key::<Op3>),
-            HostTypeKey(marker_key::<Op4>),
-            HostTypeKey(marker_key::<Op5>),
-            HostTypeKey(marker_key::<Op6>),
-            HostTypeKey(marker_key::<Op7>),
-            HostTypeKey(marker_key::<Op8>),
-            HostTypeKey(marker_key::<Op9>),
-            HostTypeKey(marker_key::<Op10>),
-            HostTypeKey(marker_key::<Op11>),
-            HostTypeKey(marker_key::<Op12>),
-            HostTypeKey(marker_key::<Op13>),
-            HostTypeKey(marker_key::<Op14>),
-            HostTypeKey(marker_key::<Op15>),
-            HostTypeKey(marker_key::<Op16>),
-            HostTypeKey(marker_key::<Op17>),
-            HostTypeKey(marker_key::<Op18>),
-            HostTypeKey(marker_key::<Op19>),
-            HostTypeKey(marker_key::<Op20>),
-            HostTypeKey(marker_key::<Op21>),
-            HostTypeKey(marker_key::<Op22>),
-            HostTypeKey(marker_key::<Op23>),
-            HostTypeKey(marker_key::<Op24>),
-            HostTypeKey(marker_key::<Op25>),
-            HostTypeKey(marker_key::<Op26>),
-            HostTypeKey(marker_key::<Op27>),
-            HostTypeKey(marker_key::<Op28>),
-        ];
         HostBuiltinRegistry {
-            sorts: sort_keys,
-            operations: operation_keys,
-            map_operations: [
-                HostTypeKey(marker_key::<MapUpdateOp>),
-                HostTypeKey(marker_key::<MapGetOp>),
-                HostTypeKey(marker_key::<MapInKeysOp>),
-            ],
-            list_operations: [
-                HostTypeKey(marker_key::<ListOp0>),
-                HostTypeKey(marker_key::<ListOp1>),
-                HostTypeKey(marker_key::<ListOp2>),
-                HostTypeKey(marker_key::<ListOp3>),
-                HostTypeKey(marker_key::<ListOp4>),
-                HostTypeKey(marker_key::<ListOp5>),
-                HostTypeKey(marker_key::<ListOp6>),
-                HostTypeKey(marker_key::<ListOp7>),
-                HostTypeKey(marker_key::<ListOp8>),
-            ],
-            set_operations: [
-                HostTypeKey(marker_key::<SetOp0>),
-                HostTypeKey(marker_key::<SetOp1>),
-                HostTypeKey(marker_key::<SetOp2>),
-                HostTypeKey(marker_key::<SetOp3>),
-                HostTypeKey(marker_key::<SetOp4>),
-            ],
+            sorts: keys(SORT_OFFSET),
+            operations: keys(OPERATION_OFFSET),
+            map_operations: keys(MAP_OFFSET),
+            list_operations: keys(LIST_OFFSET),
+            set_operations: keys(SET_OFFSET),
         }
     }
 
@@ -1019,7 +961,7 @@ mod tests {
         let owner_sort = HostSortReference {
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
             target: HostTypeReference {
-                key: HostTypeKey(marker_key::<SortInt>),
+                key: sort_key(BuiltinSort::Int),
                 authored_path: "Int".to_owned(),
             },
         };
@@ -1074,7 +1016,7 @@ mod tests {
                 constructor: HostApplicationReference {
                     key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 1),
                     target: HostApplicationTarget::Nominal(HostTypeReference {
-                        key: HostTypeKey(marker_key::<Op0>),
+                        key: operation_key(krs_ir::BuiltinOperation::IntAdd),
                         authored_path: "Add".to_owned(),
                     }),
                 },
@@ -1306,7 +1248,7 @@ mod tests {
             &HostSortReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
                 target: HostTypeReference {
-                    key: HostTypeKey(marker_key::<SortInt>),
+                    key: sort_key(BuiltinSort::Int),
                     authored_path: "RenamedInt".into(),
                 },
             },
@@ -1320,7 +1262,7 @@ mod tests {
             &HostSortReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 1),
                 target: HostTypeReference {
-                    key: HostTypeKey(marker_key::<SortBytes>),
+                    key: sort_key(BuiltinSort::Bytes),
                     authored_path: "RenamedBytes".into(),
                 },
             },
@@ -1337,7 +1279,7 @@ mod tests {
             &HostApplicationReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 0),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
-                    key: HostTypeKey(marker_key::<Op0>),
+                    key: operation_key(krs_ir::BuiltinOperation::IntAdd),
                     authored_path: "RenamedAdd".into(),
                 }),
             },
@@ -1355,7 +1297,7 @@ mod tests {
             &HostApplicationReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 1),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
-                    key: HostTypeKey(marker_key::<Op4>),
+                    key: operation_key(krs_ir::BuiltinOperation::IntMod),
                     authored_path: "RenamedModulus".into(),
                 }),
             },
@@ -1373,7 +1315,7 @@ mod tests {
             &HostApplicationReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 0),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
-                    key: HostTypeKey(marker_key::<MapUpdateOp>),
+                    key: map_key(TermMapOperation::Update),
                     authored_path: "persistent_update".into(),
                 }),
             },
@@ -1391,7 +1333,7 @@ mod tests {
             &HostApplicationReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 1),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
-                    key: HostTypeKey(marker_key::<ListOp3>),
+                    key: list_key(ListOperation::Get),
                     authored_path: "indexed_lookup".into(),
                 }),
             },
@@ -1429,7 +1371,7 @@ mod tests {
         let registry = registry();
         let builtin = resolve_constructor_field_sort(
             &HostTypeReference {
-                key: HostTypeKey(marker_key::<SortId>),
+                key: sort_key(BuiltinSort::Id),
                 authored_path: "RenamedId".into(),
             },
             &HashMap::new(),

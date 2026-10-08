@@ -270,79 +270,29 @@ fn marker<const N: usize>() -> TypeId {
     TypeId::of::<Marker<N>>()
 }
 
+macro_rules! markers {
+    ($($index:literal)*) => {
+        [$(marker::<$index> as fn() -> TypeId),*]
+    };
+}
+
+fn keys<const N: usize>(offset: usize) -> [HostTypeKey; N] {
+    let table = markers!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191);
+    std::array::from_fn(|index| HostTypeKey(table[offset + index]))
+}
+
 #[test]
 fn builtin_registry_resolves_map_and_id() {
-    let sorts = [
-        HostTypeKey(marker::<0>),
-        HostTypeKey(marker::<1>),
-        HostTypeKey(marker::<2>),
-        HostTypeKey(marker::<3>),
-        HostTypeKey(marker::<4>),
-        HostTypeKey(marker::<5>),
-        HostTypeKey(marker::<6>),
-        HostTypeKey(marker::<42>),
-        HostTypeKey(marker::<53>),
-    ];
-    let operations = [
-        HostTypeKey(marker::<7>),
-        HostTypeKey(marker::<8>),
-        HostTypeKey(marker::<9>),
-        HostTypeKey(marker::<10>),
-        HostTypeKey(marker::<11>),
-        HostTypeKey(marker::<12>),
-        HostTypeKey(marker::<13>),
-        HostTypeKey(marker::<14>),
-        HostTypeKey(marker::<15>),
-        HostTypeKey(marker::<16>),
-        HostTypeKey(marker::<17>),
-        HostTypeKey(marker::<18>),
-        HostTypeKey(marker::<19>),
-        HostTypeKey(marker::<20>),
-        HostTypeKey(marker::<21>),
-        HostTypeKey(marker::<22>),
-        HostTypeKey(marker::<23>),
-        HostTypeKey(marker::<24>),
-        HostTypeKey(marker::<25>),
-        HostTypeKey(marker::<26>),
-        HostTypeKey(marker::<27>),
-        HostTypeKey(marker::<28>),
-        HostTypeKey(marker::<29>),
-        HostTypeKey(marker::<30>),
-        HostTypeKey(marker::<31>),
-        HostTypeKey(marker::<39>),
-        HostTypeKey(marker::<40>),
-        HostTypeKey(marker::<41>),
-        HostTypeKey(marker::<51>),
-    ];
-    let map_operations = [
-        HostTypeKey(marker::<32>),
-        HostTypeKey(marker::<43>),
-        HostTypeKey(marker::<44>),
-    ];
-    let list_operations = [
-        HostTypeKey(marker::<33>),
-        HostTypeKey(marker::<34>),
-        HostTypeKey(marker::<35>),
-        HostTypeKey(marker::<36>),
-        HostTypeKey(marker::<37>),
-        HostTypeKey(marker::<38>),
-        HostTypeKey(marker::<49>),
-        HostTypeKey(marker::<50>),
-        HostTypeKey(marker::<52>),
-    ];
-    let set_operations = [
-        HostTypeKey(marker::<45>),
-        HostTypeKey(marker::<46>),
-        HostTypeKey(marker::<47>),
-        HostTypeKey(marker::<48>),
-        HostTypeKey(marker::<54>),
-    ];
+    let operations_offset = BuiltinSort::ALL.len();
+    let map_offset = operations_offset + krs_ir::BuiltinOperation::ALL.len();
+    let list_offset = map_offset + krs_ir::TermMapOperation::ALL.len();
+    let set_offset = list_offset + krs_ir::ListOperation::ALL.len();
     let registry = HostBuiltinRegistry {
-        sorts,
-        operations,
-        map_operations,
-        list_operations,
-        set_operations,
+        sorts: keys(0),
+        operations: keys(operations_offset),
+        map_operations: keys(map_offset),
+        list_operations: keys(list_offset),
+        set_operations: keys(set_offset),
     };
     registry.validate().unwrap();
 

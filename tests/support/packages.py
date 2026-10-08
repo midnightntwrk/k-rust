@@ -46,6 +46,7 @@ PACKAGES = (
     Package("tests/tour-negatives/Cargo.toml", "tour-negatives", "authored"),
     Package("tests/grammar-lexing/Cargo.toml", "grammar-lexing", "authored"),
     Package("tests/rule-forms/Cargo.toml", "rule-forms", "authored"),
+    Package("tests/builtin-domains/Cargo.toml", "builtin-domains", "authored"),
     Package("tests/imp/compatibility/diagnostics/krs-analysis/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/diagnostics/rust-expansion/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/stable-names/baseline/Cargo.toml", "imp", "fixture"),

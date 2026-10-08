@@ -15,8 +15,8 @@ use crate::{
 };
 use krs_ir::{
     ApplicationRef, BuiltinSort, CellPost, FixedCell, FixedCellContent, FixedInitializerCell,
-    FixedInitializerContent, GrammarProductionItemKind, ProductionAttribute, ProductionGroupId,
-    StableItemId,
+    FixedInitializerContent, GrammarProductionItemKind, OperationSort, ProductionAttribute,
+    ProductionGroupId, StableItemId,
 };
 
 /// Borrowed declarations and names from one Definition IR.
@@ -132,7 +132,7 @@ impl<'a> DefinitionIndex<'a> {
 pub enum ImportPolicy {
     /// Imports for the source-text printer.
     /// Each sort found in a declaration or term annotation must select its syntax module unless a visited builtin operation uses that sort, in which case it must select its full module.
-    /// Operation signature sorts must only upgrade already required sorts; they must not add imports by themselves.
+    /// Every visited builtin or collection operation must add its catalog `k_module`; its other signature sorts must only upgrade already required sorts.
     /// Configurations must not imply a Map import, and claim `ensures` terms must not contribute requirements.
     SourceText,
     /// Imports for the native frontend.
@@ -249,7 +249,7 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
             .filter_map(|sort| int_literals.program_syntax_module(sort))
             .collect();
     }
-    requirements
+    let mut imports = requirements
         .sorts
         .into_iter()
         .filter_map(|sort| {
@@ -259,13 +259,19 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
                 sort.spec().k_syntax_module
             }
         })
-        .collect()
+        .collect::<BTreeSet<_>>();
+    imports.extend(requirements.modules);
+    imports
 }
 
 #[derive(Default)]
 struct BuiltinRequirements {
     sorts: BTreeSet<BuiltinSort>,
+    /// Builtin sorts in the signature of a used operation: the source printer
+    /// imports their full module rather than their syntax module.
     operations: BTreeSet<BuiltinSort>,
+    /// The catalog `k_module` of every used operation.
+    modules: BTreeSet<&'static str>,
 }
 
 impl BuiltinRequirements {
@@ -284,10 +290,12 @@ impl BuiltinRequirements {
                 arguments,
             } => {
                 if let ApplicationRef::Builtin(operation) = application {
-                    self.operations.insert(operation.result_sort());
-                    for sort in operation.argument_sorts() {
-                        self.operations.insert(*sort);
-                    }
+                    self.modules.insert(operation.spec().k_module);
+                    self.operations.extend(
+                        std::iter::once(operation.result_sort())
+                            .chain(operation.argument_sorts().iter().copied())
+                            .filter_map(OperationSort::builtin),
+                    );
                 }
                 for argument in arguments {
                     self.term(argument);
@@ -301,18 +309,21 @@ impl BuiltinRequirements {
             }
             DefinitionTermKind::Map(operands) => {
                 self.sorts.insert(BuiltinSort::Map);
+                self.modules.insert(operands.operation().spec().k_module);
                 for operand in operands.operands() {
                     self.term(operand);
                 }
             }
             DefinitionTermKind::List(operands) => {
                 self.sorts.insert(BuiltinSort::List);
+                self.modules.insert(operands.operation().spec().k_module);
                 for operand in operands.operands() {
                     self.term(operand);
                 }
             }
             DefinitionTermKind::Set(operands) => {
                 self.sorts.insert(BuiltinSort::Set);
+                self.modules.insert(operands.operation().spec().k_module);
                 for operand in operands.operands() {
                     self.term(operand);
                 }
@@ -646,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn operation_signatures_only_add_requirements_for_native_frontend() {
+    fn operations_import_their_module_and_signatures_upgrade_only_for_native_frontend() {
         let term = DefinitionTerm::application(
             origin("signature-only-operation"),
             DefinitionSortRef::Builtin(BuiltinSort::Bool),
@@ -668,9 +679,11 @@ mod tests {
             term,
             SentenceKind::Equation,
         ))]);
+        // `>=Int` imports its catalog module INT on both routes, although no
+        // Int-sorted term occurs.
         assert_eq!(
             builtin_imports(&module, ImportPolicy::SourceText),
-            BTreeSet::from(["BOOL"]),
+            BTreeSet::from(["BOOL", "INT"]),
         );
         assert_eq!(
             builtin_imports(&module, ImportPolicy::NativeFrontend),

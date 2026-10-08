@@ -58,6 +58,7 @@ pub use catalog::{
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
     CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
+    OperationSort,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -177,7 +178,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(41);
+    pub const CURRENT: Self = Self(42);
 }
 
 impl Default for SchemaVersion {

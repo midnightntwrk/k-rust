@@ -19,6 +19,14 @@ fn term_map_operations_are_the_map_operations_with_facade_markers() {
             MapOperation::Update,
             MapOperation::Get,
             MapOperation::InKeys,
+            MapOperation::Remove,
+            MapOperation::RemoveAll,
+            MapOperation::Keys,
+            MapOperation::KeysList,
+            MapOperation::Values,
+            MapOperation::Size,
+            MapOperation::UpdateAll,
+            MapOperation::GetOrDefault,
         ]
     );
     assert_eq!(
@@ -27,6 +35,14 @@ fn term_map_operations_are_the_map_operations_with_facade_markers() {
             TermMapOperation::Update,
             TermMapOperation::Get,
             TermMapOperation::InKeys,
+            TermMapOperation::Remove,
+            TermMapOperation::RemoveAll,
+            TermMapOperation::Keys,
+            TermMapOperation::KeysList,
+            TermMapOperation::Values,
+            TermMapOperation::Size,
+            TermMapOperation::UpdateAll,
+            TermMapOperation::GetOrDefault,
         ]
     );
     for operation in MapOperation::ALL {
@@ -57,6 +73,7 @@ fn list_and_set_catalogs_list_every_operation_as_an_application_head() {
             ListOperation::Make,
             ListOperation::Range,
             ListOperation::UpdateAll,
+            ListOperation::Contains,
         ]
     );
     assert_eq!(
@@ -67,6 +84,12 @@ fn list_and_set_catalogs_list_every_operation_as_an_application_head() {
             SetOperation::Concat,
             SetOperation::Union,
             SetOperation::Contains,
+            SetOperation::Difference,
+            SetOperation::Intersect,
+            SetOperation::Size,
+            SetOperation::IsSubset,
+            SetOperation::ToList,
+            SetOperation::FromList,
         ]
     );
 }
@@ -79,6 +102,14 @@ fn facade_markers_name_the_builtin_marker_types() {
             marker("map", "update"),
             marker("map", "get"),
             marker("map", "in_keys"),
+            marker("map", "remove"),
+            marker("map", "remove_all"),
+            marker("map", "keys"),
+            marker("map", "keys_list"),
+            marker("map", "values"),
+            marker("map", "size"),
+            marker("map", "update_all"),
+            marker("map", "get_or_default"),
         ]
     );
     assert_eq!(
@@ -93,6 +124,7 @@ fn facade_markers_name_the_builtin_marker_types() {
             marker("list", "make"),
             marker("list", "range"),
             marker("list", "update_all"),
+            marker("list", "contains"),
         ]
     );
     assert_eq!(
@@ -103,6 +135,12 @@ fn facade_markers_name_the_builtin_marker_types() {
             marker("set", "concat"),
             marker("set", "union"),
             marker("set", "contains"),
+            marker("set", "difference"),
+            marker("set", "intersect"),
+            marker("set", "size"),
+            marker("set", "is_subset"),
+            marker("set", "to_list"),
+            marker("set", "from_list"),
         ]
     );
 }
@@ -113,6 +151,8 @@ fn application_heads_expose_their_rows_through_the_shared_trait() {
         assert_eq!(O::SORT, sort);
         for operation in operations {
             assert!(!operation.spec().description.is_empty());
+            assert!(operation.spec().k_hook.is_some());
+            assert!(!operation.spec().k_module.is_empty());
             assert!(!operation.facade_marker().name.is_empty());
         }
     }

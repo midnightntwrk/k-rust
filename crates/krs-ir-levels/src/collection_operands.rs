@@ -121,6 +121,56 @@ pub enum MapOperands<T> {
         /// The tested map.
         map: T,
     },
+    /// `map [ key <- undef ]`.
+    Remove {
+        /// The map.
+        map: T,
+        /// The removed key.
+        key: T,
+    },
+    /// `removeAll(map, keys)`.
+    RemoveAll {
+        /// The map.
+        map: T,
+        /// The set of removed keys.
+        keys: T,
+    },
+    /// `keys(map)`.
+    Keys {
+        /// The map.
+        map: T,
+    },
+    /// `keys_list(map)`.
+    KeysList {
+        /// The map.
+        map: T,
+    },
+    /// `values(map)`.
+    Values {
+        /// The map.
+        map: T,
+    },
+    /// `size(map)`.
+    Size {
+        /// The map.
+        map: T,
+    },
+    /// `updateMap(map, update)`.
+    UpdateAll {
+        /// The updated map.
+        map: T,
+        /// The map whose entries replace or extend `map`'s.
+        update: T,
+    },
+    /// `map [ key ] orDefault default`, projected to the expected sort.
+    GetOrDefault {
+        /// The looked-up map.
+        map: T,
+        /// The looked-up key.
+        key: T,
+        /// The value when the key is absent.
+        default: T,
+    },
 }
 
 impl<T> MapOperands<T> {
@@ -144,6 +194,20 @@ impl<T> MapOperands<T> {
             }
             MapOperation::Get => exact(operands).map(|[map, key]| Self::Get { map, key }),
             MapOperation::InKeys => exact(operands).map(|[key, map]| Self::InKeys { key, map }),
+            MapOperation::Remove => exact(operands).map(|[map, key]| Self::Remove { map, key }),
+            MapOperation::RemoveAll => {
+                exact(operands).map(|[map, keys]| Self::RemoveAll { map, keys })
+            }
+            MapOperation::Keys => exact(operands).map(|[map]| Self::Keys { map }),
+            MapOperation::KeysList => exact(operands).map(|[map]| Self::KeysList { map }),
+            MapOperation::Values => exact(operands).map(|[map]| Self::Values { map }),
+            MapOperation::Size => exact(operands).map(|[map]| Self::Size { map }),
+            MapOperation::UpdateAll => {
+                exact(operands).map(|[map, update]| Self::UpdateAll { map, update })
+            }
+            MapOperation::GetOrDefault => {
+                exact(operands).map(|[map, key, default]| Self::GetOrDefault { map, key, default })
+            }
         }
         .ok_or(CollectionArityError::Map {
             operation,
@@ -180,6 +244,14 @@ impl<T> MapOperands<T> {
             Self::Update { .. } => MapOperation::Update,
             Self::Get { .. } => MapOperation::Get,
             Self::InKeys { .. } => MapOperation::InKeys,
+            Self::Remove { .. } => MapOperation::Remove,
+            Self::RemoveAll { .. } => MapOperation::RemoveAll,
+            Self::Keys { .. } => MapOperation::Keys,
+            Self::KeysList { .. } => MapOperation::KeysList,
+            Self::Values { .. } => MapOperation::Values,
+            Self::Size { .. } => MapOperation::Size,
+            Self::UpdateAll { .. } => MapOperation::UpdateAll,
+            Self::GetOrDefault { .. } => MapOperation::GetOrDefault,
         }
     }
 
@@ -189,8 +261,19 @@ impl<T> MapOperands<T> {
             Self::Empty => ([None, None, None], None),
             Self::Items(entries) => ([None, None, None], Some(entries)),
             Self::Update { map, key, value } => ([Some(map), Some(key), Some(value)], None),
-            Self::Get { map, key } => ([Some(map), Some(key), None], None),
+            Self::Get { map, key } | Self::Remove { map, key } => {
+                ([Some(map), Some(key), None], None)
+            }
             Self::InKeys { key, map } => ([Some(key), Some(map), None], None),
+            Self::RemoveAll { map, keys } => ([Some(map), Some(keys), None], None),
+            Self::Keys { map }
+            | Self::KeysList { map }
+            | Self::Values { map }
+            | Self::Size { map } => ([Some(map), None, None], None),
+            Self::UpdateAll { map, update } => ([Some(map), Some(update), None], None),
+            Self::GetOrDefault { map, key, default } => {
+                ([Some(map), Some(key), Some(default)], None)
+            }
         };
         fixed.into_iter().flatten().chain(
             entries
@@ -209,8 +292,15 @@ impl<T> MapOperands<T> {
                 .flat_map(|entry| [entry.key, entry.value])
                 .collect(),
             Self::Update { map, key, value } => vec![map, key, value],
-            Self::Get { map, key } => vec![map, key],
+            Self::Get { map, key } | Self::Remove { map, key } => vec![map, key],
             Self::InKeys { key, map } => vec![key, map],
+            Self::RemoveAll { map, keys } => vec![map, keys],
+            Self::Keys { map }
+            | Self::KeysList { map }
+            | Self::Values { map }
+            | Self::Size { map } => vec![map],
+            Self::UpdateAll { map, update } => vec![map, update],
+            Self::GetOrDefault { map, key, default } => vec![map, key, default],
         }
     }
 
@@ -247,6 +337,31 @@ impl<T> MapOperands<T> {
             Self::InKeys { key, map: base } => MapOperands::InKeys {
                 key: map(key)?,
                 map: map(base)?,
+            },
+            Self::Remove { map: base, key } => MapOperands::Remove {
+                map: map(base)?,
+                key: map(key)?,
+            },
+            Self::RemoveAll { map: base, keys } => MapOperands::RemoveAll {
+                map: map(base)?,
+                keys: map(keys)?,
+            },
+            Self::Keys { map: base } => MapOperands::Keys { map: map(base)? },
+            Self::KeysList { map: base } => MapOperands::KeysList { map: map(base)? },
+            Self::Values { map: base } => MapOperands::Values { map: map(base)? },
+            Self::Size { map: base } => MapOperands::Size { map: map(base)? },
+            Self::UpdateAll { map: base, update } => MapOperands::UpdateAll {
+                map: map(base)?,
+                update: map(update)?,
+            },
+            Self::GetOrDefault {
+                map: base,
+                key,
+                default,
+            } => MapOperands::GetOrDefault {
+                map: map(base)?,
+                key: map(key)?,
+                default: map(default)?,
             },
         })
     }
@@ -315,6 +430,13 @@ pub enum ListOperands<T> {
         /// The replacement list.
         replacement: T,
     },
+    /// `element in list`.
+    Contains {
+        /// The tested element.
+        element: T,
+        /// The tested list.
+        list: T,
+    },
 }
 
 impl<T> ListOperands<T> {
@@ -356,6 +478,9 @@ impl<T> ListOperands<T> {
                     replacement,
                 })
             }
+            ListOperation::Contains => {
+                exact(operands).map(|[element, list]| Self::Contains { element, list })
+            }
         }
         .ok_or(CollectionArityError::List {
             operation,
@@ -376,6 +501,7 @@ impl<T> ListOperands<T> {
             Self::Make { .. } => ListOperation::Make,
             Self::Range { .. } => ListOperation::Range,
             Self::UpdateAll { .. } => ListOperation::UpdateAll,
+            Self::Contains { .. } => ListOperation::Contains,
         }
     }
 
@@ -388,6 +514,7 @@ impl<T> ListOperands<T> {
             Self::Concat { left, right } => [Some(left), Some(right), None],
             Self::Get { list, index } => [Some(list), Some(index), None],
             Self::Make { length, value } => [Some(length), Some(value), None],
+            Self::Contains { element, list } => [Some(element), Some(list), None],
             Self::Update { list, index, value } => [Some(list), Some(index), Some(value)],
             Self::Range {
                 list,
@@ -413,6 +540,7 @@ impl<T> ListOperands<T> {
             Self::Concat { left, right } => vec![left, right],
             Self::Get { list, index } => vec![list, index],
             Self::Make { length, value } => vec![length, value],
+            Self::Contains { element, list } => vec![element, list],
             Self::Update { list, index, value } => vec![list, index, value],
             Self::Range {
                 list,
@@ -477,6 +605,10 @@ impl<T> ListOperands<T> {
                 index: map(index)?,
                 replacement: map(replacement)?,
             },
+            Self::Contains { element, list } => ListOperands::Contains {
+                element: map(element)?,
+                list: map(list)?,
+            },
         })
     }
 }
@@ -512,6 +644,42 @@ pub enum SetOperands<T> {
         /// The tested set.
         set: T,
     },
+    /// `left -Set right`.
+    Difference {
+        /// The set elements are taken from.
+        left: T,
+        /// The removed elements.
+        right: T,
+    },
+    /// `intersectSet(left, right)`.
+    Intersect {
+        /// The left set.
+        left: T,
+        /// The right set.
+        right: T,
+    },
+    /// `size(set)`.
+    Size {
+        /// The measured set.
+        set: T,
+    },
+    /// `left <=Set right`.
+    IsSubset {
+        /// The tested subset.
+        left: T,
+        /// The tested superset.
+        right: T,
+    },
+    /// `Set2List(set)`.
+    ToList {
+        /// The converted set.
+        set: T,
+    },
+    /// `List2Set(list)`.
+    FromList {
+        /// The converted list.
+        list: T,
+    },
 }
 
 impl<T> SetOperands<T> {
@@ -535,6 +703,18 @@ impl<T> SetOperands<T> {
             SetOperation::Contains => {
                 exact(operands).map(|[element, set]| Self::Contains { element, set })
             }
+            SetOperation::Difference => {
+                exact(operands).map(|[left, right]| Self::Difference { left, right })
+            }
+            SetOperation::Intersect => {
+                exact(operands).map(|[left, right]| Self::Intersect { left, right })
+            }
+            SetOperation::Size => exact(operands).map(|[set]| Self::Size { set }),
+            SetOperation::IsSubset => {
+                exact(operands).map(|[left, right]| Self::IsSubset { left, right })
+            }
+            SetOperation::ToList => exact(operands).map(|[set]| Self::ToList { set }),
+            SetOperation::FromList => exact(operands).map(|[list]| Self::FromList { list }),
         }
         .ok_or(CollectionArityError::Set {
             operation,
@@ -551,6 +731,12 @@ impl<T> SetOperands<T> {
             Self::Concat { .. } => SetOperation::Concat,
             Self::Union { .. } => SetOperation::Union,
             Self::Contains { .. } => SetOperation::Contains,
+            Self::Difference { .. } => SetOperation::Difference,
+            Self::Intersect { .. } => SetOperation::Intersect,
+            Self::Size { .. } => SetOperation::Size,
+            Self::IsSubset { .. } => SetOperation::IsSubset,
+            Self::ToList { .. } => SetOperation::ToList,
+            Self::FromList { .. } => SetOperation::FromList,
         }
     }
 
@@ -559,7 +745,13 @@ impl<T> SetOperands<T> {
         let fixed = match self {
             Self::Empty => [None, None],
             Self::Item { element } => [Some(element), None],
-            Self::Concat { left, right } | Self::Union { left, right } => [Some(left), Some(right)],
+            Self::Size { set } | Self::ToList { set } => [Some(set), None],
+            Self::FromList { list } => [Some(list), None],
+            Self::Concat { left, right }
+            | Self::Union { left, right }
+            | Self::Difference { left, right }
+            | Self::Intersect { left, right }
+            | Self::IsSubset { left, right } => [Some(left), Some(right)],
             Self::Contains { element, set } => [Some(element), Some(set)],
         };
         fixed.into_iter().flatten()
@@ -571,7 +763,13 @@ impl<T> SetOperands<T> {
         match self {
             Self::Empty => Vec::new(),
             Self::Item { element } => vec![element],
-            Self::Concat { left, right } | Self::Union { left, right } => vec![left, right],
+            Self::Size { set } | Self::ToList { set } => vec![set],
+            Self::FromList { list } => vec![list],
+            Self::Concat { left, right }
+            | Self::Union { left, right }
+            | Self::Difference { left, right }
+            | Self::Intersect { left, right }
+            | Self::IsSubset { left, right } => vec![left, right],
             Self::Contains { element, set } => vec![element, set],
         }
     }
@@ -602,6 +800,21 @@ impl<T> SetOperands<T> {
                 element: map(element)?,
                 set: map(set)?,
             },
+            Self::Difference { left, right } => SetOperands::Difference {
+                left: map(left)?,
+                right: map(right)?,
+            },
+            Self::Intersect { left, right } => SetOperands::Intersect {
+                left: map(left)?,
+                right: map(right)?,
+            },
+            Self::Size { set } => SetOperands::Size { set: map(set)? },
+            Self::IsSubset { left, right } => SetOperands::IsSubset {
+                left: map(left)?,
+                right: map(right)?,
+            },
+            Self::ToList { set } => SetOperands::ToList { set: map(set)? },
+            Self::FromList { list } => SetOperands::FromList { list: map(list)? },
         })
     }
 }

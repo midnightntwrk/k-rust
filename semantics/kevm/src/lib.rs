@@ -2926,7 +2926,7 @@ fn write_memory_word_byte(
         memory: bytes::update(
             memory,
             int::add(index, int::sub(remaining, 1)),
-            int::modulo(value, 256),
+            int::rem_euclid(value, 256),
         ),
         index,
         remaining: int::sub(remaining, 1),
@@ -3177,7 +3177,7 @@ fn resolve_true_jump_if(
 // its host integer lexer while the object-language computation stays exact.
 #[k::equation]
 fn chop_word(k::term![Chop(value)]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::modulo(
+    k::term![int::rem_euclid(
         value,
         int::mul(
             int::mul(18_446_744_073_709_551_616, 18_446_744_073_709_551_616),
@@ -3207,7 +3207,7 @@ fn word_mod_zero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Te
 #[k::requires(int::ne(divisor, 0))]
 #[k::equation]
 fn word_mod_nonzero(k::term![WordMod { dividend, divisor }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::modulo(dividend, divisor)]
+    k::term![int::rem_euclid(dividend, divisor)]
 }
 
 #[k::requires(bool::and(
@@ -3467,7 +3467,7 @@ fn signed_shift_right_outside_word(
 #[k::requires(bool::and(int::ge(index, 0), int::lt(index, 32)))]
 #[k::equation]
 fn byte_in_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::modulo(
+    k::term![int::rem_euclid(
         int::shift_right(value, int::mul(8, int::sub(31, index))),
         256,
     )]
@@ -3481,7 +3481,7 @@ fn byte_outside_word(k::term![WordByte { index, value }]: k::Term<Int>) -> k::Te
 
 #[k::equation]
 fn sign_extend_byte(k::term![SignExtendByte { index, value }]: k::Term<Int>) -> k::Term<Int> {
-    k::term![int::modulo(
+    k::term![int::rem_euclid(
         int::shift_right(value, int::mul(8, index)),
         256
     )]
@@ -5028,7 +5028,7 @@ fn ecpairing_precompile_output(
         EcPairingPrecompileCost { data }
     ),
     bool::and(
-        int::eq(int::modulo(bytes::length(data), 192), 0),
+        int::eq(int::rem_euclid(bytes::length(data), 192), 0),
         EcPairingPointsValid {
             data,
             index: 0,
@@ -5077,7 +5077,7 @@ fn resolve_ecpairing_precompile_out_of_gas(
         StaticCallGas { requested, available },
         EcPairingPrecompileCost { data }
     ),
-    int::ne(int::modulo(bytes::length(data), 192), 0),
+    int::ne(int::rem_euclid(bytes::length(data), 192), 0),
 ))]
 #[k::equation]
 fn resolve_ecpairing_precompile_malformed_length(
@@ -5104,7 +5104,7 @@ fn resolve_ecpairing_precompile_malformed_length(
         EcPairingPrecompileCost { data }
     ),
     bool::and(
-        int::eq(int::modulo(bytes::length(data), 192), 0),
+        int::eq(int::rem_euclid(bytes::length(data), 192), 0),
         bool::not(EcPairingPointsValid {
             data,
             index: 0,
@@ -7648,7 +7648,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        local_mem: bytes::update(bytes::pad_right(memory, int::mul(crate::MemoryUsageUpdate { used, start: index, width: 1 }, 32), 0), index, int::modulo(value, 256)),
+        local_mem: bytes::update(bytes::pad_right(memory, int::mul(crate::MemoryUsageUpdate { used, start: index, width: 1 }, 32), 0), index, int::rem_euclid(value, 256)),
         memory_used: crate::MemoryUsageUpdate { used, start: index, width: 1 },
         word_stack: rest,
         pc: int::add(pc, 1),

@@ -112,6 +112,8 @@ mod tests {
             BuiltinSort::String => "String",
             BuiltinSort::List => "List",
             BuiltinSort::Set => "Set",
+            BuiltinSort::Endianness => "Endianness",
+            BuiltinSort::Signedness => "Signedness",
         }
     }
 
@@ -160,12 +162,14 @@ mod tests {
             [
                 "Bool",
                 "Bytes",
+                "Endianness",
                 "Id",
                 "Int",
                 "KSequence",
                 "List",
                 "Map",
                 "Set",
+                "Signedness",
                 "String",
             ]
         );

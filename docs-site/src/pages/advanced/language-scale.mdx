@@ -42,9 +42,12 @@ The positive macro fixture declares an identifier token and then gives it ordina
 
 Beyond IMP's `Int`, `Bool`, `Map`, and `Id`, the facade exports:
 
-- `Bytes`, with length, indexed get/update, empty, right-pad, and substring operations;
-- `List<T>`, with empty/item/concatenation, indexed access and update, size, repetition, ranges, and range updates; and
-- `Set<T>`, with empty/item/concatenation and membership.
+- `Bytes`, with length, indexed get/update, empty, left- and right-pad, substring, concatenation, reversal, replacement, and the `Int2Bytes`/`Bytes2Int` conversions over the `Endianness` and `Signedness` sorts;
+- `List<T>`, with empty/item/concatenation, indexed access and update, size, repetition, ranges, range updates, and membership;
+- `Set<T>`, with empty/item/concatenation, union, difference, intersection, inclusion, size, membership, and conversion to and from a List; and
+- on `Map<K, V>`, beyond update, lookup, and key membership: removal of one key or a key set, total lookup with a default, the key set, key and value lists, size, and update by a second map.
+
+The [language reference](/reference/language#builtin-operation-catalog) lists every operation and the rule that names it.
 
 These are typed, zero-sized authoring markers for K builtins, not `Vec`, `HashMap`, byte buffers, or iterator APIs.
 Calls such as `list::get(xs, index)` construct symbolic applications and may remain unevaluated when their semantic preconditions do not hold.

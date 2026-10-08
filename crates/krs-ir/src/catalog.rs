@@ -429,6 +429,24 @@ macro_rules! __krs_builtin_sort_catalog {
                 k_syntax_module: Some("SET"),
                 k_program_syntax_module: None
             }
+            /// Byte order of `Int2Bytes`/`Bytes2Int` from pinned module `BYTES`
+            /// (declared in `BYTES-HOOKED`, which has no `-SYNTAX` variant).
+            Endianness {
+                marker_name: Endianness,
+                k_name: "Endianness",
+                k_module: Some("BYTES"),
+                k_syntax_module: Some("BYTES"),
+                k_program_syntax_module: None
+            }
+            /// Integer interpretation of `Int2Bytes`/`Bytes2Int` from pinned module
+            /// `BYTES` (declared in `BYTES-HOOKED`).
+            Signedness {
+                marker_name: Signedness,
+                k_name: "Signedness",
+                k_module: Some("BYTES"),
+                k_syntax_module: Some("BYTES"),
+                k_program_syntax_module: None
+            }
         }
     };
 }
@@ -503,6 +521,31 @@ pub enum BuiltinOperationNotation {
     },
 }
 
+/// The sort of one argument or of the result of a builtin operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum OperationSort {
+    /// Exactly this builtin sort (or, for an argument, any of its subsorts).
+    Builtin(BuiltinSort),
+    /// K's top sort `K`: an argument of any sort, as in `K "==K" K`.
+    K,
+    /// The instance of a sort-parametric operation, as in
+    /// `{S} S ::= "#if" Bool "#then" S "#else" S "#fi"`. Every `Parameter`
+    /// position of one application has the same instance, which is the
+    /// application's result sort when the result is `Parameter`.
+    Parameter,
+}
+
+impl OperationSort {
+    /// Returns the fixed builtin sort, or `None` for `K` and `Parameter`.
+    #[must_use]
+    pub const fn builtin(self) -> Option<BuiltinSort> {
+        match self {
+            Self::Builtin(sort) => Some(sort),
+            Self::K | Self::Parameter => None,
+        }
+    }
+}
+
 /// Per-operation facts shared by the Rust facade and pinned K adapters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BuiltinOperationSpec {
@@ -514,14 +557,33 @@ pub struct BuiltinOperationSpec {
     pub description: &'static str,
     /// Exact native frontend K label.
     pub k_label: &'static str,
+    /// The production's `hook(..)` in the pinned prelude, or `None` for a
+    /// production the prelude defines by equations or as a constructor.
+    pub k_hook: Option<&'static str>,
+    /// K module a definition imports to use the operation.
+    pub k_module: &'static str,
     /// Application spelling used by the K printer.
     pub k_notation: BuiltinOperationNotation,
-    /// Ordered builtin argument sorts; their count defines the arity.
-    pub argument_sorts: &'static [BuiltinSort],
-    /// Exact builtin result sort.
-    pub result_sort: BuiltinSort,
+    /// Ordered argument sorts; their count defines the arity.
+    pub argument_sorts: &'static [OperationSort],
+    /// Result sort.
+    pub result_sort: OperationSort,
     /// Whether the operation is a K function that may root a simplifier lemma.
     pub functional: bool,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_operation_sort {
+    (K) => {
+        $crate::OperationSort::K
+    };
+    (Parameter) => {
+        $crate::OperationSort::Parameter
+    };
+    ($sort:ident) => {
+        $crate::OperationSort::Builtin($crate::BuiltinSort::$sort)
+    };
 }
 
 #[doc(hidden)]
@@ -535,6 +597,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: add,
                 description: "integer addition",
                 k_label: "_+Int_",
+                k_hook: Some("INT.add"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " +Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -546,6 +610,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: sub,
                 description: "integer subtraction",
                 k_label: "_-Int_",
+                k_hook: Some("INT.sub"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " -Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -557,6 +623,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: mul,
                 description: "integer multiplication",
                 k_label: "_*Int_",
+                k_hook: Some("INT.mul"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " *Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -568,17 +636,21 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: div,
                 description: "integer truncating division",
                 k_label: "_/Int_",
+                k_hook: Some("INT.tdiv"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " /Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
                 functional: true
             }
-            /// `_modInt_`, Euclidean modulus (`INT.mod`).
+            /// `_modInt_`, Euclidean remainder (`INT.emod`), named after `i64::rem_euclid`.
             IntMod {
                 rust_module: int,
-                rust_name: modulo,
-                description: "integer modulus",
+                rust_name: rem_euclid,
+                description: "integer Euclidean remainder",
                 k_label: "_modInt_",
+                k_hook: Some("INT.emod"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " modInt ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -590,6 +662,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: pow_mod,
                 description: "integer modular exponentiation",
                 k_label: "_^%Int__",
+                k_hook: Some("INT.powmod"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ^%Int ", " ", ""] },
                 argument_sorts: [Int, Int, Int],
                 result_sort: Int,
@@ -601,6 +675,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: log2,
                 description: "integer base-two logarithm",
                 k_label: "log2Int(_)_INT-COMMON_Int_Int",
+                k_hook: Some("INT.log2"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Call { name: "log2Int" },
                 argument_sorts: [Int],
                 result_sort: Int,
@@ -612,6 +688,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: shift_right,
                 description: "integer right shift",
                 k_label: "_>>Int_",
+                k_hook: Some("INT.shr"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >>Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -623,6 +701,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: shift_left,
                 description: "integer left shift",
                 k_label: "_<<Int_",
+                k_hook: Some("INT.shl"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <<Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -634,6 +714,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: bit_and,
                 description: "integer bitwise conjunction",
                 k_label: "_&Int_",
+                k_hook: Some("INT.and"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " &Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -645,6 +727,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: bit_xor,
                 description: "integer bitwise exclusive disjunction",
                 k_label: "_xorInt_",
+                k_hook: Some("INT.xor"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " xorInt ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -656,6 +740,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: bit_or,
                 description: "integer bitwise inclusive disjunction",
                 k_label: "_|Int_",
+                k_hook: Some("INT.or"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " |Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Int,
@@ -667,6 +753,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: ge,
                 description: "integer greater-than-or-equal comparison",
                 k_label: "_>=Int_",
+                k_hook: Some("INT.ge"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >=Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -678,6 +766,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: gt,
                 description: "integer greater-than comparison",
                 k_label: "_>Int_",
+                k_hook: Some("INT.gt"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " >Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -689,6 +779,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: le,
                 description: "integer less-than-or-equal comparison",
                 k_label: "_<=Int_",
+                k_hook: Some("INT.le"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <=Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -700,6 +792,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: lt,
                 description: "integer less-than comparison",
                 k_label: "_<Int_",
+                k_hook: Some("INT.lt"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " <Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -711,6 +805,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: eq,
                 description: "integer equality",
                 k_label: "_==Int_",
+                k_hook: Some("INT.eq"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ==Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -722,6 +818,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: ne,
                 description: "integer inequality",
                 k_label: "_=/=Int_",
+                k_hook: Some("INT.ne"),
+                k_module: "INT",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " =/=Int ", ""] },
                 argument_sorts: [Int, Int],
                 result_sort: Bool,
@@ -733,6 +831,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: not,
                 description: "Boolean negation",
                 k_label: "notBool_",
+                k_hook: Some("BOOL.not"),
+                k_module: "BOOL",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["notBool ", ""] },
                 argument_sorts: [Bool],
                 result_sort: Bool,
@@ -744,6 +844,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: eq,
                 description: "Boolean equality",
                 k_label: "_==Bool_",
+                k_hook: Some("BOOL.eq"),
+                k_module: "BOOL",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ==Bool ", ""] },
                 argument_sorts: [Bool, Bool],
                 result_sort: Bool,
@@ -755,6 +857,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: ne,
                 description: "Boolean inequality",
                 k_label: "_=/=Bool_",
+                k_hook: Some("BOOL.ne"),
+                k_module: "BOOL",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " =/=Bool ", ""] },
                 argument_sorts: [Bool, Bool],
                 result_sort: Bool,
@@ -766,6 +870,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: and,
                 description: "Boolean conjunction",
                 k_label: "_andBool_",
+                k_hook: Some("BOOL.and"),
+                k_module: "BOOL",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " andBool ", ""] },
                 argument_sorts: [Bool, Bool],
                 result_sort: Bool,
@@ -777,6 +883,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: or,
                 description: "Boolean disjunction",
                 k_label: "_orBool_",
+                k_hook: Some("BOOL.or"),
+                k_module: "BOOL",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " orBool ", ""] },
                 argument_sorts: [Bool, Bool],
                 result_sort: Bool,
@@ -788,6 +896,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: length,
                 description: "byte-string length",
                 k_label: "lengthBytes(_)_BYTES-HOOKED_Int_Bytes",
+                k_hook: Some("BYTES.length"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Call { name: "lengthBytes" },
                 argument_sorts: [Bytes],
                 result_sort: Int,
@@ -799,6 +909,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: get,
                 description: "byte lookup",
                 k_label: "_[_]_BYTES-HOOKED_Int_Bytes_Int",
+                k_hook: Some("BYTES.get"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " [ ", " ]"] },
                 argument_sorts: [Bytes, Int],
                 result_sort: Int,
@@ -810,6 +922,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: empty,
                 description: "empty byte string",
                 k_label: ".Bytes_BYTES-HOOKED_Bytes",
+                k_hook: Some("BYTES.empty"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &[".Bytes"] },
                 argument_sorts: [],
                 result_sort: Bytes,
@@ -821,6 +935,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: update,
                 description: "byte update",
                 k_label: "_[_<-_]_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+                k_hook: Some("BYTES.update"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " [ ", " <- ", " ]"] },
                 argument_sorts: [Bytes, Int, Int],
                 result_sort: Bytes,
@@ -832,6 +948,8 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: pad_right,
                 description: "byte-string right padding",
                 k_label: "padRightBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+                k_hook: Some("BYTES.padRight"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Call { name: "padRightBytes" },
                 argument_sorts: [Bytes, Int, Int],
                 result_sort: Bytes,
@@ -843,10 +961,337 @@ macro_rules! __krs_builtin_operation_catalog {
                 rust_name: substr,
                 description: "byte substring",
                 k_label: "substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+                k_hook: Some("BYTES.substr"),
+                k_module: "BYTES",
                 k_notation: $crate::BuiltinOperationNotation::Call { name: "substrBytes" },
                 argument_sorts: [Bytes, Int, Int],
                 result_sort: Bytes,
                 functional: true
+            }
+            /// `_%Int_`, truncating remainder (`INT.tmod`), the remainder of `/Int`.
+            IntTMod {
+                rust_module: int,
+                rust_name: rem,
+                description: "integer truncating remainder",
+                k_label: "_%Int_",
+                k_hook: Some("INT.tmod"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " %Int ", ""] },
+                argument_sorts: [Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `_divInt_`, Euclidean quotient (`INT.ediv`), named after `i64::div_euclid`.
+            IntEDiv {
+                rust_module: int,
+                rust_name: div_euclid,
+                description: "integer Euclidean quotient",
+                k_label: "_divInt_",
+                k_hook: Some("INT.ediv"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " divInt ", ""] },
+                argument_sorts: [Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `_^Int_`, exponentiation (`INT.pow`).
+            IntPow {
+                rust_module: int,
+                rust_name: pow,
+                description: "integer exponentiation",
+                k_label: "_^Int_",
+                k_hook: Some("INT.pow"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " ^Int ", ""] },
+                argument_sorts: [Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `~Int_`, two's-complement bitwise complement (`INT.not`).
+            IntBitNot {
+                rust_module: int,
+                rust_name: bit_not,
+                description: "integer bitwise complement",
+                k_label: "~Int_",
+                k_hook: Some("INT.not"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["~Int ", ""] },
+                argument_sorts: [Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `minInt`, minimum (`INT.min`).
+            IntMin {
+                rust_module: int,
+                rust_name: min,
+                description: "integer minimum",
+                k_label: "minInt(_,_)_INT-COMMON_Int_Int_Int",
+                k_hook: Some("INT.min"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "minInt" },
+                argument_sorts: [Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `maxInt`, maximum (`INT.max`).
+            IntMax {
+                rust_module: int,
+                rust_name: max,
+                description: "integer maximum",
+                k_label: "maxInt(_,_)_INT-COMMON_Int_Int_Int",
+                k_hook: Some("INT.max"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "maxInt" },
+                argument_sorts: [Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `absInt`, absolute value (`INT.abs`).
+            IntAbs {
+                rust_module: int,
+                rust_name: abs,
+                description: "integer absolute value",
+                k_label: "absInt(_)_INT-COMMON_Int_Int",
+                k_hook: Some("INT.abs"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "absInt" },
+                argument_sorts: [Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `_dividesInt_`, divisibility, defined by a prelude equation.
+            IntDivides {
+                rust_module: int,
+                rust_name: divides,
+                description: "integer divisibility",
+                k_label: "_dividesInt__INT-COMMON_Bool_Int_Int",
+                k_hook: None,
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " dividesInt ", ""] },
+                argument_sorts: [Int, Int],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `bitRangeInt`, unsigned bit-field extraction (`INT.bitRange`).
+            IntBitRange {
+                rust_module: int,
+                rust_name: bit_range,
+                description: "integer bit range",
+                k_label: "bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int",
+                k_hook: Some("INT.bitRange"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "bitRangeInt" },
+                argument_sorts: [Int, Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `signExtendBitRangeInt`, signed bit-field extraction (`INT.signExtendBitRange`).
+            IntSignExtendBitRange {
+                rust_module: int,
+                rust_name: sign_extend_bit_range,
+                description: "integer sign-extended bit range",
+                k_label: "signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int",
+                k_hook: Some("INT.signExtendBitRange"),
+                k_module: "INT",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "signExtendBitRangeInt" },
+                argument_sorts: [Int, Int, Int],
+                result_sort: Int,
+                functional: true
+            }
+            /// `_xorBool_`.
+            BoolXor {
+                rust_module: bool,
+                rust_name: xor,
+                description: "Boolean exclusive disjunction",
+                k_label: "_xorBool_",
+                k_hook: Some("BOOL.xor"),
+                k_module: "BOOL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " xorBool ", ""] },
+                argument_sorts: [Bool, Bool],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_impliesBool_`.
+            BoolImplies {
+                rust_module: bool,
+                rust_name: implies,
+                description: "Boolean implication",
+                k_label: "_impliesBool_",
+                k_hook: Some("BOOL.implies"),
+                k_module: "BOOL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " impliesBool ", ""] },
+                argument_sorts: [Bool, Bool],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_andThenBool_`, conjunction that concrete backends may short-circuit.
+            BoolAndThen {
+                rust_module: bool,
+                rust_name: and_then,
+                description: "Boolean short-circuit conjunction",
+                k_label: "_andThenBool_",
+                k_hook: Some("BOOL.andThen"),
+                k_module: "BOOL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " andThenBool ", ""] },
+                argument_sorts: [Bool, Bool],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_orElseBool_`, disjunction that concrete backends may short-circuit.
+            BoolOrElse {
+                rust_module: bool,
+                rust_name: or_else,
+                description: "Boolean short-circuit disjunction",
+                k_label: "_orElseBool_",
+                k_hook: Some("BOOL.orElse"),
+                k_module: "BOOL",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " orElseBool ", ""] },
+                argument_sorts: [Bool, Bool],
+                result_sort: Bool,
+                functional: true
+            }
+            /// `_+Bytes_` (`BYTES.concat`).
+            BytesConcat {
+                rust_module: bytes,
+                rust_name: concat,
+                description: "byte-string concatenation",
+                k_label: "_+Bytes__BYTES-HOOKED_Bytes_Bytes_Bytes",
+                k_hook: Some("BYTES.concat"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["", " +Bytes ", ""] },
+                argument_sorts: [Bytes, Bytes],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// Left padding (`BYTES.padLeft`).
+            BytesPadLeft {
+                rust_module: bytes,
+                rust_name: pad_left,
+                description: "byte-string left padding",
+                k_label: "padLeftBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
+                k_hook: Some("BYTES.padLeft"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "padLeftBytes" },
+                argument_sorts: [Bytes, Int, Int],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// Byte reversal (`BYTES.reverse`).
+            BytesReverse {
+                rust_module: bytes,
+                rust_name: reverse,
+                description: "byte-string reversal",
+                k_label: "reverseBytes(_)_BYTES-HOOKED_Bytes_Bytes",
+                k_hook: Some("BYTES.reverse"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "reverseBytes" },
+                argument_sorts: [Bytes],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// Overwrite at an index (`BYTES.replaceAt`).
+            BytesReplaceAt {
+                rust_module: bytes,
+                rust_name: replace_at,
+                description: "byte-string replacement",
+                k_label: "replaceAtBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Bytes",
+                k_hook: Some("BYTES.replaceAt"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "replaceAtBytes" },
+                argument_sorts: [Bytes, Int, Bytes],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// `Int2Bytes(length, value, endianness)` (`BYTES.int2bytes`).
+            BytesFromInt {
+                rust_module: bytes,
+                rust_name: from_int,
+                description: "integer to fixed-length bytes",
+                k_label: "Int2Bytes(_,_,_)_BYTES-HOOKED_Bytes_Int_Int_Endianness",
+                k_hook: Some("BYTES.int2bytes"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Int2Bytes" },
+                argument_sorts: [Int, Int, Endianness],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// `Int2Bytes(value, endianness, signedness)`, minimal length, defined by prelude equations.
+            BytesFromIntNoLen {
+                rust_module: bytes,
+                rust_name: from_int_no_len,
+                description: "integer to minimal-length bytes",
+                k_label: "Int2BytesNoLen",
+                k_hook: None,
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Int2Bytes" },
+                argument_sorts: [Int, Endianness, Signedness],
+                result_sort: Bytes,
+                functional: true
+            }
+            /// `Bytes2Int(bytes, endianness, signedness)` (`BYTES.bytes2int`).
+            BytesToInt {
+                rust_module: bytes,
+                rust_name: to_int,
+                description: "bytes to integer",
+                k_label: "Bytes2Int(_,_,_)_BYTES-HOOKED_Int_Bytes_Endianness_Signedness",
+                k_hook: Some("BYTES.bytes2int"),
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "Bytes2Int" },
+                argument_sorts: [Bytes, Endianness, Signedness],
+                result_sort: Int,
+                functional: true
+            }
+            /// `LE`, little-endian byte order.
+            BytesLittleEndian {
+                rust_module: bytes,
+                rust_name: little_endian,
+                description: "little-endian byte order",
+                k_label: "littleEndianBytes",
+                k_hook: None,
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["LE"] },
+                argument_sorts: [],
+                result_sort: Endianness,
+                functional: false
+            }
+            /// `BE`, big-endian byte order.
+            BytesBigEndian {
+                rust_module: bytes,
+                rust_name: big_endian,
+                description: "big-endian byte order",
+                k_label: "bigEndianBytes",
+                k_hook: None,
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["BE"] },
+                argument_sorts: [],
+                result_sort: Endianness,
+                functional: false
+            }
+            /// `Signed`, two's-complement interpretation.
+            BytesSigned {
+                rust_module: bytes,
+                rust_name: signed,
+                description: "signed interpretation",
+                k_label: "signedBytes",
+                k_hook: None,
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["Signed"] },
+                argument_sorts: [],
+                result_sort: Signedness,
+                functional: false
+            }
+            /// `Unsigned`, unsigned interpretation.
+            BytesUnsigned {
+                rust_module: bytes,
+                rust_name: unsigned,
+                description: "unsigned interpretation",
+                k_label: "unsignedBytes",
+                k_hook: None,
+                k_module: "BYTES",
+                k_notation: $crate::BuiltinOperationNotation::Mixfix { pieces: &["Unsigned"] },
+                argument_sorts: [],
+                result_sort: Signedness,
+                functional: false
             }
         }
     };
@@ -858,6 +1303,8 @@ macro_rules! define_builtin_operations {
         rust_name: $name:ident,
         description: $description:literal,
         k_label: $label:literal,
+        k_hook: $hook:expr,
+        k_module: $k_module:literal,
         k_notation: $notation:expr,
         argument_sorts: [$($argument:ident),* $(,)?],
         result_sort: $result:ident,
@@ -885,9 +1332,11 @@ macro_rules! define_builtin_operations {
                             rust_name: stringify!($name),
                             description: $description,
                             k_label: $label,
+                            k_hook: $hook,
+                            k_module: $k_module,
                             k_notation: $notation,
-                            argument_sorts: &[$(BuiltinSort::$argument),*],
-                            result_sort: BuiltinSort::$result,
+                            argument_sorts: &[$($crate::__krs_operation_sort!($argument)),*],
+                            result_sort: $crate::__krs_operation_sort!($result),
                             functional: $functional,
                         };
                         &SPEC
@@ -895,9 +1344,9 @@ macro_rules! define_builtin_operations {
                 }
             }
 
-            /// Returns the exact result sort from the pinned builtin signature.
+            /// Returns the result sort from the pinned builtin signature.
             #[must_use]
-            pub const fn result_sort(self) -> BuiltinSort {
+            pub const fn result_sort(self) -> OperationSort {
                 self.spec().result_sort
             }
 
@@ -909,8 +1358,26 @@ macro_rules! define_builtin_operations {
 
             /// Returns the ordered argument sorts from the pinned builtin signature.
             #[must_use]
-            pub const fn argument_sorts(self) -> &'static [BuiltinSort] {
+            pub const fn argument_sorts(self) -> &'static [OperationSort] {
                 self.spec().argument_sorts
+            }
+
+            /// Whether the signature is sort-parametric or takes a `K` argument,
+            /// so its sorts at a use site are not fixed by the catalog.
+            #[must_use]
+            pub const fn is_sort_generic(self) -> bool {
+                let spec = self.spec();
+                if spec.result_sort.builtin().is_none() {
+                    return true;
+                }
+                let mut index = 0;
+                while index < spec.argument_sorts.len() {
+                    if spec.argument_sorts[index].builtin().is_none() {
+                        return true;
+                    }
+                    index += 1;
+                }
+                false
             }
         }
 
@@ -966,6 +1433,10 @@ pub struct CollectionOperationSpec {
     pub description: &'static str,
     /// Exact native frontend K label.
     pub k_label: &'static str,
+    /// The production's `hook(..)` in the pinned prelude.
+    pub k_hook: Option<&'static str>,
+    /// K module a definition imports to use the operation.
+    pub k_module: &'static str,
     /// Application spelling used by the K printer.
     pub k_notation: CollectionNotation,
     /// Operand sorts in wire order; their count is the arity. For
@@ -1022,6 +1493,8 @@ macro_rules! collection_operation_spec {
     (
         description: $description:literal,
         k_label: $label:literal,
+        k_hook: $hook:expr,
+        k_module: $k_module:literal,
         k_notation: $notation:expr,
         operand_sorts: [$($operand:ident $(($operand_sort:ident))?),* $(,)?],
         result_sort: $result:ident $(($result_sort:ident))?
@@ -1029,6 +1502,8 @@ macro_rules! collection_operation_spec {
         CollectionOperationSpec {
             description: $description,
             k_label: $label,
+            k_hook: $hook,
+            k_module: $k_module,
             k_notation: $notation,
             operand_sorts: &[$(CollectionOperandSort::$operand $((BuiltinSort::$operand_sort))?),*],
             result_sort: CollectionResultSort::$result $((BuiltinSort::$result_sort))?,
@@ -1047,6 +1522,8 @@ macro_rules! __krs_map_operation_catalog {
                 Empty {
                     description: "empty Map",
                     k_label: ".Map",
+                    k_hook: Some("MAP.unit"),
+                    k_module: "MAP",
                     k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
                     operand_sorts: [],
                     result_sort: Builtin(Map)
@@ -1055,6 +1532,8 @@ macro_rules! __krs_map_operation_catalog {
                 Item {
                     description: "Map item",
                     k_label: "_|->_",
+                    k_hook: Some("MAP.element"),
+                    k_module: "MAP",
                     k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " |-> ", ""] },
                     operand_sorts: [Element, Element],
                     result_sort: Builtin(Map)
@@ -1066,6 +1545,8 @@ macro_rules! __krs_map_operation_catalog {
                     rust_name: update,
                     description: "Map update",
                     k_label: "Map:update",
+                    k_hook: Some("MAP.update"),
+                    k_module: "MAP",
                     k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " <- ", " ]"] },
                     operand_sorts: [Builtin(Map), Element, Element],
                     result_sort: Builtin(Map)
@@ -1075,6 +1556,8 @@ macro_rules! __krs_map_operation_catalog {
                     rust_name: get,
                     description: "Map lookup",
                     k_label: "Map:lookup",
+                    k_hook: Some("MAP.lookup"),
+                    k_module: "MAP",
                     k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " ]"] },
                     operand_sorts: [Builtin(Map), Element],
                     result_sort: Projected
@@ -1084,9 +1567,99 @@ macro_rules! __krs_map_operation_catalog {
                     rust_name: in_keys,
                     description: "Map key membership",
                     k_label: "_in_keys(_)_MAP_Bool_KItem_Map",
+                    k_hook: Some("MAP.in_keys"),
+                    k_module: "MAP",
                     k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " in_keys(", ")"] },
                     operand_sorts: [Element, Builtin(Map)],
                     result_sort: Builtin(Bool)
+                }
+                /// Removal of one key (`M [ K <- undef ]`).
+                Remove {
+                    rust_name: remove,
+                    description: "Map key removal",
+                    k_label: "_[_<-undef]",
+                    k_hook: Some("MAP.remove"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " <- undef ]"] },
+                    operand_sorts: [Builtin(Map), Element],
+                    result_sort: Builtin(Map)
+                }
+                /// Removal of every key in a set (`removeAll(M, S)`).
+                RemoveAll {
+                    rust_name: remove_all,
+                    description: "Map removal of a key set",
+                    k_label: "removeAll(_,_)_MAP_Map_Map_Set",
+                    k_hook: Some("MAP.removeAll"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "removeAll" },
+                    operand_sorts: [Builtin(Map), Builtin(Set)],
+                    result_sort: Builtin(Map)
+                }
+                /// The set of keys (`keys(M)`).
+                Keys {
+                    rust_name: keys,
+                    description: "Map key set",
+                    k_label: "keys(_)_MAP_Set_Map",
+                    k_hook: Some("MAP.keys"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "keys" },
+                    operand_sorts: [Builtin(Map)],
+                    result_sort: Builtin(Set)
+                }
+                /// The keys as a list (`keys_list(M)`).
+                KeysList {
+                    rust_name: keys_list,
+                    description: "Map key list",
+                    k_label: "keys_list(_)_MAP_List_Map",
+                    k_hook: Some("MAP.keys_list"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "keys_list" },
+                    operand_sorts: [Builtin(Map)],
+                    result_sort: Builtin(List)
+                }
+                /// The values as a list (`values(M)`).
+                Values {
+                    rust_name: values,
+                    description: "Map value list",
+                    k_label: "values(_)_MAP_List_Map",
+                    k_hook: Some("MAP.values"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "values" },
+                    operand_sorts: [Builtin(Map)],
+                    result_sort: Builtin(List)
+                }
+                /// The number of entries (`size(M)`).
+                Size {
+                    rust_name: size,
+                    description: "Map size",
+                    k_label: "sizeMap",
+                    k_hook: Some("MAP.size"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "size" },
+                    operand_sorts: [Builtin(Map)],
+                    result_sort: Builtin(Int)
+                }
+                /// Update with every entry of a second map (`updateMap(M1, M2)`).
+                UpdateAll {
+                    rust_name: update_all,
+                    description: "Map update with a map",
+                    k_label: "updateMap(_,_)_MAP_Map_Map_Map",
+                    k_hook: Some("MAP.updateAll"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Call { name: "updateMap" },
+                    operand_sorts: [Builtin(Map), Builtin(Map)],
+                    result_sort: Builtin(Map)
+                }
+                /// Total lookup with a default (`M [ K ] orDefault D`).
+                GetOrDefault {
+                    rust_name: get_or_default,
+                    description: "Map lookup with default",
+                    k_label: "Map:lookupOrDefault",
+                    k_hook: Some("MAP.lookupOrDefault"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " ] orDefault ", ""] },
+                    operand_sorts: [Builtin(Map), Element, Element],
+                    result_sort: Projected
                 }
             }
         }
@@ -1214,6 +1787,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: empty,
                 description: "empty List",
                 k_label: ".List",
+                k_hook: Some("LIST.unit"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".List"] },
                 operand_sorts: [],
                 result_sort: Builtin(List)
@@ -1223,6 +1798,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: item,
                 description: "List item",
                 k_label: "ListItem",
+                k_hook: Some("LIST.element"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Call { name: "ListItem" },
                 operand_sorts: [Element],
                 result_sort: Builtin(List)
@@ -1232,6 +1809,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: concat,
                 description: "List concatenation",
                 k_label: "_List_",
+                k_hook: Some("LIST.concat"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " ", ""] },
                 operand_sorts: [Builtin(List), Builtin(List)],
                 result_sort: Builtin(List)
@@ -1241,6 +1820,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: get,
                 description: "List lookup",
                 k_label: "List:get",
+                k_hook: Some("LIST.get"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " ]"] },
                 operand_sorts: [Builtin(List), Builtin(Int)],
                 result_sort: Projected
@@ -1250,6 +1831,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: update,
                 description: "List update",
                 k_label: "List:set",
+                k_hook: Some("LIST.update"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " [ ", " <- ", " ]"] },
                 operand_sorts: [Builtin(List), Builtin(Int), Element],
                 result_sort: Builtin(List)
@@ -1259,6 +1842,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: size,
                 description: "List size",
                 k_label: "sizeList",
+                k_hook: Some("LIST.size"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Call { name: "size" },
                 operand_sorts: [Builtin(List)],
                 result_sort: Builtin(Int)
@@ -1268,6 +1853,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: make,
                 description: "List repetition",
                 k_label: "makeList(_,_)_LIST_List_Int_KItem",
+                k_hook: Some("LIST.make"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Call { name: "makeList" },
                 operand_sorts: [Builtin(Int), Element],
                 result_sort: Builtin(List)
@@ -1277,6 +1864,8 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: range,
                 description: "List range",
                 k_label: "List:range",
+                k_hook: Some("LIST.range"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Call { name: "range" },
                 operand_sorts: [Builtin(List), Builtin(Int), Builtin(Int)],
                 result_sort: Builtin(List)
@@ -1286,9 +1875,22 @@ macro_rules! __krs_list_operation_catalog {
                 rust_name: update_all,
                 description: "List range update",
                 k_label: "updateList(_,_,_)_LIST_List_List_Int_List",
+                k_hook: Some("LIST.updateAll"),
+                k_module: "LIST",
                 k_notation: $crate::CollectionNotation::Call { name: "updateList" },
                 operand_sorts: [Builtin(List), Builtin(Int), Builtin(List)],
                 result_sort: Builtin(List)
+            }
+            /// Boolean membership (`K in L`).
+            Contains {
+                rust_name: contains,
+                description: "List membership",
+                k_label: "_inList_",
+                k_hook: Some("LIST.in"),
+                k_module: "LIST",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " in ", ""] },
+                operand_sorts: [Element, Builtin(List)],
+                result_sort: Builtin(Bool)
             }
         }
     };
@@ -1352,6 +1954,8 @@ macro_rules! __krs_set_operation_catalog {
                 rust_name: empty,
                 description: "empty Set",
                 k_label: ".Set",
+                k_hook: Some("SET.unit"),
+                k_module: "SET",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Set"] },
                 operand_sorts: [],
                 result_sort: Builtin(Set)
@@ -1361,6 +1965,8 @@ macro_rules! __krs_set_operation_catalog {
                 rust_name: item,
                 description: "Set item",
                 k_label: "SetItem",
+                k_hook: Some("SET.element"),
+                k_module: "SET",
                 k_notation: $crate::CollectionNotation::Call { name: "SetItem" },
                 operand_sorts: [Element],
                 result_sort: Builtin(Set)
@@ -1370,6 +1976,8 @@ macro_rules! __krs_set_operation_catalog {
                 rust_name: concat,
                 description: "Set concatenation",
                 k_label: "_Set_",
+                k_hook: Some("SET.concat"),
+                k_module: "SET",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " ", ""] },
                 operand_sorts: [Builtin(Set), Builtin(Set)],
                 result_sort: Builtin(Set)
@@ -1379,6 +1987,8 @@ macro_rules! __krs_set_operation_catalog {
                 rust_name: union,
                 description: "Set union",
                 k_label: "_|Set__SET_Set_Set_Set",
+                k_hook: Some("SET.union"),
+                k_module: "SET",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " |Set ", ""] },
                 operand_sorts: [Builtin(Set), Builtin(Set)],
                 result_sort: Builtin(Set)
@@ -1388,9 +1998,77 @@ macro_rules! __krs_set_operation_catalog {
                 rust_name: contains,
                 description: "Set membership",
                 k_label: "Set:in",
+                k_hook: Some("SET.in"),
+                k_module: "SET",
                 k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " in ", ""] },
                 operand_sorts: [Element, Builtin(Set)],
                 result_sort: Builtin(Bool)
+            }
+            /// Set difference (`S1 -Set S2`).
+            Difference {
+                rust_name: difference,
+                description: "Set difference",
+                k_label: "Set:difference",
+                k_hook: Some("SET.difference"),
+                k_module: "SET",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " -Set ", ""] },
+                operand_sorts: [Builtin(Set), Builtin(Set)],
+                result_sort: Builtin(Set)
+            }
+            /// Set intersection (`intersectSet(S1, S2)`).
+            Intersect {
+                rust_name: intersect,
+                description: "Set intersection",
+                k_label: "intersectSet(_,_)_SET_Set_Set_Set",
+                k_hook: Some("SET.intersection"),
+                k_module: "SET",
+                k_notation: $crate::CollectionNotation::Call { name: "intersectSet" },
+                operand_sorts: [Builtin(Set), Builtin(Set)],
+                result_sort: Builtin(Set)
+            }
+            /// The number of elements (`size(S)`).
+            Size {
+                rust_name: size,
+                description: "Set size",
+                k_label: "size(_)_SET_Int_Set",
+                k_hook: Some("SET.size"),
+                k_module: "SET",
+                k_notation: $crate::CollectionNotation::Call { name: "size" },
+                operand_sorts: [Builtin(Set)],
+                result_sort: Builtin(Int)
+            }
+            /// Inclusion (`S1 <=Set S2`).
+            IsSubset {
+                rust_name: is_subset,
+                description: "Set inclusion",
+                k_label: "_<=Set__SET_Bool_Set_Set",
+                k_hook: Some("SET.inclusion"),
+                k_module: "SET",
+                k_notation: $crate::CollectionNotation::Mixfix { pieces: &["", " <=Set ", ""] },
+                operand_sorts: [Builtin(Set), Builtin(Set)],
+                result_sort: Builtin(Bool)
+            }
+            /// The elements as a list (`Set2List(S)`, module `COLLECTIONS`).
+            ToList {
+                rust_name: to_list,
+                description: "Set to List conversion",
+                k_label: "Set2List(_)_COLLECTIONS_List_Set",
+                k_hook: Some("SET.set2list"),
+                k_module: "COLLECTIONS",
+                k_notation: $crate::CollectionNotation::Call { name: "Set2List" },
+                operand_sorts: [Builtin(Set)],
+                result_sort: Builtin(List)
+            }
+            /// The set of a list's elements (`List2Set(L)`, module `COLLECTIONS`).
+            FromList {
+                rust_name: from_list,
+                description: "List to Set conversion",
+                k_label: "List2Set(_)_COLLECTIONS_Set_List",
+                k_hook: Some("SET.list2set"),
+                k_module: "COLLECTIONS",
+                k_notation: $crate::CollectionNotation::Call { name: "List2Set" },
+                operand_sorts: [Builtin(List)],
+                result_sort: Builtin(Set)
             }
         }
     };
