@@ -140,6 +140,12 @@ The helper is written the same way on a term rule, a `cells!` rule, and a readab
 Only a transition step reads the counter, so `#[k::fresh]` on an equation, simplification, alias, claim, context alias, or anywhere rule is rejected (`krs::expand::fresh-placement`).
 Unlike `?X` from `#[k::exists]`, a fresh value is concrete, so every backend runs such rules; K assigns the counter offsets of several fresh binders of one rule in an unspecified order (k-rust: by name), so results that depend on that order differ between backends.
 
+### Trusted claims
+
+`#[k::claim(all_paths, label = "helper-axiom", trusted)]` states an axiom: the prover assumes the claim without proving it and may apply it while proving other claims, which K writes `[trusted]`.
+`krs prove` reports it `trusted`, never `proven`, and every prove run and Haskell build warns once per trusted claim (`krs::emit::trusted-claim`).
+`trusted` is a bare flag after the label: a repeated `trusted`, `trusted = true`, and `trusted` with `circularity` are syntax errors (see [trusted claims](/verification/reachability-claims#trusted-claims)).
+
 ### Console I/O and the exit cell
 
 `#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.

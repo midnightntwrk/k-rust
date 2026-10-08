@@ -5345,6 +5345,10 @@
           "role": "sort_declaration"
         }
       ],
+      "trusted_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "universals": [
         {
           "declaration_key": {
@@ -5539,6 +5543,10 @@
             "role": "sort_declaration"
           }
         ],
+        "trusted_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
         "universals": [
           {
             "declaration_key": {
@@ -7555,6 +7563,10 @@
               "role": "sort_declaration"
             }
           ],
+          "trusted_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
           "universals": [
             {
               "declaration_key": {
@@ -15217,7 +15229,8 @@
     "rule_fresh_binder",
     "rule_fresh_binder_name",
     "rule_fresh_binder_sort",
-    "function_fresh_generator"
+    "function_fresh_generator",
+    "claim_trusted"
   ],
   "RawSentence": [
     {
@@ -21188,6 +21201,10 @@
           "role": "sort_declaration"
         }
       ],
+      "trusted_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "universals": [
         {
           "declaration_key": {
@@ -21294,6 +21311,10 @@
             "role": "sort_declaration"
           }
         ],
+        "trusted_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
         "universals": [
           {
             "declaration_key": {

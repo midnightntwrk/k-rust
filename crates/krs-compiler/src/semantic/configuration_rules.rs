@@ -596,6 +596,13 @@ fn lower_rule_claim(
             .map(|key| semantic_origin(descriptor, key.clone(), "claim-circularity"))
             .transpose()?,
         universals,
+    )
+    .with_trusted_origin(
+        claim
+            .trusted_key
+            .as_ref()
+            .map(|key| semantic_origin(descriptor, key.clone(), "claim-trusted"))
+            .transpose()?,
     ))
 }
 

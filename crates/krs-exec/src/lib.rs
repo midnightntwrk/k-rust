@@ -748,9 +748,14 @@ impl Semantics {
                 max_depth: options.depth,
                 ..ProveRequest::default()
             })?;
-            let verdict = Verdict::from_backend(&result.status).ok_or_else(|| {
+            let mut verdict = Verdict::from_backend(&result.status).ok_or_else(|| {
                 ExecError::Result(format!("unknown proof status `{}`", result.status))
             })?;
+            // The backend assumes a trusted claim and reports it proven; KRS never calls an
+            // assumption proven (KF-042).
+            if claim.trusted && verdict == Verdict::Proven {
+                verdict = Verdict::Trusted;
+            }
             let leaves = result
                 .leaves
                 .iter()

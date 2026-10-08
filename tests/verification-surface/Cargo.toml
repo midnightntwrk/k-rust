@@ -2,6 +2,8 @@
 members = [
     "packages/l21",
     "packages/l21-readable",
+    "packages/trusted",
+    "packages/trusted-ablation",
 ]
 resolver = "3"
 

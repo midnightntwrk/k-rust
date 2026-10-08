@@ -875,6 +875,9 @@ fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<
         if let Some(origin) = claim.circularity_origin() {
             attributes.push(("circularity", None, Some(origin), None));
         }
+        if let Some(origin) = claim.trusted_origin() {
+            attributes.push(("trusted", None, Some(origin), None));
+        }
     }
     if attributes.is_empty() {
         return Ok(());

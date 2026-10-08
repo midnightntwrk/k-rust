@@ -193,3 +193,4 @@ RuleFreshBinder=rule_fresh_binder
 RuleFreshBinderName=rule_fresh_binder_name
 RuleFreshBinderSort=rule_fresh_binder_sort
 FunctionFreshGenerator=function_fresh_generator
+ClaimTrusted=claim_trusted

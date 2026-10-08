@@ -82,6 +82,8 @@ pub enum SentenceNodeRole {
     ClaimModality,
     /// A claim circularity marker.
     ClaimCircularity,
+    /// A claim trusted marker.
+    ClaimTrusted,
     /// A rule applicability condition.
     Requires,
     /// A claim postcondition.

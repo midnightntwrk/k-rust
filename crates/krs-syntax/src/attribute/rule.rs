@@ -105,6 +105,7 @@ pub struct ClaimAttribute {
     modality_ident: Ident,
     label: LitStr,
     circularity: Option<Ident>,
+    trusted: Option<Ident>,
 }
 
 impl ClaimAttribute {
@@ -122,6 +123,12 @@ impl ClaimAttribute {
     #[must_use]
     pub const fn circularity(&self) -> bool {
         self.circularity.is_some()
+    }
+    /// Whether the claim carries the trusted modifier: it is assumed without
+    /// proof.
+    #[must_use]
+    pub const fn trusted(&self) -> bool {
+        self.trusted.is_some()
     }
     /// Returns exact payload-token provenance.
     ///
@@ -144,6 +151,13 @@ impl ClaimAttribute {
         if let Some(marker) = &self.circularity {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ClaimCircularity,
+                0,
+                TokenRange::for_tokens(marker)?,
+            ));
+        }
+        if let Some(marker) = &self.trusted {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ClaimTrusted,
                 0,
                 TokenRange::for_tokens(marker)?,
             ));
@@ -348,6 +362,7 @@ impl KrsSyntax for ClaimAttribute {
             let mut modality = None;
             let mut label = None;
             let mut circularity = None;
+            let mut trusted = None;
             while !input.is_empty() {
                 let key: Ident = input.parse()?;
                 match key.to_string().as_str() {
@@ -388,6 +403,18 @@ impl KrsSyntax for ClaimAttribute {
                         }
                         circularity = Some(key);
                     }
+                    "trusted" => {
+                        if trusted.is_some() {
+                            return Err(syn::Error::new(key.span(), "duplicate trusted modifier"));
+                        }
+                        if input.peek(Token![=]) {
+                            return Err(syn::Error::new(
+                                key.span(),
+                                "`trusted` is a bare flag; write `trusted` without a value",
+                            ));
+                        }
+                        trusted = Some(key);
+                    }
                     _ => return Err(syn::Error::new(key.span(), "unknown claim argument")),
                 }
                 if input.is_empty() {
@@ -407,11 +434,18 @@ impl KrsSyntax for ClaimAttribute {
                     "circularity is valid only on an all-path claim",
                 ));
             }
+            if let (Some(trusted), Some(_)) = (&trusted, &circularity) {
+                return Err(syn::Error::new(
+                    trusted.span(),
+                    "a trusted claim is assumed, not proved; circularity has no effect",
+                ));
+            }
             Ok(ClaimAttribute {
                 modality,
                 modality_ident,
                 label,
                 circularity,
+                trusted,
             })
         };
         parser.parse2(tokens).map_err(SyntaxError::from)

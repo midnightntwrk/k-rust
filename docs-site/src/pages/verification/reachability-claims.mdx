@@ -42,6 +42,26 @@ Loop proofs may deliberately use circularity:
 `circularity` opts the claim into the backend's circular proof discipline.
 It is not permission for an unguarded recursive Rust call.
 
+## Trusted claims
+
+A `trusted` claim is an axiom: the prover assumes it and never proves it, like `unsafe` in Rust or `assume` in Verus.
+
+```rust
+#[k::claim(all_paths, label = "helper-axiom", trusted)]
+fn helper_axiom(
+    i: Term<Int>,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Helper(i), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(int::add(i, 1), ..tail), ..state }
+}
+```
+
+K writes it `claim [helper-axiom]: <k> helper ( I:Int ) ~> Tail:K => I:Int +Int 1 ~> Tail:K </k> [trusted]`.
+Other claims may apply it: when `call(I)` steps to `helper(I)` and no rule defines `helper`, the claim `call(I) => I +Int 1` is proved through `helper-axiom`, and without it the proof stops at `helper(I)`.
+`krs prove` reports such a claim `trusted`, never `proven`, and exits 0 when every selected claim is proven or trusted; every prove run and every `krs build --backend haskell` warns once per trusted claim (`krs::emit::trusted-claim`), so an assumption is never silent.
+`trusted` is a bare flag, legal with `all_paths` or `one_path`, and rejected with `circularity`, because an assumed claim is not proved and circularity has no effect on it.
+Use a trusted claim to split a proof into parts, never to make one pass: nothing checks that the axiom holds.
+
 ## Capability boundary
 
 `krs emit-k` writes claims to `spec.k`, a `<MAIN>-SPEC` module beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
@@ -55,6 +75,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 | All-path, without existential binders | Current; the complete IMP and KWasm fixtures provide positive authored specimens. | Current; the complete IMP proof suite records bounded outcomes including a proved `addition-1` claim. KWasm's additional pinned K reference proof runs only when its gate receives `--java-reference`. |
 | All-path with existential results, anonymous values, or `ensures` | Current; the complete IMP fixture preserves binders, uses, and source maps. | Current; the complete IMP proof suite has exact native/reference KORE parity and pinned bounded proof outcomes, including a proved `branching` claim. |
 | Circular all-path | Current; the complete IMP fixture authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. |
+| Trusted all-path | Current; the verification-surface fixture emits `[trusted]`. | Current; `krs prove` reports the trusted claim `trusted` and proves the claim that applies it, and Java `kprove` proves the same spec; without the trusted claim both routes fail. |
 | One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. |
 
 “Current” does not mean every true-looking claim closes within every bound.

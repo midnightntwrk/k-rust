@@ -138,7 +138,7 @@
 //! `kast.normalize` requires `variant` and accepts a closed `policy` object.
 //! `behavior` requires exactly `label_map`, `sort_map`, `identity_labels`, and `identity_sorts` in its policy and returns a normalized bare term.
 //! `proof_result` accepts the same name tables with empty defaults and returns a normalized KAST term envelope.
-//! Proof normalization removes location metadata and permits only metadata, `label`, `circularity`, `all-path`, and `one-path` attributes.
+//! Proof normalization removes location metadata and permits only metadata, `label`, `circularity`, `trusted`, `all-path`, and `one-path` attributes.
 //! `proof_claim` accepts that proof policy and requires `label`; it selects exactly one matching claim, rejects priority, and returns a `KRS-IMP-CLAIM` version 1 envelope.
 //! `static_proof` requires an empty policy, concrete variable sorts, and a term without rewrites; it returns a normalized KAST term envelope.
 //! `static_claim` requires an empty policy and `label`; it requires exactly one claim in a `KFlatModuleList` and requires that claim's label to match.

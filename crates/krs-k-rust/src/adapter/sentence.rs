@@ -730,6 +730,15 @@ impl Adapter<'_> {
                 );
                 attributes.insert("circularity", json!(""));
             }
+            if let Some(origin) = claim.trusted_origin() {
+                self.map_sentence_origin(
+                    origin,
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::ClaimTrusted,
+                );
+                attributes.insert("trusted", json!(""));
+            }
         }
         let universals = sentence
             .claim()

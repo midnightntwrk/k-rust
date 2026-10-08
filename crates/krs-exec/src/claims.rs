@@ -64,6 +64,7 @@ pub(crate) fn catalog(
                 module: spec.clone(),
                 modality: modality(pattern),
                 origin,
+                trusted: has_attribute(attributes, "trusted"),
                 backend_label: backend_label.to_owned(),
             });
         }
@@ -71,6 +72,12 @@ pub(crate) fn catalog(
     claims.sort_by(|left, right| left.label.cmp(&right.label));
     claims.dedup_by(|left, right| left.label == right.label);
     Ok(claims)
+}
+
+fn has_attribute(attributes: &Attributes, name: &str) -> bool {
+    attributes.0.iter().any(
+        |attribute| matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == name),
+    )
 }
 
 fn string_attribute<'a>(attributes: &'a Attributes, name: &str) -> Option<&'a str> {
@@ -205,6 +212,7 @@ mod tests {
                 module: "MAIN-SPEC".to_owned(),
                 modality: Modality::AllPath,
                 origin: None,
+                trusted: false,
                 backend_label: format!("MAIN.{local}"),
             })
             .collect()
@@ -243,6 +251,7 @@ mod tests {
             module: "OTHER-SPEC".to_owned(),
             modality: Modality::OnePath,
             origin: None,
+            trusted: false,
             backend_label: "OTHER.branching".to_owned(),
         });
         let error = select(&claims, &["branching".to_owned()]).unwrap_err();

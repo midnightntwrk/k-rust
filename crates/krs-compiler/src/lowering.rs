@@ -1504,6 +1504,12 @@ fn lower_claim(
             .map(|origin| origins.lower(origin, "claim-circularity", Some(item), None))
             .transpose()?,
         lower_claim_binders(claim.universals(), item, names, origins, "claim-universal")?,
+    )
+    .with_trusted_origin(
+        claim
+            .trusted_origin()
+            .map(|origin| origins.lower(origin, "claim-trusted", Some(item), None))
+            .transpose()?,
     ))
 }
 

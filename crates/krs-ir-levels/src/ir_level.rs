@@ -221,6 +221,8 @@ pub struct IrClaim<L: IrLevel> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) circularity_origin: Option<NodeOrigin>,
     pub(crate) universals: Vec<IrScopedBinder<L>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) trusted_origin: Option<NodeOrigin>,
 }
 
 impl<L: IrLevel> IrScopedBinder<L> {
@@ -282,7 +284,14 @@ impl<L: IrLevel> IrClaim<L> {
             modality,
             circularity_origin,
             universals,
+            trusted_origin: None,
         }
+    }
+    /// Marks the claim trusted: it is assumed without proof.
+    #[must_use]
+    pub fn with_trusted_origin(mut self, trusted_origin: Option<NodeOrigin>) -> Self {
+        self.trusted_origin = trusted_origin;
+        self
     }
     /// Modality provenance.
     #[must_use]
@@ -303,6 +312,11 @@ impl<L: IrLevel> IrClaim<L> {
     #[must_use]
     pub fn universals(&self) -> &[IrScopedBinder<L>] {
         &self.universals
+    }
+    /// Optional trusted provenance: the claim is assumed without proof.
+    #[must_use]
+    pub const fn trusted_origin(&self) -> Option<&NodeOrigin> {
+        self.trusted_origin.as_ref()
     }
 }
 

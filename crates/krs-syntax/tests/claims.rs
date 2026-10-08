@@ -40,6 +40,22 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
             r#"all_paths, label = "valid", priority = 40"#,
             "unknown claim argument",
         ),
+        (
+            r#"all_paths, label = "valid", trusted, trusted"#,
+            "duplicate trusted modifier",
+        ),
+        (
+            r#"all_paths, label = "valid", circularity, trusted"#,
+            "a trusted claim is assumed, not proved; circularity has no effect",
+        ),
+        (
+            r#"all_paths, label = "valid", trusted, circularity"#,
+            "a trusted claim is assumed, not proved; circularity has no effect",
+        ),
+        (
+            r#"all_paths, label = "valid", trusted = true"#,
+            "`trusted` is a bare flag",
+        ),
     ] {
         assert_error_contains(krs_syntax::ClaimAttribute::parse_source(source), expected);
     }
@@ -187,4 +203,26 @@ fn claim_item_accepts_readable_sort_aliases_for_binders() {
             .iter()
             .all(|candidate| candidate.path().segments[0].ident == "Value")
     );
+}
+
+#[test]
+fn trusted_claims_parse_with_either_modality() {
+    for source in [
+        r#"all_paths, label = "helper-axiom", trusted"#,
+        r#"one_path, label = "helper-axiom", trusted"#,
+    ] {
+        let claim = krs_syntax::ClaimAttribute::parse_source(source).expect("trusted claim");
+        assert!(claim.trusted());
+        assert!(!claim.circularity());
+        assert!(
+            claim
+                .provenance()
+                .expect("provenance")
+                .iter()
+                .any(|anchor| anchor.role() == krs_ir::ProvenanceRole::ClaimTrusted)
+        );
+    }
+    let plain = krs_syntax::ClaimAttribute::parse_source(r#"all_paths, label = "plain""#)
+        .expect("plain claim");
+    assert!(!plain.trusted());
 }

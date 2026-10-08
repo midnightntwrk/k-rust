@@ -420,6 +420,11 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         .iter()
         .filter(|report| report.verdict == Verdict::Proven)
         .count();
+    // A trusted claim is assumed, never proven (KF-042); it does not fail the run.
+    let trusted = reports
+        .iter()
+        .filter(|report| report.verdict == Verdict::Trusted)
+        .count();
     let mut stdout = String::new();
     let mut warnings = String::new();
     let color = request.color.enabled();
@@ -433,7 +438,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
                 report.claim,
                 status_word(report.verdict.as_str(), smt)
             );
-            if report.verdict == Verdict::Proven {
+            if matches!(report.verdict, Verdict::Proven | Verdict::Trusted) {
                 continue;
             }
             for (index, leaf) in report.leaves.iter().enumerate() {
@@ -449,11 +454,20 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         }
     }
     let stderr = format!(
-        "{warnings}krs prove: {proven} of {} claim{} proven\n",
+        "{warnings}krs prove: {proven} of {} claim{} proven{}\n",
         reports.len(),
-        if reports.len() == 1 { "" } else { "s" }
+        if reports.len() == 1 { "" } else { "s" },
+        if trusted == 0 {
+            String::new()
+        } else {
+            format!(", {trusted} trusted")
+        }
     );
-    Ok(outcome(stdout, stderr, i32::from(proven != reports.len())))
+    Ok(outcome(
+        stdout,
+        stderr,
+        i32::from(proven + trusted != reports.len()),
+    ))
 }
 
 /// A status word, marked when it is `indeterminate` in a build without an SMT solver.

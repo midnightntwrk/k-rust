@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verification-surface feature gate: existentials and ensures on rules (KF-040).
+"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042).
 
 The fixture packages are K tutorial lesson 1.21 in both layers:
 
@@ -39,6 +39,18 @@ of a transition with `ensures` alone warns `krs::capability::ignored-ensures`.
 Negative fixtures pin the diagnostics for an existential on an equation, an
 unused existential, an existential in `requires`, and one that shadows a
 subject binding.
+
+Trusted claims (KF-042): `trusted` has a constructor `helper(Int)` with no
+rules, the rule `call(I) => helper(I)`, the trusted claim `helper-axiom`
+(`helper(I) => I +Int 1`), and `call-spec` (`call(I) => I +Int 1`), which
+only `helper-axiom` makes provable. The emitted `spec.k` carries `[trusted]`;
+`krs prove` reports `call-spec` proven and `helper-axiom` trusted, exits 0,
+and warns `krs::emit::trusted-claim`, as `krs build --backend haskell` does.
+Java `kprove` of the emitted spec proves it (`#Top`). The ablation
+`trusted-ablation` drops `helper-axiom`: `call-spec` then fails on both
+routes. Java prints `#Top` even for a spec of only trusted claims, so the
+trusted status is pinned from the native report alone. Negative fixtures in
+the macro tests pin `trusted` with `circularity`, twice, and with a value.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -116,6 +128,29 @@ READABLE_HELPERS = (
 CLAIM_SPEC_MODULE = "KRS-LESSON-21-SPEC"
 CLAIM_LABEL = "zero-reaches-nonzero"
 JAVA_LLVM_REJECTION = "[Error] Compiler: Found existential variable not supported by concrete backend."
+
+TRUSTED = Fixture(MANIFEST, "krs-verification-surface-trusted")
+TRUSTED_ABLATION = Fixture(MANIFEST, "krs-verification-surface-trusted-ablation")
+TRUSTED_SPEC_MODULE = "KRS-TRUSTED-SPEC"
+TRUSTED_CALL_SPEC = (
+    "  claim [call-spec]:\n"
+    "    <k> call ( I:Int ) ~> Tail:K => I:Int +Int 1 ~> Tail:K </k>\n"
+)
+TRUSTED_HELPER_AXIOM = (
+    "  claim [helper-axiom]:\n"
+    "    <k> helper ( I:Int ) ~> Tail:K => I:Int +Int 1 ~> Tail:K </k>\n"
+    "    [trusted]\n"
+)
+TRUSTED_EXPECTED = {
+    # package: (emitted claims, native statuses, krs prove exit status, Java kprove proves)
+    TRUSTED.package: (
+        (TRUSTED_CALL_SPEC, TRUSTED_HELPER_AXIOM),
+        {"call-spec": "proven", "helper-axiom": "trusted"},
+        0,
+        True,
+    ),
+    TRUSTED_ABLATION.package: ((TRUSTED_CALL_SPEC,), {"call-spec": "disproved"}, 1, False),
+}
 
 NEGATIVE = (
     "exists-equation",
@@ -563,6 +598,94 @@ def verify_ignored_ensures(harness: FixtureGate) -> None:
     print(f"PASS ensures-llvm: {warnings[0]}")
 
 
+def native_trusted_proof(harness: FixtureGate, fixture: Fixture) -> dict[str, Any]:
+    """Run `krs prove` on every claim; return statuses, exit status, and warnings."""
+
+    process = harness._krs(fixture, "prove", check=False)
+    prefix = re.escape(TRUSTED_SPEC_MODULE)
+    statuses = dict(re.findall(rf"^{prefix}\.([\w-]+): ([\w-]+)$", process.stdout, re.MULTILINE))
+    if not statuses:
+        raise GateError(f"{fixture.package}: krs prove printed no claim status:\n{process.stdout}\n{process.stderr}")
+    summary = [line for line in process.stderr.splitlines() if line.startswith("krs prove: ")]
+    return {
+        "statuses": statuses,
+        "exit": process.returncode,
+        "summary": summary,
+        "warnings": diagnostic_lines(process.stderr),
+    }
+
+
+def java_trusted_proof(harness: FixtureGate, emitted: Emitted) -> dict[str, Any]:
+    """Kompile the emitted definition for Haskell and `kprove` its whole spec module."""
+
+    package = emitted.fixture.package
+    inputs = {
+        f"emitted/{package}/definition.k": emitted.source,
+        f"emitted/{package}/spec.k": emitted.directory / "spec.k",
+    }
+    k = Snapshot(
+        f"verification-surface/{package}",
+        Key(tools=JAVA_TOOLS, inputs=inputs),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, package),
+    )
+    kompiled = harness.workspace / "kompiled" / package / "haskell"
+    process = k.run(
+        "kompile/haskell", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module, "--syntax-module", emitted.syntax_module,
+            "--backend", "haskell", "--output-definition", kompiled,
+        ],
+        timeout=900,
+    )
+    if process.returncode != 0:
+        raise GateError(f"{package}: kompile --backend haskell failed:\n{process.stderr}")
+    proved = k.run(
+        "kprove/spec", "kprove",
+        [emitted.directory / "spec.k", "--definition", kompiled, "--spec-module", TRUSTED_SPEC_MODULE],
+        timeout=600,
+    )
+    result = {"proven": proved.returncode == 0, "top": proved.stdout.strip() == "#Top"}
+    print(f"PASS verification-surface {package} reference snapshot: {k.finish()}")
+    return result
+
+
+def verify_trusted(harness: FixtureGate, fixture: Fixture) -> None:
+    """A trusted claim is emitted `[trusted]`, reported `trusted`, and applied on both routes."""
+
+    claims, statuses, exit_status, java_proves = TRUSTED_EXPECTED[fixture.package]
+    harness.check(fixture)
+    emitted = harness.emit(fixture)
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    for fragment in claims:
+        if fragment not in spec:
+            raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
+    if spec.count("[trusted]") != sum("[trusted]" in fragment for fragment in claims):
+        raise GateError(f"{fixture.package}: emitted spec.k has an unexpected [trusted] claim:\n{spec}")
+    trusted = sum(status == "trusted" for status in statuses.values())
+
+    native = native_trusted_proof(harness, fixture)
+    if native["statuses"] != statuses or native["exit"] != exit_status:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    if len(native["warnings"]) != trusted or not all("[krs::emit::trusted-claim]" in line for line in native["warnings"]):
+        raise GateError(f"{fixture.package}: krs prove warned {native['warnings']!r}")
+    harness.pins.expect(("trusted_proofs", fixture.package), native)
+
+    built = harness._krs(fixture, "build", "--backend", "haskell", "--output", harness.workspace / "haskell" / fixture.package, check=False)
+    warnings = diagnostic_lines(built.stderr)
+    if built.returncode != 0 or warnings != native["warnings"]:
+        raise GateError(f"{fixture.package}: krs build --backend haskell warned {warnings!r}:\n{built.stderr}")
+
+    java = java_trusted_proof(harness, emitted)
+    if java["proven"] != java_proves or java["top"] != java_proves:
+        raise GateError(f"{fixture.package}: kprove reported {json.dumps(java)}, expected proven={java_proves}")
+    native_proves = native["statuses"]["call-spec"] == "proven"
+    if native_proves != java["proven"]:
+        raise GateError(f"{fixture.package}: call-spec native proven={native_proves} differs from kprove {java['proven']}")
+    harness.pins.expect(("trusted_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove proven={java['proven']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -588,6 +711,8 @@ def main() -> int:
         verify_package(harness, L21, claim=True)
         verify_package(harness, L21_READABLE, claim=False)
         verify_ignored_ensures(harness)
+        verify_trusted(harness, TRUSTED)
+        verify_trusted(harness, TRUSTED_ABLATION)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

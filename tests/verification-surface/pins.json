@@ -11,6 +11,14 @@
     },
     "krs-verification-surface-l21-readable": {
       "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
+    },
+    "krs-verification-surface-trusted": {
+      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "spec.k": "b8485b7024c6e1b8757ebbd1ff87a5af158249d4037810e8c72dba9bbe6de2ae"
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
+      "spec.k": "8d5a60df347f29a95cc31eb7490285f64d4b93b9e0129ab58a2d5f544162064a"
     }
   },
   "capability_refusals": {
@@ -19,7 +27,9 @@
   },
   "reference_sha256": {
     "krs-verification-surface-l21": "f4d5a5b103985e1f14b08c231be764b9e97a2d57f4465dfa78d8ff867f3a1b4c",
-    "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048"
+    "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
+    "krs-verification-surface-trusted": "33702242467e6c060b0b6cb3189f2c31e9e5c10b7c0d001e98cf75a2896977c8",
+    "krs-verification-surface-trusted-ablation": "b53f7d48f4382231af18df0c1827d9fd597760d53fbd82a24704e347fcef0c9f"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -103,5 +113,40 @@
     "exists-shadows": [
       "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
     ]
+  },
+  "trusted_proofs": {
+    "krs-verification-surface-trusted": {
+      "statuses": {
+        "call-spec": "proven",
+        "helper-axiom": "trusted"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 2 claims proven, 1 trusted"
+      ],
+      "warnings": [
+        "warning[krs::emit::trusted-claim]: claim `helper-axiom` is trusted: it is assumed without proof"
+      ]
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "statuses": {
+        "call-spec": "disproved"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 0 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "trusted_kprove": {
+    "krs-verification-surface-trusted": {
+      "proven": true,
+      "top": true
+    },
+    "krs-verification-surface-trusted-ablation": {
+      "proven": false,
+      "top": false
+    }
   }
 }

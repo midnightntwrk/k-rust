@@ -247,6 +247,9 @@ fn configuration_claim(
     } else {
         None
     };
+    let trusted = attribute
+        .trusted()
+        .then(|| wire_key(ProvenanceRole::ClaimTrusted, 0));
     let or_bool_count = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ClaimOrBool)
@@ -279,6 +282,7 @@ fn configuration_claim(
             modality_key: wire_key(ProvenanceRole::ClaimModality, 0),
             modality,
             circularity_key: circularity,
+            trusted_key: trusted,
             universals: universal_metadata,
             existentials: existential_metadata,
             ensures,

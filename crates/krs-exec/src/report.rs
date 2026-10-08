@@ -278,6 +278,8 @@ pub enum Verdict {
     DepthBound,
     /// The breadth bound stopped the proof.
     BreadthBound,
+    /// The claim is `trusted` (KF-042): assumed without proof, never proven.
+    Trusted,
 }
 
 impl Verdict {
@@ -303,6 +305,7 @@ impl Verdict {
             Self::Indeterminate => "indeterminate",
             Self::DepthBound => "depth-bound",
             Self::BreadthBound => "breadth-bound",
+            Self::Trusted => "trusted",
         }
     }
 }
@@ -386,6 +389,9 @@ pub struct ClaimInfo {
     pub modality: Modality,
     /// The authored claim.
     pub origin: Option<SourceSpan>,
+    /// Whether the claim is `trusted`: assumed without proof (KF-042).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub trusted: bool,
     /// The backend's label for the claim.
     #[serde(skip)]
     pub(crate) backend_label: String,

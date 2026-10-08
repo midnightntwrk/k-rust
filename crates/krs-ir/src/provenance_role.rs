@@ -432,6 +432,8 @@ provenance_roles! {
     RuleFreshBinderSort => "rule_fresh_binder_sort",
     /// Bare `fresh_generator` flag of a function production.
     FunctionFreshGenerator => "function_fresh_generator",
+    /// Optional claim trusted marker: the claim is assumed without proof.
+    ClaimTrusted => "claim_trusted",
 }
 
 impl Serialize for ProvenanceRole {

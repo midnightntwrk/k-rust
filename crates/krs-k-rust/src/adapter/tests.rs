@@ -1331,6 +1331,32 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
         }));
     }
 
+    // A trusted claim carries the bare `trusted` attribute and maps its marker (KF-042).
+    let trusted = DefinitionClaim::new(
+        node("schema9.claim.modality"),
+        ClaimModality::AllPaths,
+        None,
+        Vec::new(),
+    )
+    .with_trusted_origin(Some(node("schema9.claim.trusted")));
+    let Sentence::Claim { attributes, .. } = adapter
+        .rule(&rule.clone().with_claim(Some(trusted)), MODULE, 1)
+        .unwrap()
+    else {
+        panic!("claims must not be downgraded to rules")
+    };
+    assert!(attributes.get("trusted").is_some());
+    assert!(attributes.get("circularity").is_none());
+    assert!(adapter.origins.iter().any(|mapping| {
+        matches!(
+            &mapping.place,
+            NativeNodePlace::Sentence {
+                role: SentenceNodeRole::ClaimTrusted,
+                ..
+            }
+        )
+    }));
+
     let here = semantic_id("here");
     let context = ContextAliasSentence::new(
         node("schema9.context"),

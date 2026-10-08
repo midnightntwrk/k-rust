@@ -133,7 +133,10 @@ pub(crate) fn read(raw: &Value, variant: &str) -> Result<(NamePolicy, AttributeP
                 AttributePolicy {
                     known_attributes: metadata_attributes()
                         .into_iter()
-                        .chain(["label", "circularity", "all-path", "one-path"].map(str::to_owned))
+                        .chain(
+                            ["label", "circularity", "trusted", "all-path", "one-path"]
+                                .map(str::to_owned),
+                        )
                         .collect(),
                     metadata_attributes: metadata_attributes(),
                     attribute_value_map: BTreeMap::new(),
@@ -188,7 +191,7 @@ mod tests {
         }
         let (_, attributes) = read(&json!({}), "proof_claim").unwrap();
         assert_eq!(attributes.metadata_attributes, metadata_attributes());
-        for name in ["label", "circularity", "all-path", "one-path"] {
+        for name in ["label", "circularity", "trusted", "all-path", "one-path"] {
             assert!(attributes.known_attributes.contains(name));
         }
     }

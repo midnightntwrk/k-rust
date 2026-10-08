@@ -83,6 +83,9 @@ stage_shape! {
         /// Optional circularity marker provenance.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub circularity_key: Option<ProvenanceKey> => [keep],
+        /// Optional trusted marker provenance: the claim is assumed without proof.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub trusted_key: Option<ProvenanceKey> => [keep],
         /// Universally scoped ordinary term binders.
         pub universals: Vec<ClaimBinder<S>> => [vec nested],
         /// Existentials scoped to RHS and ensures.
@@ -1626,6 +1629,14 @@ fn validate_rule_claim<S: RuleValidationStage>(
             ));
         }
         insert_rule_exact(keys, key, ProvenanceRole::ClaimCircularity, 0)?;
+    }
+    if let Some(key) = &claim.trusted_key {
+        if claim.circularity_key.is_some() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::TrustedClaimWithCircularity,
+            ));
+        }
+        insert_rule_exact(keys, key, ProvenanceRole::ClaimTrusted, 0)?;
     }
     validate_rule_claim_binders::<S>(
         &claim.universals,

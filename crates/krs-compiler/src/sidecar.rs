@@ -295,6 +295,8 @@ pub enum SourceMapNodeKind {
     RuleEnsures,
     /// Typed fresh binder component of a transition (`#[k::fresh]`).
     RuleFreshBinder,
+    /// Claim trusted marker: the claim is assumed without proof.
+    ClaimTrusted,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -570,6 +572,13 @@ impl SourceMap {
                                     &mut entries,
                                     origin,
                                     SourceMapNodeKind::ClaimCircularity,
+                                )?;
+                            }
+                            if let Some(origin) = claim.trusted_origin() {
+                                insert_origin(
+                                    &mut entries,
+                                    origin,
+                                    SourceMapNodeKind::ClaimTrusted,
                                 )?;
                             }
                             for binder in claim.universals() {

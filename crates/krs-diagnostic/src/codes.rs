@@ -68,6 +68,7 @@ register_codes! {
         INVALID_REFERENCE: "krs::emit::invalid-reference" => "A Definition symbol reference was absent or had the wrong role.",
         DUPLICATE_GENERATED_RANGE: "krs::emit::duplicate-generated-range" => "Rendered nodes attempted to own the same generated source range.",
         INVALID_SIDECAR: "krs::emit::invalid-sidecar" => "An emitted sidecar invariant failed.",
+        TRUSTED_CLAIM: "krs::emit::trusted-claim" => "A `trusted` claim is assumed without proof; every Haskell build and every prove run reports it.",
     }
     /// Diagnostics from collector package generation.
     generate {

@@ -850,6 +850,9 @@ pub(crate) fn validate_claim<L: Validation>(
     if let Some(origin) = claim.circularity_origin() {
         insert_node::<L>(nodes, origin.key())?;
     }
+    if let Some(origin) = claim.trusted_origin() {
+        insert_node::<L>(nodes, origin.key())?;
+    }
     if !matches!(rule.body, RuleBodyRef::Configuration { .. }) {
         return Err(L::error(ValidationError::ClaimBodyNotConfiguration(
             rule.id.clone(),

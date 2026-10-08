@@ -451,6 +451,7 @@ fn claim() -> DescriptorClaim {
         modality_key: key(1),
         modality: rule::ClaimModality::OnePath,
         circularity_key: Some(key(2)),
+        trusted_key: None,
         universals: vec![binder(3)],
         existentials: vec![binder(4)],
         ensures: Some(DescriptorRuleCondition {

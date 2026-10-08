@@ -1061,6 +1061,7 @@ mod tests {
                 modality_key: key(ProvenanceRole::ClaimDeclaration),
                 modality: krs_ir::ClaimModality::OnePath,
                 circularity_key: None,
+                trusted_key: None,
                 universals: vec![krs_ir::wire::WireClaimBinder {
                     declaration_key: key(ProvenanceRole::ClaimDeclaration),
                     name_key: key(ProvenanceRole::ClaimDeclaration),
@@ -1076,6 +1077,7 @@ mod tests {
                 modality_key: key(ProvenanceRole::ClaimDeclaration),
                 modality: krs_ir::ClaimModality::OnePath,
                 circularity_key: None,
+                trusted_key: None,
                 universals: vec![krs_ir::HostClaimBinder {
                     declaration_key: key(ProvenanceRole::ClaimDeclaration),
                     name_key: key(ProvenanceRole::ClaimDeclaration),

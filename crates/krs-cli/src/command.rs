@@ -392,6 +392,9 @@ fn execute_with_sources(
             .and_then(|()| exec::execute(&prepared, &request.command, &*sources, measurement))
             .map(|mut outcome| {
                 outcome.warnings = raw_k_warnings(&prepared);
+                if matches!(request.command, Command::Prove(_)) {
+                    push_trusted_claim_warnings(&prepared, &mut outcome.warnings);
+                }
                 CommandExecution::without_artifacts(outcome)
             })
         }
@@ -514,6 +517,31 @@ fn check(
         warnings: definition_warnings(prepared),
         stdout: stdout.into_bytes(),
     })
+}
+
+/// Appends one `krs::emit::trusted-claim` warning per trusted claim (KF-042): every
+/// Haskell build and every prove run names the claims it assumes without proof.
+fn push_trusted_claim_warnings(
+    prepared: &PreparedDefinition,
+    reports: &mut crate::DiagnosticReports,
+) {
+    for diagnostic in krs_compiler::trusted_claim_warnings(prepared.lowered.definition()) {
+        let message = diagnostic.message.clone();
+        if let Some(envelope) =
+            crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+        {
+            reports.envelopes.push(envelope);
+        } else {
+            reports.unlocated.push(crate::UnlocatedDiagnostic {
+                code: krs_diagnostic::codes::emit::TRUSTED_CLAIM.to_string(),
+                severity: crate::DiagnosticSeverity::Warning,
+                message,
+                source: None,
+                generated_range: None,
+                notes: Vec::new(),
+            });
+        }
+    }
 }
 
 /// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
@@ -725,6 +753,9 @@ fn build(
         })
     })?;
     let mut warnings = definition_warnings(prepared);
+    if backend == Backend::Haskell {
+        push_trusted_claim_warnings(prepared, &mut warnings);
+    }
     if backend == Backend::Llvm {
         for diagnostic in
             krs_compiler::capability::concrete_execution_warnings(prepared.lowered.definition())

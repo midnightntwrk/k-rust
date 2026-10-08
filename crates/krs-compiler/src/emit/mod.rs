@@ -451,6 +451,39 @@ pub fn definition_module_imports(module: &DefinitionModule) -> BTreeSet<String> 
         .collect()
 }
 
+/// Returns one `krs::emit::trusted-claim` warning per trusted claim, in definition order.
+///
+/// A trusted claim is an axiom: the prover assumes it and never proves it. Every Haskell
+/// build and every prove run reports these warnings, so an assumption is never silent.
+#[must_use]
+pub fn trusted_claim_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
+    let mut warnings = Vec::new();
+    for module in definition.modules() {
+        for sentence in module.sentences() {
+            let DefinitionSentence::Rule(rule) = sentence else {
+                continue;
+            };
+            let Some(origin) = rule.claim().and_then(|claim| claim.trusted_origin()) else {
+                continue;
+            };
+            let mut diagnostic = Diagnostic::error(
+                codes::emit::TRUSTED_CLAIM,
+                format!(
+                    "claim `{}` is trusted: it is assumed without proof",
+                    rule.label().emitted_name()
+                ),
+                origin
+                    .origin()
+                    .exact_authored_range()
+                    .map_or(Location::None, Location::Source),
+            );
+            diagnostic.severity = krs_diagnostic::Severity::Warning;
+            warnings.push(diagnostic);
+        }
+    }
+    warnings
+}
+
 /// Renders one typed sentence with the definition's canonical emission context.
 ///
 /// This uses the same printer as [`emit_k`] and performs no normalization.

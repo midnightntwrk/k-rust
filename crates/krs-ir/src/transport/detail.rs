@@ -166,6 +166,7 @@ details! {
         WildcardsAreAllowedOnlyInRuleSubjects => "wildcards are allowed only in rule subjects",
         WildcardsAreNotAllowedInInitializers => "wildcards are not allowed in initializers",
         AliasPrimaryProvenanceMismatch => "wrong context-alias primary provenance",
+        TrustedClaimWithCircularity => "a trusted claim cannot also be a circularity",
     }
 }
 
