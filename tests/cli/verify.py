@@ -590,6 +590,7 @@ def dollar_id_claims(
             pin=Pin(pins, "dollar-id-claims"),
         )
         definition = workspace / "compiled-definition"
+        krs_gate.require_route(gate, emitted, "java-haskell-reference", environment=z3_environment())
         compile_process = k.run(
             "kompile/definition", "kompile",
             [

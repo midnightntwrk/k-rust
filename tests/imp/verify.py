@@ -554,6 +554,10 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
     labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.target / "release/krs-gate", environment=context.environment)
+    krs_gate.require_route(
+        context.target / "release/krs-gate", artifacts.paths, "java-haskell-reference",
+        environment=context.environment,
+    )
     actual_source = context.workspace / "actual-execution.k"
     shutil.copy2(artifacts.paths / "definition.k", actual_source)
     if labels != context.pins.get("claim_labels"):
