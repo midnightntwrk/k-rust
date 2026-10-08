@@ -29,6 +29,9 @@ use crate::{
 /// Queries per definition, values per sort, and instances per generalization.
 const QUERIES: usize = 40;
 
+/// Instances of each left-hand side among the roots of the V6 (d) derivation.
+const FORCED_INSTANCES: usize = 8;
+
 /// The mark of a V6 (d) failure, which the mutation tests of review 1's classes look for.
 pub(super) const FORCED: &str = "V6 (d)";
 const VALUES_PER_SORT: usize = 8;
@@ -1042,11 +1045,84 @@ pub(super) fn check_definition(
         }
     }
     // V6 (d): what every model makes undefined, from the axioms alone.
-    let forced = super::forced::derive(&mut universe, &asked);
+    // Its roots are the queries, the seeds, and instances of every left-hand side by explored
+    // values, so that an equation instance showing the definition has no model is seen even when
+    // no query holds it.
+    let mut forced_roots = asked.clone();
+    for seed in seeds {
+        forced_roots.push(universe.ground(seed));
+    }
+    for equation in &definition.equations {
+        let mut variables = BTreeMap::new();
+        pattern_variables(&equation.lhs, &mut variables);
+        let candidates = variables
+            .values()
+            .map(|sort| {
+                let sort = universe.sort_id(sort);
+                candidates_of(&mut universe, &values, sort)
+            })
+            .collect::<Vec<_>>();
+        if candidates.iter().any(Vec::is_empty) {
+            continue;
+        }
+        for offset in 0..FORCED_INSTANCES {
+            let valuation = variables
+                .keys()
+                .zip(&candidates)
+                .enumerate()
+                .map(|(index, (name, candidates))| {
+                    (
+                        name.clone(),
+                        candidates[(offset + index) % candidates.len()],
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            forced_roots.push(instance_of(&mut universe, &equation.lhs, &valuation));
+        }
+    }
+    // The same P2 test on these roots: an instance there can reach a total symbol with no value
+    // on normal forms that no query holds.
+    for id in forced_roots.clone() {
+        let mut subterms = vec![id];
+        while let Some(term) = subterms.pop() {
+            if universe.violates_totality(term) {
+                tally.outside_totality = 1;
+            }
+            subterms.extend(universe.children(term));
+        }
+    }
+    let forced = super::forced::derive(&mut universe, &forced_roots);
     if forced.inconsistent.is_some() {
         tally.without_model = 1;
     }
     let forced_check = forced.inconsistent.is_none();
+    // The contract's claims are those on terms the backend's own verdict leaves untainted, whose
+    // evaluation applies no equation rooted at a symbol it taints: on a non-joined pair the
+    // evaluator may take either side, so a `\ceil` discharged through such an equation is an
+    // evaluation, not a value claim. Read from the backend's taint set, so that a closure rule
+    // that misses a class does not hide its claims here.
+    let backend_tainted = verdict
+        .tainted
+        .iter()
+        .map(|name| universe.symbol_id(name))
+        .collect::<HashSet<_>>();
+    let tainted_roots = definition
+        .equations
+        .iter()
+        .enumerate()
+        .filter(|(_, equation)| verdict.tainted.contains(equation.root()))
+        .fold(0u128, |mask, (index, _)| mask | (1u128 << index));
+    // The evaluator's documented limit (`docs/compatibility.md`, "Anywhere rules"): an equation
+    // whose left-hand side holds a declared function's application below its root is applied
+    // before that application is evaluated, so a `\ceil` discharged through it rests on an
+    // evaluation `->E` does not take, not on a value claim. Terms holding the roots of such
+    // equations are not read for `\ceil` or marker claims by V6 (d).
+    let below_root_roots = below_root_roots(definition, &universe);
+    let claimed_untainted = |universe: &mut Universe<'_>, id: Id| {
+        let mut symbols = HashSet::new();
+        universe.symbols_in(id, &mut symbols);
+        symbols.is_disjoint(&backend_tainted) && universe.normalize(id).applied & tainted_roots == 0
+    };
     let tainted_symbols = oracle_tainted
         .iter()
         .map(|name| universe.symbol_id(name))
@@ -1175,14 +1251,22 @@ pub(super) fn check_definition(
         if forced_check && forced.undefined(id) {
             tally.forced_undefined += 1;
         }
-        // Read independently of any taint set: a claim on such a term is wrong wherever it is
-        // made.
-        if forced_check && forced.undefined(id) && tally.outside_totality == 0 {
+        if forced_check
+            && forced.undefined(id)
+            && tally.outside_totality == 0
+            && claimed_untainted(&mut universe, id)
+        {
+            let mut symbols = HashSet::new();
+            universe.symbols_in(id, &mut symbols);
+            let evaluated_below_root = !symbols.is_disjoint(&below_root_roots);
             let claimed = [
                 (found.token, "instance-normal"),
-                (marker_claim, "an irreducible defined application"),
                 (
-                    found.ceil_top == Some(true) && !divergent,
+                    marker_claim && !evaluated_below_root,
+                    "an irreducible defined application",
+                ),
+                (
+                    found.ceil_top == Some(true) && !divergent && !evaluated_below_root,
                     "defined (its \\ceil is discharged)",
                 ),
             ];
@@ -1253,7 +1337,7 @@ pub(super) fn check_definition(
                 label,
                 &backend,
                 &mut universe,
-                &forced,
+                (&forced, &backend_tainted),
                 id,
                 &mut tally,
                 &describe,
@@ -1268,7 +1352,11 @@ pub(super) fn check_definition(
                     continue;
                 };
                 let certified_place = standing(&mut universe, certified_id);
-                if forced_check && forced.undefined(certified_id) && tally.outside_totality == 0 {
+                if forced_check
+                    && forced.undefined(certified_id)
+                    && tally.outside_totality == 0
+                    && claimed_untainted(&mut universe, certified_id)
+                {
                     let text = universe.show(certified_id);
                     tally.failures.push(format!(
                         "{label}: {FORCED}: every model makes {text} undefined, but it carries the certificate\n{}",
@@ -1348,15 +1436,48 @@ pub(super) fn check_definition(
     (tally, verdict)
 }
 
+/// The roots of the equations whose left-hand side holds a declared function's application
+/// below its root.
+fn below_root_roots(definition: &Definition, universe: &Universe<'_>) -> HashSet<u32> {
+    fn holds_function(pattern: &Pat, definition: &Definition) -> bool {
+        match pattern {
+            Pat::App(name, arguments) => {
+                definition.symbols.iter().any(|symbol| {
+                    symbol.name == *name && matches!(symbol.kind, Kind::Function { .. })
+                }) || arguments
+                    .iter()
+                    .any(|argument| holds_function(argument, definition))
+            }
+            Pat::Inj(_, _, inner) | Pat::As(inner, _, _) => holds_function(inner, definition),
+            Pat::List(prefix, _, suffix) => prefix
+                .iter()
+                .chain(suffix)
+                .any(|element| holds_function(element, definition)),
+            Pat::Var(..) | Pat::Int(_) => false,
+        }
+    }
+    definition
+        .equations
+        .iter()
+        .filter(|equation| match &equation.lhs {
+            Pat::App(_, arguments) => arguments
+                .iter()
+                .any(|argument| holds_function(argument, definition)),
+            _ => false,
+        })
+        .map(|equation| universe.symbol_id(equation.root()))
+        .collect()
+}
+
 /// V6 (d) on generalizations of the query `id`, which every model makes undefined: for each of
 /// its proper subterms that every model makes defined (up to three), the query with that subterm
-/// replaced by a variable must get no claim that holds for every element, since the subterm is
-/// one and the instance is undefined.
+/// replaced by a variable, when the backend's verdict taints none of its symbols, must get no
+/// claim that holds for every element, since the subterm is one and the instance is undefined.
 fn forced_generalizations(
     label: &str,
     backend: &BackendDefinition,
     universe: &mut Universe<'_>,
-    forced: &super::forced::Forced,
+    (forced, backend_tainted): (&super::forced::Forced, &HashSet<u32>),
     id: Id,
     tally: &mut Tally,
     describe: &dyn Fn() -> String,
@@ -1372,6 +1493,25 @@ fn forced_generalizations(
     }
     holes.truncate(3);
     for hole in holes {
+        // The generalization is a claim when no symbol of it (the query without the hole) is
+        // tainted by the backend's verdict: then every equation its evaluation can apply is
+        // rooted at an untainted symbol.
+        let mut symbols = HashSet::new();
+        let mut stack = vec![id];
+        while let Some(subterm) = stack.pop() {
+            if subterm == hole {
+                continue;
+            }
+            if let Node::App(symbol, _) = universe.node_of(subterm) {
+                symbols.insert(*symbol);
+            }
+            stack.extend(universe.children(subterm));
+        }
+        if !symbols.is_disjoint(backend_tainted) {
+            continue;
+        }
+        let evaluated_below_root =
+            !symbols.is_disjoint(&below_root_roots(universe.definition, universe));
         let sort_name = universe.sort_name(universe.sort_of(hole)).to_owned();
         let variable = format!("VarForced:Sort{sort_name}{{}}");
         let kore = universe.kore(id, Some((hole, &variable)));
@@ -1379,7 +1519,7 @@ fn forced_generalizations(
         let Ok(found) = claims(backend, &kore, &result_sort, true) else {
             continue;
         };
-        if found.token || found.ceil_top == Some(true) {
+        if found.token || (found.ceil_top == Some(true) && !evaluated_below_root) {
             tally.failures.push(format!(
                 "{label}: {FORCED}: every model makes {} undefined, but {kore} is called {} for every element\n{}",
                 universe.show(id),

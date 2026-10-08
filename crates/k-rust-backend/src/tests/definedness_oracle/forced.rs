@@ -12,9 +12,11 @@
 //!   declared total (hooks where the hook is defined) to `FD` arguments, injections and lists of
 //!   `FD` terms (the functional axioms and precondition P2);
 //! - equal in every model: `l rho = r rho` for an equation of its root's highest priority group,
-//!   without `ensures` and not `symbolic`, whose `requires` is absent or holds by the hooks alone,
-//!   whose left-hand side matches the term, and all of whose bindings are `FD` (the axiom
-//!   instance holds because its bindings are elements); a union-find over these instances;
+//!   not `symbolic`, whose `requires` is absent or holds by the hooks alone, and whose `ensures`
+//!   is absent or decided by the hooks alone (`r rho` is `\bottom` where it is false),
+//!   whose left-hand side matches the term, and all of whose bindings (the term's arguments and
+//!   the pattern variables) are `FD` (the axiom instance holds because its bindings are
+//!   elements); a union-find over these instances;
 //! - `FU`, undefined in every model: a hook on literals where it is undefined, a term with an
 //!   `FU` subterm (strictness), a term equal to an `FU` term, the remaining argument of an `FU`
 //!   application of a total symbol whose other arguments are `FD`, the operand of an `FU`
@@ -127,7 +129,7 @@ impl Derivation<'_, '_> {
             };
             for index in self.universe.first_group(symbol) {
                 let equation = &definition.equations[index];
-                if equation.ensures.is_some() || equation.symbolic {
+                if equation.symbolic {
                     continue;
                 }
                 let mut valuation = HashMap::new();
@@ -135,14 +137,26 @@ impl Derivation<'_, '_> {
                     continue;
                 }
                 if let Some(requires) = &equation.requires
-                    && !self.holds_by_hooks(requires, &valuation)
+                    && self.truth_by_hooks(requires, &valuation) != Some(true)
                 {
                     continue;
                 }
-                let rhs = self.universe.instantiate(&equation.rhs, &valuation);
+                // Where the `ensures` is false the instance's right-hand side is `\bottom`.
+                let rhs = match &equation.ensures {
+                    None => self.universe.instantiate(&equation.rhs, &valuation),
+                    Some(ensures) => match self.truth_by_hooks(ensures, &valuation) {
+                        Some(true) => self.universe.instantiate(&equation.rhs, &valuation),
+                        Some(false) => BOTTOM,
+                        None => continue,
+                    },
+                };
+                // The axiom binds each argument of the term by membership in its argument
+                // pattern, and each pattern variable inside it: an instance states something
+                // only where all of these are defined.
                 let mut guard = valuation
                     .values()
                     .copied()
+                    .chain(self.universe.children(id))
                     .filter(|value| !self.fd(*value))
                     .collect::<Vec<_>>();
                 guard.sort_unstable();
@@ -157,9 +171,9 @@ impl Derivation<'_, '_> {
         }
     }
 
-    /// Whether `requires` under `valuation` is `true` by the hooks alone: it mentions only
-    /// hooked symbols, and its variables are bound to literals.
-    fn holds_by_hooks(&mut self, requires: &Pat, valuation: &HashMap<String, Id>) -> bool {
+    /// The truth of `condition` under `valuation` by the hooks alone, when it mentions only
+    /// hooked symbols and its variables are bound to literals.
+    fn truth_by_hooks(&mut self, condition: &Pat, valuation: &HashMap<String, Id>) -> Option<bool> {
         fn hooks_only(pattern: &Pat, hooks: &BTreeSet<&str>) -> bool {
             match pattern {
                 Pat::App(name, arguments) => {
@@ -178,22 +192,30 @@ impl Derivation<'_, '_> {
             .map(|symbol| symbol.name.as_str())
             .chain(["true", "false"])
             .collect::<BTreeSet<_>>();
-        if !hooks_only(requires, &hooks) {
-            return false;
+        if !hooks_only(condition, &hooks) {
+            return None;
         }
         let mut variables = std::collections::BTreeMap::new();
-        super::language::pattern_variables(requires, &mut variables);
+        super::language::pattern_variables(condition, &mut variables);
         if !variables.keys().all(|name| {
             valuation.get(name).is_some_and(|value| {
                 matches!(self.universe.node_of(*value), Node::Int(_) | Node::Bool(_))
             })
         }) {
-            return false;
+            return None;
         }
-        let condition = self.universe.instantiate(requires, valuation);
+        let condition = self.universe.instantiate(condition, valuation);
         let normal = self.universe.normalize(condition);
-        let truth = self.universe.boolean(true);
-        normal.complete && normal.forms == [truth]
+        let (truth, falsity) = (self.universe.boolean(true), self.universe.boolean(false));
+        if !normal.complete {
+            None
+        } else if normal.forms == [truth] {
+            Some(true)
+        } else if normal.forms == [falsity] {
+            Some(false)
+        } else {
+            None
+        }
     }
 
     /// Defined in every model.
@@ -223,9 +245,12 @@ impl Derivation<'_, '_> {
 
     /// For a hooked application of literals: whether the hook is defined there.
     fn hook_value(&mut self, id: Id) -> Option<bool> {
-        let Node::App(_, arguments) = self.universe.node_of(id).clone() else {
+        let Node::App(symbol, arguments) = self.universe.node_of(id).clone() else {
             return None;
         };
+        if self.universe.definition.symbols[symbol as usize].kind != Kind::Hook {
+            return None;
+        }
         if !arguments.iter().all(|argument| {
             matches!(
                 self.universe.node_of(*argument),
