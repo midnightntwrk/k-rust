@@ -209,6 +209,13 @@ impl TermMetadata {
     /// the node differs from its counterpart ignoring metadata, so wherever two receipts are
     /// separate allocations the terms differ at that position too, and every other node keeps
     /// its receipt by `Arc` clone.
+    ///
+    /// [`Term::identical`] has two other callers, in sort inference
+    /// (`LoweredTerm::same_lowering` and the checked engines' `checked_lowered_result`). Both
+    /// compare lowered parse results, whose metadata holds a span, a production and a sort and
+    /// never a receipt: receipts are allocated only by the generating passes' recorder and by the
+    /// provenance reader. There the receipts are both absent, which is "identical" by pointer as
+    /// by value, so comparing receipts by identity changes neither caller's verdict.
     pub(crate) fn identical(&self, other: &Self) -> bool {
         measure::bump(Counter::KompileResolveMetadataCompares);
         self.span == other.span
