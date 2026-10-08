@@ -67,6 +67,7 @@ pub fn expand_attribute(
         AttributeMacro::Requires | AttributeMacro::Exists | AttributeMacro::Ensures => {
             expand::orphan_rule_helper(env, entry, attributes, item)
         }
+        AttributeMacro::SyntaxList => expand::syntax_list(env, attributes, item),
     }
 }
 

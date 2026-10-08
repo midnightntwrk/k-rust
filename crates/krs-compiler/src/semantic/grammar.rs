@@ -353,6 +353,24 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Memo { key } => ProductionAttribute::Memo {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::ListCons {
+            key,
+            separator,
+            non_empty,
+            terminator,
+            ..
+        } => ProductionAttribute::ListCons {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            separator: separator.clone(),
+            non_empty: non_empty.is_some(),
+            terminator: list_partner(descriptor, terminator)?,
+        },
+        DescriptorProductionAttribute::ListTerminator { cons } => {
+            ProductionAttribute::ListTerminator {
+                origin: semantic_origin(descriptor, cons.key.clone(), "production-attribute")?,
+                cons: list_partner(descriptor, cons)?,
+            }
+        }
         DescriptorProductionAttribute::Overload { target } => {
             let origin = semantic_origin(descriptor, target.key.clone(), "production-attribute")?;
             let DescriptorApplicationRef::Declared(id) = &target.application else {
@@ -368,4 +386,22 @@ fn lower_production_attribute(
             }
         }
     })
+}
+
+/// Resolves the other production of a syntactic list: a variant of the same
+/// `#[k::syntax_list]` enum.
+fn list_partner(
+    descriptor: &Descriptor,
+    partner: &krs_ir::DescriptorApplicationReference,
+) -> Result<StableItemId, DescriptorLoweringError> {
+    let DescriptorApplicationRef::Declared(id) = &partner.application else {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "syntactic list",
+            detail: format!(
+                "{} names a builtin operation as its list partner",
+                descriptor.id()
+            ),
+        });
+    };
+    Ok(id.clone())
 }

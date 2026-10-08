@@ -70,6 +70,27 @@ The grammar-lexing gate's `layout` fixture, where `;` starts a comment and `//` 
 // [!include ~/snippets/layout.rs]
 ```
 
+### Syntactic lists
+
+`#[k::syntax_list(separator = ",")]` on `enum Ints { Cons { head: Int, tail: Ints }, Nil() }` is K's `List{Int, ","}`.
+It reads like the Rust Book's cons list, with K's twists.
+Programs write `1, 2, 3`: the terminator is implicit, and the empty program text is the empty list.
+`non_empty` makes the list K's `NeList`, which programs cannot write empty, and `separator = ""` is a list without separator.
+Rules match the variants: `Ints::Cons(i, is)` and `Ints::Nil()`, which the emitted K shows as `I , Is` and `.Ints`; `.Ints` is rule syntax, so a program cannot write it.
+
+The enum is the whole definition of a closed sort: exactly one cons variant with two fields, the second of the list's own sort, and one terminator `Nil()`.
+No other constructor or subsort joins a list sort; membership in open sorts still goes through `k::sorts!` `impl` lines.
+The symbols derive from the enum name, `intsCons` and `intsNil`, so two lists in one package never collide, and `krs check` names the list when another production takes one of its symbols.
+A strict list puts `#[k::strict]` on the cons variant and the result sort on the attribute, `#[k::syntax_list(separator = ",", result = KResult)]`; `krs expand` writes it as `#[k::strict(sequence = [head, tail], result = k::KResult)]` with `k::Term<..>` field types.
+
+This is a syntactic list, an AST that K parses: not K's semantic `List`, and not a `Vec`.
+`sum` is a function, so K's lesson writes it with `#[k::function]` and `#[k::equation]`s.
+The grammar-lexing gate's `lists` fixture, where `sum(1, 2, 3)` is `6` on both routes:
+
+```rust [tests/grammar-lexing/packages/lists/src/lib.rs]
+// [!include ~/snippets/lists.rs]
+```
+
 Beyond IMP's `Int`, `Bool`, `Map`, and `Id`, the facade exports:
 
 - `Bytes`, with length, indexed get/update, empty, left- and right-pad, substring, concatenation, reversal, replacement, and the `Int2Bytes`/`Bytes2Int` conversions over the `Endianness` and `Signedness` sorts;

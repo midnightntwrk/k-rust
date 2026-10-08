@@ -87,6 +87,8 @@ details! {
         Overload => "overload",
         Private => "private",
         Memo => "memo",
+        ListCons => "list cons",
+        ListTerminator => "list terminator",
     }
 }
 

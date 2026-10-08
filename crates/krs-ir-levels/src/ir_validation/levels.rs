@@ -67,6 +67,7 @@ macro_rules! validation_error {
             ValidationError::PreferAndAvoid => $public::PreferAndAvoid,
             ValidationError::PreferOnParseOnlyProduction => $public::PreferOnParseOnlyProduction,
             ValidationError::InvalidOverloadProduction => $public::InvalidOverloadProduction,
+            ValidationError::InvalidListProduction => $public::InvalidListProduction,
             ValidationError::InvalidFunctionProduction => $public::InvalidFunctionProduction,
             ValidationError::InvalidBn128PointConstructor {
                 hook,

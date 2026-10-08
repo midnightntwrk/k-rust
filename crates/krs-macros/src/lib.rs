@@ -342,3 +342,15 @@ pub fn lexical(input: TokenStream) -> TokenStream {
 pub fn layout(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Layout, input)
 }
+
+/// Declares a syntactic list, K's `List{Elem, "sep"}` (or `NeList` with
+/// `non_empty`), on an enum with one cons variant `Cons { head: Elem, tail:
+/// List }` and one terminator `Nil()`.
+///
+/// The enum is the whole definition of its sort. Programs write `1, 2, 3`
+/// and the empty text for the empty list; rules match the variants, which K
+/// prints as `I , Is` and `.Ints`.
+#[proc_macro_attribute]
+pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::SyntaxList, attributes, item)
+}

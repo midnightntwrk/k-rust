@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
 (KF-018), production keys (KF-002, KF-038, KF-045, KF-046 memo), user
-token sorts (KF-003), and layout and named lexicals (KF-004).
+token sorts (KF-003), layout and named lexicals (KF-004), and syntactic lists
+(KF-020).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -52,6 +53,10 @@ partition end to end on both routes:
   comments and newlines parse to the same KAST in Java `kast` and run to the
   same result on both routes, and a program with a `//` comment is now
   rejected on both;
+- `lists`: `#[k::syntax_list]` declares K's `List{Int, ","}` and a `NeList`
+  with the derived symbols `intsCons`/`intsNil` and `altsCons`/`altsNil`;
+  `sum(1, 2, 3)` is `6` and `sum(7)` is `7` on both routes, while
+  `sum(1, .Ints)` and the empty `count()` are rejected on both;
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
@@ -61,8 +66,9 @@ partition end to end on both routes:
   names a private production (E0603), a claim that names one, a constructor
   of a token sort, a lexeme of a sort without tokens or of a builtin sort, a
   token declared twice on one sort, a token alias of `Int`, a lexical
-  declared twice, a regex that refers to an undefined lexical, and two
-  lexicals that refer to each other.
+  declared twice, a regex that refers to an undefined lexical, two
+  lexicals that refer to each other, a production whose symbol is a list's
+  derived `intsCons`, and a constructor of a list sort.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -149,6 +155,28 @@ LAYOUT_SYNTAX_FRAGMENTS = (
     'syntax #Layout ::= r"([\\\\ \\\\n\\\\r\\\\t])" [token]',
     'syntax Name ::= r"{Alpha}{AlphaNum}*" [token]',
 )
+LISTS = Fixture(MANIFEST, "krs-grammar-lists")
+LISTS_PROGRAMS = (
+    Program(
+        "sum-three", "sum(1, 2, 3)", "accepted", "6",
+        kast='sum(intsCons(#token("1","Int"),intsCons(#token("2","Int"),'
+        'intsCons(#token("3","Int"),intsNil(.KList)))))',
+    ),
+    Program("sum-one", "sum(7)", "accepted", "7"),
+    Program("sum-terminator", "sum(1, .Ints)", "rejected"),
+    Program(
+        "count-three", "count(1 | 2 | 3)", "accepted", "3",
+        kast='count(altsCons(#token("1","Int"),altsCons(#token("2","Int"),'
+        'altsCons(#token("3","Int"),altsNil(.KList)))))',
+    ),
+    Program("count-empty", "count()", "rejected"),
+)
+LISTS_SOURCE_FRAGMENTS = (
+    'syntax Ints ::= List{Int, ","} [symbol(intsCons), terminator-symbol(intsNil)]',
+    'syntax Alts ::= NeList{Int, "|"} [symbol(altsCons), terminator-symbol(altsNil)]',
+    "rule sum ( I:Int , .Ints ) => I:Int ",
+    "rule sum ( I1:Int , I2:Int , Is:Ints ) => sum ( I1:Int +Int I2:Int , Is:Ints ) ",
+)
 MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
 MEMO_ATTRIBUTES = (("square",), ("memo",))
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
@@ -228,6 +256,8 @@ NEGATIVE = (
     ("lexical-duplicate", "lexical-duplicate", "krs-grammar-lexical-duplicate", ()),
     ("lexical-undefined", "lexical-undefined", "krs-grammar-lexical-undefined", ()),
     ("lexical-recursive", "lexical-recursive", "krs-grammar-lexical-recursive", ()),
+    ("list-collision", "list-collision", "krs-grammar-list-collision", ()),
+    ("list-constructor", "list-constructor", "krs-grammar-list-constructor", ()),
 )
 
 
@@ -485,6 +515,22 @@ def main() -> int:
                 raise GateError(f"layout: {layout.syntax_module} omits {fragment!r}")
         harness.compare(layout, LAYOUT_PROGRAMS, sort="Stmt")
         print("PASS layout: ; comments and newlines are layout on both routes; // is no longer a comment")
+
+        harness.check(LISTS)
+        harness.expand(LISTS)
+        lists = harness.emit(LISTS)
+        lists_source = lists.source.read_text(encoding="utf-8")
+        syntax_start = lists_source.find(f"module {lists.syntax_module}\n")
+        syntax_end = lists_source.find("endmodule", syntax_start)
+        lists_syntax = lists_source[syntax_start:syntax_end] if syntax_start >= 0 else ""
+        for fragment in LISTS_SOURCE_FRAGMENTS[:2]:
+            if fragment not in lists_syntax:
+                raise GateError(f"lists: {lists.syntax_module} omits {fragment!r}")
+        for fragment in LISTS_SOURCE_FRAGMENTS[2:]:
+            if fragment not in lists_source:
+                raise GateError(f"lists: emitted K omits {fragment!r}")
+        harness.compare(lists, LISTS_PROGRAMS, sort="Exp")
+        print("PASS lists: sum(1, 2, 3) is 6 on both routes; .Ints and an empty NeList are not program syntax")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

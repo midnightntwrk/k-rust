@@ -130,6 +130,8 @@ entry_points! {
         Exists = "exists",
         /// `#[k::ensures]` outside a `#[k::claim]` item.
         Ensures = "ensures",
+        /// `#[k::syntax_list]`.
+        SyntaxList = "syntax_list",
     }
 }
 
@@ -217,6 +219,9 @@ pub const ENUM_HELPERS: &[&str] = &["precedence"];
 
 /// Helpers that `#[k::constructors]` consumes from each enum variant.
 pub const VARIANT_HELPERS: &[&str] = &["syntax", "format", "strict", "seqstrict", "alias"];
+
+/// Helpers that `#[k::syntax_list]` consumes from its cons variant.
+pub const SYNTAX_LIST_VARIANT_HELPERS: &[&str] = &["strict", "seqstrict"];
 
 /// Helpers that `#[k::configuration]` and `#[k::cell]` consume from struct
 /// fields.

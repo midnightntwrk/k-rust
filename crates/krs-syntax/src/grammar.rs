@@ -199,7 +199,7 @@ impl SyntaxTemplate {
     }
 }
 
-fn push_terminal(items: &mut Vec<SyntaxTemplateItem>, terminal: &mut String) {
+pub(crate) fn push_terminal(items: &mut Vec<SyntaxTemplateItem>, terminal: &mut String) {
     let text = std::mem::take(terminal);
     let mut index = 0_usize;
     while index < text.len() {

@@ -525,6 +525,13 @@ fn collect_enum_invocations(
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
+    if let Some(invoking) = item_enum
+        .attrs
+        .iter()
+        .find(|attribute| resolver.invokes(attribute, AttributeMacro::SyntaxList))
+    {
+        return collect_syntax_list_invocations(item_enum, invoking, resolver, output);
+    }
     let Some(invoking) = item_enum
         .attrs
         .iter()
@@ -596,6 +603,61 @@ fn collect_enum_invocations(
             anchors,
             ParsedInvocationPayload::Declaration,
         )?);
+    }
+    Ok(())
+}
+
+/// A `#[k::syntax_list]` enum declares its closed sort and its two variant
+/// productions (KF-020).
+fn collect_syntax_list_invocations(
+    item_enum: &syn::ItemEnum,
+    invoking: &syn::Attribute,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    let attribute = krs_syntax::SyntaxListAttribute::parse_tokens(attribute_tokens(invoking)?)
+        .map_err(source_syntax)?;
+    let mut reparsed = item_enum.clone();
+    reparsed
+        .attrs
+        .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::SyntaxList));
+    let declaration = krs_syntax::SyntaxListDeclaration::from_parts(&attribute, reparsed)
+        .map_err(source_syntax)?;
+    output.push(parsed_invocation(
+        ProvenanceRole::SortDeclaration,
+        declaration.name().to_string(),
+        vec![krs_syntax::ProvenanceAnchor::new(
+            ProvenanceRole::SortDeclaration,
+            0,
+            krs_syntax::TokenRange::for_tokens(declaration.name()).map_err(source_syntax)?,
+        )],
+        ParsedInvocationPayload::Declaration,
+    )?);
+    let visibility = rust_visibility(&item_enum.vis)?;
+    for (name, anchors) in [
+        (
+            declaration.cons().name(),
+            declaration.cons_provenance().map_err(source_syntax)?,
+        ),
+        (
+            declaration.terminator().name(),
+            declaration.terminator_provenance().map_err(source_syntax)?,
+        ),
+    ] {
+        for role in [
+            ProvenanceRole::ConstructorSort,
+            ProvenanceRole::ConstructorDeclaration,
+        ] {
+            output.push(with_visibility(
+                parsed_invocation(
+                    role,
+                    name.to_string(),
+                    anchors.clone(),
+                    ParsedInvocationPayload::Declaration,
+                )?,
+                visibility.clone(),
+            ));
+        }
     }
     Ok(())
 }

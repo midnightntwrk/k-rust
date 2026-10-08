@@ -78,6 +78,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         },
         SyntaxErrorKind::InvalidTokenAttribute { reason: "example" },
         SyntaxErrorKind::InvalidLexicalMacro { reason: "example" },
+        SyntaxErrorKind::InvalidSyntaxList { reason: "example" },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

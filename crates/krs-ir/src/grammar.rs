@@ -458,6 +458,27 @@ pub enum ProductionAttribute<S, D> {
         /// Attribute provenance.
         origin: NodeOrigin,
     },
+    /// The cons production of a `#[k::syntax_list]` sort, K's
+    /// `List{Elem, "sep"}` or `NeList{..}` (KF-020). Its items are
+    /// `[NonTerminal head, Terminal(sep) when sep is nonempty, NonTerminal tail]`.
+    ListCons {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// The separator terminal; empty for a list without separator.
+        separator: String,
+        /// Whether the list is K's `NeList`: programs cannot write it empty.
+        non_empty: bool,
+        /// The list's terminator production.
+        terminator: D,
+    },
+    /// The terminator production of a `#[k::syntax_list]` sort, whose only
+    /// item is the terminal `.Sort`; K generates it from the cons sentence.
+    ListTerminator {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// The list's cons production.
+        cons: D,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -483,7 +504,9 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Prefer { origin }
             | Self::Overload { origin, .. }
             | Self::Private { origin }
-            | Self::Memo { origin } => origin,
+            | Self::Memo { origin }
+            | Self::ListCons { origin, .. }
+            | Self::ListTerminator { origin, .. } => origin,
         }
     }
 
@@ -511,6 +534,8 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Overload { .. } => Some(crate::ProductionAttributeFamily::Overload),
             Self::Private { .. } => Some(crate::ProductionAttributeFamily::Private),
             Self::Memo { .. } => Some(crate::ProductionAttributeFamily::Memo),
+            Self::ListCons { .. } => Some(crate::ProductionAttributeFamily::ListCons),
+            Self::ListTerminator { .. } => Some(crate::ProductionAttributeFamily::ListTerminator),
         }
     }
 }

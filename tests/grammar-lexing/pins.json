@@ -10,7 +10,8 @@
     "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70",
     "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
     "krs-grammar-token-id": "47d8d9c0f113d3c06c4f65cb40d36e181ccca7b8d6f5a339d3ce9dfcd7087558",
-    "krs-grammar-layout": "984b2fc390e4084fb729c5917aecffa19784ff0ace6e8af59c48cc6f25fc6236"
+    "krs-grammar-layout": "984b2fc390e4084fb729c5917aecffa19784ff0ace6e8af59c48cc6f25fc6236",
+    "krs-grammar-lists": "e83ca5e8e6a372a473a72c86764cb910f895077a1904e558dbad7d208853ba7c"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -45,6 +46,9 @@
     },
     "krs-grammar-layout": {
       "definition.k": "a4e0dc19387556de0c0cdc8945827567ceb0ec1b1f013b678fcf17be13f3e69f"
+    },
+    "krs-grammar-lists": {
+      "definition.k": "18defbcf9dc5ff3d43483e21f65969699debe1244a44e76902a9ff857ed2a4c0"
     }
   },
   "partition": {
@@ -71,7 +75,8 @@
     "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73",
     "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
     "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
-    "krs-grammar-layout": "22e5d15bbb07a613871dc86454cdef557993ef88233ab807a01acdefcf944324"
+    "krs-grammar-layout": "22e5d15bbb07a613871dc86454cdef557993ef88233ab807a01acdefcf944324",
+    "krs-grammar-lists": "4539b5bf0f0a925702f8839f72f1417c8be3132ed4b1008cfa258ebb07dda903"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -217,6 +222,28 @@
         "parse": "rejected",
         "run": null
       }
+    },
+    "krs-grammar-lists": {
+      "sum-three": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "sum-one": {
+        "parse": "accepted",
+        "run": "7"
+      },
+      "sum-terminator": {
+        "parse": "rejected",
+        "run": null
+      },
+      "count-three": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "count-empty": {
+        "parse": "rejected",
+        "run": null
+      }
     }
   },
   "diagnostics": {
@@ -282,6 +309,12 @@
     ],
     "lexical-recursive": [
       "error[krs::analysis::recursive-lexical]: lexicals refer to each other in a cycle (`Tail` -> `Word` -> `Tail`); K expands `{Name}` references inline, so a lexical cannot reach itself"
+    ],
+    "list-collision": [
+      "error[krs::analysis::symbol-name-collision]: syntactic list `Ints` derives the symbols `intsCons`/`intsNil`, which collide with `IntsCons`; rename the enum or the other production"
+    ],
+    "list-constructor": [
+      "error[krs::analysis::invalid-syntax-list]: `IntsSyntax::Empty` constructs `Ints`, a syntactic list: a `#[k::syntax_list]` enum is the whole definition of its sort, so the list has no other constructors; give the constructor another sort, or use a function"
     ]
   },
   "format": {

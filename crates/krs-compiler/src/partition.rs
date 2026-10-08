@@ -419,6 +419,30 @@ fn place_module(
                 .insert(production.id().clone(), reason);
         }
     }
+    // A syntactic list's terminator is generated from its cons sentence, so
+    // it is placed with the cons production (KF-020).
+    for production in module.productions() {
+        let Some(cons) = production
+            .attributes()
+            .iter()
+            .find_map(|attribute| match attribute {
+                ProductionAttribute::ListTerminator { cons, .. } => Some(cons),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        match placement.productions.get(cons).cloned() {
+            Some(reason) => {
+                placement
+                    .productions
+                    .insert(production.id().clone(), reason);
+            }
+            None => {
+                placement.productions.remove(production.id());
+            }
+        }
+    }
     for (group, members) in &group_members {
         let internal = members
             .iter()

@@ -142,6 +142,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// A `#[k::syntax_list]` sort is used in a way K's `List{}` forbids
+    /// (KF-020).
+    InvalidSyntaxList {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the list and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending occurrence.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `k::lexical!` name or a `{Name}` regex reference is invalid (KF-004).
     InvalidLexical {
         /// Which rule the definition breaks.
@@ -276,9 +286,9 @@ impl fmt::Display for DescriptorLoweringError {
                 "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
                 rule.item_name()
             ),
-            Self::InvalidTokenSort { reason, .. } | Self::InvalidLexical { reason, .. } => {
-                formatter.write_str(reason)
-            }
+            Self::InvalidTokenSort { reason, .. }
+            | Self::InvalidLexical { reason, .. }
+            | Self::InvalidSyntaxList { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -306,6 +316,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
             Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
+            Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
                 LexicalProblem::Undefined => codes::analysis::UNDEFINED_LEXICAL,
@@ -329,6 +340,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::GroupAndDescendant { range, .. }
             | Self::AmbiguousCellSort { range, .. }
             | Self::InvalidTokenSort { range, .. }
+            | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. } => range
                 .as_deref()
                 .cloned()

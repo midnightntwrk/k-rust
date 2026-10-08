@@ -52,6 +52,10 @@ bug — report it, don't guess.
   `<Sort>Syntax` (`StmtSyntax`). `<Sort>Kind` rejected: under the open-sort
   model an enum is a *contribution* to a sort, never its definition, and
   `Kind` teaches exactly that wrong assumption. [r4, r6f]
+  *Note (2026-10 feature build, closed sorts):* `#[k::syntax_list]` enums,
+  like token structs, declare a closed sort: the enum is the sort's
+  definition, not a contribution to an open sort. Membership in open sorts
+  still goes through `k::sorts!` `impl` lines.
 - **C3 — Syntax-first attribute.** `#[k::syntax("template", …)]` is always
   the production's first attribute, so a grammar section scans as a column
   of templates in K's own reading order. On structs it is the proc-macro

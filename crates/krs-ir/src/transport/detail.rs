@@ -171,6 +171,7 @@ details! {
         InternalProgramMetadata => "`internal` cannot be combined with `program`",
         PreferAvoidMetadata => "`prefer` cannot be combined with `avoid`",
         MemoWithoutFunction => "`memo` requires function metadata",
+        ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, or alias metadata",
         BracketConstructorField => "bracket nonterminal cannot claim a constructor field",
         BracketFieldName => "bracket nonterminal field must be `value`",
         BracketOwnerResultSortMismatch => "bracket owner and result sorts must be identical",

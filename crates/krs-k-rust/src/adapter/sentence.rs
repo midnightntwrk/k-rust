@@ -143,11 +143,19 @@ impl Adapter<'_> {
                 index,
             )?;
         }
+        // A list without separator keeps an empty native separator item, so
+        // its tail is the third native item.
+        let list_gap = usize::from(
+            sentence.attributes().iter().any(|attribute| {
+                matches!(attribute, DefinitionProductionAttribute::ListCons { separator, .. } if separator.is_empty())
+            }),
+        );
         let items = sentence
             .items()
             .iter()
             .enumerate()
             .map(|(index, item)| {
+                let index = if index == 0 { index } else { index + list_gap };
                 self.map_sentence_origin(
                     item.origin(),
                     module,
@@ -176,6 +184,24 @@ impl Adapter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
+        // K's outer syntax desugars `List{Elem, "sep"}` privately; this is
+        // k-rust's `lower_user_list` (`bison_lists = false`) for the cons
+        // sentence: `[Elem, Terminal(sep), List]`, unnamed, the separator kept
+        // even when empty (KF-020).
+        let items = match self.list_cons(sentence)? {
+            Some(head) => vec![
+                NativeItem::NonTerminal {
+                    sort: head,
+                    name: None,
+                },
+                NativeItem::Terminal(list_separator(sentence).to_owned()),
+                NativeItem::NonTerminal {
+                    sort: self.sort(sentence.result_sort(), sentence.origin())?,
+                    name: None,
+                },
+            ],
+            None => items,
+        };
         // token-production-constructor: token values lower to KORE domain
         // values, never applications of their parser production. Omit the
         // unused label to match the source frontend's unlabelled-token form.
@@ -190,6 +216,29 @@ impl Adapter<'_> {
             items,
             attributes,
         })
+    }
+
+    /// The native element sort of a syntactic-list cons production.
+    fn list_cons(&self, sentence: &ProductionSentence) -> Result<Option<NativeSort>, AdapterError> {
+        if !sentence
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, DefinitionProductionAttribute::ListCons { .. }))
+        {
+            return Ok(None);
+        }
+        let head = sentence
+            .items()
+            .iter()
+            .find_map(|item| match item.kind() {
+                GrammarProductionItemKind::NonTerminal { sort, .. } => Some((sort, item.origin())),
+                _ => None,
+            })
+            .ok_or_else(|| AdapterError::MissingSymbol {
+                key: sentence.origin().key().clone(),
+                symbol: sentence.symbol().id().clone(),
+            })?;
+        Ok(Some(self.sort(head.0, head.1)?))
     }
 
     #[expect(
@@ -252,6 +301,29 @@ impl Adapter<'_> {
             }
             DefinitionProductionAttribute::Memo { .. } => {
                 attributes.insert("memo", json!(""));
+            }
+            DefinitionProductionAttribute::ListCons { non_empty, .. } => {
+                attributes.insert("userList", json!(user_list_kind(*non_empty)));
+            }
+            DefinitionProductionAttribute::ListTerminator { cons, .. } => {
+                let non_empty = self
+                    .index
+                    .production(cons)
+                    .and_then(|cons| {
+                        cons.attributes()
+                            .iter()
+                            .find_map(|attribute| match attribute {
+                                DefinitionProductionAttribute::ListCons { non_empty, .. } => {
+                                    Some(*non_empty)
+                                }
+                                _ => None,
+                            })
+                    })
+                    .ok_or_else(|| AdapterError::MissingSymbol {
+                        key: attribute.origin().key().clone(),
+                        symbol: cons.clone(),
+                    })?;
+                attributes.insert("userList", json!(user_list_kind(non_empty)));
             }
             DefinitionProductionAttribute::Overload { target, .. } => {
                 attributes.insert(
@@ -1022,4 +1094,20 @@ fn truth() -> NativeTerm {
         token: "true".into(),
         sort: NativeSort::new(BuiltinSort::Bool.k_name()),
     }
+}
+
+/// k-rust's `userList` value: `+` for `NeList`, `*` for `List`.
+const fn user_list_kind(non_empty: bool) -> &'static str {
+    if non_empty { "+" } else { "*" }
+}
+
+fn list_separator(sentence: &ProductionSentence) -> &str {
+    sentence
+        .attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            DefinitionProductionAttribute::ListCons { separator, .. } => Some(separator.as_str()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }

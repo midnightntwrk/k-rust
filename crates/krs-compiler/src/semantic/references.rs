@@ -117,7 +117,12 @@ fn validate_production_references(
         if let DescriptorProductionAttribute::Strictness { result_sort, .. } = attribute {
             validate_sort_ref(&result_sort.sort, declarations)?;
         }
-        if let DescriptorProductionAttribute::Overload { target } = attribute {
+        if let DescriptorProductionAttribute::Overload { target }
+        | DescriptorProductionAttribute::ListCons {
+            terminator: target, ..
+        }
+        | DescriptorProductionAttribute::ListTerminator { cons: target } = attribute
+        {
             validate_application_ref(&target.application, declarations)?;
         }
     }

@@ -702,6 +702,29 @@ k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
     ("anonymous", "k::anonymous!(Bool, \"_B\");"),
     ("or_bool", "k::or_bool![int::eq(n, 5), int::eq(n, 6)];"),
     ("lexeme", "k::lexeme!(Name, \"main\");"),
+    (
+        "syntax_list",
+        r#"
+/// A comma-separated list of integers.
+#[k::syntax_list(separator = ",")]
+pub enum Ints {
+    /// One integer, then the rest.
+    Cons { head: Int, tail: Ints },
+    Nil(),
+}
+"#,
+    ),
+    (
+        "syntax_list_reference",
+        r#"
+#[k::syntax_list(separator = "|", non_empty, reference)]
+pub enum Args {
+    #[k::strict(sequence = [head, tail], result = k::KResult)]
+    Cons { head: k::Term<dyn crate::ExprSort>, tail: k::Term<crate::Args> },
+    Nil(),
+}
+"#,
+    ),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.

@@ -23,6 +23,7 @@ mod sorts;
 mod state_macro;
 mod state_rule;
 pub mod surface;
+mod syntax_list;
 mod term;
 mod term_sort;
 pub mod trivia;
@@ -77,6 +78,9 @@ pub use state_macro::{
 pub use state_rule::{
     ClaimEnsures, ClaimSortCandidate, StateClaimItem, StateContextAliasItem, StateRuleBinding,
     StateRuleBindingKind, StateRuleItem, StateRuleReferenceKind, parse_state_context_alias_item,
+};
+pub use syntax_list::{
+    SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
 };
 pub use term::{
     CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,

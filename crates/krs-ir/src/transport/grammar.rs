@@ -695,6 +695,24 @@ stage_shape! {
             /// Memo-flag provenance.
             key: ProvenanceKey => [keep],
         },
+        /// The cons production of a `#[k::syntax_list]` enum (KF-020).
+        ListCons {
+            /// `#[k::syntax_list]` attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// Separator-literal provenance.
+            separator_key: ProvenanceKey => [keep],
+            /// Separator terminal; empty for a list without separator.
+            separator: String => [keep],
+            /// `non_empty` flag provenance, present for K's `NeList`.
+            non_empty: Option<ProvenanceKey> => [keep],
+            /// The terminator variant of the same enum.
+            terminator: S::Application => [application],
+        },
+        /// The terminator production of a `#[k::syntax_list]` enum (KF-020).
+        ListTerminator {
+            /// The cons variant of the same enum, keyed at the list attribute.
+            cons: S::Application => [application],
+        },
     }
 }
 
@@ -2218,6 +2236,27 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "memo"
                 }
+                DescriptorProductionAttribute::ListCons {
+                    key,
+                    separator_key,
+                    non_empty,
+                    terminator,
+                    ..
+                } => {
+                    require_key(key, provenance)?;
+                    require_key(separator_key, provenance)?;
+                    if let Some(non_empty) = non_empty {
+                        require_key(non_empty, provenance)?;
+                    }
+                    require_key(&terminator.key, provenance)?;
+                    terminator.application.validate()?;
+                    "list"
+                }
+                DescriptorProductionAttribute::ListTerminator { cons } => {
+                    require_key(&cons.key, provenance)?;
+                    cons.application.validate()?;
+                    "list"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -2255,6 +2294,16 @@ impl DescriptorProduction {
         if families.contains("prefer") && families.contains("avoid") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::PreferAvoidMetadata,
+            ));
+        }
+        if families.contains("list")
+            && (["function", "token", "bracket", "alias", "hook"]
+                .iter()
+                .any(|family| families.contains(family))
+                || !matches!(self.owner, DescriptorProductionOwner::Constructor { .. }))
+        {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::ListMetadata,
             ));
         }
         let has_token = families.contains("token");
@@ -2702,17 +2751,36 @@ impl DescriptorProduction {
         }
     }
 
+    /// A syntactic list's terminals are generated: the cons separator is
+    /// keyed at its literal and the terminator `.Sort` at the attribute.
+    fn list_terminal_role(&self) -> Option<ProvenanceRole> {
+        self.attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                DescriptorProductionAttribute::ListCons { .. } => {
+                    Some(ProvenanceRole::ListSeparator)
+                }
+                DescriptorProductionAttribute::ListTerminator { .. } => {
+                    Some(ProvenanceRole::ListDeclaration)
+                }
+                _ => None,
+            })
+    }
+
     fn collect_constructor_item_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
     ) -> Result<(), GrammarTransportError> {
         let explicit = self.template_key.is_some();
+        let list_terminal = self.list_terminal_role();
         let mut occurrence_ordinal = 0_u32;
         let mut declaration_ordinals = BTreeSet::new();
         for (item_ordinal, item) in self.items.iter().enumerate() {
             match item {
                 DescriptorProductionItem::Terminal { key, .. } => {
-                    if explicit {
+                    if let Some(role) = list_terminal {
+                        insert_exact(keys, key, role, 0)?;
+                    } else if explicit {
                         insert_exact(
                             keys,
                             key,
@@ -2890,6 +2958,23 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Memo { key } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionMemo, 0)?;
+                }
+                DescriptorProductionAttribute::ListCons {
+                    key,
+                    separator_key,
+                    non_empty,
+                    terminator,
+                    ..
+                } => {
+                    insert_exact(keys, key, ProvenanceRole::ListDeclaration, 0)?;
+                    insert_exact(keys, separator_key, ProvenanceRole::ListSeparator, 0)?;
+                    if let Some(non_empty) = non_empty {
+                        insert_exact(keys, non_empty, ProvenanceRole::ListNonEmpty, 0)?;
+                    }
+                    insert_exact(keys, &terminator.key, ProvenanceRole::ListDeclaration, 0)?;
+                }
+                DescriptorProductionAttribute::ListTerminator { cons } => {
+                    insert_exact(keys, &cons.key, ProvenanceRole::ListDeclaration, 0)?;
                 }
                 DescriptorProductionAttribute::Alias { key } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;

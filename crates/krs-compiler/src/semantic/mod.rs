@@ -7,6 +7,7 @@ mod error;
 mod grammar;
 mod infer;
 mod lexicals;
+mod lists;
 mod open_sorts;
 mod origin;
 mod overload;
@@ -124,6 +125,7 @@ pub fn lower_descriptor_bundle(
     overload::check_overloads(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     lexicals::check_lexicals(&modules)?;
+    lists::check_syntax_lists(&modules)?;
     visibility::check_claim_visibility(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {

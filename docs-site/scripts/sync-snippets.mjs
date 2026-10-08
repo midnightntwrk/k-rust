@@ -96,6 +96,12 @@ const snippets = [
     end: '#[k::constructors',
   },
   {
+    source: '../tests/grammar-lexing/packages/lists/src/lib.rs',
+    mirror: 'src/snippets/lists.rs',
+    start: '/// A comma-separated list of integers',
+    end: '#[k::function(partial, sort = Int, syntax = "count',
+  },
+  {
     source: '../semantics/kevm/src/lib.rs',
     mirror: 'src/snippets/kevm-accounts.rs',
     start: '#[k::cell]\npub struct Account {',

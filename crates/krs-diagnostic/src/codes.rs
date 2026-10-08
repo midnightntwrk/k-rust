@@ -184,6 +184,7 @@ register_codes! {
         DUPLICATE_LEXICAL: "krs::analysis::duplicate-lexical" => "A `k::lexical!` name is declared more than once in the definition.",
         UNDEFINED_LEXICAL: "krs::analysis::undefined-lexical" => "A token, layout, or lexical regex refers to a `{Name}` that no `k::lexical!` declares.",
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
+        INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -247,6 +248,7 @@ register_codes! {
         RETIRED_ATTRIBUTE: "krs::syntax::retired-attribute" => "A retired KRS attribute was used; its replacement is named in the message.",
         INVALID_TOKEN_ATTRIBUTE: "krs::syntax::invalid-token-attribute" => "A token attribute or `k::lexeme!` term was malformed: a token attribute takes exactly one nonempty `regex` or single-terminal `terminal`, `prec` only with `regex`, and no stacked duplicate.",
         INVALID_LEXICAL_MACRO: "krs::syntax::invalid-lexical-macro" => "A `k::lexical!` or `k::layout!` block was malformed: it is empty, repeats a lexical name, names a lexical outside `[A-Z][A-Za-z0-9]*`, or has a malformed entry.",
+        INVALID_SYNTAX_LIST_ATTRIBUTE: "krs::syntax::invalid-syntax-list" => "A `#[k::syntax_list]` enum was malformed: it needs exactly one two-field cons variant whose second field is the enum itself and one zero-field tuple terminator variant, a separator that is empty or one K terminal, no generics, and no `#[k::syntax]` on its variants.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

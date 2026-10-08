@@ -966,6 +966,10 @@ impl Sample for DescriptorPayload {
     }
 }
 impl Sample for DescriptorProductionAttribute {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One sample per production-attribute variant."
+    )]
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -1033,8 +1037,18 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Memo {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::ListCons {
+                    key: sample::<ProvenanceKey>(),
+                    separator_key: sample::<ProvenanceKey>(),
+                    separator: sample::<String>(),
+                    non_empty: sample::<Option<ProvenanceKey>>(),
+                    terminator: sample::<DescriptorApplicationReference>(),
+                },
+                Self::ListTerminator {
+                    cons: sample::<DescriptorApplicationReference>(),
+                },
             ],
-            18,
+            20,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1055,6 +1069,8 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
                 Self::Memo { .. } => 17,
+                Self::ListCons { .. } => 18,
+                Self::ListTerminator { .. } => 19,
             },
         )
     }
@@ -1415,6 +1431,10 @@ impl<
     D: Sample + Clone + Serialize + DeserializeOwned,
 > Sample for ProductionAttribute<S, D>
 {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One sample per production-attribute variant."
+    )]
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -1487,8 +1507,18 @@ impl<
                 Self::Memo {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::ListCons {
+                    origin: sample::<NodeOrigin>(),
+                    separator: sample::<String>(),
+                    non_empty: sample::<bool>(),
+                    terminator: sample::<D>(),
+                },
+                Self::ListTerminator {
+                    origin: sample::<NodeOrigin>(),
+                    cons: sample::<D>(),
+                },
             ],
-            19,
+            21,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1510,6 +1540,8 @@ impl<
                 Self::Overload { .. } => 16,
                 Self::Private { .. } => 17,
                 Self::Memo { .. } => 18,
+                Self::ListCons { .. } => 19,
+                Self::ListTerminator { .. } => 20,
             },
         )
     }
@@ -1949,6 +1981,10 @@ impl Sample for WireGrammarDescriptor {
     }
 }
 impl Sample for WireProductionAttribute {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One sample per production-attribute variant."
+    )]
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -2016,8 +2052,18 @@ impl Sample for WireProductionAttribute {
                 Self::Memo {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::ListCons {
+                    key: sample::<ProvenanceKey>(),
+                    separator_key: sample::<ProvenanceKey>(),
+                    separator: sample::<String>(),
+                    non_empty: sample::<Option<ProvenanceKey>>(),
+                    terminator: sample::<WireApplicationReference>(),
+                },
+                Self::ListTerminator {
+                    cons: sample::<WireApplicationReference>(),
+                },
             ],
-            18,
+            20,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2038,6 +2084,8 @@ impl Sample for WireProductionAttribute {
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
                 Self::Memo { .. } => 17,
+                Self::ListCons { .. } => 18,
+                Self::ListTerminator { .. } => 19,
             },
         )
     }

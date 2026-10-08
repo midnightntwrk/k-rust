@@ -388,6 +388,12 @@ provenance_roles! {
     LexicalRegex => "lexical_regex",
     /// One regex literal of `k::layout!`, in source order.
     LayoutRegex => "layout_regex",
+    /// The `#[k::syntax_list]` attribute of a syntactic-list enum.
+    ListDeclaration => "list_declaration",
+    /// The `separator = ".."` literal of `#[k::syntax_list]`.
+    ListSeparator => "list_separator",
+    /// The `non_empty` flag of `#[k::syntax_list]`.
+    ListNonEmpty => "list_non_empty",
 }
 
 impl Serialize for ProvenanceRole {

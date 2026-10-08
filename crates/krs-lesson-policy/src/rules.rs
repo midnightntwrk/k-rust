@@ -94,6 +94,7 @@
 //! |---|---|---|
 //! | enum, after the outer attribute | `constructors` | [`ENUM_HELPERS`](krs_syntax::surface::ENUM_HELPERS) |
 //! | enum variant | `constructors` on the enum | [`VARIANT_HELPERS`](krs_syntax::surface::VARIANT_HELPERS) |
+//! | enum variant | `syntax_list` on the enum | [`SYNTAX_LIST_VARIANT_HELPERS`](krs_syntax::surface::SYNTAX_LIST_VARIANT_HELPERS) |
 //! | struct field | `configuration` or `cell` on the struct | [`FIELD_HELPERS`](krs_syntax::surface::FIELD_HELPERS) |
 //! | function parameter | `init` on the function | [`PARAMETER_HELPERS`](krs_syntax::surface::PARAMETER_HELPERS) |
 //!

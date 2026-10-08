@@ -28,7 +28,8 @@ use krs_ir_levels::{
 use sha2::{Digest, Sha256};
 
 use crate::partition::{
-    ModulePlacement, Partition, PartitionError, is_framework_module, program_syntax_module_name,
+    ModulePlacement, Partition, PartitionError, is_framework_module, production_display_name,
+    program_syntax_module_name,
 };
 use crate::{SourceMap, SymbolMap};
 
@@ -131,6 +132,16 @@ pub enum LoweringError {
         /// Exact parser-owned authored provenance for the second owner.
         second_origin: OriginStack,
     },
+    /// A syntactic list's derived cons or terminator symbol collides with
+    /// another production's symbol (KF-020, R11).
+    ListSymbolCollision {
+        /// The `#[k::syntax_list]` enum, which names the derived symbols.
+        list: String,
+        /// The other production.
+        other: String,
+        /// Exact parser-owned authored provenance for the second owner.
+        second_origin: OriginStack,
+    },
     /// Two generated Definition nodes selected the same source-map key.
     SourceMapCollision(SourceMapKey),
     /// A generated path-free IR identity was rejected by the frozen IR API.
@@ -168,6 +179,13 @@ impl fmt::Display for LoweringError {
                 formatter,
                 "{namespace} name collision for {value:?} between {first} and {second}"
             ),
+            Self::ListSymbolCollision { list, other, .. } => {
+                let base = lower_camel(list);
+                write!(
+                    formatter,
+                    "syntactic list `{list}` derives the symbols `{base}Cons`/`{base}Nil`, which collide with `{other}`; rename the enum or the other production"
+                )
+            }
             Self::SourceMapCollision(key) => {
                 write!(
                     formatter,
@@ -198,6 +216,7 @@ impl ToDiagnostic for LoweringError {
                 | CollisionNamespace::EmittedLabel
                 | CollisionNamespace::LabelId => codes::analysis::NAME_COLLISION,
             },
+            Self::ListSymbolCollision { .. } => codes::analysis::SYMBOL_NAME_COLLISION,
             Self::SourceMapCollision(_) => codes::analysis::SOURCE_MAP_COLLISION,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidDefinition(_) => codes::analysis::INVALID_DEFINITION,
@@ -208,7 +227,8 @@ impl ToDiagnostic for LoweringError {
             }
         };
         let location = match self {
-            Self::NameCollision { second_origin, .. } => second_origin
+            Self::NameCollision { second_origin, .. }
+            | Self::ListSymbolCollision { second_origin, .. } => second_origin
                 .exact_authored_range()
                 .map_or(Location::None, Location::Source),
             Self::Partition(PartitionError::MixedGroup { origin, .. }) => origin
@@ -388,6 +408,8 @@ impl NamingPass {
         let mut emitted = BTreeMap::<String, String>::new();
         let mut labels = BTreeMap::<String, String>::new();
         let mut modules = BTreeMap::<String, String>::new();
+        let mut list_owners = BTreeMap::<String, String>::new();
+        let mut production_displays = BTreeMap::<String, String>::new();
 
         for module in theory.modules() {
             validate_module_name(module.id().as_str())?;
@@ -452,13 +474,38 @@ impl NamingPass {
                     CollisionNamespace::SymbolId,
                     production.origin(),
                 )?;
-                claim(
+                let display = production_display_name(production.id());
+                let list = list_enum_name(production).map(str::to_owned);
+                let claimed = claim(
                     &mut emitted,
                     name.clone(),
                     owner,
                     CollisionNamespace::EmittedSymbol,
                     production.origin(),
-                )?;
+                );
+                if claimed.is_err() {
+                    // R11: name the syntactic list whose derived symbol clashes.
+                    let collision = match (&list, list_owners.get(&name)) {
+                        (Some(list), _) => Some((
+                            list.clone(),
+                            production_displays.get(&name).cloned().unwrap_or_default(),
+                        )),
+                        (None, Some(list)) => Some((list.clone(), display.clone())),
+                        (None, None) => None,
+                    };
+                    if let Some((list, other)) = collision {
+                        return Err(LoweringError::ListSymbolCollision {
+                            list,
+                            other,
+                            second_origin: production.origin().origin().clone(),
+                        });
+                    }
+                    claimed?;
+                }
+                if let Some(list) = list {
+                    list_owners.insert(name.clone(), list);
+                }
+                production_displays.insert(name.clone(), display);
                 pass.productions.insert(
                     production.id().clone(),
                     SymbolIdentity::new(id, name, SymbolKind::Production)?,
@@ -1544,6 +1591,23 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
                 ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
                 ProductionAttribute::Memo { .. } => ProductionAttribute::Memo { origin },
+                ProductionAttribute::ListCons {
+                    separator,
+                    non_empty,
+                    terminator,
+                    ..
+                } => ProductionAttribute::ListCons {
+                    origin,
+                    separator: separator.clone(),
+                    non_empty: *non_empty,
+                    terminator: names.production(terminator)?.id().clone(),
+                },
+                ProductionAttribute::ListTerminator { cons, .. } => {
+                    ProductionAttribute::ListTerminator {
+                        origin,
+                        cons: names.production(cons)?.id().clone(),
+                    }
+                }
                 ProductionAttribute::Overload { .. } => ProductionAttribute::Overload {
                     origin,
                     target: names.overload_root(production.id())?.ok_or_else(|| {
@@ -1889,7 +1953,30 @@ fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbo
     text
 }
 
+/// The `#[k::syntax_list]` enum of a list production, which names its
+/// symbols: `lowerCamel(Enum) + "Cons"` and `+ "Nil"` (KF-020, R11).
+fn list_enum_name(production: &krs_ir_levels::SemanticProduction) -> Option<&str> {
+    let is_list = production.attributes().iter().any(|attribute| {
+        matches!(
+            attribute,
+            ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. }
+        )
+    });
+    match production.result_sort() {
+        krs_ir_levels::SemanticSortRef::Declared(sort) if is_list => Some(sort.item_name()),
+        _ => None,
+    }
+}
+
 fn production_symbol_name(production: &krs_ir_levels::SemanticProduction, owner: &str) -> String {
+    if let Some(list) = list_enum_name(production) {
+        let is_cons = production
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, ProductionAttribute::ListCons { .. }));
+        let suffix = if is_cons { "Cons" } else { "Nil" };
+        return format!("{}{suffix}", lower_camel(list));
+    }
     if let Some(symbol) = production.explicit_symbol() {
         return lower_camel(symbol.final_component());
     }

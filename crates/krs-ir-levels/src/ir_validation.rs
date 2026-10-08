@@ -142,6 +142,7 @@ pub(crate) enum ValidationError<L: Validation> {
     PreferAndAvoid,
     PreferOnParseOnlyProduction,
     InvalidOverloadProduction,
+    InvalidListProduction,
     InvalidFunctionProduction,
     InvalidHookSignature(HookOperation),
     InvalidBn128PointConstructor {
@@ -1281,6 +1282,30 @@ pub(crate) fn validate_term<L: Validation>(
     Ok(())
 }
 
+/// Checks a syntactic-list cons production: `[head, separator, tail]` with
+/// the separator item present exactly when the separator is nonempty, and
+/// the tail of the list's own sort (KF-020).
+fn valid_list_cons<L: Validation>(
+    result_sort: &L::Sort,
+    items: &[GrammarProductionItem<L::Sort>],
+    separator: &str,
+) -> bool {
+    let tail_is_list = |item: &GrammarProductionItem<L::Sort>| matches!(item.kind(), GrammarProductionItemKind::NonTerminal { sort, .. } if sort == result_sort);
+    let is_head = |item: &GrammarProductionItem<L::Sort>| {
+        matches!(item.kind(), GrammarProductionItemKind::NonTerminal { .. })
+    };
+    match items {
+        [head, tail] => separator.is_empty() && is_head(head) && tail_is_list(tail),
+        [head, terminal, tail] => {
+            !separator.is_empty()
+                && is_head(head)
+                && matches!(terminal.kind(), GrammarProductionItemKind::Terminal { text } if text == separator)
+                && tail_is_list(tail)
+        }
+        _ => false,
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The closed shape checks must preserve the first reported failure."
@@ -1326,6 +1351,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut overload = false;
     let mut private = false;
     let mut memo = false;
+    let mut list = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1351,6 +1377,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Overload { .. } => std::mem::replace(&mut overload, true),
             ProductionAttribute::Private { .. } => std::mem::replace(&mut private, true),
             ProductionAttribute::Memo { .. } => std::mem::replace(&mut memo, true),
+            ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. } => {
+                std::mem::replace(&mut list, true)
+            }
         };
         if already {
             let name = attribute
@@ -1397,7 +1426,29 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Overload { .. }
             | ProductionAttribute::Private { .. }
             | ProductionAttribute::Memo { .. } => {}
+            ProductionAttribute::ListCons { separator, .. } => {
+                if !valid_list_cons::<L>(result_sort, items, separator) {
+                    return Err(L::error(ValidationError::InvalidListProduction));
+                }
+            }
+            ProductionAttribute::ListTerminator { .. } => {
+                let valid = matches!(
+                    items,
+                    [item] if matches!(
+                        item.kind(),
+                        GrammarProductionItemKind::Terminal { text } if text.starts_with('.') && text.len() > 1
+                    )
+                );
+                if !valid {
+                    return Err(L::error(ValidationError::InvalidListProduction));
+                }
+            }
         }
+    }
+    // A syntactic list is K constructor syntax: its two productions carry
+    // no function, token, bracket, or alias metadata.
+    if list && (function || token || bracket || alias || hook.is_some()) {
+        return Err(L::error(ValidationError::InvalidListProduction));
     }
     if internal && program {
         return Err(L::error(ValidationError::InternalWithProgram));

@@ -1367,6 +1367,9 @@ pub enum DefinitionValidationError {
     PreferOnParseOnlyProduction,
     /// A function, token, or bracket production carried `overload`.
     InvalidOverloadProduction,
+    /// A syntactic-list cons or terminator production had the wrong items or
+    /// metadata (KF-020).
+    InvalidListProduction,
     /// A production kept `internal` or `program`, which lowering consumes when
     /// it places productions in the program-syntax or semantics module.
     SemanticOnlyProductionAttribute(SymbolId),
@@ -1542,6 +1545,9 @@ impl fmt::Display for DefinitionValidationError {
             }
             Self::InvalidOverloadProduction => formatter.write_str(
                 "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
+            ),
+            Self::InvalidListProduction => formatter.write_str(
+                "a syntactic-list cons production has items `[head, separator?, tail]` with the tail of its own sort, and its terminator has the single terminal `.Sort`; neither is a function, token, bracket, or alias",
             ),
             Self::PreferOnParseOnlyProduction => {
                 formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")
@@ -1799,7 +1805,11 @@ fn validate_production(
             | ProductionAttribute::Prefer { .. }
             | ProductionAttribute::Private { .. }
             | ProductionAttribute::Memo { .. } => {}
-            ProductionAttribute::Overload { target, .. } => {
+            ProductionAttribute::Overload { target, .. }
+            | ProductionAttribute::ListCons {
+                terminator: target, ..
+            }
+            | ProductionAttribute::ListTerminator { cons: target, .. } => {
                 require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
             }
             ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {

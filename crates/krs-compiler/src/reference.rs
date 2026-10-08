@@ -179,6 +179,7 @@ pub fn expand_reference_source(
             materialize_constructor_flags(item_struct);
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
+            materialize_syntax_list(item_enum, package, module_path, bundle, &descriptor_index)?;
             materialize_enum_productions(
                 item_enum,
                 package,
@@ -393,9 +394,62 @@ fn materialize_enum_productions(
             bundle,
             descriptor_index,
         )?;
-        materialize_reference_strictness(output_variant, variant)?;
+        materialize_reference_strictness(output_variant, variant.strictness())?;
     }
     render_family_grammar(&declaration)
+}
+
+/// Writes the reference form of a readable `#[k::syntax_list]` enum (KF-020):
+/// the `reference` marker, `k::Term<..>` field types, and the strictness
+/// result on the cons variant's strictness attribute.
+fn materialize_syntax_list(
+    item: &mut syn::ItemEnum,
+    package: &PackageId,
+    module_path: &[String],
+    bundle: &DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
+) -> Result<(), ReferenceExpansionError> {
+    if !has_attribute(&item.attrs, "syntax_list") {
+        return Ok(());
+    }
+    let declaration = krs_syntax::SyntaxListDeclaration::from_attributed_item(item.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    if declaration.attribute().is_reference() {
+        return Ok(());
+    }
+    let index = item
+        .attrs
+        .iter()
+        .position(|attribute| attribute_is(attribute, "syntax_list"))
+        .ok_or_else(|| {
+            ReferenceExpansionError::GeneratedRust(syn::Error::new(
+                item.ident.span(),
+                "checked syntax-list attribute disappeared during projection",
+            ))
+        })?;
+    // Keys in the canonical order of decision X2.
+    let separator = declaration.attribute().separator();
+    let non_empty = declaration
+        .attribute()
+        .non_empty()
+        .map(|_| quote!(non_empty,));
+    item.attrs[index] =
+        syn::parse_quote!(#[k::syntax_list(separator = #separator, #non_empty reference)]);
+    for output_variant in &mut item.variants {
+        if output_variant.ident != *declaration.cons().name() {
+            continue;
+        }
+        materialize_reference_variant_fields(
+            output_variant,
+            declaration.name(),
+            package,
+            module_path,
+            bundle,
+            descriptor_index,
+        )?;
+        materialize_reference_strictness(output_variant, declaration.cons().strictness())?;
+    }
+    Ok(())
 }
 
 /// Writes the reference spelling `internal = true` / `program = true` for a
@@ -561,7 +615,7 @@ fn render_reference_term_type(
         krs_ir::DescriptorSortRef::Declared(id)
             if id.package() == package && id.module_path() == module_path =>
         {
-            if is_token_sort(id, bundle) {
+            if is_token_sort(id, bundle) || is_list_sort(id, bundle) {
                 return render_reference_token_term_type(id, package);
             }
             let marker = format_ident!("{}Sort", id.item_name());
@@ -601,6 +655,26 @@ fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::Descrip
     })
 }
 
+/// Whether `id` is the closed sort of a `#[k::syntax_list]` enum, whose
+/// reference type is the enum itself.
+fn is_list_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
+    bundle.descriptors().iter().any(|descriptor| {
+        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
+            return false;
+        };
+        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
+            return false;
+        };
+        production.result_sort.sort == krs_ir::DescriptorSortRef::Declared(id.clone())
+            && production.attributes.iter().any(|attribute| {
+                matches!(
+                    attribute,
+                    krs_ir::DescriptorProductionAttribute::ListCons { .. }
+                )
+            })
+    })
+}
+
 fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
     bundle.descriptors().iter().any(|descriptor| {
         let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
@@ -621,9 +695,9 @@ fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
 
 fn materialize_reference_strictness(
     output: &mut syn::Variant,
-    variant: &krs_syntax::EnumConstructorVariant,
+    strictness: Option<&krs_syntax::StrictnessAttribute>,
 ) -> Result<(), ReferenceExpansionError> {
-    let Some(strictness) = variant.strictness() else {
+    let Some(strictness) = strictness else {
         return Ok(());
     };
     let indices = output

@@ -232,6 +232,11 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: &'static str,
     },
+    /// A `#[k::syntax_list]` attribute or enum was malformed (KF-020).
+    InvalidSyntaxList {
+        /// Complete stable explanation, naming the fix.
+        reason: &'static str,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -309,6 +314,7 @@ impl SyntaxErrorKind {
             Self::RetiredAttribute { .. } => codes::syntax::RETIRED_ATTRIBUTE,
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
             Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
+            Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
         }
     }
 }
@@ -531,7 +537,8 @@ impl fmt::Display for SyntaxError {
             }
             SyntaxErrorKind::InvalidRuleKey { reason }
             | SyntaxErrorKind::InvalidTokenAttribute { reason }
-            | SyntaxErrorKind::InvalidLexicalMacro { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidLexicalMacro { reason }
+            | SyntaxErrorKind::InvalidSyntaxList { reason } => formatter.write_str(reason),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,

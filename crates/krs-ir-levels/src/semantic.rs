@@ -361,7 +361,12 @@ impl SemanticTheory {
                             Box::new(production.id.clone()),
                         ));
                     }
-                    if let ProductionAttribute::Overload { target, .. } = attribute {
+                    if let ProductionAttribute::Overload { target, .. }
+                    | ProductionAttribute::ListCons {
+                        terminator: target, ..
+                    }
+                    | ProductionAttribute::ListTerminator { cons: target, .. } = attribute
+                    {
                         require_kind::<SemanticLevel>(
                             &declarations,
                             target,
@@ -1383,6 +1388,9 @@ pub enum SemanticValidationError {
     PreferOnParseOnlyProduction,
     /// A function, token, or bracket production carried `overload`.
     InvalidOverloadProduction,
+    /// A syntactic-list cons or terminator production had the wrong items or
+    /// metadata (KF-020).
+    InvalidListProduction,
     /// A Semantic production carried `private`, which lowering derives from
     /// Rust visibility.
     DefinitionOnlyProductionAttribute(Box<StableItemId>),
@@ -1550,6 +1558,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidOverloadProduction => formatter.write_str(
                 "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
+            ),
+            Self::InvalidListProduction => formatter.write_str(
+                "a syntactic-list cons production has items `[head, separator?, tail]` with the tail of its own sort, and its terminator has the single terminal `.Sort`; neither is a function, token, bracket, or alias",
             ),
             Self::PreferOnParseOnlyProduction => {
                 formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")

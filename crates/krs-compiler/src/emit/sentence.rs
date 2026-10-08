@@ -32,6 +32,13 @@ pub(super) fn emit_sentence(
             writer.push("\n");
         }
     }
+    // K generates a syntactic list's terminator production from its cons
+    // sentence `List{..}`, so the terminator is not printed (KF-020).
+    if let DefinitionSentence::Production(production) = sentence
+        && is_list_terminator(production)
+    {
+        return Ok(());
+    }
     let start = writer.source.len();
     writer.push("  ");
     match sentence {
@@ -103,22 +110,21 @@ fn emit_production(
     writer.push("syntax ");
     writer.push(&context.sort_name_ref(sentence.result_sort())?);
     writer.push(" ::= ");
-    for (index, item) in sentence.items().iter().enumerate() {
-        if index != 0 {
-            writer.push(" ");
-        }
-        let start = writer.source.len();
-        match item.kind() {
-            GrammarProductionItemKind::Terminal { text } => writer.push(&quoted_outer(text)),
-            GrammarProductionItemKind::NonTerminal { sort, .. } => {
-                writer.push(&context.sort_name_ref(sort)?);
-            }
-            GrammarProductionItemKind::RegexTerminal { regex, .. } => {
-                writer.push("r");
-                writer.push(&quoted_outer(regex));
-            }
-        }
-        writer.record(item.origin().key(), start, writer.source.len())?;
+    let list = sentence
+        .attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::ListCons {
+                separator,
+                non_empty,
+                ..
+            } => Some((separator.as_str(), *non_empty)),
+            _ => None,
+        });
+    if let Some((separator, non_empty)) = list {
+        emit_list_items(sentence, separator, non_empty, context, writer)?;
+    } else {
+        emit_production_items(sentence, context, writer)?;
     }
     // A token production denotes domain values of its sort, not a
     // constructor, so it carries no symbol: K's Haskell backend rejects a
@@ -141,7 +147,18 @@ fn emit_production(
         writer.push(")");
         first = false;
     }
-    for attribute in sentence.attributes() {
+    // A list's `terminator-symbol` follows its `symbol` (KF-020).
+    let attributes = sentence
+        .attributes()
+        .iter()
+        .filter(|attribute| matches!(attribute, ProductionAttribute::ListCons { .. }))
+        .chain(
+            sentence
+                .attributes()
+                .iter()
+                .filter(|attribute| !matches!(attribute, ProductionAttribute::ListCons { .. })),
+        );
+    for attribute in attributes {
         if matches!(attribute, ProductionAttribute::Documentation { .. }) {
             continue;
         }
@@ -154,6 +171,75 @@ fn emit_production(
         writer.record(attribute.origin().key(), start, writer.source.len())?;
     }
     writer.push("]");
+    Ok(())
+}
+
+fn emit_production_items(
+    sentence: &ProductionSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    for (index, item) in sentence.items().iter().enumerate() {
+        if index != 0 {
+            writer.push(" ");
+        }
+        let start = writer.source.len();
+        match item.kind() {
+            GrammarProductionItemKind::Terminal { text } => writer.push(&quoted_outer(text)),
+            GrammarProductionItemKind::NonTerminal { sort, .. } => {
+                writer.push(&context.sort_name_ref(sort)?);
+            }
+            GrammarProductionItemKind::RegexTerminal { regex, .. } => {
+                writer.push("r");
+                writer.push(&quoted_outer(regex));
+            }
+        }
+        writer.record(item.origin().key(), start, writer.source.len())?;
+    }
+    Ok(())
+}
+
+fn is_list_terminator(sentence: &ProductionSentence) -> bool {
+    sentence
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::ListTerminator { .. }))
+}
+
+/// Prints the cons production of a syntactic list as K's `List{Elem, "sep"}`
+/// or `NeList{..}`; the tail item is the list sort itself and is implicit.
+fn emit_list_items(
+    sentence: &ProductionSentence,
+    separator: &str,
+    non_empty: bool,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    writer.push(if non_empty { "NeList{" } else { "List{" });
+    let mut items = sentence.items().iter();
+    let head = items.next().ok_or_else(|| EmitError::UnsupportedShape {
+        node: "syntactic list",
+        detail: "a list cons production has a head item".to_owned(),
+    })?;
+    let GrammarProductionItemKind::NonTerminal { sort, .. } = head.kind() else {
+        return Err(EmitError::UnsupportedShape {
+            node: "syntactic list",
+            detail: "a list head is a nonterminal".to_owned(),
+        });
+    };
+    let start = writer.source.len();
+    writer.push(&context.sort_name_ref(sort)?);
+    writer.record(head.origin().key(), start, writer.source.len())?;
+    writer.push(", ");
+    let start = writer.source.len();
+    writer.push(&quoted_outer(separator));
+    if let Some(item) = items
+        .next()
+        .filter(|item| matches!(item.kind(), GrammarProductionItemKind::Terminal { .. }))
+    {
+        writer.record(item.origin().key(), start, writer.source.len())?;
+    }
+    writer.push("}");
     Ok(())
 }
 
@@ -218,6 +304,18 @@ fn emit_production_attribute(
         ProductionAttribute::Prefer { .. } => writer.push("prefer"),
         ProductionAttribute::Private { .. } => writer.push("private"),
         ProductionAttribute::Memo { .. } => writer.push("memo"),
+        ProductionAttribute::ListCons { terminator, .. } => {
+            writer.push("terminator-symbol(");
+            writer.push(context.production(terminator)?.symbol().emitted_name());
+            writer.push(")");
+        }
+        ProductionAttribute::ListTerminator { .. } => {
+            return Err(EmitError::UnsupportedShape {
+                node: "syntactic list",
+                detail: "a list terminator production is generated from its cons sentence"
+                    .to_owned(),
+            });
+        }
         ProductionAttribute::Overload { target, .. } => {
             writer.push("overload(");
             writer.push(context.production(target)?.symbol().emitted_name());

@@ -1009,6 +1009,20 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                             ..PendingHelpers::default()
                         },
                     ),
+                    None if attrs.iter().any(|attribute| {
+                        self.krs_attribute(attribute) == Some(AttributeMacro::SyntaxList)
+                    }) =>
+                    {
+                        (
+                            attrs,
+                            &[],
+                            0,
+                            PendingHelpers {
+                                variant: surface::SYNTAX_LIST_VARIANT_HELPERS,
+                                ..PendingHelpers::default()
+                            },
+                        )
+                    }
                     None => (attrs, &[], 0, PendingHelpers::default()),
                 }
             }

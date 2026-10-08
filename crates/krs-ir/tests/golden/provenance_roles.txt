@@ -171,3 +171,6 @@ LexemeText=lexeme_text
 LexicalDeclaration=lexical_declaration
 LexicalRegex=lexical_regex
 LayoutRegex=layout_regex
+ListDeclaration=list_declaration
+ListSeparator=list_separator
+ListNonEmpty=list_non_empty
