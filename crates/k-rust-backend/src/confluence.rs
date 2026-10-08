@@ -689,9 +689,22 @@ impl<'d> Context<'d> {
     }
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop.
+    ///
+    /// A condition of a definition whose evaluation does not end (outside precondition P0) can
+    /// keep the simplifier evaluating without bound, so each call runs under a step deadline of
+    /// [`CONDITION_SECONDS`]; a stopped call decides nothing. Under P0 every condition the
+    /// corpus has simplifies in microseconds, far from it.
     fn simplify(&mut self, predicate: Predicate) -> Option<Predicate> {
         self.counts.simplifier_calls += 1;
         measure::bump(Counter::ConfluenceSimplifierCalls);
+        #[cfg(not(target_arch = "wasm32"))]
+        let _deadline = {
+            let limit = std::time::Duration::from_secs(CONDITION_SECONDS);
+            crate::stop::arm_deadline(
+                std::time::Instant::now() + limit,
+                crate::timeout::StepTimeoutMode::Manual(limit),
+            )
+        };
         match simplify_predicate_with_solver(
             self.definition,
             &predicate,
@@ -766,6 +779,9 @@ pub(crate) fn recording_overlaps<R>(run: impl FnOnce() -> R) -> (R, Vec<Recorded
     let recorded = RECORDED.replace(previous).unwrap_or_default();
     (result, recorded)
 }
+
+/// The seconds a condition of the check may take to simplify (see `Context::simplify`).
+const CONDITION_SECONDS: u64 = 1;
 
 /// The equation iterations a condition of the check may take to simplify. A condition the
 /// simplifier does not decide within it is neither refuted nor shown to hold, which loses

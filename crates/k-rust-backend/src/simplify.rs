@@ -3782,16 +3782,50 @@ fn is_scalar_domain_value(term: &Term) -> bool {
     )
 }
 
+/// `term` with each subterm equal to an original of `replacements` replaced, children first.
+///
+/// The walk keeps its pending work on the heap: the terms the simplifier builds can be deeper
+/// than the native stack (a ground chain of a function whose evaluation does not end grows one
+/// level per step), and the stack guard bounds only the simplifier's own recursion.
 fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
-    let rebuilt = term
-        .try_map_children(|child| {
-            Ok::<_, std::convert::Infallible>(replace_terms_bottom_up(child, replacements))
-        })
-        .expect("an infallible term transformation cannot fail");
-    replacements
-        .iter()
-        .find_map(|(original, replacement)| (original == &rebuilt).then(|| replacement.clone()))
-        .unwrap_or(rebuilt)
+    // `None`: the term is still to be entered; `Some(count)`: its `count` children are rebuilt
+    // on top of `rebuilt`.
+    let mut pending = vec![(term.clone(), None::<usize>)];
+    let mut rebuilt = Vec::<Term>::new();
+    // Invariant: `rebuilt` holds, in order, the rebuilt children of every exit frame on
+    // `pending` that has finished entering them; each term is entered and exited once.
+    while let Some((current, state)) = pending.pop() {
+        match state {
+            None => {
+                let mut children = Vec::new();
+                let _ = current.try_map_children(|child| {
+                    children.push(child.clone());
+                    Ok::<_, std::convert::Infallible>(child.clone())
+                });
+                pending.push((current, Some(children.len())));
+                pending.extend(children.into_iter().rev().map(|child| (child, None)));
+            }
+            Some(count) => {
+                let mut children = rebuilt.split_off(rebuilt.len() - count).into_iter();
+                let term = current
+                    .try_map_children(|_| {
+                        Ok::<_, std::convert::Infallible>(
+                            children.next().expect("one rebuilt child per child"),
+                        )
+                    })
+                    .expect("an infallible term transformation cannot fail");
+                rebuilt.push(
+                    replacements
+                        .iter()
+                        .find_map(|(original, replacement)| {
+                            (original == &term).then(|| replacement.clone())
+                        })
+                        .unwrap_or(term),
+                );
+            }
+        }
+    }
+    rebuilt.pop().expect("the walk rebuilds the root")
 }
 
 fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
