@@ -237,6 +237,11 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: &'static str,
     },
+    /// A `k::raw_k!` text is not exactly one rule, claim, or context sentence.
+    RawKShape {
+        /// Complete explanation.
+        reason: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -315,6 +320,7 @@ impl SyntaxErrorKind {
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
             Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
+            Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
         }
     }
 }
@@ -543,6 +549,7 @@ impl fmt::Display for SyntaxError {
                 attribute,
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
+            SyntaxErrorKind::RawKShape { reason } => formatter.write_str(reason),
         }
     }
 }

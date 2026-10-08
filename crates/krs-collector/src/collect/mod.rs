@@ -5,7 +5,7 @@ use krs_ir::measure::Timings;
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
     HostItemId, HostProvenanceError, IntLiterals, ItemKind, PackageId, PackageSettings,
-    SchemaVersion, StableItemId,
+    RawKProfile, SchemaVersion, StableItemId,
 };
 
 use crate::facade::FacadeAliases;
@@ -38,6 +38,8 @@ pub struct PackageContext {
     crate_root: String,
     manifest_path: PathBuf,
     int_literals: IntLiterals,
+    allow_raw_k: bool,
+    profile: RawKProfile,
 }
 
 impl PackageContext {
@@ -89,7 +91,18 @@ impl PackageContext {
             crate_root,
             manifest_path,
             int_literals: IntLiterals::Signed,
+            allow_raw_k: false,
+            profile: RawKProfile::Standard,
         })
+    }
+
+    /// Sets the package's `allow-raw-k` and `profile` metadata, which decide
+    /// whether its quoted hooks and `raw_k!` sentences are allowed.
+    #[must_use]
+    pub const fn with_raw_k(mut self, allow_raw_k: bool, profile: RawKProfile) -> Self {
+        self.allow_raw_k = allow_raw_k;
+        self.profile = profile;
+        self
     }
 
     /// Sets the package's `int-literals` metadata, which selects the module
@@ -98,6 +111,12 @@ impl PackageContext {
     pub const fn with_int_literals(mut self, int_literals: IntLiterals) -> Self {
         self.int_literals = int_literals;
         self
+    }
+
+    /// Returns the package's `allow-raw-k` and `profile` metadata.
+    #[must_use]
+    pub const fn raw_k(&self) -> (bool, RawKProfile) {
+        (self.allow_raw_k, self.profile)
     }
 
     /// Returns the package's `int-literals` metadata.
@@ -129,6 +148,8 @@ impl PackageContext {
 struct PreparedContext {
     package: PackageId,
     int_literals: IntLiterals,
+    allow_raw_k: bool,
+    profile: RawKProfile,
     crate_root: String,
     package_dir: PathBuf,
     facade: FacadeAliases,
@@ -407,6 +428,8 @@ fn resolve_pending_descriptors(
         let settings = contexts.iter().map(|context| PackageSettings {
             package: context.package.clone(),
             int_literals: context.int_literals,
+            allow_raw_k: context.allow_raw_k,
+            profile: context.profile,
         });
         let bundle = DescriptorBundle::with_declarations(resolved, declaration_metadata)
             .and_then(|bundle| bundle.with_package_settings(settings))
@@ -501,6 +524,8 @@ fn prepare_contexts(
         prepared.push(PreparedContext {
             package: context.package,
             int_literals: context.int_literals,
+            allow_raw_k: context.allow_raw_k,
+            profile: context.profile,
             crate_root: context.crate_root,
             package_dir: package_dir.to_owned(),
             facade: FacadeAliases::from_manifest(&manifest)?,

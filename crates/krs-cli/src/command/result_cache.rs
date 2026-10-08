@@ -25,6 +25,8 @@ struct CacheRequest<'a> {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     partition: bool,
     registration: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<&'static str>,
 }
 
 pub(super) struct ResultCache {
@@ -230,6 +232,7 @@ fn request_key(request: &CommandRequest) -> String {
         registration,
         no_reuse: _,
         message_format: _,
+        profile,
     } = request;
     let key = CacheRequest {
         command: command.kind().as_str(),
@@ -243,6 +246,7 @@ fn request_key(request: &CommandRequest) -> String {
             RegistrationMode::Inventory => "inventory",
             RegistrationMode::Explicit => "explicit",
         },
+        profile: profile.map(krs_ir::RawKProfile::as_str),
     };
     serde_json::to_string(&key).expect("cache request serialization cannot fail")
 }

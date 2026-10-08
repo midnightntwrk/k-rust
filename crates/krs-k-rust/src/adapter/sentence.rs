@@ -116,6 +116,7 @@ impl Adapter<'_> {
                     attributes,
                 })
             }
+            DefinitionSentence::Raw(sentence) => raw_sentence(sentence, module),
         }
     }
 
@@ -324,6 +325,11 @@ impl Adapter<'_> {
                         symbol: cons.clone(),
                     })?;
                 attributes.insert("userList", json!(user_list_kind(non_empty)));
+            }
+            DefinitionProductionAttribute::RawHook {
+                namespace, name, ..
+            } => {
+                attributes.insert("hook", json!(format!("{namespace}.{name}")));
             }
             DefinitionProductionAttribute::Overload { target, .. } => {
                 attributes.insert(
@@ -1152,4 +1158,65 @@ fn list_separator(sentence: &ProductionSentence) -> &str {
             _ => None,
         })
         .unwrap_or_default()
+}
+
+/// Lowers a `raw_k!` sentence (register X9.5): k-rust's public outer parser
+/// reads `module <NS> <text> endmodule`, which must hold exactly one bubble of
+/// the declared kind, and its own lowering yields the bubble with its label and
+/// attributes. The structured loader then parses the bubble with the grammar
+/// of the adapted `<NS>` module, so any outer or inner parse error fails the
+/// build; nothing is skipped.
+fn raw_sentence(raw: &krs_ir::RawSentence, module: &str) -> Result<NativeSentence, AdapterError> {
+    let rejected = |message: String| AdapterError::RawK {
+        key: raw.origin.key().clone(),
+        message,
+    };
+    let source = format!("module {module}\n{}\nendmodule\n", raw.text);
+    let file = k_rust::outer::parse(raw_source_name(raw), &source)
+        .map_err(|error| rejected(error.to_string()))?;
+    let expected = match raw.kind {
+        krs_ir::RawSentenceKind::Rule => k_rust::outer::BubbleKind::Rule,
+        krs_ir::RawSentenceKind::Claim => k_rust::outer::BubbleKind::Claim,
+        krs_ir::RawSentenceKind::Context => k_rust::outer::BubbleKind::Context,
+    };
+    let [parsed] = file.modules.as_slice() else {
+        return Err(rejected(
+            "the text must not open or close a module".to_owned(),
+        ));
+    };
+    match parsed.sentences.as_slice() {
+        [k_rust::outer::Sentence::Bubble(bubble)] if bubble.kind == expected => {}
+        _ => {
+            return Err(rejected(format!(
+                "the text must be exactly one `{}` sentence",
+                raw.kind.keyword()
+            )));
+        }
+    }
+    let lowered = k_rust::outer::lower(&file, module).map_err(|diagnostics| {
+        rejected(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone())
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    })?;
+    let sentence = lowered
+        .modules
+        .first()
+        .and_then(|module| module.local_sentences.first())
+        .ok_or_else(|| rejected("k-rust lowered no sentence".to_owned()))?;
+    Ok(sentence.as_ref().clone())
+}
+
+/// The native source name of a raw sentence, `src/lib.rs (raw_k! 12:1)`: its
+/// file and invocation position, under which k-rust reports a parse error in
+/// it. Positions inside the text count from line 2 of a wrapper module.
+pub(crate) fn raw_source_name(raw: &krs_ir::RawSentence) -> String {
+    let file = raw.origin.origin().exact_authored_range().map_or_else(
+        || "<unknown>".to_owned(),
+        |range| range.file.package_relative_path().to_owned(),
+    );
+    format!("{file} (raw_k! {}:{})", raw.line, raw.column)
 }

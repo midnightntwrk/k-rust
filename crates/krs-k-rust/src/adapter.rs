@@ -1,6 +1,8 @@
 mod sentence;
 mod term;
 
+pub(crate) use sentence::raw_source_name;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
@@ -160,6 +162,14 @@ pub enum AdapterError {
         /// Stable target identity.
         target: String,
     },
+    /// The pinned outer K parser rejected a `raw_k!` text, or the text is not
+    /// exactly one sentence of its declared kind.
+    RawK {
+        /// Origin of the raw sentence.
+        key: SourceMapKey,
+        /// Parser explanation.
+        message: String,
+    },
 }
 
 impl ToDiagnostic for AdapterError {
@@ -167,6 +177,7 @@ impl ToDiagnostic for AdapterError {
         let (code, key) = match self {
             Self::MissingSymbol { key, .. } => (codes::native::ADAPTER_MISSING_SYMBOL, key),
             Self::MissingReference { key, .. } => (codes::native::ADAPTER_MISSING_REFERENCE, key),
+            Self::RawK { key, .. } => (codes::native::RAW_K_PARSE, key),
         };
         Diagnostic::error(code, self.to_string(), Location::Definition(key.clone()))
     }
@@ -183,6 +194,7 @@ impl fmt::Display for AdapterError {
                 formatter,
                 "Definition IR {kind} reference {target:?} at {key} is absent from the adapter index"
             ),
+            Self::RawK { message, .. } => write!(formatter, "raw K text rejected: {message}"),
         }
     }
 }
@@ -190,7 +202,7 @@ impl fmt::Display for AdapterError {
 impl Error for AdapterError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::MissingSymbol { .. } | Self::MissingReference { .. } => None,
+            Self::MissingSymbol { .. } | Self::MissingReference { .. } | Self::RawK { .. } => None,
         }
     }
 }
@@ -277,9 +289,7 @@ impl<'a> Adapter<'a> {
         self.map_origin(module.origin(), &module_name, NativeNodePlace::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
-            if !self.keep_claims
-                && matches!(sentence, DefinitionSentence::Rule(rule) if rule.claim().is_some())
-            {
+            if !self.keep_claims && is_claim(sentence) {
                 self.omitted_claims += 1;
                 continue;
             }
@@ -390,6 +400,14 @@ impl<'a> Adapter<'a> {
         role: SentenceNodeRole,
     ) {
         self.map_origin(origin, module, NativeNodePlace::Sentence { index, role });
+    }
+}
+
+fn is_claim(sentence: &DefinitionSentence) -> bool {
+    match sentence {
+        DefinitionSentence::Rule(rule) => rule.claim().is_some(),
+        DefinitionSentence::Raw(raw) => raw.kind == krs_ir::RawSentenceKind::Claim,
+        _ => false,
     }
 }
 

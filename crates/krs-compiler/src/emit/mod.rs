@@ -468,7 +468,11 @@ pub fn definition_sentence_source(
 }
 
 fn is_claim(sentence: &DefinitionSentence) -> bool {
-    matches!(sentence, DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim)
+    match sentence {
+        DefinitionSentence::Rule(rule) => rule.kind() == SentenceKind::Claim,
+        DefinitionSentence::Raw(raw) => raw.kind == krs_ir::RawSentenceKind::Claim,
+        _ => false,
+    }
 }
 
 fn sentence_group(sentence: &DefinitionSentence) -> u8 {
@@ -483,6 +487,7 @@ fn sentence_group(sentence: &DefinitionSentence) -> u8 {
         DefinitionSentence::Configuration(_) => 7,
         DefinitionSentence::ContextAlias(_) => 8,
         DefinitionSentence::Rule(_) => 9,
+        DefinitionSentence::Raw(_) => 10,
     }
 }
 
@@ -498,6 +503,7 @@ enum SentenceOrderKey {
     Rule(String),
     Lexical(String),
     Layout(String),
+    Raw(String),
 }
 
 fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
@@ -534,6 +540,9 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
         }
         DefinitionSentence::Layout(sentence) => {
             SentenceOrderKey::Layout(sentence.origin().key().stable_text().into_owned())
+        }
+        DefinitionSentence::Raw(sentence) => {
+            SentenceOrderKey::Raw(sentence.origin.key().stable_text().into_owned())
         }
     }
 }

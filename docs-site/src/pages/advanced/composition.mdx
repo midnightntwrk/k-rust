@@ -28,6 +28,8 @@ A facet table needs no keys: every package emits a program-syntax module `<NS>-S
 The package-level `k-namespace` keeps emitted K names explicit.
 The package-level `int-literals` key selects the module that supplies integer literals to the package's program syntax: `"signed"` (the default, `INT-SYNTAX`) or `"unsigned"` (`UNSIGNED-INT-SYNTAX`).
 An unsigned package cannot compose a signed dependency whose program syntax uses integers, because K imports are unions and the signed literals would leak into programs.
+The package-level `allow-raw-k` key (default `false`) admits the package's quoted hooks and `k::raw_k!` sentences, KRS's escapes from its no-strings rule, and the `profile` key, `"standard"` (the default) or `"strict"`, decides whether they warn or fail; `krs --profile strict` overrides every package, so CI can refuse raw K that a package allows ([raw K escapes](/reference/language#raw-k-escapes)).
+Each package's keys govern only its own sentences.
 
 Cargo package names, Rust crate names, and local dependency aliases are different identities here.
 The root imports package `base-semantics` as `semantic-base`, which Rust exposes as `semantic_base` in paths:

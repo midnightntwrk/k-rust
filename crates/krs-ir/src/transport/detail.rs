@@ -56,6 +56,7 @@ details! {
         LexicalEntries => "lexical entries",
         LexicalName => "lexical name",
         LayoutRegexes => "layout regexes",
+        RawSentenceText => "raw K sentence text",
     }
 }
 

@@ -151,7 +151,8 @@ fn validate_grammar_references(
         GrammarDescriptor::Precedence { .. }
         | GrammarDescriptor::Associativity { .. }
         | GrammarDescriptor::Lexical { .. }
-        | GrammarDescriptor::Layout { .. } => {}
+        | GrammarDescriptor::Layout { .. }
+        | GrammarDescriptor::RawSentence { .. } => {}
     }
     Ok(())
 }

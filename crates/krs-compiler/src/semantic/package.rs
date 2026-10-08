@@ -41,6 +41,7 @@ pub(super) struct ModuleSentences {
     pub(super) context_aliases: Vec<SemanticContextAlias>,
     pub(super) lexicals: Vec<LexicalSentence>,
     pub(super) layouts: Vec<LayoutSentence>,
+    pub(super) raw_sentences: Vec<krs_ir::RawSentence>,
 }
 
 pub(super) fn lower_package_module(
@@ -100,6 +101,7 @@ pub(super) fn lower_package_module(
         mut context_aliases,
         lexicals,
         layouts,
+        raw_sentences,
     } = sentences;
     sorts.sort_by(|left, right| left.id().cmp(right.id()));
     subsorts.sort();
@@ -122,7 +124,8 @@ pub(super) fn lower_package_module(
         rules,
     )
     .with_lexicals(lexicals)
-    .with_layouts(layouts))
+    .with_layouts(layouts)
+    .with_raw_sentences(raw_sentences))
 }
 
 /// Lowers one descriptor into the sentences of its package module.
@@ -353,7 +356,8 @@ fn collect_grammar_packages(grammar: &GrammarDescriptor, packages: &mut BTreeSet
         GrammarDescriptor::Precedence { .. }
         | GrammarDescriptor::Associativity { .. }
         | GrammarDescriptor::Lexical { .. }
-        | GrammarDescriptor::Layout { .. } => {}
+        | GrammarDescriptor::Layout { .. }
+        | GrammarDescriptor::RawSentence { .. } => {}
     }
 }
 

@@ -398,6 +398,8 @@ provenance_roles! {
     ConfigurationCellStream => "configuration_cell_stream",
     /// Bare `exit` flag of a fixed cell.
     ConfigurationCellExit => "configuration_cell_exit",
+    /// Text literal of one `k::raw_k!` sentence.
+    RawKDeclaration => "raw_k_declaration",
 }
 
 impl Serialize for ProvenanceRole {

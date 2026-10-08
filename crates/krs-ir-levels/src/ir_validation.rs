@@ -1359,12 +1359,18 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut private = false;
     let mut memo = false;
     let mut list = false;
+    let mut raw_hook = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
             ProductionAttribute::Function { .. } => std::mem::replace(&mut function, true),
             ProductionAttribute::Total { .. } => std::mem::replace(&mut total, true),
-            ProductionAttribute::Hook { operation, .. } => hook.replace(*operation).is_some(),
+            ProductionAttribute::Hook { operation, .. } => {
+                hook.replace(*operation).is_some() || raw_hook
+            }
+            ProductionAttribute::RawHook { .. } => {
+                std::mem::replace(&mut raw_hook, true) || hook.is_some()
+            }
             ProductionAttribute::Alias { .. } => std::mem::replace(&mut alias, true),
             ProductionAttribute::Token { .. } => std::mem::replace(&mut token, true),
             ProductionAttribute::Group { .. } => std::mem::replace(&mut group, true),
@@ -1432,7 +1438,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Prefer { .. }
             | ProductionAttribute::Overload { .. }
             | ProductionAttribute::Private { .. }
-            | ProductionAttribute::Memo { .. } => {}
+            | ProductionAttribute::Memo { .. }
+            | ProductionAttribute::RawHook { .. } => {}
             ProductionAttribute::ListCons { separator, .. } => {
                 if !valid_list_cons::<L>(result_sort, items, separator) {
                     return Err(L::error(ValidationError::InvalidListProduction));
@@ -1478,7 +1485,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     if (total || memo) && !function {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
-    if hook.is_some() && !(function && total) {
+    if (hook.is_some() || raw_hook) && !(function && total) {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if let Some(operation) = hook {

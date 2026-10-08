@@ -285,6 +285,45 @@ fn lexing_descriptor(
     ))
 }
 
+/// Expands `k::raw_k!("...")` into a grammar descriptor carrying the
+/// unchecked sentence text. Whether the package may use raw K is decided after
+/// collection, where its metadata and `krs --profile` are known.
+pub(crate) fn raw_k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
+    let raw = krs_syntax::RawKItem::parse_tokens(input)?;
+    let facade = env.facade_path()?;
+    let anchors = raw.provenance()?;
+    let fallback = anchors[0].range();
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let nonce = expansion_nonce(
+        env,
+        "raw_k",
+        &Ident::new("raw_k", Span::call_site()),
+        fallback,
+    );
+    let factory = format_ident!("__krs_raw_k_descriptor_{nonce:016x}");
+    let position = env
+        .call_site()
+        .and_then(|span| env.span_start(span))
+        .or_else(|| env.span_start(raw.literal().span()));
+    let (line, column) = position.map_or((1, 1), |position| (position.line, position.column));
+    let grammar = WireGrammarDescriptor::RawSentence {
+        key: wire_key(ProvenanceRole::RawKDeclaration, 0),
+        kind: raw.kind(),
+        text: raw.text(),
+        line,
+        column,
+    };
+    Ok(grammar_macro_descriptor(
+        &facade,
+        &factory,
+        &format!("__krs_raw_k_{nonce:016x}"),
+        "raw_k",
+        &grammar,
+        &provenance,
+        None,
+    ))
+}
+
 pub(super) fn grammar_macro_descriptor(
     facade: &Path,
     factory: &Ident,

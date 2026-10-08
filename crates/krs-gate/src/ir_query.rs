@@ -435,6 +435,7 @@ fn sentence_kind(sentence: &DefinitionSentence) -> &'static str {
         DefinitionSentence::Rule(_) => "rule",
         DefinitionSentence::Lexical(_) => "lexical",
         DefinitionSentence::Layout(_) => "layout",
+        DefinitionSentence::Raw(_) => "raw",
     }
 }
 

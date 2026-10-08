@@ -212,6 +212,7 @@ fn input_kind(sentence: &DefinitionSentence) -> InputSentenceKind {
         DefinitionSentence::ContextAlias(_) => InputSentenceKind::ContextAlias,
         DefinitionSentence::Rule(rule) if rule.claim().is_some() => InputSentenceKind::Claim,
         DefinitionSentence::Rule(_) => InputSentenceKind::Rule,
+        DefinitionSentence::Raw(_) => InputSentenceKind::Bubble,
     }
 }
 

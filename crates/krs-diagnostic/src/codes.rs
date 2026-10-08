@@ -60,6 +60,7 @@ register_codes! {
         UNREGISTERED_KRS_DEPENDENT: "krs::plan::unregistered-krs-dependent" => "Explicit registration would omit a KRS dependent.",
         REMOVED_FACET_KEY: "krs::plan::removed-facet-key" => "A definition facet uses the removed `root` or `syntax-root` key.",
         INVALID_INT_LITERALS: "krs::plan::invalid-int-literals" => "The package `int-literals` metadata is not \"signed\" or \"unsigned\".",
+        INVALID_RAW_K_METADATA: "krs::plan::invalid-raw-k-metadata" => "The package `allow-raw-k` metadata is not a boolean, or `profile` is not \"standard\" or \"strict\".",
     }
     /// Diagnostics from canonical K emission.
     emit {
@@ -120,6 +121,7 @@ register_codes! {
         PREPARATION: "krs::native::preparation" => "The native loader rejected the definition.",
         COMPILE: "krs::native::compile" => "A native frontend stage rejected the definition.",
         KORE_REPARSE: "krs::native::kore-reparse" => "A produced KORE artifact failed to reparse under the pin.",
+        RAW_K_PARSE: "krs::native::raw-k-parse" => "The pinned K parser rejected the text of a `raw_k!` sentence.",
     }
     /// Diagnostics from host descriptor collection.
     collect {
@@ -186,6 +188,7 @@ register_codes! {
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
         INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
         CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires.",
+        RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -250,6 +253,7 @@ register_codes! {
         INVALID_TOKEN_ATTRIBUTE: "krs::syntax::invalid-token-attribute" => "A token attribute or `k::lexeme!` term was malformed: a token attribute takes exactly one nonempty `regex` or single-terminal `terminal`, `prec` only with `regex`, and no stacked duplicate.",
         INVALID_LEXICAL_MACRO: "krs::syntax::invalid-lexical-macro" => "A `k::lexical!` or `k::layout!` block was malformed: it is empty, repeats a lexical name, names a lexical outside `[A-Z][A-Za-z0-9]*`, or has a malformed entry.",
         INVALID_SYNTAX_LIST_ATTRIBUTE: "krs::syntax::invalid-syntax-list" => "A `#[k::syntax_list]` enum was malformed: it needs exactly one two-field cons variant whose second field is the enum itself and one zero-field tuple terminator variant, a separator that is empty or one K terminal, no generics, and no `#[k::syntax]` on its variants.",
+        RAW_K_SHAPE: "krs::syntax::raw-k-shape" => "A `raw_k!` text is not exactly one rule, claim, or context sentence.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {
@@ -280,6 +284,11 @@ register_codes! {
         DUPLICATE_SYMBOL: "krs::expand::duplicate-symbol" => "A declaration contains more than one explicit stable-symbol attribute.",
         SYMBOL_ATTRIBUTE_ORDER: "krs::expand::symbol-attribute-order" => "A stable-symbol attribute does not immediately precede one symbol-bearing declaration attribute.",
         UNKNOWN_HOOK: "krs::expand::unknown-hook" => "A hook path does not name a supported KRS hook operation.",
+        INVALID_HOOK_STRING: "krs::expand::invalid-hook-string" => "A quoted hook is not of the form `NAMESPACE.name`.",
+        UNKNOWN_HOOK_NAME: "krs::expand::unknown-hook-name" => "A quoted hook names no hook in the pinned hook registry.",
+        CATALOGUED_RAW_HOOK: "krs::expand::catalogued-raw-hook" => "A quoted hook names a hook the typed catalog covers; the typed path is required.",
+        RAW_HOOK_ARITY: "krs::expand::raw-hook-arity" => "A quoted crypto hook's production has a different argument count than the pinned registry.",
+        RAW_HOOK: "krs::expand::raw-hook" => "A quoted hook's signature is unchecked: a warning in a package that allows raw K.",
         FUNCTION_ALIAS_CONFLICT: "krs::expand::function-alias-conflict" => "A function production is also declared as a static alias.",
         INVALID_AVOID_METADATA: "krs::expand::invalid-avoid-metadata" => "An avoid argument explicitly supplies false instead of omitting the metadata.",
         INVALID_PLACEMENT_FLAG: "krs::expand::invalid-placement-flag" => "An `internal` or `program` flag is false, repeated, combined with the other, or on a non-pub item.",
@@ -322,6 +331,7 @@ register_codes! {
         ATTRIBUTE_ORDER: "krs::policy::attribute-order" => "Rejects an order-sensitive attribute before a KRS attribute.",
         RESERVED_NAME: "krs::policy::reserved-name" => "Rejects an authored name in the generated-name namespace.",
         PROTOCOL_ERROR: "krs::policy::protocol" => "The request was not a valid schema-1 request.",
+        RAW_K_NOT_ALLOWED: "krs::policy::raw-k-not-allowed" => "A quoted hook or `raw_k!` occurs in a package without `allow-raw-k = true`, or under the strict profile.",
     }
     /// Diagnostics from `krs parse`, `krs run`, `krs search`, and `krs prove` (`krs-exec`).
     exec {

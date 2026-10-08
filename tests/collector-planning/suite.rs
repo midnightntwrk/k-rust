@@ -280,6 +280,58 @@ fn removed_facet_keys_and_invalid_int_literals_are_rejected() {
 }
 
 #[test]
+fn raw_k_metadata_is_checked_and_reaches_the_package_context() {
+    for (key, value) in [
+        ("allow-raw-k", json!("yes")),
+        ("profile", json!("lenient")),
+        ("profile", json!(true)),
+    ] {
+        let mut metadata = metadata(false);
+        let root = metadata
+            .packages
+            .iter_mut()
+            .find(|package| package.id == ROOT_ID)
+            .unwrap();
+        root.metadata["krs"][key] = value;
+        let error = CollectorPlan::resolve(&metadata, &request(false)).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            PlanningErrorKind::InvalidRawKMetadata,
+            "{key}"
+        );
+    }
+
+    let plan = CollectorPlan::resolve(&metadata(false), &request(false)).unwrap();
+    let canonical = String::from_utf8(plan.canonical_selection_json().unwrap()).unwrap();
+    assert!(!canonical.contains("allow-raw-k"), "{canonical}");
+    assert!(!canonical.contains("\"profile\""), "{canonical}");
+
+    let mut metadata = metadata(false);
+    let root = metadata
+        .packages
+        .iter_mut()
+        .find(|package| package.id == ROOT_ID)
+        .unwrap();
+    root.metadata["krs"]["allow-raw-k"] = json!(true);
+    root.metadata["krs"]["profile"] = json!("strict");
+    let plan = CollectorPlan::resolve(&metadata, &request(false)).unwrap();
+    let canonical = String::from_utf8(plan.canonical_selection_json().unwrap()).unwrap();
+    assert!(canonical.contains("\"allow-raw-k\": true"), "{canonical}");
+    assert!(canonical.contains("\"profile\": \"strict\""), "{canonical}");
+    let contexts = plan.package_contexts().unwrap();
+    assert!(contexts.iter().any(|context| {
+        context.package().k_namespace() == "ORG-EXAMPLE-ROOT"
+            && context.raw_k() == (true, krs_collector::RawKProfile::Strict)
+    }));
+    assert!(
+        contexts
+            .iter()
+            .filter(|context| context.package().k_namespace() != "ORG-EXAMPLE-ROOT")
+            .all(|context| context.raw_k() == (false, krs_collector::RawKProfile::Standard))
+    );
+}
+
+#[test]
 fn int_literals_reach_the_canonical_selection_and_generated_collector() {
     let mut metadata = metadata(false);
     let root = metadata

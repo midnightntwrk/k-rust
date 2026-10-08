@@ -70,7 +70,8 @@ impl<'a> DefinitionIndex<'a> {
                     | DefinitionSentence::Associativity(_)
                     | DefinitionSentence::Rule(_)
                     | DefinitionSentence::Lexical(_)
-                    | DefinitionSentence::Layout(_) => {}
+                    | DefinitionSentence::Layout(_)
+                    | DefinitionSentence::Raw(_) => {}
                 }
             }
         }
@@ -176,9 +177,55 @@ impl ImportPolicy {
 /// Sorts whose selected catalog module is absent must not produce imports.
 #[must_use]
 pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTreeSet<&'static str> {
+    let mut requirements = module_requirements(module, policy);
+    if policy == ImportPolicy::NativeFrontend {
+        requirements.sorts.extend(&requirements.operations);
+    }
+    if policy == ImportPolicy::ProgramSyntax {
+        let int_literals = module.int_literals();
+        return requirements
+            .sorts
+            .into_iter()
+            .filter_map(|sort| int_literals.program_syntax_module(sort))
+            .collect();
+    }
+    let mut imports = requirements
+        .sorts
+        .into_iter()
+        .filter_map(|sort| {
+            if policy == ImportPolicy::NativeFrontend || requirements.operations.contains(&sort) {
+                sort.spec().k_module
+            } else {
+                sort.spec().k_syntax_module
+            }
+        })
+        .collect::<BTreeSet<_>>();
+    imports.extend(requirements.modules);
+    imports
+}
+
+/// Every builtin sort `module` mentions, whether or not it uses one of its
+/// operations.
+#[must_use]
+pub fn builtin_sorts(module: &DefinitionModule) -> BTreeSet<BuiltinSort> {
+    let requirements = module_requirements(module, ImportPolicy::SourceText);
+    requirements
+        .sorts
+        .union(&requirements.operations)
+        .copied()
+        .collect()
+}
+
+fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> BuiltinRequirements {
     let mut requirements = BuiltinRequirements::default();
     for sentence in module.sentences() {
         match sentence {
+            // Raw K text is opaque: it may use any operation of the builtin
+            // sorts its package mentions, so those import their full modules.
+            DefinitionSentence::Raw(raw) => {
+                requirements.sorts.extend(&raw.builtin_sorts);
+                requirements.operations.extend(&raw.builtin_sorts);
+            }
             DefinitionSentence::SyntaxSort(_)
             | DefinitionSentence::Precedence(_)
             | DefinitionSentence::Associativity(_)
@@ -249,30 +296,7 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
             }
         }
     }
-    if policy == ImportPolicy::NativeFrontend {
-        requirements.sorts.extend(&requirements.operations);
-    }
-    if policy == ImportPolicy::ProgramSyntax {
-        let int_literals = module.int_literals();
-        return requirements
-            .sorts
-            .into_iter()
-            .filter_map(|sort| int_literals.program_syntax_module(sort))
-            .collect();
-    }
-    let mut imports = requirements
-        .sorts
-        .into_iter()
-        .filter_map(|sort| {
-            if policy == ImportPolicy::NativeFrontend || requirements.operations.contains(&sort) {
-                sort.spec().k_module
-            } else {
-                sort.spec().k_syntax_module
-            }
-        })
-        .collect::<BTreeSet<_>>();
-    imports.extend(requirements.modules);
-    imports
+    requirements
 }
 
 #[derive(Default)]

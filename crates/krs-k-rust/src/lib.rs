@@ -380,6 +380,7 @@ pub fn compile_definition_with_context_timed(
     let loaded = timings.try_span("native.prepare", |_| {
         prepare_definition(adapted.definition.clone(), options.backend).map_err(|mut error| {
             error.resolve_diagnostics(adapted.origins());
+            error.resolve_raw_parse_error(ir);
             DefinitionCompileError::Preparation(error)
         })
     })?;

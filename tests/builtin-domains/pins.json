@@ -12,7 +12,9 @@
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
     "krs-builtin-floats": "fe622b692165af7ea32128770c9bb8eb164d7bd50fb91247a2addac004821bdd",
     "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
-    "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf"
+    "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
+    "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
+    "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -50,6 +52,12 @@
     },
     "krs-builtin-io": {
       "definition.k": "1b13c02023a891dabab55637c6dfaf74e43aaf61aef6748be13dd4200571d367"
+    },
+    "krs-builtin-raw-k": {
+      "definition.k": "f282e69740f0143fc06381f1f475e4fa2473a0b36bbd395f11054fdc4b69fbde"
+    },
+    "krs-builtin-raw-hook": {
+      "definition.k": "b309215f60849786427777e4a7b39955fe3479bfe2b168b3133c65800896f3b6"
     }
   },
   "reference_sha256": {
@@ -64,7 +72,9 @@
     "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
     "krs-builtin-floats": "e48c2a4aa1f420331f22b4b8496eef9c19c2989d1b14734e6e37e923de0fc851",
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
-    "krs-builtin-io": "b98c7a3a7b80f04b4f4b6d14d49cf1d8d044269baea4c1c326e8729be87cb0e7"
+    "krs-builtin-io": "b98c7a3a7b80f04b4f4b6d14d49cf1d8d044269baea4c1c326e8729be87cb0e7",
+    "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
+    "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -726,6 +736,18 @@
         "parse": "accepted",
         "run": "true"
       }
+    },
+    "krs-builtin-raw-k": {
+      "double": {
+        "parse": "accepted",
+        "run": "42"
+      }
+    },
+    "krs-builtin-raw-hook": {
+      "keccak-abc": {
+        "parse": "accepted",
+        "run": "\"4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45\""
+      }
     }
   },
   "known_divergences": {
@@ -805,6 +827,28 @@
   "diagnostics": {
     "io-search": [
       "error[krs::exec::streams]: krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)"
+    ],
+    "raw-denied": [
+      "error[krs::policy::raw-k-not-allowed]: quoted hook `KRYPTO.keccak256`: raw K is an escape from A4; add `allow-raw-k = true` to [package.metadata.krs] to allow it in this package",
+      "error[krs::policy::raw-k-not-allowed]: `raw_k!` rule: raw K is an escape from A4; add `allow-raw-k = true` to [package.metadata.krs] to allow it in this package"
+    ],
+    "raw-strict": [
+      "error[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: raw K is an error under the strict profile (signature unchecked; native capability: implemented)",
+      "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
+    ],
+    "raw-profile-strict": [
+      "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
+    ],
+    "raw-parse-error": [
+      "error[krs::native::raw-k-parse]: K cannot parse this `raw_k!` rule with the grammar of module \"KRS-RAW-PARSE-ERROR\": Parse error: unexpected token '...' following token '+Int'."
+    ]
+  },
+  "raw_warnings": {
+    "krs-builtin-raw-k": [
+      "warning[krs::semantic::raw-k]: `raw_k!` rule: unchecked K text, opaque to KRS; K parses it with this package's grammar"
+    ],
+    "krs-builtin-raw-hook": [
+      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented"
     ]
   }
 }

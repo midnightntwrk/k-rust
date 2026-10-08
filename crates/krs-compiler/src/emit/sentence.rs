@@ -48,6 +48,11 @@ pub(super) fn emit_sentence(
             writer.push("\n");
         }
     }
+    if let DefinitionSentence::Raw(raw) = sentence {
+        writer.push("  // raw_k! ");
+        writer.push(&raw_location(raw));
+        writer.push(" (opaque to KRS)\n");
+    }
     let start = writer.source.len();
     writer.push("  ");
     match sentence {
@@ -96,10 +101,20 @@ pub(super) fn emit_sentence(
             writer.push(&quoted_outer(sentence.regex()));
             writer.push(" [token]");
         }
+        DefinitionSentence::Raw(sentence) => writer.push(&sentence.text),
     }
     writer.push("\n");
     writer.record(sentence.origin().key(), start, writer.source.len())?;
     Ok(())
+}
+
+/// `src/lib.rs:12:1`: the package-relative file and position of a `raw_k!`.
+pub(crate) fn raw_location(raw: &krs_ir::RawSentence) -> String {
+    let file = raw.origin.origin().exact_authored_range().map_or_else(
+        || "<unknown>".to_owned(),
+        |range| range.file.package_relative_path().to_owned(),
+    );
+    format!("{file}:{}:{}", raw.line, raw.column)
 }
 
 fn emit_production(
@@ -324,6 +339,15 @@ fn emit_production_attribute(
                 detail: "a list terminator production is generated from its cons sentence"
                     .to_owned(),
             });
+        }
+        ProductionAttribute::RawHook {
+            namespace, name, ..
+        } => {
+            writer.push("hook(");
+            writer.push(namespace);
+            writer.push(".");
+            writer.push(name);
+            writer.push(")");
         }
         ProductionAttribute::Overload { target, .. } => {
             writer.push("overload(");

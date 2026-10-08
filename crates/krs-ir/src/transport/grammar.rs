@@ -23,7 +23,7 @@ use crate::stage::{DescriptorStage, HostStage, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
     ListOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole,
-    SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
+    RawSentenceKind, SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -713,6 +713,15 @@ stage_shape! {
             /// The cons variant of the same enum, keyed at the list attribute.
             cons: S::Application => [application],
         },
+        /// Quoted K hook name, checked against the pinned hook registry only.
+        RawHook {
+            /// Hook-string provenance.
+            key: ProvenanceKey => [keep],
+            /// Hook namespace before the first `.`.
+            namespace: String => [keep],
+            /// Hook name after the first `.`.
+            name: String => [keep],
+        },
     }
 }
 
@@ -945,6 +954,20 @@ stage_shape! {
         Layout {
             /// One entry per regex literal.
             regexes: Vec<DescriptorLayoutRegex> => [keep],
+        },
+        /// One `k::raw_k!` sentence: unchecked K text, opaque to KRS, placed
+        /// in the package's semantics module.
+        RawSentence {
+            /// Text-literal provenance.
+            key: ProvenanceKey => [keep],
+            /// The sentence keyword the text starts with.
+            kind: RawSentenceKind => [keep],
+            /// The complete K sentence text.
+            text: String => [keep],
+            /// One-based line of the `raw_k!` invocation, for the emitted comment.
+            line: u32 => [keep],
+            /// One-based column of the `raw_k!` invocation.
+            column: u32 => [keep],
         },
     }
 }
@@ -1934,6 +1957,7 @@ impl GrammarDescriptor {
             Self::Tokens { .. } => canonical_key(ProvenanceRole::TokenDeclaration, 0),
             Self::Lexical { .. } => canonical_key(ProvenanceRole::LexicalDeclaration, 0),
             Self::Layout { .. } => canonical_key(ProvenanceRole::LayoutRegex, 0),
+            Self::RawSentence { .. } => canonical_key(ProvenanceRole::RawKDeclaration, 0),
         }
     }
 
@@ -2037,6 +2061,21 @@ impl GrammarDescriptor {
                 }
                 Ok(())
             }
+            Self::RawSentence {
+                key,
+                text,
+                line,
+                column,
+                ..
+            } => {
+                require_key(key, provenance)?;
+                if text.trim().is_empty() || *line == 0 || *column == 0 {
+                    return Err(GrammarTransportError::EmptyCollection(
+                        TransportField::RawSentenceText,
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -2134,7 +2173,8 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "total"
                 }
-                DescriptorProductionAttribute::Hook { key, .. } => {
+                DescriptorProductionAttribute::Hook { key, .. }
+                | DescriptorProductionAttribute::RawHook { key, .. } => {
                     require_key(key, provenance)?;
                     "hook"
                 }
@@ -2573,6 +2613,9 @@ impl GrammarDescriptor {
                     }
                 }
             }
+            Self::RawSentence { key, .. } => {
+                insert_exact(&mut keys, key, ProvenanceRole::RawKDeclaration, 0)?;
+            }
         }
         Ok(keys)
     }
@@ -2959,7 +3002,8 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Total { key } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionTotal, 0)?;
                 }
-                DescriptorProductionAttribute::Hook { key, .. } => {
+                DescriptorProductionAttribute::Hook { key, .. }
+                | DescriptorProductionAttribute::RawHook { key, .. } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionHook, 0)?;
                 }
                 DescriptorProductionAttribute::Memo { key } => {

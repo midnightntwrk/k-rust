@@ -354,3 +354,15 @@ pub fn layout(input: TokenStream) -> TokenStream {
 pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::SyntaxList, attributes, item)
 }
+
+/// Keeps one K rule, claim, or context that the KRS surface cannot express
+/// yet, as unchecked K text placed in the package's semantics module.
+///
+/// Raw K is an escape from KRS's "no strings" rule: the package must set
+/// `allow-raw-k = true` in `[package.metadata.krs]`, every build warns, and
+/// the strict profile rejects it. K parses the text with the package's
+/// grammar; a parse error fails the build.
+#[proc_macro]
+pub fn raw_k(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::RawK, input)
+}

@@ -62,6 +62,7 @@ Options:
   --timings FILE             Write krs-timings/1 phase timings as JSON
   --counters FILE            Write krs-counters/1 work counters as JSON
   --message-format human|json Diagnostic output (default: human)
+  --profile standard|strict  Raw K profile for every package (default: each package's `profile`)
   --no-reuse                 Run the collector and compiler even on an unchanged input
   --partition                With check, print each package's program-syntax partition
   --stdin                    Format stdin with facade alias k and write the result to stdout
@@ -290,6 +291,7 @@ struct RunOptions {
     message_format: Option<MessageFormat>,
     measure: MeasureOptions,
     partition: bool,
+    profile: Option<krs_ir::RawKProfile>,
 }
 
 #[derive(Debug)]
@@ -360,6 +362,15 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
             Short('h') | Long("help") => return Ok(ParseResult::Help),
             Long("no-reuse") => options.no_reuse = true,
             Long("partition") if kind == CommandKind::Check => options.partition = true,
+            Long("profile") => {
+                let value = option_value(parser, "profile")?;
+                let selected = krs_ir::RawKProfile::from_metadata(&value).ok_or_else(|| {
+                    usage(format!(
+                        "unknown profile `{value}`; expected standard or strict"
+                    ))
+                })?;
+                set_once(&mut options.profile, selected, "--profile")?;
+            }
             Long("message-format") => {
                 let value = option_value(parser, "message format")?;
                 let selected = match value.as_str() {
@@ -651,6 +662,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         message_format,
         measure,
         partition,
+        profile,
     } = options;
     if package.is_some() && package_id.is_some() {
         return Err(usage("--package and --package-id cannot be combined"));
@@ -711,6 +723,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
             registration: registration.unwrap_or(RegistrationMode::Inventory),
             no_reuse,
             message_format: message_format.unwrap_or_default(),
+            profile,
         }),
         measure,
     ))

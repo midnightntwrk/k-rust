@@ -476,6 +476,7 @@ fn payload_primary_key(
             HostGrammarDescriptor::Tokens { .. } => ProvenanceRole::TokenDeclaration,
             HostGrammarDescriptor::Lexical { .. } => ProvenanceRole::LexicalDeclaration,
             HostGrammarDescriptor::Layout { .. } => ProvenanceRole::LayoutRegex,
+            HostGrammarDescriptor::RawSentence { .. } => ProvenanceRole::RawKDeclaration,
         },
         HostDescriptorPayload::StructuredRule(_) => ProvenanceRole::RuleDeclaration,
         _ => return primary_key(kind),

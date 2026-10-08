@@ -12,6 +12,7 @@ mod open_sorts;
 mod origin;
 mod overload;
 mod package;
+mod raw_k;
 mod references;
 mod rules;
 mod tokens;
@@ -21,6 +22,7 @@ pub use error::{DescriptorLoweringError, LexicalProblem, NondetGroupProblem};
 
 use crate::overlap::OverlapViolation;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
+pub use raw_k::{RawKPolicy, raw_k_policy};
 
 use std::collections::BTreeMap;
 

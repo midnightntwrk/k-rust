@@ -479,6 +479,17 @@ pub enum ProductionAttribute<S, D> {
         /// The list's cons production.
         cons: D,
     },
+    /// A quoted hook, `hook = "NAMESPACE.name"`: K's exact hook name, which
+    /// the pinned hook registry knows but the typed catalog does not cover.
+    /// Its signature is unchecked; the package must allow raw K.
+    RawHook {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Hook namespace before the first `.`, such as `KRYPTO`.
+        namespace: String,
+        /// Hook name after the first `.`, such as `keccak256`.
+        name: String,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -506,7 +517,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Private { origin }
             | Self::Memo { origin }
             | Self::ListCons { origin, .. }
-            | Self::ListTerminator { origin, .. } => origin,
+            | Self::ListTerminator { origin, .. }
+            | Self::RawHook { origin, .. } => origin,
         }
     }
 
@@ -517,7 +529,9 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Documentation { .. } => None,
             Self::Function { .. } => Some(crate::ProductionAttributeFamily::Function),
             Self::Total { .. } => Some(crate::ProductionAttributeFamily::Total),
-            Self::Hook { .. } => Some(crate::ProductionAttributeFamily::Hook),
+            Self::Hook { .. } | Self::RawHook { .. } => {
+                Some(crate::ProductionAttributeFamily::Hook)
+            }
             Self::Alias { .. } => Some(crate::ProductionAttributeFamily::Alias),
             Self::Token { .. } => Some(crate::ProductionAttributeFamily::Token),
             Self::Group { .. } => Some(crate::ProductionAttributeFamily::Group),
@@ -538,6 +552,64 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::ListTerminator { .. } => Some(crate::ProductionAttributeFamily::ListTerminator),
         }
     }
+}
+
+/// The K sentence keyword a `k::raw_k!` text starts with.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawSentenceKind {
+    /// `rule`.
+    Rule,
+    /// `claim`.
+    Claim,
+    /// `context`.
+    Context,
+}
+
+impl RawSentenceKind {
+    /// The K keyword.
+    #[must_use]
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::Rule => "rule",
+            Self::Claim => "claim",
+            Self::Context => "context",
+        }
+    }
+
+    /// The kind whose keyword is `keyword`.
+    #[must_use]
+    pub fn from_keyword(keyword: &str) -> Option<Self> {
+        match keyword {
+            "rule" => Some(Self::Rule),
+            "claim" => Some(Self::Claim),
+            "context" => Some(Self::Context),
+            _ => None,
+        }
+    }
+}
+
+/// One `k::raw_k!` sentence: K text that KRS does not parse, placed verbatim
+/// in its package's semantics module and parsed by K with that module's
+/// grammar. It is never a transition descriptor and joins no KRS sentence
+/// provenance beyond its own origin.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawSentence {
+    /// The `raw_k!` text literal.
+    pub origin: NodeOrigin,
+    /// The sentence keyword the text starts with.
+    pub kind: RawSentenceKind,
+    /// The complete K sentence text, verbatim.
+    pub text: String,
+    /// One-based line of the `raw_k!` invocation in its source file.
+    pub line: u32,
+    /// One-based column of the `raw_k!` invocation.
+    pub column: u32,
+    /// Definition IR only: every builtin sort the package mentions. Raw text
+    /// is opaque, so its module imports the full K module of each of them.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub builtin_sorts: std::collections::BTreeSet<crate::BuiltinSort>,
 }
 
 /// Group associativity. This applies to all cross-products of productions in

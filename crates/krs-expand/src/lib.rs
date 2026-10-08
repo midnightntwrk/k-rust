@@ -103,5 +103,6 @@ pub fn expand_function(
         FunctionMacro::Lexeme => islands::lexeme(input),
         FunctionMacro::Lexical => expand::lexical(env, input),
         FunctionMacro::Layout => expand::layout(env, input),
+        FunctionMacro::RawK => expand::raw_k(env, input),
     }
 }

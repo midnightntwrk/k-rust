@@ -172,6 +172,8 @@ entry_points! {
         Lexical = "lexical",
         /// `k::layout!`.
         Layout = "layout",
+        /// `k::raw_k!`.
+        RawK = "raw_k",
     }
 }
 

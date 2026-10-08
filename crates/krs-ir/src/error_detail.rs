@@ -53,6 +53,7 @@ details! {
         SymbolName => "symbol name",
         TokenValue => "token value",
         TopLevelCells => "top-level cells",
+        RawSentenceText => "raw K sentence text",
     }
 }
 

@@ -108,7 +108,9 @@ Calls such as `list::get(xs, index)` construct symbolic applications and may rem
 A function declaration may select one of KRS's typed hook operations, for example `krypto::keccak256_raw` for a Bytes-to-Bytes function.
 Macro expansion rejects an unknown hook path.
 After collection, KRS validates the declared operand and result sorts while constructing and checking Definition IR.
-This is a bounded catalog: arbitrary hook strings and a general raw-K-attribute escape hatch are intentionally absent.
+This is a bounded catalog of checked paths.
+A hook outside it can be named only by its exact K spelling, `hook = "KRYPTO.keccak256"`, in a package that sets `allow-raw-k = true`: KRS knows only that the hook exists, so it checks the name against the pinned hook registry but not the signature, and every build warns ([raw K escapes](/reference/language#raw-k-escapes)).
+There is no general raw-K-attribute escape hatch.
 
 ```rust [crates/krs-macros/tests/fixtures/positive/src/main.rs]
 // [!include ~/snippets/typed-hook.rs]
@@ -116,6 +118,9 @@ This is a bounded catalog: arbitrary hook strings and a general raw-K-attribute 
 
 Unknown hook names, wrong signatures, malformed nested fields, and unsupported cell metadata fail during Rust expansion or KRS checking.
 A well-formed hook may still be rejected by a backend that does not implement the selected capability.
+
+Upstream K that the surface cannot express yet can be kept, in the same opted-in package, as one `k::raw_k!` rule, claim, or context: K text that KRS prints verbatim and K parses with the package's grammar.
+It is a TODO marker rather than a feature, and the strict profile refuses it.
 
 ## What the large ports prove
 

@@ -176,3 +176,4 @@ ListSeparator=list_separator
 ListNonEmpty=list_non_empty
 ConfigurationCellStream=configuration_cell_stream
 ConfigurationCellExit=configuration_cell_exit
+RawKDeclaration=raw_k_declaration

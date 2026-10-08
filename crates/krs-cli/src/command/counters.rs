@@ -55,6 +55,7 @@ pub(super) fn count_definition(counters: &mut Counters, lowered: &krs_compiler::
                 DefinitionSentence::Rule(_) => "rule",
                 DefinitionSentence::Lexical(_) => "lexical",
                 DefinitionSentence::Layout(_) => "layout",
+                DefinitionSentence::Raw(_) => "raw",
             };
             counters.add(format!("definition.sentences.{kind}"), 1u64);
         }

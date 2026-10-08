@@ -1,0 +1,22 @@
+[package]
+name = "krs-builtin-raw-hook"
+description = "A quoted hook outside the typed catalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_raw_hook"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-RAW-HOOK"
+allow-raw-k = true
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

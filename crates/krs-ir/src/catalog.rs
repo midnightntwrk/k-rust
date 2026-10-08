@@ -308,6 +308,42 @@ impl BuiltinSortSpec {
     }
 }
 
+/// How strictly a package treats raw K escapes (`package.metadata.krs.profile`,
+/// overridable with `krs --profile`).
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum RawKProfile {
+    /// Quoted hooks and `raw_k!` are allowed with `allow-raw-k = true`, and
+    /// each use warns.
+    #[default]
+    Standard,
+    /// Quoted hooks and `raw_k!` are errors even with `allow-raw-k = true`.
+    Strict,
+}
+
+impl RawKProfile {
+    /// Returns the Cargo metadata and command-line spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Strict => "strict",
+        }
+    }
+
+    /// Parses the Cargo metadata and command-line spelling.
+    #[must_use]
+    pub fn from_metadata(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "strict" => Some(Self::Strict),
+            _ => None,
+        }
+    }
+}
+
 /// Which K module supplies a package's program-syntax integer literals
 /// (`package.metadata.krs.int-literals`).
 #[derive(

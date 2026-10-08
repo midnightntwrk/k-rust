@@ -347,7 +347,40 @@ pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
     totality: FunctionTotality,
     memo: Option<Ident>,
-    hook: Option<Path>,
+    hook: Option<FunctionHook>,
+}
+
+/// The `hook` value of `#[k::function]`.
+#[derive(Clone, Debug)]
+pub enum FunctionHook {
+    /// A typed catalog path, such as `krypto::sha256_raw`.
+    Catalog(Path),
+    /// A quoted K hook name, such as `"KRYPTO.keccak256"`: an escape from A4
+    /// that the package must allow.
+    Quoted(LitStr),
+}
+
+impl FunctionHook {
+    /// Returns the provenance range of the authored value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if the value emits no tokens.
+    pub fn range(&self) -> Result<TokenRange, SyntaxError> {
+        match self {
+            Self::Catalog(path) => TokenRange::for_tokens(path),
+            Self::Quoted(literal) => TokenRange::for_tokens(literal),
+        }
+    }
+}
+
+impl quote::ToTokens for FunctionHook {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            Self::Catalog(path) => path.to_tokens(tokens),
+            Self::Quoted(literal) => literal.to_tokens(tokens),
+        }
+    }
 }
 
 /// Explicit K function definedness.
@@ -372,9 +405,9 @@ impl FunctionAttribute {
         matches!(self.totality, FunctionTotality::Total(_))
     }
 
-    /// Optional closed hook selector path.
+    /// Optional hook: a closed catalog path or a quoted K hook name.
     #[must_use]
-    pub const fn hook(&self) -> Option<&Path> {
+    pub const fn hook(&self) -> Option<&FunctionHook> {
         self.hook.as_ref()
     }
 
@@ -412,7 +445,7 @@ impl FunctionAttribute {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::FunctionHook,
                 0,
-                TokenRange::for_tokens(hook)?,
+                hook.range()?,
             ));
         }
         Ok(anchors)
@@ -1223,8 +1256,15 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
                     sort = Some(parse_sort_value(value)?);
                 } else if key_name == "syntax" {
                     syntax = Some(parse_syntax_value(value)?);
+                } else if let Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(literal),
+                    attrs,
+                }) = &value
+                    && attrs.is_empty()
+                {
+                    hook = Some(FunctionHook::Quoted(literal.clone()));
                 } else {
-                    hook = Some(parse_sort_value(value)?);
+                    hook = Some(FunctionHook::Catalog(parse_sort_value(value)?));
                 }
             }
             _ => {

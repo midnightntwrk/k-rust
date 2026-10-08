@@ -27,6 +27,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
 | `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
 | `#[k::symbol("public::Name")]` | pinned public identity for a sort or standalone constructor; place it immediately before that KRS declaration attribute | [Composition](/advanced/composition) |
+| `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
 Constructor families put `#[k::constructors(sort = ...)]` on an enum and attach syntax to its variants.
@@ -238,8 +239,17 @@ Its sort is the least sort of its two branches that fits where it occurs, the ru
 k-rust and K's Haskell backend evaluate both branches, while Java K's LLVM backend evaluates only the taken one, so keep both branches defined and every backend agrees.
 There is deliberately no Rust `if` sugar for it, because a Rust `if` evaluates one branch.
 
-Function hooks are a separate typed catalog selected in `#[k::function(..., hook = ...)]`.
-They are intentionally not arbitrary strings or raw attributes.
+Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.
+
+### Raw K escapes
+
+Two escapes keep K that the surface cannot express yet, and both are deliberate exceptions to the rule that KRS embeds no strings.
+A quoted hook, `hook = "KRYPTO.keccak256"`, is K's exact hook name: KRS checks only that the pinned K and k-rust know the name, that the typed catalog does not cover it (`"KRYPTO.keccak256raw"` is an error that names `hook = krypto::keccak256_raw`), and, for a crypto hook, its argument count; the production's sorts are not checked.
+Java K evaluates a hook outside its default namespaces only when `kompile` is given the namespace, for example `--hook-namespaces KRYPTO` on the Haskell backend.
+`k::raw_k!(r#"rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]"#)` is one K `rule`, `claim`, or `context`, with no `module`, `endmodule`, or `imports`; KRS prints it verbatim in the package's semantics module after a `// raw_k! src/lib.rs:L:C (opaque to KRS)` comment, and K parses it with that module's grammar, so a K parse error fails the build on every route.
+Treat a `raw_k!` as a TODO marker: KRS does not check it, its names are the emitted K names, it takes part in no overlap check, and it is the full module of every builtin sort the package uses that its text can see.
+A package admits either escape only with `allow-raw-k = true` in `[package.metadata.krs]`; without it each one is an error (`krs::policy::raw-k-not-allowed`).
+With it, every build warns once per use (`krs::expand::raw-hook`, naming the hook's native capability, and `krs::semantic::raw-k`), and `profile = "strict"` or `krs --profile strict` turns the warnings into errors.
 
 ## Running a definition
 

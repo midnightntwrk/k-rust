@@ -294,13 +294,14 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         if let Some(placement) = partition.module(module.id()) {
             // The program-syntax module is lowered first so that each group
             // with a program-syntax member is declared there.
-            lowered_modules.push(
-                lower(ModulePart::ProgramSyntax(placement))?
-                    .into_program_syntax(module.int_literals()),
-            );
-            lowered_modules.push(lower(ModulePart::Semantics(placement))?);
+            let syntax = lower(ModulePart::ProgramSyntax(placement))?
+                .into_program_syntax(module.int_literals());
+            let semantics = lower(ModulePart::Semantics(placement))?;
+            let semantics = with_raw_builtin_sorts(semantics, Some(&syntax));
+            lowered_modules.push(syntax);
+            lowered_modules.push(semantics);
         } else {
-            lowered_modules.push(lower(ModulePart::Whole)?);
+            lowered_modules.push(with_raw_builtin_sorts(lower(ModulePart::Whole)?, None));
         }
     }
     check_signed_integer_leak(&lowered_modules)?;
@@ -315,6 +316,34 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         symbol_map,
         source_map,
         partition,
+    })
+}
+
+/// Records on each raw sentence of `module` every builtin sort its package
+/// mentions (in `module` and its program-syntax module `syntax`), so the module
+/// imports their full K modules: raw text is opaque and may use any of their
+/// operations.
+fn with_raw_builtin_sorts(
+    module: DefinitionModule,
+    syntax: Option<&DefinitionModule>,
+) -> DefinitionModule {
+    if !module
+        .sentences()
+        .iter()
+        .any(|sentence| matches!(sentence, DefinitionSentence::Raw(_)))
+    {
+        return module;
+    }
+    let mut sorts = krs_ir_levels::k_surface::builtin_sorts(&module);
+    if let Some(syntax) = syntax {
+        sorts.extend(krs_ir_levels::k_surface::builtin_sorts(syntax));
+    }
+    module.map_sentences(|sentence| match sentence {
+        DefinitionSentence::Raw(mut raw) => {
+            raw.builtin_sorts.clone_from(&sorts);
+            DefinitionSentence::Raw(raw)
+        }
+        other => other,
     })
 }
 
@@ -960,6 +989,17 @@ fn lower_module(
         sentences.push(DefinitionSentence::Rule(lower_rule_metadata(
             sentence, rule, names, origins,
         )?));
+    }
+
+    for raw in module.raw_sentences() {
+        sentences.push(DefinitionSentence::Raw(krs_ir::RawSentence {
+            origin: origins.lower(&raw.origin, "raw-k", None, None)?,
+            kind: raw.kind,
+            text: raw.text.clone(),
+            line: raw.line,
+            column: raw.column,
+            builtin_sorts: BTreeSet::new(),
+        }));
     }
 
     let mut imports = module
@@ -1693,6 +1733,13 @@ fn lower_authored_production_attributes(
                         cons: names.production(cons)?.id().clone(),
                     }
                 }
+                ProductionAttribute::RawHook {
+                    namespace, name, ..
+                } => ProductionAttribute::RawHook {
+                    origin,
+                    namespace: namespace.clone(),
+                    name: name.clone(),
+                },
                 ProductionAttribute::Overload { .. } => ProductionAttribute::Overload {
                     origin,
                     target: names.overload_root(production.id())?.ok_or_else(|| {

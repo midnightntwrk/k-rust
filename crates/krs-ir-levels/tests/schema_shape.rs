@@ -152,6 +152,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "NodeOrigin",
     "PrecedenceRelation",
     "ProductionContextAliasReference",
+    "RawSentence",
     "ProductionFieldReference",
     "ProductionGroupIdentity",
     "ProductionResultSort",
@@ -706,6 +707,8 @@ fn registry() -> Registry {
     trace!(SymbolIdentity: SymbolIdentity);
     trace!(SymbolKind: SymbolKind);
     trace!(IntLiterals: IntLiterals);
+    trace!(RawKProfile: RawKProfile);
+    trace!(RawSentenceKind: RawSentenceKind);
     trace!(ModuleRole: ModuleRole);
     trace!(PackageSettings: PackageSettings);
     trace!(TimingsDocument: TimingsDocument);
@@ -846,6 +849,7 @@ fn registry() -> Registry {
     unsupported!(OriginFrame: OriginFrame);
     unsupported!(OriginStack: OriginStack);
     unsupported!(PrecedenceRelation: PrecedenceRelation);
+    unsupported!(RawSentence: RawSentence);
     unsupported!(ProductionContextAliasReference: ProductionContextAliasReference);
     unsupported!(ProductionFieldReference: ProductionFieldReference);
     unsupported!(ProductionGroupIdentity: ProductionGroupIdentity);

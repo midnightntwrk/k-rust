@@ -18,8 +18,8 @@ limitation = "Required in the limitations and capability material"
 
 [surface_review]
 cli_commands = ["fmt", "check", "expand", "emit-k", "build", "parse", "run", "search", "prove"]
-metadata_keys = ["k-namespace", "int-literals"]
-macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cell", "cells", "claim", "configuration", "constructor", "constructors", "context_alias", "ensures", "equation", "exists", "fragment", "function", "id", "init", "k", "layout", "lexeme", "lexical", "map", "or_bool", "precedence", "priority", "requires", "rule", "rules", "seqstrict", "simplification", "sort", "sorts", "strict", "subsort", "symbol", "syntax_list", "term", "token"]
+metadata_keys = ["k-namespace", "int-literals", "allow-raw-k", "profile"]
+macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cell", "cells", "claim", "configuration", "constructor", "constructors", "context_alias", "ensures", "equation", "exists", "fragment", "function", "id", "init", "k", "layout", "lexeme", "lexical", "map", "or_bool", "precedence", "priority", "raw_k", "requires", "rule", "rules", "seqstrict", "simplification", "sort", "sorts", "strict", "subsort", "symbol", "syntax_list", "term", "token"]
 builtin_operations = ["abs", "add", "and", "and_then", "big_endian", "bit_and", "bit_not", "bit_or", "bit_range", "bit_xor", "ceil", "chr", "concat", "contains", "difference", "div", "div_euclid", "divides", "empty", "eq", "exponent_bits", "find", "floor", "from_bool", "from_int", "from_int_no_len", "from_list", "from_string", "ge", "get", "get_or_default", "gt", "implies", "in_keys", "intersect", "is_infinite", "is_nan", "is_subset", "ite", "item", "keys", "keys_list", "le", "length", "little_endian", "log", "log2", "lt", "make", "max", "max_value", "min", "mul", "ne", "neg", "not", "or", "or_else", "ord", "pad_left", "pad_right", "pow", "pow_mod", "precision", "putc", "range", "rem", "rem_euclid", "remove", "remove_all", "replace_at", "reverse", "root", "round", "shift_left", "shift_right", "sign", "sign_extend_bit_range", "signed", "size", "sqrt", "sub", "substr", "to_bool", "to_int", "to_list", "to_string", "trunc", "union", "unsigned", "update", "update_all", "values", "write", "xor"]
 concept_status_sha256 = "d5c8f2e29aa3c5a3ae4480fe1eb1548b9024a94f8687d86f6c664f9f6a075b78"
 
@@ -723,7 +723,7 @@ coverage = "advanced"
 chapter = "scale"
 prerequisites = ["functions", "extended-builtins"]
 evidence = ["semantics/kevm/src/lib.rs", "crates/krs-macros/tests/fixtures.rs"]
-note = "Do not imply arbitrary raw hooks or a general raw-attribute escape hatch."
+note = "Catalog paths are checked. A quoted hook (`hook = \"NS.name\"`) and `k::raw_k!` are unchecked escapes that need `allow-raw-k = true`; do not imply a general raw-attribute escape hatch."
 
 [[concept]]
 id = "fmt-check"

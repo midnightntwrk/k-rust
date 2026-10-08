@@ -106,43 +106,16 @@ pub(crate) fn function(
         .expect("a parsed function retains its totality marker");
     let hook = function
         .hook()
-        .map(|path| -> crate::Result<(ProvenanceAnchor, krs_ir::HookOperation)> {
-            let segments = path
-                .segments
-                .iter()
-                .map(|segment| segment.ident.to_string())
-                .collect::<Vec<_>>();
-            let operation = krs_ir::HookOperation::ALL
-                .into_iter()
-                .find(|operation| {
-                    let spec = operation.spec();
-                    matches!(segments.as_slice(), [module, name] if module == spec.rust_module && name == spec.rust_name)
-                })
-                .ok_or_else(|| {
-                    let expected = krs_ir::HookOperation::ALL
-                        .map(|operation| {
-                            let spec = operation.spec();
-                            format!("`{}::{}`", spec.rust_module, spec.rust_name)
-                        });
-                    let (last, preceding) = expected
-                        .split_last()
-                        .expect("the hook catalog contains operations");
-                    ExpandError::new(
-                        expand::UNKNOWN_HOOK,
-                        path.span(),
-                        format!(
-                            "unknown KRS hook; expected {}, or {last}",
-                            preceding.join(", ")
-                        ),
-                    )
-                })?;
+        .map(|hook| -> crate::Result<(ProvenanceAnchor, ExpandedHook)> {
+            let expanded = match hook {
+                krs_syntax::FunctionHook::Catalog(path) => {
+                    ExpandedHook::Catalog(catalog_hook(path)?)
+                }
+                krs_syntax::FunctionHook::Quoted(literal) => quoted_hook(literal, &item)?,
+            };
             Ok((
-                ProvenanceAnchor::new(
-                    ProvenanceRole::FunctionHook,
-                    0,
-                    TokenRange::for_tokens(path)?,
-                ),
-                operation,
+                ProvenanceAnchor::new(ProvenanceRole::FunctionHook, 0, hook.range()?),
+                expanded,
             ))
         })
         .transpose()?;
@@ -166,6 +139,115 @@ pub(crate) fn function(
     )
 }
 
+/// The resolved `hook` value of a function production.
+#[derive(Clone, Debug)]
+pub(super) enum ExpandedHook {
+    /// A typed catalog path.
+    Catalog(krs_ir::HookOperation),
+    /// A quoted K hook name from the pinned registry.
+    Raw { namespace: String, name: String },
+}
+
+fn catalog_hook(path: &Path) -> crate::Result<krs_ir::HookOperation> {
+    let segments = path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect::<Vec<_>>();
+    krs_ir::HookOperation::ALL
+        .into_iter()
+        .find(|operation| {
+            let spec = operation.spec();
+            matches!(segments.as_slice(), [module, name] if module == spec.rust_module && name == spec.rust_name)
+        })
+        .ok_or_else(|| {
+            let expected = krs_ir::HookOperation::ALL.map(|operation| {
+                let spec = operation.spec();
+                format!("`{}::{}`", spec.rust_module, spec.rust_name)
+            });
+            let (last, preceding) = expected
+                .split_last()
+                .expect("the hook catalog contains operations");
+            ExpandError::new(
+                expand::UNKNOWN_HOOK,
+                path.span(),
+                format!(
+                    "unknown KRS hook; expected {}, or {last}",
+                    preceding.join(", ")
+                ),
+            )
+        })
+}
+
+/// Splits a quoted hook into `NAMESPACE` and `name`: an uppercase namespace
+/// (`[A-Z][A-Z0-9_]*`), one `.`, and a name of ASCII letters, digits and `_`.
+pub(crate) fn split_quoted_hook(value: &str) -> Option<(&str, &str)> {
+    let (namespace, name) = value.split_once('.')?;
+    let namespace_ok = namespace.starts_with(|ch: char| ch.is_ascii_uppercase())
+        && namespace
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_');
+    let name_ok = !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+    (namespace_ok && name_ok).then_some((namespace, name))
+}
+
+/// Checks a quoted hook against the pinned registry. Whether the package may
+/// use it (`allow-raw-k`, `profile`) is decided after collection, where the
+/// package metadata and `krs --profile` are known.
+fn quoted_hook(literal: &syn::LitStr, item: &TokenStream) -> crate::Result<ExpandedHook> {
+    let value = literal.value();
+    let Some((namespace, name)) = split_quoted_hook(&value) else {
+        return Err(ExpandError::new(
+            expand::INVALID_HOOK_STRING,
+            literal.span(),
+            format!(
+                "invalid hook string `{value}`; expected NAMESPACE.name, such as \"KRYPTO.keccak256\""
+            ),
+        ));
+    };
+    if let Some(operation) = krs_ir::hook_registry::catalogued_hook(&value) {
+        let spec = operation.spec();
+        return Err(ExpandError::new(
+            expand::CATALOGUED_RAW_HOOK,
+            literal.span(),
+            format!(
+                "`{value}` is in the typed hook catalog; use hook = {}::{}",
+                spec.rust_module, spec.rust_name
+            ),
+        ));
+    }
+    let Some(registered) = krs_ir::hook_registry::registered_hook(&value) else {
+        return Err(ExpandError::new(
+            expand::UNKNOWN_HOOK_NAME,
+            literal.span(),
+            format!("`{value}` is not a hook of the pinned K and k-rust; check its spelling"),
+        ));
+    };
+    if let Some(arity) = registered.crypto_arity {
+        let fields = syn::parse2::<ItemStruct>(item.clone())
+            .map(|item| item.fields.len())
+            .unwrap_or_default();
+        if fields != usize::from(arity) {
+            return Err(ExpandError::new(
+                expand::RAW_HOOK_ARITY,
+                literal.span(),
+                format!(
+                    "`{value}` takes {arity} argument{}, but the production has {fields} field{}",
+                    if arity == 1 { "" } else { "s" },
+                    if fields == 1 { "" } else { "s" },
+                ),
+            ));
+        }
+    }
+    Ok(ExpandedHook::Raw {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+    })
+}
+
 #[expect(
     clippy::needless_pass_by_value,
     clippy::too_many_lines,
@@ -177,7 +259,7 @@ fn constructor_like(
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
     memo: Option<ProvenanceAnchor>,
-    hook: Option<(ProvenanceAnchor, krs_ir::HookOperation)>,
+    hook: Option<(ProvenanceAnchor, ExpandedHook)>,
 ) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
@@ -771,7 +853,7 @@ fn constructor_grammar(
     functional: bool,
     total: bool,
     memo: bool,
-    hook: Option<&krs_ir::HookOperation>,
+    hook: Option<&ExpandedHook>,
     alias: bool,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
@@ -861,12 +943,20 @@ fn constructor_grammar(
             );
         }
     }
-    if let Some(operation) = hook {
+    if let Some(hook) = hook {
+        let key = wire_key(function_hook_role, 0);
         attributes.insert(
             if total { 2 } else { 1 },
-            WireProductionAttribute::Hook {
-                key: wire_key(function_hook_role, 0),
-                operation: *operation,
+            match hook {
+                ExpandedHook::Catalog(operation) => WireProductionAttribute::Hook {
+                    key,
+                    operation: *operation,
+                },
+                ExpandedHook::Raw { namespace, name } => WireProductionAttribute::RawHook {
+                    key,
+                    namespace: namespace.clone(),
+                    name: name.clone(),
+                },
             },
         );
     }

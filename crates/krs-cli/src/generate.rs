@@ -255,6 +255,18 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
         if facet.int_literals == krs_collector::IntLiterals::Unsigned {
             output.push_str(".with_int_literals(__krs_collector_runtime::IntLiterals::Unsigned)");
         }
+        if facet.allow_raw_k || facet.profile != krs_collector::RawKProfile::Standard {
+            output.push_str(".with_raw_k(");
+            output.push_str(if facet.allow_raw_k { "true" } else { "false" });
+            output.push_str(match facet.profile {
+                krs_collector::RawKProfile::Standard => {
+                    ", __krs_collector_runtime::RawKProfile::Standard)"
+                }
+                krs_collector::RawKProfile::Strict => {
+                    ", __krs_collector_runtime::RawKProfile::Strict)"
+                }
+            });
+        }
         output.push_str(",\n");
     }
     output.push_str("    ];\n");

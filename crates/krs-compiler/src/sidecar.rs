@@ -171,7 +171,8 @@ impl SymbolMap {
                     | DefinitionSentence::Precedence(_)
                     | DefinitionSentence::Associativity(_)
                     | DefinitionSentence::Lexical(_)
-                    | DefinitionSentence::Layout(_) => {}
+                    | DefinitionSentence::Layout(_)
+                    | DefinitionSentence::Raw(_) => {}
                 }
             }
         }
@@ -286,6 +287,8 @@ pub enum SourceMapNodeKind {
     Lexical,
     /// Layout regex sentence.
     Layout,
+    /// One `k::raw_k!` sentence, opaque to KRS.
+    RawSentence,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -469,6 +472,7 @@ impl SourceMap {
                     DefinitionSentence::Rule(_) => SourceMapNodeKind::Rule,
                     DefinitionSentence::Lexical(_) => SourceMapNodeKind::Lexical,
                     DefinitionSentence::Layout(_) => SourceMapNodeKind::Layout,
+                    DefinitionSentence::Raw(_) => SourceMapNodeKind::RawSentence,
                 };
                 insert_origin(&mut entries, sentence.origin(), kind)?;
                 match sentence {

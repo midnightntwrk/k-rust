@@ -119,6 +119,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-builtin-raw-denied"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-raw-hook"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-raw-k"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-raw-parse-error"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-raw-strict"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-builtin-set-ops"
 version = "0.1.0"
 dependencies = [

@@ -10,6 +10,11 @@ members = [
     "packages/io",
     "packages/k-equal",
     "packages/map-ops",
+    "packages/raw-denied",
+    "packages/raw-hook",
+    "packages/raw-k",
+    "packages/raw-parse-error",
+    "packages/raw-strict",
     "packages/set-ops",
     "packages/strings",
 ]

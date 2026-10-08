@@ -1,0 +1,21 @@
+[package]
+name = "krs-builtin-raw-denied"
+description = "Raw K without the allow-raw-k opt-in"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_builtin_raw_denied"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-RAW-DENIED"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

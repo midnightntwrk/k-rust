@@ -22,6 +22,35 @@ bug — report it, don't guess.
   doesn't exist: rustc/rust-analyzer must see real items where the design
   promises them, measured by LSP goldens, never assumed. No stringly
   embedded languages beyond the checked `#[k::syntax]` templates. [07 §2]
+  *A4 amendment: raw K escapes (2026-10 feature build, decided in review
+  2026-10-07).* Two unchecked K strings are admitted, only as an explicit
+  per-package escape: a quoted hook, `hook = "NAMESPACE.name"` in
+  `#[k::function]` (K's exact hook name, which must exist in the hook
+  registry pinned from k-rust's `hook-capabilities.toml`, and must not be
+  a hook the typed catalog covers), and `k::raw_k!("...")`, one K `rule`,
+  `claim`, or `context` sentence placed verbatim in the package's
+  semantics module and parsed by K with that module's grammar.
+  1. Without `allow-raw-k = true` in `[package.metadata.krs]` (beside
+     `k-namespace`; default `false`), either one is an error in every
+     profile (`krs::policy::raw-k-not-allowed`).
+  2. With it, every use warns on every build (`krs::expand::raw-hook`,
+     with the hook's native capability; `krs::semantic::raw-k`), and
+     `profile = "strict"` (or `krs --profile strict`, which overrides the
+     package) turns those warnings back into errors. The default profile
+     is `"standard"`.
+  3. Typed catalog hooks (`hook = krypto::sha256_raw`) are checked paths
+     and need no opt-in.
+  4. A raw sentence is never a transition descriptor (F2 excludes it), and
+     the native route fails closed on any K parse error in it.
+  Alternatives rejected: no raw K at all (upstream features KRS cannot yet
+  express would block ports and the reading of upstream K); raw K allowed
+  by default with warnings (it breaks A4 silently in every package);
+  `profile = "strict"` as the default with `"standard"` as the opt-out (a
+  profile name hides what is being allowed, while the opt-in key names it,
+  sits in Cargo metadata, and is visible in review); raw modules (a raw
+  module cannot refer to the definition's grammar without an import
+  cycle). Rationale: A4's default stays intact, and every escape is
+  visible in the package manifest and in every build's warnings.
 
 ## B. Sorts
 

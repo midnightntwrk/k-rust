@@ -93,6 +93,22 @@ pub(super) fn lower_grammar_descriptor(
                 );
             }
         }
+        GrammarDescriptor::RawSentence {
+            key,
+            kind,
+            text,
+            line,
+            column,
+        } => {
+            module.raw_sentences.push(krs_ir::RawSentence {
+                origin: semantic_origin(descriptor, key.clone(), "raw-k")?,
+                kind: *kind,
+                text: text.clone(),
+                line: *line,
+                column: *column,
+                builtin_sorts: std::collections::BTreeSet::new(),
+            });
+        }
     }
     Ok(())
 }
@@ -371,6 +387,15 @@ fn lower_production_attribute(
                 cons: list_partner(descriptor, cons)?,
             }
         }
+        DescriptorProductionAttribute::RawHook {
+            key,
+            namespace,
+            name,
+        } => ProductionAttribute::RawHook {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            namespace: namespace.clone(),
+            name: name.clone(),
+        },
         DescriptorProductionAttribute::Overload { target } => {
             let origin = semantic_origin(descriptor, target.key.clone(), "production-attribute")?;
             let DescriptorApplicationRef::Declared(id) = &target.application else {

@@ -26,6 +26,7 @@ mod error_detail;
 pub mod float_token;
 pub mod generated;
 pub mod grammar;
+pub mod hook_registry;
 pub mod host;
 pub mod identity;
 pub mod ir;
@@ -60,7 +61,7 @@ pub use catalog::{
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
     CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
-    OperationSort,
+    OperationSort, RawKProfile,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -79,7 +80,7 @@ pub use grammar::{
     GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
     HookOperation, LayoutSentence, LexicalSentence, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, StrictnessKind,
+    ProductionGroupId, ProductionResultSort, RawSentence, RawSentenceKind, StrictnessKind,
 };
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,

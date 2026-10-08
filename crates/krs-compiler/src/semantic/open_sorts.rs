@@ -173,7 +173,8 @@ fn open_sort_edges(
                 | GrammarDescriptor::Associativity { .. }
                 | GrammarDescriptor::Tokens { .. }
                 | GrammarDescriptor::Lexical { .. }
-                | GrammarDescriptor::Layout { .. } => {}
+                | GrammarDescriptor::Layout { .. }
+                | GrammarDescriptor::RawSentence { .. } => {}
             },
         }
     }

@@ -1,5 +1,5 @@
 use crate::metadata::{CargoMetadata, MetadataNode, MetadataPackage, MetadataTarget};
-use krs_collector::{IntLiterals, PackageContext};
+use krs_collector::{IntLiterals, PackageContext, RawKProfile};
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_syntax::keyword;
 use serde::Serialize;
@@ -121,6 +121,11 @@ pub struct ResolvedFacet {
     /// Module supplying program-syntax integer literals
     /// (`package.metadata.krs.int-literals`).
     pub int_literals: IntLiterals,
+    /// Whether quoted hooks and `raw_k!` are allowed
+    /// (`package.metadata.krs.allow-raw-k`).
+    pub allow_raw_k: bool,
+    /// Raw K profile (`package.metadata.krs.profile`).
+    pub profile: RawKProfile,
     /// Generated Cargo dependency alias.
     pub dependency_alias: String,
     /// Cargo's actual selected library target and `module_path!()` crate root.
@@ -352,6 +357,8 @@ impl CollectorPlan {
                 cargo_source: logical_cargo_source(facet.package, &workspace_members),
                 definition: facet.definition.clone(),
                 int_literals: facet.int_literals,
+                allow_raw_k: facet.allow_raw_k,
+                profile: facet.profile,
                 dependency_alias: aliases[&facet.package.id].clone(),
                 crate_root: library_target.name.clone(),
                 cargo_package_id: facet.package.id.clone(),
@@ -581,6 +588,9 @@ impl CollectorPlan {
                     crate_root: &facet.crate_root,
                     definition: &facet.definition,
                     int_literals: facet.int_literals.as_str(),
+                    allow_raw_k: facet.allow_raw_k,
+                    profile: (facet.profile != RawKProfile::Standard)
+                        .then_some(facet.profile.as_str()),
                     features: self.features_for(&facet.cargo_package_id),
                 })
                 .collect(),
@@ -624,7 +634,8 @@ impl CollectorPlan {
                     ),
                 )
             })?
-            .with_int_literals(facet.int_literals);
+            .with_int_literals(facet.int_literals)
+            .with_raw_k(facet.allow_raw_k, facet.profile);
             contexts.push(context);
         }
         Ok(contexts)
@@ -659,6 +670,10 @@ struct CanonicalFacet<'a> {
     definition: &'a str,
     #[serde(rename = "int-literals")]
     int_literals: &'a str,
+    #[serde(rename = "allow-raw-k", skip_serializing_if = "std::ops::Not::not")]
+    allow_raw_k: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<&'static str>,
     features: BTreeSet<&'a String>,
 }
 
@@ -667,6 +682,8 @@ struct FacetRecord<'a> {
     k_namespace: String,
     definition: String,
     int_literals: IntLiterals,
+    allow_raw_k: bool,
+    profile: RawKProfile,
     is_root: bool,
 }
 
@@ -861,13 +878,53 @@ fn resolve_facet<'a>(
             })?,
     };
 
+    let (allow_raw_k, profile) = raw_k_metadata(krs, package)?;
+
     Ok(FacetRecord {
         package,
         k_namespace: namespace.to_owned(),
         definition: definition.to_owned(),
         int_literals,
+        allow_raw_k,
+        profile,
         is_root,
     })
+}
+
+/// Reads the package's `allow-raw-k` (a boolean, default `false`) and
+/// `profile` (`"standard"`, the default, or `"strict"`) metadata.
+fn raw_k_metadata(
+    krs: &serde_json::Map<String, serde_json::Value>,
+    package: &MetadataPackage,
+) -> Result<(bool, RawKProfile), PlanningError> {
+    let allow_raw_k = match krs.get("allow-raw-k") {
+        None => false,
+        Some(value) => value.as_bool().ok_or_else(|| {
+            PlanningError::new(
+                PlanningErrorKind::InvalidRawKMetadata,
+                format!(
+                    "package `{}` sets `allow-raw-k = {value}`; expected true or false (the default)",
+                    package.name
+                ),
+            )
+        })?,
+    };
+    let profile = match krs.get("profile") {
+        None => RawKProfile::default(),
+        Some(value) => value
+            .as_str()
+            .and_then(RawKProfile::from_metadata)
+            .ok_or_else(|| {
+                PlanningError::new(
+                    PlanningErrorKind::InvalidRawKMetadata,
+                    format!(
+                        "package `{}` sets `profile = {value}`; expected \"standard\" (the default) or \"strict\"",
+                        package.name
+                    ),
+                )
+            })?,
+    };
+    Ok((allow_raw_k, profile))
 }
 
 fn selected_library_target(package: &MetadataPackage) -> Result<&MetadataTarget, PlanningError> {
@@ -1203,6 +1260,8 @@ pub enum PlanningErrorKind {
     RemovedFacetKey,
     /// The package's `int-literals` metadata is not `"signed"` or `"unsigned"`.
     InvalidIntLiterals,
+    /// `allow-raw-k` is not a boolean, or `profile` is not "standard" or "strict".
+    InvalidRawKMetadata,
 }
 
 /// A typed collector planning failure.
@@ -1240,6 +1299,7 @@ impl ToDiagnostic for PlanningError {
             PlanningErrorKind::InvalidDefinition => codes::plan::INVALID_DEFINITION,
             PlanningErrorKind::RemovedFacetKey => codes::plan::REMOVED_FACET_KEY,
             PlanningErrorKind::InvalidIntLiterals => codes::plan::INVALID_INT_LITERALS,
+            PlanningErrorKind::InvalidRawKMetadata => codes::plan::INVALID_RAW_K_METADATA,
             PlanningErrorKind::MissingLibraryTarget => codes::plan::MISSING_LIBRARY_TARGET,
             PlanningErrorKind::AmbiguousLibraryTarget => codes::plan::AMBIGUOUS_LIBRARY_TARGET,
             PlanningErrorKind::InvalidPackageContext => codes::plan::INVALID_PACKAGE_CONTEXT,

@@ -209,6 +209,8 @@ pub struct CommandRequest {
     pub no_reuse: bool,
     /// Presentation of diagnostics; execution and artifact caching are independent of it.
     pub message_format: MessageFormat,
+    /// `krs --profile`: overrides every package's raw K `profile` metadata.
+    pub profile: Option<krs_ir::RawKProfile>,
 }
 
 /// Stable command stdout and success diagnostics.
@@ -247,6 +249,8 @@ impl CommandOutcome {
 }
 
 struct PreparedDefinition {
+    /// Allowed quoted hooks and `raw_k!` sentences, reported on every build.
+    raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
@@ -364,7 +368,7 @@ fn execute_with_sources(
         }
     }
     let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
-    let prepared = prepare(stdout, measurement)?;
+    let prepared = prepare(stdout, request.profile, measurement)?;
 
     let outcome = match &request.command {
         Command::Check { backend, partition } => measurement
@@ -384,7 +388,10 @@ fn execute_with_sources(
                 krs_k_rust::Route::native(Backend::Haskell),
             )
             .and_then(|()| exec::execute(&prepared, &request.command, &*sources, measurement))
-            .map(CommandExecution::without_artifacts)
+            .map(|mut outcome| {
+                outcome.warnings = raw_k_warnings(&prepared);
+                CommandExecution::without_artifacts(outcome)
+            })
         }
     };
     measurement.timings.span("release", |_| drop(prepared));
@@ -414,6 +421,7 @@ fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
 
 fn prepare(
     stdout: Vec<u8>,
+    profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
     let bundle: DescriptorBundle = measurement
@@ -429,6 +437,19 @@ fn prepare(
             count_bundle(&mut measurement.counters, &bundle, bytes);
             bundle
         })?;
+    let raw_k =
+        krs_compiler::raw_k_policy(&bundle, profile).map_err(CommandError::DescriptorLowering)?;
+    if !raw_k.errors.is_empty() {
+        return Err(CommandError::Diagnostics(
+            raw_k
+                .errors
+                .into_iter()
+                .filter_map(|diagnostic| {
+                    crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+                })
+                .collect(),
+        ));
+    }
     let semantic = measurement
         .timings
         .try_span("semantic.lower", |_| lower_semantic(&bundle))?;
@@ -440,6 +461,7 @@ fn prepare(
         .try_span("definition.lower", |_| lower_definition(&semantic))?;
     count_definition(&mut measurement.counters, &lowered);
     Ok(PreparedDefinition {
+        raw_k_warnings: raw_k.warnings,
         bundle,
         semantic,
         lowered,
@@ -486,16 +508,40 @@ fn check(
     Ok(CommandOutcome {
         stderr: Vec::new(),
         exit_code: 0,
-        warnings: partition_warnings(&prepared.lowered),
+        warnings: definition_warnings(prepared),
         stdout: stdout.into_bytes(),
     })
 }
 
-/// Returns `warning[krs::partition::not-program-syntax]` for each `program`
-/// production that lowering placed in its package's semantics module.
-fn partition_warnings(lowered: &krs_compiler::LoweredDefinition) -> crate::DiagnosticReports {
+/// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
+/// the package's allowed raw K; every command reports them.
+fn raw_k_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports::default();
-    for warning in lowered.partition().warnings() {
+    for diagnostic in &prepared.raw_k_warnings {
+        if let Some(envelope) =
+            crate::diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None)
+        {
+            reports.envelopes.push(envelope);
+        } else {
+            reports.unlocated.push(crate::UnlocatedDiagnostic {
+                code: diagnostic.code.to_string(),
+                severity: crate::DiagnosticSeverity::Warning,
+                message: diagnostic.message.clone(),
+                source: None,
+                generated_range: None,
+                notes: Vec::new(),
+            });
+        }
+    }
+    reports
+}
+
+/// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
+/// allowed raw K, then `warning[krs::partition::not-program-syntax]` for each
+/// `program` production that lowering placed in its package's semantics module.
+fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
+    let mut reports = raw_k_warnings(prepared);
+    for warning in prepared.lowered.partition().warnings() {
         let diagnostic = warning.to_diagnostic();
         if let Some(envelope) =
             crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
@@ -606,7 +652,7 @@ fn emit(
         outcome: CommandOutcome {
             stderr: Vec::new(),
             exit_code: 0,
-            warnings: partition_warnings(&prepared.lowered),
+            warnings: definition_warnings(prepared),
             stdout,
         },
         artifacts,
@@ -670,7 +716,7 @@ fn build(
             native_command_error(prepared.lowered.source_map(), error)
         })
     })?;
-    let mut warnings = partition_warnings(&prepared.lowered);
+    let mut warnings = definition_warnings(prepared);
     let native =
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);
@@ -1246,6 +1292,7 @@ mod tests {
             registration: RegistrationMode::Inventory,
             no_reuse: false,
             message_format: MessageFormat::Human,
+            profile: None,
         };
         assert!(validate_request(&base).is_ok());
         let mut invalid = base;

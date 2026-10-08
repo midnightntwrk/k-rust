@@ -6,7 +6,7 @@ mod value;
 
 pub(crate) use constructor::ConstructorFamilyMode;
 pub use constructor::{
-    ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionTotality,
+    ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionHook, FunctionTotality,
     PlacementFlag, VariantSyntaxAttribute,
 };
 pub use rule::{

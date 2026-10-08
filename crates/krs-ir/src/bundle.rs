@@ -66,6 +66,28 @@ pub struct PackageSettings {
     pub package: crate::PackageId,
     /// Program-syntax integer literal module (`int-literals`).
     pub int_literals: crate::IntLiterals,
+    /// Whether quoted hooks and `raw_k!` are allowed (`allow-raw-k`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_raw_k: bool,
+    /// Raw K profile (`profile`).
+    #[serde(default, skip_serializing_if = "is_standard")]
+    pub profile: crate::RawKProfile,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+fn is_standard(value: &crate::RawKProfile) -> bool {
+    *value == crate::RawKProfile::Standard
 }
 
 impl PackageSettings {
@@ -73,6 +95,8 @@ impl PackageSettings {
     #[must_use]
     pub fn is_default(&self) -> bool {
         self.int_literals == crate::IntLiterals::default()
+            && !self.allow_raw_k
+            && self.profile == crate::RawKProfile::default()
     }
 }
 
@@ -192,6 +216,16 @@ impl DescriptorBundle {
             .iter()
             .find(|setting| &setting.package == package)
             .map(|setting| setting.int_literals)
+            .unwrap_or_default()
+    }
+
+    /// Returns the `allow-raw-k` and `profile` settings of one package.
+    #[must_use]
+    pub fn raw_k(&self, package: &crate::PackageId) -> (bool, crate::RawKProfile) {
+        self.package_settings
+            .iter()
+            .find(|setting| &setting.package == package)
+            .map(|setting| (setting.allow_raw_k, setting.profile))
             .unwrap_or_default()
     }
 

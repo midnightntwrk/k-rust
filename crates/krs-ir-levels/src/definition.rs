@@ -483,7 +483,8 @@ impl DefinitionIr {
                     DefinitionSentence::Precedence(_)
                     | DefinitionSentence::Associativity(_)
                     | DefinitionSentence::Lexical(_)
-                    | DefinitionSentence::Layout(_) => {}
+                    | DefinitionSentence::Layout(_)
+                    | DefinitionSentence::Raw(_) => {}
                     DefinitionSentence::Configuration(sentence) => {
                         configurations += 1;
                         insert_node::<DefinitionLevel>(
@@ -573,6 +574,13 @@ impl DefinitionIr {
                         }
                     }
                     DefinitionSentence::Lexical(_) | DefinitionSentence::Layout(_) => {}
+                    DefinitionSentence::Raw(sentence) => {
+                        if sentence.text.trim().is_empty() {
+                            return Err(DefinitionValidationError::EmptyText(
+                                krs_ir::IrField::RawSentenceText,
+                            ));
+                        }
+                    }
                     DefinitionSentence::Configuration(sentence) => {
                         validate_fixed_configuration::<DefinitionLevel>(
                             sentence,
@@ -707,6 +715,16 @@ impl DefinitionModule {
         }
     }
 
+    /// Rebuilds the module with every sentence replaced by `map(sentence)`.
+    #[must_use]
+    pub fn map_sentences(self, map: impl FnMut(DefinitionSentence) -> DefinitionSentence) -> Self {
+        let sentences = self.sentences.iter().cloned().map(map).collect();
+        Self {
+            sentences: SortedByKey::new(sentences),
+            ..self
+        }
+    }
+
     /// Marks this module as a package's program-syntax module, whose integer
     /// literals come from the package's `int-literals` setting.
     #[must_use]
@@ -806,6 +824,9 @@ pub enum DefinitionSentence {
     Lexical(krs_ir::LexicalSentence),
     /// Layout regex, `syntax #Layout ::= r".." [token]`.
     Layout(krs_ir::LayoutSentence),
+    /// One `k::raw_k!` sentence, printed verbatim in the package's
+    /// semantics module and parsed by K with that module's grammar.
+    Raw(krs_ir::RawSentence),
 }
 
 impl DefinitionSentence {
@@ -823,6 +844,7 @@ impl DefinitionSentence {
             Self::Rule(value) => &value.origin,
             Self::Lexical(value) => value.origin(),
             Self::Layout(value) => value.origin(),
+            Self::Raw(value) => &value.origin,
         }
     }
 }
@@ -1804,7 +1826,8 @@ fn validate_production(
             | ProductionAttribute::Colors { .. }
             | ProductionAttribute::Prefer { .. }
             | ProductionAttribute::Private { .. }
-            | ProductionAttribute::Memo { .. } => {}
+            | ProductionAttribute::Memo { .. }
+            | ProductionAttribute::RawHook { .. } => {}
             ProductionAttribute::Overload { target, .. }
             | ProductionAttribute::ListCons {
                 terminator: target, ..

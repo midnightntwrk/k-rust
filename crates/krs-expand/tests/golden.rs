@@ -327,6 +327,21 @@ k::layout! {
 }
 "#,
     ),
+    (
+        "raw_k",
+        r##"
+k::raw_k!(r#"rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]"#);
+"##,
+    ),
+    (
+        "function_quoted_hook",
+        r##"
+#[k::function(total, sort = k::builtin::string::String, syntax = "#keccak({value})", hook = "KRYPTO.keccak256")]
+pub struct KeccakHex {
+    pub value: Term<k::builtin::string::String>,
+}
+"##,
+    ),
     // Configuration and initializers.
     (
         "configuration",

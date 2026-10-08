@@ -159,6 +159,56 @@ impl PreparationError {
             resolve_diagnostic_keys(origins, diagnostics);
         }
     }
+
+    /// Reports a K parse error in a `raw_k!` sentence at the `raw_k!` text
+    /// (`krs::native::raw-k-parse`): k-rust names the sentence only by the
+    /// source name the adapter gave it.
+    pub(super) fn resolve_raw_parse_error(&mut self, ir: &krs_ir_levels::DefinitionIr) {
+        let Self::Loader { error, diagnostics } = self else {
+            return;
+        };
+        let k_rust::outer::LoadError::RuleParsing(k_rust::inner::RuleError::Parse(parse)) =
+            error.as_ref()
+        else {
+            return;
+        };
+        let Some(source) = &parse.source else {
+            return;
+        };
+        let raw = ir
+            .modules()
+            .iter()
+            .flat_map(krs_ir_levels::DefinitionModule::sentences)
+            .find_map(|sentence| match sentence {
+                krs_ir_levels::DefinitionSentence::Raw(raw)
+                    if &crate::adapter::raw_source_name(raw) == source =>
+                {
+                    Some(raw)
+                }
+                _ => None,
+            });
+        if let Some(raw) = raw {
+            diagnostics.push(FrontendDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                code: krs_diagnostic::codes::native::RAW_K_PARSE,
+                message: format!(
+                    "K cannot parse this `raw_k!` {} with the grammar of module {:?}: {}",
+                    raw.kind.keyword(),
+                    parse.module,
+                    parse.error
+                ),
+                source: Some(source.clone()),
+                location: parse.location.map(|location| SourceLocation {
+                    start_line: location.start_line,
+                    start_column: location.start_column,
+                    end_line: location.end_line,
+                    end_column: location.end_column,
+                }),
+                source_map_key: Some(raw.origin.key().clone()),
+                input_addresses: Vec::new(),
+            });
+        }
+    }
 }
 
 impl From<k_rust::outer::LoadError> for PreparationError {

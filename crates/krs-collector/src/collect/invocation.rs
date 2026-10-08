@@ -974,6 +974,16 @@ fn collect_macro_invocations(
                 ParsedInvocationPayload::Declaration,
             )?);
         }
+        FunctionMacro::RawK => {
+            let raw = krs_syntax::RawKItem::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            output.push(parsed_invocation(
+                ProvenanceRole::RawKDeclaration,
+                String::new(),
+                raw.provenance().map_err(source_syntax)?,
+                ParsedInvocationPayload::Declaration,
+            )?);
+        }
         _ => {}
     }
     Ok(())

@@ -36,7 +36,18 @@ operation, and a corpus of programs that apply them to concrete values:
   (one token per line) prints `7` and exits with status 7, through `krs run`
   and through Java K's `krun --output none` on the LLVM backend; `krs search`
   on the definition gives the pinned refusal, and the browser route refuses
-  it with the `ConsoleIO` requirement.
+  it with the `ConsoleIO` requirement;
+- `raw-k` and `raw-hook`: the raw K escapes (KF-037) in packages that set
+  `allow-raw-k = true`. A `raw_k!` rule `double` runs natively and on Java K's
+  LLVM backend; the quoted hook `KRYPTO.keccak256` runs natively and on Java
+  K's Haskell backend, kompiled with `--hook-namespaces KRYPTO` because KRYPTO
+  is outside K's default hook namespaces (its LLVM backend would need the
+  blockchain plugin).
+  Each `krs check` pins its `krs::semantic::raw-k` or `krs::expand::raw-hook`
+  warning. `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
+  each fail with both errors, `krs check --profile strict` fails on `raw-k`,
+  and `raw-parse-error`, a `raw_k!` rule K cannot parse, fails `krs build`
+  closed with `krs::native::raw-k-parse` at the `raw_k!` text.
 
 `known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
@@ -73,7 +84,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import (  # noqa: E402
-    JAVA_TOOLS, Fixture, FixtureGate, Program, diagnostic_lines,
+    ACCEPTED, JAVA_TOOLS, Fixture, FixtureGate, Program, diagnostic_lines, java_run_outcome,
 )
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -265,6 +276,16 @@ FLOAT_JAVA_ONLY_PROGRAMS = (
     case("binary128", "belowOne(0.5p113x15)", "true"),
 )
 
+RAW_K = Fixture(MANIFEST, "krs-builtin-raw-k")
+RAW_K_PROGRAMS = (case("double", "double(21)", "42"),)
+RAW_HOOK = Fixture(MANIFEST, "krs-builtin-raw-hook")
+RAW_HOOK_PROGRAMS = (
+    case("keccak-abc", 'keccak(b"abc")', '"4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"'),
+)
+RAW_DENIED = Fixture(MANIFEST, "krs-builtin-raw-denied")
+RAW_STRICT = Fixture(MANIFEST, "krs-builtin-raw-strict")
+RAW_PARSE_ERROR = Fixture(MANIFEST, "krs-builtin-raw-parse-error")
+
 IO = Fixture(MANIFEST, "krs-builtin-io")
 IO_PROGRAM = "read; read; print(sum); halt(sum)"
 IO_STDIN = "3\n4\n"
@@ -455,6 +476,103 @@ def console_io(harness: FixtureGate) -> None:
     )
 
 
+def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
+    """Require `krs check` to pass with the raw K warning `code` and pin its warnings."""
+
+    process = harness._krs(fixture, "check", check=False)
+    lines = diagnostic_lines(process.stderr)
+    if process.returncode != 0 or not any(line.startswith(f"warning[{code}]: ") for line in lines):
+        raise GateError(f"{fixture.package}: krs check exited {process.returncode} without warning[{code}]:\n{process.stderr}")
+    harness.pins.expect(("raw_warnings", fixture.package), lines)
+
+
+def java_haskell_outcomes(harness: FixtureGate, emitted, programs) -> dict[str, dict[str, Any]]:
+    """Run `programs` on Java K's Haskell backend, which evaluates the KRYPTO hooks."""
+
+    package = emitted.fixture.package
+    directory = harness.workspace / "haskell-programs" / package
+    directory.mkdir(parents=True, exist_ok=True)
+    k = Snapshot(
+        f"{harness.label}/{package}-haskell",
+        Key(tools=JAVA_TOOLS, inputs=repository_inputs([])),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, f"{package}-haskell"),
+    )
+    compiled = harness.workspace / "kompiled-haskell" / package
+    kompiled = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "haskell", "--hook-namespaces", "KRYPTO",
+            "--output-definition", compiled,
+        ],
+        timeout=900,
+    )
+    if kompiled.returncode != 0:
+        raise GateError(f"{package}: kompile --backend haskell rejected the emitted definition:\n{kompiled.stderr}")
+    outcomes: dict[str, dict[str, Any]] = {}
+    for program in programs:
+        path = directory / f"{program.name}.pgm"
+        path.write_text(program.text + "\n", encoding="utf-8")
+        executed = k.run(f"krun/{program.name}", "krun", ["--definition", compiled, path], timeout=300)
+        outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
+    print(f"PASS builtin-domains {package} Haskell reference snapshot: {k.finish()}")
+    return outcomes
+
+
+def raw_k(harness: FixtureGate) -> None:
+    """Run the raw K escapes on both routes and pin every refusal (KF-037)."""
+
+    raw_warnings(harness, RAW_K, "krs::semantic::raw-k")
+    harness.expand(RAW_K)
+    emitted = harness.emit(RAW_K)
+    source = emitted.source.read_text(encoding="utf-8")
+    for line in (
+        "  // raw_k! src/lib.rs:38:1 (opaque to KRS)\n"
+        "  rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]\n",
+        "  imports INT\n",
+    ):
+        if line not in source:
+            raise GateError(f"{RAW_K.package}: emitted K lacks {line!r}")
+    harness.compare(emitted, RAW_K_PROGRAMS, sort="Exp")
+    print(f"PASS {RAW_K.package}: the raw rule runs natively and on Java K's LLVM backend")
+
+    raw_warnings(harness, RAW_HOOK, "krs::expand::raw-hook")
+    harness.expand(RAW_HOOK)
+    emitted = harness.emit(RAW_HOOK)
+    if "[symbol(keccakHex), function, total, hook(KRYPTO.keccak256)]" not in emitted.source.read_text(encoding="utf-8"):
+        raise GateError(f"{RAW_HOOK.package}: emitted K lacks hook(KRYPTO.keccak256)")
+    native = harness._native_outcomes(emitted, RAW_HOOK_PROGRAMS)
+    java = java_haskell_outcomes(harness, emitted, RAW_HOOK_PROGRAMS)
+    for program in RAW_HOOK_PROGRAMS:
+        expected = {"parse": program.parse, "run": program.run}
+        for route, outcomes in (("native", native), ("Java K Haskell", java)):
+            if outcomes[program.name] != expected:
+                raise GateError(f"{RAW_HOOK.package} {program.name}: {route} observed {outcomes[program.name]}, expected {expected}")
+    harness.pins.expect(("outcomes", RAW_HOOK.package), {program.name: native[program.name] for program in RAW_HOOK_PROGRAMS})
+    print(f"PASS {RAW_HOOK.package}: the quoted hook runs natively and on Java K's Haskell backend")
+
+    for name, fixture, extra in (
+        ("raw-denied", RAW_DENIED, ()),
+        ("raw-strict", RAW_STRICT, ()),
+        ("raw-profile-strict", RAW_K, ("--profile", "strict")),
+    ):
+        harness.diagnostic(name, fixture, *extra)
+    output = harness.workspace / "native" / RAW_PARSE_ERROR.package
+    built = harness._krs(RAW_PARSE_ERROR, "build", "--output", output, check=False)
+    lines = diagnostic_lines(built.stderr)
+    if built.returncode == 0 or not any(line.startswith("error[krs::native::raw-k-parse]: ") for line in lines):
+        raise GateError(f"{RAW_PARSE_ERROR.package}: krs build exited {built.returncode}:\n{built.stderr}")
+    if "packages/raw-parse-error/src/lib.rs:35:11" not in built.stderr:
+        raise GateError(f"{RAW_PARSE_ERROR.package}: the parse error does not name the raw_k! text:\n{built.stderr}")
+    harness.pins.expect(("diagnostics", "raw-parse-error"), lines)
+    print(
+        "PASS raw K: without allow-raw-k and under the strict profile both escapes fail; "
+        "a raw parse error fails the native build closed"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -493,6 +611,7 @@ def main() -> int:
 
         java_only_floats(harness)
         console_io(harness)
+        raw_k(harness)
 
     pins.finish("builtin-domains")
     print("PASS builtin-domains")

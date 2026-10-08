@@ -516,6 +516,9 @@ pub struct SemanticModule {
     lexicals: SortedByKey<krs_ir::LexicalSentence>,
     #[serde(default, skip_serializing_if = "is_empty_sentences")]
     layouts: SortedByKey<krs_ir::LayoutSentence>,
+    /// `k::raw_k!` sentences, ordered by origin.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    raw_sentences: Vec<krs_ir::RawSentence>,
 }
 
 fn is_empty_sentences<T>(value: &SortedByKey<T>) -> bool {
@@ -606,6 +609,7 @@ impl SemanticModule {
             int_literals: krs_ir::IntLiterals::Signed,
             lexicals: SortedByKey::default(),
             layouts: SortedByKey::default(),
+            raw_sentences: Vec::new(),
         }
     }
 
@@ -633,6 +637,20 @@ impl SemanticModule {
     #[must_use]
     pub fn layouts(&self) -> &[krs_ir::LayoutSentence] {
         &self.layouts
+    }
+
+    /// Sets the module's `k::raw_k!` sentences, ordered by origin.
+    #[must_use]
+    pub fn with_raw_sentences(mut self, mut raw_sentences: Vec<krs_ir::RawSentence>) -> Self {
+        raw_sentences.sort();
+        self.raw_sentences = raw_sentences;
+        self
+    }
+
+    /// Returns the module's `k::raw_k!` sentences, ordered by origin.
+    #[must_use]
+    pub fn raw_sentences(&self) -> &[krs_ir::RawSentence] {
+        &self.raw_sentences
     }
 
     /// Sets the package's program-syntax integer literal module.
@@ -684,6 +702,7 @@ impl SemanticModule {
         .with_int_literals(self.int_literals)
         .with_lexicals(permuted(&self.lexicals, seed))
         .with_layouts(permuted(&self.layouts, seed))
+        .with_raw_sentences(self.raw_sentences.clone())
     }
 
     /// Returns this module's stable identity.

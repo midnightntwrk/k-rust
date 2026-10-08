@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 use syn::spanned::Spanned;
 use syn::{
-    Attribute, Expr, Field, Fields, Ident, ItemStruct, ItemTrait, Lit, Meta, TraitBoundModifier,
-    TypeParamBound,
+    Attribute, Expr, Field, Fields, Ident, ItemStruct, ItemTrait, Lit, LitStr, Meta,
+    TraitBoundModifier, TypeParamBound,
 };
 
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -384,4 +384,109 @@ fn unsupported_constructor(reason: &'static str, span: proc_macro2::Span) -> Syn
         SyntaxErrorKind::UnsupportedConstructorDeclaration { reason },
         span,
     )
+}
+
+/// The payload of `k::raw_k!("...")`: one K rule, claim, or context sentence
+/// as an unchecked string. KRS checks only its outer shape; K parses it.
+#[derive(Clone, Debug)]
+pub struct RawKItem {
+    literal: LitStr,
+    kind: krs_ir::RawSentenceKind,
+}
+
+/// Words that start another K outer sentence or module element; a `raw_k!`
+/// text holds exactly one sentence and no module structure.
+const RAW_K_SENTENCE_WORDS: &[&str] = &[
+    "rule",
+    "claim",
+    "context",
+    "syntax",
+    "configuration",
+    "module",
+    "endmodule",
+    "imports",
+    "require",
+];
+
+impl RawKItem {
+    /// Returns the authored string literal.
+    #[must_use]
+    pub const fn literal(&self) -> &LitStr {
+        &self.literal
+    }
+
+    /// Returns the sentence keyword the text starts with.
+    #[must_use]
+    pub const fn kind(&self) -> krs_ir::RawSentenceKind {
+        self.kind
+    }
+
+    /// Returns the complete sentence text, trimmed of surrounding whitespace.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.literal.value().trim().to_owned()
+    }
+
+    /// Returns the text-literal anchor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if the literal emits no tokens.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(vec![ProvenanceAnchor::new(
+            ProvenanceRole::RawKDeclaration,
+            0,
+            TokenRange::for_tokens(&self.literal)?,
+        )])
+    }
+
+    /// Checks the outer shape of a raw K text: it starts with `rule`, `claim`,
+    /// or `context` and contains no other sentence or module keyword, where a
+    /// keyword is a whitespace-separated word as in K's outer lexer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the reason the text is not one sentence.
+    pub fn check_text(text: &str) -> Result<krs_ir::RawSentenceKind, String> {
+        let mut words = text.split_whitespace();
+        let Some(first) = words.next() else {
+            return Err("`raw_k!` needs one K sentence; the text is empty".to_owned());
+        };
+        let keyword = first.split_once('[').map_or(first, |(keyword, _)| keyword);
+        let Some(kind) = krs_ir::RawSentenceKind::from_keyword(keyword) else {
+            return Err(format!(
+                "`raw_k!` text must start with `rule`, `claim` or `context`, not `{first}`"
+            ));
+        };
+        if let Some(word) = words.find(|word| RAW_K_SENTENCE_WORDS.contains(word)) {
+            return Err(format!(
+                "`raw_k!` holds exactly one sentence, with no `module`, `endmodule` or `imports`; `{word}` starts another"
+            ));
+        }
+        Ok(kind)
+    }
+}
+
+impl KrsSyntax for RawKItem {
+    /// Parses exactly one string literal holding one K sentence.
+    ///
+    /// # Errors
+    ///
+    /// Rejects anything but one string literal, and a text that is not one
+    /// rule, claim or context sentence.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let span = tokens.span();
+        let literal: LitStr = syn::parse2(tokens).map_err(|_| {
+            SyntaxError::new(
+                SyntaxErrorKind::RawKShape {
+                    reason: "`raw_k!` takes one string literal holding one K sentence".to_owned(),
+                },
+                span,
+            )
+        })?;
+        let kind = Self::check_text(&literal.value()).map_err(|reason| {
+            SyntaxError::new(SyntaxErrorKind::RawKShape { reason }, literal.span())
+        })?;
+        Ok(Self { literal, kind })
+    }
 }

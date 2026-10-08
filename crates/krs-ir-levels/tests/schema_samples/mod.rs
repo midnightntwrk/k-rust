@@ -464,6 +464,25 @@ impl Sample for PackageSettings {
         vec![Self {
             package: sample::<PackageId>(),
             int_literals: IntLiterals::Unsigned,
+            allow_raw_k: true,
+            profile: RawKProfile::Strict,
+        }]
+    }
+}
+impl Sample for RawSentenceKind {
+    fn samples() -> Vec<Self> {
+        vec![Self::Rule]
+    }
+}
+impl Sample for RawSentence {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            origin: sample::<NodeOrigin>(),
+            kind: RawSentenceKind::Rule,
+            text: sample::<String>(),
+            line: 1,
+            column: 1,
+            builtin_sorts: BTreeSet::from([BuiltinSort::Int]),
         }]
     }
 }
@@ -817,8 +836,9 @@ impl Sample for DefinitionSentence {
                 Self::Rule(sample::<RuleSentence>()),
                 Self::Lexical(sample::<LexicalSentence>()),
                 Self::Layout(sample::<LayoutSentence>()),
+                Self::Raw(sample::<RawSentence>()),
             ],
-            10,
+            11,
             "DefinitionSentence",
             |value| match value {
                 Self::SyntaxSort(..) => 0,
@@ -831,6 +851,7 @@ impl Sample for DefinitionSentence {
                 Self::Rule(..) => 7,
                 Self::Lexical(..) => 8,
                 Self::Layout(..) => 9,
+                Self::Raw(..) => 10,
             },
         )
     }
@@ -1082,8 +1103,13 @@ impl Sample for DescriptorProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<DescriptorApplicationReference>(),
                 },
+                Self::RawHook {
+                    key: sample::<ProvenanceKey>(),
+                    namespace: sample::<String>(),
+                    name: sample::<String>(),
+                },
             ],
-            20,
+            21,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1106,6 +1132,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Memo { .. } => 17,
                 Self::ListCons { .. } => 18,
                 Self::ListTerminator { .. } => 19,
+                Self::RawHook { .. } => 20,
             },
         )
     }
@@ -1394,8 +1421,15 @@ impl Sample for GrammarDescriptor {
                 Self::Layout {
                     regexes: sample::<Vec<DescriptorLayoutRegex>>(),
                 },
+                Self::RawSentence {
+                    key: sample::<ProvenanceKey>(),
+                    kind: sample::<RawSentenceKind>(),
+                    text: sample::<String>(),
+                    line: sample::<u32>(),
+                    column: sample::<u32>(),
+                },
             ],
-            7,
+            8,
             "GrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -1405,6 +1439,7 @@ impl Sample for GrammarDescriptor {
                 Self::Tokens { .. } => 4,
                 Self::Lexical { .. } => 5,
                 Self::Layout { .. } => 6,
+                Self::RawSentence { .. } => 7,
             },
         )
     }
@@ -1552,8 +1587,13 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     cons: sample::<D>(),
                 },
+                Self::RawHook {
+                    origin: sample::<NodeOrigin>(),
+                    namespace: sample::<String>(),
+                    name: sample::<String>(),
+                },
             ],
-            21,
+            22,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1577,6 +1617,7 @@ impl<
                 Self::Memo { .. } => 18,
                 Self::ListCons { .. } => 19,
                 Self::ListTerminator { .. } => 20,
+                Self::RawHook { .. } => 21,
             },
         )
     }
@@ -2000,8 +2041,15 @@ impl Sample for WireGrammarDescriptor {
                 Self::Layout {
                     regexes: sample::<Vec<DescriptorLayoutRegex>>(),
                 },
+                Self::RawSentence {
+                    key: sample::<ProvenanceKey>(),
+                    kind: sample::<RawSentenceKind>(),
+                    text: sample::<String>(),
+                    line: sample::<u32>(),
+                    column: sample::<u32>(),
+                },
             ],
-            7,
+            8,
             "WireGrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -2011,6 +2059,7 @@ impl Sample for WireGrammarDescriptor {
                 Self::Tokens { .. } => 4,
                 Self::Lexical { .. } => 5,
                 Self::Layout { .. } => 6,
+                Self::RawSentence { .. } => 7,
             },
         )
     }
@@ -2097,8 +2146,13 @@ impl Sample for WireProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<WireApplicationReference>(),
                 },
+                Self::RawHook {
+                    key: sample::<ProvenanceKey>(),
+                    namespace: sample::<String>(),
+                    name: sample::<String>(),
+                },
             ],
-            20,
+            21,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2121,6 +2175,7 @@ impl Sample for WireProductionAttribute {
                 Self::Memo { .. } => 17,
                 Self::ListCons { .. } => 18,
                 Self::ListTerminator { .. } => 19,
+                Self::RawHook { .. } => 20,
             },
         )
     }
@@ -3242,6 +3297,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<LexicalSentence>(corpus, "LexicalSentence");
     insert::<NodeOrigin>(corpus, "NodeOrigin");
     insert::<PrecedenceRelation>(corpus, "PrecedenceRelation");
+    insert::<RawSentence>(corpus, "RawSentence");
     insert::<ProductionContextAliasReference>(corpus, "ProductionContextAliasReference");
 }
 
