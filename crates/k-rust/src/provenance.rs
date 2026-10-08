@@ -1,17 +1,18 @@
 //! ```toml algorithm
 //! id = "definition.provenance.record"
 //! name = "recording of generation-origin receipts"
-//! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link", "CarrierOrigins::origins"]
-//! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
+//! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "term_origin_links", "insert_link", "CarrierOrigins::origins"]
+//! variable = "N = sentences and changed term nodes; L = links of the sentence-level origin sets the pass reads or builds; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
 //! counters = ["ProvenanceSetNodesBuilt", "ProvenanceSetPartsBuilt", "ProvenanceLinksSteps", "ProvenanceNonflatFlattens", "KompileSentenceCopies"]
+//! tests = ["crates/k-rust/tests/provenance_linearity.rs"]
 //!
 //! [[cost]]
 //! mode = "one order-preserving generating pass with distinct fallback bucket keys"
-//! bound = "O(M^2 + D + N + sum k) expected"
+//! bound = "O(M^2 + D + N + L) expected"
 //!
 //! [[cost]]
 //! mode = "one generating pass with adversarial fallback buckets"
-//! bound = "O(M^2 + D + N^2 x s + sum k)"
+//! bound = "O(M^2 + D + N^2 x s + L)"
 //! ```
 //!
 //! ```toml algorithm
@@ -31,10 +32,10 @@
 //! bound = "O(F) LogicalSourceId and offset-map comparisons"
 //! ```
 //!
-//! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
-//! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ; origin unions O(k) expected per visited node.
-//! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions. A receipt's destination path shares its parent's (`AnchorPath`), a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack. A term a pass places unchanged under a node it builds is compared with the term it was, so it adds no receipt. The links a generated node holds are its own and those of the generated node above it, so where a pass rebuilds a deep term whose nodes carry spans of their own and that has no counterpart to compare with, `k` grows with the depth of the rebuilt part and the insertions with its square.
-//! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
+//! Provenance records before/after sentence counterparts and annotates changed terms with origin sets, the first-encounter-ordered unions of the sets and spans they derive from.
+//! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ.
+//! A changed node's set is an [`OriginSet`] node naming at most five parts (its counterpart's prior set, its own prior set, the two spans, the set it inherits), built by pointer and value comparisons of those parts without reading a link of any set they name, so each annotated node costs O(1) whatever its depth and whatever the size of the inherited set; `ProvenanceSetNodesBuilt` and `ProvenanceSetPartsBuilt` count the nodes and parts built. Sentence-level sets are flat link lists read and built in time linear in their links (`L`, counted by `ProvenanceLinksSteps`); no compile flattens a term set (`ProvenanceNonflatFlattens` stays zero). A receipt's destination path shares its parent's (`AnchorPath`) and its names are shared per sentence, a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack. A term a pass places unchanged under a node it builds is compared with the term it was, so it adds no receipt.
+//! Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
 //!

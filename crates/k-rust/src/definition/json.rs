@@ -1,18 +1,19 @@
 //! ```toml algorithm
 //! id = "definition.json.encode"
 //! name = "KAST JSON encoding of flat definitions"
-//! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance"]
-//! variable = "N = encoded definition nodes; L = links of the distinct origin-set allocations the receipts share"
-//! counters = ["ProvenanceReceiptRenders"]
+//! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance", "ProvenanceEncoder::node_index", "ProvenanceEncoder::anchor", "collect_definition_metadata", "from_provenance_str", "decode_origin_sets", "decode_anchors", "attach_term_metadata"]
+//! variable = "N = encoded definition nodes; L = parts of the distinct origin-set allocations the receipts reach; A = distinct destination-path step allocations the receipts reach"
+//! counters = ["ProvenanceReceiptRenders", "ProvenanceEncoderSetKeys", "ProvenanceEncoderAnchorInternings", "ProvenanceDecoderSteps"]
+//! tests = ["crates/k-rust/tests/provenance_linearity.rs", "crates/k-rust/tests/provenance_routes.rs"]
 //! constrains = [{ id = "definition.provenance.record", site = "serialize_provenance", via = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization" }]
 //!
 //! [[cost]]
-//! mode = "one definition"
-//! bound = "O(N + L)"
+//! mode = "one definition, encoded or decoded"
+//! bound = "O(N + L + A) expected"
 //! ```
 //!
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
-//! Complexity: O(N + L): each receipt is encoded once and names its origin set by index into the provenance envelope's table, which holds each distinct set once; a set shared by many receipts is looked up by its allocation after its first encounter, so its links are hashed and written once.
+//! Complexity: O(N + L + A). In `KRUST-PROVENANCE`, each receipt names its origin set by index into the `originSets` table and its destination by index into the `anchors` table, and each annotated node's metadata is addressed by its field and preorder index. The encoder computes each distinct set allocation's normal key once (a post-order walk memoised by allocation, `ProvenanceEncoderSetKeys`) and resolves each destination by walking its path up to the first step already resolved under its root (`ProvenanceEncoderAnchorInternings`), so a set or path reached along many paths of a shared DAG costs its own parts once. The reader checks and builds each table entry and attaches metadata in one preorder walk per field (`ProvenanceDecoderSteps`).
 //! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
 //! KAST JSON version 4 and KRUST-PROVENANCE serialization for flat K definitions.
@@ -58,6 +59,16 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// `org.krust.provenance.InputAddresses`; a version 5 reader would take that key for an ordinary
 /// attribute. Version 7 holds rule-like sentences whose labels carry no sort parameters, which
 /// compilation now rejects; a version 6 document holds the parser's own instances there.
+///
+/// Version 8 makes a document linear in the definition it holds. An `originSets` entry is a
+/// node in normal form whose parts are links and references to earlier entries, so a receipt
+/// that unites other sets names them instead of copying their links; receipts name their
+/// destination in an `anchors` table of roots (module, sentence, sentence index) and steps (an
+/// earlier anchor and one child step); `termMetadata` addresses a node by its field and its
+/// preorder index instead of its path; and every source reference is the index of its entry in
+/// `sources`. The bytes are a function of each receipt's normal form, not of how the writer's
+/// memory shares sets or paths. A version 7 document is refused: every writer of one can write
+/// it again, and a reader of version 7 would keep the quadratic decoding version 8 replaces.
 pub const PROVENANCE_VERSION: u32 = 8;
 
 #[derive(Clone, Copy, Eq, PartialEq)]

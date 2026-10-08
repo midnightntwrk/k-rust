@@ -3205,6 +3205,30 @@ file = "crates/k-rust-backend/tests/backend/term_order.rs"
 symbol = "crates/k-rust-backend/tests/backend/term_order.rs"
 
 [[node]]
+kind = "observation"
+id = "crates/k-rust/tests/provenance_linearity.rs"
+provenance = "declared"
+area = "definition"
+name = "crates/k-rust/tests/provenance_linearity.rs"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/tests/provenance_linearity.rs"
+symbol = "crates/k-rust/tests/provenance_linearity.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust/tests/provenance_routes.rs"
+provenance = "declared"
+area = "definition"
+name = "crates/k-rust/tests/provenance_routes.rs"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/tests/provenance_routes.rs"
+symbol = "crates/k-rust/tests/provenance_routes.rs"
+
+[[node]]
 kind = "phase"
 id = "declare deferred totality"
 provenance = "table"
@@ -3511,7 +3535,7 @@ id = "definition.json.encode"
 provenance = "declared"
 area = "definition"
 name = "KAST JSON encoding of flat definitions"
-variable = "N = encoded definition nodes; L = links of the distinct origin-set allocations the receipts share"
+variable = "N = encoded definition nodes; L = parts of the distinct origin-set allocations the receipts reach; A = distinct destination-path step allocations the receipts reach"
 table = "Algorithm::ALL"
 registry_name = "DefinitionJsonEncode"
 
@@ -3547,12 +3571,47 @@ symbol = "serialize_provenance"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "ProvenanceEncoder::node_index"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "ProvenanceEncoder::anchor"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "collect_definition_metadata"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "from_provenance_str"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "decode_origin_sets"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "decode_anchors"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/json.rs"
+symbol = "attach_term_metadata"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/native.rs"
 symbol = "write_runnable_artifact"
 
 [[node.cost]]
-mode = "one definition"
-bound = "O(N + L)"
+mode = "one definition, encoded or decoded"
+bound = "O(N + L + A) expected"
 
 [[node]]
 kind = "algorithm"
@@ -3851,7 +3910,7 @@ id = "definition.provenance.record"
 provenance = "declared"
 area = "definition"
 name = "recording of generation-origin receipts"
-variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
+variable = "N = sentences and changed term nodes; L = links of the sentence-level origin sets the pass reads or builds; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
 table = "Algorithm::ALL"
 registry_name = "DefinitionProvenanceRecord"
 
@@ -3878,6 +3937,11 @@ symbol = "annotate_term"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
+symbol = "term_origin_links"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
 symbol = "insert_link"
 
 [[node.sites]]
@@ -3887,11 +3951,11 @@ symbol = "CarrierOrigins::origins"
 
 [[node.cost]]
 mode = "one order-preserving generating pass with distinct fallback bucket keys"
-bound = "O(M^2 + D + N + sum k) expected"
+bound = "O(M^2 + D + N + L) expected"
 
 [[node.cost]]
 mode = "one generating pass with adversarial fallback buckets"
-bound = "O(M^2 + D + N^2 x s + sum k)"
+bound = "O(M^2 + D + N^2 x s + L)"
 
 [[node]]
 kind = "algorithm"
@@ -8890,7 +8954,37 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "definition.json.encode"
+to = "ProvenanceDecoderSteps"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "ProvenanceEncoderAnchorInternings"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "ProvenanceEncoderSetKeys"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
 to = "ProvenanceReceiptRenders"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "crates/k-rust/tests/provenance_linearity.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "crates/k-rust/tests/provenance_routes.rs"
 provenance = "declared"
 
 [[edge]]
@@ -8975,6 +9069,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "definition.provenance.record"
 to = "ProvenanceSetPartsBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "crates/k-rust/tests/provenance_linearity.rs"
 provenance = "declared"
 
 [[edge]]
