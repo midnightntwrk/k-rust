@@ -198,3 +198,29 @@ fn frontend_failures_retain_stage_and_structured_diagnostics() {
     );
     assert!(!error.message().is_empty());
 }
+
+#[test]
+fn the_route_table_refuses_anywhere_rules_only_on_the_java_haskell_reference() {
+    for route in crate::Route::ALL {
+        assert_eq!(crate::Route::from_name(route.name()), Some(route));
+        let availability = crate::route_capability("AnywhereRule", route);
+        assert_eq!(
+            matches!(availability, CapabilityAvailability::Unavailable(_)),
+            route == crate::Route::JavaHaskellReference,
+            "{}",
+            route.name()
+        );
+    }
+    assert_eq!(
+        crate::route_capability("NoSuchFeature", crate::Route::JavaHaskellReference),
+        CapabilityAvailability::Available
+    );
+    assert_eq!(
+        crate::Route::native(Backend::Llvm),
+        crate::Route::NativeLlvm
+    );
+    assert_eq!(
+        crate::Route::native(Backend::Haskell),
+        crate::Route::NativeRust
+    );
+}

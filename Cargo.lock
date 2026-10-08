@@ -685,6 +685,7 @@ dependencies = [
  "k-rust",
  "krs-cli",
  "krs-compiler",
+ "krs-diagnostic",
  "krs-exec",
  "krs-expand",
  "krs-ir",

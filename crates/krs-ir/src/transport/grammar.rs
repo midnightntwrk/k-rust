@@ -1431,6 +1431,9 @@ stage_shape! {
         /// Optional check-only nondeterminism group of a transition.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub nondet: Option<DescriptorNondetGroup> => [keep],
+        /// Provenance of the `anywhere` marker of a term-shaped transition.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub anywhere: Option<ProvenanceKey> => [keep],
         /// Complete subject-pattern provenance.
         pub pattern_key: ProvenanceKey => [keep],
         /// Complete result-expression provenance.
@@ -1673,6 +1676,43 @@ impl DescriptorTerm {
 }
 
 impl StructuredRuleDescriptor {
+    /// Validates the priority, nondet, and anywhere keys of a rule.
+    fn validate_rule_keys(
+        &self,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        if let Some(priority) = &self.priority {
+            require_key(&priority.key, provenance)?;
+            if priority.role_for(self.sentence_kind).is_none() {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidPriorityKind,
+                ));
+            }
+        }
+        if let Some(nondet) = &self.nondet {
+            require_key(&nondet.key, provenance)?;
+            if self.sentence_kind != SentenceKind::Transition || !nondet.is_valid() {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidNondetGroup,
+                ));
+            }
+        }
+        if let Some(anywhere) = &self.anywhere {
+            require_key(anywhere, provenance)?;
+            if self.sentence_kind != SentenceKind::Transition
+                || anywhere.role() != ProvenanceRole::RuleAnywhere
+                || anywhere.ordinal() != 0
+                || self.priority.is_some()
+                || self.nondet.is_some()
+            {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidAnywhereRule,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Validates local rule shape and all parser-keyed nested nodes.
     ///
     /// # Errors
@@ -1707,22 +1747,7 @@ impl StructuredRuleDescriptor {
                 ));
             }
         }
-        if let Some(priority) = &self.priority {
-            require_key(&priority.key, provenance)?;
-            if priority.role_for(self.sentence_kind).is_none() {
-                return Err(GrammarTransportError::InvalidTerm(
-                    GrammarTermReason::InvalidPriorityKind,
-                ));
-            }
-        }
-        if let Some(nondet) = &self.nondet {
-            require_key(&nondet.key, provenance)?;
-            if self.sentence_kind != SentenceKind::Transition || !nondet.is_valid() {
-                return Err(GrammarTransportError::InvalidTerm(
-                    GrammarTermReason::InvalidNondetGroup,
-                ));
-            }
-        }
+        self.validate_rule_keys(provenance)?;
         if let Some(simplification) = &self.simplification {
             require_key(&simplification.key, provenance)?;
             if self.sentence_kind != SentenceKind::Simplification {
@@ -2637,6 +2662,9 @@ impl StructuredRuleDescriptor {
         if let Some(nondet) = &self.nondet {
             insert_exact(&mut keys, &nondet.key, ProvenanceRole::RuleNondetGroup, 0)?;
         }
+        if let Some(anywhere) = &self.anywhere {
+            insert_exact(&mut keys, anywhere, ProvenanceRole::RuleAnywhere, 0)?;
+        }
         if let Some(simplification) = &self.simplification {
             insert_exact(
                 &mut keys,
@@ -3089,6 +3117,7 @@ mod traversal_tests {
             }),
             priority: None,
             nondet: None,
+            anywhere: None,
             simplification: None,
             pattern_key: key(1),
             result_key: key(2),

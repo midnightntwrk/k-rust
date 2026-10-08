@@ -759,6 +759,12 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
     .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
+    .with_anywhere(
+        rule.anywhere
+            .as_ref()
+            .map(|key| semantic_origin(descriptor, key.clone(), "rule-anywhere"))
+            .transpose()?,
+    )
     .with_simplification(simplification)
     .with_requires(requires)?)
 }

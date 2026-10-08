@@ -185,6 +185,10 @@ register_codes! {
         MIXED_GROUP: "krs::partition::mixed-group" => "A precedence or associativity group mixes `internal` and program-syntax productions.",
         SIGNED_INTEGER_LEAK: "krs::partition::signed-integer-leak" => "An unsigned package's program syntax imports a signed package's program syntax.",
     }
+    /// Diagnostics from the backend capability table (V8).
+    capability {
+        UNAVAILABLE: "krs::capability::unavailable" => "A backend route lacks a feature the definition needs; it refuses the definition before compiling it.",
+    }
     /// Diagnostics from Rust token parsing and KRS syntax validation.
     syntax {
         RESERVED_BINDER: "krs::syntax::reserved-binder" => "An authored binder contains the marker reserved for generated identifiers.",

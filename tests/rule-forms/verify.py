@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: rule and equation priority (KF-010), nondet (KF-012).
+"""Rule-forms feature gate: priority (KF-010), nondet (KF-012), and anywhere rules (KF-026).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -14,11 +14,20 @@ the outcomes must agree:
   native search and `krun --search` both reach `heads` and `tails`; bare
   `#[k::strict]` reaches counters 3 and 4 on both routes; two `#[k::rule]`
   fns with complementary guards need no group; the key emits nothing;
+- `anywhere`: `#[k::rule(anywhere)]` drops a leading `a` from `seq` at the
+  top, inside `wrap(..)`, and repeatedly on both routes; reassociating
+  `seq(seq(b, c), d)` is a pinned divergence (k-rust leaves the left-hand
+  side, which nests the anywhere-headed `seq`, unreduced with a residual
+  `#Ceil`; Java LLVM reassociates); each emitted rule carries `anywhere` and a
+  `// krs-capability: AnywhereRule` comment, `symbols.json` records the
+  requirement, and the Java Haskell reference route refuses the definition
+  with `krs::capability::unavailable` before anything is kompiled;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
-  one rule, a stale group member, a group mixing priorities, and `nondet` on
-  an equation each fail `krs check` with a pinned diagnostic.
+  one rule, a stale group member, a group mixing priorities, `nondet` on an
+  equation, and `anywhere` on a readable clause, on a `cells!` rule, or with
+  `priority` each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -69,6 +78,23 @@ PRIORITY_PROGRAMS = (
 )
 
 NONDET = Fixture(MANIFEST, "krs-rule-forms-nondet")
+ANYWHERE = Fixture(MANIFEST, "krs-rule-forms-anywhere")
+ANYWHERE_PROGRAMS = (
+    Program("drop", "seq(a, b)", "accepted", "b"),
+    Program("drop-nested", "wrap(seq(a, b))", "accepted", "wrap(b)"),
+    Program("drop-repeated", "seq(a, seq(a, c))", "accepted", "c"),
+    # A pinned divergence: k-rust leaves `seq(seq(b, c), d)` unreduced with a
+    # residual `#Ceil(seq(b, c))`, because the left-hand side nests the
+    # anywhere-headed `seq`; Java LLVM reassociates.
+    Program("reassociate", "seq(seq(b, c), d)", "accepted", "seq(b, seq(c, d))"),
+    Program("reassociate-nested", "wrap(seq(seq(b, c), d))", "accepted", "wrap(seq(b, seq(c, d)))"),
+)
+ANYWHERE_REFUSAL = (
+    "error[krs::capability::unavailable]: definition contains anywhere rules [drop-a, reassociate]; "
+    "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); "
+    "run this on the LLVM or k-rust route"
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -88,6 +114,9 @@ NEGATIVE = (
     "stale-member",
     "mixed-priorities",
     "nondet-equation",
+    "anywhere-readable",
+    "anywhere-cells",
+    "anywhere-priority",
 )
 
 
@@ -109,6 +138,40 @@ def emitted_attributes(emitted, fragments: tuple[str, ...]) -> None:
     for fragment in fragments:
         if fragment not in source:
             raise GateError(f"{emitted.fixture.package}: emitted K omits {fragment!r}")
+
+
+def verify_anywhere(harness: FixtureGate, pins: Ledger) -> None:
+    """Anywhere rules run natively and on Java LLVM; the Java Haskell route refuses them."""
+
+    harness.check(ANYWHERE)
+    harness.expand(ANYWHERE)
+    emitted = harness.emit(ANYWHERE)
+    emitted_attributes(emitted, (
+        "  // krs-capability: AnywhereRule reassociate\n  rule seq ( seq (",
+        "[anywhere, label(reassociate)]",
+        "  // krs-capability: AnywhereRule drop-a\n  rule seq ( a , S:Stmt ) => S:Stmt [anywhere, label(drop-a)]",
+    ))
+    symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
+    requirements = symbols.get("capability_requirements")
+    if sorted((row["feature"], row["symbol"]) for row in requirements or ()) != [
+        ("AnywhereRule", "drop-a"), ("AnywhereRule", "reassociate"),
+    ]:
+        raise GateError(f"symbols.json records {requirements!r} as the capability requirements")
+    harness.compare(emitted, ANYWHERE_PROGRAMS, sort="Stmt")
+    for route in ("native-rust", "native-llvm", "java-llvm-reference"):
+        krs_gate.require_route(harness.gate, emitted.directory, route, environment=harness.environment)
+    # The Java Haskell reference step stops at the capability check, before kompile.
+    try:
+        krs_gate.require_route(
+            harness.gate, emitted.directory, "java-haskell-reference", environment=harness.environment,
+        )
+    except GateError as refusal:
+        message = str(refusal)
+    else:
+        raise GateError("the java-haskell-reference route accepted a definition with anywhere rules")
+    if message != ANYWHERE_REFUSAL:
+        raise GateError(f"java-haskell-reference refusal changed:\n{message}")
+    pins.expect(("capability_refusals", "java-haskell-reference"), message)
 
 
 def main() -> int:
@@ -155,6 +218,9 @@ def main() -> int:
             raise GateError("the check-only nondet key reached the emitted K")
         harness.compare(nondet, NONDET_PROGRAMS, sort="Exp", search=True)
         print("PASS nondet: toss reaches heads and tails, strictness order reaches 3 and 4, guards separate div")
+
+        verify_anywhere(harness, pins)
+        print("PASS anywhere: drop-a at any depth on both routes, reassociation a pinned k-rust divergence, Java Haskell refused before kompile")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

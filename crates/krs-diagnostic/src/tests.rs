@@ -34,6 +34,7 @@ fn registered_spellings_are_well_formed_and_unique() {
         codes::analysis::CODES,
         codes::rust_expansion::CODES,
         codes::partition::CODES,
+        codes::capability::CODES,
         codes::syntax::CODES,
         codes::expand::CODES,
         codes::policy::CODES,

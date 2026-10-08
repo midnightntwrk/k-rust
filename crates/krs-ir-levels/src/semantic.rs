@@ -952,6 +952,7 @@ pub struct SemanticRule {
     simplification: Option<SemanticSimplification>,
     claim: Option<SemanticClaim>,
     nondet_group: Option<SemanticNondetGroup>,
+    anywhere: Option<NodeOrigin>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -968,6 +969,7 @@ impl Serialize for SemanticRule {
             simplification: self.simplification.as_ref().map(Cow::Borrowed),
             claim: self.claim.as_ref().map(Cow::Borrowed),
             nondet_group: self.nondet_group.as_ref().map(Cow::Borrowed),
+            anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -993,6 +995,8 @@ struct SemanticRuleWire<'a, B> {
     claim: Option<Cow<'a, SemanticClaim>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nondet_group: Option<Cow<'a, SemanticNondetGroup>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anywhere: Option<Cow<'a, NodeOrigin>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1027,6 +1031,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             simplification: value.simplification.map(Cow::into_owned),
             claim: value.claim.map(Cow::into_owned),
             nondet_group: value.nondet_group.map(Cow::into_owned),
+            anywhere: value.anywhere.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1064,6 +1069,7 @@ impl SemanticRule {
             simplification: None,
             claim: None,
             nondet_group: None,
+            anywhere: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1106,6 +1112,7 @@ impl SemanticRule {
             simplification: None,
             claim: None,
             nondet_group: None,
+            anywhere: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1163,6 +1170,17 @@ impl SemanticRule {
     #[must_use]
     pub const fn nondet_group(&self) -> Option<&SemanticNondetGroup> {
         self.nondet_group.as_ref()
+    }
+    /// Marks a term-shaped transition as an anywhere rule, with the marker's provenance.
+    #[must_use]
+    pub fn with_anywhere(mut self, origin: Option<NodeOrigin>) -> Self {
+        self.anywhere = origin;
+        self
+    }
+    /// Returns the `anywhere` marker provenance of an anywhere rule.
+    #[must_use]
+    pub const fn anywhere(&self) -> Option<&NodeOrigin> {
+        self.anywhere.as_ref()
     }
     /// Attaches typed simplification metadata.
     #[must_use]
@@ -1769,6 +1787,7 @@ mod tests {
             priority: None,
             simplification: None,
             nondet_group: None,
+            anywhere: None,
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,

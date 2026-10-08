@@ -161,3 +161,4 @@ ConstructorColorsEntry=constructor_colors_entry
 RulePriority=rule_priority
 EquationOwise=equation_owise
 RuleNondetGroup=rule_nondet_group
+RuleAnywhere=rule_anywhere

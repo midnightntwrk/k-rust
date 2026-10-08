@@ -15,6 +15,7 @@ z3-inference = ["k-rust/z3-inference", "krs-exec/z3-inference", "krs-k-rust/z3-i
 k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false }
 krs-cli = { path = "../krs-cli" }
 krs-compiler = { path = "../krs-compiler" }
+krs-diagnostic = { path = "../krs-diagnostic" }
 krs-exec = { path = "../krs-exec", default-features = false }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }

@@ -126,6 +126,91 @@ pub enum CapabilityAvailability {
     Unavailable(&'static str),
 }
 
+/// A route that runs a KRS definition, for the backend capability table (V8).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Route {
+    /// The in-process k-rust backend on symbolic KORE (`krs build --backend haskell`, `krs prove`).
+    NativeRust,
+    /// The in-process k-rust frontend emitting LLVM KORE (`krs build --backend llvm`).
+    NativeLlvm,
+    /// Java K's LLVM backend on the emitted `.k` (reference gates).
+    JavaLlvmReference,
+    /// Java K's Haskell backend on the emitted `.k` (reference proofs).
+    JavaHaskellReference,
+    /// The browser lesson worker.
+    Browser,
+}
+
+impl Route {
+    /// Every route, in table order.
+    pub const ALL: [Self; 5] = [
+        Self::NativeRust,
+        Self::NativeLlvm,
+        Self::JavaLlvmReference,
+        Self::JavaHaskellReference,
+        Self::Browser,
+    ];
+
+    /// The stable route name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NativeRust => "native-rust",
+            Self::NativeLlvm => "native-llvm",
+            Self::JavaLlvmReference => "java-llvm-reference",
+            Self::JavaHaskellReference => "java-haskell-reference",
+            Self::Browser => "browser",
+        }
+    }
+
+    /// The route with the given stable name.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|route| route.name() == name)
+    }
+
+    /// The native route that compiles for `backend`.
+    #[must_use]
+    pub const fn native(backend: Backend) -> Self {
+        match backend {
+            Backend::Llvm => Self::NativeLlvm,
+            Backend::Haskell => Self::NativeRust,
+        }
+    }
+}
+
+/// One row of the backend capability table: a feature and the routes that lack it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteCapability {
+    /// Stable feature name, as `krs_compiler::capability::CapabilityFeature::name` spells it.
+    pub feature: &'static str,
+    /// Routes that cannot run the feature.
+    pub unavailable_on: &'static [Route],
+    /// Why, and what to run instead; the refusal message ends with it.
+    pub reason: &'static str,
+    /// Where the limitation is recorded.
+    pub evidence: &'static str,
+}
+
+/// The backend capability table, one row per feature (append-only).
+pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[RouteCapability {
+    feature: "AnywhereRule",
+    unavailable_on: &[Route::JavaHaskellReference],
+    reason: "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route",
+    evidence: "Java kompile --backend haskell refuses an `anywhere` rule unless --allow-anywhere-haskell, which drops it; k-rust implements anywhere rules (docs/compatibility.md)",
+}];
+
+/// Whether `route` can run `feature`; a feature without a row is available everywhere.
+#[must_use]
+pub fn route_capability(feature: &str, route: Route) -> CapabilityAvailability {
+    ROUTE_CAPABILITIES
+        .iter()
+        .find(|row| row.feature == feature && row.unavailable_on.contains(&route))
+        .map_or(CapabilityAvailability::Available, |row| {
+            CapabilityAvailability::Unavailable(row.reason)
+        })
+}
+
 const SUPPORTED_BACKENDS: &[Backend] = &[Backend::Llvm, Backend::Haskell];
 
 /// Capabilities compiled into the pinned frontend and supplied by this adapter.

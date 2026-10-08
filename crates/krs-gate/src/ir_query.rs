@@ -57,6 +57,9 @@ enum Query {
     AbsoluteStrings {},
     Files {},
     Modules {},
+    Capabilities {
+        route: String,
+    },
     SemanticModules {},
     Sentences {
         #[serde(default)]
@@ -737,6 +740,41 @@ fn source_fact(row: &krs_compiler::SourceMapEntry) -> Value {
     fact
 }
 
+/// The capability requirements of the emitted definition (V8) and the
+/// refusal of `route`, if it lacks one of them.
+fn capabilities(definition: &DefinitionIr, route: &str) -> QueryResult {
+    let route = krs_k_rust::Route::from_name(route)
+        .ok_or_else(|| format!("unknown capability route `{route}`"))?;
+    let requirements = krs_compiler::capability::capability_requirements(definition);
+    let mut refusals = Vec::new();
+    for feature in krs_compiler::capability::CapabilityFeature::ALL {
+        if !requirements
+            .iter()
+            .any(|requirement| requirement.feature() == *feature)
+        {
+            continue;
+        }
+        if let krs_k_rust::CapabilityAvailability::Unavailable(reason) =
+            krs_k_rust::route_capability(feature.name(), route)
+        {
+            refusals.push(json!({
+                "feature": feature.name(),
+                "code": krs_diagnostic::codes::capability::UNAVAILABLE.as_str(),
+                "message": krs_compiler::capability::unavailable_message(
+                    *feature,
+                    reason,
+                    &requirements,
+                ),
+            }));
+        }
+    }
+    Ok(json!({
+        "route": route.name(),
+        "requirements": requirements,
+        "refusals": refusals,
+    }))
+}
+
 /// Dispatches an independent artifact-query session request.
 ///
 /// # Errors
@@ -939,6 +977,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                         "has_claims": has_claims,
                     }))
                 }
+                Query::Capabilities { route } => capabilities(&definition, &route),
                 Query::Modules {} => {
                     let rows = definition
                         .modules()
@@ -2234,5 +2273,25 @@ mod tests {
                 &json!({"symbol":"wrappingRange","arguments":[{"token":"0"},{"token":"1"}]})
             )
         );
+    }
+
+    #[test]
+    fn every_capability_feature_has_one_route_table_row() {
+        for feature in krs_compiler::capability::CapabilityFeature::ALL {
+            let rows = krs_k_rust::ROUTE_CAPABILITIES
+                .iter()
+                .filter(|row| row.feature == feature.name())
+                .count();
+            assert_eq!(rows, 1, "{}", feature.name());
+        }
+        for row in krs_k_rust::ROUTE_CAPABILITIES {
+            assert!(
+                krs_compiler::capability::CapabilityFeature::ALL
+                    .iter()
+                    .any(|feature| feature.name() == row.feature),
+                "route table row {} names no compiler feature",
+                row.feature
+            );
+        }
     }
 }

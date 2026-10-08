@@ -216,6 +216,7 @@ details! {
         InvalidExplicitRuleLabel => "invalid explicit rule label",
         InvalidPriorityKind => "priority must be an equation priority or transition ordered fallback",
         InvalidNondetGroup => "nondet group outside a transition or with an invalid identifier",
+        InvalidAnywhereRule => "anywhere marker outside a transition, or beside a priority or nondet group",
         UnexpectedSimplificationMetadata => "simplification metadata is supported only on simplifications",
         MissingSimplificationMetadata => "simplification sentence lacks simplification metadata",
         StaticAliasRequires => "static alias clauses cannot carry requires conditions",

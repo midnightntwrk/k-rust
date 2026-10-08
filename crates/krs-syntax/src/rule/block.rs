@@ -752,7 +752,16 @@ pub(super) fn take_rule_clause_attribute(
                     attribute.span(),
                 ));
             };
-            rule = Some(crate::RuleAttribute::parse_tokens(list.tokens.clone())?);
+            let parsed = crate::RuleAttribute::parse_tokens(list.tokens.clone())?;
+            if let Some(anywhere) = parsed.anywhere() {
+                return Err(SyntaxError::new(
+                    crate::SyntaxErrorKind::InvalidRuleKey {
+                        reason: crate::ANYWHERE_NOT_TERM_SHAPED,
+                    },
+                    anywhere.span(),
+                ));
+            }
+            rule = Some(parsed);
         } else {
             retained.push(attribute);
         }

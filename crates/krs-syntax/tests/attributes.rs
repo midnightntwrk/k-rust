@@ -556,6 +556,53 @@ fn rule_accepts_a_transition_priority_and_anchors_its_literal() {
 }
 
 #[test]
+fn rule_accepts_anywhere_and_rejects_it_beside_ordering_keys() {
+    let attribute =
+        krs_syntax::RuleAttribute::parse_source(r#"anywhere, label = "reassociate""#).unwrap();
+    assert!(attribute.anywhere().is_some());
+    let anchors = attribute.provenance().unwrap();
+    assert_eq!(anchors[1].role(), ProvenanceRole::RuleAnywhere);
+    for source in [
+        "anywhere, owise",
+        "priority = 40, anywhere",
+        "anywhere, nondet = g",
+    ] {
+        let error = krs_syntax::RuleAttribute::parse_source(source).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidRuleKey {
+                reason: "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`",
+            },
+            "{source}"
+        );
+    }
+    let error = krs_syntax::RuleAttribute::parse_source("anywhere, anywhere").unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::DuplicateArgument { name: "anywhere" }
+    );
+}
+
+#[test]
+fn rule_accepts_a_nondet_group_and_functions_reject_it() {
+    let attribute = krs_syntax::RuleAttribute::parse_source("nondet = toss").unwrap();
+    assert_eq!(attribute.nondet().unwrap(), "toss");
+    assert_eq!(
+        attribute.provenance().unwrap()[0].role(),
+        ProvenanceRole::RuleNondetGroup
+    );
+    let reason =
+        "functions are deterministic in K; overlapping equations make the function ill-defined";
+    let equation = krs_syntax::EquationAttribute::parse_source("nondet = g").unwrap_err();
+    let simplification =
+        krs_syntax::SimplificationAttribute::parse_source("nondet = g").unwrap_err();
+    let alias = krs_syntax::AliasAttribute::parse_source("nondet = g").unwrap_err();
+    for error in [equation, simplification, alias] {
+        assert_eq!(error.kind(), &SyntaxErrorKind::InvalidRuleKey { reason });
+    }
+}
+
+#[test]
 fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
     let cases = [
         (

@@ -47,6 +47,15 @@ pub(crate) fn rule(
             .is_some_and(|segment| segment.ident == "cells")
     });
     if is_cells_rule {
+        if let Some(anywhere) = attribute.anywhere() {
+            return Err(krs_syntax::SyntaxError::new(
+                krs_syntax::SyntaxErrorKind::InvalidRuleKey {
+                    reason: krs_syntax::ANYWHERE_NOT_TERM_SHAPED,
+                },
+                anywhere.span(),
+            )
+            .into());
+        }
         return configuration_rule(env, item, &attribute);
     }
     ordinary_rule(
@@ -303,12 +312,16 @@ fn expand_ordinary_rule(
             key: ProvenanceRole::RuleNondetGroup.key(0),
             name: group.unraw().to_string(),
         });
+    let anywhere = attribute
+        .anywhere()
+        .map(|_| wire_key(ProvenanceRole::RuleAnywhere, 0));
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
         label,
         requires,
         priority,
         nondet,
+        anywhere,
         simplification,
         pattern_key: wire_key(rule_pattern_role, 0),
         result_key: wire_key(rule_result_role, 0),

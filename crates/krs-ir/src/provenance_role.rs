@@ -368,6 +368,8 @@ provenance_roles! {
     EquationOwise => "equation_owise",
     /// Group identifier of `nondet = group` on a transition rule.
     RuleNondetGroup => "rule_nondet_group",
+    /// Bare `anywhere` marker on a term-shaped transition rule.
+    RuleAnywhere => "rule_anywhere",
 }
 
 impl Serialize for ProvenanceRole {

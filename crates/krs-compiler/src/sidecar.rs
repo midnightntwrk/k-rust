@@ -98,6 +98,9 @@ pub struct SymbolMap {
     #[serde(deserialize_with = "deserialize_schema_version")]
     schema_version: u32,
     entries: Vec<SymbolMapEntry>,
+    /// Backend capabilities the definition needs (V8), when any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    capability_requirements: Vec<crate::capability::CapabilityRequirement>,
 }
 
 impl SymbolMap {
@@ -174,6 +177,7 @@ impl SymbolMap {
         let map = Self {
             schema_version: SIDECAR_SCHEMA_VERSION,
             entries,
+            capability_requirements: crate::capability::capability_requirements(definition),
         };
         map.reject_path_leaks()?;
         Ok(map)
@@ -183,6 +187,12 @@ impl SymbolMap {
     #[must_use]
     pub fn entries(&self) -> &[SymbolMapEntry] {
         &self.entries
+    }
+
+    /// Returns the backend capabilities the definition needs, by feature and sentence name.
+    #[must_use]
+    pub fn capability_requirements(&self) -> &[crate::capability::CapabilityRequirement] {
+        &self.capability_requirements
     }
 
     /// Serializes stable pretty JSON with one trailing newline.

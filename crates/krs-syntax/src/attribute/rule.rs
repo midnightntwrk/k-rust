@@ -8,13 +8,15 @@ use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, Toke
 
 use super::value::parse_rule_label_value;
 
-/// Typed metadata of `#[k::rule(owise | priority = N, nondet = group, label = "...")]`.
+/// Typed metadata of
+/// `#[k::rule(owise | priority = N, anywhere, nondet = group, label = "...")]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
     nondet: Option<Ident>,
+    anywhere: Option<Ident>,
 }
 
 /// One authored `priority = N` integer and its parsed value.
@@ -37,6 +39,10 @@ pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
 pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
 pub(crate) const NONDET_ON_FUNCTION: &str =
     "functions are deterministic in K; overlapping equations make the function ill-defined";
+pub(crate) const ANYWHERE_WITH_ORDER: &str = "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`";
+/// The diagnostic for `anywhere` on a readable clause or a `cells!` rule.
+pub const ANYWHERE_NOT_TERM_SHAPED: &str =
+    "an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn";
 
 /// Parses the value of one `priority = N` key.
 pub(crate) fn parse_priority_value(value: Expr) -> Result<PriorityValue, ParseError> {
@@ -237,6 +243,12 @@ impl RuleAttribute {
         self.nondet.as_ref()
     }
 
+    /// Returns the `anywhere` marker, when authored.
+    #[must_use]
+    pub const fn anywhere(&self) -> Option<&Ident> {
+        self.anywhere.as_ref()
+    }
+
     /// Returns the effective authored transition priority and the role that
     /// anchors it: `owise` is priority 200 under [`ProvenanceRole::RuleOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::RulePriority`].
@@ -285,7 +297,36 @@ impl RuleAttribute {
                 TokenRange::for_tokens(nondet)?,
             ));
         }
+        if let Some(anywhere) = &self.anywhere {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleAnywhere,
+                0,
+                TokenRange::for_tokens(anywhere)?,
+            ));
+        }
         Ok(anchors)
+    }
+}
+
+impl RuleAttribute {
+    /// An anywhere rule is outside rule priority and the overlap check.
+    fn reject_ordered_anywhere(&self) -> Result<(), ParseError> {
+        if self.anywhere.is_none() {
+            return Ok(());
+        }
+        let ordered = self
+            .owise
+            .as_ref()
+            .map(Ident::span)
+            .or_else(|| {
+                self.priority
+                    .as_ref()
+                    .map(|priority| priority.literal.span())
+            })
+            .or_else(|| self.nondet.as_ref().map(Ident::span));
+        ordered.map_or(Ok(()), |span| {
+            Err(rule_key_error(ANYWHERE_WITH_ORDER, span))
+        })
     }
 }
 
@@ -438,6 +479,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     let mut owise = None;
     let mut priority: Option<PriorityValue> = None;
     let mut nondet = None;
+    let mut anywhere: Option<Ident> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
@@ -479,6 +521,14 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                 input.parse::<Token![=]>()?;
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
+            "anywhere" if anywhere.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "anywhere" },
+                    key.span(),
+                )
+                .into());
+            }
+            "anywhere" => anywhere = Some(key),
             "nondet" if nondet.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "nondet" },
@@ -509,10 +559,13 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
             break;
         }
     }
-    Ok(RuleAttribute {
+    let attribute = RuleAttribute {
         label,
         owise,
         priority,
         nondet,
-    })
+        anywhere,
+    };
+    attribute.reject_ordered_anywhere()?;
+    Ok(attribute)
 }

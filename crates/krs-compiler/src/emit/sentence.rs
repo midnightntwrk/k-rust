@@ -23,6 +23,15 @@ pub(super) fn emit_sentence(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
+    if let DefinitionSentence::Rule(rule) = sentence {
+        for feature in crate::capability::sentence_features(rule) {
+            writer.push("  // krs-capability: ");
+            writer.push(feature.name());
+            writer.push(" ");
+            writer.push(rule.label().emitted_name());
+            writer.push("\n");
+        }
+    }
     let start = writer.source.len();
     writer.push("  ");
     match sentence {
@@ -585,6 +594,12 @@ fn emit_term_rule_attributes(
         writer.push(&priority.value().to_string());
         writer.push("), ");
         writer.record(priority.origin().key(), start, writer.source.len() - 2)?;
+    }
+    if let Some(anywhere) = sentence.anywhere() {
+        let start = writer.source.len();
+        writer.push("anywhere");
+        writer.record(anywhere.key(), start, writer.source.len())?;
+        writer.push(", ");
     }
     writer.push("label(");
     emit_label(sentence.label(), writer);

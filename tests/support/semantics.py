@@ -424,6 +424,7 @@ def reference_definition(
     """
 
     emitted_claims(artifacts, port.module, claim_count, gate=gate, environment=environment)
+    krs_gate.require_route(gate, artifacts, "java-haskell-reference", environment=environment)
     semantics = workspace / "definition.k"
     shutil.copy2(artifacts / "definition.k", semantics)
     spec = workspace / "spec.k"

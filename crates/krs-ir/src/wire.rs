@@ -404,6 +404,7 @@ mod tests {
                 requires: None,
                 priority: None,
                 nondet: None,
+                anywhere: None,
                 simplification: None,
                 pattern_key: key(),
                 result_key: key(),

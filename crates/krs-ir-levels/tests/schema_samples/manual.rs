@@ -329,7 +329,24 @@ impl Sample for RuleSentence {
         .with_claim(Some(sample::<DefinitionClaim>()))
         .with_requires(Some(condition))
         .unwrap();
-        vec![rule]
+        let term = sample::<DefinitionTerm>();
+        let anywhere = Self::new(
+            sample::<NodeOrigin>(),
+            sample::<LabelIdentity>(),
+            SentenceKind::Transition,
+            sample::<Vec<DefinitionVariable>>(),
+            DefinitionTerm::rewrite(
+                sample::<NodeOrigin>(),
+                DefinitionSortRef::Builtin(BuiltinSort::Int),
+                term.clone(),
+                term,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .with_anywhere(Some(sample::<NodeOrigin>()))
+        .unwrap();
+        vec![rule, anywhere]
     }
 }
 
@@ -440,6 +457,7 @@ impl Sample for SemanticRule {
         .with_priority(Some(sample::<SemanticRulePriority>()))
         .unwrap()
         .with_nondet_group(Some(sample::<SemanticNondetGroup>()))
+        .with_anywhere(Some(sample::<NodeOrigin>()))
         .with_simplification(Some(sample::<SemanticSimplification>()))
         .with_claim(Some(sample::<SemanticClaim>()))
         .with_requires(Some(condition))

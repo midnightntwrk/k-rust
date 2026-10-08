@@ -682,6 +682,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         }),
         priority: None,
         nondet: None,
+        anywhere: None,
         simplification: None,
         pattern_key: key(2),
         result_key: key(3),

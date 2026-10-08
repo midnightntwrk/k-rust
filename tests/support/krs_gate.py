@@ -106,6 +106,23 @@ def ir_query(
         return session.ir_query(artifacts, query)
 
 
+def require_route(
+    krs_gate: Path, artifacts: Path, route: str, *,
+    environment: Mapping[str, str] | None = None,
+) -> None:
+    """Refuse emitted artifacts that need a capability `route` lacks (V8).
+
+    The table is KRS's own (`krs_k_rust::ROUTE_CAPABILITIES`); a refusal is
+    raised before anything is compiled for the route, and never weakened.
+    """
+
+    refusals = ir_query(
+        krs_gate, artifacts, {"kind": "capabilities", "route": route}, environment=environment,
+    )["refusals"]
+    if refusals:
+        raise GateError("\n".join(f"error[{refusal['code']}]: {refusal['message']}" for refusal in refusals))
+
+
 def registration_table(
     krs_gate: Path, source: Path, display_file: str, crate_name: str, facade_alias: str, *,
     environment: Mapping[str, str] | None = None,

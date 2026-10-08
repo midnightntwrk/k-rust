@@ -9,7 +9,10 @@ pub use constructor::{
     ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionTotality,
     PlacementFlag, VariantSyntaxAttribute,
 };
-pub use rule::{ClaimAttribute, ClaimBinder, ClaimModality, ExistsAttribute, RuleAttribute};
+pub use rule::{
+    ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ExistsAttribute,
+    RuleAttribute,
+};
 pub use sort::{
     AliasAttribute, ContextAliasAttribute, EquationAttribute, PriorityAttribute,
     SimplificationAttribute, SortAttribute, SubsortAttribute, SymbolAttribute,

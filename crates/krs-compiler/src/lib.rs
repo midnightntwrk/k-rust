@@ -5,6 +5,7 @@
 //! and produces the Semantic IR, the Definition IR, and the emitted K.
 
 pub mod artifacts;
+pub mod capability;
 mod emit;
 mod error;
 mod lowering;

@@ -2,7 +2,8 @@
   "schema": 1,
   "expand": {
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
-    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77"
+    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
+    "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -10,11 +11,15 @@
     },
     "krs-rule-forms-nondet": {
       "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
+    },
+    "krs-rule-forms-anywhere": {
+      "definition.k": "9ff57bef179b5bdcd6fea1502f5810513a72ec4a8ce0da289b47a4765a16e607"
     }
   },
   "reference_sha256": {
     "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
-    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5"
+    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
+    "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -98,6 +103,40 @@
         "parse": "accepted",
         "run": "divByZero"
       }
+    },
+    "krs-rule-forms-anywhere": {
+      "drop": {
+        "parse": "accepted",
+        "run": "b"
+      },
+      "drop-nested": {
+        "parse": "accepted",
+        "run": "wrap(b)"
+      },
+      "drop-repeated": {
+        "parse": "accepted",
+        "run": "c"
+      },
+      "reassociate": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "seq(b, seq(c, d))"
+        }
+      },
+      "reassociate-nested": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "wrap(seq(b, seq(c, d)))"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -130,6 +169,42 @@
     ],
     "nondet-equation": [
       "error[krs::rust-expansion::uncoded-error]: functions are deterministic in K; overlapping equations make the function ill-defined"
+    ],
+    "anywhere-readable": [
+      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+    ],
+    "anywhere-cells": [
+      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+    ],
+    "anywhere-priority": [
+      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`"
     ]
+  },
+  "known_divergences": {
+    "krs-rule-forms-anywhere": {
+      "reassociate": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "seq(b, seq(c, d))"
+        }
+      },
+      "reassociate-nested": {
+        "native": {
+          "parse": "accepted",
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "wrap(seq(b, seq(c, d)))"
+        }
+      }
+    }
+  },
+  "capability_refusals": {
+    "java-haskell-reference": "error[krs::capability::unavailable]: definition contains anywhere rules [drop-a, reassociate]; K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route"
   }
 }

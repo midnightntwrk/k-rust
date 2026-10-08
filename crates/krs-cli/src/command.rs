@@ -613,12 +613,45 @@ fn emission_stdout(artifacts: &[(&str, &[u8])]) -> Vec<u8> {
     format!("emitted {}\n", names.join(", ")).into_bytes()
 }
 
+/// Refuses a definition that needs a feature `route` lacks, before any compilation (V8).
+fn require_route(
+    definition: &krs_ir_levels::DefinitionIr,
+    route: krs_k_rust::Route,
+) -> Result<(), CommandError> {
+    let requirements = krs_compiler::capability::capability_requirements(definition);
+    for feature in krs_compiler::capability::CapabilityFeature::ALL {
+        if !requirements
+            .iter()
+            .any(|requirement| requirement.feature() == *feature)
+        {
+            continue;
+        }
+        if let krs_k_rust::CapabilityAvailability::Unavailable(reason) =
+            krs_k_rust::route_capability(feature.name(), route)
+        {
+            return Err(CommandError::CapabilityUnavailable {
+                route,
+                message: krs_compiler::capability::unavailable_message(
+                    *feature,
+                    reason,
+                    &requirements,
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn build(
     prepared: &PreparedDefinition,
     backend: Backend,
     output: &Path,
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
+    require_route(
+        prepared.lowered.definition(),
+        krs_k_rust::Route::native(backend),
+    )?;
     let artifacts = compile_definition_timed(
         prepared.lowered.definition(),
         CompileOptions {
@@ -767,6 +800,13 @@ pub enum CommandError {
     Native(DefinitionCompileError),
     /// The selected native backend is unavailable in this build.
     UnsupportedBackend(Backend),
+    /// The selected route lacks a feature the definition needs (V8).
+    CapabilityUnavailable {
+        /// The refusing route.
+        route: krs_k_rust::Route,
+        /// The refusal, naming the feature, its sentences, and the alternative.
+        message: String,
+    },
     /// Canonical JSON serialization failed.
     Serialization(serde_json::Error),
     /// A filesystem operation failed.
@@ -837,6 +877,13 @@ impl fmt::Display for CommandError {
                     backend.as_str()
                 )
             }
+            Self::CapabilityUnavailable { route, message } => {
+                write!(
+                    formatter,
+                    "route `{}` refuses this definition: {message}",
+                    route.name()
+                )
+            }
             Self::Serialization(error) => {
                 write!(
                     formatter,
@@ -880,6 +927,7 @@ impl Error for CommandError {
             | Self::ProcessFailed { .. }
             | Self::Diagnostics(_)
             | Self::UnsupportedBackend(_)
+            | Self::CapabilityUnavailable { .. }
             | Self::UnsafeOutput(_) => None,
         }
     }
@@ -916,6 +964,14 @@ impl CommandError {
             Self::Facade(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::ReferenceExpansion(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Native(error) => (error.to_diagnostic(), DiagnosticStage::Native),
+            Self::CapabilityUnavailable { .. } => (
+                Diagnostic::error(
+                    krs_diagnostic::codes::capability::UNAVAILABLE,
+                    String::new(),
+                    krs_diagnostic::Location::None,
+                ),
+                DiagnosticStage::Native,
+            ),
             _ => return None,
         };
         diagnostic.message = self.to_string();

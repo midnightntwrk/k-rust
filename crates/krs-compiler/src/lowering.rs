@@ -1168,6 +1168,11 @@ fn lower_rule_metadata(
             })
             .transpose()?,
     )?;
+    sentence = sentence.with_anywhere(
+        rule.anywhere()
+            .map(|origin| origins.lower(origin, "rule-anywhere", Some(rule.id()), None))
+            .transpose()?,
+    )?;
     sentence = sentence.with_simplification(
         rule.simplification()
             .map(|simplification| -> Result<_, LoweringError> {

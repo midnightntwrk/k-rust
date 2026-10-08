@@ -27,11 +27,11 @@ mod term_sort;
 pub mod trivia;
 
 pub use attribute::{
-    AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder, ClaimModality,
-    ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute, ContextAliasAttribute,
-    EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionTotality, InitAttribute,
-    PlacementFlag, PriorityAttribute, RuleAttribute, SimplificationAttribute, SortAttribute,
-    SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
+    ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
+    ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
+    ContextAliasAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionTotality,
+    InitAttribute, PlacementFlag, PriorityAttribute, RuleAttribute, SimplificationAttribute,
+    SortAttribute, SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,

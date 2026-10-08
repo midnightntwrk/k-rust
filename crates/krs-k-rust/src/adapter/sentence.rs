@@ -581,6 +581,9 @@ impl Adapter<'_> {
             )?;
         let mut attributes = attributes_for_origin(sentence.origin());
         attributes.insert("label", json!(native_rule_label(module, sentence.label())));
+        if sentence.anywhere().is_some() {
+            attributes.insert("anywhere", json!(""));
+        }
         if let Some(priority) = sentence.priority() {
             attributes.insert("priority", json!(priority.value().to_string()));
         }

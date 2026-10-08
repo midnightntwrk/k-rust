@@ -583,7 +583,7 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
     let computation = computation_cell(modules);
     let mut views = Vec::new();
     for rule in modules.iter().flat_map(SemanticModule::rules) {
-        if rule.kind() != krs_ir::SentenceKind::Transition {
+        if rule.kind() != krs_ir::SentenceKind::Transition || rule.anywhere().is_some() {
             continue;
         }
         let (configuration, clauses) = match rule.relational_body() {

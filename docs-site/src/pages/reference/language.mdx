@@ -63,6 +63,14 @@ Rules at different priorities never overlap, and two rules whose guards contain 
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
+
+### Anywhere rules
+
+Most rules act at the head of the computation cell, and equations act wherever their function appears.
+`#[k::rule(anywhere)]` gives a constructor that behaviour while it stays a constructor: the rule applies to every subterm its left-hand side matches, and emits `[anywhere]`.
+It is written as a term-shaped `#[k::rule]` function, never as a readable clause or a `cells!` rule, takes no `owise`, `priority`, or `nondet`, and is outside the overlap check.
+The k-rust route and Java K's LLVM backend run anywhere rules; K's Haskell backend does not, so a Java Haskell reference step refuses such a definition with `krs::capability::unavailable` before anything is kompiled, and `--allow-anywhere-haskell`, which would drop the rules, is never used.
+`krs emit-k` still writes the rule, marks it with a `// krs-capability: AnywhereRule <label>` comment, and lists the requirement in `symbols.json`.
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 

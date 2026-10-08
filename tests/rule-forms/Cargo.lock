@@ -94,6 +94,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-rule-forms-anywhere"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-rule-forms-nondet"
 version = "0.1.0"
 dependencies = [

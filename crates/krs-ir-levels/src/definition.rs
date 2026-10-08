@@ -1018,6 +1018,7 @@ pub struct RuleSentence {
     priority: Option<DefinitionRulePriority>,
     simplification: Option<DefinitionSimplification>,
     claim: Option<DefinitionClaim>,
+    anywhere: Option<NodeOrigin>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1032,6 +1033,7 @@ impl Serialize for RuleSentence {
             priority: self.priority.as_ref().map(Cow::Borrowed),
             simplification: self.simplification.as_ref().map(Cow::Borrowed),
             claim: self.claim.as_ref().map(Cow::Borrowed),
+            anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1053,6 +1055,8 @@ struct RuleSentenceWire<'a, B> {
     simplification: Option<Cow<'a, DefinitionSimplification>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     claim: Option<Cow<'a, DefinitionClaim>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anywhere: Option<Cow<'a, NodeOrigin>>,
     body: B,
 }
 
@@ -1083,6 +1087,7 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             priority: value.priority.map(Cow::into_owned),
             simplification: value.simplification.map(Cow::into_owned),
             claim: value.claim.map(Cow::into_owned),
+            anywhere: value.anywhere.map(Cow::into_owned),
             content,
         })
     }
@@ -1114,6 +1119,7 @@ impl RuleSentence {
             priority: None,
             simplification: None,
             claim: None,
+            anywhere: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
@@ -1134,6 +1140,7 @@ impl RuleSentence {
             priority: None,
             simplification: None,
             claim: None,
+            anywhere: None,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
@@ -1179,6 +1186,37 @@ impl RuleSentence {
     #[must_use]
     pub const fn priority(&self) -> Option<&DefinitionRulePriority> {
         self.priority.as_ref()
+    }
+    /// Marks a term-shaped transition as an anywhere rule (`[anywhere]` in K).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DefinitionValidationError::InvalidRulePriority`] when the
+    /// marker is attached to anything but a term-shaped transition without a
+    /// priority, since an anywhere rule is outside rule priority.
+    pub fn with_anywhere(
+        mut self,
+        origin: Option<NodeOrigin>,
+    ) -> Result<Self, DefinitionValidationError> {
+        if origin.is_some()
+            && (self.kind() != SentenceKind::Transition
+                || self.priority.is_some()
+                || matches!(
+                    self.relational_body(),
+                    crate::RuleBodyRef::Configuration { .. }
+                ))
+        {
+            return Err(DefinitionValidationError::InvalidRulePriority(
+                self.label.id.clone(),
+            ));
+        }
+        self.anywhere = origin;
+        Ok(self)
+    }
+    /// Returns the `anywhere` marker provenance of an anywhere rule.
+    #[must_use]
+    pub const fn anywhere(&self) -> Option<&NodeOrigin> {
+        self.anywhere.as_ref()
     }
     /// Attaches typed simplification metadata.
     #[must_use]
@@ -1880,6 +1918,7 @@ mod tests {
             requires: None,
             priority: None,
             simplification: None,
+            anywhere: None,
             claim: Some(DefinitionClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,
