@@ -710,7 +710,8 @@ pub(super) fn observation(definition: Definition, clash: bool) -> (Definition, V
 /// A sort `W` inhabited only by applications of declared total functions without equations,
 /// which are normal forms (the design's 3.13 (k)): `tw : Int -> W` and `tw2 : Y -> W`, with `Y`
 /// inhabited by an equation head `hW`. The head `gW` over `W` has two equations whose sides
-/// differ on every instance: the pair has instances, and it observes `hW` through `tw2`.
+/// differ on every instance: the pair has instances (`W` is inhabited), and its variable does
+/// not observe `hW` through the non-injective `tw2` (3.13 (l)).
 pub(super) fn through_total_function(definition: Definition) -> (Definition, Vec<Pat>) {
     let mut definition = definition
         .total_function("tw", &["Int"], "W")

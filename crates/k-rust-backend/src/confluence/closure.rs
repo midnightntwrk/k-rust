@@ -178,8 +178,8 @@ fn mentioned_symbols(rule: &RewriteRule, everywhere: bool) -> BTreeSet<Name> {
 /// For each sort, the equation heads whose applications can occur inside an element of it: the
 /// least fixpoint over the graph whose edges go from a sort to its subsorts, and from a sort to
 /// the argument sorts of every constructor and equation head of that sort, and of every declared
-/// total function of that sort unless the sort is a builtin carrier (3.13 (l)), and to the
-/// element, key and value sorts of a collection sort. A sort parameter is read as every sort. Computed by
+/// total injective function of that sort unless the sort is a builtin carrier (3.13 (l)), and to
+/// the element, key and value sorts of a collection sort. A sort parameter is read as every sort. Computed by
 /// one depth-first walk per sort asked, memoized.
 pub(crate) struct SortReach {
     edges: FxHashMap<Sort, BTreeSet<Sort>>,
@@ -230,11 +230,20 @@ impl SortReach {
                     .extend(parts.into_iter().map(Sort::simple));
             }
             let role = symbol.attributes.head_role();
-            // A declared total function's stuck application is a normal form (3.13 (k)), an
-            // element of its result sort holding its arguments, unless that sort is a builtin
-            // carrier (a hook or domain values), whose elements are literals.
-            let stuck_total = matches!(role, HeadRole::Function { .. })
-                && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+            // A declared total function's stuck application is a normal form (3.13 (k)). The
+            // model of 3.8 may interpret one whose arguments hold a new element by any old
+            // element of its sort, since no claim reads a function application, unless the
+            // function is declared injective (or its sort is a builtin carrier, whose elements
+            // are literals in any case): only then can a variable of its sort observe what its
+            // arguments hold (3.13 (l)).
+            let stuck_total = matches!(
+                role,
+                HeadRole::Function {
+                    injective: true,
+                    ..
+                }
+            ) && symbol.attributes.symbol_type
+                == SymbolType::Function(FunctionType::Total)
                 && symbol.attributes.hook.is_none()
                 && !builtin_carrier(definition, &symbol.result_sort);
             // A sort injection's edges are the subsort edges above.

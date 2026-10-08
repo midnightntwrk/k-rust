@@ -594,10 +594,12 @@ fn symbols_of(pattern: &Pat, into: &mut BTreeSet<String>) {
     }
 }
 
-/// The equation heads whose applications can occur inside a normal form of `sort`: the sorts of
-/// the subterms of normal forms are closed under subsorts (an injection's operand), the argument
-/// sorts of every symbol whose stuck applications are normal forms (constructors, equation heads
-/// and declared total functions), and the element sort of lists.
+/// The equation heads whose applications can occur inside an element of `sort` in the model of
+/// the design's 3.8: the sorts of the subterms are closed under subsorts (an injection's
+/// operand), the argument sorts of constructors and equation heads, and the element sort of
+/// lists. A stuck application of a total function is a normal form, but no claim reads one, so
+/// that model interprets one whose arguments hold a new element by an old element of its sort
+/// (the oracle's functions are never injective), and its arguments are not observed.
 pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<String> {
     let order = definition.sort_order();
     let mut reached = BTreeSet::from([sort.to_owned()]);
@@ -608,16 +610,7 @@ pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<
             next.push("Int".into());
         }
         for symbol in &definition.symbols {
-            // A stuck total function's application is a normal form, but an element of a
-            // hooked sort (`Int`, `Bool`, `List`) is a value of the builtin carrier, with no
-            // structure a variable could observe.
-            let normal_form_root = match symbol.kind {
-                Kind::Constructor | Kind::Head { .. } => true,
-                Kind::Function { total } => {
-                    total && !matches!(sort.as_str(), "Int" | "Bool" | "List")
-                }
-                Kind::Hook => false,
-            };
+            let normal_form_root = matches!(symbol.kind, Kind::Constructor | Kind::Head { .. });
             if normal_form_root && symbol.result == sort {
                 next.extend(symbol.arguments.iter().cloned());
             }
