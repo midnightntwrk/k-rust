@@ -33,3 +33,5 @@ mod term_order;
 mod unification;
 #[path = "backend/unspecified_oracle.rs"]
 mod unspecified_oracle;
+#[path = "backend/value_contract.rs"]
+mod value_contract;

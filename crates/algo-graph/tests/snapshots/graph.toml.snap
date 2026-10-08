@@ -31,6 +31,62 @@ file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::Allocations"
 
 [[node]]
+kind = "observation"
+id = "ConfluenceJoinSteps"
+provenance = "table"
+area = "confluence"
+name = "ConfluenceJoinSteps"
+table = "Counter::ALL"
+registry_name = "confluence.join_steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ConfluenceJoinSteps"
+
+[[node]]
+kind = "observation"
+id = "ConfluencePairs"
+provenance = "table"
+area = "confluence"
+name = "ConfluencePairs"
+table = "Counter::ALL"
+registry_name = "confluence.pairs"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ConfluencePairs"
+
+[[node]]
+kind = "observation"
+id = "ConfluenceSimplifierCalls"
+provenance = "table"
+area = "confluence"
+name = "ConfluenceSimplifierCalls"
+table = "Counter::ALL"
+registry_name = "confluence.simplifier_calls"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ConfluenceSimplifierCalls"
+
+[[node]]
+kind = "observation"
+id = "ConfluenceUnifierBranches"
+provenance = "table"
+area = "confluence"
+name = "ConfluenceUnifierBranches"
+table = "Counter::ALL"
+registry_name = "confluence.unifier_branches"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ConfluenceUnifierBranches"
+
+[[node]]
 kind = "registry"
 id = "Counter::ALL"
 provenance = "table"
@@ -1425,6 +1481,81 @@ bound = "O(B log B + A) to measure and lay out each body once, O(D) to size the 
 
 [[node]]
 kind = "algorithm"
+id = "backend.confluence.critical_pairs"
+provenance = "declared"
+area = "backend"
+name = "load-time critical-pair check by order-sorted unification and an innermost join"
+variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family; b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendConfluenceCheck"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "check"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/closure.rs"
+symbol = "Closure::taint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/closure.rs"
+symbol = "SortReach::heads"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/join.rs"
+symbol = "join"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/join.rs"
+symbol = "Join::normalize"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/join.rs"
+symbol = "Join::step"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/join.rs"
+symbol = "Join::split"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/unify.rs"
+symbol = "Unifier::unify_all"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/unify.rs"
+symbol = "Unifier::step"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "check"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "Context::classify"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "Context::conditions"
+
+[[node.cost]]
+mode = "one definition (check)"
+bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise, for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+
+[[node]]
+kind = "algorithm"
 id = "backend.definedness.discharge"
 provenance = "declared"
 area = "backend"
@@ -2797,10 +2928,6 @@ bound = "one nested predicate simplification per evaluated rule condition, with 
 [[node.cost]]
 mode = "Unspecified application (UnspecifiedEvaluation)"
 bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions of one predicate included (a conjunct of several is evaluated with the others as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
-
-[[node.cost]]
-mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
-bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations (at most PATTERN_FACT_ROUNDS (64), stopping at the first round that changes nothing or after the round in which the computation's PATTERN_FACTS_WORK (200,000) narrowing steps are spent), each deciding instance normality of the immediate subterms of the left-hand sides not yet shown and, for each equation with a fixed root, its overlaps: one narrowing against each other equation offered at its index and, per subterm below the root that is not a normal pattern, against each equation offered there and its overlap representatives, each found peak tried for a join by up to JOIN_STEPS (8) unconditional steps per side, then the representatives of the overlapped instances (each instance and reduct of at most REPRESENTATIVE_SIZE (2,048) nodes, past which the coarser fallback is used; the instances, and the representatives, kept as their most general members, one instance check against each member kept); an equation's overlaps are recomputed only until they have differed from the previous round's in OVERLAP_CHANGES (3) rounds, after which they are fixed to its left-hand side and the right-hand sides its root reaches; every other left-hand side and stored term (overlapped instance, overlap representative, value root) read is first copied with fresh variables (one rebuild of the term), each reduct is the right-hand side instantiated with every variable the narrowing left unbound minted (one rebuild) and is compared with the representatives already found up to those names (one walk for a hash, one walk per representative of equal hash), and every stored term is renamed canonically (one rebuild); afterwards, per failed match or exclusion, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have, plus one comparison of a fresh copy of each of the equation's overlap representatives with the term (a representative with a total root, a constructor, injection, collection or symbol declared total, also compared through the representatives of its arguments whose sort may hold the term's, one sort reachability walk each), which decide the instance normality of the terms they build (each term at most once per scan up to the minted names, one walk for the memo key, a term in progress answered at once) with at most VALUE_QUESTIONS (8) such walks nested on a thread and at most SCAN_WORK (20,000) narrowing steps per outermost scan (instance_normal.rs)"
 
 [[node.cost]]
 mode = "report retraction (retract_dropped)"
@@ -8450,6 +8577,30 @@ from = "add sort injections"
 to = "remove units"
 provenance = "table"
 order = 49
+
+[[edge]]
+kind = "measured-by"
+from = "backend.confluence.critical_pairs"
+to = "ConfluenceJoinSteps"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.confluence.critical_pairs"
+to = "ConfluencePairs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.confluence.critical_pairs"
+to = "ConfluenceSimplifierCalls"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.confluence.critical_pairs"
+to = "ConfluenceUnifierBranches"
+provenance = "declared"
 
 [[edge]]
 kind = "consumes"

@@ -130,6 +130,10 @@ const UNACKNOWLEDGED_DATA_TIMEOUT: Duration = Duration::from_secs(
 
 pub(super) struct RpcService {
     backend: Backend,
+    /// The definitions (by address) whose load-time warnings were printed: each module's
+    /// definition is internalized once per session and warned about once
+    /// (`backend::execution::value_claim_warnings`).
+    warned: BTreeSet<usize>,
 }
 
 #[derive(Debug)]
@@ -566,22 +570,31 @@ impl From<StopCause> for RpcFault {
 impl RpcService {
     #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
-        Self {
-            backend: Backend::from_session(session, BackendOptions::default(), None)
+        Self::with_backend(
+            Backend::from_session(session, BackendOptions::default(), None)
                 .expect("test backend should initialize"),
-        }
+        )
     }
 
     pub(super) fn with_backend(backend: Backend) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            warned: BTreeSet::new(),
+        }
     }
 
     fn ensure_module(&mut self, module: Option<&str>) -> Result<(), RpcFault> {
         let requested = module.unwrap_or(self.backend.default_module()).to_owned();
-        self.backend
+        let definition = self
+            .backend
             .select_definition(module)
-            .map(|_| ())
-            .map_err(|error| RpcFault::module(&requested, error))
+            .map_err(|error| RpcFault::module(&requested, error))?;
+        if self.warned.insert(Arc::as_ptr(&definition).addr()) {
+            for warning in k_rust::backend::execution::value_claim_warnings(&definition) {
+                eprintln!("{warning}");
+            }
+        }
+        Ok(())
     }
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
@@ -4586,10 +4599,10 @@ endmodule
             endmodule []"#,
         )
         .unwrap();
-        let mut service = RpcService {
-            backend: Backend::from_definition(syntax, "MAIN", BackendOptions::default())
+        let mut service = RpcService::with_backend(
+            Backend::from_definition(syntax, "MAIN", BackendOptions::default())
                 .expect("an unused SMT prelude does not affect initialization"),
-        };
+        );
         let zero_query = request(
             &mut service,
             0,

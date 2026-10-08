@@ -141,6 +141,13 @@ enum Source {
     /// The root of the subject the instance-normal scan tries an equation on: the equation's
     /// left-hand side rewrites that root as it stands.
     ScannedSubject,
+    /// A settled equation-head application of the load-time critical-pair join
+    /// (`confluence::join`): a normal form on every instance of the pair the join decides, because
+    /// no left-hand side of an executable equation unifies with it, or because it is the value of
+    /// a variable of one of the pair's left-hand sides. It is read only by the matcher the join
+    /// runs (`matching::match_with_settled_evidence`), never by a claim: neither the
+    /// instance-normal token nor the simplifier's certificate is built from evidence.
+    Settled,
 }
 
 impl NormalEvidence {
@@ -155,7 +162,7 @@ impl NormalEvidence {
 
     /// The simplifier's certificate: `Some` exactly for an equation-head application whose
     /// `evaluated` mark (`Term::with_evaluated_cache`) certifies its value
-    /// (`TermAttributes::certified_value`), whose root is then fixed without the equation scan
+    /// (`TermAttributes::value_claimed`), whose root is then fixed without the equation scan
     /// of `BackendDefinition::instance_normal`.
     ///
     /// Only `simplify::simplify_root` sets the `evaluated` bit on an application that is not a
@@ -172,12 +179,10 @@ impl NormalEvidence {
     /// predicate right-hand side) also withholds it.
     ///
     /// A failed `Evaluate` match holds on every instance, which is the test `instance_normal`
-    /// applies. It is about the term's value as well when the equation's left-hand side has
-    /// instance-normal arguments or its arguments' reducts miss the term's
-    /// (`BackendDefinition::failed_match_is_about_values`); the mark certifies the value only
-    /// when every failed match is, and the term's arguments' values are certified too. A ground
-    /// term is its own only instance, and the matcher reads no path condition, so the
-    /// certificate is independent of the path the term is met on. It is a property of the
+    /// applies. The mark certifies the value only where the term's index is untainted by the
+    /// load-time critical-pair check (`confluence`) and the term's arguments' values are
+    /// certified too. A ground term is its own only instance, and the matcher reads no path
+    /// condition, so the certificate is independent of the path the term is met on. It is a property of the
     /// term's structure, and it survives any later substitution that keeps the term by pointer.
     ///
     /// The arguments carry the bit as well. So every equation-head subterm was certified the same
@@ -191,8 +196,15 @@ impl NormalEvidence {
     #[must_use]
     pub(crate) fn certified(term: &Term) -> Option<Self> {
         (term.shape() == Shape::Application(HeadRole::EquationHead)
-            && term.attributes().certified_value())
+            && term.attributes().value_claimed())
         .then_some(Self(Source::Certified))
+    }
+
+    /// A settled root of the critical-pair join; the witness is minted only by the join's
+    /// settledness test (`confluence::join`).
+    #[must_use]
+    pub(crate) fn settled(_witness: crate::confluence::SettledRoot) -> Self {
+        Self(Source::Settled)
     }
 
     /// An instance-normal token: the term, or a term it is a subterm of, is a normal form on
@@ -218,11 +230,12 @@ impl NormalEvidence {
 ///   (`simplify::scan::scan_term_theory`, one scan per theory).
 ///
 /// Together they say that every term equation of the definition failed to match the application.
-/// A failed match reads no path condition, so the statement holds on every path. The scans also
-/// record whether every failure is about the application's value
-/// (`simplify::scan::FailedMatch`), which the certificate carries to
-/// `TermAttributes::certified_value`. A caller
-/// outside the crate can name the type but not build a value:
+/// A failed match reads no path condition, so the statement holds on every path. The certificate
+/// is evidence about the application's value only where the load-time critical-pair check
+/// leaves the application's index untainted (`confluence::ValueClaims::admit`): there the
+/// definition's normal-form model is a model of it, so a normal form is an element distinct
+/// from every other normal form. It carries that bit to `TermAttributes::value_claimed`. A
+/// caller outside the crate can name the type but not build a value:
 ///
 /// ```compile_fail
 /// use k_rust_backend::term::head::NormalFormCertificate;
@@ -239,9 +252,8 @@ impl NormalEvidence {
 /// ```
 #[derive(Debug)]
 pub struct NormalFormCertificate {
-    /// Whether every equation that failed to match has a left-hand side with instance-normal
-    /// arguments, so that no valuation of it denotes the application's value either
-    /// (`term::TermAttributes::certified_value`).
+    /// Whether the application's index is untainted, so that the certificate is evidence about
+    /// its value (`term::TermAttributes::value_claimed`).
     values: bool,
 }
 
@@ -249,11 +261,12 @@ impl NormalFormCertificate {
     #[must_use]
     pub(crate) fn new(
         _selection: SelectionComplete,
-        function_scan: NoOfferedEquationMatched<FunctionTheory>,
-        simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+        _function_scan: NoOfferedEquationMatched<FunctionTheory>,
+        _simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+        untainted: Option<crate::confluence::UntaintedIndex>,
     ) -> Self {
         Self {
-            values: function_scan.certifies_values() && simplification_scan.certifies_values(),
+            values: untainted.is_some(),
         }
     }
 
@@ -900,7 +913,7 @@ fn occurs_rigidly(variable: &Variable, term: &Term) -> bool {
 /// sets only with its certificate. The one definition of the test.
 #[must_use]
 pub(crate) fn certified_ground_normal_form(term: &Term) -> bool {
-    term.concrete_after_normalization() && term.attributes().certified_value()
+    term.concrete_after_normalization() && term.attributes().value_claimed()
 }
 
 #[cfg(test)]
@@ -1470,7 +1483,7 @@ mod tests {
         let certified_normal_application = |term: &Term| match term.kind() {
             TermKind::Application { symbol, .. } => {
                 symbol.attributes.head_role() == HeadRole::FreeConstructor
-                    || term.attributes().certified_value()
+                    || term.attributes().value_claimed()
             }
             _ => false,
         };

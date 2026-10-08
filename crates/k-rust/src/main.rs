@@ -1922,6 +1922,23 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
         }
     };
     emit_diagnostics(&artifacts.diagnostics);
+    if options.backend == CompilationBackend::Rust && !options.for_proving {
+        let findings = options
+            .common
+            .diagnostics
+            .apply(value_claim_diagnostics(&artifacts, &options.common.module));
+        emit_diagnostics(&findings);
+        if findings
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            return Err(
+                "the load-time critical-pair check of the compiled definition reported \
+                 warnings promoted to errors"
+                    .into(),
+            );
+        }
+    }
     fs::create_dir_all(&options.output_directory)?;
     // A directory is runnable only after its new Rust manifest is published. Removing an older
     // marker first prevents both interrupted recompilation and LLVM output written over a prior
@@ -2508,6 +2525,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
+    for warning in k_rust::backend::execution::value_claim_warnings(&backend) {
+        eprintln!("{warning}");
+    }
     // The initial configuration is as deep as the program and the configuration values, which
     // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
     // drops of the internal terms built from it. All of it runs on a stack the backend measures
@@ -3452,6 +3472,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         Backend::internalize_definition(&syntax, &options.module)?
     };
     timings.internalize_seconds = started.elapsed().as_secs_f64();
+    for warning in k_rust::backend::execution::value_claim_warnings(&definition) {
+        eprintln!("{warning}");
+    }
     if options.load_only {
         return timings.write(options.timings.as_deref());
     }
@@ -3732,6 +3755,30 @@ fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
     input.truncate(trimmed);
     input.push(b'\n');
     input
+}
+
+/// The located findings of the backend's load-time critical-pair check on the definition a Rust
+/// compilation emits (`k_rust::backend::execution::value_claim_diagnostics`): the definition is
+/// internalized as `krun` loads it. Without an `anywhere` symbol it declares no equation head,
+/// and the check reports only precondition rows, which a later load prints; a definition the
+/// backend does not internalize gets none (the load reports it).
+fn value_claim_diagnostics(
+    artifacts: &k_rust::kompile::CompiledKoreArtifacts,
+    module: &str,
+) -> Vec<Diagnostic> {
+    if !artifacts.definition_kore.contains("anywhere{}()") {
+        return Vec::new();
+    }
+    let Ok(syntax) = parse_kore_definition(&artifacts.definition_kore) else {
+        return Vec::new();
+    };
+    match Backend::internalize_definition(&syntax, module) {
+        Ok(definition) => k_rust::backend::execution::value_claim_diagnostics(
+            &definition,
+            &artifacts.sentence_provenance,
+        ),
+        Err(_) => Vec::new(),
+    }
 }
 
 fn emit_diagnostics(diagnostics: &[Diagnostic]) {

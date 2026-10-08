@@ -8957,6 +8957,164 @@ module CTOT-SPEC
 endmodule
 "#;
 
+const NON_JOINING_ANYWHERE: &str = r#"
+module NJ
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= w(Int) | m(Int) | v(Int)
+  rule [w-one]: w(1) => m(1) [anywhere]
+  rule [w-any]: w(_) => m(2) [anywhere]
+  rule [v-one]: v(1) => m(1) [anywhere]
+  rule [v-two]: v(2) => m(2) [anywhere]
+endmodule
+"#;
+
+/// Two `anywhere` rules of `w` overlap at `w(1)` and give `m(1)` and `m(2)`: the critical pair
+/// does not join, so `krun` names both rules with their written positions, the overlapped term
+/// and the head that gets no value claim, before running. The rules of `v` do not overlap, and
+/// nothing is said about them.
+#[test]
+fn a_pair_of_anywhere_rules_that_does_not_join_is_named_when_the_definition_is_loaded() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NON_JOINING_ANYWHERE).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "NJ", "--syntax-module", "NJ"],
+        &compiled,
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["-s", "Pgm", "--io", "off", "-e", "v(1)"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("not shown to join"))
+        .collect::<Vec<_>>();
+    let position = |line: usize| format!("{}:{line}:3", definition.display());
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    assert!(
+        warning.starts_with("warning: the equations ")
+            && warning.contains(&format!("NJ.w-one at {}", position(6)))
+            && warning.contains(&format!("NJ.w-any at {}", position(7)))
+            && warning.contains("the two reducts reach different terms")
+            && warning.ends_with("no value claims are made for w(_)_NJ_Pgm_Int"),
+        "{warning}"
+    );
+    assert!(!stderr.contains("v(_)_NJ_Pgm_Int"), "{stderr}");
+}
+
+/// `kcompile` reports the same pair when it compiles the definition, located at the first rule,
+/// under the `ValueClaims` warning category: shown by default, and an error with
+/// `--warnings-to-errors`. The rules of `v` get nothing.
+#[test]
+fn kcompile_names_a_pair_of_anywhere_rules_that_does_not_join_at_its_first_rule() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NON_JOINING_ANYWHERE).unwrap();
+    let options = ["--main-module", "NJ", "--syntax-module", "NJ"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    assert!(
+        warning.starts_with(&format!(
+            "{}:6:3: Warning[UnjoinedCriticalPair]: the equations NJ.w-one at ",
+            definition.display()
+        )) && warning.contains("the two reducts reach different terms")
+            && warning.ends_with("no value claims are made for w(_)_NJ_Pgm_Int"),
+        "{warning}"
+    );
+    assert!(!stderr.contains("v(_)_NJ_Pgm_Int"), "{stderr}");
+
+    let promoted = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&definition)
+        .args(options)
+        .arg("--warnings-to-errors")
+        .arg("--output-directory")
+        .arg(root.join("promoted"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let promoted_stderr = String::from_utf8_lossy(&promoted.stderr);
+    assert!(!promoted.status.success(), "{promoted_stderr}");
+    assert_eq!(
+        promoted_stderr
+            .matches("Error[UnjoinedCriticalPair]")
+            .count(),
+        1,
+        "{promoted_stderr}"
+    );
+}
+
+const SEVERAL_MATCHES: &str = r#"
+module SM
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= pick(Map) [function] | m(Int) | w(Int)
+  rule [pick-any]: pick((K |-> _) _) => m(K)
+  rule [w-one]: w(1) => m(1) [anywhere]
+endmodule
+"#;
+
+/// `pick((K |-> _) _) => m(K)` matches `(1 |-> a) (2 |-> b)` with `K = 1` and with `K = 2`, so
+/// the one equation gives two steps from one term, `m(1)` and `m(2)`: its pair with itself does
+/// not join, and it withdraws the claims of the equation head `w`, whose values the map's values
+/// can be. The equation was checked, so `krun` and `kcompile` name it as paired with itself and
+/// say why, not as an equation the check skipped.
+#[test]
+fn an_equation_whose_map_pattern_matches_in_several_ways_is_named_as_paired_with_itself() {
+    let (root, definition) = fixture();
+    fs::write(&definition, SEVERAL_MATCHES).unwrap();
+    let options = ["--main-module", "SM", "--syntax-module", "SM"];
+    let compiled = root.join("compiled");
+    let compilation = kcompile_for_krun(&definition, &options, &compiled);
+    let expected = format!(
+        "the equation SM.pick-any at {}:6:3 paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for w(_)_SM_Pgm_Int",
+        definition.display()
+    );
+
+    let compile_stderr = String::from_utf8(compilation.stderr).unwrap();
+    let diagnostics = compile_stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics,
+        [format!(
+            "{}:6:3: Warning[UnjoinedCriticalPair]: {expected}",
+            definition.display()
+        )],
+        "{compile_stderr}"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["-s", "Pgm", "--io", "off", "-e", "w(2)"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("SM.pick-any"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings, [format!("warning: {expected}")], "{stderr}");
+    assert!(!stderr.contains("is not checked"), "{stderr}");
+}
+
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
 /// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still

@@ -1,0 +1,346 @@
+# The value contract's full-definition gate (V12, scripts/value-contract-corpus.sh): for each
+# definition, the load-time critical-pair check's verdict and counts (k_rust_backend::confluence).
+# A conformance case is read from the conformance driver's work tree after it compiled the case;
+# `wasm` is compiled by the script. Every key under [case.expected] is compared exactly; a change
+# is a precision or cost change to explain, and the manifest is regenerated with --update.
+
+[[case]]
+name = "fun"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment/krust-kompiled/definition.kore"
+[case.expected]
+equations = 256
+pairs = 108
+overlaps = 28
+separated = 13
+refuted = 6
+joined = 22
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 13
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 7
+confluent_families = 7
+
+[[case]]
+name = "simple-untyped"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/krust-kompiled/definition.kore"
+[case.expected]
+equations = 296
+pairs = 60
+overlaps = 13
+separated = 2
+refuted = 7
+joined = 6
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 6
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "simple-typed-static"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/1_simple/2_typed/1_static/krust-kompiled/definition.kore"
+[case.expected]
+equations = 220
+pairs = 26
+overlaps = 10
+separated = 0
+refuted = 6
+joined = 4
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 3
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "simple-typed-dynamic"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/1_simple/2_typed/2_dynamic/krust-kompiled/definition.kore"
+[case.expected]
+equations = 313
+pairs = 57
+overlaps = 11
+separated = 0
+refuted = 7
+joined = 4
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 4
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "kool-untyped"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/2_kool/1_untyped/krust-kompiled/definition.kore"
+[case.expected]
+equations = 352
+pairs = 31
+overlaps = 12
+separated = 0
+refuted = 8
+joined = 4
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 4
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "kool-typed-dynamic"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/2_kool/2_typed/1_dynamic/krust-kompiled/definition.kore"
+[case.expected]
+equations = 384
+pairs = 68
+overlaps = 14
+separated = 0
+refuted = 8
+joined = 6
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 4
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "kool-typed-static"
+definition = "conformance:tests/regression-new/pl-tutorial/2_languages/2_kool/2_typed/2_static/krust-kompiled/definition.kore"
+[case.expected]
+equations = 285
+pairs = 25
+overlaps = 10
+separated = 0
+refuted = 6
+joined = 4
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 3
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "iele-bison-glr-bug"
+definition = "conformance:tests/regression-new/bison-glr-bug/krust-kompiled/definition.kore"
+[case.expected]
+equations = 330
+pairs = 834
+overlaps = 7
+separated = 0
+refuted = 0
+joined = 7
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 6
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "glr2"
+definition = "conformance:tests/regression-new/glr2/krust-kompiled/definition.kore"
+[case.expected]
+equations = 56
+pairs = 1
+overlaps = 0
+separated = 0
+refuted = 0
+joined = 0
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 1
+confluent_families = 1
+
+[[case]]
+name = "glr3"
+definition = "conformance:tests/regression-new/glr3/krust-kompiled/definition.kore"
+[case.expected]
+equations = 56
+pairs = 1
+overlaps = 0
+separated = 0
+refuted = 0
+joined = 0
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 1
+confluent_families = 1
+
+[[case]]
+name = "glr4"
+definition = "conformance:tests/regression-new/glr4/krust-kompiled/definition.kore"
+[case.expected]
+equations = 82
+pairs = 21
+overlaps = 20
+separated = 0
+refuted = 0
+joined = 20
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 5
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 1
+confluent_families = 1
+
+[[case]]
+name = "overload"
+definition = "conformance:tests/regression-new/overload/krust-kompiled/definition.kore"
+[case.expected]
+equations = 111
+pairs = 16
+overlaps = 7
+separated = 0
+refuted = 6
+joined = 1
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 1
+confluent_families = 1
+
+[[case]]
+name = "issue-1090"
+definition = "conformance:tests/regression-new/issue-1090/krust-kompiled/definition.kore"
+[case.expected]
+equations = 104
+pairs = 16
+overlaps = 7
+separated = 0
+refuted = 6
+joined = 1
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 0
+confluent_families = 0
+
+[[case]]
+name = "issue-2909-llvm"
+definition = "conformance:tests/regression-new/issue-2909-allow-anywhere-haskell/llvm/krust-kompiled/definition.kore"
+[case.expected]
+equations = 79
+pairs = 10
+overlaps = 3
+separated = 0
+refuted = 2
+joined = 1
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 0
+confluent_families = 0
+
+[[case]]
+name = "issue-2909-haskell"
+definition = "conformance:tests/regression-new/issue-2909-allow-anywhere-haskell/haskell/krust-kompiled/definition.kore"
+[case.expected]
+equations = 79
+pairs = 10
+overlaps = 3
+separated = 0
+refuted = 2
+joined = 1
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 1
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 0
+confluent_families = 0
+
+[[case]]
+name = "issue-4142"
+definition = "conformance:tests/regression-new/issue-4142-no-symbol-overload/krust-kompiled/definition.kore"
+[case.expected]
+equations = 153
+pairs = 18
+overlaps = 9
+separated = 0
+refuted = 6
+joined = 3
+unjoined = 0
+relevant = 0
+violations = 0
+heads = 4
+tainted_heads = 0
+tainted_symbols = 0
+several_matches = 0
+families = 2
+confluent_families = 2
+
+[[case]]
+name = "wasm"
+definition = "wasm"
+[case.expected]
+equations = 1723
+pairs = 4580
+overlaps = 211
+separated = 33
+refuted = 91
+joined = 65
+unjoined = 61
+relevant = 0
+violations = 0
+heads = 6
+tainted_heads = 0
+tainted_symbols = 15
+several_matches = 0
+families = 2
+confluent_families = 2
+

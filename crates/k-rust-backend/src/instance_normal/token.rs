@@ -8,8 +8,13 @@
 //! So `instance_normal.rs` can neither vouch for an equation-head or collection root without
 //! the scan of every equation that could reach it, nor call a constructor on a term other than
 //! the one `decide` answers for.
+//!
+//! The equation-head and collection constructors also take an [`UntaintedIndex`] for the term's
+//! index, which only the definition's load-time verdict mints (`confluence::ValueClaims::admit`):
+//! no token is minted for an index the critical-pair check withdrew, nor while the check runs.
 
 use crate::{
+    confluence::{GateSite, UntaintedIndex},
     definition::{BackendDefinition, SelectionComplete},
     rule::{RewriteRule, TermIndex, term_index},
     term::{HeadRole, Term, TermKind, head::Shape},
@@ -76,18 +81,24 @@ impl InstanceNormal {
                     Self::of_free_constructor(term, NormalSubterms::of(term, subterm))
                 }
                 HeadRole::EquationHead => {
+                    let untainted = definition
+                        .value_claims()
+                        .admit_at(&term_index(term), GateSite::EquationHead)?;
                     let arguments = NormalSubterms::of(term, subterm)?;
                     let reach = no_equation_reaches(&arguments)?;
-                    Self::of_equation_head(term, &arguments, reach)
+                    Self::of_equation_head(term, &arguments, reach, untainted)
                 }
                 // A function application is rewritten by evaluation; an uninterpreted
                 // application or a macro/alias has no structural normal-form guarantee.
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => None,
             },
             Shape::Collection(_) => {
+                let untainted = definition
+                    .value_claims()
+                    .admit_at(&term_index(term), GateSite::Collection)?;
                 let elements = NormalSubterms::of(term, subterm)?;
                 let reach = no_equation_reaches(&elements)?;
-                Self::of_collection(term, &elements, reach)
+                Self::of_collection(term, &elements, reach, untainted)
             }
             Shape::And => None,
         }
@@ -149,6 +160,7 @@ impl InstanceNormal {
         term: &Term,
         arguments: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
+        _untainted: UntaintedIndex,
     ) -> Option<Self> {
         match term.shape() {
             Shape::Application(role) => match role {
@@ -177,6 +189,7 @@ impl InstanceNormal {
         term: &Term,
         elements: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
+        _untainted: UntaintedIndex,
     ) -> Option<Self> {
         match term.shape() {
             Shape::Collection(_) => {
@@ -235,40 +248,33 @@ impl<'t> NormalSubterms<'t> {
         term: &'t Term,
         mut subterm: impl FnMut(&Term) -> Option<InstanceNormal>,
     ) -> Option<Self> {
-        every_immediate_subterm(term, |immediate| subterm(immediate).is_some())
-            .then_some(Self { term })
+        let mut normal = |term: &Term| subterm(term).is_some();
+        let all = match term.kind() {
+            TermKind::Application { arguments, .. } => arguments.iter().all(&mut normal),
+            TermKind::Injection { term, .. } => normal(term),
+            TermKind::Map { entries, rest, .. } => {
+                entries
+                    .iter()
+                    .all(|(key, value)| normal(key) && normal(value))
+                    && rest.as_ref().is_none_or(&mut normal)
+            }
+            TermKind::List { heads, rest, .. } => {
+                heads.iter().all(&mut normal)
+                    && rest.as_ref().is_none_or(|(middle, tails)| {
+                        normal(middle) && tails.iter().all(&mut normal)
+                    })
+            }
+            TermKind::Set { elements, rest, .. } => {
+                elements.iter().all(&mut normal) && rest.as_ref().is_none_or(&mut normal)
+            }
+            TermKind::And(left, right) => normal(left) && normal(right),
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        };
+        all.then_some(Self { term })
     }
 
     fn holds_for(&self, term: &Term) -> bool {
         self.term == term
-    }
-}
-
-/// Whether `normal` holds for each immediate subterm of `term`, asked in the order
-/// [`NormalSubterms::of`] states, stopping at the first that fails; `true` for a variable or a
-/// domain value. Also asked, with a predicate of its own, about the left-hand side of an
-/// equation (`instance_normal::patterns::pattern_facts`); it mints no token.
-pub(super) fn every_immediate_subterm(term: &Term, mut normal: impl FnMut(&Term) -> bool) -> bool {
-    match term.kind() {
-        TermKind::Application { arguments, .. } => arguments.iter().all(&mut normal),
-        TermKind::Injection { term, .. } => normal(term),
-        TermKind::Map { entries, rest, .. } => {
-            entries
-                .iter()
-                .all(|(key, value)| normal(key) && normal(value))
-                && rest.as_ref().is_none_or(&mut normal)
-        }
-        TermKind::List { heads, rest, .. } => {
-            heads.iter().all(&mut normal)
-                && rest
-                    .as_ref()
-                    .is_none_or(|(middle, tails)| normal(middle) && tails.iter().all(&mut normal))
-        }
-        TermKind::Set { elements, rest, .. } => {
-            elements.iter().all(&mut normal) && rest.as_ref().is_none_or(&mut normal)
-        }
-        TermKind::And(left, right) => normal(left) && normal(right),
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
     }
 }
 

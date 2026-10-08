@@ -25,6 +25,7 @@ use std::{
 
 use k_rust_backend::{
     builtin::BuiltinEffect,
+    confluence::{UnjoinedReason, UnresolvedShape},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     externalize::{self, External},
@@ -235,6 +236,227 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
         "the `total` attribute of {symbol} is contradicted on this input: its equation {equation}{position} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
         symbol = k_label(contradicted.symbol()),
     )
+}
+
+/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`): what to tell
+/// the author, and the equation it is located at, if any.
+#[derive(Clone, Debug)]
+pub struct ValueClaimFinding {
+    /// The text, without a severity prefix.
+    pub message: String,
+    /// Whether the finding is a precondition row (`Violation`) rather than a pair.
+    pub precondition: bool,
+    /// The written position of the equation the finding is about (the pair's first equation).
+    pub origin: Option<RuleOrigin>,
+    /// That equation's unique id, which the compiler's sentence provenance is keyed by.
+    pub unique_id: Option<String>,
+}
+
+/// The findings of the load-time critical-pair check of `definition`: one per row of the
+/// constructor and overload preconditions the definition violates, and one per pair of
+/// executable equations that does not provably join and withdraws a value claim, naming both
+/// equations with their written positions, the overlapped term, why the check does not join
+/// it, and the equation heads that get no value claim. An equation the check does not pair
+/// (`ComputedBelowRoot`, `UnboundResultVariables`) is named as not checked; an equation paired
+/// with itself because its map or set pattern matches one subject in several ways
+/// (`SeveralMatches`) is named as that pair.
+pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
+    /// The characters of the overlapped term a warning prints before it cuts it short.
+    const OVERLAP_CHARACTERS: usize = 240;
+    let claims = definition.value_claims();
+    let equation = |rule: &k_rust_backend::rule::RewriteRule| {
+        let name = rule
+            .attributes
+            .label
+            .clone()
+            .unwrap_or_else(|| rule.attributes.unique_id.clone());
+        match rule.attributes.origins.first().and_then(written_position) {
+            Some(position) => format!("{name} at {position}"),
+            None => name,
+        }
+    };
+    let located = |rule: &k_rust_backend::rule::RewriteRule, message: String, precondition| {
+        ValueClaimFinding {
+            message,
+            precondition,
+            origin: rule.attributes.origins.first().cloned(),
+            unique_id: Some(rule.attributes.unique_id.clone()),
+        }
+    };
+    let mut findings = claims
+        .violations()
+        .iter()
+        .map(|violation| {
+            let consequence = if violation.kind.withdraws() {
+                "no value claims are made through it"
+            } else {
+                "value claims rest on it"
+            };
+            (violation, consequence)
+        })
+        .map(|(violation, consequence)| match &violation.rule {
+            Some(rule) => located(
+                rule,
+                format!("{} ({}); {consequence}", violation.kind, equation(rule)),
+                true,
+            ),
+            None => ValueClaimFinding {
+                message: format!("{}; {consequence}", violation.kind),
+                precondition: true,
+                origin: None,
+                unique_id: None,
+            },
+        })
+        .collect::<Vec<_>>();
+    for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
+        let alone = std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none();
+        if alone && pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches) {
+            // The equation was checked: two matchings of its left-hand side against one subject
+            // are two steps from one term, and that self pair is what does not join.
+            findings.push(located(
+                &pair.first,
+                format!(
+                    "the equation {} paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for {}",
+                    equation(&pair.first),
+                    withdrawn_heads(&pair.withdrawn)
+                ),
+                false,
+            ));
+            continue;
+        }
+        if alone {
+            findings.push(located(
+                &pair.first,
+                format!(
+                    "the equation {} is not checked ({}); no value claims are made for {}",
+                    equation(&pair.first),
+                    pair.reason,
+                    withdrawn_heads(&pair.withdrawn)
+                ),
+                false,
+            ));
+            continue;
+        }
+        let equations = format!(
+            "the equations {} and {}",
+            equation(&pair.first),
+            equation(&pair.second)
+        );
+        let overlap = pair
+            .overlap
+            .as_ref()
+            .map(|overlap| {
+                let mut text = KorePrinter::compact().print_pattern(&externalize::term(overlap));
+                if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
+                    text.truncate(cut);
+                    text.push_str("...");
+                }
+                format!(" overlap at {text} and")
+            })
+            .unwrap_or_default();
+        findings.push(located(
+            &pair.first,
+            format!(
+                "{equations}{overlap} are not shown to join ({}); no value claims are made for {}",
+                pair.reason,
+                withdrawn_heads(&pair.withdrawn)
+            ),
+            false,
+        ));
+    }
+    findings
+}
+
+/// The warnings `krun`, `kprove` and the RPC server print for the findings of the load-time
+/// critical-pair check ([`value_claim_findings`]).
+pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
+    value_claim_findings(definition)
+        .into_iter()
+        .map(|finding| format!("warning: {}", finding.message))
+        .collect()
+}
+
+/// The located diagnostics `kompile` reports for the findings of the load-time critical-pair
+/// check ([`value_claim_findings`]): each at its equation's written position, with the input
+/// addresses the compiler recorded for that equation in `provenance`.
+pub fn value_claim_diagnostics(
+    definition: &BackendDefinition,
+    provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
+) -> Vec<crate::diagnostic::Diagnostic> {
+    use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity};
+    value_claim_findings(definition)
+        .into_iter()
+        .map(|finding| {
+            let (source, location) = finding
+                .origin
+                .as_ref()
+                .map_or((None, None), written_location);
+            Diagnostic {
+                severity: Severity::Warning,
+                code: if finding.precondition {
+                    DiagnosticCode::ValueClaimPrecondition
+                } else {
+                    DiagnosticCode::UnjoinedCriticalPair
+                },
+                message: finding.message,
+                source,
+                location,
+                input_addresses: finding
+                    .unique_id
+                    .as_ref()
+                    .and_then(|id| provenance.get(id))
+                    .map(|entry| entry.input_addresses.clone())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+/// The source path and the location a rule's `Source` and `Location` attributes write.
+fn written_location(origin: &RuleOrigin) -> (Option<String>, Option<crate::definition::Location>) {
+    let source = origin.source.as_deref().map(|source| {
+        source
+            .strip_prefix("Source(")
+            .and_then(|path| path.strip_suffix(')'))
+            .unwrap_or(source)
+            .to_owned()
+    });
+    let location = origin.location.as_deref().and_then(|location| {
+        let numbers = location
+            .strip_prefix("Location(")?
+            .strip_suffix(')')?
+            .split(',')
+            .map(|part| part.trim().parse::<u32>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        let [start_line, start_column, end_line, end_column] = numbers.as_slice() else {
+            return None;
+        };
+        Some(crate::definition::Location {
+            start_line: *start_line,
+            start_column: *start_column,
+            end_line: *end_line,
+            end_column: *end_column,
+        })
+    });
+    (source, location)
+}
+
+/// The equation heads a non-joined pair withdraws, by K label, sorted, the first five listed and
+/// the rest counted.
+fn withdrawn_heads(withdrawn: &[k_rust_backend::term::Name]) -> String {
+    const LISTED_HEADS: usize = 5;
+    let mut labels = withdrawn
+        .iter()
+        .map(|head| k_label(head))
+        .collect::<Vec<_>>();
+    labels.sort();
+    let more = labels.len().saturating_sub(LISTED_HEADS);
+    labels.truncate(LISTED_HEADS);
+    if more == 0 {
+        labels.join(", ")
+    } else {
+        format!("{} and {more} more", labels.join(", "))
+    }
 }
 
 /// The K label a KORE symbol name encodes (`LbltDiv'LParUndsRParUnds'M'Unds'Int'Unds'Int` is

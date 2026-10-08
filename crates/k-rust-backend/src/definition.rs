@@ -597,12 +597,10 @@ pub struct BackendDefinition {
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
     inhabited_sorts: OnceLock<BTreeSet<ClosedSort>>,
-    /// Facts about the left-hand sides of the function and simplification equations; computed
-    /// on first use by `instance_normal::patterns::pattern_facts`, read through
-    /// [`Self::pattern_arguments_normal`] and the exclusion test of instance normality. The
-    /// theories are fixed by `internalize`, so the facts hold for every later use and for the
-    /// definition's clones, which share the equations.
-    pattern_facts: OnceLock<crate::instance_normal::PatternFacts>,
+    /// The verdict of the load-time critical-pair check (`confluence::check`): which indexes may
+    /// carry value claims. [`crate::confluence::ValueClaims::withheld`] until `internalize`
+    /// computes it, so that the check itself runs with every claim withheld.
+    value_claims: crate::confluence::ValueClaims,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -1320,15 +1318,14 @@ impl BackendDefinition {
     /// sort. Evidence that no equation reduces the application is either the simplifier's
     /// certificate on a ground normal form (`term::head::certified_ground_normal_form`) or
     /// instance normality (`instance_normal`): every equation equation selection could offer the
-    /// application or one of its instances fails to unify with it or to match it, counted only
-    /// for an equation whose left-hand side has instance-normal arguments, so that the failure
-    /// is about the values the left-hand side denotes (`pattern_arguments_normal`). Either holds
-    /// for every valuation, so the answer does not depend on a path condition. Without the
-    /// marker an equation head claims nothing about its irreducible applications, and a
-    /// conditional equation whose left-hand side reaches the application withholds both kinds of
-    /// evidence, so the answer is `false` there, also where its `requires` is false: whether the
-    /// marker then makes the application a value depends on every other axiom of the
-    /// definition (`docs/compatibility.md`, "Anywhere rules").
+    /// application or one of its instances fails to unify with it or to match it. Both are
+    /// minted only at an index the load-time critical-pair check leaves untainted
+    /// (`confluence::ValueClaims::admit`), where the definition's normal-form model is a model of
+    /// it, so the application is an element there. Either holds for every valuation, so the
+    /// answer does not depend on a path condition. Without the marker an equation head claims
+    /// nothing about its irreducible applications, and a conditional equation whose left-hand
+    /// side reaches the application withholds both kinds of evidence, so the answer is `false`
+    /// there (`docs/compatibility.md`, "Anywhere rules").
     pub(crate) fn irreducible_application_is_defined(&self, term: &Term) -> bool {
         let TermKind::Application { symbol, .. } = term.kind() else {
             return false;
@@ -1336,12 +1333,6 @@ impl BackendDefinition {
         self.value_productions.contains(&symbol.name)
             && (crate::term::head::certified_ground_normal_form(term)
                 || self.instance_normal(term).is_some())
-    }
-
-    /// The facts [`Self::pattern_arguments_normal`] reads once they are computed.
-    pub(crate) fn pattern_facts(&self) -> &crate::instance_normal::PatternFacts {
-        self.pattern_facts
-            .get_or_init(|| crate::instance_normal::pattern_facts(self))
     }
 
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function
@@ -1804,7 +1795,7 @@ impl BackendDefinition {
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
-            pattern_facts: OnceLock::new(),
+            value_claims: crate::confluence::ValueClaims::withheld(),
             term_equation_in_predicate_theory: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
@@ -1862,8 +1853,27 @@ impl BackendDefinition {
             .flatten()
             .any(|rule| has_term_component(&rule.lhs));
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
+        // The check runs while the definition still withholds every claim, and before the
+        // rewrite rules' definedness is discharged, which reads the claims.
+        #[cfg(test)]
+        {
+            let switches = crate::confluence::switches::active();
+            if switches.claims_during_check || switches.discharge_before_check {
+                result.value_claims = crate::confluence::ValueClaims::admitting_everything();
+            }
+            if switches.discharge_before_check {
+                result.discharge_rewrite_definedness();
+            }
+        }
+        result.value_claims = crate::confluence::check(&result);
         result.discharge_rewrite_definedness();
         Ok(result)
+    }
+
+    /// The verdict of the load-time critical-pair check: which term indexes may carry value
+    /// claims, and the pairs that withdrew the others (`confluence`).
+    pub fn value_claims(&self) -> &crate::confluence::ValueClaims {
+        &self.value_claims
     }
 
     /// Returns the equations for function applications.

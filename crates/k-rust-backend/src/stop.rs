@@ -419,6 +419,27 @@ impl CancellationToken {
 
 struct RequestGuard(Option<CancellationToken>);
 
+/// Runs `action` with no request cancellation, no solver prelude signal and no step deadline in
+/// force on this thread, and restores them afterwards: a computation whose result is cached with
+/// a definition (the load-time critical-pair check) must not depend on the request that happens
+/// to load it. Stops `action` arms itself (its own deadline) still apply inside.
+pub(crate) fn detached<T>(action: impl FnOnce() -> T) -> T {
+    let saved =
+        REGISTRY.with(|registry| std::mem::replace(&mut *registry.borrow_mut(), Registry::EMPTY));
+    let _restore = DetachedGuard(Some(saved));
+    action()
+}
+
+struct DetachedGuard(Option<Registry>);
+
+impl Drop for DetachedGuard {
+    fn drop(&mut self) {
+        if let Some(saved) = self.0.take() {
+            REGISTRY.with(|registry| *registry.borrow_mut() = saved);
+        }
+    }
+}
+
 impl Drop for RequestGuard {
     fn drop(&mut self) {
         let previous = self.0.take();

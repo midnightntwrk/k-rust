@@ -106,6 +106,8 @@ algorithms! {
     BackendSmtCheck => "backend.smt.check",
     /// Structural definedness constraint generation and discharge.
     BackendDefinedness => "backend.definedness.discharge",
+    /// The load-time critical-pair check of the executable equations.
+    BackendConfluenceCheck => "backend.confluence.critical_pairs",
     /// KORE definition validation and internalization.
     BackendDefinitionInternalize => "backend.definition.internalize",
     /// Capture-avoiding alias unfolding.
@@ -534,13 +536,21 @@ pub enum Counter {
     ProofStatesExplored,
     /// Per-state implication checks against the claim right-hand side.
     ProofImplicationChecks,
+    /// Candidate pairs the load-time critical-pair check unified.
+    ConfluencePairs,
+    /// Branch states the critical-pair unifier explored.
+    ConfluenceUnifierBranches,
+    /// Steps the critical-pair join took.
+    ConfluenceJoinSteps,
+    /// Predicate simplifications the critical-pair check ran.
+    ConfluenceSimplifierCalls,
     /// Terms constructed.
     TermConstructed,
 }
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 88;
+    pub const COUNT: usize = 92;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -631,6 +641,10 @@ impl Counter {
         Counter::SearchStatesDeduplicated,
         Counter::ProofStatesExplored,
         Counter::ProofImplicationChecks,
+        Counter::ConfluencePairs,
+        Counter::ConfluenceUnifierBranches,
+        Counter::ConfluenceJoinSteps,
+        Counter::ConfluenceSimplifierCalls,
         Counter::TermConstructed,
     ];
 
@@ -726,6 +740,10 @@ impl Counter {
             Counter::SearchStatesDeduplicated => "search.states_deduplicated",
             Counter::ProofStatesExplored => "proof.states_explored",
             Counter::ProofImplicationChecks => "proof.implication_checks",
+            Counter::ConfluencePairs => "confluence.pairs",
+            Counter::ConfluenceUnifierBranches => "confluence.unifier_branches",
+            Counter::ConfluenceJoinSteps => "confluence.join_steps",
+            Counter::ConfluenceSimplifierCalls => "confluence.simplifier_calls",
             Counter::TermConstructed => "term.constructed",
         }
     }

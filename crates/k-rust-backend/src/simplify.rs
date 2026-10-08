@@ -20,10 +20,6 @@
 //! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions of one predicate included (a conjunct of several is evaluated with the others as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
-//! mode = "pattern facts (instance_normal/patterns.rs pattern_facts)"
-//! bound = "once per definition, on the first failed match or exclusion that asks: one walk over the right-hand sides reachable from each equation index, then rounds over the e function and simplification equations (at most PATTERN_FACT_ROUNDS (64), stopping at the first round that changes nothing or after the round in which the computation's PATTERN_FACTS_WORK (200,000) narrowing steps are spent), each deciding instance normality of the immediate subterms of the left-hand sides not yet shown and, for each equation with a fixed root, its overlaps: one narrowing against each other equation offered at its index and, per subterm below the root that is not a normal pattern, against each equation offered there and its overlap representatives, each found peak tried for a join by up to JOIN_STEPS (8) unconditional steps per side, then the representatives of the overlapped instances (each instance and reduct of at most REPRESENTATIVE_SIZE (2,048) nodes, past which the coarser fallback is used; the instances, and the representatives, kept as their most general members, one instance check against each member kept); an equation's overlaps are recomputed only until they have differed from the previous round's in OVERLAP_CHANGES (3) rounds, after which they are fixed to its left-hand side and the right-hand sides its root reaches; every other left-hand side and stored term (overlapped instance, overlap representative, value root) read is first copied with fresh variables (one rebuild of the term), each reduct is the right-hand side instantiated with every variable the narrowing left unbound minted (one rebuild) and is compared with the representatives already found up to those names (one walk for a hash, one walk per representative of equal hash), and every stored term is renamed canonically (one rebuild); afterwards, per failed match or exclusion, one set lookup and, for an equation whose left-hand side arguments are not normal patterns, one walk of its left-hand side against the term comparing the roots each argument's reducts can have, plus one comparison of a fresh copy of each of the equation's overlap representatives with the term (a representative with a total root, a constructor, injection, collection or symbol declared total, also compared through the representatives of its arguments whose sort may hold the term's, one sort reachability walk each), which decide the instance normality of the terms they build (each term at most once per scan up to the minted names, one walk for the memo key, a term in progress answered at once) with at most VALUE_QUESTIONS (8) such walks nested on a thread and at most SCAN_WORK (20,000) narrowing steps per outermost scan (instance_normal.rs)"
-//!
-//! [[cost]]
 //! mode = "report retraction (retract_dropped)"
 //! bound = "only when the call raised a report of an equation passed over on a kept subterm: one search of the result's conditions and of the term nodes, in both, that lack the evaluated attribute (the part the simplifier walks), each shared node once, stopping when every subject is found"
 //! ```
@@ -88,7 +84,7 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     matching::{
-        CollectionMatches, InjectionEquality, MatchMode, MatchResult,
+        CollectionMatches, InjectionEquality, MatchFailed, MatchMode, MatchResult,
         match_collection_remainders_all_in_definition, match_injection_equality,
         match_term_pairs_in_definition, match_terms_in_definition,
     },
@@ -119,8 +115,8 @@ pub(crate) mod scan;
 use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
-    EquationAttempt, FailedMatch, FunctionTheory, GroupScan, IndeterminateAttempts,
-    SimplificationTheory, TermTheory, TheoryScan, scan_group, scan_term_theory,
+    EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
+    TermTheory, TheoryScan, scan_group, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -3786,16 +3782,50 @@ fn is_scalar_domain_value(term: &Term) -> bool {
     )
 }
 
+/// `term` with each subterm equal to an original of `replacements` replaced, children first.
+///
+/// The walk keeps its pending work on the heap: the terms the simplifier builds can be deeper
+/// than the native stack (a ground chain of a function whose evaluation does not end grows one
+/// level per step), and the stack guard bounds only the simplifier's own recursion.
 fn replace_terms_bottom_up(term: &Term, replacements: &[(Term, Term)]) -> Term {
-    let rebuilt = term
-        .try_map_children(|child| {
-            Ok::<_, std::convert::Infallible>(replace_terms_bottom_up(child, replacements))
-        })
-        .expect("an infallible term transformation cannot fail");
-    replacements
-        .iter()
-        .find_map(|(original, replacement)| (original == &rebuilt).then(|| replacement.clone()))
-        .unwrap_or(rebuilt)
+    // `None`: the term is still to be entered; `Some(count)`: its `count` children are rebuilt
+    // on top of `rebuilt`.
+    let mut pending = vec![(term.clone(), None::<usize>)];
+    let mut rebuilt = Vec::<Term>::new();
+    // Invariant: `rebuilt` holds, in order, the rebuilt children of every exit frame on
+    // `pending` that has finished entering them; each term is entered and exited once.
+    while let Some((current, state)) = pending.pop() {
+        match state {
+            None => {
+                let mut children = Vec::new();
+                let _ = current.try_map_children(|child| {
+                    children.push(child.clone());
+                    Ok::<_, std::convert::Infallible>(child.clone())
+                });
+                pending.push((current, Some(children.len())));
+                pending.extend(children.into_iter().rev().map(|child| (child, None)));
+            }
+            Some(count) => {
+                let mut children = rebuilt.split_off(rebuilt.len() - count).into_iter();
+                let term = current
+                    .try_map_children(|_| {
+                        Ok::<_, std::convert::Infallible>(
+                            children.next().expect("one rebuilt child per child"),
+                        )
+                    })
+                    .expect("an infallible term transformation cannot fail");
+                rebuilt.push(
+                    replacements
+                        .iter()
+                        .find_map(|(original, replacement)| {
+                            (original == &term).then(|| replacement.clone())
+                        })
+                        .unwrap_or(term),
+                );
+            }
+        }
+    }
+    rebuilt.pop().expect("the walk rebuilds the root")
 }
 
 fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]) -> bool {
@@ -4473,7 +4503,14 @@ fn simplify_root(
     {
         term.with_evaluated_cache(
             definition,
-            NormalFormCertificate::new(selection, function_scan, simplification_scan),
+            NormalFormCertificate::new(
+                selection,
+                function_scan,
+                simplification_scan,
+                definition
+                    .value_claims()
+                    .admit_at(&term_index(term), crate::confluence::GateSite::Certificate),
+            ),
         )
     } else {
         term.clone()
@@ -5681,62 +5718,26 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification, FailedMatch>> {
-    match rename_apart(rule, &term.attributes().variables, known_predicates) {
-        Some((renamed, _)) => apply_equation_named_apart(
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
+        return apply_equation(
             definition,
-            rule,
             &renamed,
             term,
             known_predicates,
             options,
             active_conditions,
             solver,
-        ),
-        None => apply_equation_named_apart(
-            definition,
-            rule,
-            rule,
-            term,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        ),
+        );
     }
-}
-
-/// [`apply_equation`] for `rule`, the definition's equation `equation` with its variables named
-/// apart from `term`'s.
-#[allow(clippy::too_many_arguments)]
-fn apply_equation_named_apart(
-    definition: &BackendDefinition,
-    equation: &RewriteRule,
-    rule: &RewriteRule,
-    term: &Term,
-    known_predicates: &[Predicate],
-    options: SimplificationOptions,
-    active_conditions: &BTreeSet<(String, Term)>,
-    solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification, FailedMatch>> {
     measure::bump(Counter::SimplifyEquationAttempts);
     let matched = match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term);
-    // Whether a failed match is about the value of `term` as well (`scan::FailedMatch`), asked
-    // of the definition's own equation, not its renamed copy. Only a term that can carry the
-    // certificate (`cacheable_equation_head`) needs the answer; any other gets `false`.
-    let failed = |refutation| {
-        FailedMatch::new(
-            refutation,
-            cacheable_equation_head(definition, term)
-                && definition.failed_match_is_about_values(equation, term),
-        )
-    };
     let substitution = match matched {
         MatchResult::Failed(_) => {
-            let refutation = matched
+            let failed = matched
                 .refutation()
                 .expect("a failed match states its refutation");
-            return Ok(EquationAttempt::NotApplicable(failed(refutation)));
+            return Ok(EquationAttempt::NotApplicable(failed));
         }
         MatchResult::Indeterminate {
             substitution,
@@ -5749,8 +5750,8 @@ fn apply_equation_named_apart(
                 &remainder,
             ) {
                 CollectionMatches::Solutions(solutions) => solutions,
-                CollectionMatches::NoSolution(refutation) => {
-                    return Ok(EquationAttempt::NotApplicable(failed(refutation)));
+                CollectionMatches::NoSolution(failed) => {
+                    return Ok(EquationAttempt::NotApplicable(failed));
                 }
                 CollectionMatches::Undecided => {
                     return Ok(EquationAttempt::Indeterminate(
@@ -5758,10 +5759,17 @@ fn apply_equation_named_apart(
                     ));
                 }
             };
-            // K function equations are required to be functional. AC matching may expose
-            // several equivalent decompositions, so use the first substitution from the
-            // helper's stable sorted order rather than turning evaluation into execution
-            // branching.
+            // Matching modulo the map and set axioms can decompose one subject in several ways.
+            // The load-time check (`confluence::undetermined_variables`) pairs such an equation
+            // with itself, and withdraws the value claims it involves unless every decomposition
+            // gives the same right-hand side and `ensures`; the first substitution of the
+            // helper's stable sorted order is then as good as any for the result. The
+            // `requires` is decided on this substitution only, so an equation whose `requires`
+            // reads a variable the decomposition chooses may be refuted here although another
+            // decomposition satisfies it, and evaluation falls through to a lower priority group:
+            // a result that can be false in every model of the definition (an open issue; see
+            // `docs/compatibility.md`, "Anywhere rules"). No value claim is made from it: a
+            // refuted `requires` is context dependent and sets no certificate.
             solutions
                 .into_iter()
                 .next()

@@ -472,7 +472,7 @@ pub enum RuleRhs {
     Predicates(Vec<Predicate>),
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TermIndex {
     Symbol(Name),
     Injection,

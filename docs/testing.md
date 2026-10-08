@@ -50,7 +50,7 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 |---|---|---|
 | Every push and pull request | `ci.yml` | formatting; the benchmark harness's syntax; the MSRV `cargo check`; build and clippy with Z3; the workspace suite under nextest and checked inference (`ci-checked` profile); doc-tests; `scripts/measure-ratchet.sh`; the Node-API and WebAssembly packages' builds and tests; portable clippy; the portable subset (k-rust's library tests, `inner_parser`, `definition_regex`, and `k-rust-wasm`); `k-rust-backend` without its `z3` feature; the `wasm32` build; the dependency-free regex crate |
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
-| Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), and `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend |
+| Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
 | Every week, or on demand | `differential.yml` | the reference differential gates of the manifest's `weekly` gate set |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
@@ -89,6 +89,7 @@ It is a manual check, not a gate: run it before removing tests or restructuring 
 | CLI options, process status, RPC schema, or host binding behavior | CLI, RPC, Node, or WASM surface tests | The public surface contract |
 | Compatibility requiring a running reference | The applicable `scripts/reference-*.sh` gate and `scripts/reference-differential.toml` | Output from the pinned reference toolchain |
 | Broad upstream corpus exploration and acceptance tracking | `scripts/conformance/run.py` and `scripts/conformance/expectations.toml` | Upstream recipes, recorded outputs, and confirmed live oracles |
+| The load-time critical-pair check's verdict on whole definitions (FUN, SIMPLE, KOOL, WASM, IELE and the overload cases) | `scripts/value-contract-corpus.sh` and `scripts/value-contract-corpus.toml`, on the definitions the conformance driver compiled | The recorded verdicts and counts; a change is a precision or cost change to explain |
 
 A kompile stage's contract belongs in its pass module, stated on the definition the pipeline hands that stage: `kompile::stage_harness::run_to_stage` (test-only) loads a prelude-free source as `kcompile --no-prelude` does, runs the stages before the named one, and returns that stage's input and output, so the test needs no hand-built input that later drifts from what the earlier stages produce.
 A backend semantic contract belongs with backend tests even when it was discovered through a CLI command.
