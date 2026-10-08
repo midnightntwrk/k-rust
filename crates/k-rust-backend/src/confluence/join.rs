@@ -24,8 +24,9 @@
 //!    has its `requires` refuted at each unifier. The first group with an equation that surely
 //!    applies gives the step; a group that is neither refuted nor gives a step leaves the subterm
 //!    a residual;
-//! 3. when every group is refuted, a declared function without a hook is stuck on every instance
-//!    and the subterm is `\bottom`; an equation head whose arguments are settled is settled.
+//! 3. when every group is refuted, a partial declared function without a hook is stuck on every
+//!    instance and the subterm is `\bottom`; a total one, and an equation head, whose arguments
+//!    are settled is settled (a stuck total application is an element no equation names).
 //!
 //! The binding rule keeps every step valid on every instance: the matcher compares only settled
 //! structure, so each residual lies inside the value of some variable `X`, and the step is taken
@@ -202,6 +203,12 @@ pub(super) fn join(
         };
     }
     Outcome::Joined
+}
+
+/// Whether `symbol` is declared total (`functional` or `total`): its application to defined
+/// arguments is defined (precondition P2).
+fn total(symbol: &crate::term::Symbol) -> bool {
+    symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
 }
 
 /// Every application subterm of `term`, `term` included.
@@ -426,13 +433,21 @@ impl Join<'_, '_> {
                 return Step::Residual;
             }
         }
+        // Every group is refuted: no equation rewrites any instance at its root.
+        let arguments_settled = arguments.iter().all(|argument| self.is_settled(argument));
         match symbol.attributes.head_role() {
-            HeadRole::Function { .. } if symbol.attributes.hook.is_none() => Step::To(None),
-            HeadRole::EquationHead
-                if arguments.iter().all(|argument| self.is_settled(argument)) =>
-            {
-                Step::Settled
+            // A stuck application of a total function is a value no equation names (an element
+            // of `M_NF`, as precondition P2 requires); of a partial one, `\bottom`.
+            HeadRole::Function { .. } if symbol.attributes.hook.is_none() => {
+                if !total(symbol) {
+                    Step::To(None)
+                } else if arguments_settled {
+                    Step::Settled
+                } else {
+                    Step::Residual
+                }
             }
+            HeadRole::EquationHead if arguments_settled => Step::Settled,
             HeadRole::FreeConstructor
             | HeadRole::EquationHead
             | HeadRole::Function { .. }
@@ -728,7 +743,10 @@ impl Join<'_, '_> {
             bottom: case.bottom.clone(),
             depth: case.depth + 1,
         };
-        if role == HeadRole::EquationHead {
+        let TermKind::Application { symbol, .. } = residual.kind() else {
+            unreachable!("a split residual is an application")
+        };
+        if role == HeadRole::EquationHead || total(symbol) {
             complement.settled.push(residual.clone());
         } else {
             complement.bottom.push(residual.clone());

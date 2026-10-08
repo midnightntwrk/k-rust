@@ -8,6 +8,10 @@
 //! So `instance_normal.rs` can neither vouch for an equation-head or collection root without
 //! the scan of every equation that could reach it, nor call a constructor on a term other than
 //! the one `decide` answers for.
+//!
+//! The equation-head and collection constructors also take an [`UntaintedIndex`] for the term's
+//! index, which only the definition's load-time verdict mints (`confluence::ValueClaims::admit`):
+//! no token is minted for an index the critical-pair check withdrew, nor while the check runs.
 
 use crate::{
     confluence::UntaintedIndex,

@@ -403,15 +403,44 @@ fn assert_w_h_keeps_its_obligation(definition: &BackendDefinition) {
     let zero = r#"\dv{SortInt{}}("0")"#;
     for first in [r#"\dv{SortInt{}}("1")"#, r#"\dv{SortInt{}}("3")"#] {
         let query = ceil_w_h(first, zero);
-        assert_eq!(
-            simplified_predicate_under(definition, &query, &[]),
-            Predicate::Ceil(internal_term(
+        assert_obligation_kept(
+            &simplified_predicate_under(definition, &query, &[]),
+            &Predicate::Ceil(internal_term(
                 definition,
-                r#"w{}(h{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#
+                r#"w{}(h{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#,
             )),
-            "{query}"
+            &query,
         );
     }
+}
+
+/// `simplified` keeps the obligation `kept`: it is not `\top`, and `kept` is one of its
+/// conjuncts. A definition the load-time check withdraws claims from may keep further
+/// obligations beside it (the arguments' own, where their heads are withdrawn too).
+fn assert_obligation_kept(simplified: &Predicate, kept: &Predicate, query: &str) {
+    let conjuncts = match simplified {
+        Predicate::And(conjuncts) => conjuncts.clone(),
+        other => vec![other.clone()],
+    };
+    assert!(
+        *simplified != Predicate::True && conjuncts.contains(kept),
+        "{query}: {simplified:?}"
+    );
+}
+
+/// The load-time check names a pair of the definition's equations that does not join, and
+/// withdraws the value claims of every head of `heads`.
+fn assert_withdrawn(definition: &BackendDefinition, heads: &[&str]) {
+    let claims = definition.value_claims();
+    let tainted = claims.tainted_symbols();
+    assert!(
+        claims.unjoined().iter().any(|pair| pair.relevant())
+            && heads
+                .iter()
+                .all(|head| tainted.iter().any(|symbol| symbol.as_ref() == *head)),
+        "{:?} / {tainted:?}",
+        claims.unjoined()
+    );
 }
 
 /// `w(h(3, 0)) = mk(1 /Int 0)` makes `w(h(3, 0))` undefined, and `h(3, 0) = h(1, 0)` makes
@@ -431,13 +460,13 @@ fn an_equation_whose_pattern_argument_is_reducible_reaches_the_values_it_denotes
     );
     assert_w_h_keeps_its_obligation(&definition);
     let symbolic = ceil_w_h(r#"\dv{SortInt{}}("1")"#, "Y:SortInt{}");
-    assert_eq!(
-        simplified_predicate_under(&definition, &symbolic, &[]),
-        Predicate::Ceil(internal_term(
+    assert_obligation_kept(
+        &simplified_predicate_under(&definition, &symbolic, &[]),
+        &Predicate::Ceil(internal_term(
             &definition,
-            r#"w{}(h{}(\dv{SortInt{}}("1"), Y:SortInt{}))"#
+            r#"w{}(h{}(\dv{SortInt{}}("1"), Y:SortInt{}))"#,
         )),
-        "{symbolic}"
+        &symbolic,
     );
 }
 
@@ -513,10 +542,10 @@ fn narrowing_definition(rest: &[String]) -> BackendDefinition {
 
 fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept: &str) {
     let query = format!(r"\ceil{{{sort}, {sort}}}({term})");
-    assert_eq!(
-        simplified_predicate_under(definition, &query, &[]),
-        Predicate::Ceil(internal_term(definition, kept)),
-        "{query}"
+    assert_obligation_kept(
+        &simplified_predicate_under(definition, &query, &[]),
+        &Predicate::Ceil(internal_term(definition, kept)),
+        &query,
     );
 }
 
@@ -760,27 +789,21 @@ fn overlap_definition(equations: &[(&str, &str)]) -> BackendDefinition {
 const UNDEFINED_MK: &str = r#"mk{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#;
 
 /// `g(5) = c1`, `f(c1, Z) = f(c2, Z)` and `f(g(X), Z) = mk(1 /Int 0)` (review 3, F1). Then
-/// `f(c2, Y) = f(c1, Y) = f(g(5), Y) = mk(1 /Int 0)`, which is undefined. No reduct of `g(X)`
-/// is `c2`, so the `f(g(X), Z)` equation's argument misses `f(c2, Y)`'s; the instance
-/// `f(g(5), Z)` reaches it only through a step below the root followed by a root step of the
-/// other equation. So `\ceil(f(c2, Y))` keeps its obligation, while `f(c3, Y)`, which no
-/// reduct of an instance of either left-hand side is, is defined.
+/// `f(c2, Y) = f(c1, Y) = f(g(5), Y) = mk(1 /Int 0)`, which is undefined. The inner critical
+/// pair of `f(g(X), Z)` with `g(5) = c1` does not join (`f(c1, Z)` reaches `f(c2, Z)`, the other
+/// side `mk(1 /Int 0)`), so the load-time check withdraws the claims of `f` and `g`, and
+/// `\ceil(f(c2, Y))` keeps its obligation. `f(c3, Y)`, which no reduct of an instance of
+/// either left-hand side is, keeps it too: the per-head policy withdraws every claim of `f`.
 #[test]
 fn a_root_step_by_another_equation_leads_an_overlapped_instance_back_to_the_application() {
     let definition = overlap_definition(&[
         ("c1{}()", "f{}(c2{}(), VarZ:SortInt{})"),
         ("g{}(VarX:SortInt{})", UNDEFINED_MK),
     ]);
-    let kept = "f{}(c2{}(), Y:SortInt{})";
-    assert_ceil_kept(&definition, kept, "SortS{}", kept);
-    assert_eq!(
-        simplified_predicate_under(
-            &definition,
-            r"\ceil{SortS{}, SortS{}}(f{}(c3{}(), Y:SortInt{}))",
-            &[]
-        ),
-        Predicate::True
-    );
+    assert_withdrawn(&definition, &["f", "g"]);
+    for kept in ["f{}(c2{}(), Y:SortInt{})", "f{}(c3{}(), Y:SortInt{})"] {
+        assert_ceil_kept(&definition, kept, "SortS{}", kept);
+    }
 }
 
 /// The ground instance of [`a_root_step_by_another_equation_leads_an_overlapped_instance_back_to_the_application`]:
@@ -796,30 +819,24 @@ fn a_root_step_by_another_equation_leads_an_overlapped_ground_instance_back_to_t
 }
 
 /// `g(5) = c1`, `f(g(X), Z) = f(c2, Z)` and `f(c1, Z) = mk(1 /Int 0)`. Then
-/// `f(c2, Y) = f(g(5), Y) = f(c1, Y)`, undefined. `f(c2, Y)` is reached from `f(g(5), Y)` only
-/// through the first equation's own root step, but `f(g(5), Y)` has a second step (`g(5) = c1`)
-/// whose normal form is not `f(c2, Y)`: an equation's own root step counts at an instance that
-/// another step also rewrites.
+/// `f(c2, Y) = f(g(5), Y) = f(c1, Y)`, undefined. The inner pair of `f(g(X), Z)` with
+/// `g(5) = c1` has the sides `f(c1, Z)` and `f(c2, Z)`, which do not join, so the claims of
+/// `f` and `g` are withdrawn: `f(c2, Y)`, its ground instance and `f(c3, Y)` keep their
+/// obligations.
 #[test]
 fn an_equations_own_root_step_from_an_overlapped_instance_reaches_its_normal_forms() {
     let definition = overlap_definition(&[
         ("g{}(VarX:SortInt{})", "f{}(c2{}(), VarZ:SortInt{})"),
         ("c1{}()", UNDEFINED_MK),
     ]);
+    assert_withdrawn(&definition, &["f", "g"]);
     for kept in [
         "f{}(c2{}(), Y:SortInt{})",
         r#"f{}(c2{}(), \dv{SortInt{}}("0"))"#,
+        "f{}(c3{}(), Y:SortInt{})",
     ] {
         assert_ceil_kept(&definition, kept, "SortS{}", kept);
     }
-    assert_eq!(
-        simplified_predicate_under(
-            &definition,
-            r"\ceil{SortS{}, SortS{}}(f{}(c3{}(), Y:SortInt{}))",
-            &[]
-        ),
-        Predicate::True
-    );
 }
 
 /// `f(X, Z) = mk(X /Int 0) requires X ==Int 3` and `f(3, Z) = f(1, Z)` overlap at the root
@@ -1316,29 +1333,18 @@ fn a_refuted_requires_does_not_discharge_an_application_an_overlap_holds_below_t
 }
 
 /// Review 6, F2: the same overlaps without a `requires`. `g(s(c))` is undefined in every model
-/// for each total context, while `g(s(d))`, which no overlap holds, stays a value (the
-/// `value-production` marker) where the context reads it apart.
+/// for each total context. The root pair of the two `g(d)` equations does not join, so the
+/// claims of `g` are withdrawn: `g(s(c))` keeps its obligation, and so does `g(s(d))`, which no
+/// overlap holds (the per-head policy withdraws every claim of `g`).
 #[test]
 fn an_overlap_that_holds_an_application_below_total_symbols_keeps_its_obligation() {
     let held = "g{}(s{}(c{}()))";
     let apart = "g{}(s{}(d{}()))";
-    for (index, second) in total_contexts(held).into_iter().enumerate() {
+    for second in total_contexts(held) {
         let definition = total_head_definition(&second, false);
+        assert_withdrawn(&definition, &["g"]);
         assert_ceil_kept(&definition, held, "SortA{}", held);
-        // With `sz`, `Int` terms can hold `A` terms below a total symbol, so the other
-        // representative `m(1 /Int 0)`, whose argument is a function application the overlap
-        // reading does not see through, may hold `g(s(d))`: a precision limit, not asserted.
-        if index != 2 {
-            assert_eq!(
-                simplified_predicate_under(
-                    &definition,
-                    &format!(r"\ceil{{SortA{{}}, SortA{{}}}}({apart})"),
-                    &[]
-                ),
-                Predicate::True,
-                "{second}"
-            );
-        }
+        assert_ceil_kept(&definition, apart, "SortA{}", apart);
     }
 }
 

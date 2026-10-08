@@ -123,14 +123,15 @@ impl ValueClaims {
         Self(Arc::new(Verdict::Withheld))
     }
 
-    /// Whether applications or collections at `index` may carry value claims: `None` while the
-    /// check runs. The verdict is stored but not yet read: once the check has run every index is
-    /// admitted.
+    /// Whether applications or collections at `index` may carry value claims: `Some` exactly
+    /// when the check has run and did not taint `index`.
     #[must_use]
-    pub(crate) fn admit(&self, _index: &TermIndex) -> Option<UntaintedIndex> {
+    pub(crate) fn admit(&self, index: &TermIndex) -> Option<UntaintedIndex> {
         match &*self.0 {
             Verdict::Withheld => None,
-            Verdict::Checked(_) => Some(UntaintedIndex(())),
+            Verdict::Checked(checked) => {
+                (!checked.tainted_indexes.contains(index)).then_some(UntaintedIndex(()))
+            }
         }
     }
 

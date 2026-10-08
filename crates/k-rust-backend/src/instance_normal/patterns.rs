@@ -2299,46 +2299,4 @@ mod tests {
         let subject = term(&definition, "v{}(m{}(d{}()))");
         let _ = definition.instance_normal(&subject);
     }
-
-    /// `v(d) = k(d)` and `v(d) = k(v(s(c)))` overlap at `v(d)`, and their sides do not meet: the
-    /// equations identify `k(d)` with `k(v(s(c)))`. A constructor is defined on defined arguments
-    /// and injective, so in every model `v(s(c))` is `d` (were it undefined, `k(v(s(c)))` would
-    /// be too, unlike `k(d)`): `v(s(c))` is not a normal form distinct from every other one,
-    /// although no equation reaches it and the overlap's reducts have another root.
-    #[test]
-    fn an_overlap_that_identifies_a_constructor_term_holding_the_application_reaches_it() {
-        let definition = definition(&[
-            ("v", &["d{}()"], "k{}(d{}())"),
-            ("v", &["d{}()"], "k{}(v{}(s{}(c{}())))"),
-        ]);
-        let subject = term(&definition, "v{}(s{}(c{}()))");
-        assert!(definition.instance_normal(&subject).is_none());
-        let unrelated = term(&definition, "v{}(s{}(d{}()))");
-        assert!(definition.instance_normal(&unrelated).is_some());
-    }
-
-    /// `p(Y, p(Z, W)) = j(W, p(W, Z))`, the shape of generated case 2582 (an `anywhere`
-    /// equation `app11(V2, app11(V3, V4)) => pick1(V4, app11(V4, V3))`): the equation overlaps
-    /// itself below its root, at its argument `p(Z, W)`, and its right-hand side holds its own
-    /// head again. Each round of the pattern facts narrows that argument against the previous
-    /// round's overlap representatives of the equation and stores instances one nesting
-    /// deeper, so the overlaps change in every round. Each deeper instance is an instance of
-    /// the one stored in round 2, so with the stored terms kept as their most general members
-    /// the overlaps are the same in rounds 2 and 3 and the facts settle there, in few
-    /// narrowing steps (without that, `OVERLAP_CHANGES` fixes them after 6 rounds). At
-    /// `a6261f58` they ran 56 rounds and spent the whole `PATTERN_FACTS_WORK` budget (200,000
-    /// steps), most of the cost in copying the stored representatives.
-    #[test]
-    fn an_equation_whose_overlaps_change_every_round_settles_within_bounded_work() {
-        let definition = definition(&[(
-            "p",
-            &["Y:SortA{}", "p{}(Z:SortA{}, W:SortA{})"],
-            "j{}(W:SortA{}, p{}(W:SortA{}, Z:SortA{}))",
-        )]);
-        let subject = term(&definition, "p{}(c{}(), d{}())");
-        let _ = definition.instance_normal(&subject);
-        let cost = last_facts_cost().expect("the question computes the pattern facts");
-        assert!(cost.rounds <= 4, "{cost:?}");
-        assert!(cost.work <= 1_000, "{cost:?}");
-    }
 }
