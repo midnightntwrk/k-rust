@@ -2,7 +2,7 @@ schema = 1
 corpus_sha256 = "874826d8afcd213cec60aecb67d1565b8b68e76594818ca13cfda52e7d4af3bd"
 expansion_sha256 = "f83245da3d18f6b348bd4723af7b1ba57648e0f943ed07c3629f248a9bbe4651"
 behavior_sha256 = "a884399516bac6f72a4d9f2d4335d7199e9a944cc50b056ed0c87287893923e4"
-definition_kore_sha256 = "9b3f08fc0eeb9123933a459d84851acb1a7418005f5fa04ade0042eacc564b93"
+definition_kore_sha256 = "cf96da4230e005e5245a701d025b81799bd54fb3e784a14ad90e8a8682e10808"
 native_definition_kore_sha256 = "106e313f7f0c6878c6ccdf171dd9bb1e25c24edc2be2bacdef418c6d96daadc6"
 
 [kevm]
