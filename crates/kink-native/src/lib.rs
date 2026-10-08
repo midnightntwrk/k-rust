@@ -11,6 +11,7 @@
 //!
 pub mod bridge;
 pub mod census;
+pub mod coverage;
 mod equivalence;
 pub mod execution;
 pub mod feasibility;
@@ -27,6 +28,9 @@ mod validator;
 pub use census::{
     CensusClass, CensusError, CensusFinding, CensusVerdict, DeclarationCensus, InertDeclaration,
     declaration_census,
+};
+pub use coverage::{
+    Authorship, COVERAGE_DOMAIN, RuleAuthors, TestCoverage, coverage_digest, coverage_text,
 };
 pub use equivalence::equivalent_compilation;
 pub use validator::{MutantRejection, NativeFailure, NativeValidator, ValidatedDefinition};

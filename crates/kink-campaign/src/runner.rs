@@ -62,6 +62,7 @@ use kink_native::bridge::{
     BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution, paths_from_steps,
     validate_test_initial_state,
 };
+use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile, StepRunFailure,
     SteppedExecution,
@@ -215,6 +216,9 @@ pub struct MutantRun {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignRun {
     pub baseline: Vec<TestEvidence>,
+    /// The rule coverage of each baseline run, in manifest order: a scheduling input only, read
+    /// by no oracle, fold, status or score.
+    pub baseline_coverage: Vec<TestCoverage>,
     /// In candidate order: `mutants[index]` is `MutantId(index)`, the generation's
     /// `candidates[index]`.
     pub mutants: Vec<MutantRun>,
@@ -345,6 +349,7 @@ pub fn run_campaign(
     };
     let mut runtime = Runtime::prepare(campaign, &baseline)
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    runtime.coverage = Some(RuleAuthors::of(&baseline));
     // Test-written predicates do not inherit the definedness premise of backend-built
     // predicates. Refuse unsafe input through the existing declaration admission gate,
     // before any baseline or mutant execution (TV-01, R2-F1).
@@ -375,6 +380,15 @@ pub fn run_campaign(
         .tests
         .iter()
         .map(|test| runtime.run(campaign, test))
+        .collect::<Vec<_>>();
+    let baseline_coverage = baseline_runs
+        .iter()
+        .map(|(evidence, cache)| {
+            cache
+                .coverage
+                .clone()
+                .unwrap_or_else(|| TestCoverage::failed(&evidence.test_id))
+        })
         .collect::<Vec<_>>();
     let mut baseline_evidence = baseline_runs
         .iter()
@@ -430,6 +444,7 @@ pub fn run_campaign(
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
     Ok(CampaignRun {
         baseline: baseline_evidence,
+        baseline_coverage,
         mutants: runs,
         score: generation.scored().then(|| score(&statuses)),
     })
@@ -696,10 +711,12 @@ fn run_tests(
     (tests, evidence)
 }
 
-/// Stepped evidence retained from the primary run.
+/// Stepped evidence retained from the primary run, and its rule coverage when the side
+/// records it.
 #[derive(Default)]
 struct RunCache {
     stepped: Option<SteppedExecution>,
+    coverage: Option<TestCoverage>,
 }
 
 fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
@@ -731,6 +748,8 @@ struct Runtime {
     adapter: ExecutionAdapter,
     context: EvaluationContext,
     facts: Option<Result<DefinitionFacts, String>>,
+    /// The side's rule authors when its runs record coverage (the baseline only).
+    coverage: Option<RuleAuthors>,
 }
 
 impl Runtime {
@@ -755,6 +774,7 @@ impl Runtime {
             adapter,
             context,
             facts: None,
+            coverage: None,
         })
     }
 
@@ -794,6 +814,10 @@ impl Runtime {
             self.adapter
                 .execute(&mut self.backend, &test.initial_state, campaign.budget)
         };
+        cache.coverage = self.coverage.as_ref().map(|authors| match &execution {
+            Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
+            Err(_) => TestCoverage::failed(&test.id),
+        });
         let run = match execution {
             Err(failure) => SideRun::Failed((&failure).into()),
             Ok(execution) if execution.timed_out() => {
