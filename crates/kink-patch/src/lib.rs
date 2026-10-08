@@ -28,12 +28,13 @@ mod failure;
 mod fingerprint;
 mod semantic_input;
 mod sort;
+mod universe;
 
 pub use apply::{Mutant, SentenceOrigin, apply};
 pub use candidate::{
     Bindings, Candidate, CandidateDisposition, CandidateFailure, CandidateFailureKind,
     CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,
-    SelectionPolicy, Site, SiteSelector, derive_sites, select,
+    SelectionPolicy, Site, SiteSelector, derive_sites, derive_sites_in, select,
 };
 pub use claims::{Claim, ClaimSupport, Withdrawal};
 pub use codec::CodecError;
@@ -47,6 +48,7 @@ pub use fingerprint::{
     FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
 };
 pub use semantic_input::{SemanticInput, SemanticInputError};
+pub use universe::{ExclusionReason, ResolvedUniverse, Universe, resolve_universe};
 
 use k_rust::definition::{Definition, Sentence};
 use k_rust::kast::Term;

@@ -260,13 +260,20 @@ fn check_edited_sentences(
         let typer = typers.entry(at.module.as_str()).or_insert_with(|| {
             SentenceTyper::new(resolved, &at.module).map_err(|error| ill_formed(error.to_string()))
         });
-        typer
-            .as_ref()
-            .map_err(Clone::clone)?
-            .typing(sentence)
-            .map_err(|error| ill_formed(error.to_string()))?;
+        check_sentence_typing(typer.as_ref().map_err(Clone::clone)?, sentence)?;
     }
     Ok(())
+}
+
+/// The sentence re-typing check shared by patch application and universe resolution.
+pub(crate) fn check_sentence_typing(
+    typer: &SentenceTyper<'_>,
+    sentence: &Sentence,
+) -> Result<(), PatchFailure> {
+    typer
+        .typing(sentence)
+        .map(|_| ())
+        .map_err(|error| ill_formed(error.to_string()))
 }
 
 fn existing<'a>(baseline: &'a Baseline, at: &SentenceRef) -> Result<&'a Sentence, PatchFailure> {

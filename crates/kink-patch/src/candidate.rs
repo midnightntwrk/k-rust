@@ -23,8 +23,8 @@
 
 use crate::sort::site_sorts;
 use crate::{
-    Baseline, Edit, InsertPosition, Patch, PatchFailure, SentenceRef, TermRef, apply, child,
-    field_term,
+    Baseline, Edit, InsertPosition, Patch, PatchFailure, ResolvedUniverse, SentenceRef, TermRef,
+    apply, child, field_term,
 };
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Label, Sort, Term};
@@ -505,6 +505,16 @@ pub enum SiteSelector {
     Sort(Sort),
     /// The position holds an application of this label.
     Head { label: String },
+    /// The position is not an application of this label.
+    NotHead { label: String },
+    /// The position is not this domain token.
+    NotToken { token: String, sort: Sort },
+    /// The position is a domain token of exactly this sort.
+    TokenOfSort { sort: Sort },
+    /// The rule has, or lacks, this attribute key.
+    RuleAttribute { key: String, present: bool },
+    /// The position is an application with exactly this many arguments.
+    ArgumentCount { count: u32 },
     /// Binds the term at the position to this name, which must be an
     /// upper-case K variable name. It constrains nothing by itself; a join
     /// unifies the names both sides bind ([`Discovery::join`]).
@@ -532,6 +542,39 @@ pub fn derive_sites<'b>(
     baseline: &'b Baseline,
     role: &str,
     selector: &[SiteSelector],
+) -> Result<Discovery<'b>, CandidateFailure> {
+    derive_sites_with(baseline, role, selector, None)
+}
+
+/// Derives every matching position inside a resolved universe.
+///
+/// Exhaustiveness is relative to the declared universe. A sortless application
+/// of `#cells`, `#dots` or `#noDots` is a non-site for a sort clause; every other
+/// undecided sort keeps the discovery incomplete.
+///
+/// # Errors
+///
+/// Returns the selector errors of [`derive_sites`], or `UnknownSite` when the
+/// declaration is not authored or does not resolve identically against this baseline.
+pub fn derive_sites_in<'b>(
+    baseline: &'b Baseline,
+    universe: &ResolvedUniverse,
+    clauses: &[SiteSelector],
+) -> Result<Discovery<'b>, CandidateFailure> {
+    if !universe.matches_baseline(baseline) {
+        return Err(CandidateFailure::new(
+            CandidateFailureKind::UnknownSite,
+            "the universe is not authored or does not resolve against this baseline",
+        ));
+    }
+    derive_sites_with(baseline, "site", clauses, Some(universe))
+}
+
+fn derive_sites_with<'b>(
+    baseline: &'b Baseline,
+    role: &str,
+    selector: &[SiteSelector],
+    universe: Option<&ResolvedUniverse>,
 ) -> Result<Discovery<'b>, CandidateFailure> {
     let mut names = selector
         .iter()
@@ -600,6 +643,8 @@ pub fn derive_sites<'b>(
     let mut typers = std::collections::BTreeMap::new();
     for (sentence_ref, sentence) in baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. })
+            || universe
+                .is_some_and(|universe| universe.included().binary_search(&sentence_ref).is_err())
             || !selector.iter().all(|clause| match clause {
                 SiteSelector::RuleLabel(label) => {
                     sentence.attributes().string(AttributeKey::Label) == Some(label.as_str())
@@ -630,16 +675,45 @@ pub fn derive_sites<'b>(
                         term.unannotated(),
                         Term::Apply { label: head, .. } if head.name == *label
                     ),
+                    SiteSelector::NotHead { label } => !matches!(
+                        term.unannotated(),
+                        Term::Apply { label: head, .. } if head.name == *label
+                    ),
+                    SiteSelector::NotToken { token, sort } => !matches!(
+                        term.unannotated(),
+                        Term::Token { token: actual, sort: actual_sort }
+                            if actual == token && actual_sort == sort
+                    ),
+                    SiteSelector::TokenOfSort { sort } => matches!(
+                        term.unannotated(), Term::Token { sort: actual, .. } if actual == sort
+                    ),
+                    SiteSelector::RuleAttribute { key, present } => {
+                        sentence.attributes().get(key).is_some() == *present
+                    }
+                    SiteSelector::ArgumentCount { count } => matches!(
+                        term.unannotated(), Term::Apply { arguments, .. }
+                            if u32::try_from(arguments.len()).ok() == Some(*count)
+                    ),
                 });
                 let sorted = match &typing {
                     Some(typing) if matched => {
                         let actual = typing.as_ref().and_then(|typing| site_sorts(typing, &path));
-                        exhaustive &= actual.is_some();
-                        actual.is_some_and(|actual| {
-                            actual
-                                .iter()
-                                .all(|actual| sorts.iter().all(|wanted| *actual == *wanted))
-                        })
+                        if actual.is_none()
+                            && universe.is_some()
+                            && matches!(
+                                term.unannotated(), Term::Apply { label, .. }
+                                    if matches!(label.name.as_str(), "#cells" | "#dots" | "#noDots")
+                            )
+                        {
+                            false
+                        } else {
+                            exhaustive &= actual.is_some();
+                            actual.is_some_and(|actual| {
+                                actual
+                                    .iter()
+                                    .all(|actual| sorts.iter().all(|wanted| *actual == *wanted))
+                            })
+                        }
                     }
                     _ => true,
                 };
