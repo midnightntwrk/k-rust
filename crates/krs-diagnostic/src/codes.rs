@@ -188,6 +188,10 @@ register_codes! {
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
         INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
         CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires.",
+        FRESH_BINDER_POSITION: "krs::analysis::fresh-binder-position" => "A `#[k::fresh]` binder occurs in the pattern or `requires`, shadows a pattern binding, or is unused; a fresh value exists only once the step happens.",
+        NO_FRESH_GENERATOR: "krs::analysis::no-fresh-generator" => "A `#[k::fresh]` binder has a sort without a `fresh_generator` function (Int and Id have K's own).",
+        DUPLICATE_FRESH_GENERATOR: "krs::analysis::duplicate-fresh-generator" => "A sort has more than one `fresh_generator` function.",
+        INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
@@ -317,6 +321,7 @@ register_codes! {
         FACADE_DEPENDENCY: "krs::expand::facade-dependency" => "The invoking crate has no direct dependency on the KRS facade package.",
         PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
         EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
+        FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context alias, or anywhere rule; fresh values are drawn only by a transition step of the configuration.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

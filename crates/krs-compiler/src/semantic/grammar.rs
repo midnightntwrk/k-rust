@@ -366,6 +366,11 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Prefer { key } => ProductionAttribute::Prefer {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::FreshGenerator { key } => {
+            ProductionAttribute::FreshGenerator {
+                origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            }
+        }
         DescriptorProductionAttribute::Memo { key } => ProductionAttribute::Memo {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },

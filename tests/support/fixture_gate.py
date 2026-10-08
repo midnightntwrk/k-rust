@@ -111,6 +111,11 @@ class Program:
     outcomes, so only the search is compared."""
     variables: tuple[tuple[str, str], ...] = ()
     """Further configuration variables `(NAME, text)`, bound beside `$PGM` on both routes."""
+    cells: tuple[tuple[str, str], ...] = ()
+    """Further cells `(name, text)` whose final contents both routes must print alike.
+
+    The text is the pretty-printed cell content with whitespace runs collapsed
+    to one space; it is compared only for a program with a `run` expectation."""
 
 
 @dataclass
@@ -234,6 +239,8 @@ class FixtureGate:
                     f"differs from Java K {routes['java']}"
                 )
             expected: dict[str, Any] = {"parse": program.parse, "run": program.run}
+            if program.cells:
+                expected["cells"] = dict(program.cells)
             if program.search is not None:
                 expected["search"] = sorted(program.search)
             if routes["native"] != expected:
@@ -280,6 +287,11 @@ class FixtureGate:
                     # The session's request counter is not part of the outcome.
                     actual = "differs: " + re.sub(r"^gate request \d+ failed: ", "", str(error))
                 outcomes[program.name] = {"parse": ACCEPTED, "run": actual}
+                if program.cells:
+                    printed = session.exec_run(
+                        program=program.text, variables=dict(program.variables), print_style="pretty",
+                    )["printed"]["text"]
+                    outcomes[program.name]["cells"] = printed_cells(printed, program.cells)
                 if program.search is not None:
                     outcomes[program.name]["search"] = _native_search(session, program, pattern)
         return outcomes
@@ -379,6 +391,8 @@ class FixtureGate:
                     timeout=120,
                 )
                 outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
+                if program.cells:
+                    outcomes[program.name]["cells"] = printed_cells(executed.stdout, program.cells)
             if program.search is not None:
                 if not search:
                     raise GateError(f"{program.name}: a search expectation needs compare(..., search=True)")
@@ -390,6 +404,16 @@ class FixtureGate:
                 outcomes[program.name]["search"] = java_search_outcome(searched)
         print(f"PASS {self.label} {emitted.fixture.package} reference snapshot: {k.finish()}")
         return outcomes
+
+
+def printed_cells(printed: str, cells: Sequence[tuple[str, str]]) -> dict[str, str | None]:
+    """The whitespace-collapsed contents of the named cells of a pretty-printed configuration."""
+
+    contents: dict[str, str | None] = {}
+    for name, _ in cells:
+        match = re.search(rf"<{re.escape(name)}>\s*(.*?)\s*</{re.escape(name)}>", printed, re.DOTALL)
+        contents[name] = None if match is None else re.sub(r"\s+", " ", match.group(1)).strip()
+    return contents
 
 
 def java_run_outcome(process: subprocess.CompletedProcess[str]) -> str:

@@ -288,6 +288,13 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                 if let Some(condition) = sentence.requires() {
                     requirements.term(condition.term());
                 }
+                // A fresh binder of a builtin sort draws from K's own generator
+                // (`freshInt`, `freshId`), declared in the sort's full module.
+                for binder in sentence.fresh() {
+                    if let DefinitionSortRef::Builtin(sort) = binder.sort() {
+                        requirements.operations.insert(*sort);
+                    }
+                }
                 // A transition's ensures condition is part of the main module's
                 // rule; a claim's is imported here only for the native frontend.
                 if (sentence.kind() != krs_ir::SentenceKind::Claim

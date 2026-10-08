@@ -528,6 +528,12 @@ pub enum ProductionAttribute<S, D> {
         /// Hook name after the first `.`, such as `keccak256`.
         name: String,
     },
+    /// K's `freshGenerator`: the total function, of one Int argument, that
+    /// produces the fresh values of its result sort (`#[k::fresh]`, KF-022).
+    FreshGenerator {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -556,7 +562,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Memo { origin }
             | Self::ListCons { origin, .. }
             | Self::ListTerminator { origin, .. }
-            | Self::RawHook { origin, .. } => origin,
+            | Self::RawHook { origin, .. }
+            | Self::FreshGenerator { origin } => origin,
         }
     }
 
@@ -588,6 +595,7 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Memo { .. } => Some(crate::ProductionAttributeFamily::Memo),
             Self::ListCons { .. } => Some(crate::ProductionAttributeFamily::ListCons),
             Self::ListTerminator { .. } => Some(crate::ProductionAttributeFamily::ListTerminator),
+            Self::FreshGenerator { .. } => Some(crate::ProductionAttributeFamily::FreshGenerator),
         }
     }
 }

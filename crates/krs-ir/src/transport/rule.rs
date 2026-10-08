@@ -905,6 +905,9 @@ stage_shape! {
         /// Optional object-Bool postcondition of a transition (`#[k::ensures]`); a claim keeps its own in [`Claim`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ensures: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
+        /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub fresh: Vec<ClaimBinder<S>> => [vec nested],
     }
 }
 
@@ -1441,7 +1444,13 @@ fn validate_configuration_rule<S: RuleValidationStage>(
             StateTermReason::InvalidRuleExistential,
         ));
     }
-    for binder in &rule.existentials {
+    if !rule.fresh.is_empty() && rule.sentence_kind != crate::ConfigurationSentenceKind::Transition
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidRuleFresh,
+        ));
+    }
+    for binder in rule.existentials.iter().chain(&rule.fresh) {
         right_bindings.push(ProtocolRuleBinding {
             name: binder.name.clone(),
             kind: ProtocolRuleBindingKind::Term {
@@ -1500,7 +1509,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     Ok(())
 }
 
-/// Checks the result-scoped existentials and the ensures condition of a transition.
+/// Checks the result-scoped existentials, the fresh binders, and the ensures condition of a transition.
 fn validate_rule_existentials<S: RuleValidationStage>(
     rule: &ConfigurationRule<S>,
     right_bindings: &[ProtocolRuleBinding<S::Sort>],
@@ -1538,6 +1547,39 @@ fn validate_rule_existentials<S: RuleValidationStage>(
             keys,
             S::sort_key(&binder.sort),
             ProvenanceRole::RuleExistentialBinderSort,
+            ordinal,
+        )?;
+    }
+    for (index, binder) in rule.fresh.iter().enumerate() {
+        let ordinal = claim_checked_index(index)?;
+        if binder.name.trim().is_empty()
+            || !names.insert(binder.name.clone())
+            || rule
+                .bindings
+                .iter()
+                .any(|binding| binding.name == binder.name)
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidRuleFresh,
+            ));
+        }
+        S::validate_binding_sort(&binder.sort)?;
+        insert_rule_exact(
+            keys,
+            &binder.declaration_key,
+            ProvenanceRole::RuleFreshBinder,
+            ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            &binder.name_key,
+            ProvenanceRole::RuleFreshBinderName,
+            ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            S::sort_key(&binder.sort),
+            ProvenanceRole::RuleFreshBinderSort,
             ordinal,
         )?;
     }

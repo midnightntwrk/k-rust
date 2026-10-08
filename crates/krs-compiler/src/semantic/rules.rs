@@ -263,7 +263,12 @@ pub(super) fn lower_head_rule_descriptor(
         .binding_names
         .iter()
         .cloned()
-        .chain(rule.existentials.iter().map(|binder| binder.name.clone()))
+        .chain(
+            rule.existentials
+                .iter()
+                .chain(&rule.fresh)
+                .map(|binder| binder.name.clone()),
+        )
         .collect::<BTreeSet<_>>();
     let mut builder = StructuredTermBuilder {
         descriptor,
@@ -276,6 +281,7 @@ pub(super) fn lower_head_rule_descriptor(
         binding_sorts: rule
             .existentials
             .iter()
+            .chain(&rule.fresh)
             .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
             .collect(),
         binding_constraints,
@@ -339,12 +345,18 @@ pub(super) fn lower_head_rule_descriptor(
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
+    let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let mut variables = rule
         .bindings
         .iter()
         .map(|binding| &binding.name)
-        .chain(rule.existentials.iter().map(|binder| &binder.name))
+        .chain(
+            rule.existentials
+                .iter()
+                .chain(&rule.fresh)
+                .map(|binder| &binder.name),
+        )
         .map(|name| {
             Ok(SemanticVariable::new(
                 SemanticId::new(name.clone())?,
@@ -373,7 +385,31 @@ pub(super) fn lower_head_rule_descriptor(
     .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
     .with_existentials(existentials)
     .with_ensures(ensures)
+    .with_fresh(fresh)
     .with_requires(requires)?)
+}
+
+/// Lowers a transition's fresh binders (`#[k::fresh]`, KF-022).
+pub(super) fn lower_rule_fresh(
+    descriptor: &Descriptor,
+    fresh: &[krs_ir::DescriptorClaimBinder],
+) -> Result<Vec<krs_ir_levels::SemanticScopedBinder>, DescriptorLoweringError> {
+    fresh
+        .iter()
+        .map(|binder| {
+            Ok(krs_ir_levels::SemanticScopedBinder::new(
+                semantic_origin(
+                    descriptor,
+                    binder.declaration_key.clone(),
+                    "rule-fresh-binder",
+                )?,
+                semantic_origin(descriptor, binder.name_key.clone(), "claim-binder-name")?,
+                SemanticId::new(binder.name.clone())?,
+                semantic_origin(descriptor, binder.sort.key.clone(), "claim-binder-sort")?,
+                semantic_sort_ref(&binder.sort.sort),
+            ))
+        })
+        .collect()
 }
 
 /// Lowers a transition's existential binders and its ensures condition.
@@ -1041,6 +1077,10 @@ fn collect_declared_leaf_identities(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "The rewrite, its conditions, and its existential and fresh binders are lowered in one ordered pass."
+)]
 pub(super) fn lower_structured_rule_descriptor(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
@@ -1052,12 +1092,18 @@ pub(super) fn lower_structured_rule_descriptor(
     let binding_names = rule
         .bindings
         .iter()
-        .chain(rule.existentials.iter().map(|binder| &binder.name))
+        .chain(
+            rule.existentials
+                .iter()
+                .chain(&rule.fresh)
+                .map(|binder| &binder.name),
+        )
         .cloned()
         .collect::<BTreeSet<_>>();
     let existential_sorts = rule
         .existentials
         .iter()
+        .chain(&rule.fresh)
         .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
         .collect::<BTreeMap<_, _>>();
     let declared_binders = rule
@@ -1108,14 +1154,16 @@ pub(super) fn lower_structured_rule_descriptor(
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
+    let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let mut variables = Vec::new();
-    for binding in rule
-        .bindings
-        .iter()
-        .chain(rule.existentials.iter().map(|binder| &binder.name))
-    {
+    for binding in rule.bindings.iter().chain(
+        rule.existentials
+            .iter()
+            .chain(&rule.fresh)
+            .map(|binder| &binder.name),
+    ) {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
             DescriptorLoweringError::InvalidTerm {
                 id: Box::new(descriptor.id().clone()),
@@ -1158,6 +1206,7 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_simplification(simplification)
     .with_existentials(existentials)
     .with_ensures(ensures)
+    .with_fresh(fresh)
     .with_requires(requires)?)
 }
 

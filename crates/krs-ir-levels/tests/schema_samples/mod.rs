@@ -1145,8 +1145,11 @@ impl Sample for DescriptorProductionAttribute {
                     namespace: sample::<String>(),
                     name: sample::<String>(),
                 },
+                Self::FreshGenerator {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            21,
+            22,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1170,6 +1173,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::ListCons { .. } => 18,
                 Self::ListTerminator { .. } => 19,
                 Self::RawHook { .. } => 20,
+                Self::FreshGenerator { .. } => 21,
             },
         )
     }
@@ -1642,8 +1646,11 @@ impl<
                     namespace: sample::<String>(),
                     name: sample::<String>(),
                 },
+                Self::FreshGenerator {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            22,
+            23,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1668,6 +1675,7 @@ impl<
                 Self::ListCons { .. } => 19,
                 Self::ListTerminator { .. } => 20,
                 Self::RawHook { .. } => 21,
+                Self::FreshGenerator { .. } => 22,
             },
         )
     }
@@ -2201,8 +2209,11 @@ impl Sample for WireProductionAttribute {
                     namespace: sample::<String>(),
                     name: sample::<String>(),
                 },
+                Self::FreshGenerator {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            21,
+            22,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2226,6 +2237,7 @@ impl Sample for WireProductionAttribute {
                 Self::ListCons { .. } => 18,
                 Self::ListTerminator { .. } => 19,
                 Self::RawHook { .. } => 20,
+                Self::FreshGenerator { .. } => 21,
             },
         )
     }
@@ -2605,6 +2617,7 @@ impl Sample for DescriptorConfigurationRule {
             result: sample::<DescriptorRuleCells>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }
@@ -2658,6 +2671,7 @@ impl Sample for DescriptorHeadRule {
             extras: sample::<Vec<DescriptorHeadRuleExtra>>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }
@@ -3024,6 +3038,7 @@ impl Sample for StructuredRuleDescriptor {
             result: sample::<DescriptorTerm>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }
@@ -3068,6 +3083,7 @@ impl Sample for WireHeadRule {
             extras: sample::<Vec<WireHeadRuleExtra>>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }
@@ -3152,6 +3168,7 @@ impl Sample for WireConfigurationRule {
             result: sample::<WireRuleCells>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }
@@ -3210,6 +3227,7 @@ impl Sample for WireStructuredRule {
             result: sample::<WireTerm>(),
             existentials: sample(),
             ensures: sample(),
+            fresh: sample(),
         }]
     }
 }

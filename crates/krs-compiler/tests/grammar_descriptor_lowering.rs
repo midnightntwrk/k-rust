@@ -558,6 +558,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             },
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
         })),
     ));
 

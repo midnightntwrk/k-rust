@@ -19,6 +19,11 @@ from support.tools import checkout_scratch, executable, z3_environment  # noqa: 
 
 HERE = Path(__file__).resolve().parent
 MACRO_NEGATIVES = ROOT / "crates" / "krs-macros" / "tests" / "fixtures" / "negative"
+FRESH_PLACEMENT = (
+    "fresh values are drawn from the generated counter only by a transition step of the "
+    "configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, "
+    "context alias, or anywhere rule"
+)
 
 
 def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
@@ -151,6 +156,24 @@ def main() -> None:
             "unsupported term expression: `k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
             "is",
         ),
+        (
+            "rule_fresh_in_pattern",
+            "a fresh value cannot be matched: it does not exist until the step happens, so it cannot also be a pattern binding; rename it",
+            "value",
+        ),
+        (
+            "rule_fresh_in_requires",
+            "a fresh value cannot occur in `requires`: the step allocates it only after deciding to apply",
+            "n",
+        ),
+        (
+            "rule_fresh_unused",
+            "a fresh binder must occur in the rule's result or ensures condition",
+            "n",
+        ),
+        ("rule_fresh_equation", FRESH_PLACEMENT, "n"),
+        ("rule_fresh_claim", FRESH_PLACEMENT, "fresh"),
+        ("rule_fresh_anywhere", FRESH_PLACEMENT, "n"),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

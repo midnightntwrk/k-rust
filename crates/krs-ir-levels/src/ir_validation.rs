@@ -38,6 +38,8 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub claim: Option<&'a IrClaim<L>>,
     pub existentials: &'a [crate::IrScopedBinder<L>],
     pub ensures: Option<&'a IrRuleCondition<L>>,
+    pub fresh: &'a [crate::IrScopedBinder<L>],
+    pub anywhere: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -171,6 +173,8 @@ pub(crate) enum ValidationError<L: Validation> {
     SubsortCycle(L::Sort),
     UnusedExistential(SemanticId),
     InvalidRuleExistentials(L::RuleId),
+    InvalidRuleFresh(L::RuleId),
+    FreshScopeViolation(SemanticId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
 }
@@ -869,8 +873,8 @@ pub(crate) fn validate_claim<L: Validation>(
     Ok(())
 }
 
-/// Checks the result-scoped existential binders and the `ensures` condition of a
-/// transition or claim: each binder is declared once with its scope sort, never
+/// Checks the result-scoped existential and fresh binders and the `ensures`
+/// condition of a transition or claim (fresh binders: transitions only): each binder is declared once with its scope sort, never
 /// occurs in the left-hand side or `requires`, and occurs in the right-hand side
 /// or `ensures`.
 pub(crate) fn validate_existentials<L: Validation>(
@@ -883,16 +887,21 @@ pub(crate) fn validate_existentials<L: Validation>(
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let rule = L::rule_view(sentence);
-    if rule.existentials.is_empty() && rule.ensures.is_none() {
+    if rule.existentials.is_empty() && rule.ensures.is_none() && rule.fresh.is_empty() {
         return Ok(());
     }
-    if !matches!(rule.kind, SentenceKind::Transition | SentenceKind::Claim) {
+    if (!rule.existentials.is_empty() || rule.ensures.is_some())
+        && !matches!(rule.kind, SentenceKind::Transition | SentenceKind::Claim)
+    {
         return Err(L::error(ValidationError::InvalidRuleExistentials(
             rule.id.clone(),
         )));
     }
+    if !rule.fresh.is_empty() && (rule.kind != SentenceKind::Transition || rule.anywhere) {
+        return Err(L::error(ValidationError::InvalidRuleFresh(rule.id.clone())));
+    }
     let mut binder_ids = BTreeSet::new();
-    for binder in rule.existentials {
+    for binder in rule.existentials.iter().chain(rule.fresh) {
         if !binder_ids.insert(binder.id().clone()) || scope.get(binder.id()) != Some(binder.sort())
         {
             return Err(L::error(ValidationError::InvalidClaimBinder(
@@ -957,6 +966,13 @@ pub(crate) fn validate_existentials<L: Validation>(
         }
         if !right_uses.contains(binder.id()) {
             return Err(L::error(ValidationError::UnusedExistential(
+                binder.id().clone(),
+            )));
+        }
+    }
+    for binder in rule.fresh {
+        if left_uses.contains(binder.id()) || !right_uses.contains(binder.id()) {
+            return Err(L::error(ValidationError::FreshScopeViolation(
                 binder.id().clone(),
             )));
         }
@@ -1415,6 +1431,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut overload = false;
     let mut private = false;
     let mut memo = false;
+    let mut fresh_generator = false;
     let mut list = false;
     let mut raw_hook = false;
     for attribute in attributes {
@@ -1447,6 +1464,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Overload { .. } => std::mem::replace(&mut overload, true),
             ProductionAttribute::Private { .. } => std::mem::replace(&mut private, true),
             ProductionAttribute::Memo { .. } => std::mem::replace(&mut memo, true),
+            ProductionAttribute::FreshGenerator { .. } => {
+                std::mem::replace(&mut fresh_generator, true)
+            }
             ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. } => {
                 std::mem::replace(&mut list, true)
             }
@@ -1496,6 +1516,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Overload { .. }
             | ProductionAttribute::Private { .. }
             | ProductionAttribute::Memo { .. }
+            | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::RawHook { .. } => {}
             ProductionAttribute::ListCons { separator, .. } => {
                 if !valid_list_cons::<L>(result_sort, items, separator) {
@@ -1539,7 +1560,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
         return Err(L::error(ValidationError::InvalidOverloadProduction));
     }
     validate_production_colors::<L>(items, attributes, colors.as_deref())?;
-    if (total || memo) && !function {
+    // K's freshGenerator is a function; analysis requires it to be total (KF-022).
+    if (total || memo || fresh_generator) && !function {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if (hook.is_some() || raw_hook) && !(function && total) {

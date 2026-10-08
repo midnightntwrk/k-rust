@@ -126,12 +126,14 @@ entry_points! {
         Priority = "priority",
         /// `#[k::requires]` outside a `#[k::rule]` item.
         Requires = "requires",
-        /// `#[k::exists]` outside a `#[k::claim]` item.
+        /// `#[k::exists]` outside a `#[k::rule]` or `#[k::claim]` item.
         Exists = "exists",
-        /// `#[k::ensures]` outside a `#[k::claim]` item.
+        /// `#[k::ensures]` outside a `#[k::rule]` or `#[k::claim]` item.
         Ensures = "ensures",
         /// `#[k::syntax_list]`.
         SyntaxList = "syntax_list",
+        /// `#[k::fresh]` outside a `#[k::rule]` item.
+        Fresh = "fresh",
     }
 }
 

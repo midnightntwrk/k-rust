@@ -49,6 +49,7 @@ A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the 
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
 `krun --color on` and `krs run --color always` print them; `kast --output program` does not, and prints an authored `%c` or `%r` as the letter `c` or `r`.
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
+`#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
@@ -128,6 +129,16 @@ This is symbolic execution, unlike Rust's `rand()`, which produces a concrete va
 Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
+
+### Fresh values
+
+`#[k::fresh(l: Loc)]` on a rule declares a value the step creates, as an allocator returns a new address: K writes it `!L:Loc` and fills it from the `<generatedCounter>` cell, which every fresh value of every sort advances.
+The value does not exist until the step happens, so it cannot be matched: a fresh name occurs only in the result and the ensures condition, and one that is also a pattern binding, one in `requires`, and one the result never mentions are rejected (`krs::analysis::fresh-binder-position`).
+K calls the sort's generator on the counter value: Int and Id have K's own (`freshInt`, `freshId`), and any other sort needs exactly one `#[k::function(total, fresh_generator, sort = Loc, syntax = "freshLoc({seed})")]` of one Int field, with equations such as `freshLoc(seed) => loc(seed)` (`krs::analysis::no-fresh-generator`, `krs::analysis::duplicate-fresh-generator`, `krs::analysis::invalid-fresh-generator`).
+So `alloc a; tx; alloc b; tx;` with a fresh `Loc` in `alloc` and a fresh `Int` in `tx` allocates `loc(0)` and `loc(2)` and records transactions `1` and `3`.
+The helper is written the same way on a term rule, a `cells!` rule, and a readable clause, where `krs expand` keeps it verbatim before `#[k::rule(label = ..)]`, and `#[k::fresh]` before `#[k::rule]` is handed to the rule; fresh names are not binder parameters.
+Only a transition step reads the counter, so `#[k::fresh]` on an equation, simplification, alias, claim, context alias, or anywhere rule is rejected (`krs::expand::fresh-placement`).
+Unlike `?X` from `#[k::exists]`, a fresh value is concrete, so every backend runs such rules; K assigns the counter offsets of several fresh binders of one rule in an unspecified order (k-rust: by name), so results that depend on that order differ between backends.
 
 ### Console I/O and the exit cell
 

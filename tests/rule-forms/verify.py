@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), and anywhere rules (KF-026).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), anywhere rules (KF-026), and fresh values (KF-022).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -32,6 +32,14 @@ the outcomes must agree:
   `foo(12)` into `Int`, which has no value: a pinned divergence, as for
   KF-013's failing projections (Java K aborts, `undefined`; k-rust ends in a
   stuck leaf and a `#Bottom` leaf);
+- `fresh`: a readable clause with `#[k::fresh(l: Loc)]` and a reference
+  `#[k::rule]` fn with `#[k::fresh(t: Int)]` draw from the one shared
+  generated counter, so `alloc a; tx; alloc b; tx;` ends with store
+  `loc(0) |-> 0 loc(2) |-> 0` and transactions `1 |-> 1 3 |-> 1` natively and
+  on Java LLVM; the emitted K declares `freshLoc` as the `freshGenerator` of
+  `Loc` and writes `!L:Loc` and `!T:Int`; a fresh binder of a sort without a
+  generator, two generators of one sort, and a partial generator each fail
+  `krs check` with a pinned diagnostic;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -120,6 +128,20 @@ ANYWHERE_REFUSAL = (
     "run this on the LLVM or k-rust route"
 )
 
+FRESH = Fixture(MANIFEST, "krs-rule-forms-fresh")
+FRESH_PROGRAMS = (
+    # One fresh binder per rule: K assigns the counter offsets of several
+    # binders of one rule in an unspecified order (k-rust: lexicographic).
+    Program(
+        "alloc-tx", "alloc a; tx; alloc b; tx;", "accepted", ".K",
+        cells=(
+            ("env", "a |-> loc(0) b |-> loc(2)"),
+            ("store", "loc(0) |-> 0 loc(2) |-> 0"),
+            ("txs", "1 |-> 1 3 |-> 1"),
+        ),
+    ),
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -146,6 +168,9 @@ NEGATIVE = (
     "binder-partial",
     "binder-misordered",
     "binder-incompatible",
+    "fresh-no-generator",
+    "fresh-two-generators",
+    "fresh-partial-generator",
 )
 
 
@@ -201,6 +226,23 @@ def verify_anywhere(harness: FixtureGate, pins: Ledger) -> None:
     if message != ANYWHERE_REFUSAL:
         raise GateError(f"java-haskell-reference refusal changed:\n{message}")
     pins.expect(("capability_refusals", "java-haskell-reference"), message)
+
+
+def verify_fresh(harness: FixtureGate) -> None:
+    """Fresh binders draw from the shared generated counter on both routes."""
+
+    harness.check(FRESH)
+    harness.expand(FRESH)
+    emitted = harness.emit(FRESH)
+    emitted_attributes(emitted, (
+        'syntax Loc ::= "freshLoc" "(" Int ")" [symbol(freshLoc), function, total, freshGenerator]',
+        "<env> E:Map => E:Map [ X:Id <- !L:Loc ] </env>",
+        "<store> S:Map => S:Map [ !L:Loc <- 0 ] </store>",
+        "<txs> Ts:Map => Ts:Map [ !T:Int <- 1 ] </txs>",
+        # `!T:Int` draws from K's `freshInt`, declared in INT, not INT-SYNTAX.
+        "  imports INT\n",
+    ))
+    harness.compare(emitted, FRESH_PROGRAMS, sort="Stmt")
 
 
 def main() -> int:
@@ -262,6 +304,9 @@ def main() -> int:
 
         verify_anywhere(harness, pins)
         print("PASS anywhere: drop-a at any depth on both routes, reassociation a pinned k-rust divergence, Java Haskell refused before kompile")
+
+        verify_fresh(harness)
+        print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

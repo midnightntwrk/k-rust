@@ -300,6 +300,9 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Private { .. } => {
                 attributes.insert("private", json!(""));
             }
+            DefinitionProductionAttribute::FreshGenerator { .. } => {
+                attributes.insert("freshGenerator", json!(""));
+            }
             DefinitionProductionAttribute::Memo { .. } => {
                 attributes.insert("memo", json!(""));
             }
@@ -731,7 +734,12 @@ impl Adapter<'_> {
         let universals = sentence
             .claim()
             .map_or(&[][..], krs_ir_levels::DefinitionClaim::universals);
-        for (index, binder) in universals.iter().chain(sentence.existentials()).enumerate() {
+        for (index, binder) in universals
+            .iter()
+            .chain(sentence.existentials())
+            .chain(sentence.fresh())
+            .enumerate()
+        {
             self.map_claim_binder(binder, module, sentence_index, index);
         }
         if sentence.kind() == SentenceKind::Claim {

@@ -28,7 +28,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
 use super::configuration::cell_marker_function;
-use super::existentials::{ensures_condition, existential_binders};
+use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
@@ -50,6 +50,7 @@ pub(crate) fn context_alias(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ContextAliasAttribute::parse_tokens(attributes)?;
+    super::rules::reject_fresh_helper(&item)?;
     let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
     let mut anchors = attribute.provenance()?;
@@ -291,6 +292,8 @@ pub(super) fn configuration_rule(
         .collect::<Vec<_>>();
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (fresh, fresh_key_functions) =
+        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
@@ -338,6 +341,7 @@ pub(super) fn configuration_rule(
     key_functions.extend(ensures_builder.key_functions);
     key_functions.extend(binding_key_functions);
     key_functions.extend(existential_key_functions);
+    key_functions.extend(fresh_key_functions);
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -402,6 +406,7 @@ pub(super) fn configuration_rule(
         result,
         existentials,
         ensures,
+        fresh,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();

@@ -164,8 +164,11 @@ stage_shape! {
         /// Optional object-Bool postcondition (`#[k::ensures]`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ensures: Option<RuleCondition<S>> => [option nested],
+        /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -224,6 +227,9 @@ stage_shape! {
         /// Optional object-Bool postcondition (`#[k::ensures]`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ensures: Option<RuleCondition<S>> => [option nested],
+        /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
@@ -297,6 +303,41 @@ fn validate_existentials<S: crate::Stage>(
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidRuleExistential,
         ));
+    }
+    Ok(())
+}
+
+/// Fresh binders belong to transitions; each has the transition roles and a
+/// name distinct from every subject binding and existential.
+fn validate_fresh<S: crate::Stage>(
+    kind: SentenceKind,
+    bindings: &[ProtocolHeadRuleBinding<S::Sort>],
+    existentials: &[crate::transport::rule::ClaimBinder<S>],
+    fresh: &[crate::transport::rule::ClaimBinder<S>],
+) -> Result<(), StateTransportError> {
+    if !fresh.is_empty() && kind != SentenceKind::Transition {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidRuleFresh,
+        ));
+    }
+    let mut names = BTreeSet::new();
+    for (index, binder) in fresh.iter().enumerate() {
+        let ordinal = u32::try_from(index).ok();
+        if binder.name.is_empty()
+            || !names.insert(binder.name.as_str())
+            || bindings.iter().any(|binding| binding.name == binder.name)
+            || existentials
+                .iter()
+                .any(|existential| existential.name == binder.name)
+            || binder.declaration_key.role() != ProvenanceRole::RuleFreshBinder
+            || binder.name_key.role() != ProvenanceRole::RuleFreshBinderName
+            || Some(binder.declaration_key.ordinal()) != ordinal
+            || Some(binder.name_key.ordinal()) != ordinal
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidRuleFresh,
+            ));
+        }
     }
     Ok(())
 }
@@ -388,6 +429,12 @@ impl HostHeadRule {
             &self.bindings,
             &self.existentials,
             self.ensures.as_ref(),
+        )?;
+        validate_fresh(
+            self.sentence_kind,
+            &self.bindings,
+            &self.existentials,
+            &self.fresh,
         )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
@@ -482,6 +529,12 @@ impl DescriptorHeadRule {
             &self.bindings,
             &self.existentials,
             self.ensures.as_ref(),
+        )?;
+        validate_fresh(
+            self.sentence_kind,
+            &self.bindings,
+            &self.existentials,
+            &self.fresh,
         )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
@@ -712,6 +765,7 @@ mod tests {
             }],
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
         };
         let original = serde_json::to_value(&rule).unwrap();
         let mut map = CountingMap::default();
@@ -816,6 +870,7 @@ mod tests {
             }],
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
         };
         let mut map = CountingMap::default();
         let mapped = rule.clone().try_map_refs(&mut map).unwrap();

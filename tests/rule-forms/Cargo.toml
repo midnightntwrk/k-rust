@@ -2,6 +2,7 @@
 members = [
     "packages/anywhere",
     "packages/casts",
+    "packages/fresh",
     "packages/nondet",
     "packages/priority",
 ]

@@ -594,6 +594,58 @@ k::rules! {
 ",
     ),
     (
+        "rule_fresh",
+        r#"
+#[k::rule(label = "allocate")]
+#[k::fresh(n: Int)]
+fn allocate(k::term![StaticExpr::Double(value)]: Term<Expr>) -> Term<Expr> {
+    n
+}
+"#,
+    ),
+    (
+        "fresh_rule",
+        r#"
+#[k::fresh(n: Int)]
+#[k::rule(label = "allocate")]
+fn allocate(
+    k::cells! {
+        computation: KCell(0, tail @ ..),
+        state @ ..
+    }: ReadableRuleMachine,
+) -> ReadableRuleMachine {
+    k::cells! {
+        computation: KCell(n, ..tail),
+        ..state
+    }
+}
+"#,
+    ),
+    (
+        "rules_fresh",
+        r"
+k::rules! {
+    for ReadableRuleMachine;
+
+    #[k::fresh(n: Int)]
+    allocate: {
+        computation: [0, ..],
+    } => {
+        computation: [n, ..],
+    };
+}
+",
+    ),
+    (
+        "function_fresh_generator",
+        r#"
+#[k::function(total, fresh_generator, sort = Expr, syntax = "freshExpr({seed})")]
+pub struct FreshExpr {
+    pub seed: Term<k::builtin::int::Int>,
+}
+"#,
+    ),
+    (
         "equation",
         r"
 #[k::equation]

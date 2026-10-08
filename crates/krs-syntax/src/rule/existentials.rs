@@ -1,10 +1,15 @@
-//! Result-scoped existentials and postconditions of transitions (KF-040).
+//! Result-scoped existentials, fresh values, and postconditions of
+//! transitions (KF-040, KF-022).
 //!
 //! `#[k::exists(x: S, ..)]` declares binders that occur only in a transition's
 //! result and `#[k::ensures(..)]` condition; K prints them as `?X:S`.
-//! `#[k::ensures(..)]` is an object-Bool postcondition over the result. Both
+//! `#[k::fresh(x: S, ..)]` declares binders the step fills from K's
+//! `<generatedCounter>` through the sort's `freshGenerator`; K prints them as
+//! `!X:S`, and they too occur only in the result and the ensures condition.
+//! `#[k::ensures(..)]` is an object-Bool postcondition over the result. The
 //! helpers follow the claim helpers' payload grammar; a transition keeps its
-//! own provenance roles (`RuleExistentialBinder*`, `RuleEnsures*`).
+//! own provenance roles (`RuleExistentialBinder*`, `RuleFreshBinder*`,
+//! `RuleEnsures*`).
 
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
@@ -15,27 +20,31 @@ use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{KrsSyntax, checked_ordinal, unsupported_rule_signature};
 use crate::term::push_record_field_anchors;
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
-    TermSymbolKind, TokenRange,
+    ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
+    TermExpression, TermSymbolKind, TokenRange,
 };
 use krs_ir::ProvenanceKey;
 
-/// The `#[k::exists]` and `#[k::ensures]` helpers of one transition.
+/// The `#[k::fresh]`, `#[k::exists]` and `#[k::ensures]` helpers of one transition.
 #[derive(Clone, Debug, Default)]
 pub struct RuleExistentials {
     exists: Option<ExistsAttribute>,
+    fresh: Option<ExistsAttribute>,
     ensures: Option<TermExpression>,
     attributes: Vec<Attribute>,
 }
 
-/// Whether `attribute` is the `exists` or `ensures` helper (any path prefix).
+/// Whether `attribute` is the `exists`, `fresh` or `ensures` helper (any path prefix).
 fn is_existential_helper(attribute: &Attribute) -> bool {
     attribute.path().segments.len() >= 2
-        && attribute
-            .path()
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "exists" || segment.ident == "ensures")
+        && attribute.path().segments.last().is_some_and(|segment| {
+            segment.ident == "exists" || segment.ident == "fresh" || segment.ident == "ensures"
+        })
+}
+
+/// A misplaced, shadowing, or unused fresh binder.
+fn fresh_position(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::FreshBinderPosition { reason }, span)
 }
 
 impl RuleExistentials {
@@ -62,7 +71,7 @@ impl RuleExistentials {
                 .unwrap_or_default();
             let Meta::List(list) = &attribute.meta else {
                 return Err(unsupported_rule_signature(
-                    "`#[k::exists]` and `#[k::ensures]` require a parenthesized payload",
+                    "`#[k::exists]`, `#[k::fresh]` and `#[k::ensures]` require a parenthesized payload",
                     attribute.span(),
                 ));
             };
@@ -74,6 +83,14 @@ impl RuleExistentials {
                     ));
                 }
                 output.exists = Some(ExistsAttribute::parse_tokens(list.tokens.clone())?);
+            } else if name == "fresh" {
+                if output.fresh.is_some() {
+                    return Err(unsupported_rule_signature(
+                        "a rule may declare only one `#[k::fresh(...)]` helper; list every fresh binder in it",
+                        attribute.span(),
+                    ));
+                }
+                output.fresh = Some(ExistsAttribute::parse_tokens(list.tokens.clone())?);
             } else {
                 if output.ensures.is_some() {
                     return Err(unsupported_rule_signature(
@@ -96,10 +113,10 @@ impl RuleExistentials {
         Ok(output)
     }
 
-    /// Whether neither helper was authored.
+    /// Whether no helper was authored.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.exists.is_none() && self.ensures.is_none()
+        self.exists.is_none() && self.fresh.is_none() && self.ensures.is_none()
     }
 
     /// The declared existential binders in source order.
@@ -108,11 +125,19 @@ impl RuleExistentials {
         self.exists.as_ref().map_or(&[], ExistsAttribute::binders)
     }
 
-    /// The declared existential names in source order.
+    /// The declared fresh binders (`#[k::fresh]`) in source order.
+    #[must_use]
+    pub fn fresh(&self) -> &[ClaimBinder] {
+        self.fresh.as_ref().map_or(&[], ExistsAttribute::binders)
+    }
+
+    /// The result-scoped names in source order: the existentials, then the
+    /// fresh binders.
     #[must_use]
     pub fn names(&self) -> Vec<Ident> {
         self.binders()
             .iter()
+            .chain(self.fresh())
             .map(|binder| binder.name().clone())
             .collect()
     }
@@ -142,6 +167,26 @@ impl RuleExistentials {
             {
                 return Err(unsupported_rule_signature(
                     "an existential cannot shadow a subject binding; rename it",
+                    binder.name().span(),
+                ));
+            }
+        }
+        for (index, binder) in self.fresh().iter().enumerate() {
+            let name = binder.name().unraw();
+            if subject.iter().any(|binding| binding.unraw() == name) {
+                return Err(fresh_position(
+                    "a fresh value cannot be matched: it does not exist until the step happens, so it cannot also be a pattern binding; rename it",
+                    binder.name().span(),
+                ));
+            }
+            if self
+                .binders()
+                .iter()
+                .chain(&self.fresh()[..index])
+                .any(|other| other.name().unraw() == name)
+            {
+                return Err(fresh_position(
+                    "a fresh binder repeats another `#[k::fresh]` or `#[k::exists]` name; rename it",
                     binder.name().span(),
                 ));
             }
@@ -180,6 +225,25 @@ impl RuleExistentials {
                 ));
             }
         }
+        for binder in self.fresh() {
+            if requires.is_some_and(|term| references(term, binder.name())) {
+                return Err(fresh_position(
+                    "a fresh value cannot occur in `requires`: the step allocates it only after deciding to apply",
+                    binder.name().span(),
+                ));
+            }
+            let used = result.iter().any(|term| references(term, binder.name()))
+                || self
+                    .ensures
+                    .as_ref()
+                    .is_some_and(|term| references(term, binder.name()));
+            if !used {
+                return Err(fresh_position(
+                    "a fresh binder must occur in the rule's result or ensures condition",
+                    binder.name().span(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -208,6 +272,25 @@ impl RuleExistentials {
             ));
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleExistentialBinderSort,
+                ordinal,
+                TokenRange::for_tokens(binder.sort())?,
+            ));
+        }
+        for (index, binder) in self.fresh().iter().enumerate() {
+            let ordinal =
+                checked_ordinal(index, ProvenanceRole::RuleFreshBinder, binder.name().span())?;
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleFreshBinder,
+                ordinal,
+                TokenRange::for_tokens(binder.name())?,
+            ));
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleFreshBinderName,
+                ordinal,
+                TokenRange::for_tokens(binder.name())?,
+            ));
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleFreshBinderSort,
                 ordinal,
                 TokenRange::for_tokens(binder.sort())?,
             ));
@@ -245,27 +328,25 @@ impl RuleExistentials {
         Ok(output)
     }
 
-    /// The binder sort paths, keyed by `RuleExistentialBinderSort` ordinals.
+    /// The binder sort paths, keyed by `RuleExistentialBinderSort` ordinals,
+    /// then by `RuleFreshBinderSort` ordinals.
     ///
     /// # Errors
     ///
     /// Returns an occurrence-overflow error.
     pub fn sort_candidates(&self) -> Result<Vec<(ProvenanceKey, Path)>, SyntaxError> {
-        self.binders()
-            .iter()
-            .enumerate()
-            .map(|(index, binder)| {
-                let ordinal = checked_ordinal(
-                    index,
-                    ProvenanceRole::RuleExistentialBinderSort,
-                    binder.sort().span(),
-                )?;
-                Ok((
-                    ProvenanceKey::new(ProvenanceRole::RuleExistentialBinderSort, ordinal),
-                    binder.sort().clone(),
-                ))
-            })
-            .collect()
+        let roles = [
+            (ProvenanceRole::RuleExistentialBinderSort, self.binders()),
+            (ProvenanceRole::RuleFreshBinderSort, self.fresh()),
+        ];
+        let mut output = Vec::new();
+        for (role, binders) in roles {
+            for (index, binder) in binders.iter().enumerate() {
+                let ordinal = checked_ordinal(index, role, binder.sort().span())?;
+                output.push((ProvenanceKey::new(role, ordinal), binder.sort().clone()));
+            }
+        }
+        Ok(output)
     }
 
     /// Ensures-condition application and reference candidates; `bindings`

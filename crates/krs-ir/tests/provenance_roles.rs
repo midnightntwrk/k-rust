@@ -12,5 +12,5 @@ fn provenance_role_protocol_catalog_is_frozen() {
             .expect("writing to a String succeeds");
     }
     expect_test::expect_file!["golden/provenance_roles.txt"].assert_eq(&actual);
-    assert_eq!(ProvenanceRole::ALL.len(), 191);
+    assert_eq!(ProvenanceRole::ALL.len(), 195);
 }

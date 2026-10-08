@@ -172,7 +172,8 @@ impl StateRuleTerms<'_> {
 }
 
 /// Binding sorts visible to a configuration rule's subject and result, and the
-/// declared variables in binding order followed by claim existentials.
+/// declared variables in binding order followed by the existentials and the
+/// fresh binders.
 struct ConfigurationRuleBindings {
     subject_sorts: BTreeMap<String, SemanticSortRef>,
     result_sorts: BTreeMap<String, SemanticSortRef>,
@@ -204,7 +205,11 @@ fn configuration_rule_bindings(
         .claim
         .as_ref()
         .map_or(&[][..], |claim| claim.existentials.as_slice());
-    for binder in claim_existentials.iter().chain(&rule.existentials) {
+    for binder in claim_existentials
+        .iter()
+        .chain(&rule.existentials)
+        .chain(&rule.fresh)
+    {
         let sort = semantic_sort_ref(&binder.sort.sort);
         result_sorts.insert(binder.name.clone(), sort.clone());
         variables.push(SemanticVariable::new(
@@ -334,7 +339,8 @@ pub(super) fn lower_configuration_rule_descriptor(
             .transpose()?,
     )
     .with_existentials(existentials)
-    .with_ensures(ensures))
+    .with_ensures(ensures)
+    .with_fresh(super::rules::lower_rule_fresh(descriptor, &rule.fresh)?))
 }
 
 /// Checks that the result selects only subject cells and that the remainder

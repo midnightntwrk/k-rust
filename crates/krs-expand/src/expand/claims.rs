@@ -31,6 +31,7 @@ pub(crate) fn claim(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ClaimAttribute::parse_tokens(attributes)?;
+    super::rules::reject_fresh_helper(&item)?;
     configuration_claim(env, item, &attribute)
 }
 
@@ -304,6 +305,7 @@ fn configuration_claim(
         result,
         existentials: Vec::new(),
         ensures: None,
+        fresh: Vec::new(),
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();

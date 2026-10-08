@@ -347,6 +347,7 @@ pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
     totality: FunctionTotality,
     memo: Option<Ident>,
+    fresh_generator: Option<Ident>,
     hook: Option<FunctionHook>,
 }
 
@@ -417,6 +418,13 @@ impl FunctionAttribute {
         self.memo.as_ref()
     }
 
+    /// The bare `fresh_generator` flag: K's `freshGenerator`, the function a
+    /// fresh binder (`#[k::fresh(x: S)]`) of the result sort draws from.
+    #[must_use]
+    pub const fn fresh_generator(&self) -> Option<&Ident> {
+        self.fresh_generator.as_ref()
+    }
+
     /// Returns complete production and totality provenance.
     ///
     /// # Errors
@@ -439,6 +447,13 @@ impl FunctionAttribute {
                 ProvenanceRole::FunctionMemo,
                 0,
                 TokenRange::for_tokens(memo)?,
+            ));
+        }
+        if let Some(flag) = &self.fresh_generator {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionFreshGenerator,
+                0,
+                TokenRange::for_tokens(flag)?,
             ));
         }
         if let Some(hook) = &self.hook {
@@ -1184,6 +1199,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
     let missing_span = input.span();
     let mut totality = None;
     let mut memo = None;
+    let mut fresh_generator = None;
     let mut sort = None;
     let mut syntax = None;
     let mut hook = None;
@@ -1227,6 +1243,26 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
                 .into());
             }
             "memo" => memo = Some(key),
+            "fresh_generator" if fresh_generator.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: "fresh_generator",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "fresh_generator" if input.peek(Token![=]) => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidArgumentValue {
+                        name: "fresh_generator",
+                        expected: "a bare flag in `#[k::function]`",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "fresh_generator" => fresh_generator = Some(key),
             "partial" => totality = Some(FunctionTotality::Partial(key)),
             "sort" if sort.is_some() => {
                 return Err(SyntaxError::new(
@@ -1320,6 +1356,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
         },
         totality,
         memo,
+        fresh_generator,
         hook,
     })
 }

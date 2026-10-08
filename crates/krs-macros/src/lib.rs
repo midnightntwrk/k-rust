@@ -270,7 +270,10 @@ pub fn bytes(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Bytes, input)
 }
 
-/// Compiler-owned fresh anonymous object-language occurrence.
+/// Compiler-owned anonymous object-language variable occurrence (K's `_X:Sort`).
+///
+/// Each occurrence is its own variable; it is not a fresh value, which
+/// `#[k::fresh]` declares.
 #[proc_macro]
 pub fn anonymous(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Anonymous, input)
@@ -353,6 +356,18 @@ pub fn layout(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::SyntaxList, attributes, item)
+}
+
+/// Rule helper consumed by an outer `#[k::rule]` expansion: `#[k::fresh(l: Loc)]`
+/// declares binders the step fills with new values (K's `!L:Loc`).
+///
+/// A fresh binder occurs only in the result (and the ensures condition):
+/// the value does not exist until the step happens, so it cannot be matched.
+/// K draws it from the shared `<generatedCounter>` through the sort's
+/// `#[k::function(total, fresh_generator, ..)]`; Int and Id have K's own.
+#[proc_macro_attribute]
+pub fn fresh(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Fresh, attributes, item)
 }
 
 /// Keeps one K rule, claim, or context that the KRS surface cannot express

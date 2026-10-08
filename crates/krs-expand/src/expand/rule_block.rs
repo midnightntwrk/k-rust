@@ -9,7 +9,7 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Ident, Path};
 
-use super::existentials::{ensures_condition, existential_binders};
+use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermSide, WireSlots};
@@ -281,8 +281,11 @@ fn expand_head_rule(
     let ensures = ensures_condition(rule.existentials(), &mut builder, &mut slots)?;
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (fresh, fresh_key_functions) =
+        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let mut key_functions = builder.key_functions;
     key_functions.extend(existential_key_functions);
+    key_functions.extend(fresh_key_functions);
     let tooling_binding_references = builder.tooling_binding_references;
     for existential in rule.existentials().names() {
         binding_checks.push(quote! {
@@ -374,6 +377,7 @@ fn expand_head_rule(
         extras,
         existentials,
         ensures,
+        fresh,
     }));
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();

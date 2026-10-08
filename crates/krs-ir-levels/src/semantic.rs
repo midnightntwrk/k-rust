@@ -1042,6 +1042,7 @@ pub struct SemanticRule {
     anywhere: Option<NodeOrigin>,
     existentials: Vec<SemanticScopedBinder>,
     ensures: Option<SemanticRuleCondition>,
+    fresh: Vec<SemanticScopedBinder>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -1061,6 +1062,7 @@ impl Serialize for SemanticRule {
             anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
             existentials: Cow::Borrowed(&self.existentials),
             ensures: self.ensures.as_ref().map(Cow::Borrowed),
+            fresh: Cow::Borrowed(&self.fresh),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -1092,6 +1094,8 @@ struct SemanticRuleWire<'a, B> {
     existentials: Cow<'a, [SemanticScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ensures: Option<Cow<'a, SemanticRuleCondition>>,
+    #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
+    fresh: Cow<'a, [SemanticScopedBinder]>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1129,6 +1133,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             anywhere: value.anywhere.map(Cow::into_owned),
             existentials: value.existentials.into_owned(),
             ensures: value.ensures.map(Cow::into_owned),
+            fresh: value.fresh.into_owned(),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1169,6 +1174,7 @@ impl SemanticRule {
             anywhere: None,
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1214,6 +1220,7 @@ impl SemanticRule {
             anywhere: None,
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1304,6 +1311,17 @@ impl SemanticRule {
     #[must_use]
     pub fn existentials(&self) -> &[SemanticScopedBinder] {
         &self.existentials
+    }
+    /// Attaches the fresh binders (`#[k::fresh]`, K's `!X`) of a transition.
+    #[must_use]
+    pub fn with_fresh(mut self, fresh: Vec<SemanticScopedBinder>) -> Self {
+        self.fresh = fresh;
+        self
+    }
+    /// Returns the fresh binders.
+    #[must_use]
+    pub fn fresh(&self) -> &[SemanticScopedBinder] {
+        &self.fresh
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1524,6 +1542,10 @@ pub enum SemanticValidationError {
     UnusedExistential(SemanticId),
     /// Existential binders or an `ensures` condition occurred on a sentence other than a transition or claim.
     InvalidRuleExistentials(Box<StableItemId>),
+    /// Fresh binders occurred on a sentence other than a transition, or on an anywhere rule.
+    InvalidRuleFresh(Box<StableItemId>),
+    /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
+    FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
     RuleConditionSortMismatch,
     /// A static alias clause carried a runtime condition.
@@ -1732,6 +1754,15 @@ impl fmt::Display for SemanticValidationError {
                 formatter,
                 "existential results and ensures are allowed only on claims and transition rules, not on `{}`",
                 id.item_name()
+            ),
+            Self::InvalidRuleFresh(id) => write!(
+                formatter,
+                "fresh binders are allowed only on transition rules that are not anywhere rules, not on `{}`",
+                id.item_name()
+            ),
+            Self::FreshScopeViolation(id) => write!(
+                formatter,
+                "fresh binder {id} must occur in the right-hand side or ensures condition, and never in the left-hand side or requires condition"
             ),
             Self::RuleConditionSortMismatch => {
                 formatter.write_str("rule condition must have builtin Bool sort")
@@ -1953,6 +1984,7 @@ mod tests {
             anywhere: None,
             existentials: vec![binder],
             ensures: None,
+            fresh: Vec::new(),
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,

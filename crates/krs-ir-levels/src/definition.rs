@@ -1053,6 +1053,7 @@ pub struct RuleSentence {
     anywhere: Option<NodeOrigin>,
     existentials: Vec<DefinitionScopedBinder>,
     ensures: Option<DefinitionRuleCondition>,
+    fresh: Vec<DefinitionScopedBinder>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1070,6 +1071,7 @@ impl Serialize for RuleSentence {
             anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
             existentials: Cow::Borrowed(&self.existentials),
             ensures: self.ensures.as_ref().map(Cow::Borrowed),
+            fresh: Cow::Borrowed(&self.fresh),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1097,6 +1099,8 @@ struct RuleSentenceWire<'a, B> {
     existentials: Cow<'a, [DefinitionScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ensures: Option<Cow<'a, DefinitionRuleCondition>>,
+    #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
+    fresh: Cow<'a, [DefinitionScopedBinder]>,
     body: B,
 }
 
@@ -1130,6 +1134,7 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             anywhere: value.anywhere.map(Cow::into_owned),
             existentials: value.existentials.into_owned(),
             ensures: value.ensures.map(Cow::into_owned),
+            fresh: value.fresh.into_owned(),
             content,
         })
     }
@@ -1164,6 +1169,7 @@ impl RuleSentence {
             anywhere: None,
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
@@ -1187,6 +1193,7 @@ impl RuleSentence {
             anywhere: None,
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
@@ -1285,6 +1292,17 @@ impl RuleSentence {
     #[must_use]
     pub fn existentials(&self) -> &[DefinitionScopedBinder] {
         &self.existentials
+    }
+    /// Attaches the fresh binders (`#[k::fresh]`, K's `!X`) of a transition.
+    #[must_use]
+    pub fn with_fresh(mut self, fresh: Vec<DefinitionScopedBinder>) -> Self {
+        self.fresh = fresh;
+        self
+    }
+    /// Returns the fresh binders.
+    #[must_use]
+    pub fn fresh(&self) -> &[DefinitionScopedBinder] {
+        &self.fresh
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1494,6 +1512,10 @@ pub enum DefinitionValidationError {
     UnusedExistential(SemanticId),
     /// Existential binders or an `ensures` condition occurred on a sentence other than a transition or claim.
     InvalidRuleExistentials(LabelId),
+    /// Fresh binders occurred on a sentence other than a transition, or on an anywhere rule.
+    InvalidRuleFresh(LabelId),
+    /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
+    FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
     RuleConditionSortMismatch,
     /// A static alias clause carried a runtime condition.
@@ -1695,6 +1717,14 @@ impl fmt::Display for DefinitionValidationError {
                 formatter,
                 "existential results and ensures are allowed only on claims and transition rules, not on {id}"
             ),
+            Self::InvalidRuleFresh(id) => write!(
+                formatter,
+                "fresh binders are allowed only on transition rules that are not anywhere rules, not on {id}"
+            ),
+            Self::FreshScopeViolation(id) => write!(
+                formatter,
+                "fresh binder {id} must occur in the right-hand side or ensures condition, and never in the left-hand side or requires condition"
+            ),
             Self::RuleConditionSortMismatch => {
                 formatter.write_str("rule condition must have builtin Bool sort")
             }
@@ -1874,6 +1904,7 @@ fn validate_production(
             | ProductionAttribute::Prefer { .. }
             | ProductionAttribute::Private { .. }
             | ProductionAttribute::Memo { .. }
+            | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::RawHook { .. } => {}
             ProductionAttribute::Overload { target, .. }
             | ProductionAttribute::ListCons {
@@ -2038,6 +2069,7 @@ mod tests {
             )),
             existentials: vec![binder],
             ensures: None,
+            fresh: Vec::new(),
             content: crate::ir_level::RuleContent::Configuration {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
@@ -2233,6 +2265,60 @@ mod tests {
         assert!(matches!(
             validate_existentials_only(&equation),
             Err(DefinitionValidationError::InvalidRuleExistentials(_))
+        ));
+    }
+
+    /// The existential fixture with its binder moved to the fresh binders.
+    fn fresh_sentence(
+        before: DefinitionTerm,
+        after: DefinitionTerm,
+        kind: krs_ir::ConfigurationSentenceKind,
+    ) -> RuleSentence {
+        let mut sentence = existential_sentence(before, after, kind);
+        sentence.fresh = std::mem::take(&mut sentence.existentials);
+        sentence
+    }
+
+    #[test]
+    fn definition_fresh_binders_are_result_scoped_transition_binders() {
+        let transition = krs_ir::ConfigurationSentenceKind::Transition;
+        let valid = fresh_sentence(
+            int_token("before"),
+            int_variable("after", "exists"),
+            transition,
+        );
+        assert_eq!(validate_existentials_only(&valid), Ok(()));
+        let json = serde_json::to_value(&valid).unwrap();
+        assert!(json.get("fresh").is_some());
+        assert!(json.get("existentials").is_none());
+        assert_eq!(serde_json::from_value::<RuleSentence>(json).unwrap(), valid);
+
+        let left = fresh_sentence(
+            int_variable("before", "exists"),
+            int_token("after"),
+            transition,
+        );
+        assert_eq!(
+            validate_existentials_only(&left),
+            Err(DefinitionValidationError::FreshScopeViolation(sid(
+                "exists"
+            )))
+        );
+        let unused = fresh_sentence(int_token("before"), int_token("after"), transition);
+        assert_eq!(
+            validate_existentials_only(&unused),
+            Err(DefinitionValidationError::FreshScopeViolation(sid(
+                "exists"
+            )))
+        );
+        let claim = fresh_sentence(
+            int_token("before"),
+            int_variable("after", "exists"),
+            krs_ir::ConfigurationSentenceKind::Claim,
+        );
+        assert!(matches!(
+            validate_existentials_only(&claim),
+            Err(DefinitionValidationError::InvalidRuleFresh(_))
         ));
     }
 

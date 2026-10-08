@@ -2056,6 +2056,7 @@ mod tests {
             extras: vec![],
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
         }));
         fs::write(
             dir.path().join("descriptor-bundle.json"),

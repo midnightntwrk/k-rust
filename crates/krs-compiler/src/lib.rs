@@ -30,8 +30,8 @@ pub use reference::{
     expand_reference_source,
 };
 pub use semantic::{
-    DescriptorLoweringError, LexicalProblem, NondetGroupProblem, OpenSortAnalysis, RawKPolicy,
-    analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
+    DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OpenSortAnalysis,
+    RawKPolicy, analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

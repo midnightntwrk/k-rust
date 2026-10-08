@@ -115,6 +115,8 @@ macro_rules! validation_error {
             ValidationError::InvalidRuleExistentials(id) => {
                 $public::InvalidRuleExistentials($identity(id))
             }
+            ValidationError::InvalidRuleFresh(id) => $public::InvalidRuleFresh($identity(id)),
+            ValidationError::FreshScopeViolation(id) => $public::FreshScopeViolation(id),
             ValidationError::VariableClosure => $public::VariableClosure,
             ValidationError::VariableSortMismatch(id) => $public::VariableSortMismatch(id),
         }
@@ -145,6 +147,8 @@ impl Validation for SemanticLevel {
             claim: rule.claim(),
             existentials: rule.existentials(),
             ensures: rule.ensures(),
+            fresh: rule.fresh(),
+            anywhere: rule.anywhere().is_some(),
         }
     }
 
@@ -290,6 +294,8 @@ impl Validation for DefinitionLevel {
             claim: rule.claim(),
             existentials: rule.existentials(),
             ensures: rule.ensures(),
+            fresh: rule.fresh(),
+            anywhere: rule.anywhere().is_some(),
         }
     }
 

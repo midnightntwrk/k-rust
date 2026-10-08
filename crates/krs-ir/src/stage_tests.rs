@@ -507,6 +507,7 @@ fn configuration_rule() -> DescriptorConfigurationRule {
         result: rule_cells(),
         existentials: Vec::new(),
         ensures: None,
+        fresh: Vec::new(),
     }
 }
 
@@ -670,6 +671,7 @@ fn head_rule() -> DescriptorHeadRule {
         extras: Vec::new(),
         existentials: Vec::new(),
         ensures: None,
+        fresh: Vec::new(),
     }
 }
 
@@ -706,6 +708,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         result: term(7),
         existentials: Vec::new(),
         ensures: None,
+        fresh: Vec::new(),
     }
 }
 

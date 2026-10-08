@@ -16,6 +16,18 @@ pub enum LexicalProblem {
     Recursive,
 }
 
+/// The fresh-value rule a definition breaks (KF-022).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FreshProblem {
+    /// A `#[k::fresh]` binder's sort has no `fresh_generator` function.
+    NoGenerator,
+    /// A sort has more than one `fresh_generator` function.
+    DuplicateGenerator,
+    /// A `fresh_generator` function is not total, does not take exactly one
+    /// Int argument, or returns a sort it cannot generate.
+    InvalidGenerator,
+}
+
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorLoweringError {
@@ -180,6 +192,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending declaration.
         range: Option<Box<SourceRange>>,
     },
+    /// A fresh binder's sort has no usable generator, or a generator is
+    /// malformed or repeated (KF-022).
+    InvalidFresh {
+        /// Which rule the definition breaks.
+        problem: FreshProblem,
+        /// Stable reason naming the sort or function and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending binder or function.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `stream` or `exit` cell does not have the shape K requires (KF-035).
     InvalidConsoleCell {
         /// Stable reason naming the cell.
@@ -312,6 +334,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidSortTest { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidLexical { reason, .. }
+            | Self::InvalidFresh { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
@@ -359,6 +382,11 @@ impl ToDiagnostic for DescriptorLoweringError {
                 LexicalProblem::Recursive => codes::analysis::RECURSIVE_LEXICAL,
             },
             Self::InvalidConsoleCell { .. } => codes::analysis::CONSOLE_CELL,
+            Self::InvalidFresh { problem, .. } => match problem {
+                FreshProblem::NoGenerator => codes::analysis::NO_FRESH_GENERATOR,
+                FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
+                FreshProblem::InvalidGenerator => codes::analysis::INVALID_FRESH_GENERATOR,
+            },
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -381,6 +409,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
+            | Self::InvalidFresh { range, .. }
             | Self::InvalidConsoleCell { range, .. } => range
                 .as_deref()
                 .cloned()

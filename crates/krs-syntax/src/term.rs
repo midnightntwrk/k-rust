@@ -185,7 +185,7 @@ pub enum TermNode {
     IdToken(LitStr),
     /// Compiler-owned concrete token of builtin sort `Bytes`.
     BytesToken(LitByteStr),
-    /// One fresh typed anonymous-variable occurrence.
+    /// One typed anonymous-variable occurrence.
     Anonymous {
         /// Explicit object-language sort.
         sort: Path,
@@ -379,7 +379,7 @@ pub enum TermTree {
         /// Exact validated byte-string literal.
         literal: LitByteStr,
     },
-    /// `k::anonymous!(Sort, "_Name")` fresh anonymous occurrence.
+    /// `k::anonymous!(Sort, "_Name")` anonymous occurrence.
     Anonymous {
         /// Explicit object-language sort path.
         sort: Path,

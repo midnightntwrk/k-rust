@@ -287,7 +287,7 @@ provenance_roles! {
     ClaimIdToken => "claim_id_token",
     /// Concrete compiler-owned builtin Bytes literal.
     ClaimBytesToken => "claim_bytes_token",
-    /// Complete fresh anonymous occurrence.
+    /// Complete anonymous occurrence.
     ClaimAnonymous => "claim_anonymous",
     /// Sort path in an anonymous occurrence.
     ClaimAnonymousSort => "claim_anonymous_sort",
@@ -424,6 +424,14 @@ provenance_roles! {
     RuleEnsuresLiteral => "rule_ensures_literal",
     /// One record field name inside a transition's ensures expression.
     RuleEnsuresRecordFieldName => "rule_ensures_record_field_name",
+    /// One fresh binder declaration in a transition's `#[k::fresh(..)]` helper.
+    RuleFreshBinder => "rule_fresh_binder",
+    /// The name of one transition fresh binder.
+    RuleFreshBinderName => "rule_fresh_binder_name",
+    /// The exact sort path of one transition fresh binder.
+    RuleFreshBinderSort => "rule_fresh_binder_sort",
+    /// Bare `fresh_generator` flag of a function production.
+    FunctionFreshGenerator => "function_fresh_generator",
 }
 
 impl Serialize for ProvenanceRole {

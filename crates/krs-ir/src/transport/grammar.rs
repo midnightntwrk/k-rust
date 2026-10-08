@@ -722,6 +722,11 @@ stage_shape! {
             /// Hook name after the first `.`.
             name: String => [keep],
         },
+        /// Fresh-value generator of its result sort (`fresh_generator`, KF-022).
+        FreshGenerator {
+            /// Flag provenance.
+            key: ProvenanceKey => [keep],
+        },
     }
 }
 
@@ -1334,7 +1339,7 @@ stage_shape! {
             /// Complete validated payload.
             value: String => [keep],
         },
-        /// One fresh typed anonymous-variable occurrence.
+        /// One typed anonymous-variable occurrence.
         Anonymous {
             /// Complete occurrence provenance.
             key: ProvenanceKey => [keep],
@@ -1618,6 +1623,9 @@ stage_shape! {
         /// Optional object-Bool postcondition of a transition (`#[k::ensures]`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ensures: Option<RuleCondition<S>> => [option nested],
+        /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
     }
 }
 
@@ -1885,6 +1893,24 @@ impl StructuredRuleDescriptor {
             if binder.name.trim().is_empty() || !right_bindings.insert(binder.name.clone()) {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidRuleExistential,
+                ));
+            }
+        }
+        if !self.fresh.is_empty()
+            && (self.sentence_kind != SentenceKind::Transition || self.anywhere.is_some())
+        {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::InvalidRuleFresh,
+            ));
+        }
+        for binder in &self.fresh {
+            require_key(&binder.declaration_key, provenance)?;
+            require_key(&binder.name_key, provenance)?;
+            require_key(&binder.sort.key, provenance)?;
+            binder.sort.sort.validate()?;
+            if binder.name.trim().is_empty() || !right_bindings.insert(binder.name.clone()) {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidRuleFresh,
                 ));
             }
         }
@@ -2409,6 +2435,10 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "memo"
                 }
+                DescriptorProductionAttribute::FreshGenerator { key } => {
+                    require_key(key, provenance)?;
+                    "fresh_generator"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -2462,6 +2492,11 @@ impl DescriptorProduction {
         if families.contains("memo") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::MemoWithoutFunction,
+            ));
+        }
+        if families.contains("fresh_generator") && !families.contains("function") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::FreshGeneratorWithoutFunction,
             ));
         }
         if families.contains("prefer") && families.contains("avoid") {
@@ -3140,6 +3175,9 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Memo { key } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionMemo, 0)?;
                 }
+                DescriptorProductionAttribute::FreshGenerator { key } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionFreshGenerator, 0)?;
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3324,6 +3362,29 @@ impl StructuredRuleDescriptor {
                 keys,
                 &binder.sort.key,
                 ProvenanceRole::RuleExistentialBinderSort,
+                ordinal,
+            )?;
+        }
+        for (index, binder) in self.fresh.iter().enumerate() {
+            let ordinal = u32::try_from(index).map_err(|_| {
+                GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidRuleFresh)
+            })?;
+            insert_exact(
+                keys,
+                &binder.declaration_key,
+                ProvenanceRole::RuleFreshBinder,
+                ordinal,
+            )?;
+            insert_exact(
+                keys,
+                &binder.name_key,
+                ProvenanceRole::RuleFreshBinderName,
+                ordinal,
+            )?;
+            insert_exact(
+                keys,
+                &binder.sort.key,
+                ProvenanceRole::RuleFreshBinderSort,
                 ordinal,
             )?;
         }
@@ -3769,6 +3830,7 @@ mod traversal_tests {
             result: anonymous(),
             existentials: Vec::new(),
             ensures: None,
+            fresh: Vec::new(),
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

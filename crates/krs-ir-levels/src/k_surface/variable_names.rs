@@ -151,6 +151,11 @@ impl VariableNaming {
             scope.declare(binder.id());
             scope.existentials.insert(binder.id().clone());
         }
+        // Fresh binders print with K's `!` prefix (KF-022).
+        for binder in sentence.fresh() {
+            scope.declare(binder.id());
+            scope.fresh.insert(binder.id().clone());
+        }
         if let Some(condition) = sentence.ensures() {
             scope.term(condition.term());
         }
@@ -232,6 +237,7 @@ impl SentenceVariables {
 struct Scope {
     occurrences: BTreeMap<SemanticId, usize>,
     existentials: BTreeSet<SemanticId>,
+    fresh: BTreeSet<SemanticId>,
     fixed: BTreeMap<SemanticId, String>,
 }
 
@@ -319,6 +325,11 @@ impl Scope {
         for existential in &self.existentials {
             if let Some(name) = names.get_mut(existential) {
                 name.insert(0, '?');
+            }
+        }
+        for fresh in &self.fresh {
+            if let Some(name) = names.get_mut(fresh) {
+                name.insert(0, '!');
             }
         }
         names.extend(self.fixed);
@@ -675,5 +686,29 @@ mod tests {
                     .all(|character| character == '_' || character.is_ascii_alphanumeric())
             );
         }
+    }
+
+    #[test]
+    fn fresh_binders_take_the_bang_prefix() {
+        let mut scope = Scope::default();
+        scope.occur(&id("l"), 2);
+        scope.occur(&id("x"), 2);
+        scope.fresh.insert(id("l"));
+        let names = scope.name(&BTreeSet::new());
+        assert_eq!(names.name(&id("l")), Some("!L"));
+        assert_eq!(names.name(&id("x")), Some("X"));
+    }
+
+    #[test]
+    fn a_colliding_fresh_binder_keeps_its_suffix_after_the_bang() {
+        // `L` (a pattern binder) and fresh `l` both spell `L`; the collision
+        // suffix is assigned before the `!` prefix.
+        let mut scope = Scope::default();
+        scope.occur(&id("L"), 2);
+        scope.occur(&id("l"), 2);
+        scope.fresh.insert(id("l"));
+        let names = scope.name(&BTreeSet::new());
+        assert_eq!(names.name(&id("L")), Some("L"));
+        assert_eq!(names.name(&id("l")), Some("!L_2"));
     }
 }

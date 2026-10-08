@@ -1466,7 +1466,14 @@ fn lower_rule_metadata(
                     lower_rule_condition(condition, rule.id(), names, origins, ensures_role)
                 })
                 .transpose()?,
-        );
+        )
+        .with_fresh(lower_claim_binders(
+            rule.fresh(),
+            rule.id(),
+            names,
+            origins,
+            "rule-fresh",
+        )?);
     Ok(sentence)
 }
 
@@ -1726,6 +1733,9 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
                 ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
                 ProductionAttribute::Memo { .. } => ProductionAttribute::Memo { origin },
+                ProductionAttribute::FreshGenerator { .. } => {
+                    ProductionAttribute::FreshGenerator { origin }
+                }
                 ProductionAttribute::ListCons {
                     separator,
                     non_empty,

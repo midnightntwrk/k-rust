@@ -85,7 +85,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, item, None, None, None)
+    constructor_like(env, attribute, item, None, [None, None], None)
 }
 
 pub(crate) fn function(
@@ -129,12 +129,22 @@ pub(crate) fn function(
             ))
         })
         .transpose()?;
+    let fresh_generator = function
+        .fresh_generator()
+        .map(|flag| -> crate::Result<ProvenanceAnchor> {
+            Ok(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionFreshGenerator,
+                0,
+                TokenRange::for_tokens(flag)?,
+            ))
+        })
+        .transpose()?;
     constructor_like(
         env,
         function.production().clone(),
         item,
         Some((totality_anchor, function.is_total())),
-        memo,
+        [memo, fresh_generator],
         hook,
     )
 }
@@ -258,7 +268,7 @@ fn constructor_like(
     attribute: krs_syntax::ConstructorAttribute,
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
-    memo: Option<ProvenanceAnchor>,
+    [memo, fresh_generator]: [Option<ProvenanceAnchor>; 2],
     hook: Option<(ProvenanceAnchor, ExpandedHook)>,
 ) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
@@ -333,6 +343,9 @@ fn constructor_like(
         );
     }
     if let Some(anchor) = &memo {
+        grammar_anchors.push(anchor.clone());
+    }
+    if let Some(anchor) = &fresh_generator {
         grammar_anchors.push(anchor.clone());
     }
     if let Some((anchor, _)) = &hook {
@@ -439,7 +452,7 @@ fn constructor_like(
         "",
         functional,
         total,
-        memo.is_some(),
+        [memo.is_some(), fresh_generator.is_some()],
         hook.as_ref().map(|(_, operation)| operation),
         alias.is_some(),
     )?;
@@ -836,7 +849,6 @@ pub(crate) fn token(
 #[expect(
     clippy::too_many_arguments,
     clippy::too_many_lines,
-    clippy::fn_params_excessive_bools,
     reason = "Grammar lowering retains all declaration context in one expansion."
 )]
 fn constructor_grammar(
@@ -852,7 +864,7 @@ fn constructor_grammar(
     disambiguator: &str,
     functional: bool,
     total: bool,
-    memo: bool,
+    [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
     alias: bool,
 ) -> crate::Result<TokenStream> {
@@ -966,6 +978,15 @@ fn constructor_grammar(
             if total { 2 } else { 1 },
             WireProductionAttribute::Memo {
                 key: wire_key(ProvenanceRole::FunctionMemo, 0),
+            },
+        );
+    }
+    // `freshGenerator` follows them and the memo hint (KF-022).
+    if fresh_generator {
+        attributes.insert(
+            1 + usize::from(total) + usize::from(memo),
+            WireProductionAttribute::FreshGenerator {
+                key: wire_key(ProvenanceRole::FunctionFreshGenerator, 0),
             },
         );
     }

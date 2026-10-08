@@ -34,7 +34,7 @@ pub(crate) fn bytes(input: TokenStream) -> crate::Result<TokenStream> {
     Ok(quote!(::core::panic!("bytes! has no runtime value")))
 }
 
-/// Compiler-owned fresh anonymous object-language occurrence.
+/// Compiler-owned anonymous object-language variable occurrence.
 pub(crate) fn anonymous() -> TokenStream {
     quote!(::core::panic!("anonymous! has no runtime value"))
 }

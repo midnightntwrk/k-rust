@@ -4,7 +4,8 @@
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
     "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
     "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50",
-    "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6"
+    "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
+    "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -18,13 +19,17 @@
     },
     "krs-rule-forms-casts": {
       "definition.k": "6b7c1e0d35a507e879059c1404b65f5111cf7c53efa147a5f01f26032ee6fcb6"
+    },
+    "krs-rule-forms-fresh": {
+      "definition.k": "d231d7982f6ffa3c5bc774e9d203c19225339840941a2af068193999ea3fd86a"
     }
   },
   "reference_sha256": {
     "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
     "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
     "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521",
-    "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25"
+    "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25",
+    "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -182,6 +187,17 @@
           "run": "undefined"
         }
       }
+    },
+    "krs-rule-forms-fresh": {
+      "alloc-tx": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "a |-> loc(0) b |-> loc(2)",
+          "store": "loc(0) |-> 0 loc(2) |-> 0",
+          "txs": "1 |-> 1 3 |-> 1"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -235,6 +251,15 @@
     ],
     "binder-incompatible": [
       "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
+    ],
+    "fresh-no-generator": [
+      "error[krs::analysis::no-fresh-generator]: fresh binder `l` has sort `Loc`, which has no generator; declare `#[k::function(total, fresh_generator, sort = Loc, syntax = \"..\")]` with one Int field (Int and Id have K's own)"
+    ],
+    "fresh-two-generators": [
+      "error[krs::analysis::duplicate-fresh-generator]: sort `Loc` has two `fresh_generator` functions, `FreshLoc` and `OtherLoc`; K draws its fresh values from exactly one"
+    ],
+    "fresh-partial-generator": [
+      "error[krs::analysis::invalid-fresh-generator]: `FreshLoc` is a `fresh_generator`, so it must be `total`: K calls it on every counter value"
     ]
   },
   "known_divergences": {

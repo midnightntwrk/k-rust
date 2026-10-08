@@ -328,6 +328,7 @@ fn emit_production_attribute(
         ProductionAttribute::Prefer { .. } => writer.push("prefer"),
         ProductionAttribute::Private { .. } => writer.push("private"),
         ProductionAttribute::Memo { .. } => writer.push("memo"),
+        ProductionAttribute::FreshGenerator { .. } => writer.push("freshGenerator"),
         ProductionAttribute::ListCons { terminator, .. } => {
             writer.push("terminator-symbol(");
             writer.push(context.production(terminator)?.symbol().emitted_name());
@@ -782,7 +783,11 @@ fn record_claim_binders(
     let universals = sentence
         .claim()
         .map_or(&[][..], krs_ir_levels::DefinitionClaim::universals);
-    for binder in universals.iter().chain(sentence.existentials()) {
+    for binder in universals
+        .iter()
+        .chain(sentence.existentials())
+        .chain(sentence.fresh())
+    {
         let name = names.name(binder.id()).ok_or_else(|| {
             EmitError::InvalidReference(format!(
                 "claim binder {:?} is not named in its sentence",

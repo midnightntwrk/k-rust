@@ -4,6 +4,7 @@ mod catalog;
 mod configuration;
 mod configuration_rules;
 mod error;
+mod fresh;
 mod grammar;
 mod infer;
 mod lexicals;
@@ -18,7 +19,7 @@ mod rules;
 mod tokens;
 mod visibility;
 
-pub use error::{DescriptorLoweringError, LexicalProblem, NondetGroupProblem};
+pub use error::{DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem};
 
 use crate::overlap::OverlapViolation;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
@@ -128,6 +129,7 @@ pub fn lower_descriptor_bundle(
     tokens::check_token_sorts(&modules)?;
     lexicals::check_lexicals(&modules)?;
     lists::check_syntax_lists(&modules)?;
+    fresh::check_fresh_generators(&modules)?;
     visibility::check_claim_visibility(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {

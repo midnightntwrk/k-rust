@@ -37,6 +37,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 | typed hooks | qualified | the typed catalog exported by KRS is checked; a quoted hook (`hook = "KRYPTO.keccak256"`) must name a hook of the pinned K and k-rust, its signature is unchecked, and the package must set `allow-raw-k = true`; no raw-attribute escape hatch |
 | raw K sentences | qualified | `k::raw_k!` keeps one K rule, claim, or context verbatim in the package's semantics module, with `allow-raw-k = true`; K parses it with the package's grammar, a parse error fails the build, and every build warns (the strict profile refuses it) |
 | existential rule results | qualified | `#[k::exists]` and `#[k::ensures]` on transitions run symbolically on the k-rust and Java Haskell routes (K tutorial lesson 1.21 agrees on both); the LLVM routes refuse them (`krs::capability::unavailable`); ensures conditions are object Bool, not matching logic |
+| fresh values | qualified | `#[k::fresh]` binders on transitions draw from K's shared generated counter through the sort's `fresh_generator` (Int and Id use K's own) on every route; one fresh binder per rule agrees across backends, while K assigns the offsets of several binders of one rule in an unspecified order (k-rust: by name) |
 | anywhere rules | qualified | `#[k::rule(anywhere)]` on term-shaped rules runs on the k-rust and Java LLVM routes; the Java Haskell route refuses it (`krs::capability::unavailable`), and k-rust leaves a left-hand side that nests the rule's own head unreduced |
 | floats | qualified | binary32 (`f32`) and binary64 (`f64`) Floats run on every route; a `FLOAT` operation applied to tokens only and formats other than `f32` and `f64` (`pNxM`) run only on Java K's LLVM backend, and the native and browser routes refuse them (`krs::capability::unavailable`); Java K's Haskell backend has no Float evaluator |
 | typed binders | qualified | a rule fn declares no binders or every subject binder, in first-occurrence order, each at its inferred sort or a narrower one; a declared sort an occurrence cannot accept is rejected |
@@ -64,7 +65,7 @@ An implementation or example that depends on one of these must surface the decis
 ## Unsupported surface
 
 Optional cells and multiplicities other than the qualified star shape are unsupported.
-General matching logic, fresh-variable sentences, strict casts (`::S` and `{T}<:S`), and arbitrary raw grammar are not current public features; a typed binder or `where x: S` narrows what a rule matches, and `k::project!` is K's projection cast.
+General matching logic, strict casts (`::S` and `{T}<:S`), and arbitrary raw grammar are not current public features; a typed binder or `where x: S` narrows what a rule matches, `k::project!` is K's projection cast, and fresh values are [`#[k::fresh]`](/reference/language#fresh-values).
 
 Method-call term sugar is deferred, and there is no `% ` format escape: a plain space in a format prints as written.
 Non-doc block comments inside DSL macro bodies are rejected.

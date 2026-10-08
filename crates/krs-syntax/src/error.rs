@@ -247,6 +247,12 @@ pub enum SyntaxErrorKind {
         /// Complete explanation.
         reason: String,
     },
+    /// A `#[k::fresh]` binder occurs where the step has not created it yet
+    /// (the pattern or `requires`), shadows another binding, or is unused.
+    FreshBinderPosition {
+        /// Specific placement restriction.
+        reason: &'static str,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -328,6 +334,7 @@ impl SyntaxErrorKind {
             Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
+            Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
         }
     }
 }
@@ -554,7 +561,8 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::InvalidRuleKey { reason }
             | SyntaxErrorKind::InvalidTokenAttribute { reason }
             | SyntaxErrorKind::InvalidLexicalMacro { reason }
-            | SyntaxErrorKind::InvalidSyntaxList { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidSyntaxList { reason }
+            | SyntaxErrorKind::FreshBinderPosition { reason } => formatter.write_str(reason),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,

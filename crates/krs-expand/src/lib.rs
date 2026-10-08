@@ -64,9 +64,10 @@ pub fn expand_attribute(
         AttributeMacro::Alias => expand::alias(env, attributes, item),
         AttributeMacro::ContextAlias => expand::context_alias(env, attributes, item),
         AttributeMacro::Priority => expand::priority(env, attributes, item),
-        AttributeMacro::Requires | AttributeMacro::Exists | AttributeMacro::Ensures => {
-            expand::orphan_rule_helper(env, entry, attributes, item)
-        }
+        AttributeMacro::Requires
+        | AttributeMacro::Exists
+        | AttributeMacro::Ensures
+        | AttributeMacro::Fresh => expand::orphan_rule_helper(env, entry, attributes, item),
         AttributeMacro::SyntaxList => expand::syntax_list(env, attributes, item),
     }
 }

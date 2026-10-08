@@ -17,7 +17,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
-use super::existentials::{ensures_condition, existential_binders};
+use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
@@ -170,6 +170,11 @@ fn expand_ordinary_rule(
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
+    if let Some(binder) = rule.existentials().fresh().first()
+        && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
+    {
+        return Err(misplaced_fresh(binder.name().span()));
+    }
     if sentence_kind != krs_ir::SentenceKind::Transition
         && let Some(helper) = rule.existentials().attributes().first()
     {
@@ -271,6 +276,8 @@ fn expand_ordinary_rule(
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (fresh, fresh_key_functions) =
+        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let subject_sort = WireSortReference {
         key: wire_key(ProvenanceRole::RuleType, 0),
         target: WireTypeReference {
@@ -305,6 +312,7 @@ fn expand_ordinary_rule(
     let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)?;
     let mut term_key_functions = term_builder.key_functions;
     term_key_functions.extend(existential_key_functions);
+    term_key_functions.extend(fresh_key_functions);
     let priority = attribute
         .transition_priority()
         .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
@@ -350,6 +358,7 @@ fn expand_ordinary_rule(
         result,
         existentials,
         ensures,
+        fresh,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -448,10 +457,6 @@ fn typed_binders(
     Ok((bindings, key_functions))
 }
 
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Attribute macro entry points own their input token streams."
-)]
 pub(crate) fn orphan_rule_helper(
     env: &dyn MacroEnvironment,
     entry: AttributeMacro,
@@ -459,53 +464,11 @@ pub(crate) fn orphan_rule_helper(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let name = entry.name();
-    if matches!(entry, AttributeMacro::Exists | AttributeMacro::Ensures) {
-        let mut function: ItemFn = syn::parse2(item)?;
-        let outer = function
-            .attrs
-            .iter()
-            .enumerate()
-            .find_map(|(index, attribute)| {
-                let helper = helper_entry(attribute.path())?;
-                matches!(
-                    helper,
-                    AttributeMacro::Rule
-                        | AttributeMacro::Claim
-                        | AttributeMacro::Equation
-                        | AttributeMacro::Simplification
-                        | AttributeMacro::Alias
-                )
-                .then_some((index, helper))
-            });
-        match outer {
-            Some((index, AttributeMacro::Rule)) => {
-                // `#[k::exists]`/`#[k::ensures]` before `#[k::rule]`, as a
-                // readable clause expands: hand the helper to the rule.
-                let sentence = function.attrs.remove(index);
-                let sentence_payload = match &sentence.meta {
-                    syn::Meta::List(list) => list.tokens.clone(),
-                    _ => TokenStream::new(),
-                };
-                let helper_name = format_ident!("{name}");
-                let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
-                function.attrs.insert(0, helper);
-                return rule(env, sentence_payload, function.to_token_stream());
-            }
-            Some((
-                _,
-                AttributeMacro::Equation | AttributeMacro::Simplification | AttributeMacro::Alias,
-            )) => {
-                return Err(misplaced_existential(Span::call_site()));
-            }
-            _ => {}
-        }
-        return Err(ExpandError::new(
-            expand::ORPHAN_HELPER,
-            Span::call_site(),
-            format!(
-                "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
-            ),
-        ));
+    if matches!(
+        entry,
+        AttributeMacro::Exists | AttributeMacro::Ensures | AttributeMacro::Fresh
+    ) {
+        return orphan_result_helper(env, entry, attributes, item);
     }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
@@ -543,6 +506,116 @@ pub(crate) fn orphan_rule_helper(
         Span::call_site(),
         format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it"),
     ))
+}
+
+/// `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]` written before its
+/// sentence attribute: handed to a following `#[k::rule]`, rejected before
+/// any other sentence.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Attribute macro entry points own their input token streams."
+)]
+fn orphan_result_helper(
+    env: &dyn MacroEnvironment,
+    entry: AttributeMacro,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let name = entry.name();
+    let mut function: ItemFn = syn::parse2(item)?;
+    let outer = function
+        .attrs
+        .iter()
+        .enumerate()
+        .find_map(|(index, attribute)| {
+            let helper = helper_entry(attribute.path())?;
+            matches!(
+                helper,
+                AttributeMacro::Rule
+                    | AttributeMacro::Claim
+                    | AttributeMacro::Equation
+                    | AttributeMacro::Simplification
+                    | AttributeMacro::Alias
+                    | AttributeMacro::ContextAlias
+            )
+            .then_some((index, helper))
+        });
+    match outer {
+        Some((index, AttributeMacro::Rule)) => {
+            // `#[k::exists]`/`#[k::fresh]`/`#[k::ensures]` before
+            // `#[k::rule]`, as a readable clause expands: hand the helper
+            // to the rule.
+            let sentence = function.attrs.remove(index);
+            let sentence_payload = match &sentence.meta {
+                syn::Meta::List(list) => list.tokens.clone(),
+                _ => TokenStream::new(),
+            };
+            let helper_name = format_ident!("{name}");
+            let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
+            function.attrs.insert(0, helper);
+            return rule(env, sentence_payload, function.to_token_stream());
+        }
+        Some((_, AttributeMacro::Claim | AttributeMacro::ContextAlias))
+            if entry == AttributeMacro::Fresh =>
+        {
+            return Err(misplaced_fresh(Span::call_site()));
+        }
+        Some((
+            _,
+            AttributeMacro::Equation | AttributeMacro::Simplification | AttributeMacro::Alias,
+        )) => {
+            return Err(if entry == AttributeMacro::Fresh {
+                misplaced_fresh(Span::call_site())
+            } else {
+                misplaced_existential(Span::call_site())
+            });
+        }
+        _ => {}
+    }
+    if entry == AttributeMacro::Fresh {
+        return Err(ExpandError::new(
+            expand::ORPHAN_HELPER,
+            Span::call_site(),
+            "`#[k::fresh]` is a rule helper; place `#[k::rule(...)]` before it",
+        ));
+    }
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
+        Span::call_site(),
+        format!(
+            "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
+        ),
+    ))
+}
+
+/// `#[k::fresh]` on a sentence other than a transition step: an equation,
+/// simplification, alias, claim, context alias, or anywhere rule (KF-022).
+fn misplaced_fresh(span: Span) -> ExpandError {
+    ExpandError::new(
+        expand::FRESH_PLACEMENT,
+        span,
+        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context alias, or anywhere rule",
+    )
+}
+
+/// Rejects a `#[k::fresh]` helper on a claim or context-alias item (KF-022).
+pub(super) fn reject_fresh_helper(item: &TokenStream) -> crate::Result<()> {
+    let Ok(function) = syn::parse2::<ItemFn>(item.clone()) else {
+        return Ok(());
+    };
+    if let Some(helper) = function
+        .attrs
+        .iter()
+        .find(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Fresh))
+    {
+        let span = helper
+            .path()
+            .segments
+            .last()
+            .map_or_else(Span::call_site, |segment| segment.ident.span());
+        return Err(misplaced_fresh(span));
+    }
+    Ok(())
 }
 
 /// `#[k::exists]` or `#[k::ensures]` on an equation, simplification, or alias.

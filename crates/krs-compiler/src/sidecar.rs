@@ -293,6 +293,8 @@ pub enum SourceMapNodeKind {
     RuleExistentialBinder,
     /// Complete object-language Boolean postcondition of a transition (`#[k::ensures]`).
     RuleEnsures,
+    /// Typed fresh binder component of a transition (`#[k::fresh]`).
+    RuleFreshBinder,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -599,6 +601,17 @@ impl SourceMap {
                                 [binder.origin(), binder.name_origin(), binder.sort_origin()]
                             {
                                 insert_origin(&mut entries, origin, binder_kind)?;
+                            }
+                        }
+                        for binder in sentence.fresh() {
+                            for origin in
+                                [binder.origin(), binder.name_origin(), binder.sort_origin()]
+                            {
+                                insert_origin(
+                                    &mut entries,
+                                    origin,
+                                    SourceMapNodeKind::RuleFreshBinder,
+                                )?;
                             }
                         }
                         if let Some(ensures) = sentence.ensures() {
