@@ -915,10 +915,16 @@ impl ProvenanceEncoder {
         }
         if let Some(receipt) = attributes.origin_receipt() {
             // Every sentence-level set is built from flat link lists (the flat-sentence
-            // invariant), which the reader checks.
+            // invariant). The reader refuses a sentence receipt naming a set that names other
+            // sets, so the writer refuses to write one rather than write a document its own
+            // reader would refuse.
             let receipt = match receipt.record() {
                 Some(record) => {
-                    debug_assert!(record.origins.is_flat(), "a sentence receipt is flat");
+                    if !record.origins.is_flat() {
+                        return Err(invalid(
+                            "a sentence receipt names an origin set that names other sets",
+                        ));
+                    }
                     self.receipt(record)?
                 }
                 None => self.receipt(&memory_origin_record(receipt.value())?)?,
@@ -2929,6 +2935,28 @@ mod tests {
             previous.modules[0].local_sentences[0].attributes().clone()
         });
         route_definition(body, &attributes)
+    }
+
+    /// The writer refuses, in every build, a sentence receipt naming a set that names other
+    /// sets: its reader refuses such a document, and the writer writes nothing its reader
+    /// refuses.
+    #[test]
+    fn a_sentence_receipt_naming_nested_sets_is_not_written() {
+        let mut attributes = Attributes::default();
+        attributes.set_origin_record(OriginRecord {
+            pass: GeneratingPass::MacroExpansion,
+            origins: OriginSet::from_parts([
+                OriginPart::Link(link((false, 0))),
+                OriginPart::Set(OriginSet::from(vec![link((false, 1)), link((false, 2))])),
+            ]),
+            destination: None,
+        });
+        let definition = route_definition(Term::variable("X"), &attributes);
+        let result = to_provenance_string(&definition, &sources());
+        assert!(
+            matches!(&result, Err(Error::InvalidProvenance(message)) if message.contains("names other sets")),
+            "{result:?}"
+        );
     }
 
     /// The grid of design V6g: three passes each rebuild every node of a 2,000-level chain, each

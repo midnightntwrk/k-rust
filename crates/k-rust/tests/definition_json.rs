@@ -1385,7 +1385,8 @@ fn version_8_document() -> (String, SourceTable) {
 /// entry that is not in normal form (naming the empty entry, repeating a part, being a single
 /// reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
 /// that repeats another or extends no earlier entry, a receipt naming an absent anchor, and
-/// metadata addresses out of order, repeated or past their field.
+/// metadata addresses out of order (between fields, or within one), repeated or past their
+/// field.
 #[test]
 fn provenance_version_8_tables_reject_malformed_entries() {
     let (encoded, _) = version_8_document();
@@ -1415,6 +1416,21 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         [value!(0), value!(1)]
     );
     assert!(json::from_provenance_str(&encoded).is_ok());
+    // A span on the rule's `requires` (field 1): its metadata follows the body's.
+    let requires_span = |e: &Value| {
+        let mut entry = e["termMetadata"][1].clone();
+        entry["field"] = value!(1);
+        entry["node"] = value!(0);
+        entry
+    };
+    let mut two_fields: Value = serde_json::from_str(&encoded).unwrap();
+    let entry = requires_span(&two_fields);
+    two_fields["termMetadata"]
+        .as_array_mut()
+        .unwrap()
+        .push(entry);
+    assert!(json::from_provenance_str(&two_fields.to_string()).is_ok());
+
     let invalid = |change: &dyn Fn(&mut Value)| {
         let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
         change(&mut envelope);
@@ -1426,7 +1442,7 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         envelope[table].as_array_mut().unwrap().push(entry);
     };
     type Change<'a> = Box<dyn Fn(&mut Value) + 'a>;
-    let refused: [(&str, Change<'_>); 24] = [
+    let refused: [(&str, Change<'_>); 25] = [
         (
             "a link naming an absent source",
             Box::new(|e| e["originSets"][0][0]["source"] = value!(1)),
@@ -1523,6 +1539,13 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         (
             "metadata in decreasing order",
             Box::new(|e| e["termMetadata"].as_array_mut().unwrap().swap(0, 1)),
+        ),
+        (
+            "metadata of two fields in decreasing field order",
+            Box::new(|e| {
+                let entry = requires_span(e);
+                e["termMetadata"].as_array_mut().unwrap().insert(0, entry);
+            }),
         ),
         (
             "metadata repeating a node",
