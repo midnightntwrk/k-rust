@@ -2742,7 +2742,7 @@ mod tests {
         let certified = |term: &Term| {
             matches!(term.kind(), TermKind::Application { symbol, .. }
                 if symbol.attributes.head_role() == HeadRole::EquationHead
-                    && term.attributes().certified_value())
+                    && term.attributes().value_claimed())
         };
         let rigid_non_application = |kind: &TermKind| {
             matches!(

@@ -162,7 +162,7 @@ impl NormalEvidence {
 
     /// The simplifier's certificate: `Some` exactly for an equation-head application whose
     /// `evaluated` mark (`Term::with_evaluated_cache`) certifies its value
-    /// (`TermAttributes::certified_value`), whose root is then fixed without the equation scan
+    /// (`TermAttributes::value_claimed`), whose root is then fixed without the equation scan
     /// of `BackendDefinition::instance_normal`.
     ///
     /// Only `simplify::simplify_root` sets the `evaluated` bit on an application that is not a
@@ -196,7 +196,7 @@ impl NormalEvidence {
     #[must_use]
     pub(crate) fn certified(term: &Term) -> Option<Self> {
         (term.shape() == Shape::Application(HeadRole::EquationHead)
-            && term.attributes().certified_value())
+            && term.attributes().value_claimed())
         .then_some(Self(Source::Certified))
     }
 
@@ -234,7 +234,7 @@ impl NormalEvidence {
 /// is evidence about the application's value only where the load-time critical-pair check
 /// leaves the application's index untainted (`confluence::ValueClaims::admit`): there the
 /// definition's normal-form model is a model of it, so a normal form is an element distinct
-/// from every other normal form. It carries that bit to `TermAttributes::certified_value`. A
+/// from every other normal form. It carries that bit to `TermAttributes::value_claimed`. A
 /// caller outside the crate can name the type but not build a value:
 ///
 /// ```compile_fail
@@ -253,7 +253,7 @@ impl NormalEvidence {
 #[derive(Debug)]
 pub struct NormalFormCertificate {
     /// Whether the application's index is untainted, so that the certificate is evidence about
-    /// its value (`term::TermAttributes::certified_value`).
+    /// its value (`term::TermAttributes::value_claimed`).
     values: bool,
 }
 
@@ -913,7 +913,7 @@ fn occurs_rigidly(variable: &Variable, term: &Term) -> bool {
 /// sets only with its certificate. The one definition of the test.
 #[must_use]
 pub(crate) fn certified_ground_normal_form(term: &Term) -> bool {
-    term.concrete_after_normalization() && term.attributes().certified_value()
+    term.concrete_after_normalization() && term.attributes().value_claimed()
 }
 
 #[cfg(test)]
@@ -1483,7 +1483,7 @@ mod tests {
         let certified_normal_application = |term: &Term| match term.kind() {
             TermKind::Application { symbol, .. } => {
                 symbol.attributes.head_role() == HeadRole::FreeConstructor
-                    || term.attributes().certified_value()
+                    || term.attributes().value_claimed()
             }
             _ => false,
         };

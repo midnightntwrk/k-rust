@@ -707,8 +707,8 @@ pub enum TermKind {
 pub struct TermAttributes {
     pub variables: BTreeSet<Variable>,
     pub evaluated: bool,
-    /// See [`TermAttributes::certified_value`]; set only by `Term::allocate`.
-    certified_value: bool,
+    /// See [`TermAttributes::value_claimed`]; set only by `Term::allocate`.
+    value_claimed: bool,
     pub constructor_like: bool,
     pub concrete_after_normalization: bool,
     pub can_be_evaluated: bool,
@@ -726,7 +726,7 @@ impl Default for TermAttributes {
         Self {
             variables: BTreeSet::new(),
             evaluated: true,
-            certified_value: true,
+            value_claimed: true,
             constructor_like: false,
             concrete_after_normalization: false,
             can_be_evaluated: true,
@@ -739,19 +739,20 @@ impl Default for TermAttributes {
 }
 
 impl TermAttributes {
-    /// Whether the `evaluated` mark of this term and of each of its subterms is evidence about
-    /// the value the term denotes, not only that no equation matches it: a free-constructor
-    /// application, injection, domain value or collection over such subterms, or an
-    /// equation-head application the simplifier marked with a certificate whose index the
-    /// load-time critical-pair check leaves untainted (`head::NormalFormCertificate`,
-    /// `confluence::ValueClaims::admit`). A failed match is a fact about terms; it is a fact about
-    /// the value the term denotes only where the definition's normal-form model is a model of it,
-    /// which the check establishes per index. The `evaluated` mark alone is the simplifier's
-    /// cache, valid for every head. Implies `evaluated`; the readers of the mark as a value
-    /// (`head::NormalEvidence::certified`, `head::certified_ground_normal_form`) read this
-    /// instead.
-    pub fn certified_value(&self) -> bool {
-        self.certified_value
+    /// Whether the backend makes a value claim about this term: whether the `evaluated` mark of
+    /// this term and of each of its subterms is evidence about the value the term denotes (a
+    /// normal form distinct from every other normal form), not only that no equation matches
+    /// it. That holds for a free-constructor application, injection, domain value or collection
+    /// over such subterms, and for an equation-head application the simplifier marked with a
+    /// certificate whose index the load-time critical-pair check leaves untainted
+    /// (`head::NormalFormCertificate`, `confluence::ValueClaims::admit`). A failed match is a
+    /// fact about terms; it is a fact about the value the term denotes only where the
+    /// definition's normal-form model is a model of it, which the check establishes per index.
+    /// The `evaluated` mark alone is the simplifier's cache, valid for every head. Implies
+    /// `evaluated`; the readers of the mark as a value (`head::NormalEvidence::certified`,
+    /// `head::certified_ground_normal_form`) read this instead.
+    pub fn value_claimed(&self) -> bool {
+        self.value_claimed
     }
 
     /// Whether `definedness::ceil_term` of this term is empty for every definition, by
@@ -1198,7 +1199,7 @@ impl Term {
     /// entry indexed `TermIndex::And`. A definition holding either gives no `SelectionComplete`
     /// and so no certificate. So "no offered equation matched" means "no equation of the
     /// definition matched". A budget stop or an unsupported hook leaves a child or the root
-    /// unmarked. The mark also certifies the value ([`TermAttributes::certified_value`]) when
+    /// unmarked. The mark also certifies the value ([`TermAttributes::value_claimed`]) when
     /// the certificate says every failure was about the value too and the arguments' values are
     /// certified; structural distinctness, apartness and definedness read that, not the mark.
     ///
@@ -1243,7 +1244,7 @@ impl Term {
         self.marked_evaluated(true)
     }
 
-    /// `value`: whether the mark certifies the value too ([`TermAttributes::certified_value`]).
+    /// `value`: whether the mark certifies the value too ([`TermAttributes::value_claimed`]).
     fn marked_evaluated(&self, value: bool) -> Self {
         if self.attributes().evaluated {
             return self.clone();
@@ -1642,10 +1643,10 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
 /// collision root keeps `evaluated` false whatever the mark.
 ///
 /// `value` says whether the mark certifies the value as well; the term's
-/// [`TermAttributes::certified_value`] is then that of its children, which the mark extends to
+/// [`TermAttributes::value_claimed`] is then that of its children, which the mark extends to
 /// the root.
 fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttributes {
-    let children_certified = combine_attributes(immediate_children(kind)).certified_value;
+    let children_certified = combine_attributes(immediate_children(kind)).value_claimed;
     if matches!(kind, TermKind::Application { .. }) {
         let mut attributes = source.attributes().clone();
         #[cfg(debug_assertions)]
@@ -1659,12 +1660,12 @@ fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttribu
             );
         }
         attributes.evaluated = true;
-        attributes.certified_value = value && children_certified;
+        attributes.value_claimed = value && children_certified;
         attributes
     } else {
         let (mut attributes, collision_root) = synthesize_attributes(kind);
         attributes.evaluated = !collision_root;
-        attributes.certified_value = value && children_certified && !collision_root;
+        attributes.value_claimed = value && children_certified && !collision_root;
         set_kind_attributes(kind, &mut attributes);
         attributes
     }
@@ -2453,7 +2454,7 @@ impl ChildShape {
             }
         }
         self.0.evaluated &= attributes.evaluated;
-        self.0.certified_value &= attributes.certified_value;
+        self.0.value_claimed &= attributes.value_claimed;
         self.0.constructor_like &= attributes.constructor_like;
         self.0.concrete_after_normalization &= attributes.concrete_after_normalization;
         self.0.can_be_evaluated &= attributes.can_be_evaluated;
@@ -2471,7 +2472,7 @@ enum EvaluatedCache {
 /// source, never caller-selected attributes or a kind that could disagree with that source.
 enum TermAllocation<'a> {
     Structural(TermKind),
-    /// The source, and whether the mark certifies its value ([`TermAttributes::certified_value`]).
+    /// The source, and whether the mark certifies its value ([`TermAttributes::value_claimed`]).
     Marked(&'a Term, bool),
 }
 
@@ -2496,7 +2497,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
             let role = symbol.attributes.head_role();
             let free = role == HeadRole::FreeConstructor;
             attributes.evaluated &= free;
-            attributes.certified_value &= free;
+            attributes.value_claimed &= free;
             attributes.constructor_like &= free;
             // Concreteness describes a possible normalized shape, not a definedness claim.
             attributes.concrete_after_normalization &= (symbol.attributes.symbol_type
@@ -2555,7 +2556,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
     };
     if collision_root {
         attributes.evaluated = false;
-        attributes.certified_value = false;
+        attributes.value_claimed = false;
         attributes.constructor_like = false;
         attributes.concrete_after_normalization = false;
     }
@@ -2569,14 +2570,14 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
 fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: EvaluatedCache) {
     assert!(!attributes.constructor_like || attributes.concrete_after_normalization);
     assert!(!attributes.concrete_after_normalization || attributes.variables.is_empty());
-    assert!(!attributes.certified_value || attributes.evaluated);
+    assert!(!attributes.value_claimed || attributes.evaluated);
     let mut child_evaluated = true;
     let mut child_certified = true;
     let mut check_child = |child: &Term| {
         assert!(!attributes.constructor_like || child.attributes().constructor_like);
         assert!(!attributes.concrete_after_normalization || child.concrete_after_normalization());
         child_evaluated &= child.attributes().evaluated;
-        child_certified &= child.attributes().certified_value;
+        child_certified &= child.attributes().value_claimed;
     };
     let (root_evaluated, collision_root) = match kind {
         TermKind::And(left, right) => {
@@ -2650,13 +2651,13 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
         EvaluatedCache::Structural => {
             assert_eq!(attributes.evaluated, root_evaluated && child_evaluated);
             assert_eq!(
-                attributes.certified_value,
+                attributes.value_claimed,
                 root_evaluated && child_certified && !collision_root
             );
         }
         EvaluatedCache::Marked => {
             assert_eq!(attributes.evaluated, !collision_root);
-            assert!(!attributes.certified_value || child_certified);
+            assert!(!attributes.value_claimed || child_certified);
         }
     }
 }
