@@ -370,6 +370,44 @@ impl PrintData {
         }
     }
 
+    /// Add the label relations `module` of `resolved` declares, as K's `ModuleToKORE` records them:
+    /// `priorities` lists every label of lower precedence, transitively, and `left`/`right` every
+    /// label of an associativity block that holds the symbol's own label.
+    pub fn add_relations(
+        &mut self,
+        resolved: &k_rust::definition::ResolvedDefinition,
+        module: &str,
+    ) {
+        let Some(module) = resolved.module_id(module) else {
+            return;
+        };
+        let symbol =
+            |label: &str| k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new(label)).name;
+        let views = resolved.views();
+        if let Ok(priorities) = views.priorities(module) {
+            for label in priorities.elements() {
+                let lower = priorities
+                    .relations_from(label)
+                    .into_iter()
+                    .flatten()
+                    .map(|lower| symbol(lower));
+                self.priorities
+                    .entry(symbol(label))
+                    .or_default()
+                    .extend(lower);
+            }
+        }
+        let associativities = views.associativities(module);
+        for (pairs, map) in [
+            (&associativities.left, &mut self.left_assoc),
+            (&associativities.right, &mut self.right_assoc),
+        ] {
+            for (parent, child) in pairs {
+                map.entry(symbol(parent)).or_default().insert(symbol(child));
+            }
+        }
+    }
+
     /// `less_than_eq`: `left` is `right` or one of its subsorts.
     pub fn less_than_eq(&self, left: &Sort, right: &Sort) -> bool {
         left == right

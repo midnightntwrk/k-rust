@@ -371,11 +371,7 @@ impl Semantics {
             sentence_provenance,
             ..
         } = artifacts;
-        let unparser = timings.try_span("exec.unparser", |_| {
-            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
-                .map(|unparser| unparser.with_program_grammar(&context.frontend_definition))
-                .map_err(|error| ExecError::Backend(error.to_string()))
-        })?;
+
         let main_module = context.frontend_definition.main_module.clone();
         let variables = config_variables(&context.configuration_variables);
         let configuration = timings.try_span("exec.configuration", |_| {
@@ -384,6 +380,18 @@ impl Semantics {
                 context.configuration_variables,
             )
             .map_err(|error| ExecError::Backend(error.to_string()))
+        })?;
+        // The structured adapter leaves `syntax priority` and associativity tags that name a
+        // production group unresolved, so the compiled KORE lacks those relations; the printer reads
+        // them from the program grammar, which resolves the tags (see `configuration`).
+        let unparser = timings.try_span("exec.unparser", |_| {
+            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
+                .map(|unparser| {
+                    unparser
+                        .with_program_grammar(&context.frontend_definition)
+                        .with_syntax_relations(configuration.program_definition(), &main_module)
+                })
+                .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let backend = timings.try_span("exec.backend", |_| {
             Backend::new(

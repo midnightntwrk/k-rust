@@ -270,7 +270,12 @@ fn programs_parse_bind_and_report_their_errors() {
         "parse",
         &[program, "--output", "program"],
     );
-    assert_eq!(program_text.status.code(), Some(0), "{}", stderr(&program_text));
+    assert_eq!(
+        program_text.status.code(),
+        Some(0),
+        "{}",
+        stderr(&program_text)
+    );
     assert_eq!(String::from_utf8_lossy(&program_text.stdout), "foo\n");
 
     let bad = temporary.path().join("bad.prog");

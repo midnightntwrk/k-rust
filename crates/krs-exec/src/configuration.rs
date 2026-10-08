@@ -308,6 +308,12 @@ impl Configuration {
         &self.grammar.variables
     }
 
+    /// The program grammar's resolved definition, with production-group tags resolved to labels.
+    #[must_use]
+    pub fn program_definition(&self) -> &k_rust::definition::ResolvedDefinition {
+        self.grammar.program.resolved()
+    }
+
     /// The module whose grammar parses programs (`$PGM` and `krs parse`).
     #[must_use]
     pub fn syntax_module(&self) -> &str {

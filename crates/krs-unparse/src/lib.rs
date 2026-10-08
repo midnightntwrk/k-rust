@@ -209,6 +209,22 @@ impl Unparser {
         }
     }
 
+    /// Add the priorities and associativities `module` declares in `resolved` to those `syntaxDefinition.kore` records.
+    ///
+    /// `kprint` reads each symbol's `priorities`, `left`, and `right` attributes, which K derives from
+    /// these same relations. A caller whose KORE lost relations (a tag naming a production group that
+    /// the compiler did not resolve to the group's labels) supplies the resolved definition here; the
+    /// relations are added, so a definition whose KORE is complete prints unchanged.
+    #[must_use]
+    pub fn with_syntax_relations(
+        mut self,
+        resolved: &k_rust::definition::ResolvedDefinition,
+        module: &str,
+    ) -> Self {
+        self.data.add_relations(resolved, module);
+        self
+    }
+
     /// Read the authored formats [`Mode::Program`] prints with from the frontend definition the program grammar was built from.
     #[must_use]
     pub fn with_program_grammar(mut self, frontend: &k_rust::definition::Definition) -> Self {
