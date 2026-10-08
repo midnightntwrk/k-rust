@@ -746,10 +746,13 @@ pub(crate) fn extend_unique_sentences(
 }
 
 /// Stable location of a generated value in its destination sentence.
+///
+/// The module and sentence names are shared: every receipt a pass records in one sentence holds
+/// the same two allocations, so a receipt's names cost two pointers whatever their length.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DestinationAnchor {
-    pub module: String,
-    pub sentence: String,
+    pub module: Arc<str>,
+    pub sentence: Arc<str>,
     pub sentence_index: u32,
     pub path: AnchorPath,
 }
@@ -896,8 +899,8 @@ impl OriginRecord {
             "pass": self.pass.as_str(),
             "origins": self.origins.links().iter().map(link_value).collect::<Vec<_>>(),
             "destination": self.destination.as_ref().map(|destination| json!({
-                "module": destination.module,
-                "sentence": destination.sentence,
+                "module": &*destination.module,
+                "sentence": &*destination.sentence,
                 "sentenceIndex": destination.sentence_index,
                 "path": destination.path.to_vec(),
             })),
@@ -1077,6 +1080,7 @@ fn record_generated_origins_inner(
         // One module-wide origin set per pass, shared by every generated sentence that has no
         // narrower derivation of its own; computed only if some sentence falls back to it.
         let module_origins = ModuleOrigins::new(before_sentences, pass);
+        let module_name = Arc::<str>::from(module.name.as_str());
         let counterparts = sentence_counterparts(before_sentences, &module.local_sentences);
         let mut carrier_origins = CarrierOrigins::new(before_sentences);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
@@ -1090,7 +1094,7 @@ fn record_generated_origins_inner(
                 continue;
             }
             let sentence = crate::definition::sentence_mut(sentence);
-            let sentence_name = sentence_name(sentence, sentence_offset);
+            let sentence_name = Arc::<str>::from(sentence_name(sentence, sentence_offset));
             let origins = sentence_origins(
                 before_sentence,
                 sentence,
@@ -1101,8 +1105,8 @@ fn record_generated_origins_inner(
                 pass,
                 origins: origins.clone(),
                 destination: Some(DestinationAnchor {
-                    module: module.name.clone(),
-                    sentence: sentence_name.clone(),
+                    module: Arc::clone(&module_name),
+                    sentence: Arc::clone(&sentence_name),
                     sentence_index,
                     path: AnchorPath::new(),
                 }),
@@ -1113,7 +1117,7 @@ fn record_generated_origins_inner(
                 before_sentence,
                 pass,
                 &origins,
-                &module.name,
+                &module_name,
                 &sentence_name,
                 sentence_index,
             );
@@ -1736,8 +1740,8 @@ fn insert_link<L: Eq + Hash>(links: &mut LinkSet<L>, link: L) {
 #[derive(Clone, Copy)]
 struct AnnotationContext<'a> {
     pass: GeneratingPass,
-    module: &'a str,
-    sentence: &'a str,
+    module: &'a Arc<str>,
+    sentence: &'a Arc<str>,
     sentence_index: u32,
     /// The fingerprints of the field being annotated and of its counterpart, when the field is
     /// deep enough to need them.
@@ -1885,8 +1889,8 @@ fn annotate_sentence_terms(
     before: Option<&Sentence>,
     pass: GeneratingPass,
     origins: &OriginSet,
-    module: &str,
-    sentence_name: &str,
+    module: &Arc<str>,
+    sentence_name: &Arc<str>,
     sentence_index: u32,
 ) {
     for (field, term) in sentence.terms_mut() {
@@ -1948,8 +1952,8 @@ fn annotate_level(
                 pass: context.pass,
                 origins: own_origins.clone(),
                 destination: Some(DestinationAnchor {
-                    module: context.module.into(),
-                    sentence: context.sentence.into(),
+                    module: Arc::clone(context.module),
+                    sentence: Arc::clone(context.sentence),
                     sentence_index: context.sentence_index,
                     path: path.clone(),
                 }),
@@ -3298,8 +3302,8 @@ mod tests {
         );
         assert_ne!(receipts[0].origins, receipts[1].origins);
         assert_ne!(receipts[0].destination, receipts[1].destination);
-        assert_eq!(receipts[0].destination.as_ref().unwrap().module, "FIRST");
-        assert_eq!(receipts[1].destination.as_ref().unwrap().module, "SECOND");
+        assert_eq!(&*receipts[0].destination.as_ref().unwrap().module, "FIRST");
+        assert_eq!(&*receipts[1].destination.as_ref().unwrap().module, "SECOND");
         assert_eq!(receipts[0].destination.as_ref().unwrap().path, [0]);
         assert_eq!(receipts[1].destination.as_ref().unwrap().path, [0]);
     }

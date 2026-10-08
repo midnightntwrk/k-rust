@@ -662,8 +662,8 @@ impl ProvenanceEncoder {
                     );
                 })
                 .map(|destination| JsonDestinationAnchor {
-                    module: destination.module.clone(),
-                    sentence: destination.sentence.clone(),
+                    module: destination.module.to_string(),
+                    sentence: destination.sentence.to_string(),
                     sentence_index: destination.sentence_index,
                     path: destination.path.to_vec(),
                 }),
@@ -1037,8 +1037,8 @@ fn decode_pass(pass: &str) -> Result<GeneratingPass, Error> {
 
 fn decode_destination(destination: JsonDestinationAnchor) -> DestinationAnchor {
     DestinationAnchor {
-        module: destination.module,
-        sentence: destination.sentence,
+        module: destination.module.into(),
+        sentence: destination.sentence.into(),
         sentence_index: destination.sentence_index,
         path: destination.path.into(),
     }
@@ -1987,7 +1987,7 @@ mod tests {
             origins: pool[set % pool.len()].clone(),
             destination: anchored.then(|| DestinationAnchor {
                 module: "MAIN".into(),
-                sentence: format!("rule:{set}"),
+                sentence: format!("rule:{set}").into(),
                 sentence_index: u32::try_from(set).unwrap(),
                 path: vec![0, u32::try_from(pass).unwrap()].into(),
             }),
