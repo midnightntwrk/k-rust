@@ -25,8 +25,10 @@
 //!    applies gives the step; a group that is neither refuted nor gives a step leaves the subterm
 //!    a residual;
 //! 3. when every group is refuted, a partial declared function without a hook is stuck on every
-//!    instance and the subterm is `\bottom`; a total one, and an equation head, whose arguments
-//!    are settled is settled (a stuck total application is an element no equation names).
+//!    instance and the subterm is `\bottom`; an application of any other class but a hooked one
+//!    (`symbols.rs`: an equation head, a total symbol, a partial symbol that is not a declared
+//!    function) whose arguments are settled is settled (a stuck total application is an element
+//!    no equation names).
 //!
 //! The binding rule keeps every step valid on every instance: the matcher compares only settled
 //! structure, so each residual lies inside the value of some variable `X`, and the step is taken
@@ -47,7 +49,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use k_rust_kore::measure::{self, Counter};
 
-use super::{Context, UnjoinedReason, children, replace_at, right_hand_side, subterm_at};
+use super::{
+    Context, UnjoinedReason, children, replace_at, right_hand_side, subterm_at, symbols::Class,
+};
 use crate::{
     matching::{MatchResult, match_with_settled_evidence},
     rule::{RewriteRule, applicable_groups, rename_apart, term_index},
@@ -215,8 +219,11 @@ pub(super) fn join(
 
 /// Whether `symbol` is declared total (`functional` or `total`): its application to defined
 /// arguments is defined (precondition P2).
-fn total(symbol: &crate::term::Symbol) -> bool {
-    symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+/// Test switch `stuck_total_is_bottom`: revision 2's 3.13 (c), which read every function
+/// application as never a normal form and a stuck one as `\bottom`.
+fn stuck_total_is_bottom(symbol: &crate::term::Symbol) -> bool {
+    super::switches::active().stuck_total_is_bottom
+        && matches!(symbol.attributes.head_role(), HeadRole::Function { .. })
 }
 
 /// Every application subterm of `term`, `term` included.
@@ -446,24 +453,23 @@ impl Join<'_, '_> {
         }
         // Every group is refuted: no equation rewrites any instance at its root.
         let arguments_settled = arguments.iter().all(|argument| self.is_settled(argument));
-        match symbol.attributes.head_role() {
-            // A stuck application of a total function is a value no equation names (an element
-            // of `M_NF`, as precondition P2 requires); of a partial one, `\bottom`.
-            HeadRole::Function { .. } if symbol.attributes.hook.is_none() => {
-                if !total(symbol) {
-                    Step::To(None)
-                } else if arguments_settled {
-                    Step::Settled
-                } else {
-                    Step::Residual
-                }
+        // `->E` rule 3 (`symbols.rs`): a stuck application of a declared partial function is
+        // `\bottom`; of every other class but a hooked one, a normal form (for a total symbol,
+        // an element no equation names, as precondition P2 requires).
+        match Class::of(symbol) {
+            Class::PartialFunction => Step::To(None),
+            Class::Total { .. } if stuck_total_is_bottom(symbol) => Step::To(None),
+            Class::EquationHead | Class::Total { .. } | Class::OtherPartial
+                if arguments_settled =>
+            {
+                Step::Settled
             }
-            HeadRole::EquationHead if arguments_settled => Step::Settled,
-            HeadRole::FreeConstructor
-            | HeadRole::EquationHead
-            | HeadRole::Function { .. }
-            | HeadRole::Residual
-            | HeadRole::Uninterpreted => Step::Residual,
+            Class::Constructor
+            | Class::Collection
+            | Class::EquationHead
+            | Class::Hooked { .. }
+            | Class::Total { .. }
+            | Class::OtherPartial => Step::Residual,
         }
     }
 
@@ -596,8 +602,10 @@ impl Join<'_, '_> {
     }
 
     /// Whether some value, which the case reads as a normal form, has a subterm that is not a
-    /// normal form on any instance: an application of a function (never a value), or an
-    /// equation-head application to which some equation surely applies.
+    /// normal form on any instance: an application of a symbol whose application to normal forms
+    /// is never one (a declared partial function, `symbols.rs`), or an equation-head application
+    /// to which some equation surely applies. A total function's stuck application is a normal
+    /// form, so it decides nothing here.
     fn contradicts(&mut self, values: &[Term]) -> bool {
         let mut subterms = Vec::new();
         for value in values {
@@ -607,8 +615,11 @@ impl Join<'_, '_> {
             let TermKind::Application { symbol, .. } = subterm.kind() else {
                 continue;
             };
+            if Class::of(symbol).never_normal() || stuck_total_is_bottom(symbol) {
+                return true;
+            }
             match symbol.attributes.head_role() {
-                HeadRole::Function { .. } => return true,
+                HeadRole::Function { .. } => {}
                 HeadRole::EquationHead => {
                     let groups = applicable_groups(&self.context.groups, &term_index(&subterm));
                     for rule in groups.values().flatten() {
@@ -758,7 +769,9 @@ impl Join<'_, '_> {
         let TermKind::Application { symbol, .. } = residual.kind() else {
             unreachable!("a split residual is an application")
         };
-        if role == HeadRole::EquationHead || total(symbol) {
+        if role == HeadRole::EquationHead
+            || !(Class::of(symbol).stuck_is_bottom() || stuck_total_is_bottom(symbol))
+        {
             complement.settled.push(residual.clone());
         } else {
             complement.bottom.push(residual.clone());

@@ -57,6 +57,15 @@ pub(crate) struct Switches {
     pub(crate) admit_equation_heads: bool,
     /// Gate: admit every index at the certificate.
     pub(crate) admit_certificates: bool,
+    /// Normal-form sorts: no supersort closure (an overlap whose variable's sort gets its
+    /// elements only from a subsort is called vacuous).
+    pub(crate) drop_supersort_inhabitation: bool,
+    /// Join: read every function application as never a normal form, and a stuck one as
+    /// `\bottom` (revision 2's 3.13 (c) before R1.5).
+    pub(crate) stuck_total_is_bottom: bool,
+    /// `SortReach`: collapse every non-injective total symbol and every uninterpreted symbol,
+    /// whether or not its sort is surely inhabited (revision 2's 3.13 (l) before R1.3).
+    pub(crate) collapse_every_total: bool,
 }
 
 #[cfg(test)]
@@ -83,6 +92,9 @@ thread_local! {
             seed_heads_only: false,
             admit_equation_heads: false,
             admit_certificates: false,
+            drop_supersort_inhabitation: false,
+            stuck_total_is_bottom: false,
+            collapse_every_total: false,
         })
     };
 }

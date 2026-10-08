@@ -63,6 +63,7 @@ mod closure;
 mod conditions;
 mod join;
 pub(crate) mod switches;
+pub(crate) mod symbols;
 #[cfg(test)]
 mod tests;
 mod unify;
@@ -81,7 +82,6 @@ pub use unify::UnresolvedShape;
 
 use crate::{
     definition::BackendDefinition,
-    matching::ClosedSort,
     rule::{
         ApartScope, Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex,
         rename_apart, term_index,
@@ -346,6 +346,10 @@ impl std::fmt::Display for ViolationKind {
                 formatter,
                 "the overloads `{left}` and `{right}` have no unique least common overload"
             ),
+            Self::PinnedByInjectiveTotal(symbol) => write!(
+                formatter,
+                "`{symbol}` is total and injective into a hooked sort, so no model keeps the values its arguments can hold apart"
+            ),
         }
     }
 }
@@ -370,6 +374,25 @@ pub enum ViolationKind {
     OverloadShape(Name),
     /// Two members of one family with a common upper bound and no unique least one.
     NoLeastCommonOverload(Name, Name),
+    /// A total injective symbol into a hooked sort whose argument sorts can hold equation
+    /// heads: no model of the construction interprets it on new elements, so those heads get no
+    /// value claims (the symbol table, `symbols.rs`).
+    PinnedByInjectiveTotal(Name),
+}
+
+impl ViolationKind {
+    /// Whether the row withdraws value claims (taints) rather than only reporting a premise the
+    /// claims rest on.
+    #[must_use]
+    pub fn withdraws(&self) -> bool {
+        match self {
+            Self::ConstructorHeaded(_)
+            | Self::InjectionHeaded
+            | Self::IndexedAt(_)
+            | Self::PinnedByInjectiveTotal(_) => true,
+            Self::OverloadShape(_) | Self::NoLeastCommonOverload(..) => false,
+        }
+    }
 }
 
 /// An executable equation of the check.
@@ -571,8 +594,9 @@ fn right_hand_side(rule: &RewriteRule) -> Result<Option<Term>, ()> {
 pub(crate) struct Context<'d> {
     definition: &'d BackendDefinition,
     families: Families,
-    /// The sorts that may have a normal form (`inhabited`).
-    inhabited: FxHashSet<Sort>,
+    /// The sorts that may have a normal form, and those with an element in every model
+    /// (`symbols.rs`).
+    sorts: symbols::Sorts,
     /// The executable equations, by index and priority, as equation selection offers them.
     groups: BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>,
     fresh: u64,
@@ -1005,7 +1029,7 @@ impl Context<'_> {
                         .sorts()
                         .get(name)
                         .is_some_and(|info| info.parameters.is_empty())
-                    && !self.inhabited.contains(&variable.sort)
+                    && !self.sorts.has_normal_form(&variable.sort)
             }
             Sort::Variable(_) => false,
         };
@@ -1019,70 +1043,6 @@ impl Context<'_> {
                 Some(value) => value.attributes().variables.iter().any(uninhabited),
                 None => uninhabited(variable),
             })
-    }
-}
-
-/// An over-approximation of the sorts that have a normal form: the least set closed under a sort
-/// with a hook, domain values or a collection, the result sort of a symbol whose applications may
-/// be normal forms (any symbol but a declared partial function) when its argument sorts are in the set,
-/// and a supersort of a sort in the set. A sort with a parameter, an instance of a parametric
-/// symbol, and a sort the order does not know are counted inhabited.
-fn inhabited(definition: &BackendDefinition) -> FxHashSet<Sort> {
-    let mut inhabited = definition
-        .sorts()
-        .iter()
-        .filter(|(_, info)| {
-            !info.parameters.is_empty() || info.hook.is_some() || info.has_domain_values
-        })
-        .map(|(name, _)| Sort::simple(name.clone()))
-        .collect::<FxHashSet<_>>();
-    for symbol in definition.symbols().values() {
-        if let Some(collection) = &symbol.attributes.collection {
-            let sort = match collection {
-                crate::term::CollectionMetadata::Map(map) => map.map_sort.clone(),
-                crate::term::CollectionMetadata::List(list)
-                | crate::term::CollectionMetadata::Set(list) => list.list_sort.clone(),
-            };
-            inhabited.insert(Sort::simple(sort));
-        }
-    }
-    // A declared total function's stuck application is a normal form (3.13 (k)); only a
-    // partial function's never is.
-    let builders = definition
-        .symbols()
-        .values()
-        .filter(|symbol| {
-            !matches!(symbol.attributes.head_role(), HeadRole::Function { .. })
-                || symbol.attributes.symbol_type
-                    == crate::term::SymbolType::Function(crate::term::FunctionType::Total)
-        })
-        .collect::<Vec<_>>();
-    loop {
-        let before = inhabited.len();
-        for symbol in &builders {
-            let open = |sort: &Sort| ClosedSort::new(sort.clone()).is_err();
-            if open(&symbol.result_sort) {
-                continue;
-            }
-            if !inhabited.contains(&symbol.result_sort)
-                && symbol
-                    .argument_sorts
-                    .iter()
-                    .all(|argument| open(argument) || inhabited.contains(argument))
-            {
-                inhabited.insert(symbol.result_sort.clone());
-            }
-        }
-        for (supersort, below) in definition.sort_graph().closures() {
-            if !inhabited.contains(supersort.sort())
-                && below.iter().any(|sort| inhabited.contains(sort.sort()))
-            {
-                inhabited.insert(supersort.sort().clone());
-            }
-        }
-        if inhabited.len() == before {
-            return inhabited;
-        }
     }
 }
 
@@ -1143,6 +1103,7 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     checked.counts.equations = equations.len();
 
     // P5: one lookup per equation.
+    let mut row_seeds = Vec::new();
     for equation in &equations {
         let violation = match &equation.index {
             TermIndex::Symbol(name) => definition.symbols().get(name).and_then(|symbol| {
@@ -1157,6 +1118,14 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
             TermIndex::DomainValue | TermIndex::And => None,
         };
         if let Some(kind) = violation {
+            if matches!(
+                kind,
+                ViolationKind::ConstructorHeaded(_) | ViolationKind::InjectionHeaded
+            ) {
+                // An equation outside the check's reasoning: seeded into the closure like a pair
+                // that does not join (R1.5).
+                row_seeds.push(Arc::clone(&equation.rule));
+            }
             checked.violations.push(Violation {
                 rule: Some(Arc::clone(&equation.rule)),
                 kind,
@@ -1176,7 +1145,7 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     let mut context = Context {
         definition,
         families: Families::of(definition),
-        inhabited: inhabited(definition),
+        sorts: symbols::Sorts::of(definition),
         groups,
         fresh: 0,
         counts: CheckCounts::default(),
@@ -1357,21 +1326,35 @@ pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
     {
         checked.families = Some(context.families.clone());
     }
-    let mut closure = closure::Closure::new(definition, &equations);
+    let mut closure = closure::Closure::new(definition, &context.sorts, &equations);
     let is_head = |symbol: &Name| {
         definition
             .symbols()
             .get(symbol)
             .is_some_and(|symbol| symbol.attributes.head_role() == HeadRole::EquationHead)
     };
+    let mut pinned_heads = BTreeSet::new();
+    for (symbol, heads) in closure.pinned_heads() {
+        checked.violations.push(Violation {
+            rule: None,
+            kind: ViolationKind::PinnedByInjectiveTotal(symbol),
+        });
+        pinned_heads.extend(heads);
+    }
     for pair in &mut unjoined {
         pair.withdrawn = closure
-            .taint([&*pair])
+            .taint([&pair.first, &pair.second], [])
             .into_iter()
             .filter(|symbol| is_head(symbol))
             .collect();
     }
-    let tainted = closure.taint(&unjoined);
+    let tainted = closure.taint(
+        unjoined
+            .iter()
+            .flat_map(|pair| [&pair.first, &pair.second])
+            .chain(&row_seeds),
+        pinned_heads,
+    );
     for symbol in &tainted {
         checked
             .tainted_indexes

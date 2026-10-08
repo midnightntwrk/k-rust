@@ -282,18 +282,22 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
     let mut findings = claims
         .violations()
         .iter()
-        .map(|violation| match &violation.rule {
+        .map(|violation| {
+            let consequence = if violation.kind.withdraws() {
+                "no value claims are made through it"
+            } else {
+                "value claims rest on it"
+            };
+            (violation, consequence)
+        })
+        .map(|(violation, consequence)| match &violation.rule {
             Some(rule) => located(
                 rule,
-                format!(
-                    "{} ({}); value claims rest on it",
-                    violation.kind,
-                    equation(rule)
-                ),
+                format!("{} ({}); {consequence}", violation.kind, equation(rule)),
                 true,
             ),
             None => ValueClaimFinding {
-                message: format!("{}; value claims rest on it", violation.kind),
+                message: format!("{}; {consequence}", violation.kind),
                 precondition: true,
                 origin: None,
                 unique_id: None,

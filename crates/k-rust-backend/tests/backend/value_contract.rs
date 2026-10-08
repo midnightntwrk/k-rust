@@ -669,3 +669,243 @@ fn a_symbolic_equation_that_matches_withholds_the_certificate() {
     assert_confluent(&definition);
     assert_obligation_kept(&definition, &format!("f{{}}({})", int(1)), "SortS{}");
 }
+
+/// Review 1 of the check, F2: a total function's stuck application is a normal form (`->E` rule
+/// 3 reads only partial functions as `\bottom`), so a join case whose values hold `tw(Y)` is not
+/// vacuous. `f(Y) = h(g(Y), Y)` and `f(Y) = v(Y)` with `g(tw(Y)) = mk(1 /Int 0)`: at `Y = tw(1)`
+/// the first side is undefined, so every model makes `v(tw(1))` undefined.
+#[test]
+fn review_1_f2_a_stuck_total_application_in_a_case_is_a_normal_form() {
+    let declarations = r"
+        sort SortW{} []
+        symbol tw{}(SortInt{}) : SortW{} [function{}(), total{}()]
+        symbol g{}(SortW{}) : SortS{} [anywhere{}()]
+        symbol h{}(SortS{}, SortW{}) : SortS{} [anywhere{}()]
+        symbol v{}(SortW{}) : SortS{} [anywhere{}(), value-production{}()]
+        symbol f{}(SortW{}) : SortS{} [anywhere{}()]
+    ";
+    let definition = definition(
+        declarations,
+        &[
+            anywhere(
+                "g",
+                &["SortW{}"],
+                "SortS{}",
+                &["tw{}(VarY:SortInt{})"],
+                UNDEFINED,
+            ),
+            anywhere(
+                "h",
+                &["SortS{}", "SortW{}"],
+                "SortS{}",
+                &["VarZ:SortS{}", "VarY:SortW{}"],
+                "v{}(VarY:SortW{})",
+            ),
+            anywhere(
+                "f",
+                &["SortW{}"],
+                "SortS{}",
+                &["VarY:SortW{}"],
+                "h{}(g{}(VarY:SortW{}), VarY:SortW{})",
+            ),
+            anywhere(
+                "f",
+                &["SortW{}"],
+                "SortS{}",
+                &["VarY:SortW{}"],
+                "v{}(VarY:SortW{})",
+            ),
+        ],
+    );
+    assert_withdrawn(&definition, &["f", "v"], None);
+    assert_obligation_kept(&definition, "v{}(VarX:SortW{})", "SortS{}");
+    assert_obligation_kept(
+        &definition,
+        &format!("v{{}}(tw{{}}({}))", int(1)),
+        "SortS{}",
+    );
+}
+
+/// N1 with the elements of the pair's variable sort `A` built from `B` by `wrapper`, and `B`
+/// built only by the value production `v`: `g(X:A) = c1` and `g(X:A) = c2` make `A` empty in
+/// every model, so `B` too (the wrapper is total), and `v(1)` is undefined.
+fn n1_through(wrapper: &str, extra: &str) -> BackendDefinition {
+    let declarations = format!(
+        r"
+        sort SortA{{}} []
+        sort SortB{{}} []
+        sort SortC{{}} []
+        symbol c1{{}}() : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol c2{{}}() : SortC{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol v{{}}(SortInt{{}}) : SortB{{}} [anywhere{{}}(), value-production{{}}()]
+        symbol u{{}}(SortB{{}}) : SortA{{}} [{wrapper}]
+        symbol g{{}}(SortA{{}}) : SortC{{}} [function{{}}()]
+        {extra}
+    "
+    );
+    definition(
+        &declarations,
+        &[
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortC{}",
+                &["VarX:SortA{}"],
+                "c1{}()",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortC{}",
+                &["VarX:SortA{}"],
+                "c2{}()",
+                r"\top{R}()",
+                "",
+            ),
+        ],
+    )
+}
+
+/// Review 1 of the check, F1: the model cannot collapse `u`'s applications into an old element
+/// of `A`, because no model has one, so `A`'s elements hold `v`'s applications.
+#[test]
+fn review_1_f1_n1_through_a_total_function() {
+    let definition = n1_through("function{}(), total{}()", "");
+    assert_withdrawn(
+        &definition,
+        &["g", "v"],
+        Some(UnjoinedReason::DifferentResults),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// Review 1 of the check, F1: the same through a `functional` symbol that is neither a
+/// constructor nor a function.
+#[test]
+fn review_1_f1_n1_through_an_uninterpreted_symbol() {
+    let definition = n1_through("functional{}()", "");
+    assert_withdrawn(
+        &definition,
+        &["g", "v"],
+        Some(UnjoinedReason::DifferentResults),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// Review 1 of the check, the control: the same through a constructor.
+#[test]
+fn review_1_n1_through_a_constructor() {
+    let definition = n1_through("constructor{}(), functional{}(), injective{}()", "");
+    assert_withdrawn(
+        &definition,
+        &["g", "v"],
+        Some(UnjoinedReason::DifferentResults),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// Where `A` has an element in every model (a constant constructor `a0`), the model collapses
+/// `u`'s applications holding a new element into it, and `v` keeps its claims. (This definition
+/// has no model at all, `g(a0)` being both `c1` and `c2`; the claim is vacuously true, and the
+/// test pins that the collapse is still taken where it is valid.)
+#[test]
+fn n1_through_a_total_function_into_a_surely_inhabited_sort_keeps_the_claims() {
+    let definition = n1_through(
+        "function{}(), total{}()",
+        "symbol a0{}() : SortA{} [constructor{}(), functional{}(), injective{}()]",
+    );
+    let tainted = definition.value_claims().tainted_symbols();
+    assert!(
+        tainted.iter().any(|symbol| symbol.as_ref() == "g"),
+        "{tainted:?}"
+    );
+    assert!(
+        !tainted.iter().any(|symbol| symbol.as_ref() == "v"),
+        "{tainted:?}"
+    );
+}
+
+/// Review 1 of the check (seeded-defect control): `A`'s elements come only from its subsort `B`,
+/// built by `v`. `A` has a normal form through the subsort, so the overlap is not vacuous.
+#[test]
+fn review_1_n1_through_a_subsort() {
+    let declarations = r"
+        sort SortA{} []
+        sort SortB{} []
+        sort SortC{} []
+        symbol c1{}() : SortC{} [constructor{}(), functional{}(), injective{}()]
+        symbol c2{}() : SortC{} [constructor{}(), functional{}(), injective{}()]
+        symbol v{}(SortInt{}) : SortB{} [anywhere{}(), value-production{}()]
+        symbol g{}(SortA{}) : SortC{} [function{}()]
+        symbol inj{From, To}(From) : To [sortInjection{}()]
+        axiom{R} \exists{R}(Val:SortA{}, \equals{SortA{}, R}(Val:SortA{}, inj{SortB{}, SortA{}}(From:SortB{}))) [subsort{SortB{}, SortA{}}()]
+    ";
+    let definition = definition(
+        declarations,
+        &[
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortC{}",
+                &["VarX:SortA{}"],
+                "c1{}()",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortC{}",
+                &["VarX:SortA{}"],
+                "c2{}()",
+                r"\top{R}()",
+                "",
+            ),
+        ],
+    );
+    assert_withdrawn(&definition, &["v"], Some(UnjoinedReason::DifferentResults));
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// A total injective function into a builtin carrier cannot be interpreted on new elements (it
+/// would need a fresh literal for each), so the heads its argument sort can hold are withdrawn.
+#[test]
+fn a_total_injective_function_into_a_builtin_sort_pins_what_its_arguments_hold() {
+    let declarations = r"
+        sort SortB{} []
+        symbol v{}(SortInt{}) : SortB{} [anywhere{}(), value-production{}()]
+        symbol toInt{}(SortB{}) : SortInt{} [function{}(), total{}(), injective{}()]
+        symbol w{}(SortInt{}) : SortS{} [anywhere{}(), value-production{}()]
+    ";
+    let definition = definition(
+        declarations,
+        &[anywhere(
+            "w",
+            &["SortInt{}"],
+            "SortS{}",
+            &["VarX:SortInt{}"],
+            "mk{}(VarX:SortInt{})",
+        )],
+    );
+    let claims = definition.value_claims();
+    assert!(
+        claims.violations().iter().any(|violation| matches!(
+            &violation.kind,
+            k_rust_backend::confluence::ViolationKind::PinnedByInjectiveTotal(symbol)
+                if symbol.as_ref() == "toInt"
+        )),
+        "{:?}",
+        claims.violations()
+    );
+    let tainted = claims.tainted_symbols();
+    assert!(
+        tainted.iter().any(|symbol| symbol.as_ref() == "v"),
+        "{tainted:?}"
+    );
+    assert!(
+        !tainted.iter().any(|symbol| symbol.as_ref() == "w"),
+        "{tainted:?}"
+    );
+}
