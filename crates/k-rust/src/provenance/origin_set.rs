@@ -44,13 +44,6 @@ pub struct OriginSet(Option<Arc<[OriginPart]>>);
 
 /// One part of an origin-set node.
 #[derive(Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the recorder names sets from unit provenance-v8 step 5 on"
-    )
-)]
 pub(crate) enum OriginPart {
     Link(ProvenanceLink),
     Set(OriginSet),
@@ -75,14 +68,8 @@ impl OriginSet {
     /// the empty set, and a single remaining `Set` part gives that set itself.
     ///
     /// The drops compare links by value and sets by allocation only; they read no link of a
-    /// named set, so building a node costs time in the number of its parts alone.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the recorder names sets from unit provenance-v8 step 5 on"
-        )
-    )]
+    /// named set, so building a node costs time in the square of the number of its parts alone
+    /// (at most five for a term receipt).
     pub(crate) fn from_parts(parts: impl IntoIterator<Item = OriginPart>) -> Self {
         let mut kept = Vec::<OriginPart>::new();
         // Invariant: `kept` holds the parts already accepted, none of them the empty set, no

@@ -4,7 +4,7 @@
 //! sites = ["resolve_fresh_constants", "resolve_fresh_constants_pass", "fresh_variables", "transform_term"]
 //! variable = "N = traversed terms; F = fresh variables; L = local sentences; P = productions visible in one module"
 //! counters = []
-//! no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
+//! no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceSetNodesBuilt, KompileResolveCalls and KompileResolveUpdates"
 //!
 //! [[cost]]
 //! mode = "one definition"

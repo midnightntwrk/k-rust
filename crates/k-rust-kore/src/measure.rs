@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 16;
+pub const COUNTER_SCHEMA_VERSION: u64 = 17;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -377,8 +377,6 @@ pub enum Counter {
     KompileMacroSubjectWalks,
     /// Candidate rules scanned while building owise guards.
     KompileOwiseCompetitorScans,
-    /// Membership probes used to deduplicate provenance links.
-    ProvenanceLinkDedupProbes,
     /// Structured provenance receipts rendered into their JSON wire form.
     ProvenanceReceiptRenders,
     /// Origin-set nodes built by the recorder: one per set it allocates.
@@ -524,7 +522,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 85;
+    pub const COUNT: usize = 84;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -544,7 +542,6 @@ impl Counter {
         Counter::KompileMacroMeasuredNodes,
         Counter::KompileMacroSubjectWalks,
         Counter::KompileOwiseCompetitorScans,
-        Counter::ProvenanceLinkDedupProbes,
         Counter::ProvenanceReceiptRenders,
         Counter::ProvenanceSetNodesBuilt,
         Counter::ProvenanceSetPartsBuilt,
@@ -634,7 +631,6 @@ impl Counter {
             Counter::KompileMacroMeasuredNodes => "kompile.macro_measured_nodes",
             Counter::KompileMacroSubjectWalks => "kompile.macro_subject_walks",
             Counter::KompileOwiseCompetitorScans => "kompile.owise_competitor_scans",
-            Counter::ProvenanceLinkDedupProbes => "provenance.link_dedup_probes",
             Counter::ProvenanceReceiptRenders => "provenance.receipt_renders",
             Counter::ProvenanceSetNodesBuilt => "provenance.set_nodes_built",
             Counter::ProvenanceSetPartsBuilt => "provenance.set_parts_built",

@@ -3,7 +3,7 @@
 //! name = "recording of generation-origin receipts"
 //! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link", "CarrierOrigins::origins"]
 //! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
-//! counters = ["ProvenanceLinkDedupProbes", "KompileSentenceCopies"]
+//! counters = ["ProvenanceSetNodesBuilt", "ProvenanceSetPartsBuilt", "ProvenanceLinksSteps", "ProvenanceNonflatFlattens", "KompileSentenceCopies"]
 //!
 //! [[cost]]
 //! mode = "one order-preserving generating pass with distinct fallback bucket keys"
@@ -98,6 +98,7 @@ use crate::{
 
 mod origin_set;
 
+pub(crate) use origin_set::OriginPart;
 pub use origin_set::OriginSet;
 
 /// An insertion-ordered set of origin links. Its iteration order is the order of first insertion
@@ -1733,7 +1734,6 @@ fn collect_source_links_level(term: &Term, links: &mut LinkSet<ProvenanceLink>) 
 }
 
 fn insert_link<L: Eq + Hash>(links: &mut LinkSet<L>, link: L) {
-    measure::bump(Counter::ProvenanceLinkDedupProbes);
     links.insert(link);
 }
 
@@ -2068,53 +2068,34 @@ fn annotate_level(
     }
 }
 
+/// The origin set of a node a pass changed: the first-occurrence union, in this order, of its
+/// counterpart's prior set, its own prior set, its counterpart's span, its own span, and the set
+/// it inherits from the node above it (or from its sentence).
+///
+/// The set names those sets rather than copying their links ([`OriginSet::from_parts`]): it has
+/// at most five parts whatever the sizes of the sets it names, and building it reads none of
+/// their links, so a node costs constant time and memory however deep it is and however large
+/// the set it inherits. A set equal to one of its parts is that part, shared: a node with no
+/// prior and no span shares the set it inherits.
 fn term_origin_links(before: Option<&Term>, after: &Term, inherited: &OriginSet) -> OriginSet {
     let metadata = [before.and_then(Term::metadata), after.metadata()];
     let prior = metadata.map(|metadata| {
         metadata
             .and_then(|metadata| metadata.origin.as_deref())
-            .map(|origin| &origin.origins)
+            .map(|origin| OriginPart::Set(origin.origins.clone()))
     });
     let spans = metadata.map(|metadata| {
         metadata
             .and_then(|metadata| metadata.span)
-            .map(|span| ProvenanceLink::Source { span })
+            .map(|span| OriginPart::Link(ProvenanceLink::Source { span }))
     });
-    // The union is idempotent, so a shared origin set already united adds no link; a copied term
-    // keeps its counterpart's set, and a node's prior set is often the one it inherits.
-    let mut united = Vec::<&OriginSet>::with_capacity(2);
-    let mut links = LinkSet::default();
-    // Invariant: `links` contains the distinct prior and current origin links already scanned in
-    // first-encounter order, and `united` names every shared set already scanned.
-    for origins in prior.into_iter().flatten() {
-        if united.iter().any(|seen| seen.ptr_eq(origins)) {
-            continue;
-        }
-        united.push(origins);
-        for link in origins.links() {
-            insert_link(&mut links, link);
-        }
-    }
-    // Invariant: source spans are appended once after inherited origin records.
-    for link in spans.into_iter().flatten() {
-        insert_link(&mut links, link);
-    }
-    if links.is_empty() {
-        return inherited.clone();
-    }
-    // Invariant: inherited links not already present are appended in inherited order.
-    let inherited_links = inherited.links();
-    if !united.iter().any(|seen| seen.ptr_eq(inherited)) {
-        for link in &inherited_links {
-            insert_link(&mut links, link.clone());
-        }
-    }
-    // A node that adds nothing new shares the inherited set.
-    if links.iter().eq(inherited_links.iter()) {
-        inherited.clone()
-    } else {
-        built_set(links.into_iter().collect::<Vec<_>>())
-    }
+    OriginSet::from_parts(
+        prior
+            .into_iter()
+            .chain(spans)
+            .flatten()
+            .chain([OriginPart::Set(inherited.clone())]),
+    )
 }
 
 /// A newly allocated flat origin set of `links`, each kept at its first occurrence, counted as
@@ -2288,6 +2269,165 @@ mod tests {
             "comparing the receipts of 200 and 400 wrapped items read {small} and {large} units"
         );
         assert!(large * 10 <= small * 21, "{small} at 200, {large} at 400");
+    }
+
+    /// A node rebuilt by three generating passes in turn carries the receipt of the last, whose
+    /// origins are the denotation rule applied pass by pass: each pass's set is the union of
+    /// the counterpart's prior set, the node's own prior set, their spans, and the inherited set
+    /// (the sentence's set at the field root). A second sentence with a span of its own (`S9`)
+    /// is in the module but never in a receipt: a pass handing a node the module-wide set, or
+    /// the wrong sentence's set, would add it.
+    ///
+    /// Spans: the rule's body `k(x)` has `S0` at `k` and `S1` at `x`, its `requires` token `S2`.
+    /// - Configuration expansion turns `k(x)` into `cfg(x)`: the sentence set is its spans,
+    ///   `I = [S0, S1, S2]`; `cfg` (no counterpart prior, counterpart span `S0`) gets
+    ///   `[S0] ∪ I = [S0, S1, S2]`; `x` is unchanged and gets no receipt.
+    /// - Cell concretization wraps it, `cell(cfg(x))`: the sentence set is the stored receipt's,
+    ///   still `I`; `cell` gets `prior(cfg) ∪ I = [S0, S1, S2]`; `cfg(x)` moved unchanged.
+    /// - Sort injection rebuilds it as `cell(cfg(inj(x)))`: `cell` gets its own prior again,
+    ///   `[S0, S1, S2]`; `cfg` gets `prior(cfg) ∪ I = [S0, S1, S2]`; the new `inj` inherits
+    ///   `cfg`'s set and its counterpart `x` has span `S1`, so it gets `[S1] ∪ [S0, S1, S2] =
+    ///   [S1, S0, S2]`, at path `[0, 0, 0]` (the body, `cell`'s child, `cfg`'s child).
+    #[test]
+    fn a_node_rebuilt_by_three_passes_unites_their_origins_in_order() {
+        let span = |start: usize| TermSpan {
+            source: SourceId(0),
+            start,
+            end: start + 1,
+        };
+        let spanned = |term: Term, start: usize| {
+            term.with_metadata(TermMetadata {
+                span: Some(span(start)),
+                ..TermMetadata::default()
+            })
+        };
+        let link = |start: usize| ProvenanceLink::Source { span: span(start) };
+        let sentence = |body: Term, label: &str, requires_span: usize| Sentence::Rule {
+            body,
+            requires: spanned(
+                Term::Token {
+                    token: "true".into(),
+                    sort: Sort::new("Bool"),
+                },
+                requires_span,
+            ),
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::new([("label".into(), label.into())].into()),
+        };
+        let with_body = |body: Term| {
+            definition_with_rules(vec![
+                sentence(body, "MAIN.node", 2),
+                sentence(
+                    spanned(Term::apply("other", Vec::new()), 9),
+                    "MAIN.other",
+                    9,
+                ),
+            ])
+        };
+        let body_of = |definition: &Definition| {
+            definition.modules[0].local_sentences[0]
+                .term(0)
+                .expect("a rule has a body")
+                .clone()
+        };
+        let x = spanned(Term::apply("x", Vec::new()), 1);
+        let loaded = with_body(spanned(Term::apply("k", vec![x.clone()]), 0));
+        let expanded = record_generated_origins(
+            &loaded,
+            with_body(Term::apply("cfg", vec![x])),
+            GeneratingPass::ConfigurationExpansion,
+        );
+        let cfg = body_of(&expanded);
+        let concretized = record_generated_origins(
+            &expanded,
+            with_body(Term::apply("cell", vec![cfg.clone()])),
+            GeneratingPass::ConcretizeCells,
+        );
+        let cell = body_of(&concretized);
+        let Term::Apply { arguments, .. } = cfg.unannotated() else {
+            unreachable!()
+        };
+        let injected_cfg = Term::apply("cfg", vec![Term::apply("inj", vec![arguments[0].clone()])])
+            .with_metadata(cfg.metadata().cloned().unwrap_or_default());
+        let injected = record_generated_origins(
+            &concretized,
+            with_body(
+                Term::apply("cell", vec![injected_cfg])
+                    .with_metadata(cell.metadata().cloned().unwrap_or_default()),
+            ),
+            GeneratingPass::AddSortInjections,
+        );
+
+        let receipt = |term: &Term| {
+            term.metadata()
+                .and_then(|metadata| metadata.origin.clone())
+                .expect("the node has a receipt")
+        };
+        let body = body_of(&injected);
+        let Term::Apply { arguments, .. } = body.unannotated() else {
+            unreachable!()
+        };
+        let cfg = &arguments[0];
+        let Term::Apply { arguments, .. } = cfg.unannotated() else {
+            unreachable!()
+        };
+        let inj = &arguments[0];
+        let all = [link(0), link(1), link(2)];
+        for (term, pass, expected, path) in [
+            (
+                &body,
+                GeneratingPass::AddSortInjections,
+                all.to_vec(),
+                vec![0],
+            ),
+            (
+                cfg,
+                GeneratingPass::AddSortInjections,
+                all.to_vec(),
+                vec![0, 0],
+            ),
+            (
+                inj,
+                GeneratingPass::AddSortInjections,
+                vec![link(1), link(0), link(2)],
+                vec![0, 0, 0],
+            ),
+        ] {
+            let receipt = receipt(term);
+            assert_eq!(receipt.pass, pass);
+            assert_eq!(receipt.origins.links(), expected, "{term:?}");
+            let destination = receipt
+                .destination
+                .as_ref()
+                .expect("a term receipt has one");
+            assert_eq!(&*destination.module, "MAIN");
+            assert_eq!(&*destination.sentence, "MAIN.node");
+            assert_eq!(destination.sentence_index, 0);
+            assert_eq!(destination.path, path[..]);
+        }
+        let Term::Apply { arguments, .. } = inj.unannotated() else {
+            unreachable!()
+        };
+        assert!(
+            arguments[0]
+                .metadata()
+                .and_then(|metadata| metadata.origin.as_ref())
+                .is_none(),
+            "the unchanged x keeps no receipt"
+        );
+        assert_eq!(
+            receipt(&body_of(&expanded)).origins.links(),
+            all,
+            "configuration expansion"
+        );
+        assert_eq!(
+            receipt(&body_of(&concretized)).origins.links(),
+            all,
+            "cell concretization"
+        );
     }
 
     fn counterpart_sentence(
@@ -2617,8 +2757,165 @@ mod tests {
         );
     }
 
+    /// A part of a test origin-set DAG: a link of a five-link alphabet, or an earlier set.
+    #[derive(Clone, Debug)]
+    enum SetSpec {
+        Link(u8),
+        Set(usize),
+    }
+
+    fn spec_link(value: u8) -> ProvenanceLink {
+        ProvenanceLink::Source {
+            span: TermSpan {
+                source: SourceId(0),
+                start: usize::from(value),
+                end: usize::from(value) + 1,
+            },
+        }
+    }
+
+    /// The links set `index` denotes, unfolded naively with no memo and no visited-set skip.
+    fn unfolded(sets: &[Vec<SetSpec>], index: usize) -> Vec<ProvenanceLink> {
+        let mut links = Vec::new();
+        for part in &sets[index] {
+            let part_links = match part {
+                SetSpec::Link(value) => vec![spec_link(*value)],
+                SetSpec::Set(child) => unfolded(sets, *child),
+            };
+            for link in part_links {
+                if !links.contains(&link) {
+                    links.push(link);
+                }
+            }
+        }
+        links
+    }
+
+    /// Random DAGs of up to six sets, each naming any earlier set, so that sets are shared and
+    /// reached along several paths.
+    fn set_dags() -> impl Strategy<Value = Vec<Vec<SetSpec>>> {
+        prop::collection::vec(
+            prop::collection::vec((any::<bool>(), 0_u8..5, any::<prop::sample::Index>()), 0..4),
+            1..6,
+        )
+        .prop_map(|sets| {
+            sets.into_iter()
+                .enumerate()
+                .map(|(index, parts)| {
+                    parts
+                        .into_iter()
+                        .map(|(is_set, value, pick)| {
+                            if is_set && index > 0 {
+                                SetSpec::Set(pick.index(index))
+                            } else {
+                                SetSpec::Link(value)
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+    }
+
+    fn built_sets(sets: &[Vec<SetSpec>]) -> Vec<OriginSet> {
+        let mut built = Vec::<OriginSet>::new();
+        for parts in sets {
+            let set = OriginSet::from_parts(
+                parts
+                    .iter()
+                    .map(|part| match part {
+                        SetSpec::Link(value) => OriginPart::Link(spec_link(*value)),
+                        SetSpec::Set(child) => OriginPart::Set(built[*child].clone()),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            built.push(set);
+        }
+        built
+    }
+
+    /// The version 7 union of a changed node's origins, over link lists (a copy of the former
+    /// `term_origin_links` with its pointer shortcuts, which change no value, left out): the
+    /// distinct links of the counterpart's prior set, the node's prior set and the two spans in
+    /// that order, then the inherited links not already present; the inherited list alone when
+    /// the others are empty.
+    fn version_7_union(
+        priors: [Option<Vec<ProvenanceLink>>; 2],
+        spans: [Option<ProvenanceLink>; 2],
+        inherited: Vec<ProvenanceLink>,
+    ) -> Vec<ProvenanceLink> {
+        let mut links = Vec::new();
+        for link in priors
+            .into_iter()
+            .flatten()
+            .flatten()
+            .chain(spans.into_iter().flatten())
+        {
+            if !links.contains(&link) {
+                links.push(link);
+            }
+        }
+        if links.is_empty() {
+            return inherited;
+        }
+        for link in inherited {
+            if !links.contains(&link) {
+                links.push(link);
+            }
+        }
+        links
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// The circuit construction denotes the version 7 union of the same inputs, over random
+        /// DAG-shaped prior and inherited sets that share allocations as the recorder's do.
+        #[test]
+        fn circuit_construction_denotes_the_version_7_union(
+            sets in set_dags(),
+            before_prior in prop::option::of(any::<prop::sample::Index>()),
+            after_prior in prop::option::of(any::<prop::sample::Index>()),
+            before_span in prop::option::of(0_u8..6),
+            after_span in prop::option::of(0_u8..6),
+            inherited in any::<prop::sample::Index>(),
+        ) {
+            let built = built_sets(&sets);
+            let pick = |index: &prop::sample::Index| index.index(sets.len());
+            let node = |prior: Option<usize>, span: Option<u8>| {
+                Term::apply("node", Vec::new()).with_metadata(TermMetadata {
+                    span: span.map(|value| match spec_link(value) {
+                        ProvenanceLink::Source { span } => span,
+                        ProvenanceLink::Sentence { .. } => unreachable!(),
+                    }),
+                    origin: prior.map(|index| {
+                        Arc::new(OriginRecord {
+                            pass: GeneratingPass::MacroExpansion,
+                            origins: built[index].clone(),
+                            destination: None,
+                        })
+                    }),
+                    ..TermMetadata::default()
+                })
+            };
+            let (before_prior, after_prior) =
+                (before_prior.as_ref().map(pick), after_prior.as_ref().map(pick));
+            let inherited = pick(&inherited);
+            let actual = term_origin_links(
+                Some(&node(before_prior, before_span)),
+                &node(after_prior, after_span),
+                &built[inherited],
+            );
+            let expected = version_7_union(
+                [
+                    before_prior.map(|index| unfolded(&sets, index)),
+                    after_prior.map(|index| unfolded(&sets, index)),
+                ],
+                [before_span.map(spec_link), after_span.map(spec_link)],
+                unfolded(&sets, inherited),
+            );
+            prop_assert_eq!(actual.links(), expected);
+        }
 
         #[test]
         fn provenance_union_preserves_first_encounter_order_and_is_idempotent(
@@ -2816,7 +3113,7 @@ mod tests {
         );
         let probes = measure::snapshot()
             .delta(&probes)
-            .get(Counter::ProvenanceLinkDedupProbes);
+            .get(Counter::ProvenanceSetPartsBuilt);
         let Sentence::Rule { body, .. } = &*after.main_module().unwrap().local_sentences[0] else {
             panic!("expected rule");
         };
@@ -2853,7 +3150,7 @@ mod tests {
         }
         assert!(
             probes <= 4 * u64::from(DEPTH),
-            "{probes} link insertions, {receipted} receipted nodes"
+            "{probes} set parts built, {receipted} receipted nodes"
         );
         assert_eq!(receipted, 0);
     }

@@ -828,20 +828,6 @@ symbol = "Counter::ProvenanceEncoderSetKeys"
 
 [[node]]
 kind = "observation"
-id = "ProvenanceLinkDedupProbes"
-provenance = "table"
-area = "provenance"
-name = "ProvenanceLinkDedupProbes"
-table = "Counter::ALL"
-registry_name = "provenance.link_dedup_probes"
-
-[node.anchor]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/measure.rs"
-symbol = "Counter::ProvenanceLinkDedupProbes"
-
-[[node]]
-kind = "observation"
 id = "ProvenanceLinksSteps"
 provenance = "table"
 area = "provenance"
@@ -4852,7 +4838,7 @@ provenance = "declared"
 area = "kompile"
 name = "resolution of fresh constants"
 variable = "N = traversed terms; F = fresh variables; L = local sentences; P = productions visible in one module"
-no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
+no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceSetNodesBuilt, KompileResolveCalls and KompileResolveUpdates"
 table = "Algorithm::ALL"
 registry_name = "KompileFreshConstantsResolve"
 
@@ -8970,7 +8956,25 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "definition.provenance.record"
-to = "ProvenanceLinkDedupProbes"
+to = "ProvenanceLinksSteps"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceNonflatFlattens"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceSetNodesBuilt"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceSetPartsBuilt"
 provenance = "declared"
 
 [[edge]]
