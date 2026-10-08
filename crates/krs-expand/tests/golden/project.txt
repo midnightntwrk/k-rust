@@ -1,0 +1,1 @@
+{ let _krs_typecheck_sort_test_sort = || :: core :: any :: TypeId :: of :: < Int > () ; :: core :: panic ! ("project! has no runtime value") }

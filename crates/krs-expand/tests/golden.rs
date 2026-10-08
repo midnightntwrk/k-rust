@@ -439,6 +439,18 @@ k::rules! {
 "#,
     ),
     (
+        "rules_sort_test",
+        r"
+k::rules! {
+    for Expr;
+    use Op::*;
+
+    #[k::requires(k::is!(Value, e))]
+    prj: Prj { e } => int::add(k::project!(Int, e), 1);
+}
+",
+    ),
+    (
         "rules_heads",
         r#"
 k::rules! {
@@ -717,6 +729,8 @@ k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
     ("anonymous", "k::anonymous!(Bool, \"_B\");"),
     ("or_bool", "k::or_bool![int::eq(n, 5), int::eq(n, 6)];"),
     ("lexeme", "k::lexeme!(Name, \"main\");"),
+    ("is", "k::is!(Value, e);"),
+    ("project", "k::project!(Int, e);"),
     (
         "syntax_list",
         r#"

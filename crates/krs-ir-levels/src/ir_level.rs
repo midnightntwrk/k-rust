@@ -604,7 +604,7 @@ impl<L: IrLevel> IrTerm<L> {
     pub const fn application(
         origin: NodeOrigin,
         sort: L::Sort,
-        application: ApplicationRef<L::Declaration>,
+        application: ApplicationRef<L::Declaration, L::Sort>,
         arguments: Vec<Self>,
     ) -> Self {
         Self {
@@ -730,7 +730,7 @@ pub enum IrTermKind<L: IrLevel> {
     /// Authored or compiler-provided application.
     Application {
         /// The application identity at this IR level.
-        application: ApplicationRef<L::Declaration>,
+        application: ApplicationRef<L::Declaration, L::Sort>,
         /// Arguments in production order.
         arguments: Vec<IrTerm<L>>,
     },
@@ -781,7 +781,7 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
         variable: SemanticId,
     },
     Application {
-        application: ApplicationRef<L::Declaration>,
+        application: ApplicationRef<L::Declaration, L::Sort>,
         arguments: Vec<IrTerm<L>>,
     },
     Token {
@@ -821,7 +821,7 @@ enum IrTermKindRef<'a, L: IrLevel> {
         variable: &'a SemanticId,
     },
     Application {
-        application: &'a ApplicationRef<L::Declaration>,
+        application: &'a ApplicationRef<L::Declaration, L::Sort>,
         arguments: &'a [IrTerm<L>],
     },
     Token {

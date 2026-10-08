@@ -1370,7 +1370,29 @@ stage_shape! {
             /// Nonempty token text.
             text: String => [keep],
         },
+        /// `k::is!(Sort, t)` or `k::project!(Sort, t)`: K's generated sort
+        /// predicate `isSort(T)` or projection `{T}:>Sort`.
+        SortTest {
+            /// Complete macro-shell provenance.
+            key: ProvenanceKey => [keep],
+            /// Predicate or projection.
+            kind: SortTestKind => [keep],
+            /// Exact authored sort occurrence.
+            sort: S::Sort => [sort],
+            /// The tested or projected term.
+            operand: Box<Term<S>> => [box nested],
+        },
     }
+}
+
+/// Which generated sort operation a [`Term::SortTest`] denotes.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortTestKind {
+    /// `k::is!`: K's total predicate `isSort(T)`.
+    Predicate,
+    /// `k::project!`: K's partial projection `{T}:>Sort`.
+    Projection,
 }
 
 /// Descriptor-stage form of [`Term`].
@@ -3139,6 +3161,7 @@ impl StructuredRuleDescriptor {
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
         let mut result = TermKeyCounters {
             lexeme: subject.lexeme,
+            sort_test: subject.sort_test,
             ..TermKeyCounters::default()
         };
         self.result
@@ -3146,6 +3169,7 @@ impl StructuredRuleDescriptor {
         if let Some(requires) = &self.requires {
             let mut condition = TermKeyCounters {
                 lexeme: result.lexeme,
+                sort_test: result.sort_test,
                 ..TermKeyCounters::default()
             };
             requires.term.collect_expected_term_keys(
@@ -3234,6 +3258,8 @@ struct TermKeyCounters {
     /// Lexeme ordinals are side-neutral: they continue from the subject
     /// through the result and the condition.
     lexeme: u32,
+    /// Sort-test ordinals are side-neutral like lexeme ordinals.
+    sort_test: u32,
 }
 
 impl DescriptorTerm {

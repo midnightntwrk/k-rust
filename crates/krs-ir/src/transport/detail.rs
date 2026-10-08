@@ -139,6 +139,8 @@ details! {
         InvalidLexemeSort => "invalid lexeme sort",
         EmptyLexemeText => "lexeme text must not be empty",
         InitializerLexeme => "lexeme! terms are not allowed in initializers",
+        InvalidSortTestSort => "invalid is! or project! sort",
+        InitializerSortTest => "is! and project! terms are not allowed in initializers",
         InvalidApplicationTarget => "invalid application target",
         InvalidCellSortArgument => "invalid cell sort argument",
         InvalidClaimBinderSort => "invalid claim binder sort",

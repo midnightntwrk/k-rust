@@ -161,6 +161,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-builtin-sort-test-matched"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-sort-test-project-k"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-sort-test-trivial"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-builtin-sort-tests"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-builtin-strings"
 version = "0.1.0"
 dependencies = [

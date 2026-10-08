@@ -332,6 +332,11 @@ impl BuiltinRequirements {
                             .filter_map(OperationSort::builtin),
                     );
                 }
+                // K generates `isS` and `project:S` with the sort itself, so
+                // only the sort's declaration must be visible.
+                if let ApplicationRef::Generated(operation) = application {
+                    self.sort(operation.sort());
+                }
                 for argument in arguments {
                     self.term(argument);
                 }

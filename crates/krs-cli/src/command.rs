@@ -251,6 +251,8 @@ impl CommandOutcome {
 struct PreparedDefinition {
     /// Allowed quoted hooks and `raw_k!` sentences, reported on every build.
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
+    /// `k::is!` and `k::project!` terms that test nothing, reported on every build.
+    sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
@@ -462,6 +464,7 @@ fn prepare(
     count_definition(&mut measurement.counters, &lowered);
     Ok(PreparedDefinition {
         raw_k_warnings: raw_k.warnings,
+        sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition()),
         bundle,
         semantic,
         lowered,
@@ -514,10 +517,15 @@ fn check(
 }
 
 /// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
-/// the package's allowed raw K; every command reports them.
+/// the package's allowed raw K, then the `krs::analysis::trivial-sort-test`
+/// warnings; every command reports them.
 fn raw_k_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports::default();
-    for diagnostic in &prepared.raw_k_warnings {
+    for diagnostic in prepared
+        .raw_k_warnings
+        .iter()
+        .chain(&prepared.sort_test_warnings)
+    {
         if let Some(envelope) =
             crate::diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None)
         {

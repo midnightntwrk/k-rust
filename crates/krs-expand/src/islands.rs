@@ -49,6 +49,24 @@ pub(crate) fn lexeme(input: TokenStream) -> crate::Result<TokenStream> {
     }})
 }
 
+/// Compiler-owned sort predicate (`k::is!`) or projection (`k::project!`).
+/// The sort path is checked by rustc; the operand is a KRS term whose
+/// binders are not Rust values, so only its form is checked.
+pub(crate) fn sort_test(
+    kind: krs_ir::SortTestKind,
+    input: TokenStream,
+) -> crate::Result<TokenStream> {
+    let (sort, _operand) = krs_syntax::parse_sort_test_arguments(kind, input)?;
+    let message = match kind {
+        krs_ir::SortTestKind::Predicate => "is! has no runtime value",
+        krs_ir::SortTestKind::Projection => "project! has no runtime value",
+    };
+    Ok(quote! {{
+        let _krs_typecheck_sort_test_sort = || ::core::any::TypeId::of::<#sort>();
+        ::core::panic!(#message)
+    }})
+}
+
 /// Compiler-owned associative object-Bool disjunction.
 pub(crate) fn or_bool() -> TokenStream {
     quote!(::core::panic!("or_bool! has no runtime value"))

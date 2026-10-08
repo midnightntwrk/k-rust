@@ -11,7 +11,8 @@ use super::{
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
 use crate::{
-    BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, ProvenanceRole, StableItemId,
+    BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, ProvenanceRole, SortTestKind,
+    StableItemId,
 };
 
 pub(super) struct GrammarTermValidation<'a, F> {
@@ -128,6 +129,17 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         _: &[CellTermField<DescriptorStage>],
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
+    }
+
+    fn sort_test(
+        &mut self,
+        key: &ProvenanceKey,
+        _: SortTestKind,
+        sort: &DescriptorSortReference,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        require_key(&sort.key, self.provenance)?;
+        sort.sort.validate()
     }
 
     fn argument(
@@ -304,6 +316,28 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         _: &[CellTermField<DescriptorStage>],
     ) -> Result<(), Self::Error> {
         unsupported_cell_term()
+    }
+
+    fn sort_test(
+        &mut self,
+        key: &ProvenanceKey,
+        _: SortTestKind,
+        sort: &DescriptorSortReference,
+    ) -> Result<(), Self::Error> {
+        insert_exact(
+            self.keys,
+            &sort.key,
+            ProvenanceRole::SortTestSort,
+            self.counters.sort_test,
+        )?;
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::SortTest,
+            self.counters.sort_test,
+        )?;
+        self.counters.sort_test = increment(self.counters.sort_test)?;
+        Ok(())
     }
 
     fn argument(

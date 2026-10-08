@@ -366,3 +366,20 @@ pub fn syntax_list(attributes: TokenStream, item: TokenStream) -> TokenStream {
 pub fn raw_k(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::RawK, input)
 }
+
+/// K's generated sort predicate: `k::is!(Sort, t)` is `isSort(T)`, a total
+/// Bool function that holds when `t` has sort `Sort`. Unlike a typed binder
+/// or `where t: Sort`, which restricts what a rule matches, it is a value a
+/// rule can compute with; it is never matched.
+#[proc_macro]
+pub fn is(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Is, input)
+}
+
+/// K's generated sort projection: `k::project!(Sort, t)` is `{T}:>Sort`
+/// (`project:Sort`), a partial function with no value when `t` is not a
+/// `Sort`; it is never matched.
+#[proc_macro]
+pub fn project(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Project, input)
+}

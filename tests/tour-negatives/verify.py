@@ -146,6 +146,11 @@ def main() -> None:
             "a machine rule selects at least one cell",
             "{}",
         ),
+        (
+            "sort_test_in_pattern",
+            "unsupported term expression: `k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
+            "is",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

@@ -189,6 +189,8 @@ register_codes! {
         INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
         CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
+        INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
+        TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {

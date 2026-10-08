@@ -1524,6 +1524,19 @@ fn render_term(
             let text = syn::LitStr::new(text, Span::call_site());
             Ok(quote!(k::lexeme!(#sort, #text)))
         }
+        DescriptorTerm::SortTest {
+            kind,
+            sort,
+            operand,
+            ..
+        } => {
+            let sort = render_descriptor_sort(&sort.sort, package)?;
+            let operand = render_term(operand, pattern, package, bundle)?;
+            Ok(match kind {
+                krs_ir::SortTestKind::Predicate => quote!(k::is!(#sort, #operand)),
+                krs_ir::SortTestKind::Projection => quote!(k::project!(#sort, #operand)),
+            })
+        }
         DescriptorTerm::OrBool { arguments, .. } => {
             let arguments = arguments
                 .iter()

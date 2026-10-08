@@ -702,6 +702,7 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .iter()
             .map(|field| count_here_in_term(&field.value, here))
             .sum(),
+        DescriptorTerm::SortTest { operand, .. } => count_here_in_term(operand, here),
     }
 }
 
@@ -833,6 +834,12 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
                 keys.insert(field.key.clone());
                 collect_term_keys(&field.value, keys);
             }
+        }
+        DescriptorTerm::SortTest {
+            key, sort, operand, ..
+        } => {
+            keys.extend([key.clone(), sort.key.clone()]);
+            collect_term_keys(operand, keys);
         }
     }
 }
@@ -1007,6 +1014,7 @@ struct RuleCounters {
     bytes_token: u32,
     anonymous: u32,
     lexeme: u32,
+    sort_test: u32,
 }
 
 fn builtin_token_role<'a>(
@@ -1406,6 +1414,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         bytes_token: left_counters.bytes_token,
         anonymous: left_counters.anonymous,
         lexeme: left_counters.lexeme,
+        sort_test: left_counters.sort_test,
         ..RuleCounters::default()
     };
     let mut right_bindings = rule.bindings.clone();
@@ -1433,6 +1442,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         bytes_token: right_counters.bytes_token,
         anonymous: right_counters.anonymous,
         lexeme: right_counters.lexeme,
+        sort_test: right_counters.sort_test,
         ..RuleCounters::default()
     };
     if let Some(requires) = &rule.requires {
@@ -1509,6 +1519,7 @@ fn validate_rule_claim<S: RuleValidationStage>(
             bytes_token: inherited.bytes_token,
             anonymous: inherited.anonymous,
             lexeme: inherited.lexeme,
+            sort_test: inherited.sort_test,
             ..RuleCounters::default()
         };
         validate_rule_term::<S>(
@@ -2042,6 +2053,30 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.lexeme,
         )?;
         self.counters.lexeme = rule_increment(self.counters.lexeme)?;
+        Ok(())
+    }
+
+    fn sort_test(
+        &mut self,
+        key: &ProvenanceKey,
+        _: crate::SortTestKind,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error> {
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort))?;
+        insert_rule_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::SortTestSort,
+            self.counters.sort_test,
+        )?;
+        insert_rule_exact(
+            self.keys,
+            key,
+            ProvenanceRole::SortTest,
+            self.counters.sort_test,
+        )?;
+        self.counters.sort_test = rule_increment(self.counters.sort_test)?;
         Ok(())
     }
 

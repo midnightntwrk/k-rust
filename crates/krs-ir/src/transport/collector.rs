@@ -20,7 +20,7 @@ use crate::{
 /// The schema sample is pinned by `crates/krs-ir/tests/schema/collector-<version>.json`.
 /// A change to the wire shape or to a frame code must advance this version
 /// independently of the canonical descriptor schema.
-pub const VERSION: u32 = 48;
+pub const VERSION: u32 = 49;
 
 #[derive(Serialize)]
 struct CollectorRef<'a> {

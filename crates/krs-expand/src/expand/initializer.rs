@@ -612,6 +612,11 @@ impl<'a> InitializerBuilder<'a> {
                 text.span(),
                 "lexeme! is a rule and claim term; initializers cannot contain it",
             )),
+            TermTree::SortTest { range, .. } => Err(ExpandError::new(
+                expand::CLAIM_ONLY_TERM,
+                range.first(),
+                "is! and project! are rule and claim terms; initializers cannot contain them",
+            )),
         }
     }
 }

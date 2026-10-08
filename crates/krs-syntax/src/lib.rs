@@ -86,7 +86,7 @@ pub use syntax_list::{
 pub use term::{
     CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
     TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
-    parse_lexeme_arguments,
+    parse_lexeme_arguments, parse_sort_test_arguments,
 };
 pub use term_sort::TermSort;
 pub use trivia::{

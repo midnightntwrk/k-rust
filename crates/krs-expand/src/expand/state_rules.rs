@@ -292,6 +292,7 @@ pub(super) fn configuration_rule(
         RuleSide::Right,
     );
     right.terms.lexeme_ordinal = left.terms.lexeme_ordinal;
+    right.terms.sort_test_ordinal = left.terms.sort_test_ordinal;
     let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
     let mut condition_builder = TermBuilder::new(
         &facade,
@@ -300,6 +301,7 @@ pub(super) fn configuration_rule(
         &binding_idents,
     );
     condition_builder.lexeme_ordinal = right.terms.lexeme_ordinal;
+    condition_builder.sort_test_ordinal = right.terms.sort_test_ordinal;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             condition.term().tree(),
@@ -836,6 +838,20 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::Lexeme { sort, text } => self.terms.lexeme_wire(sort, text, slots),
+            TermTree::SortTest {
+                range,
+                kind,
+                sort,
+                operand,
+            } => {
+                let (key, sort) = self.terms.sort_test_reference(*range, sort, slots)?;
+                Ok(WireTerm::SortTest {
+                    key,
+                    kind: *kind,
+                    sort,
+                    operand: Box::new(self.expand_term(operand, slots)?),
+                })
+            }
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,

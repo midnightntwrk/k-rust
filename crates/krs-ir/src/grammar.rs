@@ -20,11 +20,49 @@ pub use crate::catalog::{BuiltinOperation, HookOperation};
     content = "application",
     rename_all = "snake_case"
 )]
-pub enum ApplicationRef<D> {
+pub enum ApplicationRef<D, S> {
     /// An authored production resolved by the compiler.
     Declared(D),
     /// A compiler-provided operation from the exact builtin catalog.
     Builtin(BuiltinOperation),
+    /// An operation K generates for every sort, keyed by that sort.
+    Generated(GeneratedOperation<S>),
+}
+
+/// A function K generates for every sort `S` (`k::is!` and `k::project!`).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneratedOperation<S> {
+    /// K's total sort predicate `isS(T)`: one argument of sort `K`, result `Bool`.
+    SortPredicate(S),
+    /// K's partial projection `{T}:>S` (`project:S`): one argument of sort `K`,
+    /// result `S`; undefined when the argument is not an `S`.
+    SortProjection(S),
+}
+
+impl<S> GeneratedOperation<S> {
+    /// Returns the sort the operation is generated for.
+    #[must_use]
+    pub const fn sort(&self) -> &S {
+        match self {
+            Self::SortPredicate(sort) | Self::SortProjection(sort) => sort,
+        }
+    }
+
+    /// Applies `map` to the sort the operation is generated for.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of `map`.
+    pub fn try_map_sort<T, E>(
+        &self,
+        map: impl FnOnce(&S) -> Result<T, E>,
+    ) -> Result<GeneratedOperation<T>, E> {
+        Ok(match self {
+            Self::SortPredicate(sort) => GeneratedOperation::SortPredicate(map(sort)?),
+            Self::SortProjection(sort) => GeneratedOperation::SortProjection(map(sort)?),
+        })
+    }
 }
 
 /// Stable nominal identity of a production group.

@@ -21,6 +21,9 @@ macro_rules! validation_error {
             ValidationError::BuiltinApplicationSignature(operation) => {
                 $public::BuiltinApplicationSignature(operation)
             }
+            ValidationError::GeneratedApplicationSignature => {
+                $public::GeneratedApplicationSignature
+            }
             ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
             ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
             ValidationError::ContextAliasFrameSortMismatch => {

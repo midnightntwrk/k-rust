@@ -12,7 +12,8 @@ use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
 };
 use crate::term::{
-    is_term_macro, push_lexeme_anchors, push_record_field_anchors, unexpected_macro,
+    is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+    unexpected_macro,
 };
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
@@ -257,6 +258,16 @@ impl RuleItem {
         if let Some(requires) = &self.requires {
             push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
         }
+        let mut sort_tests = 0_usize;
+        push_sort_test_anchors(
+            &mut anchors,
+            self.parameter.pattern.nodes(),
+            &mut sort_tests,
+        )?;
+        push_sort_test_anchors(&mut anchors, self.result.nodes(), &mut sort_tests)?;
+        if let Some(requires) = &self.requires {
+            push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
+        }
         Ok(anchors)
     }
 
@@ -312,7 +323,8 @@ impl RuleItem {
                         | TermNode::BytesToken(_)
                         | TermNode::Anonymous { .. }
                         | TermNode::OrBool(_)
-                        | TermNode::Lexeme { .. } => continue,
+                        | TermNode::Lexeme { .. }
+                        | TermNode::SortTest { .. } => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
@@ -455,6 +467,11 @@ fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
         ));
     };
     match expression {
+        Expr::Macro(expression_macro)
+            if crate::term::is_sort_test_macro(&expression_macro.mac.path) =>
+        {
+            TermExpression::from_expression(expression.clone())
+        }
         Expr::Macro(expression_macro) => {
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));

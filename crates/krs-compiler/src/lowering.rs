@@ -1861,6 +1861,9 @@ fn lower_term(
                     ApplicationRef::Declared(names.production(production)?.id().clone())
                 }
                 ApplicationRef::Builtin(operation) => ApplicationRef::Builtin(*operation),
+                ApplicationRef::Generated(operation) => ApplicationRef::Generated(
+                    operation.try_map_sort(|sort| lower_sort_ref(sort, names))?,
+                ),
             },
             arguments
                 .iter()

@@ -8,11 +8,11 @@ use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellContentFrame, CellPost,
     CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
-    FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
-    GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
-    HookSortConstraint, ListOperation, MapOperation, OperationSort, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
-    SetOperation, SourceMapKey,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GeneratedOperation,
+    GrammarProductionItem, GrammarProductionItemKind, HookOperation, HookPointSortSource,
+    HookSignature, HookSortConstraint, ListOperation, MapOperation, OperationSort,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId,
+    SentenceKind, SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -112,6 +112,7 @@ pub(crate) enum ValidationError<L: Validation> {
     AliasCondition,
     ApplicationSignature(L::Declaration),
     BuiltinApplicationSignature(BuiltinOperation),
+    GeneratedApplicationSignature,
     CellFrameBindingMismatch(SemanticId),
     CellFrameSortMismatch,
     ContextAliasFrameSortMismatch,
@@ -1125,6 +1126,16 @@ pub(crate) fn validate_term<L: Validation>(
                 ApplicationRef::Builtin(operation) => {
                     builtin_application_holds::<L>(*operation, term.sort(), arguments, sort_parents)
                 }
+                ApplicationRef::Generated(operation) => {
+                    require_sort::<L>(declarations, operation.sort())?;
+                    arguments.len() == 1
+                        && match operation {
+                            GeneratedOperation::SortPredicate(_) => {
+                                *term.sort() == L::builtin_sort(BuiltinSort::Bool)
+                            }
+                            GeneratedOperation::SortProjection(sort) => term.sort() == sort,
+                        }
+                }
             };
             if !holds {
                 return match application {
@@ -1134,6 +1145,9 @@ pub(crate) fn validate_term<L: Validation>(
                     ApplicationRef::Builtin(operation) => Err(L::error(
                         ValidationError::BuiltinApplicationSignature(*operation),
                     )),
+                    ApplicationRef::Generated(_) => {
+                        Err(L::error(ValidationError::GeneratedApplicationSignature))
+                    }
                 };
             }
             for argument in arguments {

@@ -15,6 +15,7 @@ pub mod partition;
 mod reference;
 mod semantic;
 mod sidecar;
+mod sort_tests;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
@@ -36,3 +37,4 @@ pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,
     SymbolMapEntry,
 };
+pub use sort_tests::sort_test_warnings;

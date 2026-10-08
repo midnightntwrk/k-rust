@@ -174,6 +174,10 @@ entry_points! {
         Layout = "layout",
         /// `k::raw_k!`.
         RawK = "raw_k",
+        /// `k::is!`.
+        Is = "is",
+        /// `k::project!`.
+        Project = "project",
     }
 }
 

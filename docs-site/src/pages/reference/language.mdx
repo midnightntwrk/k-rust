@@ -144,11 +144,21 @@ Builtin operations such as `+Int` and `andBool` are never program syntax, becaus
 | `k::bytes![...]` | claim-only builtin Bytes literal |
 | `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
 | `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules and claims |
+| `k::is!(Sort, t)` | K's generated sort predicate `isSort(T)`: a total Bool in results, guards, and claims, never in a pattern |
+| `k::project!(Sort, t)` | K's generated projection `{T}:>Sort` (`project:Sort`): a partial function with no value when `t` is not a `Sort`, never in a pattern |
 | `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
 | `k::fragment![...]` | nominal nested-cell fragment |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | framed builtin Map pattern or value |
 | `k::cells![...]` | explicit multi-cell rule body |
+
+K generates `isS` and `project:S` for every sort `S`.
+`where v: Value` and a typed binder restrict what a rule matches; `k::is!(Value, v)` is a Bool the rule computes with.
+They agree on concrete terms and differ in proofs, where a sort test is a condition rather than a matching constraint.
+A projection that does not apply is undefined: Java K's LLVM backend aborts the run, and the symbolic backends yield `#Bottom`.
+Rust's `Any::is` and downcasts are the analogues, except that a downcast returns `None` where K's projection has no value at all.
+`krs check` rejects either macro in a left-hand side or pattern and a projection into `K` (`krs::analysis::invalid-sort-test`), and warns on a projection to a supersort of its operand's sort and on `k::is!(K, ..)` (`krs::analysis::trivial-sort-test`).
+A projected collection lookup such as `k::project!(TypedLocal, list::get(locals, i))` keeps its `KItem` result, so the emitted term has exactly one cast.
 
 These are restricted object-language grammars embedded in Rust tokens.
 They do not evaluate arbitrary Rust expressions, methods, closures, or control flow.

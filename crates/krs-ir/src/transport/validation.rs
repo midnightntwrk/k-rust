@@ -9,7 +9,8 @@ use crate::{
 
 use super::configuration::StateTransportError;
 use super::grammar::{
-    CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, GrammarTransportError, Term,
+    CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, GrammarTransportError,
+    SortTestKind, Term,
 };
 
 /// Host references carry Rust type keys without stable item kinds or field text.
@@ -151,6 +152,13 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         fields: &[CellTermField<S>],
     ) -> Result<(), Self::Error>;
 
+    fn sort_test(
+        &mut self,
+        key: &ProvenanceKey,
+        kind: SortTestKind,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error>;
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
@@ -211,6 +219,15 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
                 validate_term(&field.value, context)?;
             }
             Ok(())
+        }
+        Term::SortTest {
+            key,
+            kind,
+            sort,
+            operand,
+        } => {
+            context.sort_test(key, *kind, sort)?;
+            validate_term(operand, context)
         }
     }
 }

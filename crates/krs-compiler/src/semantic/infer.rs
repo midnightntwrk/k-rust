@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CollectionApplication, CollectionOperandSort,
     CollectionResultSort, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, OperationSort,
-    ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
+    DescriptorIndex, DescriptorPayload, DescriptorTerm, GeneratedOperation, ListOperation,
+    OperationSort, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId, SortTestKind,
+    StableItemId,
 };
 use krs_ir_levels::{
     ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
@@ -150,6 +151,24 @@ impl StructuredTermBuilder<'_> {
                     ));
                 }
                 self.infer_cell_fields(declaration, fields, subject)?;
+            }
+            DescriptorTerm::SortTest {
+                key,
+                kind,
+                sort,
+                operand,
+            } => {
+                let result = self.sort_test_result(key, *kind, sort, subject)?;
+                if let Some(expected) = expected_sort
+                    && !semantic_is_subsort(&result, expected, self.sort_parents)
+                {
+                    return Err(self.invalid_term(format!(
+                        "{} has sort {result}, which is not admissible at sort {expected}",
+                        sort_test_macro(*kind)
+                    )));
+                }
+                let operand_sort = self.sort_test_operand_sort(operand);
+                self.infer(operand, operand_sort.as_ref(), subject)?;
             }
         }
         Ok(())
@@ -587,7 +606,99 @@ impl StructuredTermBuilder<'_> {
                 declaration,
                 fields,
             } => self.lower_cell_term(key, declaration, fields, expected_sort, subject),
+            DescriptorTerm::SortTest {
+                key,
+                kind,
+                sort,
+                operand,
+            } => {
+                let result = self.sort_test_result(key, *kind, sort, subject)?;
+                let target = semantic_sort_ref(&sort.sort);
+                let operand_sort = self.sort_test_operand_sort(operand);
+                let operand = self.lower(operand, operand_sort.as_ref(), subject)?;
+                let operation = match kind {
+                    SortTestKind::Predicate => GeneratedOperation::SortPredicate(target),
+                    SortTestKind::Projection => GeneratedOperation::SortProjection(target),
+                };
+                Ok(SemanticTerm::application(
+                    semantic_origin(self.descriptor, key.clone(), "term-sort-test")?,
+                    result,
+                    ApplicationRef::Generated(operation),
+                    vec![operand],
+                ))
+            }
         }
+    }
+
+    /// The result sort of `k::is!` (Bool) or `k::project!` (its target).
+    /// Either is a function call, so it cannot be matched, and K has no
+    /// projection into `K`.
+    fn sort_test_result(
+        &self,
+        key: &ProvenanceKey,
+        kind: SortTestKind,
+        sort: &krs_ir::DescriptorSortReference,
+        subject: bool,
+    ) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        let target = semantic_sort_ref(&sort.sort);
+        let name = super::overload::sort_name(&target);
+        let reason = if subject {
+            Some(match kind {
+                SortTestKind::Projection => format!(
+                    "`k::project!({name}, ..)` is a projection, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: {name}`"
+                ),
+                SortTestKind::Predicate => format!(
+                    "`k::is!({name}, ..)` is a sort predicate, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: {name}`"
+                ),
+            })
+        } else if kind == SortTestKind::Projection
+            && target == SemanticSortRef::Builtin(BuiltinSort::KSequence)
+        {
+            Some(
+                "`k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"
+                    .to_owned(),
+            )
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(DescriptorLoweringError::InvalidSortTest {
+                item: Box::new(self.descriptor.id().clone()),
+                reason,
+                range: self
+                    .descriptor
+                    .provenance()
+                    .origin_for(key)
+                    .and_then(krs_ir::OriginStack::exact_authored_range)
+                    .map(Box::new),
+            });
+        }
+        Ok(match kind {
+            SortTestKind::Predicate => SemanticSortRef::Builtin(BuiltinSort::Bool),
+            SortTestKind::Projection => target,
+        })
+    }
+
+    /// The sort at which the operand of `k::is!` or `k::project!` is
+    /// inferred. Both take an argument of sort `K`, so the operand is
+    /// unconstrained, except that a projected collection lookup (`map::get`,
+    /// `list::get`) keeps its declared result sort `KItem`: the sort test then
+    /// supplies the term's one cast.
+    fn sort_test_operand_sort(&self, operand: &DescriptorTerm) -> Option<SemanticSortRef> {
+        let DescriptorTerm::Application { reference, .. } = operand else {
+            return None;
+        };
+        let projected = match &reference.application {
+            DescriptorApplicationRef::Map(operation) => operation.spec().is_projected(),
+            DescriptorApplicationRef::List(operation) => operation.spec().is_projected(),
+            DescriptorApplicationRef::Set(operation) => operation.spec().is_projected(),
+            DescriptorApplicationRef::Declared(_) | DescriptorApplicationRef::Builtin(_) => false,
+        };
+        projected.then(|| {
+            self.k_item_sort
+                .clone()
+                .unwrap_or(SemanticSortRef::Builtin(BuiltinSort::KSequence))
+        })
     }
 
     fn lower_application(
@@ -943,6 +1054,14 @@ impl StructuredTermBuilder<'_> {
             id: Box::new(self.descriptor.id().clone()),
             detail: detail.into(),
         }
+    }
+}
+
+/// The authored macro of a sort test, for messages.
+const fn sort_test_macro(kind: SortTestKind) -> &'static str {
+    match kind {
+        SortTestKind::Predicate => "`k::is!`",
+        SortTestKind::Projection => "`k::project!`",
     }
 }
 

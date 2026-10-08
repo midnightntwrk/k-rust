@@ -14,7 +14,7 @@ use crate::parse::{
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, take_requires_helper};
-use crate::term::{push_lexeme_anchors, push_record_field_anchors};
+use crate::term::{push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
@@ -284,6 +284,12 @@ impl StateClaimItem {
                 .filter(|node| matches!(node, TermNode::Lexeme { .. }))
                 .count();
             push_lexeme_anchors(&mut output, ensures.term.nodes(), &mut lexemes)?;
+            let mut sort_tests = claim_terms(&self.rule, None)
+                .iter()
+                .flat_map(|term| term.nodes())
+                .filter(|node| matches!(node, TermNode::SortTest { .. }))
+                .count();
+            push_sort_test_anchors(&mut output, ensures.term.nodes(), &mut sort_tests)?;
         }
         Ok(output)
     }
@@ -694,8 +700,12 @@ impl StateRuleItem {
             output.extend(requires.provenance()?);
         }
         let mut lexemes = 0_usize;
+        let mut sort_tests = 0_usize;
         for term in claim_terms(self, None) {
             push_lexeme_anchors(&mut output, term.nodes(), &mut lexemes)?;
+        }
+        for term in claim_terms(self, None) {
+            push_sort_test_anchors(&mut output, term.nodes(), &mut sort_tests)?;
         }
         Ok(output)
     }
@@ -1199,7 +1209,8 @@ fn append_term_provenance(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => continue,
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1348,7 +1359,8 @@ fn append_term_candidates(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => {}
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => {}
         }
     }
     Ok(())
@@ -1376,7 +1388,7 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) => Ok(*range),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1390,7 +1402,7 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
         TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
-        TermNode::OrBool(range) => range.first(),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1560,7 +1572,8 @@ fn append_claim_special_anchors(
                 TermNode::ApplicationHead(_)
                 | TermNode::Reference(_)
                 | TermNode::Literal(_)
-                | TermNode::Lexeme { .. } => {}
+                | TermNode::Lexeme { .. }
+                | TermNode::SortTest { .. } => {}
             }
         }
     }

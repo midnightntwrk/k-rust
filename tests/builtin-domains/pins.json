@@ -14,7 +14,8 @@
     "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
     "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
-    "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca"
+    "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
+    "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -58,6 +59,9 @@
     },
     "krs-builtin-raw-hook": {
       "definition.k": "b309215f60849786427777e4a7b39955fe3479bfe2b168b3133c65800896f3b6"
+    },
+    "krs-builtin-sort-tests": {
+      "definition.k": "9e3a91ad4f7170aa710f52074e010e1571dea871e642caf597d5d822de98554a"
     }
   },
   "reference_sha256": {
@@ -74,7 +78,8 @@
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
     "krs-builtin-io": "b98c7a3a7b80f04b4f4b6d14d49cf1d8d044269baea4c1c326e8729be87cb0e7",
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
-    "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839"
+    "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
+    "krs-builtin-sort-tests": "3ff046b38a8a259c8bd0f4e096a88b3010587d8d5ae6c13a49cb1dbbf89102f0"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -748,6 +753,68 @@
         "parse": "accepted",
         "run": "\"4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45\""
       }
+    },
+    "krs-builtin-sort-tests": {
+      "chk-int": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "chk-bool": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "chk-guard-fails": {
+        "parse": "accepted",
+        "run": "chk(box(1))"
+      },
+      "prj": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "prj-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "unbox": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "unbox-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "isval-value": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "isval-not-value": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "nth": {
+        "parse": "accepted",
+        "run": "20"
+      },
+      "kind-int": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "kind-box": {
+        "parse": "accepted",
+        "run": "0"
+      }
     }
   },
   "known_divergences": {
@@ -804,6 +871,28 @@
           "run": "1"
         }
       }
+    },
+    "krs-builtin-sort-tests": {
+      "prj-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      },
+      "unbox-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
     }
   },
   "capability_refusals": {
@@ -841,6 +930,12 @@
     ],
     "raw-parse-error": [
       "error[krs::native::raw-k-parse]: K cannot parse this `raw_k!` rule with the grammar of module \"KRS-RAW-PARSE-ERROR\": Parse error: unexpected token '...' following token '+Int'."
+    ],
+    "sort-test-matched": [
+      "error[krs::analysis::invalid-sort-test]: `k::is!(Int, ..)` is a sort predicate, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: Int`"
+    ],
+    "sort-test-project-k": [
+      "error[krs::analysis::invalid-sort-test]: `k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"
     ]
   },
   "raw_warnings": {
@@ -849,6 +944,12 @@
     ],
     "krs-builtin-raw-hook": [
       "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented"
+    ]
+  },
+  "sort_test_warnings": {
+    "krs-builtin-sort-test-trivial": [
+      "warning[krs::analysis::trivial-sort-test]: projection is the identity: the operand already has sort `Int`, a subsort of `Exp`; remove `k::project!`",
+      "warning[krs::analysis::trivial-sort-test]: `k::is!(K, ..)` is always true: every term has sort `K`"
     ]
   }
 }

@@ -221,7 +221,8 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => continue,
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -278,7 +279,8 @@ impl RuleTermCounters {
                 | TermNode::BytesToken(_)
                 | TermNode::Anonymous { .. }
                 | TermNode::OrBool(_)
-                | TermNode::Lexeme { .. } => {}
+                | TermNode::Lexeme { .. }
+                | TermNode::SortTest { .. } => {}
             }
         }
         counters
@@ -324,7 +326,8 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => continue,
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -355,6 +358,9 @@ pub(super) fn parse_rule_pattern(
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
     match pattern {
         Pat::Macro(macro_pattern) => {
+            if crate::term::is_sort_test_macro(&macro_pattern.mac.path) {
+                return Err(crate::term::matched_sort_test(&macro_pattern.mac.path));
+            }
             if !is_term_macro(&macro_pattern.mac.path) {
                 return Err(unexpected_macro(&macro_pattern.mac.path));
             }
@@ -564,6 +570,9 @@ fn validate_native_pattern(
             });
             Ok(TermTree::Lexeme { sort, text })
         }
+        Pat::Macro(macro_pattern) if crate::term::is_sort_test_macro(&macro_pattern.mac.path) => {
+            Err(crate::term::matched_sort_test(&macro_pattern.mac.path))
+        }
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
             "nested pattern macros other than `k::lexeme!` are not supported",
             macro_pattern.span(),
@@ -770,7 +779,8 @@ pub(super) fn push_term_node_anchors(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => continue,
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -832,7 +842,8 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. } => continue,
+            | TermNode::Lexeme { .. }
+            | TermNode::SortTest { .. } => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -855,7 +866,7 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) => Ok(*range),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

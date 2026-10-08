@@ -569,3 +569,47 @@ fn operator_shaped_collection_operands_are_parenthesized_where_k_could_misread_t
         assert_eq!(render(&term, &context), expected);
     }
 }
+
+#[test]
+fn generated_sort_operations_print_k_predicates_and_one_cast() {
+    let context = context();
+    let generated = |key: &str, sort, operation, argument| {
+        DefinitionTerm::application(
+            node(key),
+            sort,
+            DefinitionApplicationRef::Generated(operation),
+            vec![argument],
+        )
+    };
+    let predicate = generated(
+        "is-int",
+        DefinitionSortRef::Builtin(BuiltinSort::Bool),
+        krs_ir::GeneratedOperation::SortPredicate(DefinitionSortRef::int()),
+        int("is-int.operand", "1"),
+    );
+    assert_eq!(render(&predicate, &context), "isInt(1)");
+    let projection = generated(
+        "project-int",
+        DefinitionSortRef::int(),
+        krs_ir::GeneratedOperation::SortProjection(DefinitionSortRef::int()),
+        int("project-int.operand", "1"),
+    );
+    assert_eq!(render(&projection, &context), "{1}:>Int");
+    // A projected lookup under a projection keeps its KItem result and
+    // contributes no cast of its own.
+    let lookup = DefinitionTerm::list(
+        node("lookup"),
+        DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+        ListOperands::Get {
+            list: empty("lookup.base"),
+            index: int("lookup.index", "0"),
+        },
+    );
+    let projected = generated(
+        "project-lookup",
+        DefinitionSortRef::int(),
+        krs_ir::GeneratedOperation::SortProjection(DefinitionSortRef::int()),
+        lookup,
+    );
+    assert_eq!(render(&projected, &context), "{.List [ 0 ]}:>Int");
+}

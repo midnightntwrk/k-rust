@@ -400,6 +400,10 @@ provenance_roles! {
     ConfigurationCellExit => "configuration_cell_exit",
     /// Text literal of one `k::raw_k!` sentence.
     RawKDeclaration => "raw_k_declaration",
+    /// Complete `k::is!(Sort, t)` or `k::project!(Sort, t)` macro shell.
+    SortTest => "sort_test",
+    /// Sort path of one `k::is!` or `k::project!` term.
+    SortTestSort => "sort_test_sort",
 }
 
 impl Serialize for ProvenanceRole {

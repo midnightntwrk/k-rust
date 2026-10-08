@@ -1,4 +1,4 @@
-use krs_ir::AtLeastTwo;
+use krs_ir::{AtLeastTwo, SortTestKind};
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use syn::parse::Parser;
@@ -201,6 +201,13 @@ pub enum TermNode {
         /// Token text literal.
         text: LitStr,
     },
+    /// `k::is!(Sort, t)` or `k::project!(Sort, t)` macro shell.
+    SortTest {
+        /// Complete macro invocation range.
+        range: TokenRange,
+        /// Authored sort path.
+        sort: Path,
+    },
 }
 
 impl TermNode {
@@ -214,7 +221,8 @@ impl TermNode {
             | Self::BytesToken(_)
             | Self::Anonymous { .. }
             | Self::OrBool(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -229,7 +237,8 @@ impl TermNode {
             | Self::BytesToken(_)
             | Self::Anonymous { .. }
             | Self::OrBool(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -240,7 +249,7 @@ impl TermNode {
             Self::IdToken(literal) => TokenRange::for_tokens(literal),
             Self::BytesToken(literal) => TokenRange::for_tokens(literal),
             Self::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-            Self::OrBool(range) => Ok(*range),
+            Self::OrBool(range) | Self::SortTest { range, .. } => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -394,6 +403,18 @@ pub enum TermTree {
         /// Token text literal.
         text: LitStr,
     },
+    /// `k::is!(Sort, t)` (K's `isSort(T)`) or `k::project!(Sort, t)` (K's
+    /// `{T}:>Sort`).
+    SortTest {
+        /// Complete macro invocation range.
+        range: TokenRange,
+        /// Predicate or projection.
+        kind: SortTestKind,
+        /// Authored sort path.
+        sort: Path,
+        /// The tested or projected term.
+        operand: Box<TermTree>,
+    },
 }
 
 impl TermTree {
@@ -410,7 +431,8 @@ impl TermTree {
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
             | Self::Cell(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -427,7 +449,8 @@ impl TermTree {
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
             | Self::Cell(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -444,7 +467,8 @@ impl TermTree {
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
             | Self::Cell(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -461,7 +485,8 @@ impl TermTree {
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
             | Self::Cell(_)
-            | Self::Lexeme { .. } => None,
+            | Self::Lexeme { .. }
+            | Self::SortTest { .. } => None,
         }
     }
 
@@ -473,6 +498,10 @@ impl TermTree {
                     output.push(argument.name.clone());
                     argument.value.record_field_names_preorder(output);
                 }
+                return;
+            }
+            Self::SortTest { operand, .. } => {
+                operand.record_field_names_preorder(output);
                 return;
             }
             _ => return,
@@ -517,6 +546,7 @@ impl TermTree {
                     argument.value.wildcard_ranges_preorder(output);
                 }
             }
+            Self::SortTest { operand, .. } => operand.wildcard_ranges_preorder(output),
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -736,7 +766,8 @@ impl TermExpression {
                 | TermNode::BytesToken(_)
                 | TermNode::Anonymous { .. }
                 | TermNode::OrBool(_)
-                | TermNode::Lexeme { .. } => {
+                | TermNode::Lexeme { .. }
+                | TermNode::SortTest { .. } => {
                     continue;
                 }
             };
@@ -831,12 +862,14 @@ enum TermMacroKind {
     OrBool,
     Fragment,
     Lexeme,
+    Is,
+    Project,
 }
 
 impl TermMacroKind {
     const fn root_kind(self) -> TermRootKind {
         match self {
-            Self::OrBool | Self::Fragment => TermRootKind::Call,
+            Self::OrBool | Self::Fragment | Self::Is | Self::Project => TermRootKind::Call,
             Self::Id | Self::Bytes | Self::Anonymous | Self::Lexeme => TermRootKind::Literal,
         }
     }
@@ -851,6 +884,8 @@ fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
         "or_bool" => Some(TermMacroKind::OrBool),
         "fragment" => Some(TermMacroKind::Fragment),
         "lexeme" => Some(TermMacroKind::Lexeme),
+        "is" => Some(TermMacroKind::Is),
+        "project" => Some(TermMacroKind::Project),
         _ => None,
     }
 }
@@ -942,9 +977,15 @@ fn validate_special_macro(
             });
             Ok(TermTree::Lexeme { sort, text })
         }
+        Some(TermMacroKind::Is) => {
+            validate_sort_test(value, SortTestKind::Predicate, context, symbols, nodes)
+        }
+        Some(TermMacroKind::Project) => {
+            validate_sort_test(value, SortTestKind::Projection, context, symbols, nodes)
+        }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, or `or_bool!` islands",
+                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, or `or_bool!` islands",
             },
             value.span(),
         )),
@@ -982,6 +1023,101 @@ pub(crate) fn push_lexeme_anchors(
         }
     }
     Ok(())
+}
+
+/// Validates `k::is!(Sort, t)` or `k::project!(Sort, t)`; the macro shell
+/// node precedes the operand's nodes.
+fn validate_sort_test(
+    value: &ExprMacro,
+    kind: SortTestKind,
+    context: TermExpressionContext,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let (sort, operand) = parse_sort_test_arguments(kind, value.mac.tokens.clone())?;
+    let range = TokenRange::for_tokens(value)?;
+    nodes.push(TermNode::SortTest {
+        range,
+        sort: sort.clone(),
+    });
+    let operand = validate_expression(&operand, context, symbols, nodes)?;
+    Ok(TermTree::SortTest {
+        range,
+        kind,
+        sort,
+        operand: Box::new(operand),
+    })
+}
+
+/// Appends the `sort_test` and `sort_test_sort` anchors of every `k::is!`
+/// and `k::project!` node in `nodes`, numbering them from `*ordinal`.
+///
+/// Like lexeme roles, sort-test roles are side-neutral, so one sentence
+/// numbers its sort tests once, across its subject, result, and conditions in
+/// that order.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_sort_test_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        if let TermNode::SortTest { range, sort } = node {
+            let current = checked_ordinal(*ordinal, ProvenanceRole::SortTest, range.first())?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SortTest,
+                current,
+                *range,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SortTestSort,
+                current,
+                TokenRange::for_tokens(sort)?,
+            ));
+            *ordinal += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Parses the arguments of `k::is!(Sort, t)` or `k::project!(Sort, t)`.
+///
+/// # Errors
+///
+/// Rejects anything but a plain sort path, a comma, and one term expression.
+pub fn parse_sort_test_arguments(
+    kind: SortTestKind,
+    tokens: TokenStream,
+) -> Result<(Path, Expr), SyntaxError> {
+    let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, Expr)> {
+        let sort: Path = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let operand: Expr = input.parse()?;
+        if !input.is_empty() {
+            return Err(input.error("expected exactly `Sort, term`"));
+        }
+        Ok((sort, operand))
+    };
+    let reason = match kind {
+        SortTestKind::Predicate => "`k::is!` expects `Sort, term`: `k::is!(Sort, t)`",
+        SortTestKind::Projection => "`k::project!` expects `Sort, term`: `k::project!(Sort, t)`",
+    };
+    let (sort, operand) = parser.parse2(tokens).map_err(|error| {
+        SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression { reason },
+            error.span(),
+        )
+    })?;
+    if !is_plain_path(&sort) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            sort.span(),
+        ));
+    }
+    Ok((sort, operand))
 }
 
 /// Parses the arguments of `k::lexeme!(Sort, "text")`.
@@ -1594,6 +1730,31 @@ pub(crate) fn is_term_macro(path: &Path) -> bool {
             .segments
             .last()
             .is_some_and(|segment| segment.ident == "term")
+}
+
+/// Whether `path` names `k::is!` or `k::project!`, which may be a whole
+/// result term but are never matched.
+pub(crate) fn is_sort_test_macro(path: &Path) -> bool {
+    is_plain_path(path)
+        && path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "is" || segment.ident == "project")
+}
+
+/// The error for `k::is!` or `k::project!` in a pattern position, at the
+/// macro's name.
+pub(crate) fn matched_sort_test(path: &Path) -> SyntaxError {
+    let span = path
+        .segments
+        .last()
+        .map_or_else(|| path.span(), |segment| segment.ident.span());
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: "`k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
+        },
+        span,
+    )
 }
 
 pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {

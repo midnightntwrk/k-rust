@@ -60,7 +60,7 @@ impl SortKey for SemanticSubsort {
 }
 
 /// Authored or compiler-provided semantic application reference.
-pub type SemanticApplicationRef = ApplicationRef<StableItemId>;
+pub type SemanticApplicationRef = ApplicationRef<StableItemId, SemanticSortRef>;
 
 /// A semantic grammar item carrying typed sort references.
 pub type SemanticProductionItem = GrammarProductionItem<SemanticSortRef>;
@@ -1454,6 +1454,8 @@ pub enum SemanticValidationError {
     ApplicationSignature(Box<StableItemId>),
     /// A compiler-provided operation application has the wrong signature.
     BuiltinApplicationSignature(BuiltinOperation),
+    /// A generated sort predicate or projection has the wrong signature.
+    GeneratedApplicationSignature,
     /// A rewrite's endpoints do not share its sort.
     RewriteSortMismatch,
     /// A K sequence node did not carry the builtin computation sort.
@@ -1623,6 +1625,9 @@ impl fmt::Display for SemanticValidationError {
             Self::BuiltinApplicationSignature(operation) => write!(
                 formatter,
                 "application does not match builtin signature {operation}"
+            ),
+            Self::GeneratedApplicationSignature => formatter.write_str(
+                "a sort predicate takes one argument and has sort Bool; a sort projection takes one argument and has its target sort",
             ),
             Self::RewriteSortMismatch => {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")

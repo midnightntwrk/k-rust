@@ -76,7 +76,7 @@ pub use generated::{
     generated_production_id,
 };
 pub use grammar::{
-    ApplicationRef, BuiltinOperation, FormatFragment, GrammarProductionItem,
+    ApplicationRef, BuiltinOperation, FormatFragment, GeneratedOperation, GrammarProductionItem,
     GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
     HookOperation, LayoutSentence, LexicalSentence, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldId, ProductionFieldReference,
@@ -145,7 +145,7 @@ pub use transport::grammar::{
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
     HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, NamedTermArgument,
     Production, ProductionAttribute as TransportProductionAttribute,
-    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition,
+    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition, SortTestKind,
     StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
     TermArgumentRef, enum_variant_disambiguator,
 };
@@ -186,7 +186,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(46);
+    pub const CURRENT: Self = Self(47);
 }
 
 impl Default for SchemaVersion {

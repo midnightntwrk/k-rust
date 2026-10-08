@@ -1,7 +1,7 @@
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperationNotation, CollectionNotation,
-    CollectionOperationSpec, GrammarProductionItemKind, MapOperation, ProductionAttribute,
-    ProductionGroupId, SemanticId, SemanticIdKind, SetOperation, SourceMapKey,
+    CollectionOperationSpec, GeneratedOperation, GrammarProductionItemKind, MapOperation,
+    ProductionAttribute, ProductionGroupId, SemanticId, SemanticIdKind, SetOperation, SourceMapKey,
 };
 use krs_ir_levels::{
     DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands, ProductionSentence,
@@ -136,6 +136,9 @@ fn render_term_with_binders(
         } => match application {
             ApplicationRef::Builtin(operation) => {
                 render_builtin_application(*operation, arguments, context, names, &mut output)?;
+            }
+            ApplicationRef::Generated(operation) => {
+                render_generated_application(operation, arguments, context, names, &mut output)?;
             }
             ApplicationRef::Declared(symbol) => {
                 let production = context.production(symbol)?;
@@ -342,6 +345,88 @@ fn render_builtin_application(
     Ok(())
 }
 
+/// Renders K's generated sort predicate `isS(T)` or projection `{T}:>S`.
+fn render_generated_application(
+    operation: &GeneratedOperation<DefinitionSortRef>,
+    arguments: &[DefinitionTerm],
+    context: &EmitContext<'_>,
+    names: &SentenceVariables,
+    output: &mut Rendered,
+) -> Result<(), EmitError> {
+    let [argument] = arguments else {
+        return Err(EmitError::InvalidReference(format!(
+            "a generated sort operation has invalid arity {}",
+            arguments.len()
+        )));
+    };
+    let operand = render_generated_operand(argument, context, names)?;
+    match operation {
+        GeneratedOperation::SortPredicate(sort) => {
+            output.push("is");
+            output.push(&context.sort_name_ref(sort)?);
+            output.push("(");
+            output.append(operand);
+            output.push(")");
+        }
+        GeneratedOperation::SortProjection(sort) => {
+            output.push("{");
+            output.append(operand);
+            output.push("}:>");
+            output.push(&context.sort_name_ref(sort)?);
+        }
+    }
+    Ok(())
+}
+
+/// Renders the operand of a generated sort operation. Both take an argument
+/// of sort `K`, so a projected collection lookup is rendered at its declared
+/// result sort, without its own projection, and the term has exactly one
+/// cast.
+fn render_generated_operand(
+    argument: &DefinitionTerm,
+    context: &EmitContext<'_>,
+    names: &SentenceVariables,
+) -> Result<Rendered, EmitError> {
+    let mut output = Rendered::default();
+    match argument.kind() {
+        DefinitionTermKind::Map(operands) if operands.operation().spec().is_projected() => {
+            render_collection_projected(
+                argument.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+                context,
+                names,
+                &mut output,
+                false,
+            )?;
+        }
+        DefinitionTermKind::List(operands) if operands.operation().spec().is_projected() => {
+            render_collection_projected(
+                argument.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+                context,
+                names,
+                &mut output,
+                false,
+            )?;
+        }
+        DefinitionTermKind::Set(operands) if operands.operation().spec().is_projected() => {
+            render_collection_projected(
+                argument.sort(),
+                operands.operation().spec(),
+                operands.operands(),
+                context,
+                names,
+                &mut output,
+                false,
+            )?;
+        }
+        _ => return render_term_with_binders(argument, context, false, names),
+    }
+    Ok(output.finish(argument.origin().key(), 0))
+}
+
 fn render_builtin_argument(
     argument: &DefinitionTerm,
     context: &EmitContext<'_>,
@@ -489,7 +574,22 @@ fn render_collection<'a>(
     names: &SentenceVariables,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
-    if spec.is_projected() {
+    render_collection_projected(result_sort, spec, operands, context, names, output, true)
+}
+
+/// Renders a collection operation; `project` is false only for the operand
+/// of a generated sort operation, which supplies the one cast itself.
+fn render_collection_projected<'a>(
+    result_sort: &DefinitionSortRef,
+    spec: &CollectionOperationSpec,
+    operands: impl Iterator<Item = &'a DefinitionTerm>,
+    context: &EmitContext<'_>,
+    names: &SentenceVariables,
+    output: &mut Rendered,
+    project: bool,
+) -> Result<(), EmitError> {
+    let project = project && spec.is_projected();
+    if project {
         output.push("{");
     }
     match spec.k_notation {
@@ -522,7 +622,7 @@ fn render_collection<'a>(
             output.push(")");
         }
     }
-    if spec.is_projected() {
+    if project {
         output.push("}:>");
         output.push(&context.sort_name_ref(result_sort)?);
     }

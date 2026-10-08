@@ -289,6 +289,18 @@ impl<'a> Context<'a> {
                     ApplicationRef::Builtin(operation) => {
                         fact["operation"] = json!(enum_name(operation));
                     }
+                    ApplicationRef::Generated(operation) => {
+                        let (name, sort) = match operation {
+                            krs_ir::GeneratedOperation::SortPredicate(sort) => {
+                                ("sort_predicate", sort)
+                            }
+                            krs_ir::GeneratedOperation::SortProjection(sort) => {
+                                ("sort_projection", sort)
+                            }
+                        };
+                        fact["generated"] = json!(name);
+                        fact["target_sort"] = json!(self.sort(sort));
+                    }
                 }
                 ("application", Some(arguments.iter().collect::<Vec<_>>()))
             }

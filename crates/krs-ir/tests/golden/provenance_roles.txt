@@ -177,3 +177,5 @@ ListNonEmpty=list_non_empty
 ConfigurationCellStream=configuration_cell_stream
 ConfigurationCellExit=configuration_cell_exit
 RawKDeclaration=raw_k_declaration
+SortTest=sort_test
+SortTestSort=sort_test_sort

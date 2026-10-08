@@ -37,6 +37,20 @@ operation, and a corpus of programs that apply them to concrete values:
   and through Java K's `krun --output none` on the LLVM backend; `krs search`
   on the definition gives the pinned refusal, and the browser route refuses
   it with the `ConsoleIO` requirement;
+- `sort-tests`: K's generated sort predicates and projections (KF-013),
+  `k::is!(S, t)` (`isS(T)`) and `k::project!(S, t)` (`{T}:>S`), in term rules
+  and readable clauses, in results and guards: `chk(5)` is `true`,
+  `chk(box(1))` is stuck because its guard fails, `prj(4)` is `5`, the user
+  sort `Value` decides `isval`, a projected list lookup has one cast, and an
+  equation `kind` computes with `k::is!` in its result. The
+  failing projections `prj(true)` and `unbox(box(true))` are pinned
+  divergences: Java K's LLVM backend aborts with `project:Int ( true ~> .K )`
+  (`undefined`), while k-rust splits on whether the projection is defined and
+  ends in a stuck leaf and a `#Bottom` (`trivial`) leaf, as for `go()` below. `sort-test-matched` (a sort test in a rule
+  subject) and `sort-test-project-k` (a projection into `K`) pin their
+  `krs::analysis::invalid-sort-test` errors, and `sort-test-trivial` pins the
+  `krs::analysis::trivial-sort-test` warnings of an identity projection and of
+  `k::is!(K, ..)`;
 - `raw-k` and `raw-hook`: the raw K escapes (KF-037) in packages that set
   `allow-raw-k = true`. A `raw_k!` rule `double` runs natively and on Java K's
   LLVM backend; the quoted hook `KRYPTO.keccak256` runs natively and on Java
@@ -49,7 +63,8 @@ operation, and a corpus of programs that apply them to concrete values:
   and `raw-parse-error`, a `raw_k!` rule K cannot parse, fails `krs build`
   closed with `krs::native::raw-k-parse` at the `raw_k!` text.
 
-`known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
+`known_divergences` in `pins.json` pins the two failing projections of
+`sort-tests`, and `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
 function that has no equations: Java K's LLVM backend evaluates only the taken
 branch and ends in `1`, while k-rust, strict in both branches, splits on whether
@@ -304,6 +319,21 @@ K_EQUAL = (
     case("ite-undefined-branch", "go()", "1"),
 )
 
+SORT_TESTS = (
+    case("chk-int", "chk(5)", "true"),
+    case("chk-bool", "chk(true)", "true"),
+    case("chk-guard-fails", "chk(box(1))", "chk(box(1))"),
+    case("prj", "prj(4)", "5"),
+    case("prj-undefined", "prj(true)", "undefined"),
+    case("unbox", "unbox(box(1))", "2"),
+    case("unbox-undefined", "unbox(box(true))", "undefined"),
+    case("isval-value", "isval(3)", "1"),
+    case("isval-not-value", "isval(box(3))", "0"),
+    case("nth", "nth(1)", "20"),
+    case("kind-int", "kind(7)", "1"),
+    case("kind-box", "kind(box(7))", "0"),
+)
+
 CASES = (
     ("krs-builtin-int-ops", INT_OPS),
     ("krs-builtin-int-sign", INT_SIGN),
@@ -315,6 +345,7 @@ CASES = (
     ("krs-builtin-map-ops", MAP_OPS),
     ("krs-builtin-strings", STRINGS),
     ("krs-builtin-floats", FLOATS),
+    ("krs-builtin-sort-tests", SORT_TESTS),
 )
 
 
@@ -486,6 +517,23 @@ def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
     harness.pins.expect(("raw_warnings", fixture.package), lines)
 
 
+def sort_test_diagnostics(harness: FixtureGate) -> None:
+    """Pin the sort-test errors and the trivial-sort-test warnings (KF-013)."""
+
+    for name in ("sort-test-matched", "sort-test-project-k"):
+        lines = harness.diagnostic(name, Fixture(MANIFEST, f"krs-builtin-{name}")).splitlines()
+        if not lines[0].startswith("error[krs::analysis::invalid-sort-test]: "):
+            raise GateError(f"{name}: expected krs::analysis::invalid-sort-test, got {lines[0]}")
+    fixture = Fixture(MANIFEST, "krs-builtin-sort-test-trivial")
+    process = harness._krs(fixture, "check", check=False)
+    lines = diagnostic_lines(process.stderr)
+    code = "krs::analysis::trivial-sort-test"
+    if process.returncode != 0 or sum(line.startswith(f"warning[{code}]: ") for line in lines) != 2:
+        raise GateError(f"{fixture.package}: krs check exited {process.returncode} without two warning[{code}]:\n{process.stderr}")
+    harness.pins.expect(("sort_test_warnings", fixture.package), lines)
+    print("PASS sort-test diagnostics: two invalid-sort-test errors and two trivial-sort-test warnings pinned")
+
+
 def java_haskell_outcomes(harness: FixtureGate, emitted, programs) -> dict[str, dict[str, Any]]:
     """Run `programs` on Java K's Haskell backend, which evaluates the KRYPTO hooks."""
 
@@ -609,6 +657,7 @@ def main() -> int:
                 + (f"; {pinned} pinned divergences unchanged" if pinned else "")
             )
 
+        sort_test_diagnostics(harness)
         java_only_floats(harness)
         console_io(harness)
         raw_k(harness)

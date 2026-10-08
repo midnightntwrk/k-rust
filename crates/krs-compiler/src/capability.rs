@@ -123,7 +123,7 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
 }
 
 /// Every term of a rule, equation, or claim sentence.
-fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
+pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
     let mut terms = Vec::new();
     match sentence.relational_body() {
         RuleBodyRef::Term(rewrite) => {

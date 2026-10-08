@@ -16,6 +16,10 @@ members = [
     "packages/raw-parse-error",
     "packages/raw-strict",
     "packages/set-ops",
+    "packages/sort-test-matched",
+    "packages/sort-test-project-k",
+    "packages/sort-test-trivial",
+    "packages/sort-tests",
     "packages/strings",
 ]
 resolver = "3"

@@ -211,6 +211,9 @@ pub(super) struct TermBuilder<'a> {
     /// Side-neutral: lexemes are numbered once across a whole sentence, so
     /// [`Self::reset_side`] keeps it and chained builders copy it forward.
     pub(super) lexeme_ordinal: u32,
+    /// Side-neutral like [`Self::lexeme_ordinal`]: `k::is!` and
+    /// `k::project!` terms are numbered once across a whole sentence.
+    pub(super) sort_test_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -238,6 +241,7 @@ impl<'a> TermBuilder<'a> {
             bytes_token_ordinal: 0,
             or_bool_ordinal: 0,
             lexeme_ordinal: 0,
+            sort_test_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -441,6 +445,20 @@ impl<'a> TermBuilder<'a> {
                 "anonymous! is valid only in a claim subject",
             )),
             TermTree::Lexeme { sort, text } => self.lexeme_wire(sort, text, slots),
+            TermTree::SortTest {
+                range,
+                kind,
+                sort,
+                operand,
+            } => {
+                let (key, sort) = self.sort_test_reference(*range, sort, slots)?;
+                Ok(WireTerm::SortTest {
+                    key,
+                    kind: *kind,
+                    sort,
+                    operand: Box::new(self.expand_wire(operand, side, slots)?),
+                })
+            }
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(
@@ -527,6 +545,51 @@ impl<'a> TermBuilder<'a> {
             },
             text: text.value(),
         })
+    }
+
+    /// Numbers one `k::is!` or `k::project!` term and lowers its sort path to
+    /// a sort whose identity rustc resolves through a type key.
+    pub(super) fn sort_test_reference(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        sort: &Path,
+        slots: &mut WireSlots,
+    ) -> crate::Result<(krs_ir::ProvenanceKey, krs_ir::wire::WireSortReference)> {
+        let ordinal = self.sort_test_ordinal;
+        self.sort_test_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                range.first(),
+                "too many is! and project! terms in one sentence",
+            )
+        })?;
+        let generated = call_site_path(sort)?;
+        let key_fn = format_ident!("__krs_sort_test_sort_{:016x}_{}", self.nonce, self.next_key);
+        self.next_key += 1;
+        let cfg = self.cfg;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#generated>()
+            }
+        });
+        let key_reference = if self.associated_keys {
+            quote!(Self::#key_fn)
+        } else {
+            quote!(#key_fn)
+        };
+        let facade = self.facade;
+        Ok((
+            wire_key(ProvenanceRole::SortTest, ordinal),
+            krs_ir::wire::WireSortReference {
+                key: wire_key(ProvenanceRole::SortTestSort, ordinal),
+                target: krs_ir::wire::WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
+                    authored_path: spelling(sort),
+                },
+            },
+        ))
     }
 
     pub(super) fn cell_declaration_reference(

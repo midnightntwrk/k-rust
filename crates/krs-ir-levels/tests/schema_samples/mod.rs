@@ -192,6 +192,27 @@ impl Sample for CountersDocument {
         }]
     }
 }
+impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for GeneratedOperation<S> {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::SortPredicate(sample::<S>()),
+                Self::SortProjection(sample::<S>()),
+            ],
+            2,
+            "GeneratedOperation",
+            |value| match value {
+                Self::SortPredicate(..) => 0,
+                Self::SortProjection(..) => 1,
+            },
+        )
+    }
+}
+impl Sample for SortTestKind {
+    fn samples() -> Vec<Self> {
+        vec![Self::Predicate, Self::Projection]
+    }
+}
 impl Sample for DescriptorApplicationHeadClass {
     fn samples() -> Vec<Self> {
         vec![Self::Applied]
@@ -705,18 +726,25 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleMa
         }]
     }
 }
-impl<D: Sample + Clone + Serialize + DeserializeOwned> Sample for ApplicationRef<D> {
+impl<
+    D: Sample + Clone + Serialize + DeserializeOwned,
+    S: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for ApplicationRef<D, S>
+{
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
                 Self::Declared(sample::<D>()),
                 Self::Builtin(sample::<BuiltinOperation>()),
+                Self::Generated(GeneratedOperation::SortPredicate(sample::<S>())),
+                Self::Generated(GeneratedOperation::SortProjection(sample::<S>())),
             ],
-            2,
+            3,
             "ApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
+                Self::Generated(..) => 2,
             },
         )
     }
@@ -1261,8 +1289,20 @@ impl Sample for DescriptorTerm {
                     sort: sample::<DescriptorSortReference>(),
                     text: sample::<String>(),
                 },
+                Self::SortTest {
+                    key: sample::<ProvenanceKey>(),
+                    kind: SortTestKind::Predicate,
+                    sort: sample::<DescriptorSortReference>(),
+                    operand: Box::new(sample::<DescriptorTerm>()),
+                },
+                Self::SortTest {
+                    key: sample::<ProvenanceKey>(),
+                    kind: SortTestKind::Projection,
+                    sort: sample::<DescriptorSortReference>(),
+                    operand: Box::new(sample::<DescriptorTerm>()),
+                },
             ],
-            9,
+            10,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1274,6 +1314,7 @@ impl Sample for DescriptorTerm {
                 Self::OrBool { .. } => 6,
                 Self::Cell { .. } => 7,
                 Self::Lexeme { .. } => 8,
+                Self::SortTest { .. } => 9,
             },
         )
     }
@@ -2286,8 +2327,20 @@ impl Sample for WireTerm {
                     sort: sample::<WireSortReference>(),
                     text: sample::<String>(),
                 },
+                Self::SortTest {
+                    key: sample::<ProvenanceKey>(),
+                    kind: SortTestKind::Predicate,
+                    sort: sample::<WireSortReference>(),
+                    operand: Box::new(sample::<WireTerm>()),
+                },
+                Self::SortTest {
+                    key: sample::<ProvenanceKey>(),
+                    kind: SortTestKind::Projection,
+                    sort: sample::<WireSortReference>(),
+                    operand: Box::new(sample::<WireTerm>()),
+                },
             ],
-            9,
+            10,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2299,6 +2352,7 @@ impl Sample for WireTerm {
                 Self::OrBool { .. } => 6,
                 Self::Cell { .. } => 7,
                 Self::Lexeme { .. } => 8,
+                Self::SortTest { .. } => 9,
             },
         )
     }
@@ -3165,7 +3219,7 @@ fn insert<T: Sample + Serialize + DeserializeOwned>(
 }
 
 fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
-    insert::<ApplicationRef<StableItemId>>(corpus, "ApplicationRef");
+    insert::<ApplicationRef<StableItemId, SemanticSortRef>>(corpus, "ApplicationRef");
     insert::<CellAttribute>(corpus, "CellAttribute");
     insert::<CellContentFrame>(corpus, "CellContentFrame");
     insert::<CellPost<SemanticTerm>>(corpus, "CellPost");
@@ -3292,6 +3346,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     );
     insert::<FixedConfigurationVariable<SemanticSortRef>>(corpus, "FixedConfigurationVariable");
     insert::<FixedInitializerCell<SemanticId, SemanticTerm>>(corpus, "FixedInitializerCell");
+    insert::<GeneratedOperation<SemanticSortRef>>(corpus, "GeneratedOperation");
     insert::<GroupAssociativitySentence>(corpus, "GroupAssociativitySentence");
     insert::<LayoutSentence>(corpus, "LayoutSentence");
     insert::<LexicalSentence>(corpus, "LexicalSentence");

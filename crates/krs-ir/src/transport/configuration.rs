@@ -1943,6 +1943,17 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    fn sort_test(
+        &mut self,
+        _: &ProvenanceKey,
+        _: crate::SortTestKind,
+        _: &S::Sort,
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerSortTest,
+        ))
+    }
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

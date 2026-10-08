@@ -1,8 +1,9 @@
 use k_rust::kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm};
 use krs_ir::{
-    ApplicationRef, CollectionOperationSpec, MapOperation, NodeOrigin, NonEmpty, SemanticId,
+    ApplicationRef, CollectionOperationSpec, GeneratedOperation, MapOperation, NodeOrigin,
+    NonEmpty, SemanticId,
 };
-use krs_ir_levels::{DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands};
+use krs_ir_levels::{DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands};
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 
@@ -55,6 +56,18 @@ impl Adapter<'_> {
                 self.native_variable(variable, sort, term.origin())
             }
             DefinitionTermKind::Application {
+                application: ApplicationRef::Generated(operation),
+                arguments,
+            } => self.generated_application(
+                operation,
+                arguments,
+                term.origin(),
+                module,
+                sentence_index,
+                &path,
+                context,
+            ),
+            DefinitionTermKind::Application {
                 application,
                 arguments,
             } => Ok(NativeTerm::Apply {
@@ -63,6 +76,9 @@ impl Adapter<'_> {
                         self.symbol_name(symbol, term.origin())?.to_owned()
                     }
                     ApplicationRef::Builtin(operation) => operation.spec().k_label.to_owned(),
+                    ApplicationRef::Generated(_) => {
+                        unreachable!("generated applications are adapted above")
+                    }
                 }),
                 arguments: arguments
                     .iter()
@@ -191,6 +207,54 @@ impl Adapter<'_> {
             name: name.to_owned(),
             sort: Some(sort),
         })
+    }
+
+    /// Adapts K's generated sort predicate or projection with k-rust's labels
+    /// `is<Sort>` and `project:<Sort>`. Both take an argument of sort `K`, so a
+    /// projected collection lookup keeps its `KItem` result and the term has
+    /// exactly one projection.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Mirrors the term adapter's positional context."
+    )]
+    fn generated_application(
+        &mut self,
+        operation: &GeneratedOperation<DefinitionSortRef>,
+        arguments: &[DefinitionTerm],
+        origin: &NodeOrigin,
+        module: &str,
+        sentence_index: usize,
+        path: &[u32],
+        context: TermContext,
+    ) -> Result<NativeTerm, AdapterError> {
+        let [argument] = arguments else {
+            return Err(AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "generated sort operation argument",
+                target: format!("{} arguments", arguments.len()),
+            });
+        };
+        let mut child_path = path.to_vec();
+        child_path.push(0);
+        let operand = self.term(argument, module, sentence_index, child_path, context)?;
+        let operand = match (argument.kind(), operand) {
+            (
+                DefinitionTermKind::Map(_)
+                | DefinitionTermKind::List(_)
+                | DefinitionTermKind::Set(_),
+                NativeTerm::Apply {
+                    label,
+                    mut arguments,
+                },
+            ) if label.name.starts_with("project:") && arguments.len() == 1 => arguments.remove(0),
+            (_, operand) => operand,
+        };
+        let sort = self.sort(operation.sort(), origin)?.name;
+        let label = match operation {
+            GeneratedOperation::SortPredicate(_) => format!("is{sort}"),
+            GeneratedOperation::SortProjection(_) => format!("project:{sort}"),
+        };
+        Ok(NativeTerm::apply(label, vec![operand]))
     }
 
     /// Projects a `KItem` collection result to the Definition IR result sort when

@@ -133,6 +133,15 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the rule's subject record.
         range: Option<Box<SourceRange>>,
     },
+    /// A `k::is!` or `k::project!` term is matched or projects into `K` (KF-013).
+    InvalidSortTest {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the fix.
+        reason: String,
+        /// Sole exact authored range of the offending occurrence.
+        range: Option<Box<SourceRange>>,
+    },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
     InvalidTokenSort {
         /// Item the diagnostic is about.
@@ -290,6 +299,7 @@ impl fmt::Display for DescriptorLoweringError {
                 rule.item_name()
             ),
             Self::InvalidTokenSort { reason, .. }
+            | Self::InvalidSortTest { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
@@ -329,6 +339,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
             Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
+            Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -354,6 +365,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::GroupAndDescendant { range, .. }
             | Self::AmbiguousCellSort { range, .. }
             | Self::InvalidTokenSort { range, .. }
+            | Self::InvalidSortTest { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidConsoleCell { range, .. } => range

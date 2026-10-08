@@ -235,6 +235,8 @@ impl RuleClause {
                 anchor.role(),
                 ProvenanceRole::LexemeSort
                     | ProvenanceRole::LexemeText
+                    | ProvenanceRole::SortTest
+                    | ProvenanceRole::SortTestSort
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -443,49 +445,51 @@ impl RuleClause {
         Ok(anchors)
     }
 
-    /// Numbers `k::lexeme!` terms in expansion order: the subject, the cells
-    /// read, the head result, the cells written, then the condition.
+    /// Numbers `k::lexeme!` terms, then `k::is!` and `k::project!` terms, in
+    /// expansion order: the subject, the cells read, the head result, the
+    /// cells written, then the condition.
     fn lexeme_anchors(&self, anchors: &mut Vec<ProvenanceAnchor>) -> Result<(), SyntaxError> {
-        use crate::term::push_lexeme_anchors;
+        use crate::term::{push_lexeme_anchors, push_sort_test_anchors};
+        let terms = self.expansion_order_nodes();
         let mut ordinal = 0_usize;
-        push_lexeme_anchors(anchors, self.rule.parameter().pattern.nodes(), &mut ordinal)?;
+        for nodes in &terms {
+            push_lexeme_anchors(anchors, nodes, &mut ordinal)?;
+        }
+        let mut ordinal = 0_usize;
+        for nodes in &terms {
+            push_sort_test_anchors(anchors, nodes, &mut ordinal)?;
+        }
+        Ok(())
+    }
+
+    /// The term nodes of the clause in expansion order.
+    fn expansion_order_nodes(&self) -> Vec<&[crate::term::TermNode]> {
+        let mut terms = vec![self.rule.parameter().pattern.nodes()];
         for extra in &self.extras {
             match extra {
-                RuleExtra::HaveMap { key, .. } => {
-                    push_lexeme_anchors(anchors, key.nodes(), &mut ordinal)?;
-                }
-                RuleExtra::RewriteCell { before, .. } => {
-                    push_lexeme_anchors(anchors, before.nodes(), &mut ordinal)?;
-                }
+                RuleExtra::HaveMap { key, .. } => terms.push(key.nodes()),
+                RuleExtra::RewriteCell { before, .. } => terms.push(before.nodes()),
                 RuleExtra::UpdateMap { .. } => {}
             }
         }
         match &self.head_result {
-            Some(RuleHeadResult::Replace(term)) => {
-                push_lexeme_anchors(anchors, term.nodes(), &mut ordinal)?;
-            }
+            Some(RuleHeadResult::Replace(term)) => terms.push(term.nodes()),
             Some(RuleHeadResult::Splice { items, .. }) => {
-                for item in items {
-                    push_lexeme_anchors(anchors, item.nodes(), &mut ordinal)?;
-                }
+                terms.extend(items.iter().map(crate::term::TermExpression::nodes));
             }
             Some(RuleHeadResult::Erase(_)) | None => {}
         }
         for extra in &self.extras {
             match extra {
-                RuleExtra::UpdateMap { update, .. } => {
-                    push_lexeme_anchors(anchors, update.term().nodes(), &mut ordinal)?;
-                }
-                RuleExtra::RewriteCell { after, .. } => {
-                    push_lexeme_anchors(anchors, after.nodes(), &mut ordinal)?;
-                }
+                RuleExtra::UpdateMap { update, .. } => terms.push(update.term().nodes()),
+                RuleExtra::RewriteCell { after, .. } => terms.push(after.nodes()),
                 RuleExtra::HaveMap { .. } => {}
             }
         }
         if let Some(requires) = self.rule.requires() {
-            push_lexeme_anchors(anchors, requires.term().nodes(), &mut ordinal)?;
+            terms.push(requires.term().nodes());
         }
-        Ok(())
+        terms
     }
 }
 

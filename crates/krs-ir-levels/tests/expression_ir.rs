@@ -96,7 +96,7 @@ fn variable(key: &str, id: &str, sort: DefinitionSortRef) -> DefinitionTerm {
 fn application(
     key: &str,
     sort: DefinitionSortRef,
-    application: ApplicationRef<SymbolId>,
+    application: ApplicationRef<SymbolId, DefinitionSortRef>,
     arguments: Vec<DefinitionTerm>,
 ) -> DefinitionTerm {
     DefinitionTerm::application(node(key), sort, application, arguments)

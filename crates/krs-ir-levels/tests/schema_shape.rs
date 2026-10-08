@@ -146,6 +146,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "FixedConfigurationRewrite",
     "FixedConfigurationVariable",
     "FixedInitializerCell",
+    "GeneratedOperation",
     "GroupAssociativitySentence",
     "LayoutSentence",
     "LexicalSentence",
@@ -640,6 +641,7 @@ fn registry() -> Registry {
     trace!(CollectorReadSet: CollectorReadSet);
     trace!(CountersDocument: CountersDocument);
     trace!(DescriptorApplicationHeadClass: DescriptorApplicationHeadClass);
+    trace!(SortTestKind: SortTestKind);
     trace!(DescriptorAssociativitySentence: DescriptorAssociativitySentence);
     trace!(DescriptorLexical: DescriptorLexical);
     trace!(DescriptorLayoutRegex: DescriptorLayoutRegex);
@@ -897,7 +899,8 @@ fn registry() -> Registry {
     unsupported!(WireStructuredRule: WireStructuredRule);
     unsupported!(WireTerm: WireTerm);
     unsupported!(WireTermArgument: WireTermArgument);
-    unsupported!(ApplicationRef: ApplicationRef<String>);
+    unsupported!(ApplicationRef: ApplicationRef<String, String>);
+    unsupported!(GeneratedOperation: GeneratedOperation<SemanticSortRef>);
     unsupported!(GrammarProductionItem: GrammarProductionItem<String>);
     unsupported!(GrammarProductionItemKind: GrammarProductionItemKind<String>);
     unsupported!(ProductionResultSort: ProductionResultSort<String>);
