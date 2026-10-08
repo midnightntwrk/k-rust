@@ -43,7 +43,8 @@ pub struct Wrap {
 #[k::constructor(sort = Value, syntax = "value-node")]
 pub struct ValueNode;
 
-#[k::rule]
+// `native_swap` and `macro_swap` spell one rule two ways and overlap on purpose.
+#[k::rule(nondet = swap_forms)]
 pub fn native_swap(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
     Pair {
         first: second,
@@ -51,7 +52,7 @@ pub fn native_swap(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
     }
 }
 
-#[k::rule]
+#[k::rule(nondet = swap_forms)]
 pub fn macro_swap(k::term![Pair { first, second }]: Term<dyn Expr>) -> Term<dyn Expr> {
     k::term![Pair {
         first: second,
