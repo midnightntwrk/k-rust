@@ -19,6 +19,7 @@ kompile.owise_competitor_scans = 379
 provenance.set_nodes_built = 3244
 provenance.set_parts_built = 13976
 provenance.links_steps = 16500
+provenance.anchor_path_steps = 14337
 kompile.sentence_copies = 30449
 kompile.production_identity_digests = 75827
 parser.parse_attempts = 261

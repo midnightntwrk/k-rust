@@ -786,6 +786,20 @@ symbol = "Counter::ProofStatesExplored"
 
 [[node]]
 kind = "observation"
+id = "ProvenanceAnchorPathSteps"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceAnchorPathSteps"
+table = "Counter::ALL"
+registry_name = "provenance.anchor_path_steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceAnchorPathSteps"
+
+[[node]]
+kind = "observation"
 id = "ProvenanceDecoderSteps"
 provenance = "table"
 area = "provenance"
@@ -811,6 +825,20 @@ registry_name = "provenance.encoder_anchor_internings"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::ProvenanceEncoderAnchorInternings"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceEncoderAnchorRoots"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceEncoderAnchorRoots"
+table = "Counter::ALL"
+registry_name = "provenance.encoder_anchor_roots"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceEncoderAnchorRoots"
 
 [[node]]
 kind = "observation"
@@ -853,6 +881,20 @@ registry_name = "provenance.nonflat_flattens"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::ProvenanceNonflatFlattens"
+
+[[node]]
+kind = "observation"
+id = "ProvenanceNormalPartComparisons"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceNormalPartComparisons"
+table = "Counter::ALL"
+registry_name = "provenance.normal_part_comparisons"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceNormalPartComparisons"
 
 [[node]]
 kind = "observation"
@@ -8966,7 +9008,19 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "definition.json.encode"
+to = "ProvenanceEncoderAnchorRoots"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
 to = "ProvenanceEncoderSetKeys"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "ProvenanceNormalPartComparisons"
 provenance = "declared"
 
 [[edge]]
@@ -9045,6 +9099,12 @@ symbol = "serialize_provenance"
 kind = "measured-by"
 from = "definition.provenance.record"
 to = "KompileSentenceCopies"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.provenance.record"
+to = "ProvenanceAnchorPathSteps"
 provenance = "declared"
 
 [[edge]]

@@ -3,7 +3,7 @@
 //! name = "KAST JSON encoding of flat definitions"
 //! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance", "ProvenanceEncoder::node_index", "ProvenanceEncoder::anchor", "collect_definition_metadata", "from_provenance_str", "decode_origin_sets", "decode_anchors", "attach_term_metadata"]
 //! variable = "N = encoded definition nodes; L = parts of the distinct origin-set allocations the receipts reach; A = distinct destination-path step allocations the receipts reach"
-//! counters = ["ProvenanceReceiptRenders", "ProvenanceEncoderSetKeys", "ProvenanceEncoderAnchorInternings", "ProvenanceDecoderSteps"]
+//! counters = ["ProvenanceReceiptRenders", "ProvenanceEncoderSetKeys", "ProvenanceEncoderAnchorInternings", "ProvenanceEncoderAnchorRoots", "ProvenanceNormalPartComparisons", "ProvenanceDecoderSteps"]
 //! tests = ["crates/k-rust/tests/provenance_linearity.rs", "crates/k-rust/tests/provenance_routes.rs"]
 //! constrains = [{ id = "definition.provenance.record", site = "serialize_provenance", via = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization" }]
 //!
@@ -13,7 +13,7 @@
 //! ```
 //!
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
-//! Complexity: O(N + L + A). In `KRUST-PROVENANCE`, each receipt names its origin set by index into the `originSets` table and its destination by index into the `anchors` table, and each annotated node's metadata is addressed by its field and preorder index. The encoder computes each distinct set allocation's normal key once (a post-order walk memoised by allocation, `ProvenanceEncoderSetKeys`) and resolves each destination by walking its path up to the first step already resolved under its root (`ProvenanceEncoderAnchorInternings`), so a set or path reached along many paths of a shared DAG costs its own parts once. The reader checks and builds each table entry and attaches metadata in one preorder walk per field (`ProvenanceDecoderSteps`).
+//! Complexity: O(N + L + A). In `KRUST-PROVENANCE`, each receipt names its origin set by index into the `originSets` table and its destination by index into the `anchors` table, and each annotated node's metadata is addressed by its field and preorder index. The encoder computes each distinct set allocation's normal key once (a post-order walk memoised by allocation, `ProvenanceEncoderSetKeys`) and resolves each destination by walking its path up to the first step already resolved under its root (`ProvenanceEncoderAnchorInternings`), its root found by the names' allocations and interned by value once per pair of allocations (`ProvenanceEncoderAnchorRoots`), so a set or path reached along many paths of a shared DAG costs its own parts once. A key's parts are checked for repeats directly up to sixteen parts and through a hash set above (`ProvenanceNormalPartComparisons`), so a long flat sentence set costs linear time. The reader reads the format and version first, skipping the body, then checks and builds each table entry and attaches metadata in one preorder walk per field (`ProvenanceDecoderSteps`).
 //! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
 //! KAST JSON version 4 and KRUST-PROVENANCE serialization for flat K definitions.
@@ -656,8 +656,14 @@ impl KeptParts {
     /// Whether `part` is not among `key`'s parts, recording it.
     fn insert(&mut self, key: &[NormalPart], part: &NormalPart) -> bool {
         match &mut self.0 {
-            Some(kept) => kept.insert(part.clone()),
-            None => !key.contains(part),
+            Some(kept) => {
+                measure::bump(Counter::ProvenanceNormalPartComparisons);
+                kept.insert(part.clone())
+            }
+            None => {
+                measure::add(Counter::ProvenanceNormalPartComparisons, key.len() as u64);
+                !key.contains(part)
+            }
         }
     }
 }
@@ -827,6 +833,7 @@ impl ProvenanceEncoder {
         let root = match self.root_memo.get(&names) {
             Some((root, _)) => *root,
             None => {
+                measure::bump(Counter::ProvenanceEncoderAnchorRoots);
                 let value = (
                     Arc::clone(&destination.module),
                     Arc::clone(&destination.sentence),
@@ -2820,20 +2827,43 @@ mod tests {
         receipts: usize,
         steps: usize,
         nodes: usize,
+        /// Distinct `(module, sentence, sentence index)` destination roots by name allocation.
+        root_triples: usize,
+        /// Distinct name allocations (modules and sentences) of the destinations.
+        names: usize,
+        /// Distinct `(sentence, pass)` pairs of the receipts that have a destination.
+        sentence_passes: usize,
     }
 
     fn reach(definition: &Definition) -> Reach {
         let mut sets = HashSet::new();
         let mut steps = HashSet::new();
+        let mut root_triples = HashSet::new();
+        let mut names = HashSet::new();
+        let mut sentence_passes = HashSet::new();
         let mut reach = Reach {
             sets: 0,
             parts: 0,
             receipts: 0,
             steps: 0,
             nodes: 0,
+            root_triples: 0,
+            names: 0,
+            sentence_passes: 0,
         };
-        let mut receipt = |record: &OriginRecord, reach: &mut Reach| {
+        let mut receipt = |record: &OriginRecord, sentence: (usize, usize), reach: &mut Reach| {
             reach.receipts += 1;
+            if let Some(destination) = &record.destination {
+                let (module, name) = (
+                    str_address(&destination.module),
+                    str_address(&destination.sentence),
+                );
+                reach.root_triples +=
+                    usize::from(root_triples.insert((module, name, destination.sentence_index)));
+                reach.names += usize::from(names.insert(module)) + usize::from(names.insert(name));
+                reach.sentence_passes +=
+                    usize::from(sentence_passes.insert((sentence, record.pass.as_str())));
+            }
             let mut pending = vec![record.origins.clone()];
             while let Some(set) = pending.pop() {
                 if set.is_empty() || !sets.insert(set.address()) {
@@ -2858,17 +2888,18 @@ mod tests {
                 }
             }
         };
-        for module in &definition.modules {
-            for sentence in &module.local_sentences {
+        for (module_index, module) in definition.modules.iter().enumerate() {
+            for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
+                let at = (module_index, sentence_index);
                 if let Some(record) = sentence.attributes().origin_record() {
-                    receipt(record, &mut reach);
+                    receipt(record, at, &mut reach);
                 }
                 for (_, term) in sentence.terms() {
                     let mut pending = vec![term];
                     while let Some(term) = pending.pop() {
                         reach.nodes += 1;
                         if let Some(record) = term.metadata().and_then(|m| m.origin.as_deref()) {
-                            receipt(record, &mut reach);
+                            receipt(record, at, &mut reach);
                         }
                         push_children(term, &mut pending);
                     }
@@ -2906,6 +2937,11 @@ mod tests {
     /// flattening, encoding and decoding is bounded by the sizes of the structures, which the
     /// test counts itself: a walk without its visited-node memo, or keyed wrongly, exceeds its
     /// bound by orders of magnitude.
+    ///
+    /// Sharing that the bytes cannot show (design §13.2, B2) is bounded structurally: the
+    /// recorder holds one pair of name allocations per sentence and pass and the decoder one per
+    /// root entry, the encoder interns each pair of name allocations by value once, and decoding
+    /// creates one path step per step entry of the anchor table.
     #[test]
     fn provenance_work_is_bounded_by_the_structures_it_walks() {
         const DEPTH: usize = 2_000;
@@ -2918,6 +2954,13 @@ mod tests {
                 record_generated_origins(&definition, after, GeneratingPass::ALL[pass + 1]);
         }
         let reach = reach(&definition);
+        assert!(
+            reach.names <= 2 * reach.sentence_passes,
+            "{} name allocations for {} (sentence, pass) pairs of {} receipts",
+            reach.names,
+            reach.sentence_passes,
+            reach.receipts
+        );
         let root = definition.modules[0].local_sentences[0]
             .term(0)
             .and_then(|body| body.metadata())
@@ -2941,14 +2984,26 @@ mod tests {
             reach.parts
         );
 
-        let mut encoded = String::new();
-        let keys = counted(Counter::ProvenanceEncoderSetKeys, &mut || {
-            encoded = to_provenance_string(&definition, &sources).unwrap();
-        });
-        assert_eq!(keys, reach.sets as u64, "set keys computed");
-        let internings = counted(Counter::ProvenanceEncoderAnchorInternings, &mut || {
-            to_provenance_string(&definition, &sources).unwrap();
-        });
+        let start = measure::snapshot();
+        let encoded = to_provenance_string(&definition, &sources).unwrap();
+        let encoding = measure::snapshot().delta(&start);
+        assert_eq!(
+            encoding.get(Counter::ProvenanceEncoderSetKeys),
+            reach.sets as u64,
+            "set keys computed"
+        );
+        assert_eq!(
+            encoding.get(Counter::ProvenanceEncoderAnchorRoots),
+            reach.root_triples as u64,
+            "roots interned by value"
+        );
+        assert!(
+            encoding.get(Counter::ProvenanceAnchorPathSteps) <= reach.steps as u64,
+            "{} path steps walked to encode {} step allocations",
+            encoding.get(Counter::ProvenanceAnchorPathSteps),
+            reach.steps
+        );
+        let internings = encoding.get(Counter::ProvenanceEncoderAnchorInternings);
         assert!(
             internings <= (reach.receipts + reach.steps) as u64,
             "{internings} anchor internings for {} receipts and {} step allocations",
@@ -2972,15 +3027,32 @@ mod tests {
             + encoder.anchors.len()
             + metadata.len()
             + reach.nodes;
-        let mut decoded = None;
-        let steps = counted(Counter::ProvenanceDecoderSteps, &mut || {
-            decoded = Some(from_provenance_str(&encoded).unwrap());
-        });
+        let step_entries = encoder
+            .anchors
+            .iter()
+            .filter(|anchor| matches!(anchor, JsonAnchor::Step(_)))
+            .count();
+        let root_entries = encoder.anchors.len() - step_entries;
+        let start = measure::snapshot();
+        let decoded = from_provenance_str(&encoded).unwrap().definition;
+        let decoding = measure::snapshot().delta(&start);
+        let steps = decoding.get(Counter::ProvenanceDecoderSteps);
         assert!(
             steps <= bound as u64,
             "{steps} decoder steps, bound {bound}"
         );
-        assert_eq!(decoded.unwrap().definition, definition);
+        assert!(
+            decoding.get(Counter::ProvenanceAnchorPathSteps) <= step_entries as u64,
+            "{} path steps created or walked to decode {step_entries} step entries",
+            decoding.get(Counter::ProvenanceAnchorPathSteps)
+        );
+        let decoded_reach = self::reach(&decoded);
+        assert!(
+            decoded_reach.names <= 2 * root_entries,
+            "{} name allocations decoded from {root_entries} root entries",
+            decoded_reach.names
+        );
+        assert_eq!(decoded, definition);
     }
 
     /// Every walk of the provenance writer and reader is iterative: a 100,000-level field whose

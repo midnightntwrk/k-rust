@@ -349,8 +349,10 @@ pub enum Counter {
     KompileResolveUpdates,
     /// Flat-definition sentences examined while deciding whether a resolved module is reusable.
     KompileResolveUpdateSentenceVisits,
-    /// Work of comparing term metadata while deciding whether a resolved module is reusable: one
-    /// per annotated node compared, plus whatever the comparison reads of the two receipts.
+    /// Term-metadata comparisons made while deciding whether a resolved module is reusable: one
+    /// per annotated node compared. A receipt is compared by identity; any work done on its
+    /// origin set or destination path shows in `provenance.links_steps` and
+    /// `provenance.anchor_path_steps`.
     KompileResolveMetadataCompares,
     /// Resolved modules that an incremental resolution rebuilt rather than reused.
     KompileResolveModuleRebuilds,
@@ -394,6 +396,15 @@ pub enum Counter {
     /// Work of the provenance reader: table entries and their parts, metadata entries, and the
     /// term nodes or path steps it walks to attach metadata.
     ProvenanceDecoderSteps,
+    /// Destination-anchor roots the provenance encoder interns by value, hashing their names:
+    /// one per distinct pair of name allocations and sentence index it meets.
+    ProvenanceEncoderAnchorRoots,
+    /// Parts compared while making sure an origin-set key repeats no part, in the provenance
+    /// encoder and reader: one per earlier part compared directly, or one per hash-set probe.
+    ProvenanceNormalPartComparisons,
+    /// Steps of destination-anchor paths created or walked: one per step a path is extended by,
+    /// and one per step that flattening, comparing or formatting a path visits.
+    ProvenanceAnchorPathSteps,
     /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
     KompileSentenceCopies,
     /// Production identity digests computed while building catalogs.
@@ -522,7 +533,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 84;
+    pub const COUNT: usize = 87;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -550,6 +561,9 @@ impl Counter {
         Counter::ProvenanceEncoderSetKeys,
         Counter::ProvenanceEncoderAnchorInternings,
         Counter::ProvenanceDecoderSteps,
+        Counter::ProvenanceEncoderAnchorRoots,
+        Counter::ProvenanceNormalPartComparisons,
+        Counter::ProvenanceAnchorPathSteps,
         Counter::KompileSentenceCopies,
         Counter::KompileProductionIdentityDigests,
         Counter::ParserCompletedNodesInvalidated,
@@ -639,6 +653,9 @@ impl Counter {
             Counter::ProvenanceEncoderSetKeys => "provenance.encoder_set_keys",
             Counter::ProvenanceEncoderAnchorInternings => "provenance.encoder_anchor_internings",
             Counter::ProvenanceDecoderSteps => "provenance.decoder_steps",
+            Counter::ProvenanceEncoderAnchorRoots => "provenance.encoder_anchor_roots",
+            Counter::ProvenanceNormalPartComparisons => "provenance.normal_part_comparisons",
+            Counter::ProvenanceAnchorPathSteps => "provenance.anchor_path_steps",
             Counter::KompileSentenceCopies => "kompile.sentence_copies",
             Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
             Counter::ParserCompletedNodesInvalidated => "parser.completed_nodes_invalidated",

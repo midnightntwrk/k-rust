@@ -3,7 +3,7 @@
 //! name = "recording of generation-origin receipts"
 //! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "term_origin_links", "insert_link", "CarrierOrigins::origins"]
 //! variable = "N = sentences and changed term nodes; L = links of the sentence-level origin sets the pass reads or builds; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
-//! counters = ["ProvenanceSetNodesBuilt", "ProvenanceSetPartsBuilt", "ProvenanceLinksSteps", "ProvenanceNonflatFlattens", "KompileSentenceCopies"]
+//! counters = ["ProvenanceSetNodesBuilt", "ProvenanceSetPartsBuilt", "ProvenanceLinksSteps", "ProvenanceNonflatFlattens", "ProvenanceAnchorPathSteps", "KompileSentenceCopies"]
 //! tests = ["crates/k-rust/tests/provenance_linearity.rs"]
 //!
 //! [[cost]]
@@ -34,7 +34,7 @@
 //!
 //! Provenance records before/after sentence counterparts and annotates changed terms with origin sets, the first-encounter-ordered unions of the sets and spans they derive from.
 //! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ.
-//! A changed node's set is an [`OriginSet`] node naming at most five parts (its counterpart's prior set, its own prior set, the two spans, the set it inherits), built by pointer and value comparisons of those parts without reading a link of any set they name, so each annotated node costs O(1) whatever its depth and whatever the size of the inherited set; `ProvenanceSetNodesBuilt` and `ProvenanceSetPartsBuilt` count the nodes and parts built. Sentence-level sets are flat link lists read and built in time linear in their links (`L`, counted by `ProvenanceLinksSteps`); no compile flattens a term set (`ProvenanceNonflatFlattens` stays zero). A receipt's destination path shares its parent's (`AnchorPath`) and its names are shared per sentence, a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack. A term a pass places unchanged under a node it builds is compared with the term it was, so it adds no receipt.
+//! A changed node's set is an [`OriginSet`] node naming at most five parts (its counterpart's prior set, its own prior set, the two spans, the set it inherits), built by pointer and value comparisons of those parts without reading a link of any set they name, so each annotated node costs O(1) whatever its depth and whatever the size of the inherited set; `ProvenanceSetNodesBuilt` and `ProvenanceSetPartsBuilt` count the nodes and parts built. Sentence-level sets are flat link lists read and built in time linear in their links (`L`, counted by `ProvenanceLinksSteps`); no compile flattens a term set (`ProvenanceNonflatFlattens` stays zero). A receipt's destination path shares its parent's (`AnchorPath`, whose steps created or walked `ProvenanceAnchorPathSteps` counts) and its names are shared per sentence, a field deeper than `FINGERPRINTED_HEIGHT` compares its nodes with their counterparts by structural fingerprint before comparing them, and the walk continues on fresh stack segments, so the depth of a changed term adds neither time, memory nor stack. A term a pass places unchanged under a node it builds is compared with the term it was, so it adds no receipt.
 //! Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
@@ -784,6 +784,7 @@ impl AnchorPath {
 
     /// This path extended by `step`.
     pub fn child(&self, step: u32) -> Self {
+        measure::bump(Counter::ProvenanceAnchorPathSteps);
         Self(Some(Arc::new(AnchorStep {
             parent: self.clone(),
             step,
@@ -811,7 +812,12 @@ impl AnchorPath {
     }
 
     /// The steps of the path, from the field down.
+    ///
+    /// Every walk over a path's steps (comparison, ordering, formatting) goes through here, and
+    /// every step is created by [`AnchorPath::child`]: both count their steps, so any work that
+    /// reads or rebuilds paths step by step shows in `provenance.anchor_path_steps`.
     pub fn to_vec(&self) -> Vec<u32> {
+        measure::add(Counter::ProvenanceAnchorPathSteps, self.len() as u64);
         let mut steps = Vec::with_capacity(self.len());
         let mut path = self;
         while let Some(step) = &path.0 {
@@ -2251,36 +2257,77 @@ mod tests {
         )
     }
 
-    /// The reuse test of incremental resolution compares a term receipt in constant work: two
-    /// runs of one pass over one change give every wrapped item a receipt whose origin set (the
-    /// rule's `n` spans) and destination are equal but separately allocated, and comparing the
-    /// two results reads at most one unit per annotated node, whatever `n`.
+    /// The reuse test of incremental resolution compares term receipts by identity and does no
+    /// work on them (design §13.5). Two runs of one pass over one change give every wrapped item
+    /// a receipt whose origin set (the rule's `n` spans) and destination are equal but separately
+    /// allocated: comparing the two results reads no link of a set and no step of a path. A term
+    /// compared with its copy shares every receipt, so the comparison walks the whole term: one
+    /// comparison per annotated node, and again no work on a receipt.
+    ///
+    /// The comparison count alone cannot show a value comparison of receipts, which changes the
+    /// work inside each comparison and not their number; the set and path counters count that
+    /// work wherever it is done (`OriginSet::links`, `AnchorPath::to_vec`).
     #[test]
-    fn reuse_test_compares_term_receipts_in_constant_work_per_node() {
-        let compares = |n: usize| {
-            let (before, after) = wide_rewrap(n);
-            let first =
-                record_generated_origins(&before, after.clone(), GeneratingPass::SemanticCasts);
-            let second = record_generated_origins(&before, after, GeneratingPass::SemanticCasts);
-            let body = |definition: &Definition| {
-                definition.modules[0].local_sentences[0]
-                    .term(0)
-                    .expect("a rule has a body")
-                    .clone()
-            };
-            let (first, second) = (body(&first), body(&second));
-            let start = measure::snapshot();
-            let _ = first.identical(&second);
-            measure::snapshot()
-                .delta(&start)
-                .get(Counter::KompileResolveMetadataCompares)
+    fn reuse_test_does_no_work_on_term_receipts() {
+        const RECEIPT_WORK: [Counter; 3] = [
+            Counter::ProvenanceLinksSteps,
+            Counter::ProvenanceNonflatFlattens,
+            Counter::ProvenanceAnchorPathSteps,
+        ];
+        const N: usize = 200;
+        let (before, after) = wide_rewrap(N);
+        let first = record_generated_origins(&before, after.clone(), GeneratingPass::SemanticCasts);
+        let second = record_generated_origins(&before, after, GeneratingPass::SemanticCasts);
+        let body = |definition: &Definition| {
+            definition.modules[0].local_sentences[0]
+                .term(0)
+                .expect("a rule has a body")
+                .clone()
         };
-        let (small, large) = (compares(200), compares(400));
-        assert!(
-            small <= 2 * 200 + 1 && large <= 2 * 400 + 1,
-            "comparing the receipts of 200 and 400 wrapped items read {small} and {large} units"
+        let (first, second) = (body(&first), body(&second));
+        let copy = first.clone();
+        let annotated = {
+            let mut pending = vec![&first];
+            let mut annotated = 0u64;
+            while let Some(term) = pending.pop() {
+                annotated += u64::from(term.metadata().is_some());
+                pending.extend(term_children(term));
+            }
+            annotated
+        };
+        // Every wrapped item: the new `bar` holds a receipt and the moved `foo` its span.
+        assert!(annotated >= 2 * N as u64, "{annotated} annotated nodes");
+        let compared = |left: &Term, right: &Term| {
+            let start = measure::snapshot();
+            let verdict = left.identical(right);
+            (verdict, measure::snapshot().delta(&start))
+        };
+
+        let (verdict, work) = compared(&first, &second);
+        assert!(!verdict, "separately allocated receipts are not identical");
+        for counter in RECEIPT_WORK {
+            assert_eq!(
+                work.get(counter),
+                0,
+                "comparing equal, separately allocated receipts: {}",
+                counter.name()
+            );
+        }
+        let (verdict, work) = compared(&first, &copy);
+        assert!(verdict, "a term is identical to its copy");
+        assert_eq!(
+            work.get(Counter::KompileResolveMetadataCompares),
+            annotated,
+            "one comparison per annotated node"
         );
-        assert!(large * 10 <= small * 21, "{small} at 200, {large} at 400");
+        for counter in RECEIPT_WORK {
+            assert_eq!(
+                work.get(counter),
+                0,
+                "comparing a term with its copy: {}",
+                counter.name()
+            );
+        }
     }
 
     /// A node rebuilt by three generating passes in turn carries the receipt of the last, whose
