@@ -324,7 +324,8 @@ impl Configuration {
     ///
     /// `program` binds `$PGM`; `variables` holds K names without `$`.
     /// The caller has already checked every name against [`Self::variables`].
-    /// Declared `$IO` and `$STDIN` that are not supplied receive the stream defaults with IO off and empty stdin.
+    /// Declared `$IO` and `$STDIN` that are not supplied receive the stream defaults with IO off;
+    /// `$STDIN` is `stdin` (already buffered as krun buffers it) or empty.
     ///
     /// # Errors
     ///
@@ -333,9 +334,10 @@ impl Configuration {
         &mut self,
         program: Option<&str>,
         variables: &BTreeMap<String, String>,
+        stdin: Option<&[u8]>,
     ) -> Result<Pattern, ConfigurationError> {
         self.assembler.clear();
-        let result = self.assemble_typed(program, variables);
+        let result = self.assemble_typed(program, variables, stdin);
         self.assembler.clear();
         result
     }
@@ -344,6 +346,7 @@ impl Configuration {
         &mut self,
         program: Option<&str>,
         variables: &BTreeMap<String, String>,
+        stdin: Option<&[u8]>,
     ) -> Result<Pattern, ConfigurationError> {
         if let Some(source) = program {
             let start_sort = self
@@ -356,8 +359,11 @@ impl Configuration {
         for (name, source) in variables {
             self.assembler.bind(name, source)?;
         }
+        // `program_uses_input` true binds an empty `$STDIN`; false binds the supplied bytes.
         self.assembler
-            .bind_stream_defaults(false, true, || Ok::<_, ConfigurationError>(Vec::new()))?;
+            .bind_stream_defaults(false, stdin.is_none(), || {
+                Ok::<_, ConfigurationError>(stdin.map(<[u8]>::to_vec).unwrap_or_default())
+            })?;
         self.assembler.finish()
     }
 

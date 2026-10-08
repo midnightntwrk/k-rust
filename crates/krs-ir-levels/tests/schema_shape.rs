@@ -631,6 +631,7 @@ fn registry() -> Registry {
     trace!(CellColor: CellColor);
     trace!(CellMultiplicity: CellMultiplicity);
     trace!(CellClauseKind: CellClauseKind);
+    trace!(CellStream: CellStream);
     trace!(CellWrapper: CellWrapper);
     trace!(ClaimModality: ClaimModality);
     trace!(CollectorMeasureDocument: CollectorMeasureDocument);
@@ -645,6 +646,8 @@ fn registry() -> Registry {
     trace!(DescriptorCellDeclarationReference: DescriptorCellDeclarationReference);
     trace!(DescriptorCellIdentity: DescriptorCellIdentity);
     trace!(DescriptorCellMultiplicity: DescriptorCellMultiplicity);
+    trace!(DescriptorCellStream: DescriptorCellStream);
+    trace!(DescriptorCellExit: DescriptorCellExit);
     trace!(DescriptorCellName: DescriptorCellName);
     trace!(DescriptorCellReference: DescriptorCellReference);
     trace!(DescriptorCellTypeWire: krs_ir::transport::configuration::DescriptorCellTypeWire);

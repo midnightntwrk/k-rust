@@ -394,6 +394,10 @@ provenance_roles! {
     ListSeparator => "list_separator",
     /// The `non_empty` flag of `#[k::syntax_list]`.
     ListNonEmpty => "list_non_empty",
+    /// Console stream value of a fixed cell (`stream = "stdin"`).
+    ConfigurationCellStream => "configuration_cell_stream",
+    /// Bare `exit` flag of a fixed cell.
+    ConfigurationCellExit => "configuration_cell_exit",
 }
 
 impl Serialize for ProvenanceRole {

@@ -185,6 +185,7 @@ register_codes! {
         UNDEFINED_LEXICAL: "krs::analysis::undefined-lexical" => "A token, layout, or lexical regex refers to a `{Name}` that no `k::lexical!` declares.",
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
         INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
+        CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {

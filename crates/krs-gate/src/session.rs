@@ -194,7 +194,11 @@ fn config_inputs(request: &Value) -> Result<ConfigInputs, Box<dyn Error>> {
             })
             .collect::<Result<_, _>>()?,
     };
-    Ok(ConfigInputs { program, variables })
+    Ok(ConfigInputs {
+        program,
+        variables,
+        stdin: None,
+    })
 }
 
 /// A session with at most one loaded definition.

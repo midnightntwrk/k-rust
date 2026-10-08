@@ -212,6 +212,12 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
         evidence: "k-rust 195a7718 k-rust-backend builtin/float.rs rejects other precisions and exponent ranges",
     },
+    RouteCapability {
+        feature: "ConsoleIO",
+        unavailable_on: &[Route::Browser],
+        reason: "the browser route has no standard input or output; run it with `krs run` or Java K's krun",
+        evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust 195a7718 docs/compatibility.md: RPC does not perform host IO)",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

@@ -487,6 +487,8 @@ mod tests {
                 color: None,
                 multiplicity: None,
                 cell_type: None,
+                stream: None,
+                exit: None,
                 content: ProtocolCellContent::Leaf {
                     wrapper_key: role(ProvenanceRole::ConfigurationCellWrapper),
                     wrapper: CellWrapper::Cell,

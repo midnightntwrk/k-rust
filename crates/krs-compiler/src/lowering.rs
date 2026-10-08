@@ -279,6 +279,7 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
     let mut origins = OriginPass::default();
     let mut declared_production_groups = BTreeSet::new();
     let mut lowered_modules = Vec::new();
+    let stdin = crate::console::stdin_cells(theory);
     for module in theory.modules() {
         let mut lower = |part| {
             lower_module(
@@ -287,6 +288,7 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
                 &names,
                 &mut origins,
                 &mut declared_production_groups,
+                &stdin,
             )
         };
         if let Some(placement) = partition.module(module.id()) {
@@ -710,6 +712,7 @@ fn lower_module(
     names: &NamingPass,
     origins: &mut OriginPass,
     declared_production_groups: &mut BTreeSet<ProductionGroupId>,
+    stdin: &BTreeSet<krs_ir::SemanticId>,
 ) -> Result<DefinitionModule, LoweringError> {
     let mut sentences = Vec::new();
     let mut group_origins = BTreeMap::<ProductionGroupId, &NodeOrigin>::new();
@@ -910,7 +913,23 @@ fn lower_module(
     }
 
     for rule in module.rules() {
-        let variables = lower_variables(rule.variables(), names)?;
+        // A claim keeps its stream cells as ordinary List cells (see `crate::console`).
+        let stdin = if rule.claim().is_some() {
+            &BTreeSet::new()
+        } else {
+            stdin
+        };
+        let dropped = match rule.relational_body() {
+            RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
+            RuleBodyRef::Term(_) => BTreeSet::new(),
+        };
+        let kept = rule
+            .variables()
+            .iter()
+            .filter(|variable| !dropped.contains(variable.id()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let variables = lower_variables(&kept, names)?;
         let label =
             names
                 .rules
@@ -935,7 +954,7 @@ fn lower_module(
                 label,
                 kind,
                 variables,
-                lower_configuration_rewrite(body, names, origins)?,
+                lower_configuration_rewrite(body, names, origins, stdin)?,
             ),
         };
         sentences.push(DefinitionSentence::Rule(lower_rule_metadata(
@@ -1050,6 +1069,16 @@ fn lower_cell_attributes(
                 origins.lower(origin, "cell-attribute", None, Some(value.as_str()))?,
                 *value,
             )),
+            CellAttribute::Stream { origin, value } => Ok(CellAttribute::stream(
+                origins.lower(origin, "cell-attribute", None, Some(value.as_str()))?,
+                *value,
+            )),
+            CellAttribute::Exit { origin } => Ok(CellAttribute::exit(origins.lower(
+                origin,
+                "cell-attribute",
+                None,
+                Some("exit"),
+            )?)),
         })
         .collect()
 }
@@ -1161,6 +1190,9 @@ fn lower_frame(
             )?,
             binding: binding.clone(),
         }),
+        CellContentFrame::ListRemainder { origin } => Ok(CellContentFrame::ListRemainder {
+            origin: origins.lower(origin, "cell-frame", None, None)?,
+        }),
     }
 }
 
@@ -1203,10 +1235,57 @@ fn lower_configuration_pattern(
     .map_err(state_shape_error)
 }
 
+/// The remainder bindings of the stdin stream reads in `rewrite`, which lowering drops.
+fn stdin_read_remainders(
+    rewrite: &FixedConfigurationRewrite<krs_ir::SemanticId, SemanticTerm>,
+    stdin: &BTreeSet<krs_ir::SemanticId>,
+) -> BTreeSet<krs_ir::SemanticId> {
+    let clauses = rewrite.clauses();
+    (0..clauses.len())
+        .filter(|index| stdin.contains(clauses[*index].cell()))
+        .filter_map(|index| crate::console::stdin_read(clauses, index))
+        .map(|read| read.rest.clone())
+        .collect()
+}
+
+/// A stdin stream read as K's stream rules unblock it: `ListItem(V) => .List` with an unbound
+/// list remainder (`crate::console`).
+fn lower_stdin_read(
+    clause: &crate::console::SemanticClause,
+    item: &SemanticTerm,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedCellClause<SymbolId, DefinitionTerm>, LoweringError> {
+    let CellPost::Replace { term: after } = clause.after() else {
+        unreachable!("a stdin read replaces the cell's content");
+    };
+    Ok(FixedCellClause::new(
+        origins.lower(
+            clause.origin(),
+            "cell-clause",
+            None,
+            Some(clause.cell().as_str()),
+        )?,
+        lower_cell_id(clause.cell(), names)?,
+        lower_term(item, names, origins)?,
+        CellPost::Replace {
+            term: DefinitionTerm::list(
+                origins.lower(after.origin(), "stdin-list-empty", None, None)?,
+                DefinitionSortRef::Builtin(krs_ir::BuiltinSort::List),
+                krs_ir_levels::ListOperands::Empty,
+            ),
+        },
+        CellContentFrame::ListRemainder {
+            origin: origins.lower(clause.origin(), "stdin-list-remainder", None, None)?,
+        },
+    ))
+}
+
 fn lower_configuration_rewrite(
     rewrite: &FixedConfigurationRewrite<krs_ir::SemanticId, SemanticTerm>,
     names: &NamingPass,
     origins: &mut OriginPass,
+    stdin: &BTreeSet<krs_ir::SemanticId>,
 ) -> Result<FixedConfigurationRewrite<SymbolId, DefinitionTerm>, LoweringError> {
     FixedConfigurationRewrite::new(
         origins.lower(
@@ -1219,7 +1298,13 @@ fn lower_configuration_rewrite(
         rewrite
             .clauses()
             .iter()
-            .map(|clause| {
+            .enumerate()
+            .map(|(index, clause)| {
+                if stdin.contains(clause.cell())
+                    && let Some(read) = crate::console::stdin_read(rewrite.clauses(), index)
+                {
+                    return lower_stdin_read(clause, read.item, names, origins);
+                }
                 Ok(FixedCellClause::new(
                     origins.lower(
                         clause.origin(),

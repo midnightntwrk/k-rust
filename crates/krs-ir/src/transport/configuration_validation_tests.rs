@@ -77,6 +77,8 @@ fn declaration<S: Stage>(reference: S::Cell, sort: S::Sort) -> StageCellDeclarat
             color: None,
             multiplicity: None,
             cell_type: None,
+            stream: None,
+            exit: None,
             content: ProtocolCellContent::Leaf {
                 wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                 wrapper: CellWrapper::Cell,

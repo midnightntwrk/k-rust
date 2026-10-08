@@ -16,6 +16,7 @@
 
 mod claims;
 mod configuration;
+mod console;
 mod origin;
 mod report;
 
@@ -24,8 +25,8 @@ use std::fmt;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionResult, ExecutionStrategy, ProveRequest,
-        SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
+        Backend, BackendOptions, ExecuteRequest, ExecutionResult, ExecutionStrategy,
+        PatternRequest, ProveRequest, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     kast::{Sort as KastSort, convert::convert, json as kast_json, printer::Printer},
@@ -140,6 +141,9 @@ pub struct ConfigInputs {
     pub program: Option<ProgramInput>,
     /// `-c NAME=TEXT` bindings in command-line order. NAME is `ENV`, `$ENV`, or the init parameter `env`.
     pub variables: Vec<(String, String)>,
+    /// Console input for the `stream = "stdin"` cell, as krun reads standard input under `--io off`;
+    /// `None` binds an empty stream. It is ignored when the definition has no stdin stream cell.
+    pub stdin: Option<Vec<u8>>,
 }
 
 /// An initial configuration, ready to run or search.
@@ -340,6 +344,7 @@ pub struct Semantics {
     claims: Vec<ClaimInfo>,
     user_sorts: Vec<String>,
     origins: origin::Origins,
+    console: console::ConsoleCells,
 }
 
 impl Semantics {
@@ -402,6 +407,7 @@ impl Semantics {
             .map_err(ExecError::from)
         })?;
         let user_sorts = user_sorts(definition, &context.frontend_definition);
+        let console = console::ConsoleCells::of(definition);
         let mut origins = origin::Origins::new(sources);
         let claims = claims::catalog(
             &definition_kore,
@@ -421,6 +427,7 @@ impl Semantics {
             claims,
             user_sorts,
             origins,
+            console,
         })
     }
 
@@ -592,8 +599,17 @@ impl Semantics {
             return Err(ExecError::MissingVariables(missing));
         }
         let program = inputs.program.as_ref();
+        let stdin = inputs
+            .stdin
+            .as_deref()
+            .filter(|_| self.console.stdin)
+            .map(console::buffered_input);
         self.configuration
-            .assemble_pattern(program.map(|program| program.text.as_str()), &bound)
+            .assemble_pattern(
+                program.map(|program| program.text.as_str()),
+                &bound,
+                stdin.as_deref(),
+            )
             .map(State)
             .map_err(|error| configuration_error(&error, program, &names, &self.variables))
     }
@@ -632,14 +648,39 @@ impl Semantics {
         } else {
             Vec::new()
         };
+        let state = term(&leaf.state)?;
+        let halt = Halt::from_backend(leaf.reason);
+        let stdout = if self.console.stdout {
+            console::stdout_buffer(state.kore())
+        } else {
+            None
+        };
+        let exit_code = if self.console.exit && halt.is_complete() {
+            self.exit_code(&state)?
+        } else {
+            None
+        };
         Ok(RunReport {
-            halt: Halt::from_backend(leaf.reason),
+            halt,
             steps: leaf.depth,
-            state: term(&leaf.state)?,
+            state,
             trace,
-            stdout: None,
-            exit_code: None,
+            stdout,
+            exit_code,
         })
+    }
+
+    /// The exit cell's final value: `getExitCode` of the final configuration, as krun computes the status.
+    fn exit_code(&mut self, state: &Term) -> Result<Option<i64>, ExecError> {
+        let Some(request) = console::exit_code_request(state.kore()) else {
+            return Ok(None);
+        };
+        let simplified = self.backend.simplify(PatternRequest::new(request))?;
+        let source = serde_json::to_string(&simplified)
+            .map_err(|error| ExecError::Result(error.to_string()))?;
+        let pattern =
+            kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
+        Ok(console::exit_value(&pattern))
     }
 
     /// Return the set of reachable states that match the search mode, as `krun --search` does.

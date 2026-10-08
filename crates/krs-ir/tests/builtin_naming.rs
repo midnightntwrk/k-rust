@@ -165,6 +165,9 @@ const BUILTIN_OPERATIONS: &[Production] = &[
     production("maxValueFloat(_,_)_FLOAT_Float_Int_Int", Some("maxValueFloat"), None, Some("FLOAT.maxValue"), "FLOAT", ("float", "max_value")),
     production("Int2Float(_,_,_)_FLOAT_Float_Int_Int_Int", Some("Int2Float"), None, Some("FLOAT.int2float"), "FLOAT", ("float", "from_int")),
     production("Float2Int(_)_FLOAT_Int_Float", Some("Float2Int"), None, Some("FLOAT.float2int"), "FLOAT", ("float", "to_int")),
+    production("#write(_,_)_K-IO_K_Int_String", Some("#write"), None, Some("IO.write"), "K-IO", ("io", "write")),
+    production("#putc(_,_)_K-IO_K_Int_Int", Some("#putc"), None, Some("IO.putc"), "K-IO", ("io", "putc")),
+    production("#log", Some("#log"), Some("#log"), Some("IO.logString"), "K-IO", ("io", "log")),
 ];
 
 #[rustfmt::skip]

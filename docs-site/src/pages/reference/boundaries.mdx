@@ -37,6 +37,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 | typed hooks | qualified | only the typed catalog exported by KRS; no arbitrary hook or raw-attribute escape hatch |
 | anywhere rules | qualified | `#[k::rule(anywhere)]` on term-shaped rules runs on the k-rust and Java LLVM routes; the Java Haskell route refuses it (`krs::capability::unavailable`), and k-rust leaves a left-hand side that nests the rule's own head unreduced |
 | floats | qualified | binary32 (`f32`) and binary64 (`f64`) Floats run on every route; a `FLOAT` operation applied to tokens only and formats other than `f32` and `f64` (`pNxM`) run only on Java K's LLVM backend, and the native and browser routes refuse them (`krs::capability::unavailable`); Java K's Haskell backend has no Float evaluator |
+| console I/O | qualified | `stream` cells and the `exit` cell run with `krs run`, which reads standard input before the first step and prints the output cell when the run ends, and with Java K's `krun`; `krs search` and the browser route refuse them; the direct `io::write` and `io::putc` hooks run only on Java K |
 | KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |
 | one-path claims | unqualified | grammar acceptance exists, but no positive end-to-end authored fixture currently qualifies the backend route |
 | simplification priority | unqualified | parsing and lowering accept `simplification(priority = N)`; no positive authored macro specimen was found |

@@ -247,6 +247,7 @@ fn configure(
     semantics: &mut Semantics,
     input: Option<&ProgramSource>,
     variables: &[(String, String)],
+    console_input: bool,
 ) -> Result<krs_exec::State, Failure> {
     // FILE is checked against `$PGM` before it is read, so a stray FILE is reported as such.
     let takes_program = semantics
@@ -269,15 +270,41 @@ fn configure(
         ));
     }
     let program = input.map(read_program).transpose()?;
+    let stdin = if console_input
+        && semantics
+            .variables()
+            .iter()
+            .any(|variable| variable.name == "STDIN")
+    {
+        Some(read_console_input()?)
+    } else {
+        None
+    };
     Ok(semantics.configure(&ConfigInputs {
         program,
         variables: variables.to_vec(),
+        stdin,
     })?)
+}
+
+/// Standard input for the stdin stream cell, read to end of file before the first step, as krun does.
+fn read_console_input() -> Result<Vec<u8>, Failure> {
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        eprintln!(
+            "note: reading standard input into the stdin stream cell until end of file; redirect it or end the input with Ctrl-D"
+        );
+    }
+    let mut input = Vec::new();
+    stdin
+        .read_to_end(&mut input)
+        .map_err(|error| Failure::Read(format!("could not read standard input: {error}")))?;
+    Ok(input)
 }
 
 fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome, Failure> {
     let smt = semantics.capabilities().smt;
-    let state = configure(semantics, request.input.as_ref(), &request.variables)?;
+    let state = configure(semantics, request.input.as_ref(), &request.variables, true)?;
     let report = semantics.run(
         &state,
         RunOptions {
@@ -290,7 +317,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         write_trace(&mut stderr, &report.trace);
     }
     let color = request.color.enabled();
-    let stdout = match request.output {
+    let printed = match request.output {
         TermOutput::Json => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
         TermOutput::None => String::new(),
         output => format!(
@@ -317,11 +344,20 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
         _ => i32::from(!report.halt.is_complete()),
     };
-    Ok(outcome(stdout, stderr, exit_code))
+    // Console output comes first, as krun writes it during the run and prints the result after;
+    // the JSON report carries it in `stdout` instead.
+    let mut stdout = match (&report.stdout, request.output) {
+        (Some(console), output) if output != TermOutput::Json => console.clone(),
+        _ => Vec::new(),
+    };
+    stdout.extend_from_slice(printed.as_bytes());
+    let mut outcome = outcome(String::new(), stderr, exit_code);
+    outcome.stdout = stdout;
+    Ok(outcome)
 }
 
 fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandOutcome, Failure> {
-    let state = configure(semantics, request.input.as_ref(), &request.variables)?;
+    let state = configure(semantics, request.input.as_ref(), &request.variables, false)?;
     let report = semantics.search(
         &state,
         SearchOptions {

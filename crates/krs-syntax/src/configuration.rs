@@ -269,32 +269,13 @@ impl ConfigurationDeclaration {
                 ordinal,
                 TokenRange::for_tokens(&cell.name)?,
             ));
-            if let Some(name) = cell.attribute.name() {
+            // Cell-attribute anchors in the payload's order (name, color, multiplicity,
+            // type, stream, exit), at this field's ordinal.
+            for anchor in cell.attribute.provenance()? {
                 anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ConfigurationCellName,
+                    anchor.role(),
                     ordinal,
-                    TokenRange::for_tokens(name)?,
-                ));
-            }
-            if let Some(color) = cell.attribute.color() {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ConfigurationCellColor,
-                    ordinal,
-                    TokenRange::for_tokens(color)?,
-                ));
-            }
-            if let Some(multiplicity) = cell.attribute.multiplicity() {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ConfigurationCellMultiplicity,
-                    ordinal,
-                    TokenRange::for_tokens(multiplicity)?,
-                ));
-            }
-            if let Some(cell_type) = cell.attribute.cell_type() {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ConfigurationCellType,
-                    ordinal,
-                    TokenRange::for_tokens(cell_type)?,
+                    anchor.range(),
                 ));
             }
             match &cell.content {

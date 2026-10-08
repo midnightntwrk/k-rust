@@ -125,6 +125,26 @@ impl Sample for CellClauseKind {
         vec![Self::Content, Self::Whole]
     }
 }
+impl Sample for CellStream {
+    fn samples() -> Vec<Self> {
+        vec![Self::Stdin]
+    }
+}
+impl Sample for DescriptorCellStream {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            value: sample::<CellStream>(),
+        }]
+    }
+}
+impl Sample for DescriptorCellExit {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+        }]
+    }
+}
 impl Sample for CellWrapper {
     fn samples() -> Vec<Self> {
         vec![Self::Cell]
@@ -698,13 +718,22 @@ impl Sample for CellAttribute {
                     origin: sample::<NodeOrigin>(),
                     value: sample::<CellCollectionType>(),
                 },
+                Self::Stream {
+                    origin: sample::<NodeOrigin>(),
+                    value: sample::<CellStream>(),
+                },
+                Self::Exit {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            3,
+            5,
             "CellAttribute",
             |value| match value {
                 Self::Color { .. } => 0,
                 Self::Multiplicity { .. } => 1,
                 Self::CollectionType { .. } => 2,
+                Self::Stream { .. } => 3,
+                Self::Exit { .. } => 4,
             },
         )
     }
@@ -722,13 +751,17 @@ impl Sample for CellContentFrame {
                     origin: sample::<NodeOrigin>(),
                     binding: sample::<Option<SemanticId>>(),
                 },
+                Self::ListRemainder {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            3,
+            4,
             "CellContentFrame",
             |value| match value {
                 Self::Exact => 0,
                 Self::KSequenceTail { .. } => 1,
                 Self::MapRemainder { .. } => 2,
+                Self::ListRemainder { .. } => 3,
             },
         )
     }
@@ -2673,6 +2706,8 @@ impl<
             color: sample::<Option<DescriptorCellColor>>(),
             multiplicity: sample::<Option<DescriptorCellMultiplicity>>(),
             cell_type: sample::<Option<DescriptorCellType>>(),
+            stream: sample::<Option<DescriptorCellStream>>(),
+            exit: sample::<Option<DescriptorCellExit>>(),
             content: sample::<ProtocolCellContent<S, N>>(),
         }]
     }

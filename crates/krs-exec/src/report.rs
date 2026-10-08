@@ -226,9 +226,9 @@ pub struct RunReport {
     pub state: Term,
     /// Rewrite steps, when a trace was requested.
     pub trace: Vec<Step>,
-    /// Console output, once console I/O exists (KF-035).
+    /// The bytes the `stream = "stdout"` cell holds when the run ends; `None` without one.
     pub stdout: Option<Vec<u8>>,
-    /// The exit cell's final value, once exit cells exist (KF-035).
+    /// The exit cell's final value after a complete run; `None` without an exit cell.
     pub exit_code: Option<i64>,
 }
 

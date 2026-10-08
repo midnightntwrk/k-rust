@@ -793,7 +793,8 @@ impl Adapter<'_> {
                     SentenceNodeRole::ConfigurationRuleCell(index),
                 );
                 if let CellContentFrame::KSequenceTail { origin, .. }
-                | CellContentFrame::MapRemainder { origin, .. } = clause.frame()
+                | CellContentFrame::MapRemainder { origin, .. }
+                | CellContentFrame::ListRemainder { origin } = clause.frame()
                 {
                     self.map_sentence_origin(
                         origin,
@@ -809,6 +810,11 @@ impl Adapter<'_> {
                     vec![index],
                     TermContext::Normal,
                 )?;
+                let before = if matches!(clause.frame(), CellContentFrame::ListRemainder { .. }) {
+                    stdin_read_item(before)
+                } else {
+                    before
+                };
                 let content = match clause.after() {
                     CellPost::Preserve => before,
                     CellPost::Replace { term } => NativeTerm::Rewrite {
@@ -856,7 +862,8 @@ impl Adapter<'_> {
                     SentenceNodeRole::ContextAliasCell(index),
                 );
                 if let CellContentFrame::KSequenceTail { origin, .. }
-                | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
+                | CellContentFrame::MapRemainder { origin, .. }
+                | CellContentFrame::ListRemainder { origin } = cell.frame()
                 {
                     self.map_sentence_origin(
                         origin,
@@ -883,6 +890,7 @@ impl Adapter<'_> {
         let name = self.cell_name(cell, origin)?;
         let (content, open_right) = match frame {
             CellContentFrame::Exact => (content, false),
+            CellContentFrame::ListRemainder { .. } => (content, true),
             CellContentFrame::KSequenceTail { binding, .. } => match binding {
                 None => (content, true),
                 Some(binding) => (
@@ -916,6 +924,38 @@ impl Adapter<'_> {
             },
         };
         Ok(incomplete_cell(name, content, open_right))
+    }
+}
+
+/// Spell the item a stdin stream read consumes, `ListItem(V:Sort)`, as K's parser does: a
+/// semantic cast of the variable. k-rust generates the stream's unblocking rules only for a
+/// read in that spelling (`kompile/passes/resolve_io.rs`), as Java K's `ResolveIOStreams` does.
+fn stdin_read_item(term: NativeTerm) -> NativeTerm {
+    match term {
+        NativeTerm::Annotated { term, metadata } => NativeTerm::Annotated {
+            term: Box::new(stdin_read_item(*term)),
+            metadata,
+        },
+        NativeTerm::Apply { label, arguments } if label.name == "ListItem" => {
+            let arguments = arguments
+                .into_iter()
+                .map(|argument| match argument.unannotated() {
+                    NativeTerm::Variable {
+                        name,
+                        sort: Some(sort),
+                    } => NativeTerm::apply(
+                        format!("#SemanticCastTo{}", sort.name),
+                        vec![NativeTerm::Variable {
+                            name: name.clone(),
+                            sort: None,
+                        }],
+                    ),
+                    _ => argument,
+                })
+                .collect();
+            NativeTerm::Apply { label, arguments }
+        }
+        other => other,
     }
 }
 
@@ -985,6 +1025,8 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
             CellAttribute::Color { value, .. } => ("color", value.as_str()),
             CellAttribute::Multiplicity { value, .. } => ("multiplicity", value.as_str()),
             CellAttribute::CollectionType { value, .. } => ("type", value.as_str()),
+            CellAttribute::Stream { value, .. } => ("stream", value.as_str()),
+            CellAttribute::Exit { .. } => ("exit", ""),
         })
         .collect::<Vec<_>>();
     if main {

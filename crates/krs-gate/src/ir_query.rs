@@ -447,6 +447,7 @@ fn frame_fact(frame: &krs_ir::CellContentFrame) -> Value {
         krs_ir::CellContentFrame::MapRemainder { binding, .. } => {
             ("map_remainder", binding.as_ref())
         }
+        krs_ir::CellContentFrame::ListRemainder { .. } => ("list_remainder", None),
     };
     json!({"kind":kind,"binding":binding})
 }

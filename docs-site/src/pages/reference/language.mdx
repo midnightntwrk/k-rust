@@ -103,6 +103,16 @@ The k-rust route and Java K's LLVM backend run anywhere rules; K's Haskell backe
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 
+### Console I/O and the exit cell
+
+`#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.
+I/O in K is configuration state: a rule reads by consuming the front of the input cell, `input: list::concat(list::item(x), rest) => rest` with `where x: Int`, and prints by appending to the output cell, `output: list::concat(out, list::item(x))`; K adds the rules that connect the cells to the process.
+K feeds input only to that read, so KRS emits it as K's `<input> ListItem(X:Int) => .List ... </input>` and rejects any other rule over a stdin cell.
+A stream cell starts as `list::empty()`, because K replaces its content with the stream; at most one cell connects to each stream, at most one cell is the exit cell and it is outside every repeated cell, and the computation cell is neither (`krs::analysis::console-cell`).
+Configuration initializers accept such ground terms directly: `input: list::empty()`, `status: 1`.
+`krs run` reads standard input to end of file before the first step, as `krun --io off` does, prints what the output cell holds when the run ends, and exits with the exit cell's value; give the program as a file, because FILE `-` and the stdin cell would both read standard input.
+Because I/O is state, search and rollback stay sound, but K's search has no console I/O, so `krs search` refuses a definition with stream cells; `krs prove` treats them as ordinary List cells.
+
 ## Program syntax and the module pair
 
 K decides what a program may contain with the main syntax module and what rules may use with the main module.
@@ -204,6 +214,7 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 | `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `pad_left`, `substr`, `concat`, `reverse`, `replace_at`, `from_int`, `from_int_no_len`, `to_int`, `from_string`, `to_string`, `little_endian`, `big_endian`, `signed`, `unsigned` |
 | `builtin::string` | `concat`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `length`, `substr`, `find`, `chr`, `ord`, `from_int`, `to_int`, `from_bool`, `to_bool` |
 | `builtin::kequal` | `eq`, `ne`, `ite` |
+| `builtin::io` | `write`, `putc`, `log` |
 | `builtin::float` | `add`, `sub`, `mul`, `div`, `neg`, `abs`, `floor`, `ceil`, `trunc`, `round`, `root`, `sqrt`, `min`, `max`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_nan`, `is_infinite`, `sign`, `precision`, `exponent_bits`, `max_value`, `from_int`, `to_int` |
 
 Every name follows one rule, so you can find an operation from K's documentation (`domains.md`) without a table.
@@ -217,6 +228,8 @@ The four integer divisions therefore read exactly like Rust's: `int::div` and `i
 `set::to_list` and `set::from_list` come from K's `COLLECTIONS` module, which KRS imports when a rule uses them.
 `string::length` counts code points, `string::concat` (`+String`) takes time linear in its operands, and `string::to_int` is partial: it is undefined on text that is not a decimal integer, the analogue of `str::parse` returning `Err`.
 An operation enters the catalog only after one ground application evaluates both natively and on Java K's LLVM backend.
+The `K-IO` hooks `io::write(fd, s)` and `io::putc(fd, b)` are the exception: they are impure, and k-rust performs them only in committed execution with console state, which the buffered `krs run` does not supply, so they run on Java K and stay unevaluated natively; `io::log(s)` writes a line to standard error on both.
+Stream cells cover console I/O, so these direct hooks are rarely needed.
 
 `kequal::eq` and `kequal::ne` are K's `==K` and `=/=K`: syntactic equality of two terms of any sort, like a derived `PartialEq` on a closed enum of terms.
 They differ from `int::eq` only on symbolic terms.

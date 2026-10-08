@@ -6,6 +6,7 @@
 
 pub mod artifacts;
 pub mod capability;
+mod console;
 mod emit;
 mod error;
 mod lowering;

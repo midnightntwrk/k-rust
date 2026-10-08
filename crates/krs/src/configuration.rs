@@ -67,6 +67,18 @@ impl KCell<KSequence> {
     }
 }
 
+/// Stands in for a ground initializer term such as `1` or `list::empty()`.
+///
+/// KRS checks the term itself, and the paths it names reach rustc through the
+/// collected descriptor; the generated initializer body passes this
+/// placeholder to [`Cell::new`] so the term need not be a Rust value of the
+/// cell's marker type. Collection never executes that initializer.
+#[doc(hidden)]
+#[must_use]
+pub fn __term<T>() -> T {
+    unreachable!("KRS never executes a configuration initializer")
+}
+
 /// Opaque authoring type for a compiler-owned nested-cell term.
 ///
 /// Values are created only by [`crate::fragment!`]. The host type carries

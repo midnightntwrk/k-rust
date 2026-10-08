@@ -39,6 +39,15 @@ pub(super) fn emit_sentence(
     {
         return Ok(());
     }
+    if let DefinitionSentence::Configuration(configuration) = sentence {
+        for (cell, _) in crate::capability::stream_cells(configuration.cells()) {
+            writer.push("  // krs-capability: ");
+            writer.push(crate::capability::CapabilityFeature::ConsoleIO.name());
+            writer.push(" ");
+            writer.push(&cell);
+            writer.push("\n");
+        }
+    }
     let start = writer.source.len();
     writer.push("  ");
     match sentence {
@@ -545,6 +554,17 @@ fn emit_fixed_cell(
                 writer.push(&quoted_kstring(value.as_str()));
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
+            CellAttribute::Stream { origin, value } => {
+                let attribute_start = writer.source.len();
+                writer.push(" stream=");
+                writer.push(&quoted_kstring(value.as_str()));
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
+            CellAttribute::Exit { origin } => {
+                let attribute_start = writer.source.len();
+                writer.push(" exit=\"\"");
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
         }
     }
     writer.push(">");
@@ -937,7 +957,8 @@ fn emit_cell_clause(
                 )?,
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
-                | CellContentFrame::MapRemainder { binding: None, .. } => {}
+                | CellContentFrame::MapRemainder { binding: None, .. }
+                | CellContentFrame::ListRemainder { .. } => {}
             }
             writer.push(" => ");
             writer.append_rendered(render_term(term, context, names, false)?)?;
@@ -986,6 +1007,11 @@ fn emit_single_frame(
             } else {
                 writer.push(" ...");
             }
+            writer.record(origin.key(), frame_start, writer.source.len())?;
+        }
+        CellContentFrame::ListRemainder { origin } => {
+            let frame_start = writer.source.len();
+            writer.push(" ...");
             writer.record(origin.key(), frame_start, writer.source.len())?;
         }
     }

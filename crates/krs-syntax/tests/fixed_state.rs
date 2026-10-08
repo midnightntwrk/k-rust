@@ -53,10 +53,24 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
             },
         ),
         (
-            r#"stream = "stdin""#,
-            SyntaxErrorKind::UnknownArgument {
-                name: "stream".into(),
+            r#"stream = "stderr""#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "K supports stream=\"stdin\" and \"stdout\"",
             },
+        ),
+        (
+            r#"stream = "stdin", stream = "stdout""#,
+            SyntaxErrorKind::DuplicateArgument { name: "stream" },
+        ),
+        (
+            r#"exit = """#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "exit takes no value",
+            },
+        ),
+        (
+            "exit, exit",
+            SyntaxErrorKind::DuplicateArgument { name: "exit" },
         ),
         (
             "color = green",
@@ -172,9 +186,9 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
             },
         ),
         (
-            r#"struct Unknown { #[k::cell(stream = "stdin")] env: Cell<Map> }"#,
+            r#"struct Unknown { #[k::cell(steam = "stdin")] env: Cell<Map> }"#,
             SyntaxErrorKind::UnknownArgument {
-                name: "stream".into(),
+                name: "steam".into(),
             },
         ),
     ] {

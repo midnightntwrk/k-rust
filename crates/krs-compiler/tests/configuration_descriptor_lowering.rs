@@ -9,7 +9,8 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
-    BuiltinSort, CellWrapper, DescriptorCellField, DescriptorCellIdentity, DescriptorCellReference,
+    BuiltinSort, CellStream, CellWrapper, DescriptorCellExit, DescriptorCellField,
+    DescriptorCellIdentity, DescriptorCellReference, DescriptorCellStream,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationReference, DescriptorConfigurationRoot, DescriptorConfigurationRule,
     DescriptorConfigurationVariable, DescriptorFixedConfiguration, DescriptorInitializerCell,
@@ -106,6 +107,8 @@ fn cell_field(
         color: None,
         multiplicity: None,
         cell_type: None,
+        stream: None,
+        exit: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
             wrapper,
@@ -765,5 +768,141 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
             .unwrap_err()
             .to_string()
             .contains(&format!("duplicate stable descriptor {duplicate_id}"))
+    );
+}
+
+/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text.
+fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+    let mut bundle = bundle();
+    let mut descriptors = bundle.descriptors.clone();
+    let configuration = descriptors
+        .iter_mut()
+        .find(|descriptor| {
+            matches!(
+                &descriptor.payload,
+                DescriptorPayload::FixedConfiguration(_)
+            )
+        })
+        .unwrap();
+    let DescriptorPayload::FixedConfiguration(payload) = &mut configuration.payload else {
+        unreachable!();
+    };
+    edit(payload);
+    *configuration = descriptor(configuration.id.clone(), configuration.payload.clone());
+    bundle.descriptors = descriptors;
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
+    assert_eq!(
+        krs_diagnostic::ToDiagnostic::to_diagnostic(&error).code,
+        krs_diagnostic::codes::analysis::CONSOLE_CELL,
+        "{error}"
+    );
+    error.to_string()
+}
+
+fn stream(ordinal: u32, value: CellStream) -> DescriptorCellStream {
+    DescriptorCellStream {
+        key: key(ProvenanceRole::ConfigurationCellStream, ordinal),
+        value,
+    }
+}
+
+fn exit(ordinal: u32) -> DescriptorCellExit {
+    DescriptorCellExit {
+        key: key(ProvenanceRole::ConfigurationCellExit, ordinal),
+    }
+}
+
+fn set_leaf_sort(field: &mut DescriptorCellField, sort: BuiltinSort) {
+    let ProtocolCellContent::Leaf { sort: content, .. } = &mut field.content else {
+        unreachable!();
+    };
+    content.sort = DescriptorSortRef::Builtin(sort);
+}
+
+#[test]
+fn a_stream_cell_must_be_a_list() {
+    let error = console_error(|configuration| {
+        configuration.declaration.fields[1].stream = Some(stream(1, CellStream::Stdin));
+    });
+    assert!(
+        error.contains("stream cell `env` must have sort List"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_computation_cell_cannot_be_a_stream_or_exit_cell() {
+    let error = console_error(|configuration| {
+        configuration.declaration.fields[0].stream = Some(stream(0, CellStream::Stdout));
+    });
+    assert!(
+        error.contains("the computation cell `k` cannot be a stream cell"),
+        "{error}"
+    );
+    let error = console_error(|configuration| {
+        configuration.declaration.fields[0].exit = Some(exit(0));
+    });
+    assert!(
+        error.contains("the computation cell `k` cannot be the exit cell"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_exit_cell_must_be_an_int_outside_every_repeated_cell() {
+    let error = console_error(|configuration| {
+        configuration.declaration.fields[1].exit = Some(exit(1));
+    });
+    assert!(
+        error.contains("exit cell `env` must have sort Int"),
+        "{error}"
+    );
+    let error = console_error(|configuration| {
+        let env = &mut configuration.declaration.fields[1];
+        set_leaf_sort(env, BuiltinSort::Int);
+        env.multiplicity = Some(krs_ir::DescriptorCellMultiplicity {
+            key: key(ProvenanceRole::ConfigurationCellMultiplicity, 1),
+            value: "*".into(),
+        });
+        env.exit = Some(exit(1));
+    });
+    assert!(
+        error.contains("exit cell `env` is inside the repeated cell `env`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn at_most_one_cell_reads_standard_input() {
+    let error = console_error(|configuration| {
+        let owner = configuration.initializer.owner.clone();
+        let mut input = cell_field(&owner, 2, "input", CellWrapper::Cell, BuiltinSort::List);
+        input.stream = Some(stream(2, CellStream::Stdin));
+        let env = &mut configuration.declaration.fields[1];
+        set_leaf_sort(env, BuiltinSort::List);
+        env.stream = Some(stream(1, CellStream::Stdin));
+        configuration
+            .initializer
+            .cells
+            .push(DescriptorInitializerCell {
+                key: key(ProvenanceRole::InitializerCell, 2),
+                field: DescriptorCellReference {
+                    key: key(ProvenanceRole::InitializerField, 2),
+                    cell: input.reference.cell.clone(),
+                },
+                content: ProtocolInitializerCellContent::Leaf {
+                    constructor_key: key(ProvenanceRole::InitializerCellConstructor, 2),
+                    wrapper: CellWrapper::Cell,
+                    value: ProtocolInitializerStateTerm::Term(ProtocolInitializerTerm {
+                        key: key(ProvenanceRole::InitializerTerm, 2),
+                        term: variable(ProvenanceRole::InitializerTermPath, 2, "env"),
+                    }),
+                },
+            });
+        configuration.declaration.fields.push(input);
+    });
+    assert!(
+        error.contains("cells `env` and `input` both declare stream = \"stdin\""),
+        "{error}"
     );
 }

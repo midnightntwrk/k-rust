@@ -7,8 +7,9 @@ use krs_ir::wire::{
     WireCellReference, WirePayload, WireSortReference, WireTypeReference,
 };
 use krs_ir::{
-    CellWrapper, DescriptorCellColor, DescriptorCellMultiplicity, DescriptorCellName,
-    DescriptorCellType, DescriptorConfigurationRoot, ProtocolCellContent,
+    CellWrapper, DescriptorCellColor, DescriptorCellExit, DescriptorCellMultiplicity,
+    DescriptorCellName, DescriptorCellStream, DescriptorCellType, DescriptorConfigurationRoot,
+    ProtocolCellContent,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
@@ -310,6 +311,27 @@ fn configuration_fields(
                 })
             })
             .transpose()?;
+        let stream = field
+            .attribute()
+            .stream()
+            .map(|value| {
+                krs_ir::CellStream::from_k(&value.value())
+                    .map(|stream| DescriptorCellStream {
+                        key: wire_key(ProvenanceRole::ConfigurationCellStream, ordinal),
+                        value: stream,
+                    })
+                    .ok_or_else(|| {
+                        ExpandError::new(
+                            expand::CONFIGURATION_SHAPE,
+                            value.span(),
+                            "K supports stream=\"stdin\" and \"stdout\"",
+                        )
+                    })
+            })
+            .transpose()?;
+        let exit = field.attribute().exit().map(|_| DescriptorCellExit {
+            key: wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
+        });
         let content = configuration_content(
             field.cell_content(),
             index,
@@ -336,6 +358,8 @@ fn configuration_fields(
             color,
             multiplicity,
             cell_type,
+            stream,
+            exit,
             content,
         });
     }

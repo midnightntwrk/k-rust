@@ -120,6 +120,49 @@ pub enum CellAttribute {
         /// Validated collection type.
         value: CellCollectionType,
     },
+    /// K console stream (`stream="stdin"` or `stream="stdout"`).
+    Stream {
+        /// Provenance for the authored attribute value.
+        origin: NodeOrigin,
+        /// The connected standard stream.
+        value: CellStream,
+    },
+    /// The exit cell (`exit=""`): its final Int value is the process exit status.
+    Exit {
+        /// Provenance for the authored flag.
+        origin: NodeOrigin,
+    },
+}
+
+/// Standard streams K connects a stream cell to (K 7.1.337 has no stderr stream cell).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CellStream {
+    /// Standard input, bound to `$STDIN`.
+    Stdin,
+    /// Standard output.
+    Stdout,
+}
+
+impl CellStream {
+    /// Returns the exact K attribute value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stdin => "stdin",
+            Self::Stdout => "stdout",
+        }
+    }
+
+    /// Parses the exact K attribute value.
+    #[must_use]
+    pub fn from_k(value: &str) -> Option<Self> {
+        match value {
+            "stdin" => Some(Self::Stdin),
+            "stdout" => Some(Self::Stdout),
+            _ => None,
+        }
+    }
 }
 
 /// Supported K cell multiplicities.
@@ -192,13 +235,27 @@ impl CellAttribute {
         Self::CollectionType { origin, value }
     }
 
+    /// Creates console-stream metadata.
+    #[must_use]
+    pub const fn stream(origin: NodeOrigin, value: CellStream) -> Self {
+        Self::Stream { origin, value }
+    }
+
+    /// Creates the exit-cell flag.
+    #[must_use]
+    pub const fn exit(origin: NodeOrigin) -> Self {
+        Self::Exit { origin }
+    }
+
     /// Returns provenance for this metadata value.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
         match self {
             Self::Color { origin, .. }
             | Self::Multiplicity { origin, .. }
-            | Self::CollectionType { origin, .. } => origin,
+            | Self::CollectionType { origin, .. }
+            | Self::Stream { origin, .. }
+            | Self::Exit { origin } => origin,
         }
     }
 }
@@ -625,6 +682,14 @@ pub enum CellContentFrame {
         /// Optional binding for the omitted associative map remainder.
         #[serde(skip_serializing_if = "Option::is_none")]
         binding: Option<SemanticId>,
+    },
+    /// Omitted, unbound List tail after the matched front items (K's `...` in a List cell).
+    ///
+    /// The compiler produces it for a read of a `stream = "stdin"` cell, the one shape K's
+    /// stream rules unblock (KF-035).
+    ListRemainder {
+        /// Provenance for the authored list remainder.
+        origin: NodeOrigin,
     },
 }
 

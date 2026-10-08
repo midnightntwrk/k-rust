@@ -3,7 +3,10 @@
 //! (1) Every catalog row names a production the prepared prelude declares, with
 //! the row's hook, signature, and module. (3) One ground application of every
 //! exposed operation evaluates natively; an operation that does not would be
-//! left out of the catalog (exposure policy S3).
+//! left out of the catalog (exposure policy S3). The console hooks `IO.write`
+//! and `IO.putc` are the exception (KF-035): k-rust performs them only in
+//! committed execution with console state, which its request API does not
+//! supply, so they are pinned as unevaluated here.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +26,11 @@ use crate::{
     test_fixtures::smoke_definition,
 };
 
+/// The impure console hooks k-rust's request API leaves unevaluated, because it
+/// supplies no console state (k-rust docs/compatibility.md, "Console IO").
+const CONSOLE_HOOK_LABELS: &[&str] =
+    &["#write(_,_)_K-IO_K_Int_String", "#putc(_,_)_K-IO_K_Int_Int"];
+
 /// Every builtin module the catalog's rows name, imported by the evaluation definition.
 const CATALOG_MODULES: &[&str] = &[
     "BOOL",
@@ -31,6 +39,7 @@ const CATALOG_MODULES: &[&str] = &[
     "FLOAT",
     "INT",
     "K-EQUAL",
+    "K-IO",
     "LIST",
     "MAP",
     "SET",
@@ -412,6 +421,9 @@ fn builtin_arguments(operation: BuiltinOperation) -> Vec<String> {
         Op::FloatRoot => vec![float("2.25"), int(2)],
         Op::FloatMaxValue => vec![int(53), int(11)],
         Op::FloatFromInt => vec![int(5), int(53), int(11)],
+        Op::IoWrite => vec![int(1), string("x")],
+        Op::IoPutc => vec![int(1), int(120)],
+        Op::IoLog => vec![string("x")],
     }
 }
 
@@ -530,6 +542,13 @@ fn one_ground_application_of_every_exposed_operation_evaluates_natively() {
             "{label} is undefined: {rendered}"
         );
         let symbol = format!("\"{}\"", encode_label(label));
+        if CONSOLE_HOOK_LABELS.contains(&label) {
+            assert!(
+                rendered.contains(&symbol),
+                "{label} now evaluates without console state; drop it from CONSOLE_HOOK_LABELS: {rendered}"
+            );
+            continue;
+        }
         // A function evaluates away; a constructor is its own value, and an
         // associative unit or item may remain as the value's structure.
         if functional

@@ -102,15 +102,16 @@ pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
-    CellMultiplicity, CellPost, ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent,
+    CellMultiplicity, CellPost, CellStream, ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, ListOperation,
     MapOperation, SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
-    DescriptorCellDeclarationReference, DescriptorCellField, DescriptorCellIdentity,
-    DescriptorCellMultiplicity, DescriptorCellName, DescriptorCellReference, DescriptorCellType,
+    DescriptorCellDeclarationReference, DescriptorCellExit, DescriptorCellField,
+    DescriptorCellIdentity, DescriptorCellMultiplicity, DescriptorCellName,
+    DescriptorCellReference, DescriptorCellStream, DescriptorCellType,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
     DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorKSequenceNotation,

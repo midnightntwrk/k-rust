@@ -30,7 +30,13 @@ operation, and a corpus of programs that apply them to concrete values:
 - `float-java-only`: a ground FLOAT application and a binary128 token, which
   KRS records as the `GroundFloatFolding` and `FloatPrecisionBeyondBinary64`
   requirements; the native and browser routes refuse the definition before
-  compiling it, and its programs run on Java K's LLVM backend.
+  compiling it, and its programs run on Java K's LLVM backend;
+- `io`: console I/O through `stream` cells and the `exit` cell (KF-035). The
+  program `read; read; print(sum); halt(sum)` with standard input `3\n4\n`
+  (one token per line) prints `7` and exits with status 7, through `krs run`
+  and through Java K's `krun --output none` on the LLVM backend; `krs search`
+  on the definition gives the pinned refusal, and the browser route refuses
+  it with the `ConsoleIO` requirement.
 
 `known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
@@ -59,17 +65,20 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Fixture, FixtureGate, Program  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
+from support.fixture_gate import (  # noqa: E402
+    JAVA_TOOLS, Fixture, FixtureGate, Program, diagnostic_lines,
+)
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
-from support.reference import add_refresh_argument  # noqa: E402
+from support.reference import Key, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
@@ -256,6 +265,11 @@ FLOAT_JAVA_ONLY_PROGRAMS = (
     case("binary128", "belowOne(0.5p113x15)", "true"),
 )
 
+IO = Fixture(MANIFEST, "krs-builtin-io")
+IO_PROGRAM = "read; read; print(sum); halt(sum)"
+IO_STDIN = "3\n4\n"
+IO_EXPECTED = {"stdout": "7", "status": 7}
+
 K_EQUAL = (
     case("if-true", "if (true) 1 else 2", "1"),
     case("if-false", "if (false) 1 else 2", "2"),
@@ -357,6 +371,90 @@ def java_only_floats(harness: FixtureGate) -> None:
     )
 
 
+def console_io(harness: FixtureGate) -> None:
+    """Run the console program natively and on Java K and pin both refusals (KF-035)."""
+
+    harness.check(IO)
+    harness.expand(IO)
+    emitted = harness.emit(IO)
+    symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
+    requirements = sorted(
+        (row["feature"], row["symbol"]) for row in symbols.get("capability_requirements") or ()
+    )
+    if requirements != [("ConsoleIO", "<input>"), ("ConsoleIO", "<output>")]:
+        raise GateError(f"symbols.json records {requirements!r} as the capability requirements")
+    source = emitted.source.read_text(encoding="utf-8")
+    for line in (
+        '<input stream="stdin"> .List </input>',
+        '<output stream="stdout"> .List </output>',
+        '<status exit=""> 1 </status>',
+        "<input> ListItem(I:Int) => .List ... </input>",
+        "// krs-capability: ConsoleIO <input>",
+    ):
+        if line not in source:
+            raise GateError(f"emitted K lacks `{line}`")
+
+    directory = harness.workspace / "console" / IO.package
+    directory.mkdir(parents=True, exist_ok=True)
+    program = directory / "sum.pgm"
+    program.write_text(IO_PROGRAM + "\n", encoding="utf-8")
+    stdin = directory / "stdin.txt"
+    stdin.write_text(IO_STDIN, encoding="utf-8")
+
+    native = subprocess.run(
+        IO.invocation(harness.krs).argv("run", "--output", "none", program),
+        cwd=ROOT, env={**os.environ, **harness.environment}, input=IO_STDIN,
+        text=True, capture_output=True, timeout=900, check=False,
+    )
+    native_outcome = {"stdout": native.stdout, "status": native.returncode}
+
+    k = Snapshot(
+        f"{harness.label}/{IO.package}",
+        Key(tools=JAVA_TOOLS, inputs=repository_inputs([])),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, IO.package),
+    )
+    compiled = harness.workspace / "kompiled" / IO.package
+    kompiled = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--output-definition", compiled,
+        ],
+        timeout=900,
+    )
+    if kompiled.returncode != 0:
+        raise GateError(f"{IO.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
+    executed = k.run(
+        "krun/sum", "krun", ["--definition", compiled, "--output", "none", program],
+        timeout=120, stdin=stdin,
+    )
+    print(f"PASS builtin-domains {IO.package} reference snapshot: {k.finish()}")
+    java_outcome = {"stdout": executed.stdout, "status": executed.returncode}
+    for route, outcome in (("native", native_outcome), ("Java K", java_outcome)):
+        if outcome != IO_EXPECTED:
+            detail = native.stderr if route == "native" else executed.stderr
+            raise GateError(f"{IO.package}: {route} printed {outcome!r}, expected {IO_EXPECTED!r}:\n{detail}")
+    harness.pins.expect(("console_io", IO.package), {"native": native_outcome, "java": java_outcome})
+
+    searched = harness._krs(IO, "search", program, check=False)
+    lines = diagnostic_lines(searched.stderr)
+    if searched.returncode != 1 or not lines:
+        raise GateError(f"{IO.package}: krs search exited {searched.returncode}:\n{searched.stderr}")
+    harness.pins.expect(("diagnostics", "io-search"), lines)
+    try:
+        krs_gate.require_route(harness.gate, emitted.directory, "browser", environment=harness.environment)
+    except GateError as refusal:
+        harness.pins.expect(("capability_refusals", "browser-console-io"), str(refusal))
+    else:
+        raise GateError("the browser route accepted a definition with stream cells")
+    print(
+        f"PASS {IO.package}: stdout {IO_EXPECTED['stdout']!r} and status {IO_EXPECTED['status']} "
+        "natively and on Java K; search and the browser route refuse it"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -394,6 +492,7 @@ def main() -> int:
             )
 
         java_only_floats(harness)
+        console_io(harness)
 
     pins.finish("builtin-domains")
     print("PASS builtin-domains")

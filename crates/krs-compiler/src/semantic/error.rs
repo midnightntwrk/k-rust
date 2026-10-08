@@ -161,6 +161,13 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending declaration.
         range: Option<Box<SourceRange>>,
     },
+    /// A `stream` or `exit` cell does not have the shape K requires (KF-035).
+    InvalidConsoleCell {
+        /// Stable reason naming the cell.
+        reason: String,
+        /// Sole exact authored range of the offending attribute.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -285,6 +292,7 @@ impl fmt::Display for DescriptorLoweringError {
             Self::InvalidTokenSort { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidSyntaxList { reason, .. } => formatter.write_str(reason),
+            Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -327,6 +335,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 LexicalProblem::Undefined => codes::analysis::UNDEFINED_LEXICAL,
                 LexicalProblem::Recursive => codes::analysis::RECURSIVE_LEXICAL,
             },
+            Self::InvalidConsoleCell { .. } => codes::analysis::CONSOLE_CELL,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -346,7 +355,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::AmbiguousCellSort { range, .. }
             | Self::InvalidTokenSort { range, .. }
             | Self::InvalidSyntaxList { range, .. }
-            | Self::InvalidLexical { range, .. } => range
+            | Self::InvalidLexical { range, .. }
+            | Self::InvalidConsoleCell { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

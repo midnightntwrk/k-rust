@@ -11,7 +11,8 @@
     "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
     "krs-builtin-floats": "fe622b692165af7ea32128770c9bb8eb164d7bd50fb91247a2addac004821bdd",
-    "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd"
+    "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
+    "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -46,6 +47,9 @@
     },
     "krs-builtin-float-java-only": {
       "definition.k": "0e30d56cd5343e9455d388e8214940ad127bfdcbf9ea8af0e6d5cd314c0ee694"
+    },
+    "krs-builtin-io": {
+      "definition.k": "1b13c02023a891dabab55637c6dfaf74e43aaf61aef6748be13dd4200571d367"
     }
   },
   "reference_sha256": {
@@ -59,7 +63,8 @@
     "krs-builtin-strings": "b792cc9d0a0f4f56467f329167aecce08a1235a7d2c48febb68bd934a960f4dd",
     "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
     "krs-builtin-floats": "e48c2a4aa1f420331f22b4b8496eef9c19c2989d1b14734e6e37e923de0fc851",
-    "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5"
+    "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
+    "krs-builtin-io": "b98c7a3a7b80f04b4f4b6d14d49cf1d8d044269baea4c1c326e8729be87cb0e7"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -782,6 +787,24 @@
   "capability_refusals": {
     "native-rust": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
     "native-llvm": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
-    "browser": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend"
+    "browser": "error[krs::capability::unavailable]: definition contains Float applications to tokens only [krsRule_8d7ad7040ff53b7b168e477e]; the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal\nerror[krs::capability::unavailable]: definition contains Float formats other than f32 and f64 [krsRule_d2e439218ef318f8aabab0b7]; k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
+    "browser-console-io": "error[krs::capability::unavailable]: definition contains console input or output [<input>, <output>]; the browser route has no standard input or output; run it with `krs run` or Java K's krun"
+  },
+  "console_io": {
+    "krs-builtin-io": {
+      "native": {
+        "stdout": "7",
+        "status": 7
+      },
+      "java": {
+        "stdout": "7",
+        "status": 7
+      }
+    }
+  },
+  "diagnostics": {
+    "io-search": [
+      "error[krs::exec::streams]: krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)"
+    ]
   }
 }

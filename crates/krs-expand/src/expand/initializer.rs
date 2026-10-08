@@ -207,7 +207,11 @@ fn inject_initializer_cell_list(
                 inferred_constructor: true,
                 ..
             } => {
-                let value = field.expr.clone();
+                let value = if is_ground_initializer_term(&field.expr) {
+                    parse_quote!(#facade::configuration::__term())
+                } else {
+                    field.expr.clone()
+                };
                 field.expr = if *computation {
                     parse_quote!(#facade::configuration::KCell::new(#value))
                 } else {
@@ -218,7 +222,14 @@ fn inject_initializer_cell_list(
             InitializerCellContent::Leaf {
                 inferred_constructor: false,
                 ..
-            } => {}
+            } => {
+                if let syn::Expr::Call(call) = &mut field.expr
+                    && let Some(argument) = call.args.first_mut()
+                    && is_ground_initializer_term(argument)
+                {
+                    *argument = parse_quote!(#facade::configuration::__term());
+                }
+            }
             InitializerCellContent::Nested { children, .. } => {
                 let syn::Expr::Struct(nested) = &mut field.expr else {
                     return Err(ExpandError::new(
@@ -232,6 +243,15 @@ fn inject_initializer_cell_list(
         }
     }
     Ok(())
+}
+
+/// A literal or call term (`1`, `-1`, `list::empty()`), which is not a Rust value of the cell's
+/// marker type; a binding path and a state macro are.
+fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
+    matches!(
+        expression,
+        syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
+    )
 }
 
 fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {

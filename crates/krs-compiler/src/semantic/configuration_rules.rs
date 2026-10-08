@@ -14,6 +14,7 @@ use krs_ir_levels::{
 use krs_syntax::ProvenanceRole;
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
 use super::infer::{StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
@@ -243,6 +244,11 @@ pub(super) fn lower_configuration_rule_descriptor(
     };
     let clauses =
         lower_configuration_rule_clauses(&mut terms, rule, &subject_sorts, &result_sorts)?;
+    // A claim keeps its stream cells as ordinary List cells: `prove` performs no console I/O.
+    if rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Claim {
+        let stdin = stdin_cells(&configuration.declaration, declarations)?;
+        check_stdin_reads(&clauses, &stdin)?;
+    }
 
     let selected = rule
         .subject

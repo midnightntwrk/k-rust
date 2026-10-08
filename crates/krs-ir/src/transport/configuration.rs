@@ -194,6 +194,24 @@ pub struct DescriptorCellType {
     pub value: DescriptorCellCollectionType,
 }
 
+/// Optional K console stream of a fixed cell (`stream = "stdin"` or `"stdout"`).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellStream {
+    /// Exact string-literal provenance.
+    pub key: ProvenanceKey,
+    /// The standard stream the cell is connected to.
+    pub value: crate::CellStream,
+}
+
+/// Optional bare `exit` flag of a fixed cell.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellExit {
+    /// Exact flag-identifier provenance.
+    pub key: ProvenanceKey,
+}
+
 /// Plain string wire shape for the repeated-cell collection attribute.
 #[doc(hidden)]
 #[derive(Deserialize)]
@@ -264,10 +282,16 @@ protocol_shape! {
         pub multiplicity: Option<DescriptorCellMultiplicity> => [keep],
         /// Optional repeated-cell collection type.
         pub cell_type: Option<DescriptorCellType> => [keep],
+        /// Optional console stream; absent for an ordinary cell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub stream: Option<DescriptorCellStream> => [keep],
+        /// Optional exit flag; absent for an ordinary cell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub exit: Option<DescriptorCellExit> => [keep],
         /// Typed leaf or nested content.
         pub content: ProtocolCellContent<S, N> => [nested sort_map nominal_map],
     }
-    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type];
+    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type, stream, exit];
 }
 
 /// Stable fixed-cell field.
@@ -1302,6 +1326,22 @@ fn validate_cell_metadata<I, S, N>(
             keys,
             &cell_type.key,
             ProvenanceRole::ConfigurationCellType,
+            ordinal,
+        )?;
+    }
+    if let Some(stream) = &field.stream {
+        insert_exact(
+            keys,
+            &stream.key,
+            ProvenanceRole::ConfigurationCellStream,
+            ordinal,
+        )?;
+    }
+    if let Some(exit) = &field.exit {
+        insert_exact(
+            keys,
+            &exit.key,
+            ProvenanceRole::ConfigurationCellExit,
             ordinal,
         )?;
     }

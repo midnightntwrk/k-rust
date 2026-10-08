@@ -819,6 +819,7 @@ class Snapshot:
         outputs: Sequence[Path | Output] = (),
         prefix: Sequence[str] = (),
         streams: Mapping[str, Callable[[str], str]] | None = None,
+        stdin: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run or replay one K tool invocation and return its completed process.
 
@@ -828,6 +829,8 @@ class Snapshot:
         `prefix` names a wrapper command (such as `timeout`) and its options;
         its first element is resolved on PATH only in a live run.
         `streams` maps `stdout` or `stderr` to a reducer applied before storing.
+        `stdin` names a file fed to the tool's standard input; its digest is an
+        input of the invocation, recorded under `<stdin>`.
         """
 
         if not _LABEL.match(label):
@@ -843,6 +846,8 @@ class Snapshot:
         resolved = [os.fspath(argument) for argument in arguments]
         argv = self._normalize_argv([*prefix, tool, *resolved])
         inputs = self._input_digests(resolved, declared)
+        if stdin is not None:
+            inputs["<stdin>"] = sha256_file(stdin)
         with self._lock:
             # The label is reserved before a live run starts, so two
             # concurrent runs cannot both record under it.
@@ -852,7 +857,10 @@ class Snapshot:
         if not self.live:
             return self._replay(label, argv, inputs, [output.path for output in declared])
         executable = self._live_executables()[tool]
-        return self._run_live(label, executable, resolved, argv, inputs, timeout, declared, prefix, reducers)
+        return self._run_live(
+            label, executable, resolved, argv, inputs, timeout, declared, prefix, reducers,
+            stdin=stdin,
+        )
 
     def _run_live(
         self,
@@ -865,6 +873,8 @@ class Snapshot:
         outputs: Sequence[Output],
         prefix: Sequence[str],
         reducers: Mapping[str, Callable[[str], str]],
+        *,
+        stdin: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         command = list(prefix)
         if command:
@@ -873,7 +883,10 @@ class Snapshot:
                 raise GateError(f"the wrapper command {command[0]} is unavailable")
             command[0] = wrapper
         command = [*command, executable, *resolved]
-        process = run(command, timeout=timeout, check=False)
+        process = run(
+            command, timeout=timeout, check=False,
+            input=stdin.read_text(encoding="utf-8") if stdin is not None else None,
+        )
         stored_outputs = {}
         for output in outputs:
             source = output.locate() if output.locate is not None else output.path

@@ -16,6 +16,7 @@ use krs_ir_levels::{
 use krs_syntax::ProvenanceRole;
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
 use super::infer::{StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
@@ -303,6 +304,11 @@ pub(super) fn lower_head_rule_descriptor(
         &selected,
     )?;
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
+    // A claim keeps its stream cells as ordinary List cells: `prove` performs no console I/O.
+    if rule.sentence_kind != krs_ir::SentenceKind::Claim {
+        let stdin = stdin_cells(&configuration.declaration, declarations)?;
+        check_stdin_reads(&clauses, &stdin)?;
+    }
     let body = FixedConfigurationRewrite::new(
         semantic_origin(
             descriptor,

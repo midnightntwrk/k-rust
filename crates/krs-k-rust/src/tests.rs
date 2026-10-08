@@ -218,6 +218,21 @@ fn the_route_table_runs_ground_and_wide_floats_only_on_java_k() {
 }
 
 #[test]
+fn the_route_table_refuses_console_io_only_in_the_browser() {
+    for route in crate::Route::ALL {
+        assert_eq!(
+            matches!(
+                crate::route_capability("ConsoleIO", route),
+                CapabilityAvailability::Unavailable(_)
+            ),
+            route == crate::Route::Browser,
+            "ConsoleIO on {}",
+            route.name()
+        );
+    }
+}
+
+#[test]
 fn the_route_table_refuses_anywhere_rules_only_on_the_java_haskell_reference() {
     for route in crate::Route::ALL {
         assert_eq!(crate::Route::from_name(route.name()), Some(route));

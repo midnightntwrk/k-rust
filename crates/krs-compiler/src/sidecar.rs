@@ -602,7 +602,8 @@ impl SourceMap {
                             )?;
                             insert_term(&mut entries, cell.pattern())?;
                             if let CellContentFrame::KSequenceTail { origin, .. }
-                            | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
+                            | CellContentFrame::MapRemainder { origin, .. }
+                            | CellContentFrame::ListRemainder { origin } = cell.frame()
                             {
                                 insert_origin(&mut entries, origin, SourceMapNodeKind::CellFrame)?;
                             }
@@ -793,7 +794,9 @@ fn insert_fixed_configuration(
                 match attribute {
                     CellAttribute::Color { origin, .. }
                     | CellAttribute::Multiplicity { origin, .. }
-                    | CellAttribute::CollectionType { origin, .. } => {
+                    | CellAttribute::CollectionType { origin, .. }
+                    | CellAttribute::Stream { origin, .. }
+                    | CellAttribute::Exit { origin } => {
                         insert_origin(entries, origin, SourceMapNodeKind::CellAttribute)?;
                     }
                 }
@@ -864,7 +867,8 @@ fn insert_rule_body(
                 match clause.frame() {
                     CellContentFrame::Exact => {}
                     CellContentFrame::KSequenceTail { origin, .. }
-                    | CellContentFrame::MapRemainder { origin, .. } => {
+                    | CellContentFrame::MapRemainder { origin, .. }
+                    | CellContentFrame::ListRemainder { origin } => {
                         insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
                     }
                 }

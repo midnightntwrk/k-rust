@@ -516,7 +516,8 @@ pub(crate) fn validate_context_alias<L: Validation>(
             nodes,
         )?;
         if let CellContentFrame::KSequenceTail { origin, .. }
-        | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
+        | CellContentFrame::MapRemainder { origin, .. }
+        | CellContentFrame::ListRemainder { origin } = cell.frame()
         {
             insert_node::<L>(nodes, origin.key())?;
         }
@@ -543,11 +544,12 @@ pub(crate) fn validate_context_alias_frames<L: Validation>(
         let (binding, required_sort) = match cell.frame() {
             CellContentFrame::Exact => continue,
             CellContentFrame::KSequenceTail { binding, .. } => {
-                (binding, L::builtin_sort(BuiltinSort::KSequence))
+                (binding.as_ref(), L::builtin_sort(BuiltinSort::KSequence))
             }
             CellContentFrame::MapRemainder { binding, .. } => {
-                (binding, L::builtin_sort(BuiltinSort::Map))
+                (binding.as_ref(), L::builtin_sort(BuiltinSort::Map))
             }
+            CellContentFrame::ListRemainder { .. } => (None, L::builtin_sort(BuiltinSort::List)),
         };
         if leaf_sorts.get(cell.cell()) != Some(&required_sort) {
             return Err(L::error(ValidationError::ContextAliasFrameSortMismatch));
@@ -575,11 +577,16 @@ pub(crate) fn validate_cell_frame<L: Validation>(
 ) -> Result<(), L::Error> {
     let (origin, binding, required_sort) = match clause.frame() {
         CellContentFrame::Exact => return Ok(()),
-        CellContentFrame::KSequenceTail { origin, binding } => {
-            (origin, binding, L::builtin_sort(BuiltinSort::KSequence))
-        }
+        CellContentFrame::KSequenceTail { origin, binding } => (
+            origin,
+            binding.as_ref(),
+            L::builtin_sort(BuiltinSort::KSequence),
+        ),
         CellContentFrame::MapRemainder { origin, binding } => {
-            (origin, binding, L::builtin_sort(BuiltinSort::Map))
+            (origin, binding.as_ref(), L::builtin_sort(BuiltinSort::Map))
+        }
+        CellContentFrame::ListRemainder { origin } => {
+            (origin, None, L::builtin_sort(BuiltinSort::List))
         }
     };
     insert_node::<L>(nodes, origin.key())?;
@@ -800,7 +807,7 @@ pub(crate) fn validate_rule<L: Validation>(
                     collect_term_variables::<L>(term, &mut used);
                 }
                 match clause.frame() {
-                    CellContentFrame::Exact => {}
+                    CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
                     CellContentFrame::KSequenceTail { binding, .. }
                     | CellContentFrame::MapRemainder { binding, .. } => {
                         if let Some(binding) = binding {
@@ -870,7 +877,7 @@ pub(crate) fn validate_claim<L: Validation>(
             collect_term_variables::<L>(term, &mut right_uses);
         }
         match clause.frame() {
-            CellContentFrame::Exact => {}
+            CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
             CellContentFrame::KSequenceTail { binding, .. }
             | CellContentFrame::MapRemainder { binding, .. } => {
                 if let Some(binding) = binding {

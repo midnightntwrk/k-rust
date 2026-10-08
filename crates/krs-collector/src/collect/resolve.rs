@@ -1097,6 +1097,8 @@ mod tests {
             color: None,
             multiplicity: None,
             cell_type: None,
+            stream: None,
+            exit: None,
             content: krs_ir::ProtocolCellContent::Leaf {
                 wrapper_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 1),
                 wrapper: krs_ir::CellWrapper::Cell,

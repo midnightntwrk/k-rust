@@ -1942,6 +1942,48 @@ macro_rules! __krs_builtin_operation_catalog {
                 result_sort: Int,
                 functional: true
             }
+            /// `#write(fd, value)` (`IO.write`): writes a string to a file descriptor
+            /// and evaluates to `.K`; impure, so only a committed rewrite performs it.
+            IoWrite {
+                rust_module: io,
+                rust_name: write,
+                description: "write a string to a file descriptor",
+                k_label: "#write(_,_)_K-IO_K_Int_String",
+                k_hook: Some("IO.write"),
+                k_module: "K-IO",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "#write" },
+                argument_sorts: [Int, String],
+                result_sort: K,
+                functional: true
+            }
+            /// `#putc(fd, value)` (`IO.putc`): writes one byte to a file descriptor
+            /// and evaluates to `.K`.
+            IoPutc {
+                rust_module: io,
+                rust_name: putc,
+                description: "write one byte to a file descriptor",
+                k_label: "#putc(_,_)_K-IO_K_Int_Int",
+                k_hook: Some("IO.putc"),
+                k_module: "K-IO",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "#putc" },
+                argument_sorts: [Int, Int],
+                result_sort: K,
+                functional: true
+            }
+            /// `#log(value)` (`IO.logString`): writes a line to the backend's log
+            /// (k-rust prints it to standard error) and evaluates to `.K`.
+            IoLog {
+                rust_module: io,
+                rust_name: log,
+                description: "log a string",
+                k_label: "#log",
+                k_hook: Some("IO.logString"),
+                k_module: "K-IO",
+                k_notation: $crate::BuiltinOperationNotation::Call { name: "#log" },
+                argument_sorts: [String],
+                result_sort: K,
+                functional: true
+            }
         }
     };
 }

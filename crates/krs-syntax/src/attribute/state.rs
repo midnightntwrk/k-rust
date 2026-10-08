@@ -62,6 +62,8 @@ pub struct CellAttributePayload {
     multiplicity: Option<LitStr>,
     cell_type: Option<LitStr>,
     nested: bool,
+    stream: Option<LitStr>,
+    exit: Option<Ident>,
 }
 
 impl CellAttributePayload {
@@ -95,13 +97,25 @@ impl CellAttributePayload {
         self.nested
     }
 
-    /// Returns exact value anchors in stable name, color, multiplicity, type order.
+    /// Optional K console stream, `"stdin"` or `"stdout"`.
+    #[must_use]
+    pub const fn stream(&self) -> Option<&LitStr> {
+        self.stream.as_ref()
+    }
+
+    /// The bare `exit` flag, when the cell's final Int value is the process exit status.
+    #[must_use]
+    pub const fn exit(&self) -> Option<&Ident> {
+        self.exit.as_ref()
+    }
+
+    /// Returns exact value anchors in stable name, color, multiplicity, type, stream, exit order.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if an authored literal has no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(4);
+        let mut anchors = Vec::with_capacity(6);
         if let Some(name) = &self.name {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConfigurationCellName,
@@ -128,6 +142,20 @@ impl CellAttributePayload {
                 ProvenanceRole::ConfigurationCellType,
                 0,
                 TokenRange::for_tokens(cell_type)?,
+            ));
+        }
+        if let Some(stream) = &self.stream {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConfigurationCellStream,
+                0,
+                TokenRange::for_tokens(stream)?,
+            ));
+        }
+        if let Some(exit) = &self.exit {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConfigurationCellExit,
+                0,
+                TokenRange::for_tokens(exit)?,
             ));
         }
         Ok(anchors)
@@ -243,9 +271,35 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
     let mut multiplicity = None;
     let mut cell_type = None;
     let mut nested = false;
+    let mut stream = None;
+    let mut exit = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
+        if key_name == "exit" {
+            if exit.is_some() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "exit" },
+                    key.span(),
+                )
+                .into());
+            }
+            if input.peek(Token![=]) {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidCellAttribute {
+                        reason: "exit takes no value",
+                    },
+                    input.parse::<Token![=]>()?.span,
+                )
+                .into());
+            }
+            exit = Some(key);
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
         if key_name == "nested" {
             if nested {
                 return Err(SyntaxError::new(
@@ -266,6 +320,7 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
             "color" => (&mut color, "color"),
             "multiplicity" => (&mut multiplicity, "multiplicity"),
             "cell_type" => (&mut cell_type, "cell_type"),
+            "stream" => (&mut stream, "stream"),
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -334,11 +389,24 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
         )
         .into());
     }
+    if let Some(value) = &stream
+        && !matches!(value.value().as_str(), "stdin" | "stdout")
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "K supports stream=\"stdin\" and \"stdout\"",
+            },
+            value.span(),
+        )
+        .into());
+    }
     Ok(CellAttributePayload {
         name,
         color,
         multiplicity,
         cell_type,
         nested,
+        stream,
+        exit,
     })
 }

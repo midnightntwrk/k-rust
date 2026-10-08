@@ -969,3 +969,32 @@ pub mod float {
     pub use ToInt as to_int;
     pub use Trunc as trunc;
 }
+
+/// Console operations from K's pinned `K-IO` module.
+///
+/// I/O in K is configuration state: declare a `#[k::cell(stream = "stdin")]`
+/// and a `#[k::cell(stream = "stdout")]` List cell, read by consuming items from
+/// the front of the input cell, and print by appending items to the output
+/// cell; K adds the rules that connect them to the process. These direct hooks
+/// are rarely needed. Each evaluates to `.K`, is impure, and acts only when a
+/// rewrite that contains it is committed.
+pub mod io {
+    use super::int::Int;
+    use super::string::String;
+
+    /// Marker for `#write(fd, value)`, writing a string to file descriptor `fd`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Write(pub Int, pub String);
+
+    /// Marker for `#putc(fd, value)`, writing the byte `value` to file descriptor `fd`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Putc(pub Int, pub Int);
+
+    /// Marker for `#log(value)`, writing a line to the backend's log.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct Log(pub String);
+
+    pub use Log as log;
+    pub use Putc as putc;
+    pub use Write as write;
+}

@@ -11,7 +11,10 @@
 //! Features are appended at the tail of [`CapabilityFeature`] and of the
 //! derivation in [`sentence_features`].
 
-use krs_ir::{ApplicationRef, BuiltinOperation, BuiltinSort, CellPost, SourceMapKey};
+use krs_ir::{
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellPost, FixedCell,
+    FixedCellContent, SourceMapKey,
+};
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
     RuleBodyRef, RuleSentence,
@@ -30,6 +33,8 @@ pub enum CapabilityFeature {
     /// A Float token, or a `round`, `max_value`, or `from_int` format argument
     /// pair, whose precision is neither binary32 (`p24x8`) nor binary64 (`p53x11`).
     FloatPrecisionBeyondBinary64,
+    /// A `stream` cell or an `io::` operation: console input and output.
+    ConsoleIO,
 }
 
 impl CapabilityFeature {
@@ -38,6 +43,7 @@ impl CapabilityFeature {
         Self::AnywhereRule,
         Self::GroundFloatFolding,
         Self::FloatPrecisionBeyondBinary64,
+        Self::ConsoleIO,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -47,6 +53,7 @@ impl CapabilityFeature {
             Self::AnywhereRule => "AnywhereRule",
             Self::GroundFloatFolding => "GroundFloatFolding",
             Self::FloatPrecisionBeyondBinary64 => "FloatPrecisionBeyondBinary64",
+            Self::ConsoleIO => "ConsoleIO",
         }
     }
 
@@ -57,6 +64,7 @@ impl CapabilityFeature {
             Self::AnywhereRule => "anywhere rules",
             Self::GroundFloatFolding => "Float applications to tokens only",
             Self::FloatPrecisionBeyondBinary64 => "Float formats other than f32 and f64",
+            Self::ConsoleIO => "console input or output",
         }
     }
 }
@@ -98,7 +106,7 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     if sentence.anywhere().is_some() {
         features.push(CapabilityFeature::AnywhereRule);
     }
-    let mut floats = FloatUse::default();
+    let mut floats = TermUse::default();
     for term in sentence_terms(sentence) {
         floats.term(term);
     }
@@ -107,6 +115,9 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     }
     if floats.beyond_binary64 {
         features.push(CapabilityFeature::FloatPrecisionBeyondBinary64);
+    }
+    if floats.console {
+        features.push(CapabilityFeature::ConsoleIO);
     }
     features
 }
@@ -144,14 +155,15 @@ fn token(term: &DefinitionTerm) -> Option<&str> {
     }
 }
 
-/// The Float capabilities one sentence's terms need.
+/// The Float and console capabilities one sentence's terms need.
 #[derive(Default)]
-struct FloatUse {
+struct TermUse {
     ground: bool,
     beyond_binary64: bool,
+    console: bool,
 }
 
-impl FloatUse {
+impl TermUse {
     fn term(&mut self, term: &DefinitionTerm) {
         match term.kind() {
             DefinitionTermKind::Variable { .. } => {}
@@ -207,6 +219,9 @@ impl FloatUse {
     }
 
     fn operation(&mut self, operation: BuiltinOperation, arguments: &[DefinitionTerm]) {
+        if operation.spec().k_module == "K-IO" {
+            self.console = true;
+        }
         // k-rust folds every hooked application whose arguments are all tokens
         // (`constant_folding.rs`); its FLOAT hooks need the MPFR build.
         if operation
@@ -237,6 +252,15 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
     let mut requirements = Vec::new();
     for module in definition.modules() {
         for sentence in module.sentences() {
+            if let DefinitionSentence::Configuration(configuration) = sentence {
+                for (name, origin) in stream_cells(configuration.cells()) {
+                    requirements.push(CapabilityRequirement {
+                        feature: CapabilityFeature::ConsoleIO,
+                        symbol: name,
+                        origin,
+                    });
+                }
+            }
             let DefinitionSentence::Rule(rule) = sentence else {
                 continue;
             };
@@ -251,6 +275,23 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
     }
     requirements.sort();
     requirements
+}
+
+/// The `stream` cells of a configuration, by emitted name, with their attribute origins.
+#[must_use]
+pub fn stream_cells<S, C>(cells: &[FixedCell<S, C>]) -> Vec<(String, SourceMapKey)> {
+    let mut streams = Vec::new();
+    for cell in cells {
+        for attribute in cell.attributes() {
+            if let CellAttribute::Stream { origin, .. } = attribute {
+                streams.push((format!("<{}>", cell.name()), origin.key().clone()));
+            }
+        }
+        if let FixedCellContent::Children { children } = cell.content() {
+            streams.extend(stream_cells(children));
+        }
+    }
+    streams
 }
 
 /// The refusal text for a route that lacks `feature`, naming the sentences that need it.
@@ -277,7 +318,7 @@ mod tests {
     use krs_ir::{BuiltinOperation, BuiltinSort, NodeOrigin};
     use krs_ir_levels::{DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm};
 
-    use super::FloatUse;
+    use super::TermUse;
 
     fn node(key: &str) -> NodeOrigin {
         krs_ir::testing::origin_in(
@@ -313,7 +354,7 @@ mod tests {
     }
 
     fn uses(term: &DefinitionTerm) -> (bool, bool) {
-        let mut floats = FloatUse::default();
+        let mut floats = TermUse::default();
         floats.term(term);
         (floats.ground, floats.beyond_binary64)
     }
@@ -368,5 +409,24 @@ mod tests {
             vec![variable(BuiltinSort::Int), int("11"), int("53")],
         );
         assert_eq!(uses(&from_int), (false, true));
+    }
+
+    #[test]
+    fn io_operations_need_console_io() {
+        let write = DefinitionTerm::application(
+            node("application"),
+            DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+            DefinitionApplicationRef::Builtin(BuiltinOperation::IoWrite),
+            vec![
+                token(BuiltinSort::Int, "2"),
+                token(BuiltinSort::String, "\"warn\""),
+            ],
+        );
+        let mut console = TermUse::default();
+        console.term(&write);
+        assert!(console.console);
+        let mut pure = TermUse::default();
+        pure.term(&variable(BuiltinSort::Int));
+        assert!(!pure.console);
     }
 }

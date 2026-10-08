@@ -768,6 +768,29 @@ fn parse_initializer_cell(
     field: syn::FieldValue,
     name: Ident,
 ) -> Result<FixedCellInitializer, SyntaxError> {
+    // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
+    // `list::empty()`), is a readable plain term, as a path is. A bare call stays a host call.
+    let readable_term = match &field.expr {
+        Expr::Lit(_) | Expr::Unary(_) => true,
+        Expr::Call(ExprCall { func, .. }) => {
+            !is_cell_constructor(func)
+                && matches!(&**func, Expr::Path(ExprPath { path, .. }) if path.segments.len() > 1)
+        }
+        _ => false,
+    };
+    if readable_term {
+        let content = InitializerCellContent::Leaf {
+            constructor: inferred_constructor_path(false, field.expr.span()),
+            value: StateTerm::Term(TermExpression::parse_tokens(field.expr.to_token_stream())?),
+            computation: false,
+            inferred_constructor: true,
+        };
+        return Ok(FixedCellInitializer {
+            field,
+            name,
+            content,
+        });
+    }
     let content = match &field.expr {
         Expr::Call(ExprCall {
             attrs, func, args, ..
@@ -896,6 +919,19 @@ fn parse_initializer_cell(
         name,
         content,
     })
+}
+
+/// Whether `func` names a cell constructor, `Cell::new` or `KCell::new` under any prefix.
+fn is_cell_constructor(func: &Expr) -> bool {
+    let Expr::Path(ExprPath { path, .. }) = func else {
+        return false;
+    };
+    let mut reversed = path.segments.iter().rev();
+    matches!(
+        (reversed.next(), reversed.next()),
+        (Some(method), Some(wrapper))
+            if method.ident == "new" && (wrapper.ident == "Cell" || wrapper.ident == "KCell")
+    )
 }
 
 fn parse_initializer_state_term(

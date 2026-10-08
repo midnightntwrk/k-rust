@@ -188,6 +188,8 @@ fn field(
         }),
         multiplicity: None,
         cell_type: None,
+        stream: None,
+        exit: None,
         content,
     }
 }
