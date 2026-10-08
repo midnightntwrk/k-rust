@@ -8993,6 +8993,64 @@ fn kcompile_names_a_pair_of_anywhere_rules_that_does_not_join_at_its_first_rule(
     );
 }
 
+const SEVERAL_MATCHES: &str = r#"
+module SM
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= pick(Map) [function] | m(Int) | w(Int)
+  rule [pick-any]: pick((K |-> _) _) => m(K)
+  rule [w-one]: w(1) => m(1) [anywhere]
+endmodule
+"#;
+
+/// `pick((K |-> _) _) => m(K)` matches `(1 |-> a) (2 |-> b)` with `K = 1` and with `K = 2`, so
+/// the one equation gives two steps from one term, `m(1)` and `m(2)`: its pair with itself does
+/// not join, and it withdraws the claims of the equation head `w`, whose values the map's values
+/// can be. The equation was checked, so `krun` and `kcompile` name it as paired with itself and
+/// say why, not as an equation the check skipped.
+#[test]
+fn an_equation_whose_map_pattern_matches_in_several_ways_is_named_as_paired_with_itself() {
+    let (root, definition) = fixture();
+    fs::write(&definition, SEVERAL_MATCHES).unwrap();
+    let options = ["--main-module", "SM", "--syntax-module", "SM"];
+    let compiled = root.join("compiled");
+    let compilation = kcompile_for_krun(&definition, &options, &compiled);
+    let expected = format!(
+        "the equation SM.pick-any at {}:6:3 paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for w(_)_SM_Pgm_Int",
+        definition.display()
+    );
+
+    let compile_stderr = String::from_utf8(compilation.stderr).unwrap();
+    let diagnostics = compile_stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics,
+        [format!(
+            "{}:6:3: Warning[UnjoinedCriticalPair]: {expected}",
+            definition.display()
+        )],
+        "{compile_stderr}"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", "--definition"])
+        .arg(&compiled)
+        .args(["-s", "Pgm", "--io", "off", "-e", "w(2)"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("SM.pick-any"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings, [format!("warning: {expected}")], "{stderr}");
+    assert!(!stderr.contains("is not checked"), "{stderr}");
+}
+
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
 /// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still

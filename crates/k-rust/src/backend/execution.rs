@@ -25,6 +25,7 @@ use std::{
 
 use k_rust_backend::{
     builtin::BuiltinEffect,
+    confluence::{UnjoinedReason, UnresolvedShape},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     externalize::{self, External},
@@ -255,7 +256,10 @@ pub struct ValueClaimFinding {
 /// constructor and overload preconditions the definition violates, and one per pair of
 /// executable equations that does not provably join and withdraws a value claim, naming both
 /// equations with their written positions, the overlapped term, why the check does not join
-/// it, and the equation heads that get no value claim.
+/// it, and the equation heads that get no value claim. An equation the check does not pair
+/// (`ComputedBelowRoot`, `UnboundResultVariables`) is named as not checked; an equation paired
+/// with itself because its map or set pattern matches one subject in several ways
+/// (`SeveralMatches`) is named as that pair.
 pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
     /// The characters of the overlapped term a warning prints before it cuts it short.
     const OVERLAP_CHARACTERS: usize = 240;
@@ -305,7 +309,22 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
         })
         .collect::<Vec<_>>();
     for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
-        if std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none() {
+        let alone = std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none();
+        if alone && pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches) {
+            // The equation was checked: two matchings of its left-hand side against one subject
+            // are two steps from one term, and that self pair is what does not join.
+            findings.push(located(
+                &pair.first,
+                format!(
+                    "the equation {} paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for {}",
+                    equation(&pair.first),
+                    withdrawn_heads(&pair.withdrawn)
+                ),
+                false,
+            ));
+            continue;
+        }
+        if alone {
             findings.push(located(
                 &pair.first,
                 format!(
