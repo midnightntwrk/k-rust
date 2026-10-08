@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise p unifications of at most b branch states each, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise, for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -30,26 +30,32 @@
 //!    injection, or indexed at a collection kind or a bare variable; overload equations of the
 //!    shape `g(inj(x1), ..., inj(xn)) = inj(h(x1, ..., xn))`; a unique least common overload for
 //!    any two members of a family with a common upper bound), one lookup per equation or family;
-//! 2. stage 1: the root pairs of the equations rooted at the members of each overload family,
+//! 2. self pairs: an equation whose left-hand side may match one subject in several ways (a map
+//!    or set pattern with a key or element the rest of the left-hand side does not fix,
+//!    `undetermined_variables`) is a root pair with itself; it joins when its right-hand side
+//!    and `ensures` read only variables every matching binds alike, and is otherwise reported
+//!    (`UnresolvedShape::SeveralMatches`);
+//! 3. stage 1: the root pairs of the equations rooted at the members of each overload family,
 //!    unified without the overload axioms (complete without any premise, since an overload
 //!    left-hand side holds only injections of variables below its root). A family all of whose
 //!    stage-1 pairs join is confluent: lowering terminates (it descends in the finite overload
 //!    order) and is locally confluent, so every term has one lowest form;
-//! 3. stage 2: every other root pair (two equations at one index and priority) and every inner
+//! 4. stage 2: every other root pair (two equations at one index and priority) and every inner
 //!    pair (an equation `e1`, a non-variable position `q` strictly below the root of its
 //!    left-hand side, and an equation `e2` offered at the head of `l1|q`, at a member of its
 //!    overload family, or at a bare variable), unified over normal-form instances with the
 //!    overload axioms of confluent families (`unify.rs`);
-//! 4. each overlap is separated by priority (a root pair of different priority groups), refuted
+//! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
 //!    joined;
-//! 5. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
+//! 6. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
 //!    applications get no claim.
 //!
 //! Root pairs give uniqueness of normal forms: two innermost steps at one position both apply to
 //! one subject whose arguments are normal forms, so their substitutions are an instance of a
-//! root unifier. Inner pairs make `M_NF` satisfy each equation at the valuations where one of its
+//! root unifier when the equations differ, and differ only on undetermined variables when they
+//! are one equation (matching modulo the map and set axioms is not unitary). Inner pairs make `M_NF` satisfy each equation at the valuations where one of its
 //! subpatterns reduces. Variable positions need no pair: a variable binds a normal form, so no
 //! step ever happens inside a variable's value.
 //!
@@ -233,6 +239,10 @@ pub struct CheckCounts {
     pub join_steps: usize,
     /// Calls of the predicate simplifier (conditions refuted or decided).
     pub simplifier_calls: usize,
+    /// Equations whose left-hand side may match one subject in several ways (a map or set
+    /// pattern with an entry the rest of the left-hand side does not fix): each is a root pair
+    /// with itself, counted among the overlaps and as joined or not joined.
+    pub several_matches: usize,
     /// Overload families, and those found confluent by stage 1.
     pub families: usize,
     pub confluent_families: usize,
@@ -578,6 +588,91 @@ fn computed_below_root(term: &Term) -> Option<Name> {
         });
     }
     found
+}
+
+/// The variables of the left-hand side `lhs` that a matching against a subject may bind to
+/// different values (R2.2): matching modulo the map and set axioms is finitary, not unitary.
+///
+/// A position of `lhs` is *fixed* when the subject's subterm there is a function of the subject
+/// and of the variables already known to be determined: the root; the children of a fixed
+/// application, injection, `\and` or list (a list holds at most one rest, so its length fixes
+/// every element's offset); an entry of a fixed map or set whose key's (element's) variables are
+/// all determined, since a map binds each key once and a set holds each element once
+/// (concatenation is nilpotent), or which is the only entry not fixed in a collection without a
+/// rest; and the rest of a fixed map or set whose entries are all fixed. The variables at fixed
+/// positions are determined. The operator is monotone on the finite set of `lhs`'s variables, so
+/// iterating it from the empty set reaches its least fixpoint in at most that many rounds. Every
+/// two matchings of `lhs` against one subject agree on the determined variables (by induction on
+/// the rounds: at each fixed position both see the same subterm of the subject), so an empty
+/// result means that `lhs` matches in at most one way.
+pub(crate) fn undetermined_variables(lhs: &Term) -> BTreeSet<Variable> {
+    fn visit(term: &Term, determined: &mut BTreeSet<Variable>) {
+        let fixed_key = |key: &Term, determined: &BTreeSet<Variable>| {
+            key.attributes().variables.is_subset(determined)
+        };
+        match term.kind() {
+            TermKind::Variable(variable) => {
+                determined.insert(variable.clone());
+            }
+            TermKind::DomainValue { .. } => {}
+            TermKind::Application { .. }
+            | TermKind::Injection { .. }
+            | TermKind::And(..)
+            | TermKind::List { .. } => {
+                for child in children(term) {
+                    visit(&child, determined);
+                }
+            }
+            TermKind::Map { entries, rest, .. } => {
+                let open = entries
+                    .iter()
+                    .filter(|(key, _)| !fixed_key(key, determined))
+                    .count();
+                let sole = open == 1 && rest.is_none();
+                for (key, value) in entries {
+                    if sole || fixed_key(key, determined) {
+                        visit(key, determined);
+                        visit(value, determined);
+                    }
+                }
+                if let Some(rest) = rest
+                    && open == 0
+                {
+                    visit(rest, determined);
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                let open = elements
+                    .iter()
+                    .filter(|element| !fixed_key(element, determined))
+                    .count();
+                let sole = open == 1 && rest.is_none();
+                for element in elements {
+                    if sole || fixed_key(element, determined) {
+                        visit(element, determined);
+                    }
+                }
+                if let Some(rest) = rest
+                    && open == 0
+                {
+                    visit(rest, determined);
+                }
+            }
+        }
+    }
+    let mut determined = BTreeSet::new();
+    loop {
+        let before = determined.len();
+        visit(lhs, &mut determined);
+        if determined.len() == before {
+            break;
+        }
+    }
+    lhs.attributes()
+        .variables
+        .difference(&determined)
+        .cloned()
+        .collect()
 }
 
 /// The term a right-hand side denotes, `None` for `\bottom`; `Err` for a right-hand side the
@@ -1243,6 +1338,48 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
                 withdrawn: Vec::new(),
             });
         }
+    }
+
+    // Self pairs: an equation whose left-hand side matches one subject in several ways is a
+    // root peak with itself (R2.2). It joins when its right-hand side and `ensures` read only
+    // variables every matching gives the same value; otherwise it is not shown to join.
+    for equation in &equations {
+        if switches::active().drop_several_matches {
+            break;
+        }
+        let undetermined = undetermined_variables(&equation.rule.lhs);
+        if undetermined.is_empty() {
+            continue;
+        }
+        context.counts.several_matches += 1;
+        context.counts.overlaps += 1;
+        let read = match &equation.rule.rhs {
+            RuleRhs::Term(term) => Some(term.attributes().variables.clone()),
+            RuleRhs::Bottom => Some(BTreeSet::new()),
+            // A right-hand side the check does not read: count it as reading every variable.
+            RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_) => None,
+        }
+        .map(|mut read| {
+            for predicate in equation.rule.ensures.iter() {
+                read.extend(predicate.free_variables());
+            }
+            read
+        });
+        if read.is_some_and(|read| read.is_disjoint(&undetermined)) {
+            context.counts.joined += 1;
+            continue;
+        }
+        unjoined.push(UnjoinedPair {
+            first: Arc::clone(&equation.rule),
+            second: Arc::clone(&equation.rule),
+            position: Vec::new(),
+            overlap: None,
+            sides: None,
+            reached: None,
+            refused: None,
+            reason: UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches),
+            withdrawn: Vec::new(),
+        });
     }
 
     // Stage 1: the root pairs at the members of each family, without lifting.

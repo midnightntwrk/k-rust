@@ -5759,10 +5759,15 @@ fn apply_equation(
                     ));
                 }
             };
-            // K function equations are required to be functional. AC matching may expose
-            // several equivalent decompositions, so use the first substitution from the
-            // helper's stable sorted order rather than turning evaluation into execution
-            // branching.
+            // Matching modulo the map and set axioms can decompose one subject in several ways.
+            // The load-time check (`confluence::undetermined_variables`) pairs such an equation
+            // with itself, and withdraws the value claims it involves unless every decomposition
+            // gives the same right-hand side and `ensures`; the first substitution of the
+            // helper's stable sorted order is then as good as any for the result. The
+            // `requires` is decided on this substitution only, so an equation whose `requires`
+            // reads a variable the decomposition chooses may be refuted here although another
+            // decomposition satisfies it: an evaluation that differs from `->E`, which makes no
+            // claim (a refuted `requires` is context dependent and sets no certificate).
             solutions
                 .into_iter()
                 .next()

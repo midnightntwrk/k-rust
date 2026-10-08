@@ -72,6 +72,10 @@ pub enum UnresolvedShape {
     Family(Name),
     /// More than [`UNIFIER_BRANCHES`] branch states.
     Budget,
+    /// A left-hand side that matches one subject in several ways (a map or set pattern with an
+    /// entry the rest of the left-hand side does not fix), whose right-hand side or `ensures`
+    /// reads a variable the choice of matching decides: the equation with itself is a peak.
+    SeveralMatches,
 }
 
 impl std::fmt::Display for UnresolvedShape {
@@ -91,6 +95,9 @@ impl std::fmt::Display for UnresolvedShape {
                 "a comparison through the overload family of `{symbol}`, which is not known confluent"
             ),
             Self::Budget => formatter.write_str("more unifier branches than the check explores"),
+            Self::SeveralMatches => formatter.write_str(
+                "a map or set pattern that matches one collection in several ways, with a result that depends on the choice",
+            ),
         }
     }
 }

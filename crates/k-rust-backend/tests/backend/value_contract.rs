@@ -10,8 +10,11 @@
 //! whose pairs join keep the claims the contract makes.
 
 use k_rust_backend::{
-    confluence::UnjoinedReason, definition::BackendDefinition, rule::Predicate,
-    simplify::SimplificationOptions, smt::NoSolver,
+    confluence::{UnjoinedReason, UnresolvedShape},
+    definition::BackendDefinition,
+    rule::Predicate,
+    simplify::SimplificationOptions,
+    smt::NoSolver,
 };
 use k_rust_kore::kore::parser::parse_definition;
 
@@ -945,4 +948,133 @@ fn a_total_injective_function_into_a_builtin_sort_pins_what_its_arguments_hold()
         !tainted.iter().any(|symbol| symbol.as_ref() == "w"),
         "{tainted:?}"
     );
+}
+
+/// Review 2 of the check: a hooked `Map` of `Int` keys and `B` values and a `Set` of `B`, where
+/// `B` is built only by the value production `v`.
+const REVIEW_2_COLLECTIONS: &str = r#"
+    sort SortB{} []
+    hooked-sort SortMap{} [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+    hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+    hooked-symbol mapItem{}(SortInt{}, SortB{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
+    hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}(), unit{}(mapUnit{}())]
+    hooked-symbol mapSize{}(SortMap{}) : SortInt{} [function{}(), total{}(), hook{}("MAP.size")]
+    hooked-sort SortSet{} [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+    hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+    hooked-symbol setItem{}(SortB{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
+    hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}(), unit{}(setUnit{}())]
+    symbol v{}(SortInt{}) : SortB{} [anywhere{}(), value-production{}()]
+    symbol pick{}(SortMap{}) : SortS{} [function{}()]
+    symbol wrapB{}(SortB{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+    symbol pickW{}(SortSet{}) : SortS{} [function{}()]
+    symbol g{}(SortMap{}) : SortS{} [function{}()]
+"#;
+
+/// Review 2 of the check, F1, probe 1: `pick(K |-> V M) = mk(K)` matches `{1 |-> b, 2 |-> b}`
+/// with `K = 1` and with `K = 2`, so `mk(1) = mk(2)` for every element `b` of `B`: every model
+/// has `B` empty and `v(1)` undefined. The equation is a peak with itself.
+#[test]
+fn review_2_f1_a_map_pattern_matching_in_two_ways_withdraws_its_values() {
+    let definition = definition(
+        REVIEW_2_COLLECTIONS,
+        &[equation(
+            "pick",
+            &["SortMap{}"],
+            "SortS{}",
+            &["mapConcat{}(mapItem{}(VarK:SortInt{}, VarV:SortB{}), VarM:SortMap{})"],
+            "mk{}(VarK:SortInt{})",
+            r"\top{R}()",
+            "",
+        )],
+    );
+    assert_withdrawn(
+        &definition,
+        &["pick", "v"],
+        Some(UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// Review 2 of the check, F1, probe 2: `pickW(SetItem(X) S) = wrapB(X)` on `{v(1), v(2)}` gives
+/// `wrapB(v(1)) = wrapB(v(2))`, so every model has `v(1) = v(2)` or one of them undefined (and
+/// has a model: identify every `v(n)`). The backend must neither discharge `\ceil(v(1))` nor
+/// refute `v(1) = v(2)`.
+#[test]
+fn review_2_f1_a_set_pattern_matching_in_two_ways_withdraws_its_elements() {
+    let definition = definition(
+        REVIEW_2_COLLECTIONS,
+        &[equation(
+            "pickW",
+            &["SortSet{}"],
+            "SortS{}",
+            &["setConcat{}(setItem{}(VarX:SortB{}), VarS:SortSet{})"],
+            "wrapB{}(VarX:SortB{})",
+            r"\top{R}()",
+            "",
+        )],
+    );
+    assert_withdrawn(
+        &definition,
+        &["pickW", "v"],
+        Some(UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+    let query = format!(
+        r"\equals{{SortB{{}}, SortB{{}}}}(v{{}}({}), v{{}}({}))",
+        int(1),
+        int(2)
+    );
+    let syntax = k_rust_kore::kore::parser::parse_pattern(&query).expect("the query parses");
+    let (predicate, _) = definition
+        .admit_unverified(&syntax, &[])
+        .internalize_predicate()
+        .expect("the query internalizes");
+    let simplified = simplify_predicate_with_solver(
+        &definition,
+        &predicate,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the query simplifies");
+    assert_ne!(simplified, Predicate::False, "v(1) = v(2) was refuted");
+}
+
+/// Review 2 of the check, F2 (the reviewer's control): `g(M) = mk(1) requires size(M) ==Int 1`
+/// beside `g(M) = mk(2)`. No model has a singleton map, so `B`, the sort of the map's values, is
+/// empty: the pair withdraws `v` through `SortReach`'s map-value edge.
+#[test]
+fn review_2_f2_a_pair_withdraws_the_heads_its_map_values_hold() {
+    let definition = definition(
+        REVIEW_2_COLLECTIONS,
+        &[
+            equation(
+                "g",
+                &["SortMap{}"],
+                "SortS{}",
+                &["VarM:SortMap{}"],
+                &format!("mk{{}}({})", int(1)),
+                &format!(
+                    r#"\equals{{SortBool{{}}, R}}(eqInt{{}}(mapSize{{}}(VarM:SortMap{{}}), {}), \dv{{SortBool{{}}}}("true"))"#,
+                    int(1)
+                ),
+                "",
+            ),
+            equation(
+                "g",
+                &["SortMap{}"],
+                "SortS{}",
+                &["VarM:SortMap{}"],
+                &format!("mk{{}}({})", int(2)),
+                r"\top{R}()",
+                "",
+            ),
+        ],
+    );
+    assert_withdrawn(
+        &definition,
+        &["g", "v"],
+        Some(UnjoinedReason::ConditionOpen),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
 }

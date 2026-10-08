@@ -107,8 +107,8 @@ with open(log_path) as log:
             row = json.loads(line[len("VALUE_CONTRACT "):])
             measured[row["name"]] = row
 keys = ["equations", "pairs", "overlaps", "separated", "refuted", "joined", "unjoined",
-        "relevant", "violations", "heads", "tainted_heads", "tainted_symbols", "families",
-        "confluent_families"]
+        "relevant", "violations", "heads", "tainted_heads", "tainted_symbols", "several_matches",
+        "families", "confluent_families"]
 if update:
     for case in cases:
         row = measured[case["name"]]

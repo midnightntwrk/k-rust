@@ -244,7 +244,9 @@ impl SortReach {
                 .extend(below.iter().map(|sort| sort.sort().clone()));
         }
         for symbol in definition.symbols().values() {
-            if let Some(collection) = &symbol.attributes.collection {
+            if let Some(collection) = &symbol.attributes.collection
+                && !switches.drop_collection_edges
+            {
                 let (sort, parts) = match collection {
                     CollectionMetadata::Map(map) => (
                         map.map_sort.clone(),

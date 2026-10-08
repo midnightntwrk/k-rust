@@ -63,6 +63,7 @@ fn value_contract_corpus() {
             "heads": heads.len(),
             "tainted_heads": tainted_heads,
             "tainted_symbols": tainted.len(),
+            "several_matches": counts.several_matches,
             "families": counts.families,
             "confluent_families": counts.confluent_families,
         });
