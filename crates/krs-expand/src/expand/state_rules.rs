@@ -291,6 +291,7 @@ pub(super) fn configuration_rule(
         &binding_idents,
         RuleSide::Right,
     );
+    right.terms.lexeme_ordinal = left.terms.lexeme_ordinal;
     let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
     let mut condition_builder = TermBuilder::new(
         &facade,
@@ -298,6 +299,7 @@ pub(super) fn configuration_rule(
         &cfg,
         &binding_idents,
     );
+    condition_builder.lexeme_ordinal = right.terms.lexeme_ordinal;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             condition.term().tree(),
@@ -833,6 +835,7 @@ impl<'a> StateRuleBuilder<'a> {
                     value: bytes_token::encode(&literal.value()),
                 })
             }
+            TermTree::Lexeme { sort, text } => self.terms.lexeme_wire(sort, text, slots),
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,

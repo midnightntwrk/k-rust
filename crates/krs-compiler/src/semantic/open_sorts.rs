@@ -169,7 +169,9 @@ fn open_sort_edges(
                             .insert(supersort.clone());
                     }
                 }
-                GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
+                GrammarDescriptor::Precedence { .. }
+                | GrammarDescriptor::Associativity { .. }
+                | GrammarDescriptor::Tokens { .. } => {}
             },
         }
     }

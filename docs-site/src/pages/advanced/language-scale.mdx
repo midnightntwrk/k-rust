@@ -31,12 +31,25 @@ Neither the Rust struct nor a fragment is a mutable host object, and a machine r
 
 ## Tokens and collection sorts
 
-`#[k::token(regex = ..., prec = ...)]` introduces a lexical sort whose Rust tuple field records its host-facing shape.
-The regular expression and optional lexical precedence determine parsing; they do not cause Rust's regex engine to run when a symbolic token is constructed.
+Each `#[k::token(regex = r"...")]` or `#[k::token(terminal = "...")]` attribute declares one K token production, and attributes stack.
+On `struct Name(String);` they declare a closed token sort: its values are its tokens, its `String` field stores nothing at runtime, and no constructor may target it, because a sort with domain values has no constructors.
+On a type alias they add token productions to the sort it names, a token sort or the builtin `Id`, and declare no sort.
+Membership in open sorts still goes through the `k::sorts!` line `impl KItem for Name;`.
 
-The positive macro fixture declares an identifier token and then gives it ordinary sort memberships:
+K's scanner is global and takes the longest match; a terminal outranks a regex of the same length, and `prec = N` orders regexes only.
+So `main`, declared with `terminal = "main"`, is a `Name` and never a keyword, while `while`, a terminal of another production, is a keyword: `call while` does not parse.
+The scanner also lexes your rules, so a token regex should not shadow K's own identifiers, such as `#LowerId` (`[a-z][a-zA-Z0-9]*` at `prec(2)`), which lexes cell names like the `k` of `<k>`.
+A literal quote in a regex is written `\"`; an unescaped `"` starts a quoted string in K's regex syntax, so KRS rejects it.
+The regex and precedence determine parsing; they do not cause Rust's regex engine to run when a symbolic token is constructed.
 
-```rust [crates/krs-macros/tests/fixtures/positive/src/main.rs]
+`k::lexeme!(Name, "main")` is one token in a rule, written the same way in `cells!` rules and readable clauses; the emitted K shows `#token("main","Name")`.
+It exists because KRS cannot lex object text inside Rust, and K never re-lexes a token, so the text is not checked against the regex.
+Two lexemes with different texts never overlap, and a lexeme overlaps a variable of its sort.
+A builtin token is written as a literal, `k::id!`, or `k::bytes!` instead.
+
+The grammar-lexing gate's `tokens` fixture:
+
+```rust [tests/grammar-lexing/packages/tokens/src/lib.rs]
 // [!include ~/snippets/token.rs]
 ```
 

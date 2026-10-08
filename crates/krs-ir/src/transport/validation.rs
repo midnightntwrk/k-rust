@@ -137,6 +137,13 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         _arguments: &crate::AtLeastTwo<Term<S>>,
     ) -> Result<(), Self::Error>;
 
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        text: &str,
+    ) -> Result<(), Self::Error>;
+
     fn cell(
         &mut self,
         key: &ProvenanceKey,
@@ -191,6 +198,7 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             }
             Ok(())
         }
+        Term::Lexeme { key, sort, text } => context.lexeme(key, sort, text),
         Term::Cell {
             key,
             declaration,

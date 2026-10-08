@@ -317,3 +317,10 @@ pub fn precedence(input: TokenStream) -> TokenStream {
 pub fn associativity(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Associativity, input)
 }
+
+/// Compiler-owned token of a user token sort: `k::lexeme!(Sort, "text")` is
+/// K's `#token("text","Sort")`.
+#[proc_macro]
+pub fn lexeme(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Lexeme, input)
+}

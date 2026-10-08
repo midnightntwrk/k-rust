@@ -11,7 +11,9 @@ use super::pattern::{
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
 };
-use crate::term::{is_term_macro, push_record_field_anchors, unexpected_macro};
+use crate::term::{
+    is_term_macro, push_lexeme_anchors, push_record_field_anchors, unexpected_macro,
+};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
@@ -249,6 +251,12 @@ impl RuleItem {
         if let Some(requires) = &self.requires {
             anchors.extend(requires.provenance()?);
         }
+        let mut lexemes = 0_usize;
+        push_lexeme_anchors(&mut anchors, self.parameter.pattern.nodes(), &mut lexemes)?;
+        push_lexeme_anchors(&mut anchors, self.result.nodes(), &mut lexemes)?;
+        if let Some(requires) = &self.requires {
+            push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
+        }
         Ok(anchors)
     }
 
@@ -303,7 +311,8 @@ impl RuleItem {
                         | TermNode::IdToken(_)
                         | TermNode::BytesToken(_)
                         | TermNode::Anonymous { .. }
-                        | TermNode::OrBool(_) => continue,
+                        | TermNode::OrBool(_)
+                        | TermNode::Lexeme { .. } => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;

@@ -136,7 +136,7 @@ fn arguments_text(count: usize) -> String {
     }
 }
 
-fn sort_name(sort: &SemanticSortRef) -> String {
+pub(super) fn sort_name(sort: &SemanticSortRef) -> String {
     match sort {
         SemanticSortRef::Declared(id) => id.item_name().to_owned(),
         SemanticSortRef::Builtin(sort) => sort.k_name().to_owned(),

@@ -33,6 +33,10 @@ pub(super) struct StructuredTermBuilder<'a> {
 }
 
 impl StructuredTermBuilder<'_> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive inference over the closed descriptor term sum."
+    )]
     pub(super) fn infer(
         &mut self,
         term: &DescriptorTerm,
@@ -99,6 +103,16 @@ impl StructuredTermBuilder<'_> {
                     && !semantic_is_subsort(&sort, expected, self.sort_parents)
                 {
                     return Err(self.invalid_term("anonymous occurrence has an incompatible sort"));
+                }
+            }
+            DescriptorTerm::Lexeme { key, sort, text } => {
+                let sort = self.lexeme_sort(key, sort, text)?;
+                if let Some(expected) = expected_sort
+                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
+                {
+                    return Err(self.invalid_term(format!(
+                        "`k::lexeme!` token {text:?} has sort {sort}, which is not admissible at sort {expected}"
+                    )));
                 }
             }
             DescriptorTerm::OrBool { arguments, .. } => {
@@ -449,6 +463,10 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive lowering over the closed descriptor term sum."
+    )]
     pub(super) fn lower(
         &mut self,
         term: &DescriptorTerm,
@@ -524,6 +542,15 @@ impl StructuredTermBuilder<'_> {
                 value.clone(),
             )
             .map_err(Into::into),
+            DescriptorTerm::Lexeme { key, sort, text } => {
+                let sort = self.lexeme_sort(key, sort, text)?;
+                SemanticTerm::token(
+                    semantic_origin(self.descriptor, key.clone(), "term-lexeme")?,
+                    sort,
+                    text.clone(),
+                )
+                .map_err(Into::into)
+            }
             DescriptorTerm::Anonymous {
                 key,
                 sort,
@@ -853,6 +880,51 @@ impl StructuredTermBuilder<'_> {
         ))
     }
 
+    /// The sort of a `k::lexeme!` term, which must be a user sort with token
+    /// productions; builtin tokens are written as literals or with their own
+    /// islands.
+    fn lexeme_sort(
+        &self,
+        key: &ProvenanceKey,
+        sort: &krs_ir::DescriptorSortReference,
+        text: &str,
+    ) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        let semantic = semantic_sort_ref(&sort.sort);
+        let reason = match &semantic {
+            SemanticSortRef::Builtin(builtin) => Some(format!(
+                "`k::lexeme!` names the builtin sort `{}`; write a builtin token as a literal, `k::id!(\"$name\")`, or `k::bytes!(b\"..\")`",
+                builtin.k_name()
+            )),
+            SemanticSortRef::Declared(_)
+                if !self
+                    .catalog
+                    .values()
+                    .any(|signature| signature.token && signature.result_sort == semantic) =>
+            {
+                Some(format!(
+                    "`k::lexeme!({}, {text:?})` names `{}`, which is not a token sort; declare its tokens with `#[k::token(..)]` on a `struct {}(String);`",
+                    super::overload::sort_name(&semantic),
+                    super::overload::sort_name(&semantic),
+                    super::overload::sort_name(&semantic),
+                ))
+            }
+            SemanticSortRef::Declared(_) => None,
+        };
+        match reason {
+            Some(reason) => Err(DescriptorLoweringError::InvalidTokenSort {
+                item: Box::new(self.descriptor.id().clone()),
+                reason,
+                range: self
+                    .descriptor
+                    .provenance()
+                    .origin_for(key)
+                    .and_then(krs_ir::OriginStack::exact_authored_range)
+                    .map(Box::new),
+            }),
+            None => Ok(semantic),
+        }
+    }
+
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::InvalidTerm {
             id: Box::new(self.descriptor.id().clone()),
@@ -1001,6 +1073,7 @@ fn builtin_production_signature(operation: BuiltinOperation) -> Option<Productio
                 ))
             })
             .collect::<Option<_>>()?,
+        token: false,
     })
 }
 

@@ -12,6 +12,7 @@ mod overload;
 mod package;
 mod references;
 mod rules;
+mod tokens;
 mod visibility;
 
 pub use error::{DescriptorLoweringError, NondetGroupProblem};
@@ -120,6 +121,7 @@ pub fn lower_descriptor_bundle(
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
+    tokens::check_token_sorts(&modules)?;
     visibility::check_claim_visibility(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {

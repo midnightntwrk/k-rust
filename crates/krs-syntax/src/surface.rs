@@ -164,6 +164,8 @@ entry_points! {
         Precedence = "precedence",
         /// `k::associativity!`.
         Associativity = "associativity",
+        /// `k::lexeme!`.
+        Lexeme = "lexeme",
     }
 }
 

@@ -69,7 +69,10 @@ pub use error_detail::{
     Bn128PointSignature, IdentityComponent, IrField, IrIdentityKind, ProductionAttributeFamily,
     SemanticIdentityKind,
 };
-pub use generated::{GeneratedProductionIdError, GeneratedProductionKind, generated_production_id};
+pub use generated::{
+    GeneratedProductionIdError, GeneratedProductionKind, TokenProductionContent,
+    generated_production_id,
+};
 pub use grammar::{
     ApplicationRef, BuiltinOperation, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
@@ -179,7 +182,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(44);
+    pub const CURRENT: Self = Self(45);
 }
 
 impl Default for SchemaVersion {

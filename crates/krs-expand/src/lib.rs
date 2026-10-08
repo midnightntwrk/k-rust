@@ -99,5 +99,6 @@ pub fn expand_function(
         FunctionMacro::Cells => expand::cells(input),
         FunctionMacro::Precedence => expand::precedence(env, input),
         FunctionMacro::Associativity => expand::associativity(env, input),
+        FunctionMacro::Lexeme => islands::lexeme(input),
     }
 }

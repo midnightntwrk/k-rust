@@ -2334,8 +2334,11 @@ mod tests {
         let HostDescriptorPayload::Grammar(token_grammar) = &token_grammar.payload else {
             panic!("token grammar has the wrong payload")
         };
-        let HostGrammarDescriptor::Production(token) = token_grammar.as_ref() else {
-            panic!("token grammar must be a production")
+        let HostGrammarDescriptor::Tokens { productions } = token_grammar.as_ref() else {
+            panic!("token grammar must be a token carrier")
+        };
+        let [token] = productions.as_slice() else {
+            panic!("one token attribute declares one production")
         };
         assert!(matches!(token.owner, HostProductionOwner::TokenSort { .. }));
         assert!(matches!(

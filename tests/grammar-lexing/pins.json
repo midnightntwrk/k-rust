@@ -7,7 +7,9 @@
     "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
     "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588",
     "krs-grammar-visibility": "d59404aefc321c16daaa16307186d698fd455474d963870b7764fe03135f650c",
-    "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70"
+    "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70",
+    "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
+    "krs-grammar-token-id": "47d8d9c0f113d3c06c4f65cb40d36e181ccca7b8d6f5a339d3ce9dfcd7087558"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -33,6 +35,12 @@
     },
     "krs-grammar-memo": {
       "definition.k": "8a221b36b665da6ca887e2d2b28f531530bb67e0dbb25f56f2d8a58d3ef1a2e6"
+    },
+    "krs-grammar-tokens": {
+      "definition.k": "1e94b58acb97fc5a22575b09fe8840d98db29f106d4e1fe34362cb674268f388"
+    },
+    "krs-grammar-token-id": {
+      "definition.k": "9239c886bb626a77fa248bc8060eb70ba180bf71636541ac2091fc61144dbe78"
     }
   },
   "partition": {
@@ -56,7 +64,9 @@
     "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa",
     "krs-grammar-visibility": "45aea99e7f9058760e079dab8aedfe710e750c8a0e5db8ec791b29391477c61f",
     "visibility-induced": "2e91577251f0ebc0ac37c92e144d73e9745bed4a11a7b4908859f54a089ad2e6",
-    "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73"
+    "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73",
+    "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
+    "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -148,6 +158,46 @@
         "parse": "accepted",
         "run": "9"
       }
+    },
+    "krs-grammar-tokens": {
+      "call-main": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "call-foo": {
+        "parse": "accepted",
+        "run": "other"
+      },
+      "call-bar": {
+        "parse": "accepted",
+        "run": "call bar"
+      },
+      "call-while": {
+        "parse": "rejected",
+        "run": null
+      },
+      "call-dollar": {
+        "parse": "accepted",
+        "run": "call $x"
+      },
+      "say-hi": {
+        "parse": "accepted",
+        "run": "halt"
+      }
+    },
+    "krs-grammar-token-id": {
+      "jump-label": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "jump-id": {
+        "parse": "accepted",
+        "run": "halt"
+      },
+      "jump-number": {
+        "parse": "rejected",
+        "run": null
+      }
     }
   },
   "diagnostics": {
@@ -189,6 +239,21 @@
     ],
     "visibility-claim": [
       "error[krs::analysis::private-production-in-spec]: `Helper::Wrap` is private to KRS-VISIBILITY-CLAIM; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
+    ],
+    "token-constructor": [
+      "error[krs::analysis::invalid-token-sort]: `NameSyntax::Anonymous` is a constructor of `Name`, a token sort: a sort with domain values has no constructors; give the constructor another sort, or use a function"
+    ],
+    "lexeme-not-token": [
+      "error[krs::analysis::invalid-token-sort]: `k::lexeme!(Stmt, \"halt\")` names `Stmt`, which is not a token sort; declare its tokens with `#[k::token(..)]` on a `struct Stmt(String);`"
+    ],
+    "lexeme-builtin": [
+      "error[krs::analysis::invalid-token-sort]: `k::lexeme!` names the builtin sort `Int`; write a builtin token as a literal, `k::id!(\"$name\")`, or `k::bytes!(b\"..\")`"
+    ],
+    "token-duplicate": [
+      "error[krs::analysis::invalid-token-sort]: the token terminal \"main\" is declared twice on sort `Name`; each token production of a sort is declared once"
+    ],
+    "token-alias-builtin": [
+      "error[krs::analysis::invalid-token-sort]: a `#[k::token]` type alias adds token productions to a user sort or to builtin `Id`; `Int` has its own domain values, written as literals"
     ]
   },
   "format": {

@@ -587,6 +587,11 @@ impl<'a> InitializerBuilder<'a> {
                 cell.owner().span(),
                 "fragment! is not an initializer term; construct nested initializer cells directly",
             )),
+            TermTree::Lexeme { text, .. } => Err(ExpandError::new(
+                expand::CLAIM_ONLY_TERM,
+                text.span(),
+                "lexeme! is a rule and claim term; initializers cannot contain it",
+            )),
         }
     }
 }

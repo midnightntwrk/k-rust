@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
-(KF-018), and production keys (KF-002, KF-038, KF-045, KF-046 memo).
+(KF-018), production keys (KF-002, KF-038, KF-045, KF-046 memo), and user
+token sorts (KF-003).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -38,13 +39,22 @@ partition end to end on both routes:
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
   `krun --color on` output is pinned through the reference cache, and
   `krs run --color always` must print it byte for byte (KF-017);
+- `tokens`: the token sort `Name` stacks a regex and the terminal `main`, so
+  `call main` and `call foo` parse on both routes while `call while` is
+  rejected (the terminal `while` outranks the regex); type aliases add `$`
+  tokens to `Name` and (package `token-id`) `@` tokens to the builtin `Id`,
+  and a quote-bearing
+  regex lexes `"hi"`; `k::lexeme!` terms on a `cells!` rule and in readable
+  rules fire on both routes, and `call bar` matches neither rule;
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
   `colors` list that does not match the printed terminals, `prefer` with
   `avoid`, an overload with another arity, one whose sort is not a subsort of
   its target's, two productions that overload each other, a dependent that
-  names a private production (E0603), and a claim that names one.
+  names a private production (E0603), a claim that names one, a constructor
+  of a token sort, a lexeme of a sort without tokens or of a builtin sort, a
+  token declared twice on one sort, and a token alias of `Int`.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -91,6 +101,27 @@ VISIBILITY_PROGRAMS = (
 VISIBILITY_ATTRIBUTES = (("inc", "wrap"), ("private",))
 INDUCED_MODULE = "KRS-VISIBILITY-INDUCED"
 MEMO = Fixture(MANIFEST, "krs-grammar-memo")
+TOKENS = Fixture(MANIFEST, "krs-grammar-tokens")
+TOKENS_PROGRAMS = (
+    Program("call-main", "call main", "accepted", "halt", kast='call(#token("main","Name"))'),
+    Program("call-foo", "call foo", "accepted", "other", kast='call(#token("foo","Name"))'),
+    Program("call-bar", "call bar", "accepted", "call bar"),
+    Program("call-while", "call while", "rejected"),
+    Program("call-dollar", "call $x", "accepted", "call $x", kast='call(#token("$x","Name"))'),
+    Program("say-hi", "say \"hi\"", "accepted", "halt"),
+)
+TOKEN_ID = Fixture(MANIFEST, "krs-grammar-token-id")
+TOKEN_ID_PROGRAMS = (
+    Program("jump-label", "jump @top", "accepted", "halt", kast='jump(#token("@top","Id"))'),
+    Program("jump-id", "jump top", "accepted", "halt", kast='jump(#token("top","Id"))'),
+    Program("jump-number", "jump 1", "rejected"),
+)
+TOKENS_SOURCE_FRAGMENTS = (
+    'syntax Name ::= "main" [token]',
+    'syntax Name ::= r"[a-z][a-z0-9_]*" [token]',
+    '<k> call #token("main","Name") ~> Tail:K => halt ~> Tail:K </k>',
+    '<k> call #token("foo","Name") => other ... </k>',
+)
 MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
 MEMO_ATTRIBUTES = (("square",), ("memo",))
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
@@ -162,6 +193,11 @@ NEGATIVE = (
         ("krs-grammar-visibility-dependent-base:main",),
     ),
     ("visibility-claim", "visibility-claim", "krs-grammar-visibility-claim", ()),
+    ("token-constructor", "token-constructor", "krs-grammar-token-constructor", ()),
+    ("lexeme-not-token", "lexeme-not-token", "krs-grammar-lexeme-not-token", ()),
+    ("lexeme-builtin", "lexeme-builtin", "krs-grammar-lexeme-builtin", ()),
+    ("token-duplicate", "token-duplicate", "krs-grammar-token-duplicate", ()),
+    ("token-alias-builtin", "token-alias-builtin", "krs-grammar-token-alias-builtin", ()),
 )
 
 
@@ -388,6 +424,24 @@ def main() -> int:
         if "memo=''" not in harness.kore_attributes[MEMO.package]:
             raise GateError(f"the memo function's KORE symbol lacks memo: {harness.kore_attributes[MEMO.package]!r}")
         print("PASS memo: square(3) is 9 on both routes; memo on the symbol in both KOREs")
+
+        harness.check(TOKENS)
+        harness.expand(TOKENS)
+        tokens = harness.emit(TOKENS)
+        tokens_source = tokens.source.read_text(encoding="utf-8")
+        for fragment in TOKENS_SOURCE_FRAGMENTS:
+            if fragment not in tokens_source:
+                raise GateError(f"tokens: emitted K omits {fragment!r}")
+        harness.compare(tokens, TOKENS_PROGRAMS, sort="Stmt")
+        print("PASS tokens: main and foo are Names, while is a keyword, an alias adds $ names; lexeme rules fire on both routes")
+
+        harness.check(TOKEN_ID)
+        harness.expand(TOKEN_ID)
+        token_id = harness.emit(TOKEN_ID)
+        if 'syntax Id ::= r"@[a-z]+" [token]' not in token_id.source.read_text(encoding="utf-8"):
+            raise GateError("token-id: emitted K omits the Id token production")
+        harness.compare(token_id, TOKEN_ID_PROGRAMS, sort="Stmt")
+        print("PASS token-id: a type alias adds @ labels to the builtin Id on both routes")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

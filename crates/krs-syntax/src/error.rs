@@ -222,6 +222,11 @@ pub enum SyntaxErrorKind {
         /// Replacement spelling, with the authored values filled in.
         replacement: String,
     },
+    /// A `#[k::token]` attribute, a stack of them, or a `k::lexeme!` term was malformed.
+    InvalidTokenAttribute {
+        /// Complete stable explanation, naming the fix.
+        reason: &'static str,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -297,6 +302,7 @@ impl SyntaxErrorKind {
             }
             Self::InvalidRuleKey { .. } => codes::syntax::INVALID_RULE_KEY,
             Self::RetiredAttribute { .. } => codes::syntax::RETIRED_ATTRIBUTE,
+            Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
         }
     }
 }
@@ -517,7 +523,8 @@ impl fmt::Display for SyntaxError {
                     "too many `{role}` nodes to assign provenance ordinals"
                 )
             }
-            SyntaxErrorKind::InvalidRuleKey { reason } => formatter.write_str(reason),
+            SyntaxErrorKind::InvalidRuleKey { reason }
+            | SyntaxErrorKind::InvalidTokenAttribute { reason } => formatter.write_str(reason),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,

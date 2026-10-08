@@ -45,8 +45,8 @@ pub use grammar::{
     AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
     PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, StrictnessAttribute, StrictnessKind,
     StructuredFormat, StructuredFormatFragment, SubsortDeclaration, SyntaxTemplate,
-    SyntaxTemplateItem, TokenAttribute, TokenDeclaration, parse_seqstrict_attribute,
-    parse_strict_attribute,
+    SyntaxTemplateItem, TokenAttribute, TokenCarrier, TokenContent, TokenDeclaration, TokenStack,
+    parse_seqstrict_attribute, parse_strict_attribute,
 };
 pub use initializer::{
     ComputationCellInitializer, ConfigurationVariable, ConfigurationVariableAttribute,
@@ -79,6 +79,7 @@ pub use state_rule::{
 pub use term::{
     CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
     TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
+    parse_lexeme_arguments,
 };
 pub use term_sort::TermSort;
 pub use trivia::{

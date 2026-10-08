@@ -606,14 +606,16 @@ fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
         let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
             return false;
         };
-        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
+        let krs_ir::GrammarDescriptor::Tokens { productions } = grammar.as_ref() else {
             return false;
         };
-        matches!(
-            &production.owner,
-            krs_ir::DescriptorProductionOwner::TokenSort { sort }
-                if sort.sort == krs_ir::DescriptorSortRef::Declared(id.clone())
-        )
+        productions.iter().any(|production| {
+            matches!(
+                &production.owner,
+                krs_ir::DescriptorProductionOwner::TokenSort { sort }
+                    if sort.sort == krs_ir::DescriptorSortRef::Declared(id.clone())
+            )
+        })
     })
 }
 
@@ -1424,6 +1426,11 @@ fn render_term(
             let sort = render_descriptor_sort(&sort.sort, package)?;
             let spelling = syn::LitStr::new(spelling, Span::call_site());
             Ok(quote!(k::anonymous!(#sort, #spelling)))
+        }
+        DescriptorTerm::Lexeme { sort, text, .. } => {
+            let sort = render_descriptor_sort(&sort.sort, package)?;
+            let text = syn::LitStr::new(text, Span::call_site());
+            Ok(quote!(k::lexeme!(#sort, #text)))
         }
         DescriptorTerm::OrBool { arguments, .. } => {
             let arguments = arguments

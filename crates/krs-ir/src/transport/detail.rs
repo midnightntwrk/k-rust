@@ -132,6 +132,9 @@ details! {
         InitializerRecordFieldProvenance => "initializer syntax has no exact record-field provenance",
         NonCanonicalIntegerLiteral => "integer literal is not a canonical signed decimal",
         InvalidAnonymousSort => "invalid anonymous sort",
+        InvalidLexemeSort => "invalid lexeme sort",
+        EmptyLexemeText => "lexeme text must not be empty",
+        InitializerLexeme => "lexeme! terms are not allowed in initializers",
         InvalidApplicationTarget => "invalid application target",
         InvalidCellSortArgument => "invalid cell sort argument",
         InvalidClaimBinderSort => "invalid claim binder sort",
@@ -185,10 +188,13 @@ details! {
         ShortPrecedenceChain => "precedence chain requires at least two groups",
         ProvenanceOrdinalExceedsU32 => "provenance ordinal exceeds u32",
         TokenOrBracketOwnerKind => "token and bracket owners must be authored sorts",
-        TokenOwnerShape => "token owner requires one regex item and token metadata",
+        TokenOwnerShape => "token owner requires one regex or terminal item and token metadata",
         TokenSyntaxTemplate => "token production cannot have a syntax-template key",
-        TokenRegexItemCount => "token production must contain exactly one regex item",
+        TokenRegexItemCount => "token production must contain exactly one regex or terminal item",
         TokenMetadataShape => "token production must contain only token metadata",
+        TokenOutsideCarrier => "token productions travel only in a token carrier",
+        TokenCarrierOwner => "every production of a token carrier must be a token production of one sort",
+        TerminalTokenPrecedence => "`prec` applies only to regex token productions",
         TotalWithoutFunction => "total metadata requires function metadata",
     }
 }
@@ -224,6 +230,7 @@ details! {
         MissingSimplificationMetadata => "simplification sentence lacks simplification metadata",
         StaticAliasRequires => "static alias clauses cannot carry requires conditions",
         WildcardsAreAllowedOnlyInRuleSubjects => "wildcards are allowed only in rule subjects",
+        EmptyLexemeText => "lexeme text must not be empty",
     }
 }
 

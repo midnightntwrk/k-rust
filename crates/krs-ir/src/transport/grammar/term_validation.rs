@@ -10,7 +10,9 @@ use super::{
 };
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
-use crate::{BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, StableItemId};
+use crate::{
+    BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, ProvenanceRole, StableItemId,
+};
 
 pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) provenance: F,
@@ -100,6 +102,23 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         _: &crate::AtLeastTwo<DescriptorTerm>,
     ) -> Result<(), Self::Error> {
         unsupported_claim_term()
+    }
+
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &DescriptorSortReference,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        require_key(&sort.key, self.provenance)?;
+        sort.sort.validate()?;
+        if text.is_empty() {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::EmptyLexemeText,
+            ));
+        }
+        Ok(())
     }
 
     fn cell(
@@ -254,6 +273,28 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         _: &crate::AtLeastTwo<DescriptorTerm>,
     ) -> Result<(), Self::Error> {
         unsupported_claim_term()
+    }
+
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &DescriptorSortReference,
+        _: &str,
+    ) -> Result<(), Self::Error> {
+        insert_exact(
+            self.keys,
+            &sort.key,
+            ProvenanceRole::LexemeSort,
+            self.counters.lexeme,
+        )?;
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::LexemeText,
+            self.counters.lexeme,
+        )?;
+        self.counters.lexeme = increment(self.counters.lexeme)?;
+        Ok(())
     }
 
     fn cell(

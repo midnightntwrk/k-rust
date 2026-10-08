@@ -100,7 +100,8 @@ fn collect_module_items(
         | Item::Struct(syn::ItemStruct { attrs, .. })
         | Item::Enum(syn::ItemEnum { attrs, .. })
         | Item::Fn(syn::ItemFn { attrs, .. })
-        | Item::Impl(syn::ItemImpl { attrs, .. }) = item
+        | Item::Impl(syn::ItemImpl { attrs, .. })
+        | Item::Type(syn::ItemType { attrs, .. }) = item
         {
             resolver.check(attrs)?;
         }
@@ -113,6 +114,7 @@ fn collect_module_items(
             }
             Item::Fn(item) => collect_fn_invocations(item, resolver, output)?,
             Item::Impl(item) => collect_impl_invocations(item, resolver, output)?,
+            Item::Type(item) => collect_type_invocations(item, resolver, output)?,
             Item::Macro(item) => {
                 if let Some(invocation) = invocation
                     && let InvocationKind::Function { entry, .. } = &invocation.kind
@@ -412,22 +414,65 @@ fn collect_struct_constructors(
     Ok(())
 }
 
+/// Parses every `#[k::token]` attribute of one carrier, in source order; the
+/// first expands them all as one stack.
+fn token_stack(
+    attributes: &[syn::Attribute],
+    resolver: &AttributeResolver<'_>,
+) -> Result<Option<krs_syntax::TokenStack>, CollectionError> {
+    let parsed = attributes
+        .iter()
+        .filter(|attr| resolver.invokes(attr, AttributeMacro::Token))
+        .map(|attribute| {
+            krs_syntax::TokenAttribute::parse_tokens(attribute_tokens(attribute)?)
+                .map_err(source_syntax)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if parsed.is_empty() {
+        return Ok(None);
+    }
+    krs_syntax::TokenStack::new(parsed)
+        .map(Some)
+        .map_err(source_syntax)
+}
+
+fn push_token_invocation(
+    token: &TokenDeclaration,
+    stack: &krs_syntax::TokenStack,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    let mut anchors = stack.provenance().map_err(source_syntax)?;
+    anchors.extend(token.provenance().map_err(source_syntax)?);
+    output.push(parsed_invocation(
+        ProvenanceRole::TokenDeclaration,
+        token.name().to_string(),
+        anchors,
+        ParsedInvocationPayload::Declaration,
+    )?);
+    Ok(())
+}
+
+/// A type alias carrying `#[k::token]` adds token productions to the sort it
+/// names; it declares no sort of its own.
+fn collect_type_invocations(
+    item_type: &syn::ItemType,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    if let Some(stack) = token_stack(&item_type.attrs, resolver)? {
+        let token = TokenDeclaration::from_alias(item_type.clone()).map_err(source_syntax)?;
+        push_token_invocation(&token, &stack, output)?;
+    }
+    Ok(())
+}
+
 fn collect_struct_remaining(
     item_struct: &syn::ItemStruct,
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    for attribute in item_struct
-        .attrs
-        .iter()
-        .filter(|attr| resolver.invokes(attr, AttributeMacro::Token))
-    {
-        let token_attribute =
-            krs_syntax::TokenAttribute::parse_tokens(attribute_tokens(attribute)?)
-                .map_err(source_syntax)?;
+    if let Some(stack) = token_stack(&item_struct.attrs, resolver)? {
         let token = TokenDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
-        let mut anchors = token_attribute.provenance().map_err(source_syntax)?;
-        anchors.extend(token.provenance().map_err(source_syntax)?);
         output.push(parsed_invocation(
             ProvenanceRole::SortDeclaration,
             item_struct.ident.to_string(),
@@ -438,12 +483,7 @@ fn collect_struct_remaining(
             )],
             ParsedInvocationPayload::Declaration,
         )?);
-        output.push(parsed_invocation(
-            ProvenanceRole::TokenDeclaration,
-            item_struct.ident.to_string(),
-            anchors,
-            ParsedInvocationPayload::Declaration,
-        )?);
+        push_token_invocation(&token, &stack, output)?;
     }
     for attribute in item_struct
         .attrs

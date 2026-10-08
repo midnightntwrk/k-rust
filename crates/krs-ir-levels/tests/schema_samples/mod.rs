@@ -1156,8 +1156,13 @@ impl Sample for DescriptorTerm {
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
                 },
+                Self::Lexeme {
+                    key: sample::<ProvenanceKey>(),
+                    sort: sample::<DescriptorSortReference>(),
+                    text: sample::<String>(),
+                },
             ],
-            8,
+            9,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1168,6 +1173,7 @@ impl Sample for DescriptorTerm {
                 Self::Anonymous { .. } => 5,
                 Self::OrBool { .. } => 6,
                 Self::Cell { .. } => 7,
+                Self::Lexeme { .. } => 8,
             },
         )
     }
@@ -1306,14 +1312,18 @@ impl Sample for GrammarDescriptor {
                     key: sample::<ProvenanceKey>(),
                     sentences: sample::<Vec<DescriptorAssociativitySentence>>(),
                 },
+                Self::Tokens {
+                    productions: vec![sample::<DescriptorProduction>()],
+                },
             ],
-            4,
+            5,
             "GrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
                 Self::Subsort { .. } => 1,
                 Self::Precedence { .. } => 2,
                 Self::Associativity { .. } => 3,
+                Self::Tokens { .. } => 4,
             },
         )
     }
@@ -1884,14 +1894,18 @@ impl Sample for WireGrammarDescriptor {
                     key: sample::<ProvenanceKey>(),
                     sentences: sample::<Vec<DescriptorAssociativitySentence>>(),
                 },
+                Self::Tokens {
+                    productions: vec![sample::<WireProduction>()],
+                },
             ],
-            4,
+            5,
             "WireGrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
                 Self::Subsort { .. } => 1,
                 Self::Precedence { .. } => 2,
                 Self::Associativity { .. } => 3,
+                Self::Tokens { .. } => 4,
             },
         )
     }
@@ -2091,8 +2105,13 @@ impl Sample for WireTerm {
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
                 },
+                Self::Lexeme {
+                    key: sample::<ProvenanceKey>(),
+                    sort: sample::<WireSortReference>(),
+                    text: sample::<String>(),
+                },
             ],
-            8,
+            9,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2103,6 +2122,7 @@ impl Sample for WireTerm {
                 Self::Anonymous { .. } => 5,
                 Self::OrBool { .. } => 6,
                 Self::Cell { .. } => 7,
+                Self::Lexeme { .. } => 8,
             },
         )
     }

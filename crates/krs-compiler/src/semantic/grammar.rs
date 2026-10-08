@@ -2,7 +2,7 @@ use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
     GeneratedProductionKind, GrammarDescriptor, GroupAssociativitySentence, PrecedenceRelation,
-    ProductionAttribute, StableItemId, generated_production_id,
+    ProductionAttribute, StableItemId, TokenProductionContent, generated_production_id,
 };
 use krs_ir_levels::{SemanticProduction, SemanticProductionItem, SemanticSortRef, SemanticSubsort};
 
@@ -24,6 +24,15 @@ pub(super) fn lower_grammar_descriptor(
                 production,
                 declaration,
             )?);
+        }
+        GrammarDescriptor::Tokens { productions } => {
+            for production in productions {
+                module.productions.push(lower_grammar_production(
+                    descriptor,
+                    production,
+                    declaration,
+                )?);
+            }
         }
         GrammarDescriptor::Subsort {
             key,
@@ -113,7 +122,7 @@ fn lower_grammar_production(
 
 /// Returns the production identity: the owning constructor, or the generated
 /// token or bracket production of the owning sort.
-fn production_owner_id(
+pub(super) fn production_owner_id(
     descriptor: &Descriptor,
     production: &DescriptorProduction,
 ) -> Result<StableItemId, DescriptorLoweringError> {
@@ -128,9 +137,26 @@ fn production_owner_id(
             id.clone()
         }
         DescriptorProductionOwner::TokenSort { .. } => {
-            generated_production_id(descriptor.id(), GeneratedProductionKind::Token).map_err(
-                |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
-            )?
+            // Each production of a token carrier is keyed by its content, so
+            // reordering stacked attributes keeps every identity (F3.4).
+            let content = match production.items.as_slice() {
+                [DescriptorProductionItem::RegexTerminal { regex, .. }] => {
+                    TokenProductionContent::Regex(regex)
+                }
+                [DescriptorProductionItem::Terminal { text, .. }] => {
+                    TokenProductionContent::Terminal(text)
+                }
+                _ => {
+                    return Err(DescriptorLoweringError::UnsupportedShape {
+                        node: "token production",
+                        detail: "a token production has exactly one regex or terminal".to_owned(),
+                    });
+                }
+            };
+            generated_production_id(descriptor.id(), GeneratedProductionKind::Token { content })
+                .map_err(|error| {
+                    DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string())
+                })?
         }
         DescriptorProductionOwner::BracketSort { .. } => {
             generated_production_id(descriptor.id(), GeneratedProductionKind::Bracket).map_err(

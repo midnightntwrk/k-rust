@@ -94,34 +94,47 @@ fn validate_application_ref(
     Ok(())
 }
 
+fn validate_production_references(
+    production: &krs_ir::DescriptorProduction,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    match &production.owner {
+        DescriptorProductionOwner::Constructor { constructor } => {
+            validate_application_ref(&constructor.application, declarations)?;
+        }
+        DescriptorProductionOwner::TokenSort { sort }
+        | DescriptorProductionOwner::BracketSort { sort } => {
+            validate_sort_ref(&sort.sort, declarations)?;
+        }
+    }
+    validate_sort_ref(&production.result_sort.sort, declarations)?;
+    for item in &production.items {
+        if let DescriptorProductionItem::NonTerminal { sort, .. } = item {
+            validate_sort_ref(&sort.sort, declarations)?;
+        }
+    }
+    for attribute in &production.attributes {
+        if let DescriptorProductionAttribute::Strictness { result_sort, .. } = attribute {
+            validate_sort_ref(&result_sort.sort, declarations)?;
+        }
+        if let DescriptorProductionAttribute::Overload { target } = attribute {
+            validate_application_ref(&target.application, declarations)?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_grammar_references(
     grammar: &GrammarDescriptor,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     match grammar {
         GrammarDescriptor::Production(production) => {
-            match &production.owner {
-                DescriptorProductionOwner::Constructor { constructor } => {
-                    validate_application_ref(&constructor.application, declarations)?;
-                }
-                DescriptorProductionOwner::TokenSort { sort }
-                | DescriptorProductionOwner::BracketSort { sort } => {
-                    validate_sort_ref(&sort.sort, declarations)?;
-                }
-            }
-            validate_sort_ref(&production.result_sort.sort, declarations)?;
-            for item in &production.items {
-                if let DescriptorProductionItem::NonTerminal { sort, .. } = item {
-                    validate_sort_ref(&sort.sort, declarations)?;
-                }
-            }
-            for attribute in &production.attributes {
-                if let DescriptorProductionAttribute::Strictness { result_sort, .. } = attribute {
-                    validate_sort_ref(&result_sort.sort, declarations)?;
-                }
-                if let DescriptorProductionAttribute::Overload { target } = attribute {
-                    validate_application_ref(&target.application, declarations)?;
-                }
+            validate_production_references(production, declarations)?;
+        }
+        GrammarDescriptor::Tokens { productions } => {
+            for production in productions {
+                validate_production_references(production, declarations)?;
             }
         }
         GrammarDescriptor::Subsort {

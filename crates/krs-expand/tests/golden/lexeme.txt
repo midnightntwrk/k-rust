@@ -1,0 +1,1 @@
+{ let _krs_typecheck_lexeme_sort = || :: core :: any :: TypeId :: of :: < Name > () ; :: core :: panic ! ("lexeme! has no runtime value") }

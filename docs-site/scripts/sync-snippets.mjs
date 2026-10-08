@@ -84,10 +84,10 @@ const snippets = [
     end: '#[language_host::function(\n    total,\n    sort = language_host::builtin::Bytes,\n    syntax = "Sha256raw({value})"',
   },
   {
-    source: '../crates/krs-macros/tests/fixtures/positive/src/main.rs',
+    source: '../tests/grammar-lexing/packages/tokens/src/lib.rs',
     mirror: 'src/snippets/token.rs',
-    start: '#[language_host::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2)]',
-    end: '#[language_host::subsort]',
+    start: 'k::sorts! {',
+    end: '/// Double-quoted text',
   },
   {
     source: '../semantics/kevm/src/lib.rs',

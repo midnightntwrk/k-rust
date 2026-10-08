@@ -376,6 +376,12 @@ provenance_roles! {
     ConstructorOverload => "constructor_overload",
     /// Bare `memo` flag of a function production.
     FunctionMemo => "function_memo",
+    /// Terminal literal of one `#[k::token(terminal = "..")]` production.
+    TokenTerminal => "token_terminal",
+    /// Sort path of one `k::lexeme!(Sort, "text")` token term.
+    LexemeSort => "lexeme_sort",
+    /// Text literal of one `k::lexeme!(Sort, "text")` token term.
+    LexemeText => "lexeme_text",
 }
 
 impl Serialize for ProvenanceRole {

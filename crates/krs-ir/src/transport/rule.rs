@@ -692,7 +692,8 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
         DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
         | DescriptorTerm::BuiltinToken { .. }
-        | DescriptorTerm::Anonymous { .. } => 0,
+        | DescriptorTerm::Anonymous { .. }
+        | DescriptorTerm::Lexeme { .. } => 0,
         DescriptorTerm::OrBool { arguments, .. } => arguments
             .iter()
             .map(|argument| count_here_in_term(argument, here))
@@ -817,7 +818,7 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
         | DescriptorTerm::BuiltinToken { key, .. } => {
             keys.insert(key.clone());
         }
-        DescriptorTerm::Anonymous { key, sort, .. } => {
+        DescriptorTerm::Anonymous { key, sort, .. } | DescriptorTerm::Lexeme { key, sort, .. } => {
             keys.extend([key.clone(), sort.key.clone()]);
         }
         DescriptorTerm::OrBool { key, arguments } => {
@@ -1005,6 +1006,7 @@ struct RuleCounters {
     id_token: u32,
     bytes_token: u32,
     anonymous: u32,
+    lexeme: u32,
 }
 
 fn builtin_token_role<'a>(
@@ -1403,6 +1405,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         id_token: left_counters.id_token,
         bytes_token: left_counters.bytes_token,
         anonymous: left_counters.anonymous,
+        lexeme: left_counters.lexeme,
         ..RuleCounters::default()
     };
     let mut right_bindings = rule.bindings.clone();
@@ -1429,6 +1432,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         id_token: right_counters.id_token,
         bytes_token: right_counters.bytes_token,
         anonymous: right_counters.anonymous,
+        lexeme: right_counters.lexeme,
         ..RuleCounters::default()
     };
     if let Some(requires) = &rule.requires {
@@ -1504,6 +1508,7 @@ fn validate_rule_claim<S: RuleValidationStage>(
             id_token: inherited.id_token,
             bytes_token: inherited.bytes_token,
             anonymous: inherited.anonymous,
+            lexeme: inherited.lexeme,
             ..RuleCounters::default()
         };
         validate_rule_term::<S>(
@@ -2008,6 +2013,35 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         let (role, counter) = builtin_token_role(sort, value, self.counters)?;
         insert_rule_exact(self.keys, key, role, *counter)?;
         *counter = rule_increment(*counter)?;
+        Ok(())
+    }
+
+    fn lexeme(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        if text.is_empty() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::EmptyLexemeText,
+            ));
+        }
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidLexemeSort))?;
+        insert_rule_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::LexemeSort,
+            self.counters.lexeme,
+        )?;
+        insert_rule_exact(
+            self.keys,
+            key,
+            ProvenanceRole::LexemeText,
+            self.counters.lexeme,
+        )?;
+        self.counters.lexeme = rule_increment(self.counters.lexeme)?;
         Ok(())
     }
 

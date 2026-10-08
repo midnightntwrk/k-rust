@@ -4,7 +4,7 @@ use krs_ir::AtLeastTwo;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Token, Type};
+use syn::{Fields, Ident, ItemImpl, ItemStruct, ItemType, LitInt, LitStr, Path, Token, Type};
 
 use crate::parse::{
     KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument,
@@ -599,18 +599,65 @@ fn invalid_format(reason: &'static str, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidFormat { reason }, span)
 }
 
-/// Validated arguments of `#[k::token(regex = r"...", prec = N)]`.
+/// The content of one token production: `regex = r".."` or `terminal = ".."`.
+#[derive(Clone, Debug)]
+pub enum TokenContent {
+    /// `regex = r".."`: `syntax S ::= r".." [token]`.
+    Regex(LitStr),
+    /// `terminal = ".."`: `syntax S ::= ".." [token]`.
+    Terminal(LitStr),
+}
+
+impl TokenContent {
+    /// Returns the authored literal.
+    #[must_use]
+    pub const fn literal(&self) -> &LitStr {
+        match self {
+            Self::Regex(literal) | Self::Terminal(literal) => literal,
+        }
+    }
+
+    /// Returns the provenance role of the literal.
+    #[must_use]
+    pub const fn role(&self) -> ProvenanceRole {
+        match self {
+            Self::Regex(_) => ProvenanceRole::TokenRegex,
+            Self::Terminal(_) => ProvenanceRole::TokenTerminal,
+        }
+    }
+}
+
+/// Validated arguments of one `#[k::token(regex = r"...", prec = N)]` or
+/// `#[k::token(terminal = "...")]` attribute: one K token production.
 #[derive(Clone, Debug)]
 pub struct TokenAttribute {
-    regex: LitStr,
+    content: TokenContent,
     lexical_precedence: Option<(LitInt, u32)>,
 }
 
 impl TokenAttribute {
-    /// Returns the authored regex literal.
+    /// Returns the production content.
     #[must_use]
-    pub const fn regex(&self) -> &LitStr {
-        &self.regex
+    pub const fn content(&self) -> &TokenContent {
+        &self.content
+    }
+
+    /// Returns the authored regex literal of a regex production.
+    #[must_use]
+    pub const fn regex(&self) -> Option<&LitStr> {
+        match &self.content {
+            TokenContent::Regex(literal) => Some(literal),
+            TokenContent::Terminal(_) => None,
+        }
+    }
+
+    /// Returns the authored terminal literal of a terminal production.
+    #[must_use]
+    pub const fn terminal(&self) -> Option<&LitStr> {
+        match &self.content {
+            TokenContent::Terminal(literal) => Some(literal),
+            TokenContent::Regex(_) => None,
+        }
     }
 
     /// Returns the optional lexical precedence.
@@ -622,21 +669,23 @@ impl TokenAttribute {
         }
     }
 
-    /// Returns exact regex and optional precedence anchors.
+    /// Returns the content anchor and the optional precedence anchor, at
+    /// `ordinal`, this attribute's position among the stacked attributes of
+    /// its kind (regex or terminal).
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn provenance(&self, ordinal: u32) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::TokenRegex,
-            0,
-            TokenRange::for_tokens(&self.regex)?,
+            self.content.role(),
+            ordinal,
+            TokenRange::for_tokens(self.content.literal())?,
         )];
         if let Some((literal, _)) = &self.lexical_precedence {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::TokenLexicalPrecedence,
-                0,
+                ordinal,
                 TokenRange::for_tokens(literal)?,
             ));
         }
@@ -649,26 +698,125 @@ impl KrsSyntax for TokenAttribute {
     ///
     /// # Errors
     ///
-    /// The payload must contain one nonempty checked `regex` string and at most one unsuffixed `u32` `prec` value.
+    /// The payload must contain exactly one of a nonempty checked `regex`
+    /// string or a nonempty single-terminal `terminal` string, and at most
+    /// one unsuffixed `u32` `prec` value, which requires `regex`.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         structured(tokens, parse_token_attribute_stream)
     }
 }
 
+/// The ordered, nonempty stack of `#[k::token]` attributes on one carrier.
+#[derive(Clone, Debug)]
+pub struct TokenStack {
+    attributes: Vec<TokenAttribute>,
+}
+
+impl TokenStack {
+    /// Checks a stack of token attributes in source order.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an empty stack and two attributes that declare the same
+    /// production (the same regex, or the same terminal).
+    pub fn new(attributes: Vec<TokenAttribute>) -> Result<Self, SyntaxError> {
+        if attributes.is_empty() {
+            return Err(invalid_token_attribute(
+                "a token carrier needs at least one `#[k::token(..)]` attribute",
+                Span::call_site(),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        for attribute in &attributes {
+            let literal = attribute.content.literal();
+            let identity = (
+                matches!(attribute.content, TokenContent::Terminal(_)),
+                literal.value(),
+            );
+            if !seen.insert(identity) {
+                return Err(invalid_token_attribute(
+                    "this `#[k::token]` attribute repeats an earlier one on the same item; each attribute declares one K token production",
+                    literal.span(),
+                ));
+            }
+        }
+        Ok(Self { attributes })
+    }
+
+    /// Returns the attributes in source order.
+    #[must_use]
+    pub fn attributes(&self) -> &[TokenAttribute] {
+        &self.attributes
+    }
+
+    /// Returns each attribute with its ordinal among the attributes of its
+    /// kind, in source order.
+    #[must_use]
+    pub fn ordinals(&self) -> Vec<(u32, &TokenAttribute)> {
+        let mut regex = 0_u32;
+        let mut terminal = 0_u32;
+        self.attributes
+            .iter()
+            .map(|attribute| {
+                let counter = match attribute.content {
+                    TokenContent::Regex(_) => &mut regex,
+                    TokenContent::Terminal(_) => &mut terminal,
+                };
+                let ordinal = *counter;
+                *counter += 1;
+                (ordinal, attribute)
+            })
+            .collect()
+    }
+
+    /// Returns every content and precedence anchor of the stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        for (ordinal, attribute) in self.ordinals() {
+            anchors.extend(attribute.provenance(ordinal)?);
+        }
+        Ok(anchors)
+    }
+}
+
+fn invalid_token_attribute(reason: &'static str, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidTokenAttribute { reason }, span)
+}
+
 fn parse_token_attribute_stream(input: ParseStream<'_>) -> ParseResult<TokenAttribute> {
     let missing_span = input.span();
-    let mut regex = None;
+    let mut content: Option<TokenContent> = None;
     let mut precedence = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let name = key.to_string();
         input.parse::<Token![=]>()?;
         match name.as_str() {
-            "regex" if regex.is_some() => return Err(duplicate("regex", key.span())),
+            "regex" if matches!(content, Some(TokenContent::Regex(_))) => {
+                return Err(duplicate("regex", key.span()));
+            }
+            "terminal" if matches!(content, Some(TokenContent::Terminal(_))) => {
+                return Err(duplicate("terminal", key.span()));
+            }
+            "regex" | "terminal" if content.is_some() => {
+                return Err(ParseError::Structured(invalid_token_attribute(
+                    "a token attribute takes exactly one of `regex = r\"..\"` or `terminal = \"..\"`; stack one `#[k::token]` attribute per production",
+                    key.span(),
+                )));
+            }
             "regex" => {
                 let literal: LitStr = input.parse()?;
                 validate_regex(&literal)?;
-                regex = Some(literal);
+                content = Some(TokenContent::Regex(literal));
+            }
+            "terminal" => {
+                let literal: LitStr = input.parse()?;
+                validate_token_terminal(&literal)?;
+                content = Some(TokenContent::Terminal(literal));
             }
             "prec" if precedence.is_some() => return Err(duplicate("prec", key.span())),
             "prec" => {
@@ -693,10 +841,43 @@ fn parse_token_attribute_stream(input: ParseStream<'_>) -> ParseResult<TokenAttr
         }
         parse_optional_trailing_comma(input)?;
     }
+    let Some(content) = content else {
+        return Err(ParseError::Structured(invalid_token_attribute(
+            "a token attribute takes exactly one of `regex = r\"..\"` or `terminal = \"..\"`",
+            missing_span,
+        )));
+    };
+    if let (TokenContent::Terminal(_), Some((literal, _))) = (&content, &precedence) {
+        return Err(ParseError::Structured(invalid_token_attribute(
+            "`prec` orders regex tokens only; a terminal already outranks every regex token",
+            literal.span(),
+        )));
+    }
     Ok(TokenAttribute {
-        regex: regex.ok_or_else(|| missing("regex", missing_span))?,
+        content,
         lexical_precedence: precedence,
     })
+}
+
+/// A token terminal must be one K terminal, as a syntax template would split it.
+fn validate_token_terminal(literal: &LitStr) -> ParseResult<()> {
+    let text = literal.value();
+    if text.is_empty() {
+        return Err(ParseError::Structured(invalid_token_attribute(
+            "the token terminal must not be empty",
+            literal.span(),
+        )));
+    }
+    let mut items = Vec::new();
+    let mut terminal = text.clone();
+    push_terminal(&mut items, &mut terminal);
+    if !matches!(items.as_slice(), [SyntaxTemplateItem::Terminal(only)] if *only == text) {
+        return Err(ParseError::Structured(invalid_token_attribute(
+            "a token terminal must be exactly one K terminal: no whitespace, and no mix of word and symbol characters",
+            literal.span(),
+        )));
+    }
+    Ok(())
 }
 
 fn validate_regex(literal: &LitStr) -> ParseResult<()> {
@@ -724,6 +905,14 @@ fn validate_regex(literal: &LitStr) -> ParseResult<()> {
         if character == '\\' {
             escaped = true;
             continue;
+        }
+        if character == '"' {
+            // K's scanner (flex) reads an unescaped quote as the start of a
+            // quoted literal string, and both K and k-rust reject it.
+            return Err(invalid_regex(
+                "a literal quote is written `\\\"`; an unescaped `\"` starts a quoted string in K's regex syntax",
+                literal.span(),
+            ));
         }
         if character_class {
             match character {
@@ -775,10 +964,20 @@ fn invalid_regex(reason: &'static str, span: Span) -> ParseError {
     ))
 }
 
-/// Validated nominal token newtype declaration.
+/// The Rust item that carries `#[k::token]` attributes.
+#[derive(Clone, Debug)]
+pub enum TokenCarrier {
+    /// `struct Name(String);`: declares a new closed token sort.
+    Struct(ItemStruct),
+    /// `type Alias = Sort;`: adds token productions to an existing sort.
+    Alias(ItemType),
+}
+
+/// Validated token carrier: a nominal token newtype, or a type alias that
+/// adds token productions to an existing sort.
 #[derive(Clone, Debug)]
 pub struct TokenDeclaration {
-    item: ItemStruct,
+    carrier: TokenCarrier,
 }
 
 impl TokenDeclaration {
@@ -838,19 +1037,71 @@ impl TokenDeclaration {
                 field.ty.span(),
             ));
         }
-        Ok(Self { item })
+        Ok(Self {
+            carrier: TokenCarrier::Struct(item),
+        })
     }
 
-    /// Returns the original span-preserving item.
+    /// Validates a type-alias carrier `type Alias = path::to::Sort;`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects generic aliases and aliases of anything but a plain sort path.
+    pub fn from_alias(item: ItemType) -> Result<Self, SyntaxError> {
+        if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
+            return Err(unsupported_token(
+                "a token type alias cannot have generics or a where clause",
+                item.generics.span(),
+            ));
+        }
+        let Type::Path(target) = item.ty.as_ref() else {
+            return Err(unsupported_token(
+                "a token type alias must name an existing sort by path",
+                item.ty.span(),
+            ));
+        };
+        if target.qself.is_some() || !is_plain_path(&target.path) {
+            return Err(unsupported_token(
+                "a token type alias must name an existing sort by path",
+                item.ty.span(),
+            ));
+        }
+        Ok(Self {
+            carrier: TokenCarrier::Alias(item),
+        })
+    }
+
+    /// Returns the carrier item.
     #[must_use]
-    pub const fn item(&self) -> &ItemStruct {
-        &self.item
+    pub const fn carrier(&self) -> &TokenCarrier {
+        &self.carrier
     }
 
-    /// Returns the token sort name.
+    /// Returns the struct carrier, or `None` for a type alias.
+    #[must_use]
+    pub const fn item(&self) -> Option<&ItemStruct> {
+        match &self.carrier {
+            TokenCarrier::Struct(item) => Some(item),
+            TokenCarrier::Alias(_) => None,
+        }
+    }
+
+    /// Returns the struct or alias name.
     #[must_use]
     pub const fn name(&self) -> &Ident {
-        &self.item.ident
+        match &self.carrier {
+            TokenCarrier::Struct(item) => &item.ident,
+            TokenCarrier::Alias(item) => &item.ident,
+        }
+    }
+
+    /// Returns the outer attributes of the carrier item.
+    #[must_use]
+    pub fn attributes(&self) -> &[syn::Attribute] {
+        match &self.carrier {
+            TokenCarrier::Struct(item) => &item.attrs,
+            TokenCarrier::Alias(item) => &item.attrs,
+        }
     }
 
     /// Returns the token declaration anchor.
@@ -862,19 +1113,27 @@ impl TokenDeclaration {
         Ok(vec![ProvenanceAnchor::new(
             ProvenanceRole::TokenDeclaration,
             0,
-            TokenRange::for_tokens(&self.item.ident)?,
+            TokenRange::for_tokens(self.name())?,
         )])
     }
 }
 
 impl KrsSyntax for TokenDeclaration {
-    /// Parses a token newtype from proc-macro tokens.
+    /// Parses a token newtype or type alias from proc-macro tokens.
     ///
     /// # Errors
     ///
-    /// Returns Rust syntax or [`TokenDeclaration::from_item`] errors.
+    /// Returns Rust syntax, [`TokenDeclaration::from_item`], or
+    /// [`TokenDeclaration::from_alias`] errors.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        Self::from_item(syn::parse2(tokens)?)
+        match syn::parse2::<syn::Item>(tokens)? {
+            syn::Item::Struct(item) => Self::from_item(item),
+            syn::Item::Type(item) => Self::from_alias(item),
+            other => Err(unsupported_token(
+                "`#[k::token]` applies to a `struct Name(String);` token sort or a `type Alias = Sort;` alias of an existing sort",
+                other.span(),
+            )),
+        }
     }
 }
 

@@ -176,6 +176,7 @@ fn configuration_claim(
     right.counters.bytes_token = left.counters.bytes_token;
     right.counters.anonymous = left.counters.anonymous;
     right.counters.or_bool = left.counters.or_bool;
+    right.terms.lexeme_ordinal = left.terms.lexeme_ordinal;
     let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
     let mut condition_builder = TermBuilder::new(
         &facade,
@@ -187,6 +188,7 @@ fn configuration_claim(
     condition_builder.id_token_ordinal = right.counters.id_token;
     condition_builder.bytes_token_ordinal = right.counters.bytes_token;
     condition_builder.or_bool_ordinal = right.counters.or_bool;
+    condition_builder.lexeme_ordinal = right.terms.lexeme_ordinal;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             condition.term().tree(),
@@ -205,6 +207,7 @@ fn configuration_claim(
     ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
     ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
+    ensures_builder.lexeme_ordinal = condition_builder.lexeme_ordinal;
     let ensures = if let Some(condition) = claim.ensures() {
         let term =
             ensures_builder.expand_wire(condition.term().tree(), TermSide::Ensures, &mut slots)?;

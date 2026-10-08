@@ -165,3 +165,6 @@ RuleAnywhere=rule_anywhere
 ConstructorPrefer=constructor_prefer
 ConstructorOverload=constructor_overload
 FunctionMemo=function_memo
+TokenTerminal=token_terminal
+LexemeSort=lexeme_sort
+LexemeText=lexeme_text

@@ -1,10 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorIndex,
-    DescriptorPayload, DescriptorProductionItem, DescriptorProductionOwner, DescriptorSortRef,
-    GeneratedProductionKind, GrammarDescriptor, ProductionFieldId, StableItemId,
-    generated_production_id,
+    Descriptor, DescriptorDeclaration, DescriptorIndex, DescriptorPayload, DescriptorProduction,
+    DescriptorProductionItem, DescriptorSortRef, GrammarDescriptor, ProductionFieldId,
+    StableItemId,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -14,6 +13,8 @@ use super::error::DescriptorLoweringError;
 pub(super) struct ProductionSignature {
     pub(super) result_sort: SemanticSortRef,
     pub(super) fields: Vec<(ProductionFieldId, SemanticSortRef)>,
+    /// Whether this is a `#[k::token]` production, whose result sort is a token sort.
+    pub(super) token: bool,
 }
 
 pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
@@ -113,56 +114,43 @@ pub(super) fn build_production_catalog(
         let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
             continue;
         };
-        let GrammarDescriptor::Production(production) = grammar.as_ref() else {
-            continue;
+        let productions: Vec<&DescriptorProduction> = match grammar.as_ref() {
+            GrammarDescriptor::Production(production) => vec![production],
+            GrammarDescriptor::Tokens { productions } => productions.iter().collect(),
+            _ => continue,
         };
-        let id = match &production.owner {
-            DescriptorProductionOwner::Constructor { constructor } => {
-                let DescriptorApplicationRef::Declared(id) = &constructor.application else {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "constructor production owner",
-                        detail: "constructor grammar cannot be owned by a builtin operation"
-                            .to_owned(),
-                    });
-                };
-                id.clone()
+        for production in productions {
+            let id = super::grammar::production_owner_id(descriptor, production)?;
+            let fields = production
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    DescriptorProductionItem::NonTerminal { field, sort, .. } => {
+                        Some((field.clone(), semantic_sort_ref(&sort.sort)))
+                    }
+                    DescriptorProductionItem::Terminal { .. }
+                    | DescriptorProductionItem::RegexTerminal { .. } => None,
+                })
+                .collect();
+            if catalog
+                .insert(
+                    id.clone(),
+                    ProductionSignature {
+                        result_sort: semantic_sort_ref(&production.result_sort.sort),
+                        fields,
+                        token: matches!(
+                            production.owner,
+                            krs_ir::DescriptorProductionOwner::TokenSort { .. }
+                        ),
+                    },
+                )
+                .is_some()
+            {
+                return Err(DescriptorLoweringError::UnsupportedShape {
+                    node: "production catalog",
+                    detail: format!("more than one grammar descriptor owns {id}"),
+                });
             }
-            DescriptorProductionOwner::TokenSort { .. } => {
-                generated_production_id(descriptor.id(), GeneratedProductionKind::Token).map_err(
-                    |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
-                )?
-            }
-            DescriptorProductionOwner::BracketSort { .. } => {
-                generated_production_id(descriptor.id(), GeneratedProductionKind::Bracket).map_err(
-                    |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
-                )?
-            }
-        };
-        let fields = production
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                DescriptorProductionItem::NonTerminal { field, sort, .. } => {
-                    Some((field.clone(), semantic_sort_ref(&sort.sort)))
-                }
-                DescriptorProductionItem::Terminal { .. }
-                | DescriptorProductionItem::RegexTerminal { .. } => None,
-            })
-            .collect();
-        if catalog
-            .insert(
-                id.clone(),
-                ProductionSignature {
-                    result_sort: semantic_sort_ref(&production.result_sort.sort),
-                    fields,
-                },
-            )
-            .is_some()
-        {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "production catalog",
-                detail: format!("more than one grammar descriptor owns {id}"),
-            });
         }
     }
     if let Some(descriptor) = descriptors.iter().find(|descriptor| {

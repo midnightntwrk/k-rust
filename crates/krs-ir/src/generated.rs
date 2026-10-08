@@ -14,18 +14,36 @@ use crate::{IdentityError, ItemKind, StableItemId, lower_hex};
 /// A kind is part of the identity, so a token and a bracket declared by the
 /// same grammar item cannot collide.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum GeneratedProductionKind {
-    /// A regex token production.
-    Token,
+pub enum GeneratedProductionKind<'a> {
+    /// One token production of a token carrier, keyed by its content so that
+    /// reordering stacked `#[k::token]` attributes keeps every identity.
+    Token {
+        /// The production's regex or terminal text.
+        content: TokenProductionContent<'a>,
+    },
     /// A syntax-only bracket production.
     Bracket,
 }
 
-impl GeneratedProductionKind {
-    const fn domain_tag(self) -> &'static str {
+/// The content that identifies one generated token production.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TokenProductionContent<'a> {
+    /// `#[k::token(regex = r"..")]`.
+    Regex(&'a str),
+    /// `#[k::token(terminal = "..")]`.
+    Terminal(&'a str),
+}
+
+impl GeneratedProductionKind<'_> {
+    fn domain_tag(self) -> String {
         match self {
-            Self::Token => "token",
-            Self::Bracket => "bracket",
+            Self::Token {
+                content: TokenProductionContent::Regex(text),
+            } => format!("token:regex:{}", lower_hex(text.as_bytes())),
+            Self::Token {
+                content: TokenProductionContent::Terminal(text),
+            } => format!("token:terminal:{}", lower_hex(text.as_bytes())),
+            Self::Bracket => "bracket".to_owned(),
         }
     }
 }
@@ -76,7 +94,9 @@ impl Error for GeneratedProductionIdError {
 /// ambiguous concatenation. The generated item name and disambiguator prefix
 /// are reserved for this compiler-owned use.
 ///
-/// This deliberately does not depend on descriptor contents, source paths,
+/// Apart from a token production's own regex or terminal text, which keys
+/// it among the productions of one carrier, this deliberately does not
+/// depend on descriptor contents, source paths,
 /// collection order, or adapter choice. Changing this recipe is a stable-IR
 /// compatibility change.
 ///
@@ -88,7 +108,7 @@ impl Error for GeneratedProductionIdError {
 /// [`GeneratedProductionIdError::InvalidDerivedIdentity`].
 pub fn generated_production_id(
     grammar_descriptor: &StableItemId,
-    kind: GeneratedProductionKind,
+    kind: GeneratedProductionKind<'_>,
 ) -> Result<StableItemId, GeneratedProductionIdError> {
     if grammar_descriptor.item_kind() != ItemKind::Grammar {
         return Err(GeneratedProductionIdError::ExpectedGrammarDescriptor {

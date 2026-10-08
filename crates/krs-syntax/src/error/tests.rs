@@ -76,6 +76,7 @@ fn syntax_categories_have_distinct_registered_codes() {
             attribute: "example",
             replacement: String::from("example"),
         },
+        SyntaxErrorKind::InvalidTokenAttribute { reason: "example" },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

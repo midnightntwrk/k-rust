@@ -39,6 +39,16 @@ pub(crate) fn anonymous() -> TokenStream {
     quote!(::core::panic!("anonymous! has no runtime value"))
 }
 
+/// Compiler-owned token of a user token sort. The sort path is checked by
+/// rustc; the text is never re-lexed, so it is checked only for form.
+pub(crate) fn lexeme(input: TokenStream) -> crate::Result<TokenStream> {
+    let (sort, _text) = krs_syntax::parse_lexeme_arguments(input)?;
+    Ok(quote! {{
+        let _krs_typecheck_lexeme_sort = || ::core::any::TypeId::of::<#sort>();
+        ::core::panic!("lexeme! has no runtime value")
+    }})
+}
+
 /// Compiler-owned associative object-Bool disjunction.
 pub(crate) fn or_bool() -> TokenStream {
     quote!(::core::panic!("or_bool! has no runtime value"))

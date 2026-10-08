@@ -14,7 +14,7 @@ use crate::parse::{
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, take_requires_helper};
-use crate::term::push_record_field_anchors;
+use crate::term::{push_lexeme_anchors, push_record_field_anchors};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
@@ -275,6 +275,16 @@ impl StateClaimItem {
             );
         }
         append_claim_special_anchors(&self.rule, self.ensures.as_ref(), &mut output)?;
+        if let Some(ensures) = &self.ensures {
+            // The rule's own anchors number the lexemes of its subject,
+            // result, and condition; the ensures clause continues after them.
+            let mut lexemes = claim_terms(&self.rule, None)
+                .iter()
+                .flat_map(|term| term.nodes())
+                .filter(|node| matches!(node, TermNode::Lexeme { .. }))
+                .count();
+            push_lexeme_anchors(&mut output, ensures.term.nodes(), &mut lexemes)?;
+        }
         Ok(output)
     }
     /// Returns claim-only sort paths needing rustc/collector resolution.
@@ -682,6 +692,10 @@ impl StateRuleItem {
         append_cells_provenance(&self.result, RuleSide::Right, &mut output)?;
         if let Some(requires) = &self.requires {
             output.extend(requires.provenance()?);
+        }
+        let mut lexemes = 0_usize;
+        for term in claim_terms(self, None) {
+            push_lexeme_anchors(&mut output, term.nodes(), &mut lexemes)?;
         }
         Ok(output)
     }
@@ -1184,7 +1198,8 @@ fn append_term_provenance(
             TermNode::IdToken(_)
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_) => continue,
+            | TermNode::OrBool(_)
+            | TermNode::Lexeme { .. } => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1332,7 +1347,8 @@ fn append_term_candidates(
             | TermNode::IdToken(_)
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_) => {}
+            | TermNode::OrBool(_)
+            | TermNode::Lexeme { .. } => {}
         }
     }
     Ok(())
@@ -1360,6 +1376,7 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
         TermNode::OrBool(range) => Ok(*range),
+        TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
 
@@ -1372,6 +1389,7 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
         TermNode::OrBool(range) => range.first(),
+        TermNode::Lexeme { text, .. } => text.span(),
     }
 }
 
@@ -1537,7 +1555,10 @@ fn append_claim_special_anchors(
                         signature_error("too many Boolean disjunctions", range.first())
                     })?;
                 }
-                TermNode::ApplicationHead(_) | TermNode::Reference(_) | TermNode::Literal(_) => {}
+                TermNode::ApplicationHead(_)
+                | TermNode::Reference(_)
+                | TermNode::Literal(_)
+                | TermNode::Lexeme { .. } => {}
             }
         }
     }

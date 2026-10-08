@@ -538,10 +538,11 @@ fn expression_production(descriptor: &mut DescriptorInputs) -> &mut DescriptorPr
     let DescriptorPayload::Grammar(grammar) = &mut descriptor.payload else {
         panic!("expected grammar descriptor")
     };
-    let GrammarDescriptor::Production(production) = grammar.as_mut() else {
-        panic!("expected production grammar")
-    };
-    production
+    match grammar.as_mut() {
+        GrammarDescriptor::Production(production) => production,
+        GrammarDescriptor::Tokens { productions } => &mut productions[0],
+        _ => panic!("expected production grammar"),
+    }
 }
 
 fn reorder_expression_fields(production: &mut DescriptorProduction) {
@@ -926,40 +927,59 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     let value_sort = item("Value", ItemKind::Sort);
 
     let token_primary = key(ProvenanceRole::TokenDeclaration, 0);
+    let token_sort = DescriptorSortReference {
+        key: token_primary.clone(),
+        sort: DescriptorSortRef::Declared(id_sort),
+    };
     let token = grammar_descriptor(
         item("__grammar_Id", ItemKind::Grammar),
         token_primary.clone(),
         &[
             key(ProvenanceRole::TokenRegex, 0),
             key(ProvenanceRole::TokenLexicalPrecedence, 0),
+            key(ProvenanceRole::TokenTerminal, 0),
         ],
-        GrammarDescriptor::Production(DescriptorProduction {
-            key: token_primary.clone(),
-            template_key: None,
-            owner: DescriptorProductionOwner::TokenSort {
-                sort: DescriptorSortReference {
-                    key: token_primary.clone(),
-                    sort: DescriptorSortRef::Declared(id_sort),
+        GrammarDescriptor::Tokens {
+            productions: vec![
+                DescriptorProduction {
+                    key: key(ProvenanceRole::TokenRegex, 0),
+                    template_key: None,
+                    owner: DescriptorProductionOwner::TokenSort {
+                        sort: token_sort.clone(),
+                    },
+                    result_sort: token_sort.clone(),
+                    items: vec![DescriptorProductionItem::RegexTerminal {
+                        key: key(ProvenanceRole::TokenRegex, 0),
+                        precede_regex: None,
+                        regex: "[a-zA-Z][a-zA-Z0-9_]*".into(),
+                        follow_regex: None,
+                    }],
+                    attributes: vec![DescriptorProductionAttribute::Token {
+                        key: key(ProvenanceRole::TokenRegex, 0),
+                        lexical_precedence: Some(DescriptorLexicalPrecedence {
+                            key: key(ProvenanceRole::TokenLexicalPrecedence, 0),
+                            value: 2,
+                        }),
+                    }],
                 },
-            },
-            result_sort: DescriptorSortReference {
-                key: token_primary.clone(),
-                sort: DescriptorSortRef::Declared(item("Id", ItemKind::Sort)),
-            },
-            items: vec![DescriptorProductionItem::RegexTerminal {
-                key: key(ProvenanceRole::TokenRegex, 0),
-                precede_regex: None,
-                regex: "[a-zA-Z][a-zA-Z0-9_]*".into(),
-                follow_regex: None,
-            }],
-            attributes: vec![DescriptorProductionAttribute::Token {
-                key: key(ProvenanceRole::TokenRegex, 0),
-                lexical_precedence: Some(DescriptorLexicalPrecedence {
-                    key: key(ProvenanceRole::TokenLexicalPrecedence, 0),
-                    value: 2,
-                }),
-            }],
-        }),
+                DescriptorProduction {
+                    key: key(ProvenanceRole::TokenTerminal, 0),
+                    template_key: None,
+                    owner: DescriptorProductionOwner::TokenSort {
+                        sort: token_sort.clone(),
+                    },
+                    result_sort: token_sort,
+                    items: vec![DescriptorProductionItem::Terminal {
+                        key: key(ProvenanceRole::TokenTerminal, 0),
+                        text: "main".into(),
+                    }],
+                    attributes: vec![DescriptorProductionAttribute::Token {
+                        key: key(ProvenanceRole::TokenTerminal, 0),
+                        lexical_precedence: None,
+                    }],
+                },
+            ],
+        },
     );
 
     let bracket_primary = key(ProvenanceRole::BracketDeclaration, 0);
@@ -1102,6 +1122,49 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
             GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::NominalTokenRegexGuards
             )
+        ))
+    ));
+
+    let mut terminal_precedence = token.clone();
+    {
+        let DescriptorPayload::Grammar(grammar) = &mut terminal_precedence.payload else {
+            unreachable!()
+        };
+        let GrammarDescriptor::Tokens { productions } = grammar.as_mut() else {
+            unreachable!()
+        };
+        productions[1].attributes = vec![DescriptorProductionAttribute::Token {
+            key: key(ProvenanceRole::TokenTerminal, 0),
+            lexical_precedence: Some(DescriptorLexicalPrecedence {
+                key: key(ProvenanceRole::TokenLexicalPrecedence, 0),
+                value: 1,
+            }),
+        }];
+    }
+    assert!(matches!(
+        terminal_precedence.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::TerminalTokenPrecedence
+            )
+        ))
+    ));
+
+    let mut bare_token = token.clone();
+    {
+        let DescriptorPayload::Grammar(grammar) = &mut bare_token.payload else {
+            unreachable!()
+        };
+        let GrammarDescriptor::Tokens { productions } = grammar.as_mut() else {
+            unreachable!()
+        };
+        let production = productions.remove(0);
+        **grammar = GrammarDescriptor::Production(production);
+    }
+    assert!(matches!(
+        bare_token.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(GrammarProductionReason::TokenOutsideCarrier)
         ))
     ));
 

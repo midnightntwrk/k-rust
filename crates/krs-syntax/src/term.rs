@@ -134,6 +134,13 @@ pub enum TermNode {
     },
     /// Compiler-owned associative object-Bool disjunction shell.
     OrBool(TokenRange),
+    /// `k::lexeme!(Sort, "text")`: one token of a user token sort.
+    Lexeme {
+        /// Authored token-sort path.
+        sort: Path,
+        /// Token text literal.
+        text: LitStr,
+    },
 }
 
 impl TermNode {
@@ -146,7 +153,8 @@ impl TermNode {
             | Self::IdToken(_)
             | Self::BytesToken(_)
             | Self::Anonymous { .. }
-            | Self::OrBool(_) => None,
+            | Self::OrBool(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -160,7 +168,8 @@ impl TermNode {
             | Self::IdToken(_)
             | Self::BytesToken(_)
             | Self::Anonymous { .. }
-            | Self::OrBool(_) => None,
+            | Self::OrBool(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -172,6 +181,7 @@ impl TermNode {
             Self::BytesToken(literal) => TokenRange::for_tokens(literal),
             Self::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
             Self::OrBool(range) => Ok(*range),
+            Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
 }
@@ -316,6 +326,14 @@ pub enum TermTree {
     },
     /// `k::fragment![Parent { ... }]` complete nested-cell term.
     Cell(CellTerm),
+    /// `k::lexeme!(Sort, "text")`: one token of a user token sort, which
+    /// emits as `#token("text","Sort")`.
+    Lexeme {
+        /// Authored token-sort path.
+        sort: Path,
+        /// Token text literal.
+        text: LitStr,
+    },
 }
 
 impl TermTree {
@@ -331,7 +349,8 @@ impl TermTree {
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
-            | Self::Cell(_) => None,
+            | Self::Cell(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -347,7 +366,8 @@ impl TermTree {
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
-            | Self::Cell(_) => None,
+            | Self::Cell(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -363,7 +383,8 @@ impl TermTree {
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
-            | Self::Cell(_) => None,
+            | Self::Cell(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -379,7 +400,8 @@ impl TermTree {
             | Self::BytesToken { .. }
             | Self::Anonymous { .. }
             | Self::OrBool { .. }
-            | Self::Cell(_) => None,
+            | Self::Cell(_)
+            | Self::Lexeme { .. } => None,
         }
     }
 
@@ -439,7 +461,8 @@ impl TermTree {
             | Self::Literal(_)
             | Self::IdToken { .. }
             | Self::BytesToken { .. }
-            | Self::Anonymous { .. } => {}
+            | Self::Anonymous { .. }
+            | Self::Lexeme { .. } => {}
         }
     }
 }
@@ -649,7 +672,8 @@ impl TermExpression {
                 TermNode::IdToken(_)
                 | TermNode::BytesToken(_)
                 | TermNode::Anonymous { .. }
-                | TermNode::OrBool(_) => {
+                | TermNode::OrBool(_)
+                | TermNode::Lexeme { .. } => {
                     continue;
                 }
             };
@@ -740,13 +764,14 @@ enum TermMacroKind {
     Anonymous,
     OrBool,
     Fragment,
+    Lexeme,
 }
 
 impl TermMacroKind {
     const fn root_kind(self) -> TermRootKind {
         match self {
             Self::OrBool | Self::Fragment => TermRootKind::Call,
-            Self::Id | Self::Bytes | Self::Anonymous => TermRootKind::Literal,
+            Self::Id | Self::Bytes | Self::Anonymous | Self::Lexeme => TermRootKind::Literal,
         }
     }
 }
@@ -759,6 +784,7 @@ fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
         "anonymous" => Some(TermMacroKind::Anonymous),
         "or_bool" => Some(TermMacroKind::OrBool),
         "fragment" => Some(TermMacroKind::Fragment),
+        "lexeme" => Some(TermMacroKind::Lexeme),
         _ => None,
     }
 }
@@ -842,13 +868,95 @@ fn validate_special_macro(
             Ok(TermTree::OrBool { range, arguments })
         }
         Some(TermMacroKind::Fragment) => validate_cell_term(value, context, symbols, nodes),
+        Some(TermMacroKind::Lexeme) => {
+            let (sort, text) = parse_lexeme_arguments(value.mac.tokens.clone())?;
+            nodes.push(TermNode::Lexeme {
+                sort: sort.clone(),
+                text: text.clone(),
+            });
+            Ok(TermTree::Lexeme { sort, text })
+        }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, or `or_bool!` islands",
+                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, or `or_bool!` islands",
             },
             value.span(),
         )),
     }
+}
+
+/// Appends the `lexeme_sort` and `lexeme_text` anchors of every
+/// `k::lexeme!` node in `nodes`, numbering them from `*ordinal`.
+///
+/// Lexeme roles are side-neutral, so one sentence numbers its lexemes once,
+/// across its subject, result, and conditions in that order.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_lexeme_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        if let TermNode::Lexeme { sort, text } = node {
+            let current = checked_ordinal(*ordinal, ProvenanceRole::LexemeText, text.span())?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::LexemeSort,
+                current,
+                TokenRange::for_tokens(sort)?,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::LexemeText,
+                current,
+                TokenRange::for_tokens(text)?,
+            ));
+            *ordinal += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Parses the arguments of `k::lexeme!(Sort, "text")`.
+///
+/// # Errors
+///
+/// Rejects anything but a plain sort path, a comma, and one nonempty string
+/// literal.
+pub fn parse_lexeme_arguments(tokens: TokenStream) -> Result<(Path, LitStr), SyntaxError> {
+    let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, LitStr)> {
+        let sort: Path = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let text: LitStr = input.parse()?;
+        if !input.is_empty() {
+            return Err(input.error("lexeme! accepts exactly `Sort, \"text\"`"));
+        }
+        Ok((sort, text))
+    };
+    let (sort, text) = parser.parse2(tokens).map_err(|error| {
+        SyntaxError::new(
+            SyntaxErrorKind::InvalidTokenAttribute {
+                reason: "`k::lexeme!` takes exactly a token sort path and a string literal: `k::lexeme!(Sort, \"text\")`",
+            },
+            error.span(),
+        )
+    })?;
+    if !is_plain_path(&sort) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            sort.span(),
+        ));
+    }
+    if text.value().is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidTokenAttribute {
+                reason: "`k::lexeme!` text must not be empty",
+            },
+            text.span(),
+        ));
+    }
+    Ok((sort, text))
 }
 
 fn validate_cell_term(

@@ -1897,6 +1897,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    fn lexeme(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerLexeme,
+        ))
+    }
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

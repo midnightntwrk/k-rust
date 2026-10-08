@@ -293,36 +293,48 @@ fn collect_item_package(id: &StableItemId, packages: &mut BTreeSet<PackageId>) {
     packages.insert(id.package().clone());
 }
 
+fn collect_production_packages(
+    production: &krs_ir::DescriptorProduction,
+    packages: &mut BTreeSet<PackageId>,
+) {
+    match &production.owner {
+        DescriptorProductionOwner::Constructor { constructor } => {
+            if let DescriptorApplicationRef::Declared(id) = &constructor.application {
+                collect_item_package(id, packages);
+            }
+        }
+        DescriptorProductionOwner::TokenSort { sort }
+        | DescriptorProductionOwner::BracketSort { sort } => {
+            collect_sort_ref_package(&sort.sort, packages);
+        }
+    }
+    collect_sort_ref_package(&production.result_sort.sort, packages);
+    for item in &production.items {
+        if let DescriptorProductionItem::NonTerminal { sort, .. } = item {
+            collect_sort_ref_package(&sort.sort, packages);
+        }
+    }
+    for attribute in &production.attributes {
+        if let DescriptorProductionAttribute::Strictness {
+            using, result_sort, ..
+        } = attribute
+        {
+            if let Some(using) = using {
+                collect_item_package(&using.alias, packages);
+            }
+            collect_sort_ref_package(&result_sort.sort, packages);
+        }
+    }
+}
+
 fn collect_grammar_packages(grammar: &GrammarDescriptor, packages: &mut BTreeSet<PackageId>) {
     match grammar {
         GrammarDescriptor::Production(production) => {
-            match &production.owner {
-                DescriptorProductionOwner::Constructor { constructor } => {
-                    if let DescriptorApplicationRef::Declared(id) = &constructor.application {
-                        collect_item_package(id, packages);
-                    }
-                }
-                DescriptorProductionOwner::TokenSort { sort }
-                | DescriptorProductionOwner::BracketSort { sort } => {
-                    collect_sort_ref_package(&sort.sort, packages);
-                }
-            }
-            collect_sort_ref_package(&production.result_sort.sort, packages);
-            for item in &production.items {
-                if let DescriptorProductionItem::NonTerminal { sort, .. } = item {
-                    collect_sort_ref_package(&sort.sort, packages);
-                }
-            }
-            for attribute in &production.attributes {
-                if let DescriptorProductionAttribute::Strictness {
-                    using, result_sort, ..
-                } = attribute
-                {
-                    if let Some(using) = using {
-                        collect_item_package(&using.alias, packages);
-                    }
-                    collect_sort_ref_package(&result_sort.sort, packages);
-                }
+            collect_production_packages(production, packages);
+        }
+        GrammarDescriptor::Tokens { productions } => {
+            for production in productions {
+                collect_production_packages(production, packages);
             }
         }
         GrammarDescriptor::Subsort {

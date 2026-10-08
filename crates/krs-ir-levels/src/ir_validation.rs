@@ -1470,7 +1470,20 @@ pub(crate) fn validate_production_shape<L: Validation>(
     if alias && function {
         return Err(L::error(ValidationError::InvalidAliasProduction));
     }
-    if token && (items.len() != 1 || regexes != 1) {
+    // A token production is one regex or one terminal (`syntax S ::= "main"
+    // [token]`); `prec` orders regexes only, as a terminal already outranks
+    // every regex.
+    if token
+        && !matches!(
+            items,
+            [item] if matches!(item.kind(), GrammarProductionItemKind::RegexTerminal { .. })
+                || (matches!(item.kind(), GrammarProductionItemKind::Terminal { .. })
+                    && !attributes.iter().any(|attribute| matches!(
+                        attribute,
+                        ProductionAttribute::Token { lexical_precedence: Some(_), .. }
+                    )))
+        )
+    {
         return Err(L::error(ValidationError::InvalidTokenProduction));
     }
     if regexes != 0 && !token {

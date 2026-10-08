@@ -1511,7 +1511,7 @@ impl fmt::Display for DefinitionValidationError {
                 write!(formatter, "production repeats {attribute} metadata")
             }
             Self::InvalidTokenProduction => formatter.write_str(
-                "token metadata requires exactly one regex item and no other grammar items",
+                "token metadata requires exactly one regex or terminal item, and `prec` a regex",
             ),
             Self::RegexWithoutToken => {
                 formatter.write_str("regex grammar items require classified token metadata")

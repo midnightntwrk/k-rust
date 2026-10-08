@@ -259,6 +259,21 @@ pub struct Identifier(pub String);
 "#,
     ),
     (
+        "token_stack",
+        r#"
+#[k::token(regex = r"[a-z][a-zA-Z0-9]*")]
+#[k::token(terminal = "main")]
+pub struct Name(pub String);
+"#,
+    ),
+    (
+        "token_alias",
+        r#"
+#[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+pub type DollarId = k::builtin::Id;
+"#,
+    ),
+    (
         "strict_orphan",
         r"
 #[k::strict(sequence = [value], result = KResult)]
@@ -377,6 +392,17 @@ k::rules! {
     foo_to_bar: Foo() => Bar();
 }
 ",
+    ),
+    (
+        "rules_lexeme",
+        r#"
+k::rules! {
+    for Stmt;
+    use StmtSyntax::*;
+
+    call_main: Call(k::lexeme!(Name, "main")) => Halt();
+}
+"#,
     ),
     (
         "rules_heads",
@@ -656,6 +682,7 @@ k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
     ("bytes", "k::bytes!(b\"\\x00A\");"),
     ("anonymous", "k::anonymous!(Bool, \"_B\");"),
     ("or_bool", "k::or_bool![int::eq(n, 5), int::eq(n, 6)];"),
+    ("lexeme", "k::lexeme!(Name, \"main\");"),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.
@@ -686,6 +713,7 @@ fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
         syn::Item::Impl(item) => &mut item.attrs,
         syn::Item::Struct(item) => &mut item.attrs,
         syn::Item::Trait(item) => &mut item.attrs,
+        syn::Item::Type(item) => &mut item.attrs,
         other => panic!("unsupported golden item: {}", other.to_token_stream()),
     }
 }

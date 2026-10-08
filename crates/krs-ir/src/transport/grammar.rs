@@ -888,6 +888,12 @@ stage_shape! {
             /// Typed associativity sentences.
             sentences: Vec<DescriptorAssociativitySentence> => [keep],
         },
+        /// The stacked token productions of one `#[k::token]` carrier, in
+        /// attribute order: one production per attribute, all on one sort.
+        Tokens {
+            /// One `regex` or `terminal` token production per attribute.
+            productions: Vec<Production<S>> => [vec nested],
+        },
     }
 }
 
@@ -1275,6 +1281,16 @@ stage_shape! {
             declaration: S::Nominal => [nominal],
             /// Authored child values; semantic lowering validates completeness and order.
             fields: Vec<CellTermField<S>> => [vec nested],
+        },
+        /// `k::lexeme!(Sort, "text")`: one token of a user token sort, never
+        /// re-lexed.
+        Lexeme {
+            /// Exact text-literal provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact authored token-sort occurrence.
+            sort: S::Sort => [sort],
+            /// Nonempty token text.
+            text: String => [keep],
         },
     }
 }
@@ -1857,6 +1873,7 @@ impl GrammarDescriptor {
             Self::Associativity { .. } => {
                 canonical_key(ProvenanceRole::AssociativityDeclaration, 0)
             }
+            Self::Tokens { .. } => canonical_key(ProvenanceRole::TokenDeclaration, 0),
         }
     }
 
@@ -1878,7 +1895,43 @@ impl GrammarDescriptor {
             });
         }
         match self {
-            Self::Production(production) => production.validate(provenance),
+            Self::Production(production) => {
+                if matches!(
+                    production.owner,
+                    DescriptorProductionOwner::TokenSort { .. }
+                ) {
+                    return Err(GrammarTransportError::InvalidProduction(
+                        GrammarProductionReason::TokenOutsideCarrier,
+                    ));
+                }
+                production.validate(provenance)
+            }
+            Self::Tokens { productions } => {
+                let Some(first) = productions.first() else {
+                    return Err(GrammarTransportError::EmptyCollection(
+                        TransportField::ProductionItems,
+                    ));
+                };
+                let DescriptorProductionOwner::TokenSort { sort } = &first.owner else {
+                    return Err(GrammarTransportError::InvalidProduction(
+                        GrammarProductionReason::TokenCarrierOwner,
+                    ));
+                };
+                for production in productions {
+                    match &production.owner {
+                        DescriptorProductionOwner::TokenSort { sort: owner }
+                            if owner.sort == sort.sort
+                                && production.result_sort.sort == sort.sort => {}
+                        _ => {
+                            return Err(GrammarTransportError::InvalidProduction(
+                                GrammarProductionReason::TokenCarrierOwner,
+                            ));
+                        }
+                    }
+                    production.validate(provenance)?;
+                }
+                Ok(())
+            }
             Self::Subsort {
                 key,
                 subsort,
@@ -1944,8 +1997,12 @@ impl DescriptorProduction {
                 require_key(&constructor.key, provenance)?;
                 constructor.application.validate()?;
             }
-            DescriptorProductionOwner::TokenSort { sort }
-            | DescriptorProductionOwner::BracketSort { sort } => {
+            DescriptorProductionOwner::TokenSort { sort } => {
+                // A type-alias carrier adds token productions to an existing
+                // sort, which may be builtin; semantic lowering decides which.
+                validate_sort_reference(sort, provenance)?;
+            }
+            DescriptorProductionOwner::BracketSort { sort } => {
                 validate_sort_reference(sort, provenance)?;
                 if !matches!(sort.sort, DescriptorSortRef::Declared(_)) {
                     return Err(GrammarTransportError::InvalidProduction(
@@ -2162,38 +2219,50 @@ impl DescriptorProduction {
                 GrammarProductionReason::PreferAvoidMetadata,
             ));
         }
-        let regex_count = self
-            .items
-            .iter()
-            .filter(|item| matches!(item, DescriptorProductionItem::RegexTerminal { .. }))
-            .count();
         let has_token = families.contains("token");
         let has_bracket = families.contains("bracket");
         match &self.owner {
             DescriptorProductionOwner::TokenSort { .. } => {
-                if regex_count != 1 || !has_token {
+                if !has_token {
                     return Err(GrammarTransportError::InvalidProduction(
                         GrammarProductionReason::TokenOwnerShape,
                     ));
                 }
-                let [
-                    DescriptorProductionItem::RegexTerminal {
-                        precede_regex,
-                        follow_regex,
-                        ..
-                    },
-                ] = self.items.as_slice()
-                else {
-                    return Err(GrammarTransportError::InvalidProduction(
+                match self.items.as_slice() {
+                    [
+                        DescriptorProductionItem::RegexTerminal {
+                            precede_regex,
+                            follow_regex,
+                            ..
+                        },
+                    ] => {
+                        if precede_regex.is_some() || follow_regex.is_some() {
+                            return Err(GrammarTransportError::InvalidProduction(
+                                GrammarProductionReason::NominalTokenRegexGuards,
+                            ));
+                        }
+                        Ok(())
+                    }
+                    [DescriptorProductionItem::Terminal { .. }] => {
+                        if self.attributes.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                DescriptorProductionAttribute::Token {
+                                    lexical_precedence: Some(_),
+                                    ..
+                                }
+                            )
+                        }) {
+                            return Err(GrammarTransportError::InvalidProduction(
+                                GrammarProductionReason::TerminalTokenPrecedence,
+                            ));
+                        }
+                        Ok(())
+                    }
+                    _ => Err(GrammarTransportError::InvalidProduction(
                         GrammarProductionReason::TokenRegexItemCount,
-                    ));
-                };
-                if precede_regex.is_some() || follow_regex.is_some() {
-                    return Err(GrammarTransportError::InvalidProduction(
-                        GrammarProductionReason::NominalTokenRegexGuards,
-                    ));
+                    )),
                 }
-                Ok(())
             }
             DescriptorProductionOwner::BracketSort { sort } => {
                 if !has_bracket
@@ -2271,6 +2340,17 @@ impl GrammarDescriptor {
         let mut keys = BTreeSet::new();
         match self {
             Self::Production(production) => production.collect_expected_keys(&mut keys)?,
+            Self::Tokens { productions } => {
+                let mut regex_ordinal = 0_u32;
+                let mut terminal_ordinal = 0_u32;
+                for production in productions {
+                    production.collect_token_keys(
+                        &mut keys,
+                        &mut regex_ordinal,
+                        &mut terminal_ordinal,
+                    )?;
+                }
+            }
             Self::Subsort {
                 key,
                 subsort,
@@ -2333,10 +2413,88 @@ impl GrammarDescriptor {
 }
 
 impl DescriptorProduction {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One ordered pass retains exact provenance ordinals for every production owner."
-    )]
+    /// Collects the keys of one production of a token carrier. The carrier's
+    /// sort keys are its declaration; each production, its item, and its
+    /// token metadata share the key of its `regex` or `terminal` literal,
+    /// numbered per kind in attribute order, and `prec` takes the ordinal of
+    /// its regex.
+    fn collect_token_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+        regex_ordinal: &mut u32,
+        terminal_ordinal: &mut u32,
+    ) -> Result<(), GrammarTransportError> {
+        let DescriptorProductionOwner::TokenSort { sort } = &self.owner else {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::TokenCarrierOwner,
+            ));
+        };
+        insert_exact(keys, &sort.key, ProvenanceRole::TokenDeclaration, 0)?;
+        insert_exact(
+            keys,
+            &self.result_sort.key,
+            ProvenanceRole::TokenDeclaration,
+            0,
+        )?;
+        if self.template_key.is_some() {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::TokenSyntaxTemplate,
+            ));
+        }
+        let (content_role, content_ordinal) = match self.items.as_slice() {
+            [DescriptorProductionItem::RegexTerminal { .. }] => {
+                let ordinal = *regex_ordinal;
+                *regex_ordinal = increment(ordinal)?;
+                (ProvenanceRole::TokenRegex, ordinal)
+            }
+            [DescriptorProductionItem::Terminal { .. }] => {
+                let ordinal = *terminal_ordinal;
+                *terminal_ordinal = increment(ordinal)?;
+                (ProvenanceRole::TokenTerminal, ordinal)
+            }
+            _ => {
+                return Err(GrammarTransportError::InvalidProduction(
+                    GrammarProductionReason::TokenRegexItemCount,
+                ));
+            }
+        };
+        insert_exact(keys, &self.key, content_role, content_ordinal)?;
+        let [
+            DescriptorProductionItem::RegexTerminal { key, .. }
+            | DescriptorProductionItem::Terminal { key, .. },
+        ] = self.items.as_slice()
+        else {
+            unreachable!("the item shape was matched above");
+        };
+        insert_exact(keys, key, content_role, content_ordinal)?;
+        let [
+            DescriptorProductionAttribute::Token {
+                key,
+                lexical_precedence,
+            },
+        ] = self.attributes.as_slice()
+        else {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::TokenMetadataShape,
+            ));
+        };
+        insert_exact(keys, key, content_role, content_ordinal)?;
+        if let Some(precedence) = lexical_precedence {
+            if content_role != ProvenanceRole::TokenRegex {
+                return Err(GrammarTransportError::InvalidProduction(
+                    GrammarProductionReason::TerminalTokenPrecedence,
+                ));
+            }
+            insert_exact(
+                keys,
+                &precedence.key,
+                ProvenanceRole::TokenLexicalPrecedence,
+                content_ordinal,
+            )?;
+        }
+        Ok(())
+    }
+
     fn collect_expected_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
@@ -2362,48 +2520,10 @@ impl DescriptorProduction {
                 self.collect_constructor_item_keys(keys)?;
                 self.collect_constructor_attribute_keys(keys)
             }
-            DescriptorProductionOwner::TokenSort { sort } => {
-                insert_exact(keys, &self.key, ProvenanceRole::TokenDeclaration, 0)?;
-                insert_exact(keys, &sort.key, ProvenanceRole::TokenDeclaration, 0)?;
-                insert_exact(
-                    keys,
-                    &self.result_sort.key,
-                    ProvenanceRole::TokenDeclaration,
-                    0,
-                )?;
-                if self.template_key.is_some() {
-                    return Err(GrammarTransportError::InvalidProduction(
-                        GrammarProductionReason::TokenSyntaxTemplate,
-                    ));
-                }
-                let [DescriptorProductionItem::RegexTerminal { key, .. }] = self.items.as_slice()
-                else {
-                    return Err(GrammarTransportError::InvalidProduction(
-                        GrammarProductionReason::TokenRegexItemCount,
-                    ));
-                };
-                insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
-                let [
-                    DescriptorProductionAttribute::Token {
-                        key,
-                        lexical_precedence,
-                    },
-                ] = self.attributes.as_slice()
-                else {
-                    return Err(GrammarTransportError::InvalidProduction(
-                        GrammarProductionReason::TokenMetadataShape,
-                    ));
-                };
-                insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
-                if let Some(precedence) = lexical_precedence {
-                    insert_exact(
-                        keys,
-                        &precedence.key,
-                        ProvenanceRole::TokenLexicalPrecedence,
-                        0,
-                    )?;
-                }
-                Ok(())
+            DescriptorProductionOwner::TokenSort { .. } => {
+                Err(GrammarTransportError::InvalidProduction(
+                    GrammarProductionReason::TokenOutsideCarrier,
+                ))
             }
             DescriptorProductionOwner::BracketSort { sort } => {
                 insert_exact(keys, &self.key, ProvenanceRole::BracketDeclaration, 0)?;
@@ -2763,11 +2883,17 @@ impl StructuredRuleDescriptor {
         let mut subject = TermKeyCounters::default();
         self.subject
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
-        let mut result = TermKeyCounters::default();
+        let mut result = TermKeyCounters {
+            lexeme: subject.lexeme,
+            ..TermKeyCounters::default()
+        };
         self.result
             .collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
         if let Some(requires) = &self.requires {
-            let mut condition = TermKeyCounters::default();
+            let mut condition = TermKeyCounters {
+                lexeme: result.lexeme,
+                ..TermKeyCounters::default()
+            };
             requires.term.collect_expected_term_keys(
                 &mut keys,
                 TermSide::Requires,
@@ -2851,6 +2977,9 @@ struct TermKeyCounters {
     literal: u32,
     record_field: u32,
     wildcard: u32,
+    /// Lexeme ordinals are side-neutral: they continue from the subject
+    /// through the result and the condition.
+    lexeme: u32,
 }
 
 impl DescriptorTerm {

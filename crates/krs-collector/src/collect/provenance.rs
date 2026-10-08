@@ -473,6 +473,7 @@ fn payload_primary_key(
             HostGrammarDescriptor::Subsort { .. } => ProvenanceRole::SubsortDeclaration,
             HostGrammarDescriptor::Precedence { .. } => ProvenanceRole::PrecedenceDeclaration,
             HostGrammarDescriptor::Associativity { .. } => ProvenanceRole::AssociativityDeclaration,
+            HostGrammarDescriptor::Tokens { .. } => ProvenanceRole::TokenDeclaration,
         },
         HostDescriptorPayload::StructuredRule(_) => ProvenanceRole::RuleDeclaration,
         _ => return primary_key(kind),

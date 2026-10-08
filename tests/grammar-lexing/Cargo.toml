@@ -8,6 +8,8 @@ members = [
     "packages/partition",
     "packages/prefer",
     "packages/program-warning",
+    "packages/token-id",
+    "packages/tokens",
     "packages/visibility",
 ]
 resolver = "3"

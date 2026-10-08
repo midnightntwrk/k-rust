@@ -15,7 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use krs_ir::{BuiltinSort, ProductionAttribute};
+use krs_ir::{BuiltinSort, GrammarProductionItemKind, ProductionAttribute};
 use krs_ir_levels::{
     DefinitionIr, DefinitionModule, DefinitionSentence, k_surface::definition_terminals,
 };
@@ -35,7 +35,15 @@ impl TokenLexicon {
             .iter()
             .flat_map(DefinitionModule::sentences)
             .filter_map(|sentence| match sentence {
-                DefinitionSentence::Production(production) => Some(production.attributes()),
+                // A terminal token production (`syntax Name ::= "main" [token]`)
+                // is counted among the terminals, not the regex tokens.
+                DefinitionSentence::Production(production)
+                    if production.items().iter().any(|item| {
+                        matches!(item.kind(), GrammarProductionItemKind::RegexTerminal { .. })
+                    }) =>
+                {
+                    Some(production.attributes())
+                }
                 _ => None,
             })
             .flatten()

@@ -255,7 +255,7 @@ fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
     let attribute =
         krs_syntax::TokenAttribute::parse_source(r#"regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2"#)
             .unwrap();
-    assert_eq!(attribute.regex().value(), "[a-zA-Z][a-zA-Z0-9_]*");
+    assert_eq!(attribute.regex().unwrap().value(), "[a-zA-Z][a-zA-Z0-9_]*");
     assert_eq!(attribute.lexical_precedence(), Some(2));
     let declaration = krs_syntax::TokenDeclaration::parse_source("pub struct Id(String);").unwrap();
     assert_eq!(declaration.name(), "Id");

@@ -550,6 +550,51 @@ pub(crate) fn orphan_strictness(
     ))
 }
 
+/// Removes the `#[k::token]` attributes stacked below the expanding one and
+/// returns them in source order; rustc would otherwise expand each again.
+fn take_stacked_token_attributes(
+    attributes: &mut Vec<Attribute>,
+) -> crate::Result<Vec<krs_syntax::TokenAttribute>> {
+    let mut stacked = Vec::new();
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in std::mem::take(attributes) {
+        if helper_entry(attribute.path()) == Some(AttributeMacro::Token) {
+            stacked.push(krs_syntax::TokenAttribute::parse_tokens(helper_tokens(
+                &attribute, "token",
+            )?)?);
+        } else {
+            retained.push(attribute);
+        }
+    }
+    *attributes = retained;
+    Ok(stacked)
+}
+
+/// Rejects a token-struct field that names anything but std's `String`, such
+/// as the K marker `k::builtin::string::String`, with the lint's own message.
+fn token_field_check(item: &ItemStruct, cfg: &[Attribute]) -> TokenStream {
+    let syn::Fields::Unnamed(fields) = &item.fields else {
+        return TokenStream::new();
+    };
+    let Some(field) = fields.unnamed.first() else {
+        return TokenStream::new();
+    };
+    let ty = &field.ty;
+    quote! {
+        #(#cfg)*
+        const _: () = {
+            #[diagnostic::on_unimplemented(
+                message = "this field resolves to the K String marker; token carriers use std's String: import `k::builtin::string` as a module, not `string::String`",
+                label = "a token struct's field is std's `String`, which stores nothing at runtime"
+            )]
+            trait KrsTokenCarrierField {}
+            impl KrsTokenCarrierField for ::std::string::String {}
+            const fn krs_token_carrier_field<T: KrsTokenCarrierField + ?Sized>() {}
+            krs_token_carrier_field::<#ty>();
+        };
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Token metadata and carrier items are emitted together."
@@ -559,39 +604,30 @@ pub(crate) fn token(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let token_lexical_precedence_role = ProvenanceRole::TokenLexicalPrecedence;
-    let token_declaration_role = ProvenanceRole::TokenDeclaration;
-    let token_regex_role = ProvenanceRole::TokenRegex;
-    let attribute = krs_syntax::TokenAttribute::parse_tokens(attributes)?;
-    let declaration = krs_syntax::TokenDeclaration::parse_tokens(item)?;
+    let first = krs_syntax::TokenAttribute::parse_tokens(attributes)?;
+    let mut item: Item = syn::parse2(item)?;
+    let stacked = match &mut item {
+        Item::Struct(item) => take_stacked_token_attributes(&mut item.attrs)?,
+        Item::Type(item) => take_stacked_token_attributes(&mut item.attrs)?,
+        _ => Vec::new(),
+    };
+    let declaration = krs_syntax::TokenDeclaration::parse_tokens(item.to_token_stream())?;
+    let mut all = vec![first];
+    all.extend(stacked);
+    let stack = krs_syntax::TokenStack::new(all)?;
     let facade = env.facade_path()?;
-    let fallback = TokenRange::for_tokens(declaration.item())?;
+    let fallback = TokenRange::for_tokens(&item)?;
     let nonce = expansion_nonce(env, "token", declaration.name(), fallback);
     let key_fn = format_ident!("__krs_token_type_{nonce:016x}");
     let sort_factory = format_ident!("__krs_token_sort_descriptor_{nonce:016x}");
     let grammar_factory = format_ident!("__krs_token_grammar_descriptor_{nonce:016x}");
-    let cfg = call_site_cfg_attributes(&declaration.item().attrs)?;
-    let item = declaration.item();
+    let cfg = call_site_cfg_attributes(declaration.attributes())?;
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
 
-    let sort_anchor = ProvenanceAnchor::new(
-        ProvenanceRole::SortDeclaration,
-        0,
-        TokenRange::for_tokens(declaration.name())?,
-    );
-    let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
-    let mut grammar_anchors = attribute.provenance()?;
+    let mut grammar_anchors = stack.provenance()?;
     grammar_anchors.extend(declaration.provenance()?);
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
-    let regex = attribute.regex().value();
-    let lexical_precedence =
-        attribute
-            .lexical_precedence()
-            .map(|value| krs_ir::DescriptorLexicalPrecedence {
-                key: wire_key(token_lexical_precedence_role, 0),
-                value,
-            });
     let grammar_name = format!("__krs_grammar_token_{name}");
     let mut slots = WireSlots::new(&facade);
     let token_reference = wire_sort_reference(
@@ -602,53 +638,47 @@ pub(crate) fn token(
         &key_fn,
         &name,
     );
-    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
-        WireProduction {
-            key: wire_key(token_declaration_role, 0),
-            template_key: None,
-            owner: WireProductionOwner::TokenSort {
-                sort: token_reference.clone(),
-            },
-            result_sort: token_reference,
-            items: vec![WireProductionItem::RegexTerminal {
-                key: wire_key(token_regex_role, 0),
-                precede_regex: None,
-                regex: regex.clone(),
-                follow_regex: None,
-            }],
-            attributes: vec![WireProductionAttribute::Token {
-                key: wire_key(token_regex_role, 0),
-                lexical_precedence,
-            }],
-        },
-    )));
+    let productions = stack
+        .ordinals()
+        .into_iter()
+        .map(|(ordinal, attribute)| {
+            let role = attribute.content().role();
+            let item = match attribute.content() {
+                krs_syntax::TokenContent::Regex(literal) => WireProductionItem::RegexTerminal {
+                    key: wire_key(role, ordinal),
+                    precede_regex: None,
+                    regex: literal.value(),
+                    follow_regex: None,
+                },
+                krs_syntax::TokenContent::Terminal(literal) => WireProductionItem::Terminal {
+                    key: wire_key(role, ordinal),
+                    text: literal.value(),
+                },
+            };
+            WireProduction {
+                key: wire_key(role, ordinal),
+                template_key: None,
+                owner: WireProductionOwner::TokenSort {
+                    sort: token_reference.clone(),
+                },
+                result_sort: token_reference.clone(),
+                items: vec![item],
+                attributes: vec![WireProductionAttribute::Token {
+                    key: wire_key(role, ordinal),
+                    lexical_precedence: attribute.lexical_precedence().map(|value| {
+                        krs_ir::DescriptorLexicalPrecedence {
+                            key: wire_key(ProvenanceRole::TokenLexicalPrecedence, ordinal),
+                            value,
+                        }
+                    }),
+                }],
+            }
+        })
+        .collect();
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Tokens { productions }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
-    let sort_wire = serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
-        parents: Vec::new(),
-    }))
-    .expect("KRS wire values serialize");
-
-    let sort_factory_tokens = DescriptorFactory {
-        facade: &facade,
-        factory: &sort_factory,
-        name: quote!(#name),
-        item_kind: quote!(#facade::ItemKind::Sort),
-        disambiguator: quote!(""),
-        identity_label: "Cargo and Rust macro context form a valid token-sort identity",
-        declared_type: quote! {
-            ::core::option::Option::Some(
-                #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
-            )
-        },
-        payload: FactoryPayload::wire(sort_wire, quote!(#facade::__KrsSlots::default())),
-        cfg: quote!(::core::default::Default::default()),
-        attributes: quote!(#(#cfg)*),
-        provenance: quote!(#sort_provenance),
-        prelude: TokenStream::new(),
-    }
-    .render();
     let grammar_factory_tokens = DescriptorFactory {
         facade: &facade,
         factory: &grammar_factory,
@@ -665,6 +695,45 @@ pub(crate) fn token(
     }
     .render();
 
+    // A struct declares a new closed token sort; a type alias adds token
+    // productions to the sort it names and declares nothing else.
+    let (sort_factory_tokens, field_check) = match declaration.carrier() {
+        krs_syntax::TokenCarrier::Struct(item_struct) => {
+            let sort_anchor = ProvenanceAnchor::new(
+                ProvenanceRole::SortDeclaration,
+                0,
+                TokenRange::for_tokens(declaration.name())?,
+            );
+            let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
+            let sort_wire =
+                serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
+                    parents: Vec::new(),
+                }))
+                .expect("KRS wire values serialize");
+            let factory = DescriptorFactory {
+                facade: &facade,
+                factory: &sort_factory,
+                name: quote!(#name),
+                item_kind: quote!(#facade::ItemKind::Sort),
+                disambiguator: quote!(""),
+                identity_label: "Cargo and Rust macro context form a valid token-sort identity",
+                declared_type: quote! {
+                    ::core::option::Option::Some(
+                        #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
+                    )
+                },
+                payload: FactoryPayload::wire(sort_wire, quote!(#facade::__KrsSlots::default())),
+                cfg: quote!(::core::default::Default::default()),
+                attributes: quote!(#(#cfg)*),
+                provenance: quote!(#sort_provenance),
+                prelude: TokenStream::new(),
+            }
+            .render();
+            (factory, token_field_check(item_struct, &cfg))
+        }
+        krs_syntax::TokenCarrier::Alias(_) => (TokenStream::new(), TokenStream::new()),
+    };
+
     Ok(quote! {
         #item
 
@@ -673,6 +742,8 @@ pub(crate) fn token(
         fn #key_fn() -> ::core::any::TypeId {
             ::core::any::TypeId::of::<#declared>()
         }
+
+        #field_check
 
         #sort_factory_tokens
 

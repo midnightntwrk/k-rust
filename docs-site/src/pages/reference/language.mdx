@@ -17,7 +17,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::sort]`, `k::sorts!` | open object-language sorts | [Sorts and values](/imp/sorts-and-values) |
 | `#[k::subsort]` | direct sort membership; KRS computes transitive closure | [Sorts and values](/imp/sorts-and-values) |
 | `#[k::constructor]`, `#[k::constructors]` | standalone or enum-family constructors | [Concrete grammar](/imp/concrete-grammar) |
-| `#[k::token]`, `#[k::bracket]` | lexical tokens and grouping-only productions | [Language scale](/advanced/language-scale) |
+| `#[k::token]`, `#[k::bracket]` | lexical tokens (one `regex` or `terminal` per attribute, stacked; on a struct a closed token sort, on a type alias more tokens for an existing sort) and grouping-only productions | [Language scale](/advanced/language-scale) |
 | `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
@@ -129,6 +129,7 @@ Builtin operations such as `+Int` and `andBool` are never program syntax, becaus
 | `k::id![...]` | claim-only builtin identifier literal |
 | `k::bytes![...]` | claim-only builtin Bytes literal |
 | `k::anonymous!(Sort, "_Name")` | typed anonymous value allowed only in a claim subject, never its result |
+| `k::lexeme!(Sort, "text")` | one token of a `#[k::token]` sort, K's `#token("text","Sort")`, in rules and claims |
 | `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands |
 | `k::fragment![...]` | nominal nested-cell fragment |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |

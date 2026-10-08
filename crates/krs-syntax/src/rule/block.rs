@@ -233,7 +233,9 @@ impl RuleClause {
         anchors.retain(|anchor| {
             !matches!(
                 anchor.role(),
-                ProvenanceRole::RuleResult
+                ProvenanceRole::LexemeSort
+                    | ProvenanceRole::LexemeText
+                    | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
                     | ProvenanceRole::RuleRightReference
@@ -437,7 +439,53 @@ impl RuleClause {
                 TokenRange::for_tokens(&narrowing.sort)?,
             ));
         }
+        self.lexeme_anchors(&mut anchors)?;
         Ok(anchors)
+    }
+
+    /// Numbers `k::lexeme!` terms in expansion order: the subject, the cells
+    /// read, the head result, the cells written, then the condition.
+    fn lexeme_anchors(&self, anchors: &mut Vec<ProvenanceAnchor>) -> Result<(), SyntaxError> {
+        use crate::term::push_lexeme_anchors;
+        let mut ordinal = 0_usize;
+        push_lexeme_anchors(anchors, self.rule.parameter().pattern.nodes(), &mut ordinal)?;
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::HaveMap { key, .. } => {
+                    push_lexeme_anchors(anchors, key.nodes(), &mut ordinal)?;
+                }
+                RuleExtra::RewriteCell { before, .. } => {
+                    push_lexeme_anchors(anchors, before.nodes(), &mut ordinal)?;
+                }
+                RuleExtra::UpdateMap { .. } => {}
+            }
+        }
+        match &self.head_result {
+            RuleHeadResult::Replace(term) => {
+                push_lexeme_anchors(anchors, term.nodes(), &mut ordinal)?;
+            }
+            RuleHeadResult::Splice { items, .. } => {
+                for item in items {
+                    push_lexeme_anchors(anchors, item.nodes(), &mut ordinal)?;
+                }
+            }
+            RuleHeadResult::Erase(_) => {}
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::UpdateMap { update, .. } => {
+                    push_lexeme_anchors(anchors, update.term().nodes(), &mut ordinal)?;
+                }
+                RuleExtra::RewriteCell { after, .. } => {
+                    push_lexeme_anchors(anchors, after.nodes(), &mut ordinal)?;
+                }
+                RuleExtra::HaveMap { .. } => {}
+            }
+        }
+        if let Some(requires) = self.rule.requires() {
+            push_lexeme_anchors(anchors, requires.term().nodes(), &mut ordinal)?;
+        }
+        Ok(())
     }
 }
 

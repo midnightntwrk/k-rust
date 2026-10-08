@@ -1123,6 +1123,9 @@ mod token_literal_tests;
 mod framing_tests;
 
 #[cfg(test)]
+mod lexeme_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use krs_ir::{ApplicationRef, ItemKind, PackageId};
