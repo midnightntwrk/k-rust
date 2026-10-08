@@ -39,7 +39,7 @@ Cross-family constraints are declarations: `k::precedence! { pair > atoms; }` an
 Variant helpers include `#[k::syntax("...", group = "...", format = "...")]`, the equivalent separate `#[k::format("...")]`, and the `avoid` syntax flag.
 A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the colour codes `%c` and `%r`, and `%%`; KRS emits each terminal by its position, so `while ({condition}) {body}` prints with `format(%1 %2%3%4 %5)`.
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
-`krun --color on` prints them; `kast --output pretty` does not.
+`krun --color on` and `krs run --color always` print them; `kast --output program` does not, and prints an authored `%c` or `%r` as the letter `c` or `r`.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
@@ -117,6 +117,7 @@ Each command compiles the selected definition in-process and corresponds to a K 
 | KRS | Java K | Result |
 | --- | --- | --- |
 | `krs parse --sort Stmt prog.imp` | `kast --sort Stmt prog.imp` | the program as KAST |
+| `krs parse --output program prog.imp` | `kast --module MAIN --output program prog.imp` | the program printed back through its grammar |
 | `krs run prog.imp -c env='.Map'` | `krun prog.imp -cENV='.Map'` | the final configuration of one path |
 | `krs search prog.imp` | `krun --search prog.imp` | the set of reachable final states |
 | `krs prove --claim branching` | `kprove spec.k --claims MAIN-SPEC.branching` | a verdict for each claim |
@@ -124,5 +125,17 @@ Each command compiles the selected definition in-process and corresponds to a K 
 A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
 Proof verdicts are k-rust's: `proven`, `disproved`, `failed`, `indeterminate`, and `depth-bound`.
 `--output json` prints a `krs-exec/1` report whose configurations are KAST JSON, as `krun --output json` prints them.
+
+### Printing through the grammar
+
+The grammar is also the printer: there is no `Display` impl to write.
+`krs run`, `krs search`, and `krs prove` print each configuration as `krun --output pretty` prints it, byte for byte, by K's own algorithm over the compiled definition.
+Each production prints through its `format` (the syntax template, terminals spaced by default), so `while ({condition}) {body}` prints `while (x > 0) x = x - 1;`.
+Parentheses come back only where `#[k::precedence]`, associativity, or sorts require them: `(1 + 2) * 3` keeps them and `1 + 2 * 3` gets none.
+A non-empty `<k>` cell prints its items joined by `~>` and ending in `.K`, and a finished program's `<k>` holds only `.K`.
+Maps and sets print one entry per line, sorted by their printed text with numbers compared by value (`x2` before `x10`), not in a `HashMap`'s order.
+Every alias prints in reverse, so with `rule zeroAlias => 0` every `0`, even a value inside `<env>`, prints as `zeroAlias`; a K `macro` is one-way and prints expanded.
+`krs parse --output program` prints a parsed program the same way, with its macros as written, as `kast --module MAIN --output program` does: KRS reverses the main module's aliases, while a bare `kast --output program` uses only the program-syntax module, which has no alias rules.
+A production without a printable format prints its term as KAST, with a `warning:` line naming it.
 
 For accepted-but-unqualified, open, and absent shapes, continue to [current boundaries and open questions](/reference/boundaries).

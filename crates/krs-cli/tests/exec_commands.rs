@@ -120,7 +120,11 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
         "{}",
         stderr(&human)
     );
-    assert!(String::from_utf8_lossy(&human.stdout).contains("bar"));
+    // The default output prints the configuration through the grammar, as `krun --output pretty` does.
+    assert_eq!(
+        String::from_utf8_lossy(&human.stdout),
+        "<k>\n  bar ~> .K\n</k>\n"
+    );
 
     let depth_zero = krs(
         target.path(),
@@ -260,6 +264,14 @@ fn programs_parse_bind_and_report_their_errors() {
     );
     assert_eq!(parsed.status.code(), Some(0), "{}", stderr(&parsed));
     assert_eq!(json(&parsed)["term"]["label"]["name"], "foo");
+    let program_text = krs(
+        target.path(),
+        &manifest,
+        "parse",
+        &[program, "--output", "program"],
+    );
+    assert_eq!(program_text.status.code(), Some(0), "{}", stderr(&program_text));
+    assert_eq!(String::from_utf8_lossy(&program_text.stdout), "foo\n");
 
     let bad = temporary.path().join("bad.prog");
     fs::write(&bad, "fooo\n").unwrap();

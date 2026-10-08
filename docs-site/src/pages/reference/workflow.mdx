@@ -81,7 +81,9 @@ FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` 
 `run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
 `prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix.
 `--depth N` bounds rewrite steps; evaluating functions is not a step.
-`--trace` prints each rewrite step with its rule label and authored source, and `--output kast`, `json`, or `kore` selects how results print (`none` prints no configuration from `run`).
+`--trace` prints each rewrite step with its rule label and authored source.
+`run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.
+`--output kast`, `json`, or `kore` selects the other formats (`none` prints no configuration from `run`).
 A run that ends stuck, at the depth bound, or undefined exits 0; a proof exits 0 only when every selected claim is `proven`; an inconclusive result or an error exits 1, and a usage error exits 2.
 
 The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, and `prove`.

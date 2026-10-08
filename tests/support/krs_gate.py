@@ -350,13 +350,39 @@ class Session:
     def exec_run(
         self, *, program: str | None = None, program_name: str | None = None,
         variables: Mapping[str, str] | None = None, depth: int | None = None, trace: bool = False,
+        print_style: str | None = None,
     ) -> dict[str, Any]:
-        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/1` run report."""
+        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/1` run report.
 
+        With ``print_style="pretty"`` the report also carries ``printed``: the final state as `krs run`
+        prints it (`krun --output pretty`), ``{"text": ..., "warnings": [...]}``.
+        """
+
+        fields: dict[str, Any] = {}
+        if print_style is not None:
+            fields["print"] = print_style
         return self.request(
             "exec.run", program=program, program_name=program_name,
-            variables=dict(variables or {}), depth=depth, trace=trace,
+            variables=dict(variables or {}), depth=depth, trace=trace, **fields,
         )
+
+    def term_unparse(
+        self, mode: str, *, program: str | None = None, program_name: str | None = None,
+        sort: str | None = None, kore: str | None = None, color: bool = False,
+    ) -> dict[str, Any]:
+        """Print through the loaded definition's grammar (krs-unparse).
+
+        ``mode="program"`` parses ``program`` at ``sort`` and prints it as `krs parse --output program`
+        (`kast --output program`) does; ``mode="pretty"`` prints the KORE pattern ``kore`` as
+        `krun --output pretty` does. Returns ``{"text": ..., "warnings": [...]}``.
+        """
+
+        fields = {
+            key: value for key, value in {
+                "program": program, "program_name": program_name, "sort": sort, "kore": kore,
+            }.items() if value is not None
+        }
+        return self.request("term.unparse", mode=mode, color=color, **fields)
 
     def exec_search(
         self, *, program: str | None = None, program_name: str | None = None,

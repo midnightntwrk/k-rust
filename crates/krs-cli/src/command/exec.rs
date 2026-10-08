@@ -4,13 +4,13 @@
 //! Results are never cached: a run depends on its inputs, and the collector and lowering stages it shares with the other commands are already incremental.
 
 use std::fmt::Write as _;
-use std::io::Read;
+use std::io::{IsTerminal as _, Read};
 use std::path::PathBuf;
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    ConfigInputs, ExecError, PrintStyle, ProgramInput, ProveOptions, REPORT_SCHEMA, RunOptions,
-    SearchMode, SearchOptions, Semantics, SourceText, Step, StepOrigin, Term, Verdict,
+    ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions, REPORT_SCHEMA,
+    RunOptions, SearchMode, SearchOptions, Semantics, SourceText, Step, StepOrigin, Term, Verdict,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -30,7 +30,11 @@ pub enum ProgramSource {
 /// How a result term is printed.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TermOutput {
-    /// Textual KAST (the default until grammar-directed unparsing, KF-017).
+    /// Grammar-directed text, as `krun --output pretty` prints it (the default of `run`, `search` and `prove`).
+    Pretty,
+    /// The program grammar's text, as `kast --output program` prints it (`parse` only).
+    Program,
+    /// Textual KAST (the default of `parse`).
     #[default]
     Kast,
     /// The `krs-exec/1` JSON report (`parse` prints the KAST JSON envelope, as `kast --output json` does).
@@ -41,7 +45,7 @@ pub enum TermOutput {
     None,
 }
 
-/// Colour selection for pretty output (KF-017); accepted and validated, unused until then.
+/// Colour selection for pretty output.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ColorChoice {
     /// Colour when stdout is a terminal.
@@ -113,6 +117,20 @@ pub struct ProveRequest {
     pub output: TermOutput,
     /// `--color`.
     pub color: ColorChoice,
+}
+
+impl ColorChoice {
+    /// Whether to colour: `auto` colours exactly when standard output is a terminal and `NO_COLOR` is unset.
+    fn enabled(self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => {
+                std::io::stdout().is_terminal()
+                    && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty())
+            }
+        }
+    }
 }
 
 const WORKER_STACK: usize = 64 * 1024 * 1024;
@@ -201,11 +219,20 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
     match command {
         Command::Parse(request) => {
             let program = read_program(&request.input)?;
+            if request.output == TermOutput::Program {
+                let printed =
+                    semantics.unparse_program(request.sort.as_deref(), &program, false)?;
+                let mut stderr = String::new();
+                write_warnings(&mut stderr, &printed);
+                return Ok(outcome(format!("{}\n", printed.text), stderr, 0));
+            }
             let term = semantics.parse(request.sort.as_deref(), &program)?;
             let stdout = match request.output {
                 TermOutput::Json => semantics.print(&term, PrintStyle::Json)?,
                 TermOutput::Kore => semantics.print(&term, PrintStyle::Kore)?,
-                TermOutput::Kast | TermOutput::None => semantics.print(&term, PrintStyle::Kast)?,
+                TermOutput::Kast | TermOutput::None | TermOutput::Pretty | TermOutput::Program => {
+                    semantics.print(&term, PrintStyle::Kast)?
+                }
             };
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
         }
@@ -262,6 +289,15 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     if request.output != TermOutput::Json {
         write_trace(&mut stderr, &report.trace);
     }
+    let color = request.color.enabled();
+    let stdout = match request.output {
+        TermOutput::Json => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
+        TermOutput::None => String::new(),
+        output => format!(
+            "{}\n",
+            print(semantics, &report.state, output, color, &mut stderr)?
+        ),
+    };
     let _ = write!(
         stderr,
         "krs run: {} after {} step{}",
@@ -277,11 +313,6 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         None => {}
     }
     stderr.push('\n');
-    let stdout = match request.output {
-        TermOutput::Json => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
-        TermOutput::None => String::new(),
-        output => format!("{}\n", print(semantics, &report.state, output)?),
-    };
     let exit_code = match report.exit_code {
         Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
         _ => i32::from(!report.halt.is_complete()),
@@ -305,17 +336,21 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
         .is_some_and(|limit| report.solutions.len() >= limit);
     let mut stderr = String::new();
     let mut stdout = String::new();
+    let color = request.color.enabled();
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "search": report}))?;
     } else {
         for (index, solution) in report.solutions.iter().enumerate() {
             let _ = writeln!(stderr, "solution {}: depth {}", index + 1, solution.depth);
             write_trace(&mut stderr, &solution.trace);
-            let _ = writeln!(
-                stdout,
-                "{}",
-                print(semantics, &solution.state, request.output)?
-            );
+            let text = print(
+                semantics,
+                &solution.state,
+                request.output,
+                color,
+                &mut stderr,
+            )?;
+            let _ = writeln!(stdout, "{text}");
         }
     }
     let count = report.solutions.len();
@@ -350,6 +385,8 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         .filter(|report| report.verdict == Verdict::Proven)
         .count();
     let mut stdout = String::new();
+    let mut warnings = String::new();
+    let color = request.color.enabled();
     if request.output == TermOutput::Json {
         stdout = json_line(&json!({"schema": REPORT_SCHEMA, "prove": reports}))?;
     } else {
@@ -364,19 +401,19 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
                 continue;
             }
             for (index, leaf) in report.leaves.iter().enumerate() {
+                let text = print(semantics, &leaf.state, request.output, color, &mut warnings)?;
                 let _ = writeln!(
                     stdout,
-                    "  leaf {} ({}, depth {}):\n{}",
+                    "  leaf {} ({}, depth {}):\n{text}",
                     index + 1,
                     leaf.outcome,
                     leaf.depth,
-                    print(semantics, &leaf.state, request.output)?
                 );
             }
         }
     }
     let stderr = format!(
-        "krs prove: {proven} of {} claim{} proven\n",
+        "{warnings}krs prove: {proven} of {} claim{} proven\n",
         reports.len(),
         if reports.len() == 1 { "" } else { "s" }
     );
@@ -392,13 +429,32 @@ fn status_word(word: &str, smt: bool) -> String {
     }
 }
 
-fn print(semantics: &Semantics, term: &Term, output: TermOutput) -> Result<String, Failure> {
+/// Print a result term; a pretty print's warnings go to `stderr`.
+fn print(
+    semantics: &Semantics,
+    term: &Term,
+    output: TermOutput,
+    color: bool,
+    stderr: &mut String,
+) -> Result<String, Failure> {
     let style = match output {
+        TermOutput::Pretty | TermOutput::Program => {
+            let printed = semantics.unparse(term, color);
+            write_warnings(stderr, &printed);
+            return Ok(printed.text);
+        }
         TermOutput::Kore => PrintStyle::Kore,
         TermOutput::Json => PrintStyle::Json,
         TermOutput::Kast | TermOutput::None => PrintStyle::Kast,
     };
     Ok(semantics.print(term, style)?)
+}
+
+/// One `warning:` line per problem that degraded a grammar-directed print.
+fn write_warnings(stderr: &mut String, printed: &Printed) {
+    for warning in &printed.warnings {
+        let _ = writeln!(stderr, "warning: {warning}");
+    }
 }
 
 fn json_line(value: &serde_json::Value) -> Result<String, Failure> {

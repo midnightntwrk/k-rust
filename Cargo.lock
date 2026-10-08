@@ -629,6 +629,7 @@ dependencies = [
  "krs-ir",
  "krs-ir-levels",
  "krs-k-rust",
+ "krs-unparse",
  "serde",
  "serde_json",
 ]

@@ -7,7 +7,8 @@
 //! - [`Semantics::configure`] builds `initGeneratedTopCell` from `$PGM` and the other configuration variables, as krun does;
 //! - [`Semantics::run`] follows one path with strategy `any`, as krun does;
 //! - [`Semantics::search`] returns the set of reachable states, as `krun --search` does;
-//! - [`Semantics::prove`] proves the selected claims, as kprove does.
+//! - [`Semantics::prove`] proves the selected claims, as kprove does;
+//! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
 //! The serialized reports form the `krs-exec/1` JSON shape that `krs run --output json` prints.
@@ -39,6 +40,7 @@ use krs_k_rust::{
 
 pub use configuration::Configuration;
 pub use k_rust::backend::BackendError;
+pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
     RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Term, Verdict,
@@ -162,6 +164,8 @@ pub enum PrintStyle {
     Json,
     /// KORE text, as `--output kore` prints it.
     Kore,
+    /// Grammar-directed text without colour, as `krun --output pretty` prints it; warnings are dropped (see [`Semantics::unparse`]).
+    Pretty,
 }
 
 /// A failure of a `krs-exec` operation.
@@ -326,6 +330,7 @@ impl From<BackendError> for ExecError {
 /// One compiled definition, ready to parse, configure, run, search, and prove.
 pub struct Semantics {
     backend: Backend,
+    unparser: krs_unparse::Unparser,
     configuration: Configuration,
     frontend_definition: NativeDefinition,
     main_module: String,
@@ -361,9 +366,16 @@ impl Semantics {
             compile_definition(definition, timings).map_err(ExecError::Compile)?;
         let CompiledArtifacts {
             definition_kore,
+            syntax_definition_kore,
+            macros_kore,
             sentence_provenance,
             ..
         } = artifacts;
+        let unparser = timings.try_span("exec.unparser", |_| {
+            krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
+                .map(|unparser| unparser.with_program_grammar(&context.frontend_definition))
+                .map_err(|error| ExecError::Backend(error.to_string()))
+        })?;
         let main_module = context.frontend_definition.main_module.clone();
         let variables = config_variables(&context.configuration_variables);
         let configuration = timings.try_span("exec.configuration", |_| {
@@ -391,6 +403,7 @@ impl Semantics {
         )?;
         Ok(Self {
             backend,
+            unparser,
             configuration,
             frontend_definition: context.frontend_definition,
             main_module,
@@ -469,7 +482,49 @@ impl Semantics {
     ///
     /// Returns [`ExecError::UnknownSort`], [`ExecError::NoProgramSort`], or [`ExecError::Parse`].
     pub fn parse(&mut self, sort: Option<&str>, input: &ProgramInput) -> Result<Term, ExecError> {
-        let sort = match sort {
+        let sort = self.program_sort(sort)?;
+        let parsed = self
+            .configuration
+            .parse_program(&sort, &input.text)
+            .map_err(|error| parse_error(input, &sort, error.as_ref()))?;
+        let kast = parsed.term().clone();
+        let kore = self
+            .configuration
+            .parse_program_kore(&sort, &input.text)
+            .map_err(|error| ExecError::Parse {
+                input: input.name.clone(),
+                sort: sort.to_string(),
+                message: error.to_string(),
+            })?;
+        Ok(Term::new(kore, kast))
+    }
+
+    /// Parse program text as [`Self::parse`] does and print it through the program grammar, as `kast --output program` does.
+    ///
+    /// Macros print as parsed, and the main module's aliases are reversed.
+    ///
+    /// # Errors
+    ///
+    /// Fails exactly when [`Self::parse`] fails.
+    pub fn unparse_program(
+        &mut self,
+        sort: Option<&str>,
+        input: &ProgramInput,
+        color: bool,
+    ) -> Result<Printed, ExecError> {
+        let sort = self.program_sort(sort)?;
+        let kore = self
+            .configuration
+            .parse_program_presented_kore(&sort, &input.text)
+            .map_err(|error| parse_error(input, &sort, error.as_ref()))?;
+        Ok(self.unparser.print_kore(
+            &kore,
+            &krs_unparse::Options::new(krs_unparse::Mode::Program).with_color(color),
+        ))
+    }
+
+    fn program_sort(&self, sort: Option<&str>) -> Result<KastSort, ExecError> {
+        match sort {
             Some(name) => {
                 let sorts = self.configuration.program_sorts();
                 if !sorts.contains(name) {
@@ -483,37 +538,15 @@ impl Semantics {
                             .collect(),
                     });
                 }
-                KastSort::new(name)
+                Ok(KastSort::new(name))
             }
             None => self
                 .configuration
                 .variables()
                 .get("PGM")
                 .cloned()
-                .ok_or(ExecError::NoProgramSort)?,
-        };
-        let parsed = self
-            .configuration
-            .parse_program(&sort, &input.text)
-            .map_err(|error| ExecError::Parse {
-                input: located(
-                    &input.name,
-                    &input.text,
-                    boxed_parse_position(error.as_ref()),
-                ),
-                sort: sort.to_string(),
-                message: error.to_string(),
-            })?;
-        let kast = parsed.term().clone();
-        let kore = self
-            .configuration
-            .parse_program_kore(&sort, &input.text)
-            .map_err(|error| ExecError::Parse {
-                input: input.name.clone(),
-                sort: sort.to_string(),
-                message: error.to_string(),
-            })?;
-        Ok(Term::new(kore, kast))
+                .ok_or(ExecError::NoProgramSort),
+        }
     }
 
     /// Build the initial configuration from FILE and `-c` bindings.
@@ -702,7 +735,19 @@ impl Semantics {
             PrintStyle::Json => kast_json::to_string(term.kast())
                 .map_err(|error| ExecError::Result(error.to_string()))?,
             PrintStyle::Kore => term.kore().to_string(),
+            PrintStyle::Pretty => self.unparse(term, false).text,
         })
+    }
+
+    /// Print a term through the definition's grammar, as `krun --output pretty` prints a configuration (KF-017).
+    ///
+    /// The text has no trailing newline; [`Printed::warnings`] lists the problems that degraded it (labels printed as KAST, invalid colour lists).
+    #[must_use]
+    pub fn unparse(&self, term: &Term, color: bool) -> Printed {
+        self.unparser.print_kore(
+            term.kore(),
+            &krs_unparse::Options::new(krs_unparse::Mode::Pretty).with_color(color),
+        )
     }
 
     fn steps(&mut self, trace: &[TraceEntry]) -> Vec<Step> {
@@ -753,6 +798,18 @@ fn search_backend(
     Ok(backend.search(request)?)
 }
 
+impl Term {
+    /// A term from a KORE pattern, with its KAST conversion.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Result`] when the pattern has no KAST form.
+    pub fn from_kore(kore: Pattern) -> Result<Self, ExecError> {
+        let kast = convert(&kore).map_err(|error| ExecError::Result(error.to_string()))?;
+        Ok(Self::new(kore, kast))
+    }
+}
+
 fn term(value: &serde_json::Value) -> Result<Term, ExecError> {
     let source =
         serde_json::to_string(value).map_err(|error| ExecError::Result(error.to_string()))?;
@@ -797,6 +854,18 @@ fn user_sorts(definition: &DefinitionIr, frontend: &NativeDefinition) -> Vec<Str
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn parse_error(
+    input: &ProgramInput,
+    sort: &KastSort,
+    error: &(dyn std::error::Error + 'static),
+) -> ExecError {
+    ExecError::Parse {
+        input: located(&input.name, &input.text, boxed_parse_position(error)),
+        sort: sort.to_string(),
+        message: error.to_string(),
+    }
 }
 
 /// The byte offset at which program text stopped parsing, when the parser reports one.

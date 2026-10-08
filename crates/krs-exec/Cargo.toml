@@ -16,6 +16,7 @@ k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rus
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
+krs-unparse = { path = "../krs-unparse" }
 serde.workspace = true
 serde_json.workspace = true
 

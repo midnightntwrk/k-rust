@@ -148,6 +148,13 @@ fn optional_u64(request: &Value, key: &str) -> Result<Option<u64>, Box<dyn Error
 }
 
 /// The `krs run` inputs of an `exec.*` request: `program` (text) with optional `program_name`, and `variables` (an object of `-c` bindings).
+fn printed_value(printed: &krs_exec::Printed) -> Value {
+    json!({
+        "text": printed.text,
+        "warnings": printed.warnings.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    })
+}
+
 fn config_inputs(request: &Value) -> Result<ConfigInputs, Box<dyn Error>> {
     let program = match request.get("program") {
         None | Some(Value::Null) => None,
@@ -215,6 +222,7 @@ impl Session {
                 | "exec.run"
                 | "exec.search"
                 | "exec.prove"
+                | "term.unparse"
                 | "kore.read"
                 | "kore.digest"
                 | "kore.attributes"
@@ -260,6 +268,7 @@ impl Session {
             "exec.run" => self.exec_run(request),
             "exec.search" => self.exec_search(request),
             "exec.prove" => self.exec_prove(request),
+            "term.unparse" => self.unparse(request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
             "kore.attributes" => Self::attributes(request),
@@ -344,9 +353,54 @@ impl Session {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         };
+        let pretty = match request.get("print") {
+            None | Some(Value::Null) => false,
+            Some(Value::String(style)) if style == "pretty" => true,
+            Some(other) => {
+                return Err(
+                    format!("request field `print` must be \"pretty\", not {other}").into(),
+                );
+            }
+        };
         let semantics = self.semantics()?;
         let state = semantics.configure(&inputs)?;
-        Ok(serde_json::to_value(semantics.run(&state, options)?)?)
+        let report = semantics.run(&state, options)?;
+        let mut value = serde_json::to_value(&report)?;
+        if pretty {
+            value["printed"] = printed_value(&semantics.unparse(&report.state, false));
+        }
+        Ok(value)
+    }
+
+    /// `krs parse --output program` (`mode` `"program"`, with `program` text and an optional `sort`),
+    /// or `--output pretty` of a KORE pattern (`mode` `"pretty"`, with `kore` text).
+    fn unparse(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let color = request
+            .get("color")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let semantics = self.semantics()?;
+        let printed = match required_string(request, "mode")? {
+            "program" => {
+                let input = ProgramInput {
+                    name: request
+                        .get("program_name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("<program>")
+                        .to_owned(),
+                    text: required_string(request, "program")?.to_owned(),
+                };
+                let sort = request.get("sort").and_then(Value::as_str);
+                semantics.unparse_program(sort, &input, color)?
+            }
+            "pretty" => {
+                let pattern = parse_pattern(required_string(request, "kore")?)?;
+                let term = krs_exec::Term::from_kore(pattern)?;
+                semantics.unparse(&term, color)
+            }
+            other => return Err(format!("unknown unparse mode `{other}`").into()),
+        };
+        Ok(printed_value(&printed))
     }
 
     /// `krs search` through `krs-exec`.

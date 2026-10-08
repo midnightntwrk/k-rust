@@ -50,7 +50,7 @@ Options:
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
   --backend llvm|haskell     Native target dialect (default: llvm)
   --output DIRECTORY         Required for emit-k and build
-  --output FORMAT            Result format for parse, run, search, and prove (default: kast)
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
   --depth N                  At most N rewrite steps
   --trace                    Print each rewrite step with its rule and source
@@ -550,7 +550,11 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
 
 fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput, UsageError> {
     let Some(output) = output else {
-        return Ok(TermOutput::Kast);
+        return Ok(if kind == CommandKind::Parse {
+            TermOutput::Kast
+        } else {
+            TermOutput::Pretty
+        });
     };
     let value = output.to_string_lossy();
     match (value.as_ref(), kind) {
@@ -558,11 +562,9 @@ fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput,
         ("json", _) => Ok(TermOutput::Json),
         ("kore", _) => Ok(TermOutput::Kore),
         ("none", CommandKind::Run) => Ok(TermOutput::None),
-        ("program", CommandKind::Parse)
-        | ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
-            Err(usage(format!(
-                "--output {value} needs grammar-directed unparsing (KF-017), which is not built yet; use kast, json, or kore"
-            )))
+        ("program", CommandKind::Parse) => Ok(TermOutput::Program),
+        ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
+            Ok(TermOutput::Pretty)
         }
         ("program", _) => Err(usage("--output program applies only to krs parse")),
         _ => Err(usage(format!(
@@ -1306,7 +1308,7 @@ mod tests {
                 depth: None,
                 max_solutions: Some(2),
                 trace: false,
-                output: TermOutput::Kast,
+                output: TermOutput::Pretty,
                 color: ColorChoice::Never,
             })
         );
@@ -1336,6 +1338,22 @@ mod tests {
                 output: TermOutput::Kast,
             })
         );
+        assert_eq!(
+            with("parse", &["--output", "program"]),
+            Command::Parse(ParseRequest {
+                sort: None,
+                input: ProgramSource::Stdin,
+                output: TermOutput::Program,
+            })
+        );
+        let Command::Run(run) = with("run", &["prog.imp", "--output", "pretty"]) else {
+            panic!("krs run parses as a run command");
+        };
+        assert_eq!(run.output, TermOutput::Pretty);
+        let Command::Prove(prove) = with("prove", &[]) else {
+            panic!("krs prove parses as a prove command");
+        };
+        assert_eq!(prove.output, TermOutput::Pretty);
     }
 
     #[test]
@@ -1384,8 +1402,6 @@ mod tests {
             failure("run", &["--output", "program"]),
             "--output program applies only to krs parse"
         );
-        assert!(failure("run", &["--output", "pretty"]).contains("KF-017"));
-        assert!(failure("parse", &["--output", "program"]).contains("KF-017"));
         assert_eq!(
             failure("search", &["--output", "none"]),
             "unknown --output format `none` for krs search"
