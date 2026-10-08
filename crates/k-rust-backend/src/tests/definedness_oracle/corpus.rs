@@ -253,3 +253,66 @@ fn the_preludes_hooked_equations_agree_with_their_hooks() {
     assert!(instances > 0, "no instance checked");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// The measure ratchet of the design's section 7: the check's four work counters on the FUN
+/// list-family fixture and the oracle's feature templates, each pinned within 10 % (FUN's prelude
+/// fixture declares no equation head, so the check stops at its precondition rows there). A change
+/// beyond that is a cost change to explain and re-pin (print the measured values with
+/// `KRUST_MEASURE_RATCHET_PRINT=1`). WASM's full definition is pinned exactly by the corpus gate
+/// (`scripts/value-contract-corpus.toml`), which CI cannot run.
+#[test]
+fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
+    // (fixture, pairs, unifier branches, join steps, simplifier calls)
+    const PINS: [(&str, usize, usize, usize, usize); 2] = [
+        ("fun lists", 18, 236, 38, 0),
+        ("oracle templates", 53, 98, 16, 6),
+    ];
+    let mut measured = Vec::new();
+    let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")
+        .value_claims()
+        .counts();
+    measured.push((
+        "fun lists",
+        counts.pairs,
+        counts.unifier_branches,
+        counts.join_steps,
+        counts.simplifier_calls,
+    ));
+    let mut templates = (0, 0, 0, 0);
+    for (_, definition, _) in super::generator::templates() {
+        let syntax = parse_definition(&definition.kore()).expect("the template parses");
+        let counts = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("the template internalizes")
+            .value_claims()
+            .counts();
+        templates.0 += counts.pairs;
+        templates.1 += counts.unifier_branches;
+        templates.2 += counts.join_steps;
+        templates.3 += counts.simplifier_calls;
+    }
+    measured.push((
+        "oracle templates",
+        templates.0,
+        templates.1,
+        templates.2,
+        templates.3,
+    ));
+    if std::env::var_os("KRUST_MEASURE_RATCHET_PRINT").is_some() {
+        eprintln!("{measured:?}");
+    }
+    let within =
+        |pinned: usize, value: usize| value * 10 <= pinned * 11 && value * 10 >= pinned * 9;
+    for (pin, value) in PINS.iter().zip(&measured) {
+        assert_eq!(pin.0, value.0);
+        assert!(
+            within(pin.1, value.1)
+                && within(pin.2, value.2)
+                && within(pin.3, value.3)
+                && within(pin.4, value.4),
+            "{}: measured (pairs, unifier branches, join steps, simplifier calls) = {:?}, pinned {:?}",
+            pin.0,
+            (value.1, value.2, value.3, value.4),
+            (pin.1, pin.2, pin.3, pin.4)
+        );
+    }
+}
