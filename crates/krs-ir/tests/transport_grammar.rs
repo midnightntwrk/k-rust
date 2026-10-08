@@ -341,6 +341,8 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
                 name: "x".into(),
             },
+            existentials: Vec::new(),
+            ensures: None,
         })),
     );
     vec![grammar, rule]

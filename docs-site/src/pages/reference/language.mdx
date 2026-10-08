@@ -116,7 +116,17 @@ Most rules act at the head of the computation cell, and equations act wherever t
 It is written as a term-shaped `#[k::rule]` function, never as a readable clause or a `cells!` rule, takes no `owise`, `priority`, or `nondet`, and is outside the overlap check.
 The k-rust route and Java K's LLVM backend run anywhere rules; K's Haskell backend does not, so a Java Haskell reference step refuses such a definition with `krs::capability::unavailable` before anything is kompiled, and `--allow-anywhere-haskell`, which would drop the rules, is never used.
 `krs emit-k` still writes the rule, marks it with a `// krs-capability: AnywhereRule <label>` comment, and lists the requirement in `symbols.json`.
-`#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results.
+
+### Existential results and ensures
+
+A rule normally computes its result from what it matched.
+`#[k::exists(x: Int)]` after `#[k::rule(..)]` says the result contains an unknown integer: the step introduces a symbolic value, which K writes `?X:Int`, and `#[k::ensures(int::ne(x, 0))]` records a condition on it that holds on every later path.
+The same helpers work on a term rule, a `cells!` rule, and a readable clause, where `krs expand` keeps them verbatim before the clause's `#[k::rule(label = ..)]`; on a claim they keep their meaning there, a value the prover must exhibit.
+An existential occurs only in the result and the ensures condition: one in the subject or in `requires`, one the result never mentions, and one that reuses a subject binding's name are syntax errors, and the helpers on an equation, simplification, or alias are rejected.
+Ensures conditions are object-language Bool terms.
+This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.
+Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
+`#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way.
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 
 ### Console I/O and the exit cell

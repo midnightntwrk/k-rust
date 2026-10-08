@@ -48,6 +48,7 @@ PACKAGES = (
     Package("tests/rule-forms/Cargo.toml", "rule-forms", "authored"),
     Package("tests/builtin-domains/Cargo.toml", "builtin-domains", "authored"),
     Package("tests/configuration-cells/Cargo.toml", "configuration-cells", "authored"),
+    Package("tests/verification-surface/Cargo.toml", "verification-surface", "authored"),
     Package("tests/imp/compatibility/diagnostics/krs-analysis/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/diagnostics/rust-expansion/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/stable-names/baseline/Cargo.toml", "imp", "fixture"),

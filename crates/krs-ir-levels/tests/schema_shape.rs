@@ -117,7 +117,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ConstructorFieldDescriptor",
     "ContextAliasSentence",
     "DefinitionClaim",
-    "DefinitionClaimBinder",
+    "DefinitionScopedBinder",
     "DefinitionModule",
     "DefinitionRuleCondition",
     "DefinitionRulePriority",
@@ -170,7 +170,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ProtocolRuleMap",
     "RuleSentence",
     "SemanticClaim",
-    "SemanticClaimBinder",
+    "SemanticScopedBinder",
     "SemanticContextAlias",
     "SemanticModule",
     "SemanticNondetGroup",
@@ -804,7 +804,7 @@ fn registry() -> Registry {
     unsupported!(ConstructorFieldDescriptor: ConstructorFieldDescriptor);
     unsupported!(ContextAliasSentence: ContextAliasSentence);
     unsupported!(DefinitionClaim: DefinitionClaim);
-    unsupported!(DefinitionClaimBinder: DefinitionClaimBinder);
+    unsupported!(DefinitionScopedBinder: DefinitionScopedBinder);
     unsupported!(DefinitionIr: DefinitionIr);
     unsupported!(DefinitionModule: DefinitionModule);
     unsupported!(DefinitionRuleBody: DefinitionRuleBody);
@@ -861,7 +861,7 @@ fn registry() -> Registry {
     unsupported!(RuleSentence: RuleSentence);
     unsupported!(RustVisibility: RustVisibility);
     unsupported!(SemanticClaim: SemanticClaim);
-    unsupported!(SemanticClaimBinder: SemanticClaimBinder);
+    unsupported!(SemanticScopedBinder: SemanticScopedBinder);
     unsupported!(SemanticContextAlias: SemanticContextAlias);
     unsupported!(SemanticModule: SemanticModule);
     unsupported!(SemanticNondetGroup: SemanticNondetGroup);

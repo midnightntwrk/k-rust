@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-verification-surface-l21": "f99fbc44b01b693669d76dd08bb8a8c49e3669060d50664ea87f925a9f708e06",
+    "krs-verification-surface-l21-readable": "26b82f1383e66bae6e401c1a64fff5d70474c7d9a8141ffdf6c97759d27dae64"
+  },
+  "emitted": {
+    "krs-verification-surface-l21": {
+      "definition.k": "75ed1612537c9ed6bdc806f5338539e21c8de46c8d6094cda132f2cad8717ca8",
+      "spec.k": "ab2319a09ae731c75d1a022c401e3dc3352c8efa5b423487dc2782b52049861c"
+    },
+    "krs-verification-surface-l21-readable": {
+      "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
+    }
+  },
+  "capability_refusals": {
+    "krs-verification-surface-l21": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [foo-bounded, zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
+    "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
+  },
+  "reference_sha256": {
+    "krs-verification-surface-l21": "f4d5a5b103985e1f14b08c231be764b9e97a2d57f4465dfa78d8ff867f3a1b4c",
+    "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048"
+  },
+  "outcomes": {
+    "krs-verification-surface-l21": {
+      "foo": [
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 == 0",
+            "?V1 in [10, +inf]"
+          ]
+        },
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 4] minus {0}"
+          ]
+        },
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}",
+            "?V1 == 0"
+          ]
+        }
+      ],
+      "zero": [
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}"
+          ]
+        },
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 in [10, +inf]"
+          ]
+        }
+      ]
+    },
+    "krs-verification-surface-l21-readable": {
+      "zero": [
+        {
+          "k": "?V0",
+          "constraints": [
+            "?V0 in [-inf, 9] minus {0}"
+          ]
+        },
+        {
+          "k": "#token(\"5\",\"Int\")",
+          "constraints": [
+            "?V0 in [10, +inf]"
+          ]
+        }
+      ]
+    }
+  },
+  "claims": {
+    "krs-verification-surface-l21": {
+      "proven": false,
+      "stuck": true,
+      "depth": 0,
+      "k": "0 ~> Tail"
+    }
+  },
+  "warnings": {
+    "ensures-llvm": [
+      "warning[krs::capability::ignored-ensures]: rule `count-down` has an ensures condition; concrete (LLVM) execution ignores it, so build with --backend haskell to assume it"
+    ]
+  },
+  "diagnostics": {
+    "exists-equation": [
+      "error[krs::rust-expansion::uncoded-error]: existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases"
+    ],
+    "exists-unused": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential must occur in the rule's result or ensures condition"
+    ],
+    "exists-in-requires": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot occur in `requires`: it names a value the step creates"
+    ],
+    "exists-shadows": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
+    ]
+  }
+}

@@ -622,3 +622,64 @@ fn bare_root_unit_constructor_is_a_reference_not_a_binding() {
             && candidate.path_spelling() == "Done"
     }));
 }
+
+#[test]
+fn rule_existentials_and_ensures_are_result_scoped() {
+    let rule = krs_syntax::RuleItem::parse_source(
+        "#[k::exists(x: Int)] #[k::ensures(int::lt(x, 5))] \
+         fn foo(term![Foo()]: k::Term<Exp>) -> k::Term<Exp> { x }",
+    )
+    .unwrap();
+    let names = rule
+        .existentials()
+        .names()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["x"]);
+    assert!(rule.existentials().ensures().is_some());
+    assert_eq!(rule.existentials().attributes().len(), 2);
+    assert!(rule.item().attrs.is_empty());
+    let roles = rule
+        .full_provenance()
+        .unwrap()
+        .iter()
+        .map(krs_syntax::ProvenanceAnchor::role)
+        .collect::<Vec<_>>();
+    for role in [
+        ProvenanceRole::RuleExistentialBinder,
+        ProvenanceRole::RuleExistentialBinderName,
+        ProvenanceRole::RuleExistentialBinderSort,
+        ProvenanceRole::RuleEnsures,
+        ProvenanceRole::RuleEnsuresApplicationHead,
+        ProvenanceRole::RuleEnsuresReference,
+    ] {
+        assert!(roles.contains(&role), "{role:?}");
+    }
+    // The existential is a binding of the result, not a constructor path.
+    assert!(
+        rule.reference_candidates()
+            .unwrap()
+            .iter()
+            .all(|candidate| candidate.path_spelling() != "x")
+    );
+
+    for (source, message) in [
+        (
+            "#[k::exists(x: Int)] fn foo(term![Foo()]: k::Term<Exp>) -> k::Term<Exp> { Foo() }",
+            "an existential must occur in the rule's result or ensures condition",
+        ),
+        (
+            "#[k::exists(x: Int)] #[k::requires(int::gt(x, 0))] \
+             fn foo(term![Foo()]: k::Term<Exp>) -> k::Term<Exp> { x }",
+            "an existential cannot occur in `requires`: it names a value the step creates",
+        ),
+        (
+            "#[k::exists(x: Int)] fn foo(term![Bar(x)]: k::Term<Exp>) -> k::Term<Exp> { x }",
+            "an existential cannot shadow a subject binding; rename it",
+        ),
+    ] {
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+    }
+}

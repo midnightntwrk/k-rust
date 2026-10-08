@@ -36,6 +36,8 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub priority: Option<&'a IrRulePriority>,
     pub simplification: Option<&'a IrSimplification>,
     pub claim: Option<&'a IrClaim<L>>,
+    pub existentials: &'a [crate::IrScopedBinder<L>],
+    pub ensures: Option<&'a IrRuleCondition<L>>,
 }
 
 #[derive(Clone, Copy)]
@@ -168,6 +170,7 @@ pub(crate) enum ValidationError<L: Validation> {
     SetOperationSignature(SetOperation),
     SubsortCycle(L::Sort),
     UnusedExistential(SemanticId),
+    InvalidRuleExistentials(L::RuleId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
 }
@@ -784,17 +787,17 @@ pub(crate) fn validate_rule<L: Validation>(
         }
     }
     if let Some(claim) = claim {
-        validate_claim::<L>(
-            sentence,
-            claim,
-            &scope,
-            declarations,
-            signatures,
-            sort_parents,
-            cell_ids,
-            nodes,
-        )?;
+        validate_claim::<L>(sentence, claim, &scope, declarations, nodes)?;
     }
+    validate_existentials::<L>(
+        sentence,
+        &scope,
+        declarations,
+        signatures,
+        sort_parents,
+        cell_ids,
+        nodes,
+    )?;
     let mut used = BTreeSet::new();
     match rule.body {
         RuleBodyRef::Term(body) => {
@@ -822,7 +825,7 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(condition) = rule.requires {
         collect_term_variables::<L>(condition.term(), &mut used);
     }
-    if let Some(ensures) = claim.and_then(IrClaim::ensures) {
+    if let Some(ensures) = rule.ensures {
         collect_term_variables::<L>(ensures.term(), &mut used);
     }
     if used != scope.keys().cloned().collect() {
@@ -831,13 +834,47 @@ pub(crate) fn validate_rule<L: Validation>(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
-)]
 pub(crate) fn validate_claim<L: Validation>(
     sentence: &L::Rule,
     claim: &IrClaim<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let rule = L::rule_view(sentence);
+    insert_node::<L>(nodes, claim.modality_origin().key())?;
+    if let Some(origin) = claim.circularity_origin() {
+        insert_node::<L>(nodes, origin.key())?;
+    }
+    if !matches!(rule.body, RuleBodyRef::Configuration { .. }) {
+        return Err(L::error(ValidationError::ClaimBodyNotConfiguration(
+            rule.id.clone(),
+        )));
+    }
+    let mut binder_ids = BTreeSet::new();
+    for binder in claim.universals().iter().chain(rule.existentials) {
+        if !binder_ids.insert(binder.id().clone()) || scope.get(binder.id()) != Some(binder.sort())
+        {
+            return Err(L::error(ValidationError::InvalidClaimBinder(
+                binder.id().clone(),
+            )));
+        }
+    }
+    for binder in claim.universals() {
+        require_sort::<L>(declarations, binder.sort())?;
+        insert_node::<L>(nodes, binder.origin().key())?;
+        insert_node::<L>(nodes, binder.name_origin().key())?;
+        insert_node::<L>(nodes, binder.sort_origin().key())?;
+    }
+    Ok(())
+}
+
+/// Checks the result-scoped existential binders and the `ensures` condition of a
+/// transition or claim: each binder is declared once with its scope sort, never
+/// occurs in the left-hand side or `requires`, and occurs in the right-hand side
+/// or `ensures`.
+pub(crate) fn validate_existentials<L: Validation>(
+    sentence: &L::Rule,
     scope: &BTreeMap<SemanticId, L::Sort>,
     declarations: &Declarations<L>,
     signatures: &Signatures<L>,
@@ -846,13 +883,16 @@ pub(crate) fn validate_claim<L: Validation>(
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let rule = L::rule_view(sentence);
-    insert_node::<L>(nodes, claim.modality_origin().key())?;
-    if let Some(origin) = claim.circularity_origin() {
-        insert_node::<L>(nodes, origin.key())?;
+    if rule.existentials.is_empty() && rule.ensures.is_none() {
+        return Ok(());
     }
-
+    if !matches!(rule.kind, SentenceKind::Transition | SentenceKind::Claim) {
+        return Err(L::error(ValidationError::InvalidRuleExistentials(
+            rule.id.clone(),
+        )));
+    }
     let mut binder_ids = BTreeSet::new();
-    for binder in claim.universals().iter().chain(claim.existentials()) {
+    for binder in rule.existentials {
         if !binder_ids.insert(binder.id().clone()) || scope.get(binder.id()) != Some(binder.sort())
         {
             return Err(L::error(ValidationError::InvalidClaimBinder(
@@ -867,22 +907,25 @@ pub(crate) fn validate_claim<L: Validation>(
 
     let mut left_uses = BTreeSet::new();
     let mut right_uses = BTreeSet::new();
-    let RuleBodyRef::Configuration { body, .. } = rule.body else {
-        return Err(L::error(ValidationError::ClaimBodyNotConfiguration(
-            rule.id.clone(),
-        )));
-    };
-    for clause in body.clauses() {
-        collect_term_variables::<L>(clause.before(), &mut left_uses);
-        if let CellPost::Replace { term } = clause.after() {
-            collect_term_variables::<L>(term, &mut right_uses);
+    match rule.body {
+        RuleBodyRef::Term(body) => {
+            collect_term_variables::<L>(body.from(), &mut left_uses);
+            collect_term_variables::<L>(body.to(), &mut right_uses);
         }
-        match clause.frame() {
-            CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
-            CellContentFrame::KSequenceTail { binding, .. }
-            | CellContentFrame::MapRemainder { binding, .. } => {
-                if let Some(binding) = binding {
-                    left_uses.insert(binding.clone());
+        RuleBodyRef::Configuration { body, .. } => {
+            for clause in body.clauses() {
+                collect_term_variables::<L>(clause.before(), &mut left_uses);
+                if let CellPost::Replace { term } = clause.after() {
+                    collect_term_variables::<L>(term, &mut right_uses);
+                }
+                match clause.frame() {
+                    CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
+                    CellContentFrame::KSequenceTail { binding, .. }
+                    | CellContentFrame::MapRemainder { binding, .. } => {
+                        if let Some(binding) = binding {
+                            left_uses.insert(binding.clone());
+                        }
+                    }
                 }
             }
         }
@@ -890,7 +933,7 @@ pub(crate) fn validate_claim<L: Validation>(
     if let Some(requires) = rule.requires {
         collect_term_variables::<L>(requires.term(), &mut left_uses);
     }
-    if let Some(ensures) = claim.ensures() {
+    if let Some(ensures) = rule.ensures {
         insert_node::<L>(nodes, ensures.origin().key())?;
         validate_term::<L>(
             ensures.term(),
@@ -906,7 +949,7 @@ pub(crate) fn validate_claim<L: Validation>(
         }
         collect_term_variables::<L>(ensures.term(), &mut right_uses);
     }
-    for binder in claim.existentials() {
+    for binder in rule.existentials {
         if left_uses.contains(binder.id()) {
             return Err(L::error(ValidationError::ExistentialScopeViolation(
                 binder.id().clone(),
@@ -1005,7 +1048,7 @@ pub(crate) fn validate_rule_cell_references<L: Validation>(
     if let Some(condition) = rule.requires {
         validate_term_cell_references::<L>(condition.term(), declarations, cell_ids)?;
     }
-    if let Some(ensures) = rule.claim.and_then(IrClaim::ensures) {
+    if let Some(ensures) = rule.ensures {
         validate_term_cell_references::<L>(ensures.term(), declarations, cell_ids)?;
     }
     Ok(())

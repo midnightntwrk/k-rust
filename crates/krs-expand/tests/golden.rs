@@ -529,6 +529,71 @@ fn explicit_step(
 ",
     ),
     (
+        "rule_exists",
+        r#"
+#[k::rule(label = "unknown")]
+#[k::exists(x: Int)]
+#[k::ensures(int::lt(x, 5))]
+fn unknown(k::term![StaticExpr::Double(value)]: Term<Expr>) -> Term<Expr> {
+    x
+}
+"#,
+    ),
+    (
+        "rule_cells_exists",
+        r#"
+#[k::rule(label = "unknown")]
+#[k::exists(x: Int)]
+#[k::ensures(int::ne(x, 0))]
+fn unknown(
+    k::cells! {
+        computation: KCell(0, tail @ ..),
+        state @ ..
+    }: ReadableRuleMachine,
+) -> ReadableRuleMachine {
+    k::cells! {
+        computation: KCell(x, ..tail),
+        ..state
+    }
+}
+"#,
+    ),
+    (
+        "exists_rule",
+        r#"
+#[k::exists(x: Int)]
+#[k::ensures(int::ne(x, 0))]
+#[k::rule(label = "unknown")]
+fn unknown(
+    k::cells! {
+        computation: KCell(0, tail @ ..),
+        state @ ..
+    }: ReadableRuleMachine,
+) -> ReadableRuleMachine {
+    k::cells! {
+        computation: KCell(x, ..tail),
+        ..state
+    }
+}
+"#,
+    ),
+    (
+        "rules_exists",
+        r"
+k::rules! {
+    for ReadableRuleMachine;
+
+    #[k::exists(x: Int)]
+    #[k::ensures(int::ne(x, 0))]
+    unknown: {
+        computation: [0, ..],
+    } => {
+        computation: [x, ..],
+    };
+}
+",
+    ),
+    (
         "equation",
         r"
 #[k::equation]

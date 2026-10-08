@@ -200,15 +200,17 @@ fn configuration_rule_bindings(
         ));
     }
     let mut result_sorts = subject_sorts.clone();
-    if let Some(claim) = &rule.claim {
-        for binder in &claim.existentials {
-            let sort = semantic_sort_ref(&binder.sort.sort);
-            result_sorts.insert(binder.name.clone(), sort.clone());
-            variables.push(SemanticVariable::new(
-                SemanticId::new(binder.name.clone())?,
-                sort,
-            ));
-        }
+    let claim_existentials = rule
+        .claim
+        .as_ref()
+        .map_or(&[][..], |claim| claim.existentials.as_slice());
+    for binder in claim_existentials.iter().chain(&rule.existentials) {
+        let sort = semantic_sort_ref(&binder.sort.sort);
+        result_sorts.insert(binder.name.clone(), sort.clone());
+        variables.push(SemanticVariable::new(
+            SemanticId::new(binder.name.clone())?,
+            sort,
+        ));
     }
     Ok(ConfigurationRuleBindings {
         subject_sorts,
@@ -217,6 +219,10 @@ fn configuration_rule_bindings(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "The rewrite, its conditions, its claim metadata, and its binders are lowered in one ordered pass."
+)]
 pub(super) fn lower_configuration_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
@@ -298,11 +304,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         })
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
-    let claim = rule
-        .claim
-        .as_ref()
-        .map(|claim| lower_rule_claim(&mut terms, claim, &result_sorts))
-        .transpose()?;
+    let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -325,7 +327,14 @@ pub(super) fn lower_configuration_rule_descriptor(
     .with_priority(priority)?
     .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
     .with_requires(requires)?
-    .with_claim(claim))
+    .with_claim(
+        rule.claim
+            .as_ref()
+            .map(|claim| lower_rule_claim(descriptor, claim))
+            .transpose()?,
+    )
+    .with_existentials(existentials)
+    .with_ensures(ensures))
 }
 
 /// Checks that the result selects only subject cells and that the remainder
@@ -518,33 +527,60 @@ fn lower_configuration_group_clause(
     ))
 }
 
-fn lower_rule_claim(
+/// Lowers the existentials and the ensures condition of a configuration rule.
+/// A claim carries them in its claim metadata; a transition carries them
+/// directly (`#[k::exists]`, `#[k::ensures]`).
+fn lower_existentials(
     terms: &mut StateRuleTerms<'_>,
-    claim: &DescriptorClaim,
+    rule: &krs_ir::DescriptorConfigurationRule,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<krs_ir_levels::SemanticClaim, DescriptorLoweringError> {
+) -> Result<
+    (
+        Vec<krs_ir_levels::SemanticScopedBinder>,
+        Option<SemanticRuleCondition>,
+    ),
+    DescriptorLoweringError,
+> {
     let descriptor = terms.descriptor;
+    let (existentials, ensures, binder_role, ensures_role) = match &rule.claim {
+        Some(claim) => (
+            claim.existentials.as_slice(),
+            claim.ensures.as_ref(),
+            "claim-existential-binder",
+            "claim-ensures",
+        ),
+        None => (
+            rule.existentials.as_slice(),
+            rule.ensures.as_ref(),
+            "rule-existential-binder",
+            "rule-ensures",
+        ),
+    };
+    let existentials = existentials
+        .iter()
+        .map(|binder| lower_claim_binder(descriptor, binder, binder_role))
+        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+    let ensures = ensures
+        .map(|condition| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRuleCondition::new(
+                semantic_origin(descriptor, condition.key.clone(), ensures_role)?,
+                terms.term(&condition.term, Some(&bool_sort), result_sorts, false)?,
+            ))
+        })
+        .transpose()?;
+    Ok((existentials, ensures))
+}
+
+fn lower_rule_claim(
+    descriptor: &Descriptor,
+    claim: &DescriptorClaim,
+) -> Result<krs_ir_levels::SemanticClaim, DescriptorLoweringError> {
     let universals = claim
         .universals
         .iter()
         .map(|binder| lower_claim_binder(descriptor, binder, "claim-universal-binder"))
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-    let existentials = claim
-        .existentials
-        .iter()
-        .map(|binder| lower_claim_binder(descriptor, binder, "claim-existential-binder"))
-        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-    let ensures = claim
-        .ensures
-        .as_ref()
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "claim-ensures")?,
-                terms.term(&condition.term, Some(&bool_sort), result_sorts, false)?,
-            ))
-        })
-        .transpose()?;
     Ok(krs_ir_levels::SemanticClaim::new(
         semantic_origin(descriptor, claim.modality_key.clone(), "claim-modality")?,
         claim.modality,
@@ -554,8 +590,6 @@ fn lower_rule_claim(
             .map(|key| semantic_origin(descriptor, key.clone(), "claim-circularity"))
             .transpose()?,
         universals,
-        existentials,
-        ensures,
     ))
 }
 
@@ -563,8 +597,8 @@ fn lower_claim_binder(
     descriptor: &Descriptor,
     binder: &DescriptorClaimBinder,
     role: &str,
-) -> Result<krs_ir_levels::SemanticClaimBinder, DescriptorLoweringError> {
-    Ok(krs_ir_levels::SemanticClaimBinder::new(
+) -> Result<krs_ir_levels::SemanticScopedBinder, DescriptorLoweringError> {
+    Ok(krs_ir_levels::SemanticScopedBinder::new(
         semantic_origin(descriptor, binder.declaration_key.clone(), role)?,
         semantic_origin(descriptor, binder.name_key.clone(), "claim-binder-name")?,
         SemanticId::new(binder.name.clone())?,

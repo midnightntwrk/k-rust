@@ -26,23 +26,23 @@ pub use collection_operands::{
 
 pub use definition::{
     ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
-    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,
-    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence,
+    DefinitionIr, DefinitionModule, DefinitionProductionAttribute, DefinitionRuleBody,
+    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
     DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
     ModuleRole, ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence,
     SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
-    DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRewrite, IrRuleBody,
-    IrRuleCondition, IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef,
+    DefinitionLevel, IrClaim, IrContextAlias, IrLevel, IrRewrite, IrRuleBody, IrRuleCondition,
+    IrRulePriority, IrScopedBinder, IrSimplification, IrSimplificationPriority, IrSortRef,
     IrSubsort, IrTerm, IrTermKind, IrVariable, RuleBodyRef, SemanticLevel,
 };
 pub use semantic::{
-    SemanticApplicationRef, SemanticClaim, SemanticClaimBinder, SemanticConfiguration,
-    SemanticContextAlias, SemanticModule, SemanticNondetGroup, SemanticProduction,
-    SemanticProductionAttribute, SemanticProductionItem, SemanticRule, SemanticRuleBody,
-    SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
+    SemanticApplicationRef, SemanticClaim, SemanticConfiguration, SemanticContextAlias,
+    SemanticModule, SemanticNondetGroup, SemanticProduction, SemanticProductionAttribute,
+    SemanticProductionItem, SemanticRule, SemanticRuleBody, SemanticRuleCondition,
+    SemanticRuleLabel, SemanticRulePriority, SemanticScopedBinder, SemanticSimplification,
     SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
     SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
 };

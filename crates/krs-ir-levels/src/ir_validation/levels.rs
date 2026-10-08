@@ -112,6 +112,9 @@ macro_rules! validation_error {
             }
             ValidationError::SubsortCycle(sort) => $public::SubsortCycle($identity(sort)),
             ValidationError::UnusedExistential(id) => $public::UnusedExistential(id),
+            ValidationError::InvalidRuleExistentials(id) => {
+                $public::InvalidRuleExistentials($identity(id))
+            }
             ValidationError::VariableClosure => $public::VariableClosure,
             ValidationError::VariableSortMismatch(id) => $public::VariableSortMismatch(id),
         }
@@ -140,6 +143,8 @@ impl Validation for SemanticLevel {
             priority: rule.priority(),
             simplification: rule.simplification(),
             claim: rule.claim(),
+            existentials: rule.existentials(),
+            ensures: rule.ensures(),
         }
     }
 
@@ -283,6 +288,8 @@ impl Validation for DefinitionLevel {
             priority: rule.priority(),
             simplification: rule.simplification(),
             claim: rule.claim(),
+            existentials: rule.existentials(),
+            ensures: rule.ensures(),
         }
     }
 

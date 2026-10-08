@@ -18,10 +18,10 @@ use krs_ir::{
 };
 use krs_ir_levels::{
     DefinitionSentence, DefinitionTermKind, MapOperands, RuleBodyRef, SemanticClaim,
-    SemanticClaimBinder, SemanticContextAlias, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
-    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError, SemanticVariable,
+    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticRuleCondition, SemanticRuleLabel, SemanticScopedBinder, SemanticSimplification,
+    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
+    SemanticTheory, SemanticValidationError, SemanticVariable,
 };
 use krs_test_support::kompile_reference;
 
@@ -812,34 +812,34 @@ fn all_paths_claim() -> SemanticRule {
         ClaimModality::AllPaths,
         Some(origin("imp.claim.branching.circularity")),
         vec![],
-        vec![SemanticClaimBinder::new(
-            origin("imp.claim.branching.binder"),
-            origin("imp.claim.branching.binder.name"),
-            existential.clone(),
-            origin("imp.claim.branching.binder.sort"),
-            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
-        )],
-        Some(SemanticRuleCondition::new(
-            origin("imp.claim.branching.ensures"),
-            SemanticTerm::application(
-                origin("imp.claim.branching.ensures.equals"),
-                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
-                ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntEqual),
-                vec![
-                    variable(
-                        "imp.claim.branching.exists.ensures",
-                        existential.as_str(),
-                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
-                    ),
-                    SemanticTerm::token(
-                        origin("imp.claim.branching.five"),
-                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
-                        "5",
-                    )
-                    .unwrap(),
-                ],
-            ),
-        )),
+    )))
+    .with_existentials(vec![SemanticScopedBinder::new(
+        origin("imp.claim.branching.binder"),
+        origin("imp.claim.branching.binder.name"),
+        existential.clone(),
+        origin("imp.claim.branching.binder.sort"),
+        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+    )])
+    .with_ensures(Some(SemanticRuleCondition::new(
+        origin("imp.claim.branching.ensures"),
+        SemanticTerm::application(
+            origin("imp.claim.branching.ensures.equals"),
+            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+            ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntEqual),
+            vec![
+                variable(
+                    "imp.claim.branching.exists.ensures",
+                    existential.as_str(),
+                    SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                ),
+                SemanticTerm::token(
+                    origin("imp.claim.branching.five"),
+                    SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                    "5",
+                )
+                .unwrap(),
+            ],
+        ),
     )))
 }
 
@@ -875,8 +875,6 @@ fn one_path_claim() -> SemanticRule {
         ClaimModality::OnePath,
         None,
         vec![],
-        vec![],
-        None,
     )))
 }
 

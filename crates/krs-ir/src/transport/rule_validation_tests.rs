@@ -634,6 +634,8 @@ fn empty_rule<S: RuleValidationStage>(
             cells: Vec::new(),
             remainder: ProtocolRuleFrame::Exact,
         },
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 

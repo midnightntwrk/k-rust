@@ -257,3 +257,21 @@ fn the_route_table_refuses_anywhere_rules_only_on_the_java_haskell_reference() {
         crate::Route::NativeRust
     );
 }
+
+#[test]
+fn the_route_table_refuses_rule_existentials_only_on_concrete_routes() {
+    for route in crate::Route::ALL {
+        assert_eq!(
+            matches!(
+                crate::route_capability("RuleExistential", route),
+                CapabilityAvailability::Unavailable(_)
+            ),
+            matches!(
+                route,
+                crate::Route::NativeLlvm | crate::Route::JavaLlvmReference
+            ),
+            "RuleExistential on {}",
+            route.name()
+        );
+    }
+}

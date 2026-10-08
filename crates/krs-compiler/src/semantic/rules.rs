@@ -243,6 +243,10 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "The completed rewrite, its conditions, and its binders are lowered in one ordered pass."
+)]
 pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
@@ -253,15 +257,27 @@ pub(super) fn lower_head_rule_descriptor(
     let configuration = head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations)?;
     let binding_constraints = initial_binding_constraints(&seeds.binding_sorts);
+    // Existentials are declared at their authored sort and are referenced
+    // only by written terms and the ensures condition.
+    let binding_names = seeds
+        .binding_names
+        .iter()
+        .cloned()
+        .chain(rule.existentials.iter().map(|binder| binder.name.clone()))
+        .collect::<BTreeSet<_>>();
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
         declarations: Some(declarations),
         k_item_sort: Some(framework_k_item_sort(declarations)?),
         sort_parents,
-        binding_names: &seeds.binding_names,
+        binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
-        binding_sorts: BTreeMap::new(),
+        binding_sorts: rule
+            .existentials
+            .iter()
+            .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
+            .collect(),
         binding_constraints,
         wildcard_offset: 0,
         wildcards: Vec::new(),
@@ -321,16 +337,20 @@ pub(super) fn lower_head_rule_descriptor(
         omitted_siblings,
     )?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let (existentials, ensures) =
+        lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let mut variables = rule
         .bindings
         .iter()
-        .map(|binding| {
+        .map(|binding| &binding.name)
+        .chain(rule.existentials.iter().map(|binder| &binder.name))
+        .map(|name| {
             Ok(SemanticVariable::new(
-                SemanticId::new(binding.name.clone())?,
+                SemanticId::new(name.clone())?,
                 builder
                     .binding_sorts
-                    .get(&binding.name)
+                    .get(name)
                     .cloned()
                     .expect("all binding sorts were inferred"),
             ))
@@ -351,7 +371,50 @@ pub(super) fn lower_head_rule_descriptor(
     .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
     .with_priority(priority)?
     .with_nondet_group(lower_nondet_group(descriptor, rule.nondet.as_ref())?)
+    .with_existentials(existentials)
+    .with_ensures(ensures)
     .with_requires(requires)?)
+}
+
+/// Lowers a transition's existential binders and its ensures condition.
+fn lower_rule_existentials(
+    builder: &mut StructuredTermBuilder<'_>,
+    existentials: &[krs_ir::DescriptorClaimBinder],
+    ensures: Option<&DescriptorRuleCondition>,
+) -> Result<
+    (
+        Vec<krs_ir_levels::SemanticScopedBinder>,
+        Option<SemanticRuleCondition>,
+    ),
+    DescriptorLoweringError,
+> {
+    let descriptor = builder.descriptor;
+    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+    let ensures = ensures
+        .map(|condition| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRuleCondition::new(
+                semantic_origin(descriptor, condition.key.clone(), "rule-ensures")?,
+                builder.lower(&condition.term, Some(&bool_sort), false)?,
+            ))
+        })
+        .transpose()?;
+    let existentials = existentials
+        .iter()
+        .map(|binder| {
+            Ok(krs_ir_levels::SemanticScopedBinder::new(
+                semantic_origin(
+                    descriptor,
+                    binder.declaration_key.clone(),
+                    "rule-existential-binder",
+                )?,
+                semantic_origin(descriptor, binder.name_key.clone(), "claim-binder-name")?,
+                SemanticId::new(binder.name.clone())?,
+                semantic_origin(descriptor, binder.sort.key.clone(), "claim-binder-sort")?,
+                semantic_sort_ref(&binder.sort.sort),
+            ))
+        })
+        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    Ok((existentials, ensures))
 }
 
 /// Rejects the two readable machine rules without the computation cell that
@@ -663,6 +726,9 @@ fn infer_head_rule(
     let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
     if let Some(requires) = &rule.requires {
         builder.infer(&requires.term, Some(&bool_sort), false)?;
+    }
+    if let Some(ensures) = &rule.ensures {
+        builder.infer(&ensures.term, Some(&bool_sort), false)?;
     }
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
@@ -981,7 +1047,19 @@ pub(super) fn lower_structured_rule_descriptor(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
-    let binding_names = rule.bindings.iter().cloned().collect::<BTreeSet<_>>();
+    // Existentials are declared at their authored sort and are visible only
+    // to the result and the ensures condition (transport checks the scope).
+    let binding_names = rule
+        .bindings
+        .iter()
+        .chain(rule.existentials.iter().map(|binder| &binder.name))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let existential_sorts = rule
+        .existentials
+        .iter()
+        .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
+        .collect::<BTreeMap<_, _>>();
     let declared_binders = rule
         .typed_bindings
         .iter()
@@ -1006,6 +1084,7 @@ pub(super) fn lower_structured_rule_descriptor(
         binding_sorts: declared_binders
             .iter()
             .map(|(name, (sort, _))| (name.clone(), sort.clone()))
+            .chain(existential_sorts)
             .collect(),
         binding_constraints: BTreeMap::new(),
         wildcard_offset: 0,
@@ -1020,14 +1099,23 @@ pub(super) fn lower_structured_rule_descriptor(
         builder.infer(&requires.term, Some(&bool_sort), false)?;
     }
     builder.infer(&rule.result, Some(&result_sort), false)?;
+    if let Some(ensures) = &rule.ensures {
+        builder.infer(&ensures.term, Some(&bool_sort), false)?;
+    }
     builder.resolve_binding_sorts()?;
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
     let result = builder.lower(&rule.result, Some(&result_sort), false)?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let (existentials, ensures) =
+        lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let mut variables = Vec::new();
-    for binding in &rule.bindings {
+    for binding in rule
+        .bindings
+        .iter()
+        .chain(rule.existentials.iter().map(|binder| &binder.name))
+    {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
             DescriptorLoweringError::InvalidTerm {
                 id: Box::new(descriptor.id().clone()),
@@ -1068,6 +1156,8 @@ pub(super) fn lower_structured_rule_descriptor(
             .transpose()?,
     )
     .with_simplification(simplification)
+    .with_existentials(existentials)
+    .with_ensures(ensures)
     .with_requires(requires)?)
 }
 

@@ -505,6 +505,8 @@ fn configuration_rule() -> DescriptorConfigurationRule {
         }],
         subject: rule_cells(),
         result: rule_cells(),
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 
@@ -666,6 +668,8 @@ fn head_rule() -> DescriptorHeadRule {
         }),
         requires: None,
         extras: Vec::new(),
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 
@@ -700,6 +704,8 @@ fn structured_rule() -> StructuredRuleDescriptor {
         bindings: vec!["value".to_owned()],
         subject: term(6),
         result: term(7),
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 

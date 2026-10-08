@@ -2478,13 +2478,11 @@ impl Sample for DefinitionClaim {
             sample::<NodeOrigin>(),
             sample::<crate::ClaimModality>(),
             sample::<Option<NodeOrigin>>(),
-            sample::<Vec<DefinitionClaimBinder>>(),
-            sample::<Vec<DefinitionClaimBinder>>(),
-            sample::<Option<DefinitionRuleCondition>>(),
+            sample::<Vec<DefinitionScopedBinder>>(),
         )]
     }
 }
-impl Sample for DefinitionClaimBinder {
+impl Sample for DefinitionScopedBinder {
     fn samples() -> Vec<Self> {
         vec![Self::new(
             sample::<NodeOrigin>(),
@@ -2605,6 +2603,8 @@ impl Sample for DescriptorConfigurationRule {
             bindings: sample::<Vec<DescriptorRuleBinding>>(),
             subject: sample::<DescriptorRuleCells>(),
             result: sample::<DescriptorRuleCells>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -2656,6 +2656,8 @@ impl Sample for DescriptorHeadRule {
             head: sample::<Option<ProtocolHeadRuleHead<DescriptorTerm>>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
             extras: sample::<Vec<DescriptorHeadRuleExtra>>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -2928,13 +2930,11 @@ impl Sample for SemanticClaim {
             sample::<NodeOrigin>(),
             sample::<crate::ClaimModality>(),
             sample::<Option<NodeOrigin>>(),
-            sample::<Vec<SemanticClaimBinder>>(),
-            sample::<Vec<SemanticClaimBinder>>(),
-            sample::<Option<SemanticRuleCondition>>(),
+            sample::<Vec<SemanticScopedBinder>>(),
         )]
     }
 }
-impl Sample for SemanticClaimBinder {
+impl Sample for SemanticScopedBinder {
     fn samples() -> Vec<Self> {
         vec![Self::new(
             sample::<NodeOrigin>(),
@@ -3022,6 +3022,8 @@ impl Sample for StructuredRuleDescriptor {
             bindings: sample::<Vec<String>>(),
             subject: sample::<DescriptorTerm>(),
             result: sample::<DescriptorTerm>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -3064,6 +3066,8 @@ impl Sample for WireHeadRule {
             head: sample::<Option<WireHeadRuleHead>>(),
             requires: sample::<Option<WireRuleCondition>>(),
             extras: sample::<Vec<WireHeadRuleExtra>>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -3146,6 +3150,8 @@ impl Sample for WireConfigurationRule {
             bindings: sample::<Vec<ProtocolRuleBinding<WireSortReference>>>(),
             subject: sample::<WireRuleCells>(),
             result: sample::<WireRuleCells>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -3202,6 +3208,8 @@ impl Sample for WireStructuredRule {
             bindings: sample::<Vec<String>>(),
             subject: sample::<WireTerm>(),
             result: sample::<WireTerm>(),
+            existentials: sample(),
+            ensures: sample(),
         }]
     }
 }
@@ -3319,7 +3327,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<ConstructorFieldDescriptor>(corpus, "ConstructorFieldDescriptor");
     insert::<ContextAliasSentence>(corpus, "ContextAliasSentence");
     insert::<DefinitionClaim>(corpus, "DefinitionClaim");
-    insert::<DefinitionClaimBinder>(corpus, "DefinitionClaimBinder");
+    insert::<DefinitionScopedBinder>(corpus, "DefinitionScopedBinder");
     insert::<DefinitionModule>(corpus, "DefinitionModule");
     insert::<DefinitionRuleCondition>(corpus, "DefinitionRuleCondition");
     insert::<DefinitionRulePriority>(corpus, "DefinitionRulePriority");
@@ -3401,7 +3409,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<ProtocolRuleMap<DescriptorTerm>>(corpus, "ProtocolRuleMap");
     insert::<RuleSentence>(corpus, "RuleSentence");
     insert::<SemanticClaim>(corpus, "SemanticClaim");
-    insert::<SemanticClaimBinder>(corpus, "SemanticClaimBinder");
+    insert::<SemanticScopedBinder>(corpus, "SemanticScopedBinder");
     insert::<SemanticContextAlias>(corpus, "SemanticContextAlias");
     insert::<SemanticModule>(corpus, "SemanticModule");
     insert::<SemanticProduction>(corpus, "SemanticProduction");

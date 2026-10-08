@@ -218,6 +218,12 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "the browser route has no standard input or output; run it with `krs run` or Java K's krun",
         evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust 195a7718 docs/compatibility.md: RPC does not perform host IO)",
     },
+    RouteCapability {
+        feature: "RuleExistential",
+        unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
+        reason: "concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
+        evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust 195a7718 docs/compatibility.md: existential right-hand-side variables follow K's Haskell policy)",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

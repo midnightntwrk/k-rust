@@ -145,13 +145,14 @@ impl VariableNaming {
             for binder in claim.universals() {
                 scope.declare(binder.id());
             }
-            for binder in claim.existentials() {
-                scope.declare(binder.id());
-                scope.existentials.insert(binder.id().clone());
-            }
-            if let Some(condition) = claim.ensures() {
-                scope.term(condition.term());
-            }
+        }
+        // Every sentence's existentials print with K's `?` prefix (D3).
+        for binder in sentence.existentials() {
+            scope.declare(binder.id());
+            scope.existentials.insert(binder.id().clone());
+        }
+        if let Some(condition) = sentence.ensures() {
+            scope.term(condition.term());
         }
         scope.name(&self.reserved)
     }

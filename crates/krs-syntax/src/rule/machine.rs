@@ -436,7 +436,7 @@ pub(super) fn parse_machine_clause(
             .into());
         }
     }
-    Ok(RuleClause {
+    let clause = RuleClause {
         rule,
         attribute,
         narrowings,
@@ -446,7 +446,9 @@ pub(super) fn parse_machine_clause(
         computation_cell,
         source_range: TokenRange::new(clause_start, semicolon.span),
         layout,
-    })
+    };
+    clause.check_existentials()?;
+    Ok(clause)
 }
 
 fn parse_machine_update(

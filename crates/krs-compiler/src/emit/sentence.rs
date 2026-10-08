@@ -727,7 +727,9 @@ fn emit_rule(
                     .finish(body.origin().key(), 0),
             )?;
             emit_requires(sentence, &names, context, writer)?;
+            emit_ensures(sentence, &names, context, writer)?;
             emit_term_rule_attributes(sentence, writer)?;
+            record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
     }
@@ -777,10 +779,10 @@ fn record_claim_binders(
     sentence_start: usize,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    let Some(claim) = sentence.claim() else {
-        return Ok(());
-    };
-    for binder in claim.universals().iter().chain(claim.existentials()) {
+    let universals = sentence
+        .claim()
+        .map_or(&[][..], krs_ir_levels::DefinitionClaim::universals);
+    for binder in universals.iter().chain(sentence.existentials()) {
         let name = names.name(binder.id()).ok_or_else(|| {
             EmitError::InvalidReference(format!(
                 "claim binder {:?} is not named in its sentence",
@@ -824,7 +826,7 @@ fn emit_ensures(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    let Some(ensures) = sentence.claim().and_then(|claim| claim.ensures()) else {
+    let Some(ensures) = sentence.ensures() else {
         return Ok(());
     };
     writer.push("\n    ensures ");

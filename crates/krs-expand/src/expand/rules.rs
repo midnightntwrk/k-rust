@@ -17,6 +17,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
+use super::existentials::{ensures_condition, existential_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
@@ -169,6 +170,13 @@ fn expand_ordinary_rule(
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
+    if sentence_kind != krs_ir::SentenceKind::Transition
+        && let Some(helper) = rule.existentials().attributes().first()
+    {
+        return Err(misplaced_existential(syn::spanned::Spanned::span(
+            helper.path(),
+        )));
+    }
     let rule_requires_role = ProvenanceRole::RuleRequires;
     let simplification_priority_role = ProvenanceRole::SimplificationPriority;
     let simplification_marker_role = ProvenanceRole::SimplificationMarker;
@@ -255,10 +263,14 @@ fn expand_ordinary_rule(
             let _: ::core::marker::PhantomData<#sort> = ::core::marker::PhantomData;
         });
     }
-    let binding_idents = rule.parameter().pattern.bindings().to_vec();
+    // The result and the ensures condition also see the existentials; the
+    // subject and requires never do (the parser rejects such a use).
+    let binding_idents = rule.result_bindings();
     let mut term_builder =
         TermBuilder::new(&facade, nonce, &cfg, &binding_idents).with_enum_glob(enum_glob);
     let mut slots = WireSlots::new(&facade);
+    let (existentials, existential_key_functions) =
+        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let subject_sort = WireSortReference {
         key: wire_key(ProvenanceRole::RuleType, 0),
         target: WireTypeReference {
@@ -289,7 +301,10 @@ fn expand_ordinary_rule(
     } else {
         None
     };
-    let term_key_functions = term_builder.key_functions;
+    term_builder.reset_side();
+    let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)?;
+    let mut term_key_functions = term_builder.key_functions;
+    term_key_functions.extend(existential_key_functions);
     let priority = attribute
         .transition_priority()
         .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
@@ -333,6 +348,8 @@ fn expand_ordinary_rule(
         bindings,
         subject,
         result,
+        existentials,
+        ensures,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -442,6 +459,54 @@ pub(crate) fn orphan_rule_helper(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let name = entry.name();
+    if matches!(entry, AttributeMacro::Exists | AttributeMacro::Ensures) {
+        let mut function: ItemFn = syn::parse2(item)?;
+        let outer = function
+            .attrs
+            .iter()
+            .enumerate()
+            .find_map(|(index, attribute)| {
+                let helper = helper_entry(attribute.path())?;
+                matches!(
+                    helper,
+                    AttributeMacro::Rule
+                        | AttributeMacro::Claim
+                        | AttributeMacro::Equation
+                        | AttributeMacro::Simplification
+                        | AttributeMacro::Alias
+                )
+                .then_some((index, helper))
+            });
+        match outer {
+            Some((index, AttributeMacro::Rule)) => {
+                // `#[k::exists]`/`#[k::ensures]` before `#[k::rule]`, as a
+                // readable clause expands: hand the helper to the rule.
+                let sentence = function.attrs.remove(index);
+                let sentence_payload = match &sentence.meta {
+                    syn::Meta::List(list) => list.tokens.clone(),
+                    _ => TokenStream::new(),
+                };
+                let helper_name = format_ident!("{name}");
+                let helper: Attribute = syn::parse_quote!(#[k::#helper_name(#attributes)]);
+                function.attrs.insert(0, helper);
+                return rule(env, sentence_payload, function.to_token_stream());
+            }
+            Some((
+                _,
+                AttributeMacro::Equation | AttributeMacro::Simplification | AttributeMacro::Alias,
+            )) => {
+                return Err(misplaced_existential(Span::call_site()));
+            }
+            _ => {}
+        }
+        return Err(ExpandError::new(
+            expand::ORPHAN_HELPER,
+            Span::call_site(),
+            format!(
+                "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
+            ),
+        ));
+    }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
         if let Some((index, outer)) =
@@ -476,10 +541,15 @@ pub(crate) fn orphan_rule_helper(
     Err(ExpandError::new(
         expand::ORPHAN_HELPER,
         Span::call_site(),
-        if matches!(entry, AttributeMacro::Exists | AttributeMacro::Ensures) {
-            format!("`#[k::{name}]` is a claim helper; place `#[k::claim(...)]` before it")
-        } else {
-            format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it")
-        },
+        format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it"),
     ))
+}
+
+/// `#[k::exists]` or `#[k::ensures]` on an equation, simplification, or alias.
+fn misplaced_existential(span: Span) -> ExpandError {
+    ExpandError::new(
+        expand::EXISTENTIAL_PLACEMENT,
+        span,
+        "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases",
+    )
 }

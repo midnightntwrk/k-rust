@@ -1022,7 +1022,7 @@ pub type DefinitionVariable = crate::IrVariable<crate::DefinitionLevel>;
 pub type DefinitionRuleCondition = crate::IrRuleCondition<crate::DefinitionLevel>;
 
 /// One explicitly scoped claim binder declaration.
-pub type DefinitionClaimBinder = crate::IrClaimBinder<crate::DefinitionLevel>;
+pub type DefinitionScopedBinder = crate::IrScopedBinder<crate::DefinitionLevel>;
 
 /// Typed reachability metadata present only on claims.
 pub type DefinitionClaim = crate::IrClaim<crate::DefinitionLevel>;
@@ -1051,6 +1051,8 @@ pub struct RuleSentence {
     simplification: Option<DefinitionSimplification>,
     claim: Option<DefinitionClaim>,
     anywhere: Option<NodeOrigin>,
+    existentials: Vec<DefinitionScopedBinder>,
+    ensures: Option<DefinitionRuleCondition>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1066,6 +1068,8 @@ impl Serialize for RuleSentence {
             simplification: self.simplification.as_ref().map(Cow::Borrowed),
             claim: self.claim.as_ref().map(Cow::Borrowed),
             anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
+            existentials: Cow::Borrowed(&self.existentials),
+            ensures: self.ensures.as_ref().map(Cow::Borrowed),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1089,6 +1093,10 @@ struct RuleSentenceWire<'a, B> {
     claim: Option<Cow<'a, DefinitionClaim>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     anywhere: Option<Cow<'a, NodeOrigin>>,
+    #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
+    existentials: Cow<'a, [DefinitionScopedBinder]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ensures: Option<Cow<'a, DefinitionRuleCondition>>,
     body: B,
 }
 
@@ -1120,6 +1128,8 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             simplification: value.simplification.map(Cow::into_owned),
             claim: value.claim.map(Cow::into_owned),
             anywhere: value.anywhere.map(Cow::into_owned),
+            existentials: value.existentials.into_owned(),
+            ensures: value.ensures.map(Cow::into_owned),
             content,
         })
     }
@@ -1152,6 +1162,8 @@ impl RuleSentence {
             simplification: None,
             claim: None,
             anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
@@ -1173,6 +1185,8 @@ impl RuleSentence {
             simplification: None,
             claim: None,
             anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
@@ -1260,6 +1274,28 @@ impl RuleSentence {
     #[must_use]
     pub const fn simplification(&self) -> Option<&DefinitionSimplification> {
         self.simplification.as_ref()
+    }
+    /// Attaches result-scoped existential binders (`#[k::exists]`) of a transition or claim.
+    #[must_use]
+    pub fn with_existentials(mut self, existentials: Vec<DefinitionScopedBinder>) -> Self {
+        self.existentials = existentials;
+        self
+    }
+    /// Returns the result-scoped existential binders.
+    #[must_use]
+    pub fn existentials(&self) -> &[DefinitionScopedBinder] {
+        &self.existentials
+    }
+    /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
+    #[must_use]
+    pub fn with_ensures(mut self, ensures: Option<DefinitionRuleCondition>) -> Self {
+        self.ensures = ensures;
+        self
+    }
+    /// Returns the object-Bool postcondition.
+    #[must_use]
+    pub const fn ensures(&self) -> Option<&DefinitionRuleCondition> {
+        self.ensures.as_ref()
     }
     /// Attaches typed claim-only metadata.
     #[must_use]
@@ -1452,10 +1488,12 @@ pub enum DefinitionValidationError {
     ClaimBodyNotConfiguration(LabelId),
     /// A claim binder is repeated, absent from the sentence scope, or has the wrong sort.
     InvalidClaimBinder(SemanticId),
-    /// An existential binder occurs in the claim's left-hand side or `requires` condition.
+    /// An existential binder occurs in the sentence's left-hand side or `requires` condition.
     ExistentialScopeViolation(SemanticId),
-    /// An existential binder is unused in the claim's right-hand side and `ensures` condition.
+    /// An existential binder is unused in the sentence's right-hand side and `ensures` condition.
     UnusedExistential(SemanticId),
+    /// Existential binders or an `ensures` condition occurred on a sentence other than a transition or claim.
+    InvalidRuleExistentials(LabelId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
     RuleConditionSortMismatch,
     /// A static alias clause carried a runtime condition.
@@ -1647,11 +1685,15 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::ExistentialScopeViolation(id) => write!(
                 formatter,
-                "existential claim binder {id} cannot occur in the left-hand side or requires condition"
+                "existential binder {id} cannot occur in the left-hand side or requires condition"
             ),
             Self::UnusedExistential(id) => write!(
                 formatter,
-                "existential claim binder {id} must occur in the right-hand side or ensures condition"
+                "existential binder {id} must occur in the right-hand side or ensures condition"
+            ),
+            Self::InvalidRuleExistentials(id) => write!(
+                formatter,
+                "existential results and ensures are allowed only on claims and transition rules, not on {id}"
             ),
             Self::RuleConditionSortMismatch => {
                 formatter.write_str("rule condition must have builtin Bool sort")
@@ -1901,7 +1943,7 @@ fn validate_hook_point_constructors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir_validation::{validate_claim, variable_scope};
+    use crate::ir_validation::{validate_claim, validate_existentials, variable_scope};
     use krs_ir::CellContentFrame;
     use krs_ir::ClaimModality;
     use krs_ir::{CellPost, FixedCellClause};
@@ -1966,7 +2008,7 @@ mod tests {
             Vec::new(),
         )
         .expect("valid configuration rewrite");
-        let binder = DefinitionClaimBinder::new(
+        let binder = DefinitionScopedBinder::new(
             node("binder"),
             node("binder-name"),
             sid("exists"),
@@ -1993,9 +2035,9 @@ mod tests {
                 ClaimModality::AllPaths,
                 None,
                 Vec::new(),
-                vec![binder],
-                None,
             )),
+            existentials: vec![binder],
+            ensures: None,
             content: crate::ir_level::RuleContent::Configuration {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
@@ -2059,6 +2101,12 @@ mod tests {
             sentence.claim.as_ref().expect("claim metadata"),
             &scope,
             &BTreeMap::new(),
+            &mut BTreeSet::new(),
+        )?;
+        validate_existentials::<DefinitionLevel>(
+            sentence,
+            &scope,
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeSet::new(),
@@ -2095,9 +2143,10 @@ mod tests {
     #[test]
     fn definition_claim_rejects_non_bool_ensures() {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
-        sentence.claim.as_mut().expect("claim metadata").ensures = Some(
-            DefinitionRuleCondition::new(node("ensures"), int_token("post")),
-        );
+        sentence.ensures = Some(DefinitionRuleCondition::new(
+            node("ensures"),
+            int_token("post"),
+        ));
         assert_eq!(
             validate_claim_only(&sentence),
             Err(DefinitionValidationError::RuleConditionSortMismatch)
@@ -2107,13 +2156,84 @@ mod tests {
             int_token("unbound-before"),
             int_variable("unbound-after", "exists"),
         );
-        unbound.claim.as_mut().expect("claim metadata").existentials[0].id = sid("missing");
+        unbound.existentials[0].id = sid("missing");
         assert_eq!(
             validate_claim_only(&unbound),
             Err(DefinitionValidationError::InvalidClaimBinder(sid(
                 "missing"
             )))
         );
+    }
+
+    /// A transition (or `kind`) carrying the claim fixture's existential, without claim metadata.
+    fn existential_sentence(
+        before: DefinitionTerm,
+        after: DefinitionTerm,
+        kind: krs_ir::ConfigurationSentenceKind,
+    ) -> RuleSentence {
+        let mut sentence = claim_sentence(before, after);
+        sentence.claim = None;
+        if let crate::ir_level::RuleContent::Configuration { kind: current, .. } =
+            &mut sentence.content
+        {
+            *current = kind;
+        }
+        sentence
+    }
+
+    fn validate_existentials_only(
+        sentence: &RuleSentence,
+    ) -> Result<(), DefinitionValidationError> {
+        let scope = variable_scope::<DefinitionLevel>(&sentence.variables, &BTreeMap::new())?;
+        validate_existentials::<DefinitionLevel>(
+            sentence,
+            &scope,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &mut BTreeSet::new(),
+        )
+    }
+
+    #[test]
+    fn definition_transition_existentials_are_result_scoped() {
+        let transition = krs_ir::ConfigurationSentenceKind::Transition;
+        let valid = existential_sentence(
+            int_token("before"),
+            int_variable("after", "exists"),
+            transition,
+        );
+        assert_eq!(validate_existentials_only(&valid), Ok(()));
+        let json = serde_json::to_value(&valid).unwrap();
+        assert!(json.get("existentials").is_some());
+        assert_eq!(serde_json::from_value::<RuleSentence>(json).unwrap(), valid);
+
+        let left = existential_sentence(
+            int_variable("before", "exists"),
+            int_token("after"),
+            transition,
+        );
+        assert_eq!(
+            validate_existentials_only(&left),
+            Err(DefinitionValidationError::ExistentialScopeViolation(sid(
+                "exists"
+            )))
+        );
+        let unused = existential_sentence(int_token("before"), int_token("after"), transition);
+        assert_eq!(
+            validate_existentials_only(&unused),
+            Err(DefinitionValidationError::UnusedExistential(sid("exists")))
+        );
+        let equation = existential_sentence(
+            int_token("before"),
+            int_variable("after", "exists"),
+            krs_ir::ConfigurationSentenceKind::Equation,
+        );
+        assert!(matches!(
+            validate_existentials_only(&equation),
+            Err(DefinitionValidationError::InvalidRuleExistentials(_))
+        ));
     }
 
     #[test]

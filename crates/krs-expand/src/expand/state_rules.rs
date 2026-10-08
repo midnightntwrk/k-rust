@@ -28,6 +28,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
 use super::configuration::cell_marker_function;
+use super::existentials::{ensures_condition, existential_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
@@ -282,13 +283,21 @@ pub(super) fn configuration_rule(
         };
         bindings.push(ProtocolRuleBinding { name, kind });
     }
+    // The result and the ensures condition also see the existentials.
+    let result_idents = binding_idents
+        .iter()
+        .cloned()
+        .chain(rule.existentials().names())
+        .collect::<Vec<_>>();
+    let (existentials, existential_key_functions) =
+        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
-        &binding_idents,
+        &result_idents,
         RuleSide::Right,
     );
     right.terms.lexeme_ordinal = left.terms.lexeme_ordinal;
@@ -315,10 +324,20 @@ pub(super) fn configuration_rule(
     } else {
         None
     };
+    let mut ensures_builder =
+        TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &result_idents);
+    ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
+    ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
+    ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
+    ensures_builder.lexeme_ordinal = condition_builder.lexeme_ordinal;
+    ensures_builder.sort_test_ordinal = condition_builder.sort_test_ordinal;
+    let ensures = ensures_condition(rule.existentials(), &mut ensures_builder, &mut slots)?;
     let mut key_functions = left.terms.key_functions;
     key_functions.extend(right.terms.key_functions);
     key_functions.extend(condition_builder.key_functions);
+    key_functions.extend(ensures_builder.key_functions);
     key_functions.extend(binding_key_functions);
+    key_functions.extend(existential_key_functions);
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -381,6 +400,8 @@ pub(super) fn configuration_rule(
         bindings,
         subject,
         result,
+        existentials,
+        ensures,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();

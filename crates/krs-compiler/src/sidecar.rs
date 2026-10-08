@@ -289,6 +289,10 @@ pub enum SourceMapNodeKind {
     Layout,
     /// One `k::raw_k!` sentence, opaque to KRS.
     RawSentence,
+    /// Typed existential binder component of a transition (`#[k::exists]`).
+    RuleExistentialBinder,
+    /// Complete object-language Boolean postcondition of a transition (`#[k::ensures]`).
+    RuleEnsures,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -566,7 +570,7 @@ impl SourceMap {
                                     SourceMapNodeKind::ClaimCircularity,
                                 )?;
                             }
-                            for binder in claim.universals().iter().chain(claim.existentials()) {
+                            for binder in claim.universals() {
                                 for origin in
                                     [binder.origin(), binder.name_origin(), binder.sort_origin()]
                                 {
@@ -577,14 +581,29 @@ impl SourceMap {
                                     )?;
                                 }
                             }
-                            if let Some(ensures) = claim.ensures() {
-                                insert_origin(
-                                    &mut entries,
-                                    ensures.origin(),
+                        }
+                        let (binder_kind, ensures_kind) =
+                            if sentence.kind() == krs_ir::SentenceKind::Claim {
+                                (
+                                    SourceMapNodeKind::ClaimBinder,
                                     SourceMapNodeKind::ClaimEnsures,
-                                )?;
-                                insert_term(&mut entries, ensures.term())?;
+                                )
+                            } else {
+                                (
+                                    SourceMapNodeKind::RuleExistentialBinder,
+                                    SourceMapNodeKind::RuleEnsures,
+                                )
+                            };
+                        for binder in sentence.existentials() {
+                            for origin in
+                                [binder.origin(), binder.name_origin(), binder.sort_origin()]
+                            {
+                                insert_origin(&mut entries, origin, binder_kind)?;
                             }
+                        }
+                        if let Some(ensures) = sentence.ensures() {
+                            insert_origin(&mut entries, ensures.origin(), ensures_kind)?;
+                            insert_term(&mut entries, ensures.term())?;
                         }
                     }
                     DefinitionSentence::ContextAlias(sentence) => {

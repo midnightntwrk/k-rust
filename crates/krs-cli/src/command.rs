@@ -725,6 +725,27 @@ fn build(
         })
     })?;
     let mut warnings = definition_warnings(prepared);
+    if backend == Backend::Llvm {
+        for diagnostic in
+            krs_compiler::capability::concrete_execution_warnings(prepared.lowered.definition())
+        {
+            let message = diagnostic.message.clone();
+            if let Some(envelope) =
+                crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+            {
+                warnings.envelopes.push(envelope);
+            } else {
+                warnings.unlocated.push(crate::UnlocatedDiagnostic {
+                    code: krs_diagnostic::codes::capability::IGNORED_ENSURES.to_string(),
+                    severity: crate::DiagnosticSeverity::Warning,
+                    message,
+                    source: None,
+                    generated_range: None,
+                    notes: Vec::new(),
+                });
+            }
+        }
+    }
     let native =
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);

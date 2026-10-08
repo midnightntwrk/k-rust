@@ -1299,6 +1299,9 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
+    // The clause's `#[k::exists]` and `#[k::ensures]` helpers are retained
+    // verbatim and placed before `#[k::rule(..)]` (KF-040).
+    let existential_helpers = clause.rule().existentials().attributes();
     // The clause's `#[k::requires]` helper is consumed by the readable parser;
     // the reference form restates it from the descriptor, after `#[k::rule]`.
     let requires = rule
@@ -1313,6 +1316,7 @@ fn render_rule(
         reference_rule_attribute(rule.priority.as_ref(), rule.nondet.as_ref(), &label);
     syn::parse2(quote! {
         #(#attrs)*
+        #(#existential_helpers)*
         #rule_attribute
         #requires
         pub fn #name(

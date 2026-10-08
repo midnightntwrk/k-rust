@@ -413,6 +413,8 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
                 binding: "state".into(),
             },
         },
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 

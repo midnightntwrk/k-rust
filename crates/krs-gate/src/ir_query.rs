@@ -628,10 +628,7 @@ fn operations(
                         include_arguments,
                     );
                 }
-                if let Some(condition) = rule
-                    .claim()
-                    .and_then(krs_ir_levels::DefinitionClaim::ensures)
-                {
+                if let Some(condition) = rule.ensures() {
                     context.operation_rows(
                         condition.term(),
                         &mut rows,
@@ -1367,8 +1364,6 @@ mod tests {
                     krs_ir::ClaimModality::AllPaths,
                     None,
                     vec![],
-                    vec![],
-                    None,
                 )));
                 rules.push(claim);
             }
@@ -2059,6 +2054,8 @@ mod tests {
             }),
             requires: None,
             extras: vec![],
+            existentials: Vec::new(),
+            ensures: None,
         }));
         fs::write(
             dir.path().join("descriptor-bundle.json"),

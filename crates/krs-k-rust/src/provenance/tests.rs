@@ -143,8 +143,6 @@ fn smoke_definition_with_claim() -> (DefinitionIr, NodeOrigin) {
             ClaimModality::OnePath,
             None,
             Vec::new(),
-            Vec::new(),
-            None,
         ))),
     );
     let origin = claim.origin().clone();

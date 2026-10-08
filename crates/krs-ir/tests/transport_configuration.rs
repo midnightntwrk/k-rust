@@ -618,6 +618,8 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             ],
             subject,
             result,
+            existentials: Vec::new(),
+            ensures: None,
         },
     )
 }
@@ -925,6 +927,8 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 
@@ -1039,6 +1043,8 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
+        existentials: Vec::new(),
+        ensures: None,
     }
 }
 

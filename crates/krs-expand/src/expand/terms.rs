@@ -142,6 +142,7 @@ pub(super) enum TermSide {
     Right,
     Requires,
     Ensures,
+    RuleEnsures,
 }
 
 /// A term-node role that a [`TermSide`] maps to its provenance role.
@@ -181,6 +182,11 @@ impl TermSide {
             (Self::Ensures, T::Reference) => P::ClaimEnsuresReference,
             (Self::Ensures, T::Literal | T::Wildcard) => P::ClaimEnsuresLiteral,
             (Self::Ensures, T::RecordFieldName) => P::ClaimEnsuresRecordFieldName,
+            (Self::RuleEnsures, T::Path) => P::RuleEnsuresPath,
+            (Self::RuleEnsures, T::ApplicationHead) => P::RuleEnsuresApplicationHead,
+            (Self::RuleEnsures, T::Reference) => P::RuleEnsuresReference,
+            (Self::RuleEnsures, T::Literal | T::Wildcard) => P::RuleEnsuresLiteral,
+            (Self::RuleEnsures, T::RecordFieldName) => P::RuleEnsuresRecordFieldName,
         }
     }
 }

@@ -556,6 +556,8 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
                 arguments: vec![].try_into().unwrap(),
             },
+            existentials: Vec::new(),
+            ensures: None,
         })),
     ));
 

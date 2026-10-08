@@ -1181,6 +1181,8 @@ mod tests {
                 key: unresolved_term("Extra"),
                 value_binding: "value".to_owned(),
             }],
+            existentials: Vec::new(),
+            ensures: None,
         };
         let identity = krs_ir::DescriptorCellIdentity {
             owner: StableItemId::new(

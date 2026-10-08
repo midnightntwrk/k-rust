@@ -13,8 +13,8 @@ use krs_ir::{
     MapOperation, NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
 };
 use krs_ir_levels::{
-    ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
-    DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    ConfigurationSentence, ContextAliasSentence, DefinitionProductionAttribute,
+    DefinitionScopedBinder, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
     k_surface::generated_variable_name,
 };
@@ -674,27 +674,24 @@ impl Adapter<'_> {
                 )
             },
         )?;
-        let ensures = sentence
-            .claim()
-            .and_then(|claim| claim.ensures())
-            .map_or_else(
-                || Ok(truth()),
-                |condition| {
-                    self.map_sentence_origin(
-                        condition.origin(),
-                        module,
-                        sentence_index,
-                        SentenceNodeRole::Ensures,
-                    );
-                    self.term(
-                        condition.term(),
-                        module,
-                        sentence_index,
-                        Vec::new(),
-                        TermContext::Normal,
-                    )
-                },
-            )?;
+        let ensures = sentence.ensures().map_or_else(
+            || Ok(truth()),
+            |condition| {
+                self.map_sentence_origin(
+                    condition.origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Ensures,
+                );
+                self.term(
+                    condition.term(),
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::Normal,
+                )
+            },
+        )?;
         let mut attributes = attributes_for_origin(sentence.origin());
         attributes.insert("label", json!(native_rule_label(module, sentence.label())));
         if sentence.anywhere().is_some() {
@@ -730,14 +727,12 @@ impl Adapter<'_> {
                 );
                 attributes.insert("circularity", json!(""));
             }
-            for (index, binder) in claim
-                .universals()
-                .iter()
-                .chain(claim.existentials())
-                .enumerate()
-            {
-                self.map_claim_binder(binder, module, sentence_index, index);
-            }
+        }
+        let universals = sentence
+            .claim()
+            .map_or(&[][..], krs_ir_levels::DefinitionClaim::universals);
+        for (index, binder) in universals.iter().chain(sentence.existentials()).enumerate() {
+            self.map_claim_binder(binder, module, sentence_index, index);
         }
         if sentence.kind() == SentenceKind::Claim {
             Ok(NativeSentence::Claim {
@@ -758,7 +753,7 @@ impl Adapter<'_> {
 
     fn map_claim_binder(
         &mut self,
-        binder: &DefinitionClaimBinder,
+        binder: &DefinitionScopedBinder,
         module: &str,
         sentence_index: usize,
         index: usize,

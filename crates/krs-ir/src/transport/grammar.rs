@@ -1612,6 +1612,12 @@ stage_shape! {
         pub subject: Term<S> => [nested],
         /// Structured right result.
         pub result: Term<S> => [nested],
+        /// Result-scoped existential binders of a transition (`#[k::exists]`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub existentials: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// Optional object-Bool postcondition of a transition (`#[k::ensures]`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ensures: Option<RuleCondition<S>> => [option nested],
     }
 }
 
@@ -1856,6 +1862,35 @@ impl DescriptorTerm {
 }
 
 impl StructuredRuleDescriptor {
+    /// Validates the existentials of a transition and returns the names its
+    /// result and ensures condition may reference.
+    fn validate_existentials(
+        &self,
+        bindings: &BTreeSet<String>,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<BTreeSet<String>, GrammarTransportError> {
+        if (!self.existentials.is_empty() || self.ensures.is_some())
+            && self.sentence_kind != SentenceKind::Transition
+        {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::InvalidRuleExistential,
+            ));
+        }
+        let mut right_bindings = bindings.clone();
+        for binder in &self.existentials {
+            require_key(&binder.declaration_key, provenance)?;
+            require_key(&binder.name_key, provenance)?;
+            require_key(&binder.sort.key, provenance)?;
+            binder.sort.sort.validate()?;
+            if binder.name.trim().is_empty() || !right_bindings.insert(binder.name.clone()) {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidRuleExistential,
+                ));
+            }
+        }
+        Ok(right_bindings)
+    }
+
     /// Validates the priority, nondet, and anywhere keys of a rule.
     fn validate_rule_keys(
         &self,
@@ -2002,14 +2037,22 @@ impl StructuredRuleDescriptor {
                 .unwrap_or_default();
             return Err(GrammarTransportError::InvalidBinding(missing));
         }
+        let right_bindings = self.validate_existentials(&bindings, provenance)?;
         let mut result_variables = BTreeSet::new();
         self.result
-            .validate(provenance, &bindings, &mut result_variables, false)?;
+            .validate(provenance, &right_bindings, &mut result_variables, false)?;
         if let Some(requires) = &self.requires {
             let mut condition_variables = BTreeSet::new();
             requires
                 .term
                 .validate(provenance, &bindings, &mut condition_variables, false)?;
+        }
+        if let Some(ensures) = &self.ensures {
+            require_key(&ensures.key, provenance)?;
+            let mut condition_variables = BTreeSet::new();
+            ensures
+                .term
+                .validate(provenance, &right_bindings, &mut condition_variables, false)?;
         }
         Ok(())
     }
@@ -3239,19 +3282,63 @@ impl StructuredRuleDescriptor {
         };
         self.result
             .collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
+        self.collect_condition_keys(&mut keys, &result)?;
+        Ok(keys)
+    }
+
+    /// The keys of a rule's requires condition, then of a transition's
+    /// existentials and ensures condition, whose lexeme and sort-test ordinals
+    /// continue after the result's.
+    fn collect_condition_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+        result: &TermKeyCounters,
+    ) -> Result<(), GrammarTransportError> {
+        let mut condition = TermKeyCounters {
+            lexeme: result.lexeme,
+            sort_test: result.sort_test,
+            ..TermKeyCounters::default()
+        };
         if let Some(requires) = &self.requires {
-            let mut condition = TermKeyCounters {
-                lexeme: result.lexeme,
-                sort_test: result.sort_test,
-                ..TermKeyCounters::default()
-            };
-            requires.term.collect_expected_term_keys(
-                &mut keys,
-                TermSide::Requires,
-                &mut condition,
+            requires
+                .term
+                .collect_expected_term_keys(keys, TermSide::Requires, &mut condition)?;
+        }
+        for (index, binder) in self.existentials.iter().enumerate() {
+            let ordinal = u32::try_from(index).map_err(|_| {
+                GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidRuleExistential)
+            })?;
+            insert_exact(
+                keys,
+                &binder.declaration_key,
+                ProvenanceRole::RuleExistentialBinder,
+                ordinal,
+            )?;
+            insert_exact(
+                keys,
+                &binder.name_key,
+                ProvenanceRole::RuleExistentialBinderName,
+                ordinal,
+            )?;
+            insert_exact(
+                keys,
+                &binder.sort.key,
+                ProvenanceRole::RuleExistentialBinderSort,
+                ordinal,
             )?;
         }
-        Ok(keys)
+        if let Some(ensures) = &self.ensures {
+            insert_exact(keys, &ensures.key, ProvenanceRole::RuleEnsures, 0)?;
+            let mut postcondition = TermKeyCounters {
+                lexeme: condition.lexeme,
+                sort_test: condition.sort_test,
+                ..TermKeyCounters::default()
+            };
+            ensures
+                .term
+                .collect_expected_term_keys(keys, TermSide::Ensures, &mut postcondition)?;
+        }
+        Ok(())
     }
 }
 
@@ -3274,6 +3361,7 @@ enum TermSide {
     Left,
     Right,
     Requires,
+    Ensures,
 }
 
 impl TermSide {
@@ -3282,6 +3370,7 @@ impl TermSide {
             Self::Left => ProvenanceRole::RuleLeftPath,
             Self::Right => ProvenanceRole::RuleRightPath,
             Self::Requires => ProvenanceRole::RuleRequiresPath,
+            Self::Ensures => ProvenanceRole::RuleEnsuresPath,
         }
     }
     const fn application_role(self) -> ProvenanceRole {
@@ -3289,6 +3378,7 @@ impl TermSide {
             Self::Left => ProvenanceRole::RuleLeftApplicationHead,
             Self::Right => ProvenanceRole::RuleRightApplicationHead,
             Self::Requires => ProvenanceRole::RuleRequiresApplicationHead,
+            Self::Ensures => ProvenanceRole::RuleEnsuresApplicationHead,
         }
     }
     const fn reference_role(self) -> ProvenanceRole {
@@ -3296,6 +3386,7 @@ impl TermSide {
             Self::Left => ProvenanceRole::RuleLeftReference,
             Self::Right => ProvenanceRole::RuleRightReference,
             Self::Requires => ProvenanceRole::RuleRequiresReference,
+            Self::Ensures => ProvenanceRole::RuleEnsuresReference,
         }
     }
     const fn literal_role(self) -> ProvenanceRole {
@@ -3303,6 +3394,7 @@ impl TermSide {
             Self::Left => ProvenanceRole::RuleLeftLiteral,
             Self::Right => ProvenanceRole::RuleRightLiteral,
             Self::Requires => ProvenanceRole::RuleRequiresLiteral,
+            Self::Ensures => ProvenanceRole::RuleEnsuresLiteral,
         }
     }
     const fn record_field_role(self) -> ProvenanceRole {
@@ -3310,12 +3402,13 @@ impl TermSide {
             Self::Left => ProvenanceRole::RuleLeftRecordFieldName,
             Self::Right => ProvenanceRole::RuleRightRecordFieldName,
             Self::Requires => ProvenanceRole::RuleRequiresRecordFieldName,
+            Self::Ensures => ProvenanceRole::RuleEnsuresRecordFieldName,
         }
     }
     const fn wildcard_role(self) -> Option<ProvenanceRole> {
         match self {
             Self::Left => Some(ProvenanceRole::RuleLeftWildcard),
-            Self::Right | Self::Requires => None,
+            Self::Right | Self::Requires | Self::Ensures => None,
         }
     }
 }
@@ -3674,6 +3767,8 @@ mod traversal_tests {
             bindings: vec!["bound".to_owned()],
             subject: anonymous(),
             result: anonymous(),
+            existentials: Vec::new(),
+            ensures: None,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

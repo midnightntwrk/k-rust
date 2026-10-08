@@ -13,7 +13,7 @@ use crate::parse::{
 };
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
-use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, take_requires_helper};
+use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
 use crate::term::{push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
@@ -90,6 +90,7 @@ pub struct StateRuleItem {
     result: CellsExpression,
     bindings: Vec<StateRuleBinding>,
     requires: Option<RuleCondition>,
+    existentials: RuleExistentials,
 }
 
 /// Object-language Boolean postcondition consumed only by a claim.
@@ -589,6 +590,15 @@ impl StateRuleItem {
         attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
         validate_result_reuses(&result, &bindings)?;
         let requires = take_requires_helper(&mut item.attrs)?;
+        let existentials = RuleExistentials::take(&mut item.attrs)?;
+        let subject_names = bindings
+            .iter()
+            .map(|binding| binding.name.clone())
+            .collect::<Vec<_>>();
+        existentials.check_shadowing(&subject_names)?;
+        let mut result_terms = Vec::new();
+        append_cells_terms(&result, &mut result_terms);
+        existentials.check_scope(requires.as_ref().map(RuleCondition::term), &result_terms)?;
         Ok(Self {
             item,
             subject_macro,
@@ -599,6 +609,7 @@ impl StateRuleItem {
             result,
             bindings,
             requires,
+            existentials,
         })
     }
 
@@ -645,6 +656,12 @@ impl StateRuleItem {
     #[must_use]
     pub const fn requires(&self) -> Option<&RuleCondition> {
         self.requires.as_ref()
+    }
+
+    /// Returns the `#[k::exists]` and `#[k::ensures]` helpers of a transition.
+    #[must_use]
+    pub const fn existentials(&self) -> &RuleExistentials {
+        &self.existentials
     }
 
     /// Returns one collision-free descriptor-wide provenance table.
@@ -697,13 +714,20 @@ impl StateRuleItem {
         if let Some(requires) = &self.requires {
             output.extend(requires.provenance()?);
         }
+        output.extend(self.existentials.provenance()?);
         let mut lexemes = 0_usize;
         let mut sort_tests = 0_usize;
         for term in claim_terms(self, None) {
             push_lexeme_anchors(&mut output, term.nodes(), &mut lexemes)?;
         }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_lexeme_anchors(&mut output, ensures.nodes(), &mut lexemes)?;
+        }
         for term in claim_terms(self, None) {
             push_sort_test_anchors(&mut output, term.nodes(), &mut sort_tests)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
         }
         Ok(output)
     }

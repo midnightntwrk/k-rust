@@ -11,13 +11,13 @@ use krs_ir::{
     GroupAssociativitySentence, IntLiterals, IrIdentityError, LayoutSentence, LexicalSentence,
     ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
-    ProductionResultSort, SourceMapKey, StableItemId, StableText, TransformationOriginKind,
-    lower_hex,
+    ProductionResultSort, SentenceKind, SourceMapKey, StableItemId, StableText,
+    TransformationOriginKind, lower_hex,
 };
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
-    ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
-    DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
+    ContextAliasSentence, DefinitionClaim, DefinitionIr, DefinitionModule, DefinitionRuleCondition,
+    DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence, DefinitionSimplification,
     DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
     LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
     RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
@@ -1446,6 +1446,27 @@ fn lower_rule_metadata(
             .map(|claim| lower_claim(claim, rule.id(), names, origins))
             .transpose()?,
     );
+    // A claim keeps its historical origin roles; a transition names its own.
+    let (existential_role, ensures_role) = if rule.kind() == SentenceKind::Claim {
+        ("claim-existential", "claim-ensures")
+    } else {
+        ("rule-existential", "rule-ensures")
+    };
+    sentence = sentence
+        .with_existentials(lower_claim_binders(
+            rule.existentials(),
+            rule.id(),
+            names,
+            origins,
+            existential_role,
+        )?)
+        .with_ensures(
+            rule.ensures()
+                .map(|condition| {
+                    lower_rule_condition(condition, rule.id(), names, origins, ensures_role)
+                })
+                .transpose()?,
+        );
     Ok(sentence)
 }
 
@@ -1476,33 +1497,22 @@ fn lower_claim(
             .map(|origin| origins.lower(origin, "claim-circularity", Some(item), None))
             .transpose()?,
         lower_claim_binders(claim.universals(), item, names, origins, "claim-universal")?,
-        lower_claim_binders(
-            claim.existentials(),
-            item,
-            names,
-            origins,
-            "claim-existential",
-        )?,
-        claim
-            .ensures()
-            .map(|condition| lower_rule_condition(condition, item, names, origins, "claim-ensures"))
-            .transpose()?,
     ))
 }
 
 fn lower_claim_binders(
-    binders: &[krs_ir_levels::SemanticClaimBinder],
+    binders: &[krs_ir_levels::SemanticScopedBinder],
     item: &StableItemId,
     names: &NamingPass,
     origins: &mut OriginPass,
     role: &'static str,
-) -> Result<Vec<DefinitionClaimBinder>, LoweringError> {
+) -> Result<Vec<DefinitionScopedBinder>, LoweringError> {
     binders
         .iter()
         .enumerate()
         .map(|(index, binder)| {
             let discriminator = index.to_string();
-            Ok(DefinitionClaimBinder::new(
+            Ok(DefinitionScopedBinder::new(
                 origins.lower(binder.origin(), role, Some(item), Some(&discriminator))?,
                 origins.lower(
                     binder.name_origin(),

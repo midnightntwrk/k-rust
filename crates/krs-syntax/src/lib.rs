@@ -64,8 +64,8 @@ pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_
 pub use range::TokenRange;
 pub use rule::{
     BINDER_LIST_CONTRACT, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
-    RuleExtra, RuleHeadResult, RuleImport, RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter,
-    RulePattern, parse_rule_block_source_with_trivia,
+    RuleExistentials, RuleExtra, RuleHeadResult, RuleImport, RuleItem, RuleMapUpdate,
+    RuleNarrowing, RuleParameter, RulePattern, parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

@@ -4,6 +4,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 
 use super::condition::{RuleCondition, take_requires_helper};
+use super::existentials::RuleExistentials;
 use super::pattern::{
     NegativeLiteralSpans, RulePattern, canonical_key, is_bound_path, is_bound_reference,
     parse_rule_pattern, push_candidate, push_term_node_anchors, push_term_reference_candidates,
@@ -74,6 +75,7 @@ pub struct RuleItem {
     result: TermExpression,
     subject_tree: TermTree,
     requires: Option<RuleCondition>,
+    existentials: RuleExistentials,
 }
 
 impl RuleItem {
@@ -148,6 +150,13 @@ impl RuleItem {
         let result_sort = sort_parser((**result_type).clone())?;
         let result = parse_rule_body(item)?;
         let requires = take_requires_helper(&mut item.attrs)?;
+        let existentials = RuleExistentials::take(&mut item.attrs)?;
+        // A readable clause checks its existentials against every cell it
+        // writes (`RuleClause::check_existentials`); its item has only the head.
+        if !root_identifier_is_binding {
+            existentials.check_shadowing(pattern.bindings())?;
+            existentials.check_scope(requires.as_ref().map(RuleCondition::term), &[&result])?;
+        }
 
         Ok(Self {
             item: item.clone(),
@@ -160,6 +169,7 @@ impl RuleItem {
             result,
             subject_tree,
             requires,
+            existentials,
         })
     }
 
@@ -204,6 +214,21 @@ impl RuleItem {
     #[must_use]
     pub const fn requires(&self) -> Option<&RuleCondition> {
         self.requires.as_ref()
+    }
+
+    /// Returns the `#[k::exists]` and `#[k::ensures]` helpers of a transition.
+    #[must_use]
+    pub const fn existentials(&self) -> &RuleExistentials {
+        &self.existentials
+    }
+
+    /// Subject bindings followed by the existentials: every name the result
+    /// and the ensures condition may reference.
+    #[must_use]
+    pub fn result_bindings(&self) -> Vec<syn::Ident> {
+        let mut bindings = self.parameter.pattern.bindings().to_vec();
+        bindings.extend(self.existentials.names());
+        bindings
     }
 
     /// Returns canonical rule node anchors and nested path anchors.
@@ -318,11 +343,15 @@ impl RuleItem {
         if let Some(requires) = &self.requires {
             anchors.extend(requires.provenance()?);
         }
+        anchors.extend(self.existentials.provenance()?);
         let mut lexemes = 0_usize;
         push_lexeme_anchors(&mut anchors, self.parameter.pattern.nodes(), &mut lexemes)?;
         push_lexeme_anchors(&mut anchors, self.result.nodes(), &mut lexemes)?;
         if let Some(requires) = &self.requires {
             push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
         }
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
@@ -333,6 +362,9 @@ impl RuleItem {
         push_sort_test_anchors(&mut anchors, self.result.nodes(), &mut sort_tests)?;
         if let Some(requires) = &self.requires {
             push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            push_sort_test_anchors(&mut anchors, ensures.nodes(), &mut sort_tests)?;
         }
         Ok(anchors)
     }
@@ -411,9 +443,9 @@ impl RuleItem {
             }
         }
 
-        let bindings = self.parameter.pattern.bindings();
+        let bindings = self.result_bindings();
         for (ordinal, symbol) in self.result.symbols().iter().enumerate() {
-            if is_bound_reference(symbol, bindings) {
+            if is_bound_reference(symbol, &bindings) {
                 continue;
             }
             push_candidate(
@@ -455,16 +487,18 @@ impl RuleItem {
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
         )?;
+        let result_bindings = self.result_bindings();
         push_term_reference_candidates(
             &mut candidates,
             self.result.nodes(),
-            self.parameter.pattern.bindings(),
+            &result_bindings,
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
         )?;
         if let Some(requires) = &self.requires {
             candidates.extend(requires.reference_candidates(self.parameter.pattern.bindings())?);
         }
+        candidates.extend(self.existentials.reference_candidates(&result_bindings)?);
         Ok(candidates)
     }
 }

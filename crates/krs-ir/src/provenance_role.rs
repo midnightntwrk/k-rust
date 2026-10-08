@@ -406,6 +406,24 @@ provenance_roles! {
     SortTestSort => "sort_test_sort",
     /// One typed binder parameter `x: S` of a term-shaped rule fn (KF-009).
     RuleBindingParameter => "rule_binding_parameter",
+    /// One existential binder declaration in a transition's `#[k::exists(..)]` helper.
+    RuleExistentialBinder => "rule_existential_binder",
+    /// The name of one transition existential binder.
+    RuleExistentialBinderName => "rule_existential_binder_name",
+    /// The exact sort path of one transition existential binder.
+    RuleExistentialBinderSort => "rule_existential_binder_sort",
+    /// The complete object-Bool `#[k::ensures(..)]` expression of a transition.
+    RuleEnsures => "rule_ensures",
+    /// One resolvable path inside a transition's ensures expression.
+    RuleEnsuresPath => "rule_ensures_path",
+    /// One application head inside a transition's ensures expression.
+    RuleEnsuresApplicationHead => "rule_ensures_application_head",
+    /// One bound reference inside a transition's ensures expression.
+    RuleEnsuresReference => "rule_ensures_reference",
+    /// One literal inside a transition's ensures expression.
+    RuleEnsuresLiteral => "rule_ensures_literal",
+    /// One record field name inside a transition's ensures expression.
+    RuleEnsuresRecordFieldName => "rule_ensures_record_field_name",
 }
 
 impl Serialize for ProvenanceRole {

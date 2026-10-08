@@ -11,9 +11,10 @@
 //! Features are appended at the tail of [`CapabilityFeature`] and of the
 //! derivation in [`sentence_features`].
 
+use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellPost, FixedCell,
-    FixedCellContent, SourceMapKey,
+    FixedCellContent, SentenceKind, SourceMapKey,
 };
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
@@ -35,6 +36,8 @@ pub enum CapabilityFeature {
     FloatPrecisionBeyondBinary64,
     /// A `stream` cell or an `io::` operation: console input and output.
     ConsoleIO,
+    /// A transition whose result introduces a symbolic value (`#[k::exists]`, K's `?X`).
+    RuleExistential,
 }
 
 impl CapabilityFeature {
@@ -44,6 +47,7 @@ impl CapabilityFeature {
         Self::GroundFloatFolding,
         Self::FloatPrecisionBeyondBinary64,
         Self::ConsoleIO,
+        Self::RuleExistential,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -54,6 +58,7 @@ impl CapabilityFeature {
             Self::GroundFloatFolding => "GroundFloatFolding",
             Self::FloatPrecisionBeyondBinary64 => "FloatPrecisionBeyondBinary64",
             Self::ConsoleIO => "ConsoleIO",
+            Self::RuleExistential => "RuleExistential",
         }
     }
 
@@ -65,6 +70,7 @@ impl CapabilityFeature {
             Self::GroundFloatFolding => "Float applications to tokens only",
             Self::FloatPrecisionBeyondBinary64 => "Float formats other than f32 and f64",
             Self::ConsoleIO => "console input or output",
+            Self::RuleExistential => "rules that introduce symbolic values",
         }
     }
 }
@@ -119,6 +125,9 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     if floats.console {
         features.push(CapabilityFeature::ConsoleIO);
     }
+    if sentence.kind() == SentenceKind::Transition && !sentence.existentials().is_empty() {
+        features.push(CapabilityFeature::RuleExistential);
+    }
     features
 }
 
@@ -142,7 +151,7 @@ pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
     if let Some(condition) = sentence.requires() {
         terms.push(condition.term());
     }
-    if let Some(condition) = sentence.claim().and_then(|claim| claim.ensures()) {
+    if let Some(condition) = sentence.ensures() {
         terms.push(condition.term());
     }
     terms
@@ -275,6 +284,41 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
     }
     requirements.sort();
     requirements
+}
+
+/// `warning[krs::capability::ignored-ensures]` for each transition with an
+/// `ensures` condition: concrete (LLVM) execution does not assume it.
+#[must_use]
+pub fn concrete_execution_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
+    let mut warnings = Vec::new();
+    for module in definition.modules() {
+        for sentence in module.sentences() {
+            let DefinitionSentence::Rule(rule) = sentence else {
+                continue;
+            };
+            let Some(ensures) = rule.ensures() else {
+                continue;
+            };
+            if rule.kind() != SentenceKind::Transition {
+                continue;
+            }
+            let mut diagnostic = Diagnostic::error(
+                codes::capability::IGNORED_ENSURES,
+                format!(
+                    "rule `{}` has an ensures condition; concrete (LLVM) execution ignores it, so build with --backend haskell to assume it",
+                    rule.label().emitted_name()
+                ),
+                ensures
+                    .origin()
+                    .origin()
+                    .exact_authored_range()
+                    .map_or(Location::None, Location::Source),
+            );
+            diagnostic.severity = Severity::Warning;
+            warnings.push(diagnostic);
+        }
+    }
+    warnings
 }
 
 /// The `stream` cells of a configuration, by emitted name, with their attribute origins.

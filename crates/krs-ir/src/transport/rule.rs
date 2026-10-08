@@ -899,6 +899,12 @@ stage_shape! {
         pub subject: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
         /// Complete right `cells!` expression.
         pub result: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+        /// Result-scoped existential binders of a transition (`#[k::exists]`); a claim keeps its own in [`Claim`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub existentials: Vec<ClaimBinder<S>> => [vec nested],
+        /// Optional object-Bool postcondition of a transition (`#[k::ensures]`); a claim keeps its own in [`Claim`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ensures: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
     }
 }
 
@@ -914,6 +920,7 @@ enum ValidationSide {
     Right,
     Requires,
     Ensures,
+    RuleEnsures,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -986,6 +993,15 @@ impl TermRole {
             (ValidationSide::Ensures, Self::Literal) => ProvenanceRole::ClaimEnsuresLiteral,
             (ValidationSide::Ensures, Self::RecordFieldName) => {
                 ProvenanceRole::ClaimEnsuresRecordFieldName
+            }
+            (ValidationSide::RuleEnsures, Self::Path) => ProvenanceRole::RuleEnsuresPath,
+            (ValidationSide::RuleEnsures, Self::ApplicationHead) => {
+                ProvenanceRole::RuleEnsuresApplicationHead
+            }
+            (ValidationSide::RuleEnsures, Self::Reference) => ProvenanceRole::RuleEnsuresReference,
+            (ValidationSide::RuleEnsures, Self::Literal) => ProvenanceRole::RuleEnsuresLiteral,
+            (ValidationSide::RuleEnsures, Self::RecordFieldName) => {
+                ProvenanceRole::RuleEnsuresRecordFieldName
             }
         }
     }
@@ -1418,6 +1434,21 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ..RuleCounters::default()
     };
     let mut right_bindings = rule.bindings.clone();
+    if (!rule.existentials.is_empty() || rule.ensures.is_some())
+        && rule.sentence_kind != crate::ConfigurationSentenceKind::Transition
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidRuleExistential,
+        ));
+    }
+    for binder in &rule.existentials {
+        right_bindings.push(ProtocolRuleBinding {
+            name: binder.name.clone(),
+            kind: ProtocolRuleBindingKind::Term {
+                sort: binder.sort.clone(),
+            },
+        });
+    }
     if let Some(claim) = &rule.claim {
         for binder in &claim.existentials {
             right_bindings.push(ProtocolRuleBinding {
@@ -1463,6 +1494,70 @@ fn validate_configuration_rule<S: RuleValidationStage>(
             &right_bindings,
             keys,
             &claim_counters,
+        )?;
+    }
+    validate_rule_existentials::<S>(rule, &right_bindings, keys, &claim_counters)?;
+    Ok(())
+}
+
+/// Checks the result-scoped existentials and the ensures condition of a transition.
+fn validate_rule_existentials<S: RuleValidationStage>(
+    rule: &ConfigurationRule<S>,
+    right_bindings: &[ProtocolRuleBinding<S::Sort>],
+    keys: &mut BTreeSet<ProvenanceKey>,
+    inherited: &RuleCounters,
+) -> Result<(), StateTransportError> {
+    let mut names = BTreeSet::new();
+    for (index, binder) in rule.existentials.iter().enumerate() {
+        let ordinal = claim_checked_index(index)?;
+        if binder.name.trim().is_empty()
+            || !names.insert(binder.name.clone())
+            || rule
+                .bindings
+                .iter()
+                .any(|binding| binding.name == binder.name)
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidRuleExistential,
+            ));
+        }
+        S::validate_binding_sort(&binder.sort)?;
+        insert_rule_exact(
+            keys,
+            &binder.declaration_key,
+            ProvenanceRole::RuleExistentialBinder,
+            ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            &binder.name_key,
+            ProvenanceRole::RuleExistentialBinderName,
+            ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            S::sort_key(&binder.sort),
+            ProvenanceRole::RuleExistentialBinderSort,
+            ordinal,
+        )?;
+    }
+    if let Some(ensures) = &rule.ensures {
+        insert_rule_exact(keys, &ensures.key, ProvenanceRole::RuleEnsures, 0)?;
+        let mut counters = RuleCounters {
+            id_token: inherited.id_token,
+            bytes_token: inherited.bytes_token,
+            anonymous: inherited.anonymous,
+            lexeme: inherited.lexeme,
+            sort_test: inherited.sort_test,
+            ..RuleCounters::default()
+        };
+        validate_rule_term::<S>(
+            &ensures.term,
+            ValidationSide::RuleEnsures,
+            right_bindings,
+            &mut Vec::new(),
+            &mut counters,
+            keys,
         )?;
     }
     Ok(())
@@ -2200,7 +2295,10 @@ fn validate_term_path_key(
     side: ValidationSide,
     counters: &mut RuleCounters,
 ) -> Result<(), StateTransportError> {
-    if matches!(side, ValidationSide::Requires | ValidationSide::Ensures) {
+    if matches!(
+        side,
+        ValidationSide::Requires | ValidationSide::Ensures | ValidationSide::RuleEnsures
+    ) {
         insert_term_exact(keys, path_key, side, TermRole::Path, counters.path)?;
         counters.path = rule_increment(counters.path)?;
     } else if path_key != semantic_key {

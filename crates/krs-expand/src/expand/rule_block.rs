@@ -9,6 +9,7 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Ident, Path};
 
+use super::existentials::{ensures_condition, existential_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermSide, WireSlots};
@@ -82,7 +83,14 @@ fn expand_head_rule(
     let sort_spelling = rule.parameter().term_sort.sort_token_text();
     let mut slots = WireSlots::new(&facade);
     let sort_slot = slots.type_slot(quote!(#facade::HostTypeKey(#sort_key)));
-    let binding_idents = clause.bindings().to_vec();
+    // Existentials are visible to every term; the parser has already
+    // rejected a use in the subject, a read cell, or `requires`.
+    let binding_idents = clause
+        .bindings()
+        .iter()
+        .cloned()
+        .chain(rule.existentials().names())
+        .collect::<Vec<_>>();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_enum_import(enum_owner, enum_variant)
         .with_lexical_rule_head(enum_owner.is_none());
@@ -269,8 +277,18 @@ fn expand_head_rule(
     } else {
         None
     };
-    let key_functions = builder.key_functions;
+    builder.reset_side();
+    let ensures = ensures_condition(rule.existentials(), &mut builder, &mut slots)?;
+    let (existentials, existential_key_functions) =
+        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let mut key_functions = builder.key_functions;
+    key_functions.extend(existential_key_functions);
     let tooling_binding_references = builder.tooling_binding_references;
+    for existential in rule.existentials().names() {
+        binding_checks.push(quote! {
+            let #existential = ();
+        });
+    }
     binding_checks.push(quote! {
         #(let _ = &#tooling_binding_references;)*
     });
@@ -354,6 +372,8 @@ fn expand_head_rule(
         head,
         requires,
         extras,
+        existentials,
+        ensures,
     }));
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();

@@ -302,6 +302,8 @@ fn configuration_claim(
         bindings,
         subject,
         result,
+        existentials: Vec::new(),
+        ensures: None,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();

@@ -945,7 +945,7 @@ pub struct SemanticRuleLabel {
 pub type SemanticRuleCondition = crate::IrRuleCondition<crate::SemanticLevel>;
 
 /// One explicitly scoped claim binder declaration.
-pub type SemanticClaimBinder = crate::IrClaimBinder<crate::SemanticLevel>;
+pub type SemanticScopedBinder = crate::IrScopedBinder<crate::SemanticLevel>;
 
 /// Typed reachability metadata present only on claims.
 pub type SemanticClaim = crate::IrClaim<crate::SemanticLevel>;
@@ -1040,6 +1040,8 @@ pub struct SemanticRule {
     claim: Option<SemanticClaim>,
     nondet_group: Option<SemanticNondetGroup>,
     anywhere: Option<NodeOrigin>,
+    existentials: Vec<SemanticScopedBinder>,
+    ensures: Option<SemanticRuleCondition>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -1057,6 +1059,8 @@ impl Serialize for SemanticRule {
             claim: self.claim.as_ref().map(Cow::Borrowed),
             nondet_group: self.nondet_group.as_ref().map(Cow::Borrowed),
             anywhere: self.anywhere.as_ref().map(Cow::Borrowed),
+            existentials: Cow::Borrowed(&self.existentials),
+            ensures: self.ensures.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -1084,6 +1088,10 @@ struct SemanticRuleWire<'a, B> {
     nondet_group: Option<Cow<'a, SemanticNondetGroup>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     anywhere: Option<Cow<'a, NodeOrigin>>,
+    #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
+    existentials: Cow<'a, [SemanticScopedBinder]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ensures: Option<Cow<'a, SemanticRuleCondition>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1119,6 +1127,8 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             claim: value.claim.map(Cow::into_owned),
             nondet_group: value.nondet_group.map(Cow::into_owned),
             anywhere: value.anywhere.map(Cow::into_owned),
+            existentials: value.existentials.into_owned(),
+            ensures: value.ensures.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1157,6 +1167,8 @@ impl SemanticRule {
             claim: None,
             nondet_group: None,
             anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1200,6 +1212,8 @@ impl SemanticRule {
             claim: None,
             nondet_group: None,
             anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1279,6 +1293,28 @@ impl SemanticRule {
     #[must_use]
     pub const fn simplification(&self) -> Option<&SemanticSimplification> {
         self.simplification.as_ref()
+    }
+    /// Attaches result-scoped existential binders (`#[k::exists]`) of a transition or claim.
+    #[must_use]
+    pub fn with_existentials(mut self, existentials: Vec<SemanticScopedBinder>) -> Self {
+        self.existentials = existentials;
+        self
+    }
+    /// Returns the result-scoped existential binders.
+    #[must_use]
+    pub fn existentials(&self) -> &[SemanticScopedBinder] {
+        &self.existentials
+    }
+    /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
+    #[must_use]
+    pub fn with_ensures(mut self, ensures: Option<SemanticRuleCondition>) -> Self {
+        self.ensures = ensures;
+        self
+    }
+    /// Returns the object-Bool postcondition.
+    #[must_use]
+    pub const fn ensures(&self) -> Option<&SemanticRuleCondition> {
+        self.ensures.as_ref()
     }
     /// Attaches typed claim-only metadata.
     #[must_use]
@@ -1482,10 +1518,12 @@ pub enum SemanticValidationError {
     ClaimBodyNotConfiguration(Box<StableItemId>),
     /// A claim binder is repeated, absent from the sentence scope, or has the wrong sort.
     InvalidClaimBinder(SemanticId),
-    /// An existential binder occurs in the claim's left-hand side or `requires` condition.
+    /// An existential binder occurs in the sentence's left-hand side or `requires` condition.
     ExistentialScopeViolation(SemanticId),
-    /// An existential binder is unused in the claim's right-hand side and `ensures` condition.
+    /// An existential binder is unused in the sentence's right-hand side and `ensures` condition.
     UnusedExistential(SemanticId),
+    /// Existential binders or an `ensures` condition occurred on a sentence other than a transition or claim.
+    InvalidRuleExistentials(Box<StableItemId>),
     /// A rule condition did not have exactly the builtin `Bool` sort.
     RuleConditionSortMismatch,
     /// A static alias clause carried a runtime condition.
@@ -1684,11 +1722,16 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::ExistentialScopeViolation(id) => write!(
                 formatter,
-                "existential claim binder {id} cannot occur in the left-hand side or requires condition"
+                "existential binder {id} cannot occur in the left-hand side or requires condition"
             ),
             Self::UnusedExistential(id) => write!(
                 formatter,
-                "existential claim binder {id} must occur in the right-hand side or ensures condition"
+                "existential binder {id} must occur in the right-hand side or ensures condition"
+            ),
+            Self::InvalidRuleExistentials(id) => write!(
+                formatter,
+                "existential results and ensures are allowed only on claims and transition rules, not on `{}`",
+                id.item_name()
             ),
             Self::RuleConditionSortMismatch => {
                 formatter.write_str("rule condition must have builtin Bool sort")
@@ -1824,7 +1867,7 @@ fn insert_semantic_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir_validation::{validate_claim, variable_scope};
+    use crate::ir_validation::{validate_claim, validate_existentials, variable_scope};
     use krs_ir::ClaimModality;
     use krs_ir::{CellContentFrame, CellPost, FixedCellClause};
 
@@ -1890,7 +1933,7 @@ mod tests {
             Vec::new(),
         )
         .expect("valid configuration rewrite");
-        let binder = SemanticClaimBinder::new(
+        let binder = SemanticScopedBinder::new(
             node("binder"),
             node("binder-name"),
             sid("exists"),
@@ -1908,13 +1951,13 @@ mod tests {
             simplification: None,
             nondet_group: None,
             anywhere: None,
+            existentials: vec![binder],
+            ensures: None,
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,
                 None,
                 Vec::new(),
-                vec![binder],
-                None,
             )),
             variables: vec![SemanticVariable::new(
                 sid("exists"),
@@ -1996,6 +2039,12 @@ mod tests {
             rule.claim.as_ref().expect("claim metadata"),
             &scope,
             &BTreeMap::new(),
+            &mut BTreeSet::new(),
+        )?;
+        validate_existentials::<SemanticLevel>(
+            rule,
+            &scope,
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeSet::new(),
@@ -2045,7 +2094,7 @@ mod tests {
     #[test]
     fn semantic_claim_rejects_unbound_claim_binder() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.claim.as_mut().expect("claim metadata").existentials[0].id = sid("missing");
+        rule.existentials[0].id = sid("missing");
         assert_eq!(
             validate_claim_only(&rule),
             Err(SemanticValidationError::InvalidClaimBinder(sid("missing")))
@@ -2064,7 +2113,7 @@ mod tests {
     #[test]
     fn semantic_claim_rejects_non_bool_ensures() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.claim.as_mut().expect("claim metadata").ensures = Some(SemanticRuleCondition::new(
+        rule.ensures = Some(SemanticRuleCondition::new(
             node("ensures"),
             int_token("post"),
         ));

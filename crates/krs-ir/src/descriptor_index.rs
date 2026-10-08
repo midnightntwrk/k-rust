@@ -382,6 +382,8 @@ mod tests {
                 }),
                 requires: None,
                 extras: Vec::new(),
+                existentials: Vec::new(),
+                ensures: None,
             })),
         )
     }

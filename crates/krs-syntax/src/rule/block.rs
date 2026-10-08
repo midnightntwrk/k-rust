@@ -153,6 +153,33 @@ pub struct RuleClause {
 }
 
 impl RuleClause {
+    /// Checks the clause's `#[k::exists]` binders against every binding it
+    /// introduces and every term it writes (head result and extra cells).
+    pub(super) fn check_existentials(&self) -> Result<(), SyntaxError> {
+        let existentials = self.rule.existentials();
+        if existentials.is_empty() {
+            return Ok(());
+        }
+        existentials.check_shadowing(&self.bindings)?;
+        let mut written = Vec::new();
+        match &self.head_result {
+            Some(RuleHeadResult::Replace(term)) => written.push(term.as_ref()),
+            Some(RuleHeadResult::Splice { items, .. }) => written.extend(items.iter()),
+            Some(RuleHeadResult::Erase(_)) | None => {}
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::UpdateMap { update, .. } => written.push(update.term()),
+                RuleExtra::RewriteCell { after, .. } => written.push(after.as_ref()),
+                RuleExtra::HaveMap { .. } => {}
+            }
+        }
+        existentials.check_scope(
+            self.rule.requires().map(super::RuleCondition::term),
+            &written,
+        )
+    }
+
     /// Returns the ordinary structured-rule view shared with `#[k::rule]`.
     #[must_use]
     pub const fn rule(&self) -> &RuleItem {
@@ -447,7 +474,7 @@ impl RuleClause {
 
     /// Numbers `k::lexeme!` terms, then `k::is!` and `k::project!` terms, in
     /// expansion order: the subject, the cells read, the head result, the
-    /// cells written, then the condition.
+    /// cells written, the condition, then the ensures condition.
     fn lexeme_anchors(&self, anchors: &mut Vec<ProvenanceAnchor>) -> Result<(), SyntaxError> {
         use crate::term::{push_lexeme_anchors, push_sort_test_anchors};
         let terms = self.expansion_order_nodes();
@@ -488,6 +515,9 @@ impl RuleClause {
         }
         if let Some(requires) = self.rule.requires() {
             terms.push(requires.term().nodes());
+        }
+        if let Some(ensures) = self.rule.existentials().ensures() {
+            terms.push(ensures.nodes());
         }
         terms
     }
@@ -745,7 +775,7 @@ impl RuleBlock {
                     .into());
                 }
             }
-            clauses.push(RuleClause {
+            let clause = RuleClause {
                 rule,
                 attribute,
                 narrowings,
@@ -755,7 +785,9 @@ impl RuleBlock {
                 computation_cell: None,
                 source_range: TokenRange::new(clause_start, semicolon.span),
                 layout,
-            });
+            };
+            clause.check_existentials()?;
+            clauses.push(clause);
         }
         if clauses.is_empty() {
             return Err(input

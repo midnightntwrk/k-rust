@@ -288,8 +288,11 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                 if let Some(condition) = sentence.requires() {
                     requirements.term(condition.term());
                 }
-                if policy == ImportPolicy::NativeFrontend
-                    && let Some(condition) = sentence.claim().and_then(|claim| claim.ensures())
+                // A transition's ensures condition is part of the main module's
+                // rule; a claim's is imported here only for the native frontend.
+                if (sentence.kind() != krs_ir::SentenceKind::Claim
+                    || policy == ImportPolicy::NativeFrontend)
+                    && let Some(condition) = sentence.ensures()
                 {
                     requirements.term(condition.term());
                 }
@@ -606,14 +609,14 @@ mod tests {
     }
 
     fn claim_with_ensures(term: DefinitionTerm) -> RuleSentence {
-        term_rule(bool_operation(), SentenceKind::Claim).with_claim(Some(DefinitionClaim::new(
-            origin("claim-modality"),
-            ClaimModality::AllPaths,
-            None,
-            Vec::new(),
-            Vec::new(),
-            Some(DefinitionRuleCondition::new(origin("ensures"), term)),
-        )))
+        term_rule(bool_operation(), SentenceKind::Claim)
+            .with_claim(Some(DefinitionClaim::new(
+                origin("claim-modality"),
+                ClaimModality::AllPaths,
+                None,
+                Vec::new(),
+            )))
+            .with_ensures(Some(DefinitionRuleCondition::new(origin("ensures"), term)))
     }
 
     #[test]
@@ -631,7 +634,7 @@ mod tests {
         let body = DefinitionTerm::rewrite(origin("sum-rewrite"), int_sort(), sum, result)
             .expect("valid rewrite");
         let binder = |name: &str| {
-            crate::DefinitionClaimBinder::new(
+            crate::DefinitionScopedBinder::new(
                 origin(&format!("{name}-binder")),
                 origin(&format!("{name}-name")),
                 semantic_id(name),
@@ -656,9 +659,8 @@ mod tests {
             ClaimModality::AllPaths,
             None,
             vec![binder("old_value"), binder("_once")],
-            vec![binder("literal")],
-            None,
-        )));
+        )))
+        .with_existentials(vec![binder("literal")]);
         let definition = definition();
         assert!(definition_terminals(&definition).contains("literal"));
         let naming = VariableNaming::new(&definition);

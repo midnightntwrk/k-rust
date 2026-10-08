@@ -206,6 +206,7 @@ register_codes! {
     /// Diagnostics from the backend capability table (V8).
     capability {
         UNAVAILABLE: "krs::capability::unavailable" => "A backend route lacks a feature the definition needs; it refuses the definition before compiling it.",
+        IGNORED_ENSURES: "krs::capability::ignored-ensures" => "A transition has an `ensures` condition, which concrete (LLVM) execution ignores.",
     }
     /// Diagnostics from Rust token parsing and KRS syntax validation.
     syntax {
@@ -315,6 +316,7 @@ register_codes! {
         INVALID_ID_TOKEN: "krs::expand::invalid-id-token" => "A builtin Id token is not a dollar-prefixed nonempty ASCII identifier.",
         FACADE_DEPENDENCY: "krs::expand::facade-dependency" => "The invoking crate has no direct dependency on the KRS facade package.",
         PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
+        EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

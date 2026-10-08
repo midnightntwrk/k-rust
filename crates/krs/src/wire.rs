@@ -601,6 +601,8 @@ mod tests {
             bindings: vec![],
             subject: wire_term(),
             result: wire_term(),
+            existentials: Vec::new(),
+            ensures: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         assert!(encoded.contains("\"slot\":0,\"authored_path\":\"u64\""));
@@ -624,6 +626,8 @@ mod tests {
                 bindings: vec![],
                 subject: host_term(),
                 result: host_term(),
+                existentials: Vec::new(),
+                ensures: None,
             }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -647,6 +651,8 @@ mod tests {
             }),
             requires: None,
             extras: vec![],
+            existentials: Vec::new(),
+            ensures: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
@@ -669,6 +675,8 @@ mod tests {
             }),
             requires: None,
             extras: vec![],
+            existentials: Vec::new(),
+            ensures: None,
         }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -1089,6 +1097,8 @@ mod tests {
                     bindings: vec![],
                     subject: wire_cells(),
                     result: wire_cells(),
+                    existentials: Vec::new(),
+                    ensures: None,
                 })),
                 cell_slots(),
             );
@@ -1107,6 +1117,8 @@ mod tests {
                     bindings: vec![],
                     subject: host_cells(),
                     result: host_cells(),
+                    existentials: Vec::new(),
+                    ensures: None,
                 }));
             assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
             let HostDescriptorPayload::ConfigurationRule(rule) = actual else {

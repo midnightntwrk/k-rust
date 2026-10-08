@@ -158,8 +158,14 @@ stage_shape! {
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Explicit non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
+        /// Result-scoped existential binders (`#[k::exists]`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub existentials: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// Optional object-Bool postcondition (`#[k::ensures]`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ensures: Option<RuleCondition<S>> => [option nested],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -212,6 +218,12 @@ stage_shape! {
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Explicit resolved non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
+        /// Result-scoped existential binders (`#[k::exists]`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub existentials: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// Optional object-Bool postcondition (`#[k::ensures]`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ensures: Option<RuleCondition<S>> => [option nested],
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
@@ -245,6 +257,45 @@ fn validate_owise_priority(
     {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::HeadRuleOrderedFallbackPriority,
+        ));
+    }
+    Ok(())
+}
+
+/// Existentials and ensures belong to transitions; each existential has the
+/// transition roles and a fresh name, and the ensures key is `RuleEnsures#0`.
+fn validate_existentials<S: crate::Stage>(
+    kind: SentenceKind,
+    bindings: &[ProtocolHeadRuleBinding<S::Sort>],
+    existentials: &[crate::transport::rule::ClaimBinder<S>],
+    ensures: Option<&RuleCondition<S>>,
+) -> Result<(), StateTransportError> {
+    if (!existentials.is_empty() || ensures.is_some()) && kind != SentenceKind::Transition {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidRuleExistential,
+        ));
+    }
+    let mut names = BTreeSet::new();
+    for (index, binder) in existentials.iter().enumerate() {
+        let ordinal = u32::try_from(index).ok();
+        if binder.name.is_empty()
+            || !names.insert(binder.name.as_str())
+            || bindings.iter().any(|binding| binding.name == binder.name)
+            || binder.declaration_key.role() != ProvenanceRole::RuleExistentialBinder
+            || binder.name_key.role() != ProvenanceRole::RuleExistentialBinderName
+            || Some(binder.declaration_key.ordinal()) != ordinal
+            || Some(binder.name_key.ordinal()) != ordinal
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidRuleExistential,
+            ));
+        }
+    }
+    if let Some(ensures) = ensures
+        && (ensures.key.role() != ProvenanceRole::RuleEnsures || ensures.key.ordinal() != 0)
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidRuleExistential,
         ));
     }
     Ok(())
@@ -332,6 +383,12 @@ impl HostHeadRule {
                 StateTermReason::HeadRuleRequiresProvenanceKey,
             ));
         }
+        validate_existentials(
+            self.sentence_kind,
+            &self.bindings,
+            &self.existentials,
+            self.ensures.as_ref(),
+        )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
             let cell = match extra {
@@ -420,6 +477,12 @@ impl DescriptorHeadRule {
                 StateTermReason::HeadRuleRequiresProvenanceKey,
             ));
         }
+        validate_existentials(
+            self.sentence_kind,
+            &self.bindings,
+            &self.existentials,
+            self.ensures.as_ref(),
+        )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
             let cell = match extra {
@@ -647,6 +710,8 @@ mod tests {
                 before: wire_term(),
                 after: wire_term(),
             }],
+            existentials: Vec::new(),
+            ensures: None,
         };
         let original = serde_json::to_value(&rule).unwrap();
         let mut map = CountingMap::default();
@@ -749,6 +814,8 @@ mod tests {
                 key: descriptor_term(),
                 value_binding: "value".to_owned(),
             }],
+            existentials: Vec::new(),
+            ensures: None,
         };
         let mut map = CountingMap::default();
         let mapped = rule.clone().try_map_refs(&mut map).unwrap();

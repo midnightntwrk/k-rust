@@ -13,11 +13,11 @@ use krs_ir::{
     ProductionResultSort, SentenceKind, SetOperation, StableItemId, StrictnessKind,
 };
 use krs_ir_levels::{
-    ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
-    DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef,
-    DefinitionTerm, LabelId, LabelIdentity, ListOperands, MapEntry, MapOperands,
-    ProductionGroupIdentity, ProductionItem as IrProductionItem, ProductionSentence, RuleSentence,
-    SetOperands, SymbolId, SymbolKind,
+    ContextAliasSentence, DefinitionClaim, DefinitionIr, DefinitionModule,
+    DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionScopedBinder,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, LabelId, LabelIdentity, ListOperands,
+    MapEntry, MapOperands, ProductionGroupIdentity, ProductionItem as IrProductionItem,
+    ProductionSentence, RuleSentence, SetOperands, SymbolId, SymbolKind,
     k_surface::{ImportPolicy, builtin_imports},
 };
 
@@ -1258,29 +1258,29 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
         node("schema9.claim.modality"),
         ClaimModality::OnePath,
         Some(node("schema9.claim.circularity")),
-        vec![DefinitionClaimBinder::new(
+        vec![DefinitionScopedBinder::new(
             node("schema9.claim.universal"),
             node("schema9.claim.universal.name"),
             universal.clone(),
             node("schema9.claim.universal.sort"),
             DefinitionSortRef::bool(),
         )],
-        vec![DefinitionClaimBinder::new(
-            node("schema9.claim.existential"),
-            node("schema9.claim.existential.name"),
-            existential.clone(),
-            node("schema9.claim.existential.sort"),
-            DefinitionSortRef::int(),
-        )],
-        Some(DefinitionRuleCondition::new(
-            node("schema9.claim.ensures"),
-            DefinitionTerm::variable(
-                node("schema9.claim.anonymous-use"),
-                DefinitionSortRef::bool(),
-                universal,
-            ),
-        )),
     );
+    let existentials = vec![DefinitionScopedBinder::new(
+        node("schema9.claim.existential"),
+        node("schema9.claim.existential.name"),
+        existential.clone(),
+        node("schema9.claim.existential.sort"),
+        DefinitionSortRef::int(),
+    )];
+    let ensures = Some(DefinitionRuleCondition::new(
+        node("schema9.claim.ensures"),
+        DefinitionTerm::variable(
+            node("schema9.claim.anonymous-use"),
+            DefinitionSortRef::bool(),
+            universal,
+        ),
+    ));
     let rule = RuleSentence::new(
         node("schema9.claim"),
         LabelIdentity::new(LabelId::new("schema9.claim").unwrap(), "schema9-claim").unwrap(),
@@ -1289,7 +1289,9 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
         body,
     )
     .unwrap()
-    .with_claim(Some(claim));
+    .with_claim(Some(claim))
+    .with_existentials(existentials)
+    .with_ensures(ensures);
     let native_claim = adapter.rule(&rule, MODULE, 0).unwrap();
     let Sentence::Claim {
         body,

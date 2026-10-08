@@ -183,6 +183,15 @@ impl<L: IrLevel> IrVariable<L> {
     }
 }
 
+/// Whether a borrowed or owned slice is empty (serde `skip_serializing_if`).
+#[expect(
+    clippy::ptr_arg,
+    reason = "serde passes `skip_serializing_if` a reference to the field, which is a `Cow`."
+)]
+pub(crate) fn is_empty_slice<T: Clone>(value: &std::borrow::Cow<'_, [T]>) -> bool {
+    value.is_empty()
+}
+
 /// One provenance-bearing object-language Boolean rule condition.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound = "")]
@@ -191,10 +200,11 @@ pub struct IrRuleCondition<L: IrLevel> {
     pub(crate) term: IrTerm<L>,
 }
 
-/// One explicitly scoped claim binder declaration at one IR level.
+/// One explicitly scoped binder declaration at one IR level: a claim universal, or a
+/// result-scoped existential of a claim or transition.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound = "")]
-pub struct IrClaimBinder<L: IrLevel> {
+pub struct IrScopedBinder<L: IrLevel> {
     pub(crate) origin: NodeOrigin,
     pub(crate) name_origin: NodeOrigin,
     pub(crate) id: SemanticId,
@@ -210,13 +220,10 @@ pub struct IrClaim<L: IrLevel> {
     pub(crate) modality: krs_ir::ClaimModality,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) circularity_origin: Option<NodeOrigin>,
-    pub(crate) universals: Vec<IrClaimBinder<L>>,
-    pub(crate) existentials: Vec<IrClaimBinder<L>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) ensures: Option<IrRuleCondition<L>>,
+    pub(crate) universals: Vec<IrScopedBinder<L>>,
 }
 
-impl<L: IrLevel> IrClaimBinder<L> {
+impl<L: IrLevel> IrScopedBinder<L> {
     /// Creates one provenance-bearing scoped binder.
     #[must_use]
     pub const fn new(
@@ -268,17 +275,13 @@ impl<L: IrLevel> IrClaim<L> {
         modality_origin: NodeOrigin,
         modality: krs_ir::ClaimModality,
         circularity_origin: Option<NodeOrigin>,
-        universals: Vec<IrClaimBinder<L>>,
-        existentials: Vec<IrClaimBinder<L>>,
-        ensures: Option<IrRuleCondition<L>>,
+        universals: Vec<IrScopedBinder<L>>,
     ) -> Self {
         Self {
             modality_origin,
             modality,
             circularity_origin,
             universals,
-            existentials,
-            ensures,
         }
     }
     /// Modality provenance.
@@ -298,18 +301,8 @@ impl<L: IrLevel> IrClaim<L> {
     }
     /// Universal binders.
     #[must_use]
-    pub fn universals(&self) -> &[IrClaimBinder<L>] {
+    pub fn universals(&self) -> &[IrScopedBinder<L>] {
         &self.universals
-    }
-    /// RHS-scoped existential binders.
-    #[must_use]
-    pub fn existentials(&self) -> &[IrClaimBinder<L>] {
-        &self.existentials
-    }
-    /// Object-Bool postcondition.
-    #[must_use]
-    pub const fn ensures(&self) -> Option<&IrRuleCondition<L>> {
-        self.ensures.as_ref()
     }
 }
 
