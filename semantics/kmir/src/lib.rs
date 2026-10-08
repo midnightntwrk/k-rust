@@ -8274,7 +8274,7 @@ mod tests {
         assert!(source.source().contains("typedValue ( Moved , "));
         assert!(source.source().contains("projectionElemField"));
         assert!(source.source().contains("Aggregate"));
-        assert!(source.source().contains("#execBlockIdx"));
+        assert!(source.source().contains(r##""#" "execBlockIdx""##));
         assert!(source.source().contains("ListItem("));
         assert!(source.source().contains(".List"));
         assert!(
@@ -8283,7 +8283,7 @@ mod tests {
                 .contains("{Program:List [ Index:Int ]}:>BasicBlock")
         );
         assert!(source.source().contains("switchInt"));
-        assert!(source.source().contains("#EndProgram"));
+        assert!(source.source().contains(r##""#" "EndProgram""##));
 
         let mut invalid_semantic: serde_json::Value = serde_json::from_str(&semantic_json).unwrap();
         assert!(remove_first_list_get_argument(&mut invalid_semantic));

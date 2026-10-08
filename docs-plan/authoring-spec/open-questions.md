@@ -103,7 +103,7 @@ what they block.
 14. **`imp-verification.k`** (`[simplification]` rules, regex `token` productions) — explicitly out of the readable IMP specimen's scope, and the next thing a reader looks for.
     The four `[simplification]` lemmas are expressed with the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
     The `$`-prefixed `Id` token production has no authored counterpart: claims write such identifiers with `k::id!("$n")`.
-15. **Exact-parity `% ` format escape** — currently a plain space, same
-    compromise as the IMP port (C5).
+15. ~~**Exact-parity `% ` format escape**~~ — **RESOLVED for printing**: there is no `% ` escape.
+    A format's literal text prints as written and its terminals print by position (the C5 note), so a plain space is the exact spelling; the escape list is `%n %i %d %c %r %%`.
 16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).
     The `k::builtin::map` facade and alias-safe `map::update` identity are implemented and no longer part of this open item.

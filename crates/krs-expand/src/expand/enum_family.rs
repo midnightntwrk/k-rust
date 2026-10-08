@@ -511,6 +511,10 @@ fn expand_enum_variant(
             group.or_else(|| syntax.group().map(syn::LitStr::value)),
             syntax.avoid(),
             syntax.placement(),
+            &super::productions::ColorMetadata {
+                color: syntax.color(),
+                colors: syntax.colors(),
+            },
             syntax.structured_format(),
         )?
     } else {

@@ -70,6 +70,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::UnsupportedTermExpression { reason: "example" },
         SyntaxErrorKind::MissingTokenEndpoint,
         SyntaxErrorKind::TooManyProvenanceOccurrences { role: "example" },
+        SyntaxErrorKind::InvalidColor { reason: "example" },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

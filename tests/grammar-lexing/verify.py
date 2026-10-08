@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grammar and lexing feature gate: program-syntax partition (KF-005).
+"""Grammar and lexing feature gate: program-syntax partition (KF-005) and formats (KF-018).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -13,9 +13,14 @@ partition end to end on both routes:
   `krs check --partition` text is pinned and programs cannot contain them;
 - `program-warning`: the same production marked `program` gives the pinned
   `krs::partition::not-program-syntax` warning;
+- `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
+  position; Java K accepts the emitted `.k`, the native and Java
+  `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
+  `krun --color on` output is pinned through the reference cache;
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
-  and program syntax, and an unsigned package importing signed program syntax.
+  and program syntax, an unsigned package importing signed program syntax, and
+  a `colors` list that does not match the printed terminals.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -34,11 +39,11 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Fixture, FixtureGate, Program  # noqa: E402
+from support.fixture_gate import Fixture, FixtureGate, Program, kore_attribute_lines  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
-from support.reference import add_refresh_argument  # noqa: E402
+from support.reference import Key, Output, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
@@ -50,6 +55,15 @@ FIXTURES = HERE / "fixtures"
 PARTITION = Fixture(MANIFEST, "krs-grammar-partition")
 KEVM_CASE = Fixture(MANIFEST, "krs-grammar-kevm-case")
 PROGRAM_WARNING = Fixture(MANIFEST, "krs-grammar-program-warning")
+FORMAT = Fixture(MANIFEST, "krs-grammar-format")
+FORMAT_LABELS = ("while", "block", "assignX", "skip")
+FORMAT_ATTRIBUTES = ("format", "color", "colors")
+FORMAT_PROGRAM = "while (1) { x = 2; }"
+FORMAT_SOURCE_FRAGMENTS = (
+    "color(magenta), format(%1 %2%3%4 %5)",
+    "colors(blue,blue), format(%1%i%n%2%d%n%3)",
+    "colors(green,red,red,red), format(%c// assign%r%n%1 %2 %3%4)",
+)
 
 PARTITION_PROGRAMS = (
     Program("and", "true && false", "accepted", "false"),
@@ -74,6 +88,7 @@ NEGATIVE = (
         "signed-leak", "signed-leak", "krs-grammar-unsigned-root",
         ("krs-grammar-signed-base:main",),
     ),
+    ("colors-mismatch", "colors-mismatch", "krs-grammar-colors-mismatch", ()),
 )
 
 
@@ -96,6 +111,75 @@ def require_imports(emitted, expected: dict[str, list[str]], gate: Path, environ
     for module, imports in expected.items():
         if rows.get(module) != imports:
             raise GateError(f"{module} imports {rows.get(module)}, expected {imports}")
+
+
+def java_attribute_reducer(harness: FixtureGate, workspace: Path):
+    """Reduce Java's `syntaxDefinition.kore` to the pinned symbol attributes through `krs-gate`."""
+
+    def reduce(text: str) -> str:
+        kore = workspace / "java-syntax-definition.kore"
+        kore.write_text(text, encoding="utf-8")
+        return kore_attribute_lines(
+            harness.gate, kore, FORMAT_LABELS, FORMAT_ATTRIBUTES, environment=harness.environment,
+        )
+
+    return reduce
+
+
+def verify_format(harness: FixtureGate, pins: Ledger, workspace: Path, refresh: bool) -> None:
+    """Emitted formats, KORE colour attributes on both routes, and `krun --color on`."""
+
+    harness.check(FORMAT)
+    harness.expand(FORMAT)
+    emitted = harness.emit(FORMAT)
+    source = emitted.source.read_text(encoding="utf-8")
+    for fragment in FORMAT_SOURCE_FRAGMENTS:
+        if fragment not in source:
+            raise GateError(f"emitted format omits {fragment!r}")
+    native = harness.build(FORMAT) / "syntaxDefinition.kore"
+    native_attributes = kore_attribute_lines(
+        harness.gate, native, FORMAT_LABELS, FORMAT_ATTRIBUTES, environment=harness.environment,
+    )
+    program = workspace / "programs" / "format.pgm"
+    program.parent.mkdir(parents=True, exist_ok=True)
+    program.write_text(FORMAT_PROGRAM + "\n", encoding="utf-8")
+    k = Snapshot(
+        f"grammar-lexing/{FORMAT.package}",
+        Key(tools=("kompile", "krun"), inputs=repository_inputs([])),
+        workspace=workspace, refresh=refresh, pin=Pin(pins, FORMAT.package),
+    )
+    compiled = workspace / "kompiled" / FORMAT.package
+    compile_process = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--output-definition", compiled,
+        ],
+        timeout=900,
+        # The reduced evidence is written beside the kompiled directory, whose
+        # own syntaxDefinition.kore krun still reads.
+        outputs=(Output(
+            workspace / "format-syntax-attributes.txt",
+            java_attribute_reducer(harness, workspace),
+            lambda: compiled / "syntaxDefinition.kore",
+        ),),
+    )
+    if compile_process.returncode != 0:
+        raise GateError(f"kompile rejected the emitted format definition:\n{compile_process.stderr}")
+    java_attributes = (workspace / "format-syntax-attributes.txt").read_text(encoding="utf-8")
+    if java_attributes != native_attributes:
+        raise GateError(
+            f"native and Java KORE format attributes differ:\nnative:\n{native_attributes}java:\n{java_attributes}"
+        )
+    colored = k.run(
+        "krun/color", "krun", ["--definition", compiled, "--color", "on", program], timeout=120,
+    )
+    if colored.returncode != 0 or "\x1b[" not in colored.stdout:
+        raise GateError(f"krun --color on printed no colours:\n{colored.stdout}{colored.stderr}")
+    pins.expect(("format", "kore_attributes"), native_attributes)
+    pins.expect(("format", "krun_color"), colored.stdout)
+    print(f"PASS grammar-lexing {FORMAT.package} reference snapshot: {k.finish()}")
 
 
 def main() -> int:
@@ -140,6 +224,9 @@ def main() -> int:
         kevm = harness.emit(KEVM_CASE)
         harness.compare(kevm, KEVM_PROGRAMS, sort="Command")
         print("PASS kevm-case: LogRecord::Entry and BlockHashLookup placed in KRS-EVM; programs cannot contain them")
+
+        verify_format(harness, pins, workspace, arguments.refresh_reference)
+        print("PASS format: terminals by position; colours agree in native and Java KORE; krun --color on pinned")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

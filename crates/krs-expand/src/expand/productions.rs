@@ -93,10 +93,17 @@ pub(super) fn check_placement_visibility(
     Ok(())
 }
 
+/// A production's `color` literal or `colors` literals.
+pub(super) struct ColorMetadata<'a> {
+    pub(super) color: Option<&'a syn::LitStr>,
+    pub(super) colors: Option<&'a [syn::LitStr]>,
+}
+
 pub(super) fn constructor_metadata_wire(
     group: Option<String>,
     avoid: bool,
     placement: Option<krs_syntax::PlacementFlag>,
+    colors: &ColorMetadata<'_>,
     format: Option<&krs_syntax::StructuredFormat>,
 ) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     use super::terms::wire_key;
@@ -128,6 +135,32 @@ pub(super) fn constructor_metadata_wire(
         }),
         None => {}
     }
+    if let Some(color) = colors.color {
+        attributes.push(Attribute::Color {
+            key: wire_key(ProvenanceRole::ConstructorColor, 0),
+            value: color.value(),
+        });
+    }
+    if let Some(literals) = colors.colors {
+        let mut values = Vec::with_capacity(literals.len());
+        for (index, literal) in literals.iter().enumerate() {
+            let ordinal = u32::try_from(index).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    literal.span(),
+                    "too many production colours",
+                )
+            })?;
+            values.push(krs_ir::DescriptorColorEntry {
+                key: wire_key(ProvenanceRole::ConstructorColorsEntry, ordinal),
+                value: literal.value(),
+            });
+        }
+        attributes.push(Attribute::Colors {
+            key: wire_key(ProvenanceRole::ConstructorColor, 0),
+            values,
+        });
+    }
     if let Some(format) = format {
         let mut fragments = Vec::new();
         for (index, fragment) in format.fragments().iter().enumerate() {
@@ -144,6 +177,8 @@ pub(super) fn constructor_metadata_wire(
                 StructuredFormatFragment::Newline => FormatFragment::Newline,
                 StructuredFormatFragment::Indent => FormatFragment::Indent,
                 StructuredFormatFragment::Dedent => FormatFragment::Dedent,
+                StructuredFormatFragment::ColorNext => FormatFragment::ColorNext,
+                StructuredFormatFragment::ColorReset => FormatFragment::ColorReset,
             };
             fragments.push(DescriptorFormatFragment {
                 key: wire_key(ProvenanceRole::ConstructorFormatFragment, ordinal),

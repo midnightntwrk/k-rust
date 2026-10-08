@@ -354,11 +354,17 @@ fn materialize_enum_productions(
             let key = format_ident!("{}", flag.as_str());
             quote!(#key = true,)
         });
+        let color = syntax.color().map(|color| quote!(color = #color,));
+        let colors = syntax
+            .colors()
+            .map(|colors| quote!(colors = [#(#colors),*],));
         let materialized: syn::Attribute = syn::parse_quote!(#[k::syntax(
             #template,
             group = #group,
             #avoid
             #placement
+            #color
+            #colors
             format = #format
         )]);
         let syntax_index = output_variant

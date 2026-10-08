@@ -2123,9 +2123,11 @@ mod tests {
                         if fragments.iter().map(|fragment| &fragment.fragment).collect::<Vec<_>>()
                             == [
                                 &FormatFragment::Item(1),
-                                &FormatFragment::Literal(" = ".to_owned()),
+                                &FormatFragment::Literal(" ".to_owned()),
+                                &FormatFragment::Item(2),
+                                &FormatFragment::Literal(" ".to_owned()),
                                 &FormatFragment::Item(3),
-                                &FormatFragment::Literal(";".to_owned()),
+                                &FormatFragment::Item(4),
                             ]
                 ))
         );

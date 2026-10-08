@@ -31,6 +31,7 @@ pub struct ConstructorAttribute {
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
     placement: PlacementFlags,
+    colors: ProductionColors,
 }
 
 /// Which module a production asks to be placed in.
@@ -180,6 +181,161 @@ fn parse_flag_value(name: &'static str, value: Expr) -> Result<(), ParseError> {
         )
         .into()),
     }
+}
+
+/// The optional `color = "c"` or `colors = ["c", ..]` of one production.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ProductionColors {
+    color: Option<LitStr>,
+    colors: Option<(syn::ExprArray, Vec<LitStr>)>,
+}
+
+impl ProductionColors {
+    /// Parses the value of a `color` or `colors` key whose identifier was consumed.
+    fn parse(&mut self, key: &Ident, value: Expr) -> Result<(), ParseError> {
+        let name = if key == "color" { "color" } else { "colors" };
+        if self.color.is_some() && name == "color" || self.colors.is_some() && name == "colors" {
+            return Err(
+                SyntaxError::new(SyntaxErrorKind::DuplicateArgument { name }, key.span()).into(),
+            );
+        }
+        if self.color.is_some() || self.colors.is_some() {
+            return Err(
+                invalid_color("`color` and `colors` cannot be combined", key.span()).into(),
+            );
+        }
+        if name == "color" {
+            let literal = super::value::parse_string_value("color", value)?;
+            check_color(&literal)?;
+            self.color = Some(literal);
+            return Ok(());
+        }
+        let Expr::Array(array) = value else {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidArgumentValue {
+                    name: "colors",
+                    expected: "an array of Rust string literals",
+                },
+                value.span(),
+            )
+            .into());
+        };
+        if array.elems.is_empty() {
+            return Err(
+                invalid_color("`colors` must name at least one colour", array.span()).into(),
+            );
+        }
+        let literals = array
+            .elems
+            .iter()
+            .cloned()
+            .map(|element| {
+                let literal = super::value::parse_string_value("colors", element)?;
+                check_color(&literal)?;
+                Ok(literal)
+            })
+            .collect::<Result<Vec<_>, ParseError>>()?;
+        self.colors = Some((array, literals));
+        Ok(())
+    }
+
+    /// Checks the colours against the production's printed terminals and
+    /// format controls (K's `CheckAtt` rule): `colors` names one colour per
+    /// terminal and per `%c`, and `%c`/`%r` require a colour.
+    fn validate(
+        &self,
+        template: Option<&SyntaxTemplate>,
+        format: Option<&StructuredFormat>,
+        span: proc_macro2::Span,
+    ) -> Result<(), SyntaxError> {
+        if self.color.is_none() && self.colors.is_none() {
+            if let Some(format) = format
+                && format.uses_colors()
+            {
+                return Err(invalid_color(
+                    "`%c` and `%r` need a `color` or `colors` key",
+                    format.literal().span(),
+                ));
+            }
+            return Ok(());
+        }
+        let Some(template) = template else {
+            return Err(invalid_color(
+                "colours need an explicit syntax template",
+                span,
+            ));
+        };
+        if let Some((array, literals)) = &self.colors {
+            let terminals = template
+                .items()
+                .iter()
+                .filter(|item| matches!(item, crate::grammar::SyntaxTemplateItem::Terminal(_)))
+                .count();
+            let expected = terminals + format.map_or(0, StructuredFormat::color_next_count);
+            if literals.len() != expected {
+                return Err(invalid_color(
+                    "`colors` needs one colour per terminal of the syntax template plus one per `%c`",
+                    array.span(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn color(&self) -> Option<&LitStr> {
+        self.color.as_ref()
+    }
+
+    pub(crate) fn colors(&self) -> Option<&[LitStr]> {
+        self.colors
+            .as_ref()
+            .map(|(_, literals)| literals.as_slice())
+    }
+
+    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        if let Some(color) = &self.color {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorColor,
+                0,
+                TokenRange::for_tokens(color)?,
+            ));
+        }
+        if let Some((array, literals)) = &self.colors {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorColor,
+                0,
+                TokenRange::for_tokens(array)?,
+            ));
+            for (ordinal, literal) in literals.iter().enumerate() {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::ConstructorColorsEntry,
+                    crate::parse::checked_ordinal(
+                        ordinal,
+                        ProvenanceRole::ConstructorColorsEntry,
+                        literal.span(),
+                    )?,
+                    TokenRange::for_tokens(literal)?,
+                ));
+            }
+        }
+        Ok(anchors)
+    }
+}
+
+fn check_color(literal: &LitStr) -> Result<(), SyntaxError> {
+    let value = literal.value();
+    if value.is_empty() || value.contains([',', ')']) {
+        return Err(invalid_color(
+            "a colour must be nonempty and must not contain `,` or `)`",
+            literal.span(),
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_color(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidColor { reason }, span)
 }
 
 /// Arguments of `#[k::function(total, sort = ..., syntax = "...")]`.
@@ -336,6 +492,7 @@ pub struct VariantSyntaxAttribute {
     structured_format: Option<StructuredFormat>,
     avoid_literal: Option<LitBool>,
     placement: PlacementFlags,
+    colors: ProductionColors,
 }
 
 impl VariantSyntaxAttribute {
@@ -382,6 +539,18 @@ impl VariantSyntaxAttribute {
         self.placement.key()
     }
 
+    /// Returns the `color` literal, when present.
+    #[must_use]
+    pub fn color(&self) -> Option<&LitStr> {
+        self.colors.color()
+    }
+
+    /// Returns the `colors` literals in source order, when present.
+    #[must_use]
+    pub fn colors(&self) -> Option<&[LitStr]> {
+        self.colors.colors()
+    }
+
     pub(crate) fn inherit_placement(
         &mut self,
         flag: PlacementFlag,
@@ -403,11 +572,14 @@ impl VariantSyntaxAttribute {
         let (literal, controls) =
             explicit.map_or_else(|| (self.syntax.clone(), false), |literal| (literal, true));
         self.format = Some(literal.clone());
-        self.structured_format = Some(StructuredFormat::parse_named(
-            literal,
-            &self.syntax_template,
-            controls,
-        )?);
+        let mut format = StructuredFormat::parse_named(literal, &self.syntax_template, controls)?;
+        format.number_terminals(&self.syntax_template);
+        self.colors.validate(
+            Some(&self.syntax_template),
+            Some(&format),
+            self.syntax.span(),
+        )?;
+        self.structured_format = Some(format);
         Ok(())
     }
 
@@ -462,6 +634,7 @@ impl VariantSyntaxAttribute {
             ));
         }
         anchors.extend(self.placement.anchors()?);
+        anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConstructorFormat,
@@ -485,6 +658,18 @@ impl ConstructorAttribute {
     #[must_use]
     pub fn placement_key(&self) -> Option<&Ident> {
         self.placement.key()
+    }
+
+    /// Returns the `color` literal, when present.
+    #[must_use]
+    pub fn color(&self) -> Option<&LitStr> {
+        self.colors.color()
+    }
+
+    /// Returns the `colors` literals in source order, when present.
+    #[must_use]
+    pub fn colors(&self) -> Option<&[LitStr]> {
+        self.colors.colors()
     }
 
     /// Returns the checked syntax template, when explicitly authored.
@@ -582,6 +767,7 @@ impl ConstructorAttribute {
             ));
         }
         anchors.extend(self.placement.anchors()?);
+        anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConstructorFormat,
@@ -701,6 +887,10 @@ impl VariantSyntaxKey {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One keyed loop parses every constructor production argument."
+)]
 fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
@@ -709,11 +899,21 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
     let mut avoid = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
+    let mut colors = ProductionColors::default();
 
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         if let Some(flag) = placement_flag(&key) {
             placement.parse(flag, key, input, true)?;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
+        if key == "color" || key == "colors" {
+            input.parse::<Token![=]>()?;
+            colors.parse(&key, input.parse()?)?;
             if input.is_empty() {
                 break;
             }
@@ -790,10 +990,20 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         .map(SyntaxTemplate::parse)
         .transpose()
         .map_err(ParseError::Structured)?;
-    let structured_format = format
+    let mut structured_format = format
         .clone()
         .map(StructuredFormat::parse)
         .transpose()
+        .map_err(ParseError::Structured)?;
+    if let (Some(format), Some(template)) = (&mut structured_format, &syntax_template) {
+        format.number_terminals(template);
+    }
+    colors
+        .validate(
+            syntax_template.as_ref(),
+            structured_format.as_ref(),
+            missing_span,
+        )
         .map_err(ParseError::Structured)?;
     Ok(ConstructorAttribute {
         sort,
@@ -805,6 +1015,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         structured_format,
         avoid_literal: avoid,
         placement,
+        colors,
     })
 }
 
@@ -928,6 +1139,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             structured_format: None,
             avoid_literal: None,
             placement,
+            colors: ProductionColors::default(),
         },
         totality,
         hook,
@@ -1086,6 +1298,7 @@ fn parse_variant_syntax_stream(
     let mut avoid = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
+    let mut colors = ProductionColors::default();
 
     if !input.is_empty() {
         input.parse::<Token![,]>()?;
@@ -1094,6 +1307,15 @@ fn parse_variant_syntax_stream(
         let key: Ident = input.parse()?;
         if let Some(flag) = placement_flag(&key) {
             placement.parse(flag, key, input, true)?;
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
+        if key == "color" || key == "colors" {
+            input.parse::<Token![=]>()?;
+            colors.parse(&key, input.parse()?)?;
             if input.is_empty() {
                 break;
             }
@@ -1143,7 +1365,14 @@ fn parse_variant_syntax_stream(
     }
 
     let syntax_template = SyntaxTemplate::parse(syntax.clone())?;
-    let structured_format = format.clone().map(StructuredFormat::parse).transpose()?;
+    let mut structured_format = format.clone().map(StructuredFormat::parse).transpose()?;
+    if let Some(format) = &mut structured_format {
+        format.number_terminals(&syntax_template);
+        colors.validate(Some(&syntax_template), Some(format), syntax.span())?;
+    }
+    // Without an inline format, a readable variant validates its colours once
+    // its format is known (`apply_readable_format`); semantic validation
+    // repeats the check for every production.
     Ok(VariantSyntaxAttribute {
         syntax,
         group,
@@ -1153,5 +1382,6 @@ fn parse_variant_syntax_stream(
         structured_format,
         avoid_literal: avoid,
         placement,
+        colors,
     })
 }

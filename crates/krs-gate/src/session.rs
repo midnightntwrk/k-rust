@@ -217,6 +217,7 @@ impl Session {
                 | "exec.prove"
                 | "kore.read"
                 | "kore.digest"
+                | "kore.attributes"
                 | "ir.query"
                 | "registration.table"
                 | "kast.normalize"
@@ -233,6 +234,7 @@ impl Session {
                 operation,
                 "definition.load"
                     | "kore.digest"
+                    | "kore.attributes"
                     | "ir.query"
                     | "registration.table"
                     | "kast.normalize"
@@ -260,6 +262,7 @@ impl Session {
             "exec.prove" => self.exec_prove(request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
+            "kore.attributes" => Self::attributes(request),
             "ir.query" => crate::ir_query::dispatch(request),
             "registration.table" => crate::registration::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
@@ -436,6 +439,29 @@ impl Session {
         let kore = Path::new(required_string(request, "kore")?);
         let semantics = Path::new(required_string(request, "semantics")?);
         Ok(json!({"sha256": kore_digest::digest_file(kore, semantics)?}))
+    }
+
+    fn attributes(request: &Value) -> Result<Value, Box<dyn Error>> {
+        let kore = Path::new(required_string(request, "kore")?);
+        let strings = |field: &str| -> Result<Vec<String>, Box<dyn Error>> {
+            request
+                .get(field)
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("request field `{field}` must be an array"))?
+                .iter()
+                .map(|value| {
+                    value.as_str().map(str::to_owned).ok_or_else(|| {
+                        format!("request field `{field}` must contain strings").into()
+                    })
+                })
+                .collect()
+        };
+        let symbols = crate::kore_attributes::symbol_attributes(
+            kore,
+            &strings("labels")?,
+            &strings("attributes")?,
+        )?;
+        Ok(json!({"symbols": symbols}))
     }
 
     fn state(&self, request: &Value) -> Result<&Pattern, Box<dyn Error>> {
@@ -690,6 +716,24 @@ mod tests {
             .unwrap();
         assert_eq!(digest["id"], "digest");
         assert!(digest["error"]["message"].is_string());
+        let attributes = session
+            .dispatch(&json!({
+                "id": "attributes", "operation": "kore.attributes",
+                "kore": "/nonexistent/krs-gate-definition.kore",
+                "labels": ["while"], "attributes": ["format"]
+            }))
+            .unwrap();
+        assert!(attributes["error"]["message"].is_string());
+        let malformed = session
+            .dispatch(&json!({
+                "id": "malformed", "operation": "kore.attributes",
+                "kore": "/nonexistent/krs-gate-definition.kore", "labels": "while"
+            }))
+            .unwrap();
+        assert_eq!(
+            malformed["error"]["message"],
+            "request field `labels` must be an array"
+        );
         assert!(
             session
                 .dispatch(&json!({"operation": "definition.load"}))

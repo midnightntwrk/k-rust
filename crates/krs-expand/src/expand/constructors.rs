@@ -726,6 +726,10 @@ fn constructor_grammar(
         attribute.group.as_ref().map(syn::LitStr::value),
         attribute.avoid,
         attribute.placement(),
+        &super::productions::ColorMetadata {
+            color: attribute.color(),
+            colors: attribute.colors(),
+        },
         attribute.structured_format(),
     )?;
     attributes.splice(

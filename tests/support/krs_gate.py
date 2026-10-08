@@ -13,7 +13,7 @@ import signal
 import subprocess
 import tempfile
 import threading
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from support import GateError, ROOT
 from support import process
@@ -84,6 +84,16 @@ def digest(
 
     with Session(krs_gate, environment=environment) as session:
         return session.digest(kore, semantics)
+
+
+def kore_attributes(
+    krs_gate: Path, kore: Path, labels: Sequence[str], attributes: Sequence[str], *,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, dict[str, str]]:
+    """Read symbol-declaration attributes of a KORE definition in one unloaded session."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return session.kore_attributes(kore, list(labels), list(attributes))
 
 
 def ir_query(
@@ -301,6 +311,13 @@ class Session:
         """Digest a kompiled definition independently of source paths and generated names."""
 
         return self.request("kore.digest", kore=os.fspath(kore), semantics=os.fspath(semantics))["sha256"]
+
+    def kore_attributes(self, kore: Path, labels: list[str], attributes: list[str]) -> dict[str, dict[str, str]]:
+        """Read named string attributes of the named labels' KORE symbol declarations."""
+
+        return self.request(
+            "kore.attributes", kore=os.fspath(kore), labels=labels, attributes=attributes,
+        )["symbols"]
 
     def observe(self, state: str, cells: list[str]) -> dict[str, Any]:
         """Read canonical cell contents and collection sizes."""

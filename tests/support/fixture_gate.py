@@ -150,6 +150,13 @@ class FixtureGate:
         self.pins.expect(("expand", fixture.package), _sha256_text(expansion))
         return expansion
 
+    def build(self, fixture: Fixture) -> Path:
+        """Compile the fixture natively and return the KORE artifact directory."""
+
+        directory = self.workspace / "native" / fixture.package
+        self._krs(fixture, "build", "--output", directory)
+        return directory
+
     def emit(self, fixture: Fixture) -> Emitted:
         """Emit canonical K, pin every `.k` artifact, and return the artifacts."""
 
@@ -325,3 +332,19 @@ def _sha256_text(text: str) -> str:
 def fixture_packages(manifest: Path, names: Sequence[str]) -> Iterator[Fixture]:
     for name in names:
         yield Fixture(manifest, name)
+
+
+
+def kore_attribute_lines(gate: Path, kore: Path, labels: Sequence[str], names: Sequence[str], *,
+                         environment: Mapping[str, str] | None = None) -> str:
+    """Return the named string attributes of the labels' KORE symbol declarations, one line each.
+
+    `krs-gate` parses the definition (Java K writes each declaration on one
+    line and k-rust across several); the lines name K labels.
+    """
+
+    rows = krs_gate.kore_attributes(gate, kore, labels, names, environment=environment)
+    return "".join(
+        f"{label} " + " ".join(f"{name}={rows[label][name]!r}" for name in sorted(rows[label])) + "\n"
+        for label in labels
+    )

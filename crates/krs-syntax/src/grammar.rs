@@ -252,6 +252,10 @@ pub enum StructuredFormatFragment {
     Indent,
     /// K's `%d` indentation-decrease control.
     Dedent,
+    /// K's `%c` control: print in the production's next colour.
+    ColorNext,
+    /// K's `%r` control: reset the printing colour.
+    ColorReset,
 }
 
 /// A checked structured unparse format.
@@ -298,6 +302,8 @@ impl StructuredFormat {
                 Some('n') => Some(StructuredFormatFragment::Newline),
                 Some('i') => Some(StructuredFormatFragment::Indent),
                 Some('d') => Some(StructuredFormatFragment::Dedent),
+                Some('c') => Some(StructuredFormatFragment::ColorNext),
+                Some('r') => Some(StructuredFormatFragment::ColorReset),
                 _ => None,
             };
             if let Some(control) = control {
@@ -313,7 +319,7 @@ impl StructuredFormat {
             }
             if digits.is_empty() {
                 return Err(invalid_format(
-                    "`%` must be followed by `%`, `n`, `i`, `d`, or a one-based item position",
+                    "`%` must be followed by `%n`, `%i`, `%d`, `%c`, `%r`, `%%`, or a one-based item position",
                     literal.span(),
                 ));
             }
@@ -416,7 +422,7 @@ impl StructuredFormat {
                 '%' if controls => {
                     let Some(next) = characters.get(cursor + 1).map(|next| next.1) else {
                         return Err(invalid_format(
-                            "a percent sign must introduce `%n`, `%i`, `%d`, or `%%`",
+                            "a percent sign must introduce `%n`, `%i`, `%d`, `%c`, `%r`, or `%%`",
                             literal.span(),
                         ));
                     };
@@ -429,9 +435,11 @@ impl StructuredFormat {
                         'n' => StructuredFormatFragment::Newline,
                         'i' => StructuredFormatFragment::Indent,
                         'd' => StructuredFormatFragment::Dedent,
+                        'c' => StructuredFormatFragment::ColorNext,
+                        'r' => StructuredFormatFragment::ColorReset,
                         _ => {
                             return Err(invalid_format(
-                                "a percent sign must introduce `%n`, `%i`, `%d`, or `%%`",
+                                "a percent sign must introduce `%n`, `%i`, `%d`, `%c`, `%r`, or `%%`",
                                 literal.span(),
                             ));
                         }
@@ -466,6 +474,84 @@ impl StructuredFormat {
     #[must_use]
     pub fn fragments(&self) -> &[StructuredFormatFragment] {
         &self.fragments
+    }
+
+    /// Refers to the template's terminals by position, as K's own formats do
+    /// (`format(%1 %2%3%4 %5)` for `while ({condition}) {body}`).
+    ///
+    /// Literal runs are matched greedily, in order, against the terminals:
+    /// a matched run becomes `Item(position)` and unmatched text stays
+    /// literal. An item reference moves the search past its position, so a
+    /// later terminal is never matched before an earlier item. The K codes are
+    /// still generated here, from the template (decision C5).
+    pub(crate) fn number_terminals(&mut self, template: &SyntaxTemplate) {
+        let terminals = template
+            .items()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| match item {
+                SyntaxTemplateItem::Terminal(text) => {
+                    Some((u16::try_from(index + 1).ok()?, text.as_str()))
+                }
+                SyntaxTemplateItem::Field(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let mut next = 0_usize;
+        let mut fragments = Vec::with_capacity(self.fragments.len());
+        for fragment in std::mem::take(&mut self.fragments) {
+            match fragment {
+                StructuredFormatFragment::Literal(text) => {
+                    let mut literal = String::new();
+                    let mut rest = text.as_str();
+                    while !rest.is_empty() {
+                        if let Some((position, terminal)) = terminals.get(next)
+                            && rest.starts_with(terminal)
+                        {
+                            push_format_literal(&mut fragments, &mut literal);
+                            fragments.push(StructuredFormatFragment::Item(*position));
+                            rest = &rest[terminal.len()..];
+                            next += 1;
+                            continue;
+                        }
+                        let character = rest.chars().next().expect("rest is not empty");
+                        literal.push(character);
+                        rest = &rest[character.len_utf8()..];
+                    }
+                    push_format_literal(&mut fragments, &mut literal);
+                }
+                StructuredFormatFragment::Item(position) => {
+                    while terminals
+                        .get(next)
+                        .is_some_and(|(terminal, _)| *terminal <= position)
+                    {
+                        next += 1;
+                    }
+                    fragments.push(StructuredFormatFragment::Item(position));
+                }
+                control => fragments.push(control),
+            }
+        }
+        self.fragments = fragments;
+    }
+
+    /// Returns the number of `%c` controls.
+    #[must_use]
+    pub fn color_next_count(&self) -> usize {
+        self.fragments
+            .iter()
+            .filter(|fragment| matches!(fragment, StructuredFormatFragment::ColorNext))
+            .count()
+    }
+
+    /// Whether the format uses `%c` or `%r`.
+    #[must_use]
+    pub fn uses_colors(&self) -> bool {
+        self.fragments.iter().any(|fragment| {
+            matches!(
+                fragment,
+                StructuredFormatFragment::ColorNext | StructuredFormatFragment::ColorReset
+            )
+        })
     }
 
     /// Checks all `%N` references against a concrete production item count.

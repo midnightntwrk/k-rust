@@ -97,6 +97,11 @@ pub enum SyntaxErrorKind {
         /// Stable reason for rejection.
         reason: &'static str,
     },
+    /// Production colour metadata was malformed or does not match the printed terminals.
+    InvalidColor {
+        /// Stable reason for rejection.
+        reason: &'static str,
+    },
     /// Strictness metadata was empty, repeated a field, or named an unknown field.
     InvalidStrictness {
         /// Stable reason for rejection.
@@ -240,6 +245,7 @@ impl SyntaxErrorKind {
             }
             Self::InvalidTokenRegex { .. } => codes::syntax::INVALID_TOKEN_REGEX,
             Self::InvalidFormat { .. } => codes::syntax::INVALID_FORMAT,
+            Self::InvalidColor { .. } => codes::syntax::INVALID_COLOR,
             Self::InvalidStrictness { .. } => codes::syntax::INVALID_STRICTNESS,
             Self::InvalidGrammarMacro { .. } => codes::syntax::INVALID_GRAMMAR_MACRO,
             Self::InvalidEnumPrecedence { .. } => codes::syntax::INVALID_ENUM_PRECEDENCE,
@@ -411,6 +417,9 @@ impl fmt::Display for SyntaxError {
             }
             SyntaxErrorKind::InvalidFormat { reason } => {
                 write!(formatter, "invalid production format: {reason}")
+            }
+            SyntaxErrorKind::InvalidColor { reason } => {
+                write!(formatter, "invalid production colours: {reason}")
             }
             SyntaxErrorKind::InvalidStrictness { reason } => {
                 write!(formatter, "invalid strictness metadata: {reason}")

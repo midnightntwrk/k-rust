@@ -65,6 +65,14 @@ bug — report it, don't guess.
   K's layout codes (`%n`, `%i`, `%d`). Positional `%N` codes are gone from
   both layers; K codes are generated at `.k` emission. K's `% ` escape is
   treated as a plain space (accepted compromise). [r2b]
+  *Note (2026-10 feature build, terminals as `%N`):* the generated codes
+  refer to terminals by position as well, as K's own formats do
+  (`format(%1 %2%3%4 %5)` for `while ({condition}) {body}`): the literal runs
+  of a format are matched greedily, in order, against the template's
+  terminals, a matched run becomes its position, and unmatched text stays
+  literal. Authors still write no `%N`; the layout codes gain K's colour
+  controls `%c` and `%r`, which need a `color` or `colors` key. There is no
+  `% ` escape.
 - **C6 — Strictness keeps K's names.** Bare `#[k::strict]`/`#[k::seqstrict]`
   = all fields; a field list (`#[k::strict(lhs)]`) restricts — K's
   `strict(1)` with names. `result = KResult` is hoisted onto

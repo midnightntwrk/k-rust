@@ -22,7 +22,7 @@
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
 //! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
-//! `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations may precede it.
+//! `kore.digest`, `kore.attributes`, `ir.query`, `registration.table`, and the `kast.*` operations may precede it.
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -44,6 +44,9 @@
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
 //! It canonicalizes source paths and compiler-generated variable names and returns `sha256` of the pretty-printed KORE definition.
+//! `kore.attributes` is available before `definition.load` and requires `kore` (a KORE definition path), `labels` (K label names, encoded to KORE symbol names with [`k_rust::kast::identifier::encode_label`]), and `attributes` (attribute names).
+//! It parses the definition with [`k_rust::kore::parser::parse_definition`] and returns `symbols`, an object mapping each label to an object of the named string attributes its unique symbol declaration carries.
+//! A label without exactly one declaration, or a named attribute that is not one UTF-8 string, is an error.
 //! `registration.table` operates independently of a loaded definition and requires string `source`, `display_file`, `crate_name`, and `facade_alias` fields.
 //! Unknown request fields are errors.
 //! `source` names an authored crate-root file that must be readable as UTF-8; `display_file` must equal the file spelling rustc reports through `Span::file()`, which determines factory names.

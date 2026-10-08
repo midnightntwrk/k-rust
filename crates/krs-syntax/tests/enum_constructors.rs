@@ -370,7 +370,9 @@ enum Op {
             .fragments(),
         [
             StructuredFormatFragment::Item(1),
-            StructuredFormatFragment::Literal(" * ".into()),
+            StructuredFormatFragment::Literal(" ".into()),
+            StructuredFormatFragment::Item(2),
+            StructuredFormatFragment::Literal(" ".into()),
             StructuredFormatFragment::Item(3),
         ]
     );
@@ -382,13 +384,13 @@ enum Op {
             .unwrap()
             .fragments(),
         [
-            StructuredFormatFragment::Literal("{".into()),
+            StructuredFormatFragment::Item(1),
             StructuredFormatFragment::Indent,
             StructuredFormatFragment::Newline,
             StructuredFormatFragment::Item(2),
             StructuredFormatFragment::Dedent,
             StructuredFormatFragment::Newline,
-            StructuredFormatFragment::Literal("}".into()),
+            StructuredFormatFragment::Item(3),
         ]
     );
     let block_roles = declaration
@@ -537,7 +539,9 @@ enum Op {
         syntax.structured_format().unwrap().fragments(),
         [
             StructuredFormatFragment::Item(1),
-            StructuredFormatFragment::Literal(" + ".into()),
+            StructuredFormatFragment::Literal(" ".into()),
+            StructuredFormatFragment::Item(2),
+            StructuredFormatFragment::Literal(" ".into()),
             StructuredFormatFragment::Item(3),
         ]
     );

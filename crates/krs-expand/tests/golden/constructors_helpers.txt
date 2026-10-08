@@ -286,7 +286,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::ZeroAlias\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"zeroAlias\"}],\"attributes\":[{\"attribute_kind\":\"alias\",\"key\":{\"role\":\"alias_production\",\"ordinal\":0}},{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"zeroAlias\"}}]}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::ZeroAlias\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"zeroAlias\"}],\"attributes\":[{\"attribute_kind\":\"alias\",\"key\":{\"role\":\"alias_production\",\"ordinal\":0}},{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}}]}]}}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632)],
                 items: &[],
@@ -587,6 +587,17 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        3u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (9u32, 17u32),
+                            (9u32, 34u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -712,7 +723,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::Double\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"double\"},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":3},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"double(\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":3}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"literal\",\"value\":\")\"}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"seq_strict\",\"using\":{\"key\":{\"role\":\"strictness_context_alias_reference\",\"ordinal\":0},\"slot\":0},\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"value\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: KResult\"}}}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::Double\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"double\"},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":3},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"item\",\"value\":3}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"item\",\"value\":4}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"seq_strict\",\"using\":{\"key\":{\"role\":\"strictness_context_alias_reference\",\"ordinal\":0},\"slot\":0},\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"value\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: KResult\"}}}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_1_0),
@@ -861,6 +872,17 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::core::result::Result<
                     (
                         ::k::ProvenanceRole::ConstructorFormatFragment,
                         2u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (9u32, 17u32),
+                            (9u32, 34u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        3u32,
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
@@ -1154,6 +1176,28 @@ fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        3u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 17u32),
+                            (13u32, 33u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        4u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 17u32),
+                            (13u32, 33u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -1290,7 +1334,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_2() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::And\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"lhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"&&\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":1},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":1},\"field\":\"rhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier1\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" && \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"item\",\"value\":3}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"lhs\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"k :: KResult\"}}}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::And\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"lhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"&&\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":1},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":1},\"field\":\"rhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier1\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":4},\"fragment\":{\"format_kind\":\"item\",\"value\":3}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"lhs\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"k :: KResult\"}}}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_0),
@@ -1429,6 +1473,28 @@ fn __krs_enum_grammar_9a3492b649a1c632_2() -> ::core::result::Result<
                     (
                         ::k::ProvenanceRole::ConstructorFormatFragment,
                         2u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 17u32),
+                            (13u32, 33u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        3u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (13u32, 17u32),
+                            (13u32, 33u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        4u32,
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
@@ -1838,7 +1904,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_3() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::Block\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"{\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"body\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"text\":\"}\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"{\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"indent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":4},\"fragment\":{\"format_kind\":\"dedent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":5},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":6},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"}\"}}]}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StaticExpr::Block\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"{\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"body\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"text\":\"}\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"indent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":4},\"fragment\":{\"format_kind\":\"dedent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":5},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":6},\"fragment\":{\"format_kind\":\"item\",\"value\":3}}]}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_3_0),

@@ -31,7 +31,7 @@ const BOUNDS: &[(&str, u64, u64)] = &[
     ("descriptors.kind.Rule", 24, 0),
     ("descriptors.kind.Sort", 3, 0),
     ("descriptors.total", 34, 4),
-    ("provenance.anchors", 385, 0),
+    ("provenance.anchors", 401, 0),
     ("provenance.origin_frames", 1_155, 116),
     ("semantic.modules", 2, 0),
 ];

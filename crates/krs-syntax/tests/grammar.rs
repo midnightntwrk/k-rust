@@ -216,7 +216,7 @@ fn group_avoid_and_structured_format_values_are_closed() {
         (
             r#"sort = Expr, format = "%""#,
             SyntaxErrorKind::InvalidFormat {
-                reason: "`%` must be followed by `%`, `n`, `i`, `d`, or a one-based item position",
+                reason: "`%` must be followed by `%n`, `%i`, `%d`, `%c`, `%r`, `%%`, or a one-based item position",
             },
         ),
         (

@@ -620,7 +620,7 @@ fn structured_format_controls_do_not_change_percent_escaping() {
             r#"sort = Stmt, syntax = "unit", format = "%x""#
         ),
         error if error.kind() == &SyntaxErrorKind::InvalidFormat {
-            reason: "`%` must be followed by `%`, `n`, `i`, `d`, or a one-based item position",
+            reason: "`%` must be followed by `%n`, `%i`, `%d`, `%c`, `%r`, `%%`, or a one-based item position",
         }
     );
 }

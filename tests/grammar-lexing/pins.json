@@ -1,14 +1,18 @@
 {
   "schema": 1,
   "expand": {
-    "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282"
+    "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282",
+    "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4"
   },
   "emitted": {
     "krs-grammar-partition": {
-      "definition.k": "87f5252a286baa77683ff1a8d51f499ba4c3270e946f8494d0b1a3fb5e639a05"
+      "definition.k": "d2757fa0391949a2303d451509c9c339238bfe06cb0a0f28151eea765230d348"
     },
     "krs-grammar-kevm-case": {
-      "definition.k": "7178a9655be22238ced57022cf24050078bb6a1836ed41d41993537ac559e337"
+      "definition.k": "c90297c46dcabba85e8c57961c34ec3072b0f9545f680fd3c311ba26753c9bf9"
+    },
+    "krs-grammar-format": {
+      "definition.k": "c7c532a70e9b597e36ca2428459ec156fac752e9c71339f00d5c444fa47ccc52"
     }
   },
   "partition": {
@@ -24,8 +28,9 @@
     ]
   },
   "reference_sha256": {
-    "krs-grammar-partition": "4c5747a00ebeb3727dc8f3e899b8686679b4b4c26948319fe282c46d5066a0ce",
-    "krs-grammar-kevm-case": "d615bb4ae65f48f48a8a005e1fad3a18a7d3bbc1a3f447807fd8313eda3617ad"
+    "krs-grammar-partition": "b5efe564c517d4efa254ef508c6ae714bbc9ad77f899e512bce5bd4b6fe54bdb",
+    "krs-grammar-kevm-case": "cd3b6a00d3e958f904a49796b8d252b6ec46ded60fdea007d54bfe7b8245f0ab",
+    "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -87,6 +92,13 @@
     ],
     "signed-leak": [
       "error[krs::partition::signed-integer-leak]: `KRS-UNSIGNED-ROOT-SYNTAX` uses `int-literals = \"unsigned\"` but imports `KRS-SIGNED-BASE-SYNTAX`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
+    ],
+    "colors-mismatch": [
+      "error[krs::rust-expansion::uncoded-error]: invalid production colours: `colors` needs one colour per terminal of the syntax template plus one per `%c`"
     ]
+  },
+  "format": {
+    "kore_attributes": "while colors='magenta,magenta,magenta' format='%cwhile%r %c(%r%1%c)%r %2'\nblock colors='blue,blue' format='%c{%r%i%n%1%d%n%c}%r'\nassignX colors='green,red,red,red' format='%c// assign%r%n%cx%r %c=%r %1%c;%r'\nskip format='%cskip%r'\n",
+    "krun_color": "<k>\u001b[0m\n  \u001b[38;5;201mwhile\u001b[0m \u001b[38;5;201m(\u001b[0m1\u001b[38;5;201m)\u001b[0m \u001b[38;5;21m{\u001b[0m\n    \u001b[38;5;46m// assign\u001b[0m\n    \u001b[38;5;196mx\u001b[0m \u001b[38;5;196m=\u001b[0m 2\u001b[38;5;196m;\u001b[0m\n  \u001b[38;5;21m}\u001b[0m ~> .K\n</k>\u001b[0m\n"
   }
 }
