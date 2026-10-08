@@ -24,6 +24,8 @@ syn = { version = "2.0.119", features = ["full"] }
 
 [package.metadata.krs]
 k-namespace = "KRS-IMP"
+# Upstream EXPR-SYNTAX imports UNSIGNED-INT-SYNTAX: `-1` in a program is `Neg(1)`.
+int-literals = "unsigned"
 
 [package.metadata.krs.definitions.main]
 

@@ -36,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "workspace",
         "krs_imp_definition",
         manifest,
-    )?;
+    )?
+    // The package sets `int-literals = "unsigned"`, as the CLI plan reads it.
+    .with_int_literals(krs_collector::IntLiterals::Unsigned);
     let mut descriptors = k::host_descriptors().collect::<Vec<_>>();
     let bundle = collect_host_descriptors_with_builtins(
         [context.clone()],
