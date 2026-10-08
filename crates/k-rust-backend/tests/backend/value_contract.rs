@@ -1078,3 +1078,62 @@ fn review_2_f2_a_pair_withdraws_the_heads_its_map_values_hold() {
     );
     assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
 }
+
+/// Review 3 of the check, probe P2: `pick(K |-> V M) = mk(1) ensures K ==Int 1`. The right-hand
+/// side reads no variable, but the `ensures` reads `K`, which the matching chooses: on
+/// `{1 |-> b, 2 |-> b}` the matching `K = 1` gives `mk(1)` and the matching `K = 2` asserts
+/// `2 ==Int 1`, so the application is both `mk(1)` and `\bottom`. Every model therefore has no
+/// two-entry map of `B` values, so `B` is empty and `v(1)` undefined. The self pair reads the
+/// `ensures`, does not join, and withdraws `pick` and `v`.
+#[test]
+fn review_3_p2_a_self_pair_whose_ensures_reads_the_matched_key_withdraws_its_values() {
+    let right = format!(
+        r#"\and{{SortS{{}}}}(mk{{}}({}), \equals{{SortBool{{}}, SortS{{}}}}(eqInt{{}}(VarK:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true")))"#,
+        int(1),
+        int(1)
+    );
+    let definition = definition(
+        REVIEW_2_COLLECTIONS,
+        &[equation(
+            "pick",
+            &["SortMap{}"],
+            "SortS{}",
+            &["mapConcat{}(mapItem{}(VarK:SortInt{}, VarV:SortB{}), VarM:SortMap{})"],
+            &right,
+            r"\top{R}()",
+            "",
+        )],
+    );
+    assert_withdrawn(
+        &definition,
+        &["pick", "v"],
+        Some(UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}
+
+/// Review 3 of the check, probe P7: `pick(K |-> V M) = mk(K) \/ mk(K)`. The check does not read
+/// a disjunctive right-hand side, so it counts it as reading every variable, the matched key
+/// `K` among them: on `{1 |-> b, 2 |-> b}` the two matchings give `mk(1)` and `mk(2)`. The self
+/// pair does not join and withdraws `pick` and `v`.
+#[test]
+fn review_3_p7_a_self_pair_with_a_disjunctive_right_hand_side_withdraws_its_values() {
+    let definition = definition(
+        REVIEW_2_COLLECTIONS,
+        &[equation(
+            "pick",
+            &["SortMap{}"],
+            "SortS{}",
+            &["mapConcat{}(mapItem{}(VarK:SortInt{}, VarV:SortB{}), VarM:SortMap{})"],
+            r"\or{SortS{}}(mk{}(VarK:SortInt{}), mk{}(VarK:SortInt{}))",
+            r"\top{R}()",
+            "",
+        )],
+    );
+    assert_withdrawn(
+        &definition,
+        &["pick", "v"],
+        Some(UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)),
+    );
+    assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
+}

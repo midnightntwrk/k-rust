@@ -75,6 +75,11 @@ pub(crate) struct Switches {
     /// Drop every inner pair whose second equation has a sort below the position's (review 2's
     /// seeded defect D9).
     pub(crate) drop_injected_inner: bool,
+    /// Self pairs: read only the right-hand side, not the `ensures` (review 3's seed S1).
+    pub(crate) self_pair_ignores_ensures: bool,
+    /// Self pairs: read a right-hand side the check does not read (a disjunction, `\top`,
+    /// predicates) as reading no variable (review 3's seed S5).
+    pub(crate) self_pair_reads_opaque_rhs_as_nothing: bool,
 }
 
 #[cfg(test)]
@@ -108,6 +113,8 @@ thread_local! {
             drop_several_matches: false,
             drop_collection_edges: false,
             drop_injected_inner: false,
+            self_pair_ignores_ensures: false,
+            self_pair_reads_opaque_rhs_as_nothing: false,
         })
     };
 }

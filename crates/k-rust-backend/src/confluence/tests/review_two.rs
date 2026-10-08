@@ -300,9 +300,11 @@ impl Slot {
     }
 }
 
-/// `f(C, J) = res(first, second, rest) [requires x ==Int n]`: `C` a map (`Int` keys and values)
-/// or set (`Int` elements) pattern with `entries` (keys and, for a map, values) and an optional
-/// rest `M`; `J` the variable `J` or the literal 1; `rest` in the result the rest `M` or the unit.
+/// `f(C, J) = res(first, second, rest) [requires x ==Int n] [ensures y ==Int m]`, or
+/// `f(C, J) = res(first, second, rest) \/ res(third, fourth, .) [requires x ==Int n]`: `C` a
+/// map (`Int` keys and values) or set (`Int` elements) pattern with `entries` (keys and, for a
+/// map, values) and an optional rest `M`; `J` the variable `J` or the literal 1; `rest` in the
+/// result the rest `M` or the unit. The `ensures` and the second disjunct exclude each other.
 #[derive(Clone, Debug)]
 struct Generated {
     set: bool,
@@ -311,6 +313,17 @@ struct Generated {
     j_variable: bool,
     result: (Slot, Slot, bool),
     requires: Option<(&'static str, i64)>,
+    ensures: Option<(&'static str, i64)>,
+    alternative: Option<(Slot, Slot)>,
+}
+
+/// What one matching makes of the application under `->E`: `\bottom` when the `ensures`
+/// instance is false, otherwise the set of the right-hand side's instances (two for a
+/// disjunction whose disjuncts differ).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Reduct {
+    Bottom,
+    Values(BTreeSet<(Value, Value, Value)>),
 }
 
 /// A value bound by a matching.
@@ -388,13 +401,32 @@ impl Generated {
                 Slot::Variable(variables[rng.below(variables.len())])
             }
         };
-        let result = (pick(rng), pick(rng), rest && rng.below(2) == 0);
-        let requires = (rng.below(3) == 0 && !variables.is_empty()).then(|| {
-            (
-                variables[rng.below(variables.len())],
-                i64::try_from(rng.below(3)).expect("small"),
-            )
-        });
+        let mut result = (pick(rng), pick(rng), rest && rng.below(2) == 0);
+        let condition = |rng: &mut Rng| {
+            (!variables.is_empty()).then(|| {
+                (
+                    variables[rng.below(variables.len())],
+                    i64::try_from(rng.below(3)).expect("small"),
+                )
+            })
+        };
+        let requires = if rng.below(3) == 0 {
+            condition(rng)
+        } else {
+            None
+        };
+        let (ensures, alternative) = match rng.below(3) {
+            0 => {
+                // Half the time a result of literals, so that the `ensures` alone can tell two
+                // matchings apart.
+                if rng.below(2) == 0 {
+                    result = (Slot::Literal(0), Slot::Literal(1), false);
+                }
+                (condition(rng), None)
+            }
+            1 => (None, Some((pick(rng), pick(rng)))),
+            _ => (None, None),
+        };
         Self {
             set,
             entries,
@@ -402,6 +434,8 @@ impl Generated {
             j_variable,
             result,
             requires,
+            ensures,
+            alternative,
         }
     }
 
@@ -445,11 +479,24 @@ impl Generated {
         } else {
             "cUnit{}()"
         };
-        let right = format!(
+        let mut right = format!(
             "res{{}}({}, {}, {rest})",
             self.result.0.kore(),
             self.result.1.kore()
         );
+        if let Some((third, fourth)) = self.alternative {
+            right = format!(
+                "\\or{{SortS{{}}}}({right}, res{{}}({}, {}, cUnit{{}}()))",
+                third.kore(),
+                fourth.kore()
+            );
+        }
+        if let Some((variable, value)) = self.ensures {
+            right = format!(
+                r#"\and{{SortS{{}}}}({right}, \equals{{SortBool{{}}, SortS{{}}}}(eqInt{{}}(Var{variable}:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true")))"#,
+                int(value)
+            );
+        }
         let requires = self.requires.map_or_else(
             || r"\top{R}()".to_owned(),
             |(variable, value)| int_equals(&format!("Var{variable}:SortInt{{}}"), value),
@@ -540,8 +587,8 @@ impl Generated {
         matchings
     }
 
-    /// The right-hand side's instance under a matching, when its `requires` holds.
-    fn reduct(&self, binding: &BTreeMap<&'static str, Value>) -> Option<(Value, Value, Value)> {
+    /// What the application becomes under a matching, when its `requires` holds.
+    fn reduct(&self, binding: &BTreeMap<&'static str, Value>) -> Option<Reduct> {
         let slot = |slot: Slot| match slot {
             Slot::Literal(value) => Value::Int(value),
             Slot::Variable(name) => binding[name].clone(),
@@ -551,12 +598,21 @@ impl Generated {
         {
             return None;
         }
+        if let Some((variable, value)) = self.ensures
+            && binding[variable] != Value::Int(value)
+        {
+            return Some(Reduct::Bottom);
+        }
         let rest = if self.result.2 {
             binding["M"].clone()
         } else {
             Value::Collection(Vec::new())
         };
-        Some((slot(self.result.0), slot(self.result.1), rest))
+        let mut values = BTreeSet::from([(slot(self.result.0), slot(self.result.1), rest)]);
+        if let Some((third, fourth)) = self.alternative {
+            values.insert((slot(third), slot(fourth), Value::Collection(Vec::new())));
+        }
+        Some(Reduct::Values(values))
     }
 
     /// Every subject the brute force tries: maps over keys `{0, 1, 2}` and values `{0, 1}`, or
@@ -586,10 +642,24 @@ impl Generated {
     }
 }
 
+/// The number of definitions V3c generates.
+const V3C_CASES: u64 = 1_500;
+
+/// The floors of V3c's peaks through the `ensures` alone and with a disjunctive right-hand side
+/// (about half of the 32 and 96 measured), so that the generator keeps exercising both rules of
+/// the self pair.
+const ENSURES_PEAKS_FLOOR: usize = 16;
+const DISJUNCTIVE_PEAKS_FLOOR: usize = 48;
+
 #[derive(Debug, Default)]
 struct SelfPairs {
     definitions: usize,
     peaks: usize,
+    /// Peaks of an equation with an `ensures` whose results alone would not be a peak: the
+    /// `ensures` alone separates the matchings.
+    ensures_peaks: usize,
+    /// Peaks of an equation with a disjunctive right-hand side.
+    disjunctive_peaks: usize,
     unitary: usize,
     failures: Vec<String>,
 }
@@ -630,6 +700,12 @@ fn check_self_pairs(cases: u64) -> SelfPairs {
             });
         let mut peak = None;
         let mut several = None;
+        // The same equation without its `ensures`, and whether it alone has a peak.
+        let results = Generated {
+            ensures: None,
+            ..generated.clone()
+        };
+        let mut results_peak = false;
         for subject in generated.subjects() {
             for j in 0..3 {
                 let matchings = generated.matchings(&subject, j);
@@ -643,6 +719,12 @@ fn check_self_pairs(cases: u64) -> SelfPairs {
                 if reducts.len() > 1 {
                     peak.get_or_insert((subject.clone(), j, reducts));
                 }
+                results_peak |= matchings
+                    .iter()
+                    .filter_map(|binding| results.reduct(binding))
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    > 1;
             }
         }
         if unitary {
@@ -655,6 +737,12 @@ fn check_self_pairs(cases: u64) -> SelfPairs {
         }
         if let Some((subject, j, reducts)) = peak {
             result.peaks += 1;
+            if generated.ensures.is_some() && !results_peak {
+                result.ensures_peaks += 1;
+            }
+            if generated.alternative.is_some() {
+                result.disjunctive_peaks += 1;
+            }
             if !reported {
                 result.failures.push(format!(
                     "case {case}: the matchings at {subject:?}, {j} give {reducts:?}, and no self pair is reported\n{generated:?}"
@@ -665,24 +753,37 @@ fn check_self_pairs(cases: u64) -> SelfPairs {
     result
 }
 
-/// V3c: whenever two matchings of a left-hand side against one subject give different results,
+/// V3c: whenever two matchings of a left-hand side against one subject give different results
+/// (a different set of right-hand-side instances, or `\bottom` for one through its `ensures`),
 /// the check reports the equation's self pair; and a left-hand side whose variables the check
 /// calls determined matches every subject in at most one way. The ground truth is a brute-force
 /// enumeration of matchings over every small map or set, sharing no code with the backend's
 /// matcher or with the fixpoint of `undetermined_variables`.
 #[test]
 fn every_self_peak_of_small_collection_patterns_is_reported() {
-    let result = check_self_pairs(600);
+    let result = check_self_pairs(V3C_CASES);
     eprintln!(
-        "self pairs: {} definitions, {} with a peak, {} unitary, {} failures",
+        "self pairs: {} definitions, {} with a peak ({} through the ensures alone, {} disjunctive), {} unitary, {} failures",
         result.definitions,
         result.peaks,
+        result.ensures_peaks,
+        result.disjunctive_peaks,
         result.unitary,
         result.failures.len()
     );
     assert!(result.failures.is_empty(), "{}", result.failures.join("\n"));
-    assert!(result.peaks >= 60, "too few peaks: {}", result.peaks);
-    assert!(result.unitary >= 60, "too few unitary: {}", result.unitary);
+    assert!(result.peaks >= 110, "too few peaks: {}", result.peaks);
+    assert!(
+        result.ensures_peaks >= ENSURES_PEAKS_FLOOR,
+        "too few peaks through the ensures alone: {}",
+        result.ensures_peaks
+    );
+    assert!(
+        result.disjunctive_peaks >= DISJUNCTIVE_PEAKS_FLOOR,
+        "too few disjunctive peaks: {}",
+        result.disjunctive_peaks
+    );
+    assert!(result.unitary >= 580, "too few unitary: {}", result.unitary);
 }
 
 #[test]
@@ -697,5 +798,41 @@ fn the_self_pair_brute_force_sees_a_check_without_self_pairs() {
     assert!(
         !result.failures.is_empty(),
         "no failure without the self pairs"
+    );
+}
+
+/// The self pair reads the `ensures`: two matchings that give the same right-hand-side instance
+/// but different `ensures` instances make the application a term and `\bottom`. Without that
+/// rule (review 3's seed S1) V3c finds unreported peaks.
+#[test]
+fn the_self_pair_brute_force_sees_a_self_pair_that_ignores_the_ensures() {
+    let result = switches::with(
+        Switches {
+            self_pair_ignores_ensures: true,
+            ..Switches::default()
+        },
+        || check_self_pairs(V3C_CASES),
+    );
+    assert!(
+        !result.failures.is_empty(),
+        "no failure with the self pair ignoring the ensures"
+    );
+}
+
+/// The self pair counts a right-hand side it does not read (a disjunction, `\top`, predicates)
+/// as reading every variable. Read as reading none (review 3's seed S5), V3c's disjunctive
+/// right-hand sides give unreported peaks.
+#[test]
+fn the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing() {
+    let result = switches::with(
+        Switches {
+            self_pair_reads_opaque_rhs_as_nothing: true,
+            ..Switches::default()
+        },
+        || check_self_pairs(V3C_CASES),
+    );
+    assert!(
+        !result.failures.is_empty(),
+        "no failure with a disjunctive right-hand side read as reading nothing"
     );
 }

@@ -1357,12 +1357,19 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
         let read = match &equation.rule.rhs {
             RuleRhs::Term(term) => Some(term.attributes().variables.clone()),
             RuleRhs::Bottom => Some(BTreeSet::new()),
+            RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_)
+                if switches::active().self_pair_reads_opaque_rhs_as_nothing =>
+            {
+                Some(BTreeSet::new())
+            }
             // A right-hand side the check does not read: count it as reading every variable.
             RuleRhs::Disjunction(_) | RuleRhs::Top | RuleRhs::Predicates(_) => None,
         }
         .map(|mut read| {
-            for predicate in equation.rule.ensures.iter() {
-                read.extend(predicate.free_variables());
+            if !switches::active().self_pair_ignores_ensures {
+                for predicate in equation.rule.ensures.iter() {
+                    read.extend(predicate.free_variables());
+                }
             }
             read
         });
