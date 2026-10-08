@@ -144,7 +144,7 @@ pub struct RuleClause {
     pub(super) rule: RuleItem,
     pub(super) attribute: crate::RuleAttribute,
     pub(super) narrowings: Vec<RuleNarrowing>,
-    pub(super) head_result: RuleHeadResult,
+    pub(super) head_result: Option<RuleHeadResult>,
     pub(super) extras: Vec<RuleExtra>,
     pub(super) bindings: Vec<Ident>,
     pub(super) computation_cell: Option<Ident>,
@@ -171,10 +171,11 @@ impl RuleClause {
         &self.narrowings
     }
 
-    /// Returns replacement, splice, or erasure head meaning.
+    /// Returns replacement, splice, or erasure head meaning, absent for a
+    /// cell-record clause that leaves the computation cell out.
     #[must_use]
-    pub const fn head_result(&self) -> &RuleHeadResult {
-        &self.head_result
+    pub const fn head_result(&self) -> Option<&RuleHeadResult> {
+        self.head_result.as_ref()
     }
 
     /// Returns explicit non-computation-cell clauses.
@@ -240,17 +241,42 @@ impl RuleClause {
                     | ProvenanceRole::RuleRightRecordFieldName
             )
         });
+        if self.head_result.is_none() {
+            // The placeholder subject of a clause without the computation cell
+            // has no authored tokens: the pattern is the whole subject record,
+            // and every left-side anchor comes from the cell entries below.
+            anchors.retain(|anchor| {
+                !matches!(
+                    anchor.role(),
+                    ProvenanceRole::RulePattern
+                        | ProvenanceRole::RuleLeftPath
+                        | ProvenanceRole::RuleLeftApplicationHead
+                        | ProvenanceRole::RuleLeftReference
+                        | ProvenanceRole::RuleLeftLiteral
+                        | ProvenanceRole::RuleLeftRecordFieldName
+                        | ProvenanceRole::RuleLeftWildcard
+                )
+            });
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RulePattern,
+                0,
+                self.layout.pattern,
+            ));
+        }
         anchors.push(ProvenanceAnchor::new(
             ProvenanceRole::RuleResult,
             0,
-            self.head_result.range()?,
+            self.head_result
+                .as_ref()
+                .map_or(Ok(self.layout.result), RuleHeadResult::range)?,
         ));
         let mut right = RuleTermCounters::default();
         match &self.head_result {
-            RuleHeadResult::Replace(term) => {
+            None | Some(RuleHeadResult::Erase(_)) => {}
+            Some(RuleHeadResult::Replace(term)) => {
                 append_rule_term_anchors(&mut anchors, term, RuleTermSide::Right, &mut right)?;
             }
-            RuleHeadResult::Splice { range, items } => {
+            Some(RuleHeadResult::Splice { range, items }) => {
                 anchors.push(ProvenanceAnchor::new(
                     ProvenanceRole::RuleRightKSequencePayload,
                     0,
@@ -269,15 +295,20 @@ impl RuleClause {
                     append_rule_term_anchors(&mut anchors, item, RuleTermSide::Right, &mut right)?;
                 }
             }
-            RuleHeadResult::Erase(_) => {}
         }
 
-        let mut left = RuleTermCounters::from_rule_pattern(self.rule.parameter().pattern.nodes());
-        let mut subject_fields = Vec::new();
-        self.rule
-            .subject_tree()
-            .record_field_names_preorder(&mut subject_fields);
-        left.field = subject_fields.len();
+        let mut left = if self.head_result.is_some() {
+            let mut left =
+                RuleTermCounters::from_rule_pattern(self.rule.parameter().pattern.nodes());
+            let mut subject_fields = Vec::new();
+            self.rule
+                .subject_tree()
+                .record_field_names_preorder(&mut subject_fields);
+            left.field = subject_fields.len();
+            left
+        } else {
+            RuleTermCounters::default()
+        };
         let mut have_cell = 0_usize;
         let mut update_cell = 0_usize;
         for extra in &self.extras {
@@ -646,7 +677,7 @@ impl RuleBlock {
                 rule,
                 attribute,
                 narrowings,
-                head_result,
+                head_result: Some(head_result),
                 extras: extras.into_iter().map(RuleExtra::from).collect(),
                 bindings,
                 computation_cell: None,

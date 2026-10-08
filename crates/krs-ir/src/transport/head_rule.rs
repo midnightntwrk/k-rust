@@ -59,6 +59,19 @@ protocol_shape! {
     }
 }
 
+protocol_shape! {
+    /// The matched computation-cell head of a readable rule and its rewrite.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleHead<T => term_map => U> {
+        /// One matched computation-cell head item.
+        pub subject: T => [term_map],
+        /// Replacement, splice, or erasure before the implicit preserved tail.
+        pub result: ProtocolHeadRuleResult<T> => [nested term_map],
+    }
+    map_order: [result, subject];
+}
+
 /// Host head result.
 pub type HostHeadRuleResult = ProtocolHeadRuleResult<HostTerm>;
 /// Stable head result.
@@ -134,20 +147,19 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Fixed configuration named by a `for Configuration` cell-record header.
         pub configuration: Option<S::Configuration> => [option configuration],
-        /// Authored computation-cell field for a cell-record clause.
+        /// Authored computation-cell field for a cell-record clause that matches one.
         pub computation_cell_name: Option<String> => [keep],
         /// Bindings and authored refinements in introduction order.
         pub bindings: Vec<ProtocolHeadRuleBinding<S::Sort>> => [vec protocol sort],
-        /// One matched computation-cell head item.
-        pub subject: Term<S> => [nested],
-        /// Replacement, splice, or erasure before the implicit preserved tail.
-        pub result: ProtocolHeadRuleResult<Term<S>> => [protocol nested],
+        /// The matched computation-cell head and its rewrite; absent only for a
+        /// cell-record clause that leaves the computation cell out (KF-015).
+        pub head: Option<ProtocolHeadRuleHead<Term<S>>> => [option protocol nested],
         /// Optional object-language Boolean side condition.
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Explicit non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
     }
-    map_order: [extras, result, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, subject, requires];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -185,14 +197,16 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Unique fixed configuration selected by collection.
         pub configuration: S::Item => [item],
-        /// Unique top-level `KCell<KSequence>` selected by collection.
-        pub computation_cell: S::Cell => [cell],
+        /// Unique top-level `KCell<KSequence>` selected by collection, present
+        /// exactly when the rule matches a computation-cell head.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub computation_cell: Option<S::Cell> => [option cell],
         /// Bindings and authored refinements in introduction order.
         pub bindings: Vec<ProtocolHeadRuleBinding<S::Sort>> => [vec protocol sort],
-        /// One matched computation-cell head item.
-        pub subject: Term<S> => [nested],
-        /// Replacement, splice, or erasure before the implicit preserved tail.
-        pub result: ProtocolHeadRuleResult<Term<S>> => [protocol nested],
+        /// The matched computation-cell head and its rewrite; absent only for a
+        /// cell-record clause that leaves the computation cell out (KF-015).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub head: Option<ProtocolHeadRuleHead<Term<S>>> => [option protocol nested],
         /// Optional object-language Boolean side condition.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub requires: Option<RuleCondition<S>> => [option nested],
@@ -201,7 +215,7 @@ stage_shape! {
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
-        computation_cell: DescriptorCellReference,
+        computation_cell: Option<DescriptorCellReference>,
     }
 }
 
@@ -298,10 +312,12 @@ impl HostHeadRule {
         ) {
             (Some(sort), None, None)
                 if sort.key.role() == ProvenanceRole::RuleType && sort.key.ordinal() == 0 => {}
-            (None, Some(configuration), Some(cell))
+            (None, Some(configuration), cell)
                 if configuration.key.role() == ProvenanceRole::RuleType
                     && configuration.key.ordinal() == 0
-                    && !cell.is_empty() => {}
+                    && cell.as_ref().is_none_or(|cell| !cell.is_empty())
+                    && cell.is_some() == self.head.is_some()
+                    && (self.head.is_some() || !self.extras.is_empty()) => {}
             _ => {
                 return Err(StateTransportError::InvalidTerm(
                     StateTermReason::HeadRuleHeaderOwnership,
@@ -384,7 +400,16 @@ impl DescriptorHeadRule {
                 actual: self.configuration.item_kind(),
             });
         }
-        if self.computation_cell.cell.owner != self.configuration {
+        if self.computation_cell.is_some() != self.head.is_some()
+            || (self.head.is_none() && self.extras.is_empty())
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::HeadRuleHeaderOwnership,
+            ));
+        }
+        if let Some(computation) = &self.computation_cell
+            && computation.cell.owner != self.configuration
+        {
             return Err(StateTransportError::CellOwnerMismatch);
         }
         validate_bindings(&self.bindings, &self.extras)?;
@@ -407,7 +432,12 @@ impl DescriptorHeadRule {
             {
                 return Err(StateTransportError::CellOwnerMismatch);
             }
-            if cell.cell == self.computation_cell.cell || !cells.insert(cell.cell.clone()) {
+            if self
+                .computation_cell
+                .as_ref()
+                .is_some_and(|computation| cell.cell == computation.cell)
+                || !cells.insert(cell.cell.clone())
+            {
                 return Err(StateTransportError::DuplicateValue(
                     TransportField::HeadRuleSelectedCells,
                 ));
@@ -421,7 +451,7 @@ impl DescriptorHeadRule {
 mod tests {
     use super::{
         DescriptorHeadRule, HeadRule, ProtocolHeadRuleBinding, ProtocolHeadRuleExtra,
-        ProtocolHeadRuleResult,
+        ProtocolHeadRuleHead, ProtocolHeadRuleResult,
     };
     use crate::stage::tests::CountingMap;
     use crate::wire::{
@@ -600,8 +630,10 @@ mod tests {
                 name: "value".to_owned(),
                 refinement: Some(wire_sort()),
             }],
-            subject: wire_term(),
-            result: ProtocolHeadRuleResult::Splice(vec![wire_term()]),
+            head: Some(ProtocolHeadRuleHead {
+                subject: wire_term(),
+                result: ProtocolHeadRuleResult::Splice(vec![wire_term()]),
+            }),
             requires: Some(crate::wire::WireRuleCondition {
                 key: key.clone(),
                 term: wire_term(),
@@ -628,8 +660,8 @@ mod tests {
                 "sort",
                 "sort",
                 "sort",
-                "configuration",
                 "sort",
+                "configuration",
                 "sort",
                 "sort"
             ]
@@ -646,6 +678,7 @@ mod tests {
             failing.calls,
             [
                 "head_rule_cell",
+                "sort",
                 "sort",
                 "sort",
                 "sort",
@@ -698,13 +731,15 @@ mod tests {
             result_key: key.clone(),
             head_sort: Some(descriptor_sort()),
             configuration,
-            computation_cell: cell.clone(),
+            computation_cell: Some(cell.clone()),
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "value".to_owned(),
                 refinement: Some(descriptor_sort()),
             }],
-            subject: descriptor_term(),
-            result: ProtocolHeadRuleResult::Replace(descriptor_term()),
+            head: Some(ProtocolHeadRuleHead {
+                subject: descriptor_term(),
+                result: ProtocolHeadRuleResult::Replace(descriptor_term()),
+            }),
             requires: Some(crate::DescriptorRuleCondition {
                 key,
                 term: descriptor_term(),

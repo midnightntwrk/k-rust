@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-configuration-cells-framing": "1e1446373c43bfd51f86ce84778dc83c274aa89995e7e9b7d5ad0f1e9867f395"
+  },
+  "emitted": {
+    "krs-configuration-cells-framing": {
+      "definition.k": "8c1fe6115705fe03d74ac708c1d0052dd872185a2a7a5789ef39bb16005146b5"
+    }
+  },
+  "reference_sha256": {
+    "krs-configuration-cells-framing": "ffccd4fa80d54a99a74602c887277e1598033006f5daf56aed763c8adf0b81e7"
+  },
+  "outcomes": {
+    "krs-configuration-cells-framing": {
+      "done": {
+        "parse": "accepted",
+        "run": ".K"
+      },
+      "report": {
+        "parse": "accepted",
+        "run": "6"
+      }
+    }
+  },
+  "diagnostics": {
+    "unguarded-framed-rule": [
+      "error[krs::analysis::always-enabled-rule]: rule `burn` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard"
+    ],
+    "identity-framed-rule": [
+      "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content and it leaves the computation cell out, so applying it changes nothing"
+    ]
+  }
+}

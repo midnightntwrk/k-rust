@@ -2219,7 +2219,7 @@ mod tests {
                 .resolve(),
             std::any::TypeId::of::<readable_sorts::ReadableExpr>()
         );
-        let HostTerm::Application { reference, .. } = &eval_add.subject else {
+        let HostTerm::Application { reference, .. } = &eval_add.head.as_ref().unwrap().subject else {
             panic!("readable eval_add subject must be an enum application")
         };
         assert_eq!(
@@ -2249,7 +2249,7 @@ mod tests {
         let HostDescriptorPayload::HeadRule(and_false) = &and_false.payload else {
             panic!("readable and_false must be a head-anchored rule")
         };
-        let HostTerm::Application { arguments, .. } = &and_false.subject else {
+        let HostTerm::Application { arguments, .. } = &and_false.head.as_ref().unwrap().subject else {
             panic!("readable and_false subject must be an enum application")
         };
         assert_eq!(arguments.len(), 1, "record `..` stays a partial subject");
@@ -2298,7 +2298,7 @@ mod tests {
             let HostDescriptorPayload::HeadRule(rule) = &descriptor.payload else {
                 panic!("{name} must be a readable head rule")
             };
-            let HostTerm::Application { reference, .. } = &rule.subject else {
+            let HostTerm::Application { reference, .. } = &rule.head.as_ref().unwrap().subject else {
                 panic!("{name} must have an application head")
             };
             reference.target.resolve()

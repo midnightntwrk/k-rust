@@ -1,5 +1,5 @@
 use proc_macro2::{TokenStream, TokenTree};
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::parse::discouraged::Speculative;
@@ -202,6 +202,13 @@ pub(super) fn parse_machine_clause(
 ) -> Result<RuleClause, ParseError> {
     let pattern_record: TokenTree = input.fork().parse()?;
     let subject_cells = parse_machine_pattern_record(input)?;
+    if subject_cells.is_empty() {
+        return Err(syn::Error::new(
+            pattern_record.span(),
+            "a machine rule selects at least one cell",
+        )
+        .into());
+    }
     input.parse::<Token![=>]>()?;
     let result_record: TokenTree = input.fork().parse()?;
     let result_cells = parse_machine_result_record(input)?;
@@ -258,7 +265,7 @@ pub(super) fn parse_machine_clause(
                 {
                     return Err(syn::Error::new(
                         cell.span(),
-                        "a machine rule has exactly one sequence-pattern cell",
+                        "a machine rule must match at most one computation-cell sequence",
                     )
                     .into());
                 }
@@ -328,46 +335,63 @@ pub(super) fn parse_machine_clause(
             .into());
         }
     }
-    let (computation_cell, subject_k, subject_signs) = subject_k.ok_or_else(|| {
-        syn::Error::new(
-            name.span(),
-            "a machine rule must match one computation-cell sequence",
-        )
-    })?;
-    let Some((_, MachineResultCell::KItems(result_k))) = result_cells
-        .iter()
-        .find(|(cell, _)| cell.unraw() == computation_cell.unraw())
-    else {
-        return Err(syn::Error::new(
-            name.span(),
-            "a machine rule must write its framed computation-cell sequence",
-        )
-        .into());
-    };
-    let head_result = match result_k.as_slice() {
-        [] => RuleHeadResult::Erase(TokenRange::for_tokens(&name)?),
-        [term] => RuleHeadResult::Replace(Box::new(TermExpression::from_expression(term.clone())?)),
-        items => RuleHeadResult::Splice {
-            range: TokenRange::for_tokens(&name)?,
-            items: items
-                .iter()
-                .cloned()
-                .map(TermExpression::from_expression)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-    };
-
     let (attribute, retained) = take_rule_clause_attribute(attributes)?;
-    let placeholder: Expr = match &head_result {
-        RuleHeadResult::Replace(term) => term.expression().clone(),
-        RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
+    let (rule, head_result, computation_cell) = if let Some((computation_cell, subject_k, signs)) =
+        subject_k
+    {
+        let Some((_, MachineResultCell::KItems(result_k))) = result_cells
+            .iter()
+            .find(|(cell, _)| cell.unraw() == computation_cell.unraw())
+        else {
+            return Err(syn::Error::new(
+                name.span(),
+                "a machine rule must write its framed computation-cell sequence",
+            )
+            .into());
+        };
+        let head_result = match result_k.as_slice() {
+            [] => RuleHeadResult::Erase(TokenRange::for_tokens(&name)?),
+            [term] => {
+                RuleHeadResult::Replace(Box::new(TermExpression::from_expression(term.clone())?))
+            }
+            items => RuleHeadResult::Splice {
+                range: TokenRange::for_tokens(&name)?,
+                items: items
+                    .iter()
+                    .cloned()
+                    .map(TermExpression::from_expression)
+                    .collect::<Result<Vec<_>, _>>()?,
+            },
+        };
+        let placeholder: Expr = match &head_result {
+            RuleHeadResult::Replace(term) => term.expression().clone(),
+            RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
+        };
+        let item: ItemFn = syn::parse2(quote! {
+            #(#retained)*
+            pub fn #name(#subject_k: #configuration_type) -> #configuration_type { #placeholder }
+        })?;
+        let rule = RuleItem::from_readable_item(item, signs)?;
+        (rule, Some(head_result), Some(computation_cell))
+    } else {
+        // A record without the computation cell frames it like any omitted
+        // cell (E7). The rule item carries only the label, attributes, and
+        // configuration type; its subject binding is a placeholder whose
+        // spans point at the authored records, and it binds nothing.
+        let subject = quote_spanned!(pattern_record.span()=> framed);
+        let placeholder = quote_spanned!(result_record.span()=> true);
+        let item: ItemFn = syn::parse2(quote! {
+            #(#retained)*
+            pub fn #name(#subject: #configuration_type) -> #configuration_type { #placeholder }
+        })?;
+        let rule = RuleItem::from_readable_item(item, NegativeLiteralSpans::default())?;
+        (rule, None, None)
     };
-    let item: ItemFn = syn::parse2(quote! {
-        #(#retained)*
-        pub fn #name(#subject_k: #configuration_type) -> #configuration_type { #placeholder }
-    })?;
-    let rule = RuleItem::from_readable_item(item, subject_signs)?;
-    let mut bindings = rule.parameter.pattern.bindings().to_vec();
+    let mut bindings = if head_result.is_some() {
+        rule.parameter.pattern.bindings().to_vec()
+    } else {
+        Vec::new()
+    };
     for introduced in extra_bindings {
         if bindings
             .iter()
@@ -403,7 +427,7 @@ pub(super) fn parse_machine_clause(
         head_result,
         extras,
         bindings,
-        computation_cell: Some(computation_cell),
+        computation_cell,
         source_range: TokenRange::new(clause_start, semicolon.span),
         layout,
     })

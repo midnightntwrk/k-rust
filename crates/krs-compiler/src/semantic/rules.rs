@@ -194,13 +194,19 @@ pub(super) fn lower_head_rule_descriptor(
         .map(|sort| semantic_sort_ref(&sort.sort));
     infer_head_rule(&mut builder, rule, head_sort.as_ref(), &seeds)?;
 
-    let mut clauses = vec![lower_head_rule_computation_clause(
-        &mut builder,
-        rule,
-        head_sort.as_ref(),
-        sort_parents,
-    )?];
-    let mut selected = BTreeSet::from([rule.computation_cell.cell.clone()]);
+    let mut clauses = Vec::new();
+    let mut selected = BTreeSet::new();
+    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
+        clauses.push(lower_head_rule_computation_clause(
+            &mut builder,
+            rule,
+            head,
+            computation,
+            head_sort.as_ref(),
+            sort_parents,
+        )?);
+        selected.insert(computation.cell.clone());
+    }
     for extra in &rule.extras {
         clauses.push(lower_head_rule_extra(
             &mut builder,
@@ -208,6 +214,9 @@ pub(super) fn lower_head_rule_descriptor(
             declarations,
             &mut selected,
         )?);
+    }
+    if rule.head.is_none() {
+        check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     let body = FixedConfigurationRewrite::new(
@@ -254,6 +263,115 @@ pub(super) fn lower_head_rule_descriptor(
     .with_requires(requires)?)
 }
 
+/// Rejects the two readable machine rules without the computation cell that
+/// can never be what the author meant (KF-015): one that changes no cell, and
+/// one that is enabled in every configuration, so execution never terminates.
+fn check_framed_computation_rule(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorHeadRule,
+    clauses: &[FixedCellClause<SemanticId, SemanticTerm>],
+    cell_sorts: &BTreeMap<DescriptorCellIdentity, SemanticSortRef>,
+) -> Result<(), DescriptorLoweringError> {
+    let range = || -> Result<Option<Box<krs_ir::SourceRange>>, DescriptorLoweringError> {
+        Ok(
+            semantic_origin(descriptor, rule.pattern_key.clone(), "framed-rule-pattern")?
+                .origin()
+                .exact_authored_range()
+                .map(Box::new),
+        )
+    };
+    let unchanged = clauses.iter().all(|clause| match clause.after() {
+        CellPost::Preserve => true,
+        CellPost::Replace { term } => same_term(clause.before(), term),
+    });
+    if unchanged {
+        return Err(DescriptorLoweringError::RuleChangesNoCell {
+            rule: Box::new(descriptor.id().clone()),
+            range: range()?,
+        });
+    }
+    let unconstrained = rule.requires.is_none()
+        && rule.extras.iter().zip(clauses).all(|(extra, clause)| {
+            matches!(
+                clause.before().kind(),
+                krs_ir_levels::SemanticTermKind::Variable { .. }
+            ) && cell_sorts
+                .get(&head_rule_extra_cell(extra).cell)
+                .is_some_and(|sort| sort == clause.before().sort())
+        });
+    if unconstrained {
+        return Err(DescriptorLoweringError::AlwaysEnabledRule {
+            rule: Box::new(descriptor.id().clone()),
+            range: range()?,
+        });
+    }
+    Ok(())
+}
+
+/// Whether two semantic terms are the same term, ignoring their origins.
+fn same_term(left: &SemanticTerm, right: &SemanticTerm) -> bool {
+    use krs_ir_levels::SemanticTermKind as Kind;
+    let all = |left: &[SemanticTerm], right: &[SemanticTerm]| {
+        left.len() == right.len() && left.iter().zip(right).all(|(l, r)| same_term(l, r))
+    };
+    let all_iter = |left: Vec<&SemanticTerm>, right: Vec<&SemanticTerm>| {
+        left.len() == right.len() && left.iter().zip(&right).all(|(l, r)| same_term(l, r))
+    };
+    if left.sort() != right.sort() {
+        return false;
+    }
+    match (left.kind(), right.kind()) {
+        (Kind::Variable { variable: l }, Kind::Variable { variable: r }) => l == r,
+        (
+            Kind::Application {
+                application: l,
+                arguments: la,
+            },
+            Kind::Application {
+                application: r,
+                arguments: ra,
+            },
+        ) => l == r && all(la, ra),
+        (Kind::Token { value: l }, Kind::Token { value: r }) => l == r,
+        (
+            Kind::KSequence {
+                item_sort: l,
+                items: li,
+            },
+            Kind::KSequence {
+                item_sort: r,
+                items: ri,
+            },
+        ) => l == r && all(li, ri),
+        (Kind::Map(l), Kind::Map(r)) => {
+            l.operation() == r.operation()
+                && all_iter(l.operands().collect(), r.operands().collect())
+        }
+        (Kind::List(l), Kind::List(r)) => {
+            l.operation() == r.operation()
+                && all_iter(l.operands().collect(), r.operands().collect())
+        }
+        (Kind::Set(l), Kind::Set(r)) => {
+            l.operation() == r.operation()
+                && all_iter(l.operands().collect(), r.operands().collect())
+        }
+        (
+            Kind::Cell {
+                cell: l,
+                children: lc,
+            },
+            Kind::Cell {
+                cell: r,
+                children: rc,
+            },
+        ) => l == r && all(lc, rc),
+        (Kind::Rewrite { from: lf, to: lt }, Kind::Rewrite { from: rf, to: rt }) => {
+            same_term(lf, rf) && same_term(lt, rt)
+        }
+        _ => false,
+    }
+}
+
 /// Checks the head rule's sentence kind and computation cell and returns its
 /// fixed configuration.
 fn head_rule_configuration<'a>(
@@ -272,7 +390,17 @@ fn head_rule_configuration<'a>(
         "head-anchored rule",
         "head completion requires a fixed configuration",
     )?;
-    let computation = require_cell_field(&rule.computation_cell.cell, declarations)?;
+    let Some(computation) = &rule.computation_cell else {
+        if rule.head.is_some() {
+            return Err(DescriptorLoweringError::UnsupportedShape {
+                node: "head-anchored rule",
+                detail: "a rule that matches a computation-cell head has no computation cell"
+                    .into(),
+            });
+        }
+        return Ok(configuration);
+    };
+    let computation = require_cell_field(&computation.cell, declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &computation.content else {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
@@ -377,17 +505,19 @@ fn infer_head_rule(
     head_sort: Option<&SemanticSortRef>,
     seeds: &HeadRuleSeeds,
 ) -> Result<(), DescriptorLoweringError> {
-    builder.infer(&rule.subject, head_sort, true)?;
-    match &rule.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            builder.infer(term, head_sort, false)?;
-        }
-        krs_ir::ProtocolHeadRuleResult::Splice(items) => {
-            for term in items {
+    if let Some(head) = &rule.head {
+        builder.infer(&head.subject, head_sort, true)?;
+        match &head.result {
+            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
                 builder.infer(term, head_sort, false)?;
             }
+            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+                for term in items {
+                    builder.infer(term, head_sort, false)?;
+                }
+            }
+            krs_ir::ProtocolHeadRuleResult::Erase => {}
         }
-        krs_ir::ProtocolHeadRuleResult::Erase => {}
     }
     for extra in &rule.extras {
         match extra {
@@ -454,18 +584,20 @@ fn infer_head_rule(
 fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
+    head: &krs_ir::ProtocolHeadRuleHead<DescriptorTerm>,
+    computation: &DescriptorCellReference,
     head_sort: Option<&SemanticSortRef>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    let subject_head = builder.lower(&rule.subject, head_sort, true)?;
+    let subject_head = builder.lower(&head.subject, head_sort, true)?;
     let subject_item_sort = subject_head.sort().clone();
     let before_k = SemanticTerm::k_sequence(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-subject")?,
         subject_item_sort,
         vec![subject_head],
     );
-    let result_items = match &rule.result {
+    let result_items = match &head.result {
         krs_ir::ProtocolHeadRuleResult::Replace(term) => {
             vec![builder.lower(term, head_sort, false)?]
         }
@@ -483,7 +615,7 @@ fn lower_head_rule_computation_clause(
     );
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
-        semantic_cell_id(&rule.computation_cell.cell)?,
+        semantic_cell_id(&computation.cell)?,
         before_k,
         CellPost::Replace { term: after_k },
         CellContentFrame::KSequenceTail {

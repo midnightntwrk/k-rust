@@ -656,10 +656,12 @@ fn head_rule() -> DescriptorHeadRule {
         result_key: key(1),
         head_sort: None,
         configuration: item(ItemKind::Configuration, "State"),
-        computation_cell: cell(2),
+        computation_cell: Some(cell(2)),
         bindings: Vec::new(),
-        subject: term(3),
-        result: crate::DescriptorHeadRuleResult::Replace(term(4)),
+        head: Some(crate::ProtocolHeadRuleHead {
+            subject: term(3),
+            result: crate::DescriptorHeadRuleResult::Replace(term(4)),
+        }),
         requires: None,
         extras: Vec::new(),
     }

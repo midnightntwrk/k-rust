@@ -348,17 +348,19 @@ fn collect_head_rule_packages(
             collect_sort_ref_package(&refinement.sort, packages);
         }
     }
-    collect_term_packages(&rule.subject, packages);
-    match &rule.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            collect_term_packages(term, packages);
-        }
-        krs_ir::ProtocolHeadRuleResult::Splice(items) => {
-            for term in items {
+    if let Some(head) = &rule.head {
+        collect_term_packages(&head.subject, packages);
+        match &head.result {
+            krs_ir::ProtocolHeadRuleResult::Replace(term) => {
                 collect_term_packages(term, packages);
             }
+            krs_ir::ProtocolHeadRuleResult::Splice(items) => {
+                for term in items {
+                    collect_term_packages(term, packages);
+                }
+            }
+            krs_ir::ProtocolHeadRuleResult::Erase => {}
         }
-        krs_ir::ProtocolHeadRuleResult::Erase => {}
     }
     for extra in &rule.extras {
         match extra {

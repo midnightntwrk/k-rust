@@ -141,6 +141,11 @@ def main() -> None:
             "enum `ExpSyntax` is private",
             "ExpSyntax",
         ),
+        (
+            "readable_rule_empty_record",
+            "a machine rule selects at least one cell",
+            "{}",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

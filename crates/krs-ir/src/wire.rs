@@ -18,7 +18,8 @@ use crate::transport::rule::{
     ProtocolRuleMap, ProtocolRuleStateTerm,
 };
 use crate::{
-    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey,
+    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult,
+    ProvenanceKey,
 };
 
 /// Index into the static host type-key table.
@@ -233,6 +234,8 @@ pub type WireGrammarDescriptor = StageGrammarDescriptor<WireStage>;
 pub type WireHeadRuleBinding = ProtocolHeadRuleBinding<WireSortReference>;
 /// Static wire-stage result in a readable head rule.
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
+/// Static wire-stage computation-cell head and rewrite in a readable head rule.
+pub type WireHeadRuleHead = ProtocolHeadRuleHead<WireTerm>;
 /// Static wire-stage extra-cell clause in a readable head rule.
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
 
@@ -430,8 +433,10 @@ mod tests {
                 configuration: None,
                 computation_cell_name: None,
                 bindings: vec![],
-                subject: term(),
-                result: super::WireHeadRuleResult::Replace(term()),
+                head: Some(super::WireHeadRuleHead {
+                    subject: term(),
+                    result: super::WireHeadRuleResult::Replace(term()),
+                }),
                 requires: None,
                 extras: vec![],
             },

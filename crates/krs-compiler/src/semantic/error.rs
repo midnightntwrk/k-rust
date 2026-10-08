@@ -85,6 +85,21 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the claim.
         range: Option<Box<SourceRange>>,
     },
+    /// A readable rule without the computation cell changes no cell (KF-015).
+    RuleChangesNoCell {
+        /// The rule.
+        rule: Box<StableItemId>,
+        /// Sole exact authored range of the rule's subject record.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A readable rule without the computation cell matches every
+    /// configuration, so execution never terminates (KF-015).
+    AlwaysEnabledRule {
+        /// The rule.
+        rule: Box<StableItemId>,
+        /// Sole exact authored range of the rule's subject record.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -176,6 +191,16 @@ impl fmt::Display for DescriptorLoweringError {
             Self::PrivateProductionInSpec { production, .. } => {
                 formatter.write_str(&super::visibility::private_production_message(production))
             }
+            Self::RuleChangesNoCell { rule, .. } => write!(
+                formatter,
+                "rule `{}` changes no cell: every cell it names keeps its content and it leaves the computation cell out, so applying it changes nothing",
+                rule.item_name()
+            ),
+            Self::AlwaysEnabledRule { rule, .. } => write!(
+                formatter,
+                "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
+                rule.item_name()
+            ),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -198,6 +223,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
+            Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
+            Self::AlwaysEnabledRule { .. } => codes::analysis::ALWAYS_ENABLED_RULE,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -210,7 +237,9 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .map_or(Location::None, Location::Source),
             Self::NondetGroup { range, .. }
             | Self::InvalidOverload { range, .. }
-            | Self::PrivateProductionInSpec { range, .. } => range
+            | Self::PrivateProductionInSpec { range, .. }
+            | Self::RuleChangesNoCell { range, .. }
+            | Self::AlwaysEnabledRule { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

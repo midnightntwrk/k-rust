@@ -1553,6 +1553,14 @@ impl<
         )
     }
 }
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleHead<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            subject: sample::<T>(),
+            result: sample::<ProtocolHeadRuleResult<T>>(),
+        }]
+    }
+}
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleResult<T> {
     fn samples() -> Vec<Self> {
         checked_samples(
@@ -2371,10 +2379,9 @@ impl Sample for DescriptorHeadRule {
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<DescriptorSortReference>>(),
             configuration: sample::<StableItemId>(),
-            computation_cell: sample::<DescriptorCellReference>(),
+            computation_cell: sample::<Option<DescriptorCellReference>>(),
             bindings: sample::<Vec<DescriptorHeadRuleBinding>>(),
-            subject: sample::<DescriptorTerm>(),
-            result: sample::<DescriptorHeadRuleResult>(),
+            head: sample::<Option<ProtocolHeadRuleHead<DescriptorTerm>>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
             extras: sample::<Vec<DescriptorHeadRuleExtra>>(),
         }]
@@ -2753,8 +2760,7 @@ impl Sample for WireHeadRule {
             configuration: sample::<Option<WireConfigurationReference>>(),
             computation_cell_name: sample::<Option<String>>(),
             bindings: sample::<Vec<WireHeadRuleBinding>>(),
-            subject: sample::<WireTerm>(),
-            result: sample::<WireHeadRuleResult>(),
+            head: sample::<Option<WireHeadRuleHead>>(),
             requires: sample::<Option<WireRuleCondition>>(),
             extras: sample::<Vec<WireHeadRuleExtra>>(),
         }]
@@ -2960,6 +2966,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
         "ProtocolHeadRuleExtra",
     );
     insert::<ProtocolHeadRuleResult<DescriptorTerm>>(corpus, "ProtocolHeadRuleResult");
+    insert::<ProtocolHeadRuleHead<DescriptorTerm>>(corpus, "ProtocolHeadRuleHead");
     insert::<
         ProtocolInitializerCellContent<
             DescriptorCellReference,

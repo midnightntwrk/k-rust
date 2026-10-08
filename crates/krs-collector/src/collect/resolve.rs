@@ -140,7 +140,9 @@ pub(super) struct HeadRuleTarget {
 
 struct HeadRuleSelection<'a> {
     target: &'a HeadRuleTarget,
-    computation: &'a HeadRuleCellTarget,
+    /// The matched computation cell; absent for a cell-record rule that
+    /// leaves it out (KF-015).
+    computation: Option<&'a HeadRuleCellTarget>,
 }
 
 fn collect_head_rule_cells(
@@ -328,6 +330,12 @@ fn resolve_head_rule_target<'a>(
         };
         target
     };
+    if rule.head.is_none() {
+        return Ok(HeadRuleSelection {
+            target,
+            computation: None,
+        });
+    }
     let computations = target
         .cells
         .iter()
@@ -354,7 +362,7 @@ fn resolve_head_rule_target<'a>(
     };
     Ok(HeadRuleSelection {
         target,
-        computation,
+        computation: Some(computation),
     })
 }
 
@@ -462,7 +470,10 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
                 detail,
             ));
         };
-        if resolved.identity == selection.computation.identity {
+        if selection
+            .computation
+            .is_some_and(|computation| resolved.identity == computation.identity)
+        {
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
@@ -549,10 +560,13 @@ fn resolve_head_rule(
         .head_selection
         .take()
         .expect("head-rule completion requires a selected configuration");
-    let computation_cell = krs_ir::DescriptorCellReference {
-        key: rule.pattern_key.clone(),
-        cell: selection.computation.identity.clone(),
-    };
+    let computation_cell =
+        selection
+            .computation
+            .map(|computation| krs_ir::DescriptorCellReference {
+                key: rule.pattern_key.clone(),
+                cell: computation.identity.clone(),
+            });
     Ok(krs_ir::DescriptorHeadRule::from_selected(
         rule,
         selection.target.configuration.clone(),
@@ -1131,8 +1145,10 @@ mod tests {
             configuration: None,
             computation_cell_name: None,
             bindings: Vec::new(),
-            subject: unresolved_term("Subject"),
-            result: krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term("Result")),
+            head: Some(krs_ir::ProtocolHeadRuleHead {
+                subject: unresolved_term("Subject"),
+                result: krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term("Result")),
+            }),
             requires: None,
             extras: vec![krs_ir::ProtocolHeadRuleExtra::HaveMap {
                 cell: krs_ir::HostHeadRuleCellReference {
@@ -1178,7 +1194,12 @@ mod tests {
         );
         rule.extras.clear();
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Result");
-        rule.result = krs_ir::ProtocolHeadRuleResult::Erase;
+        let head = rule.head.as_mut().unwrap();
+        head.result = krs_ir::ProtocolHeadRuleResult::Erase;
+        assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Subject");
+        rule.head.as_mut().unwrap().subject = krs_ir::HostTerm::Wildcard {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftWildcard, 0),
+        };
         assert_sort_error(&payload_error(&payload(rule), &targets), "Header");
     }
 

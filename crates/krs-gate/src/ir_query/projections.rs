@@ -103,11 +103,14 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     let DescriptorPayload::HeadRule(rule) = descriptor.payload() else {
         return Err("walkthrough requires a head rule".into());
     };
+    let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) else {
+        return Err("walkthrough requires a computation-cell head".into());
+    };
     let DescriptorTerm::Application {
         reference,
         arguments,
         ..
-    } = &rule.subject
+    } = &head.subject
     else {
         return Err("walkthrough subject requires an application".into());
     };
@@ -127,7 +130,7 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
         reference: result,
         arguments: result_args,
         ..
-    }) = &rule.result
+    }) = &head.result
     else {
         return Err("walkthrough requires an application replacement".into());
     };
@@ -147,7 +150,7 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
         "id":descriptor.id().item_name(), "kind":"head_rule", "sentence_kind":rule.sentence_kind,
         "label":rule.label.as_ref().ok_or("walkthrough requires a label")?.name,
         "configuration":rule.configuration.item_name(),
-        "cell":rule.computation_cell.cell.field.as_str(),
+        "cell":computation.cell.field.as_str(),
         "bindings":rule.bindings.iter().map(|b|b.name.as_str()).collect::<Vec<_>>(),
         "subject":{"application":id.item_name(),"arguments":fields},
         "result":{"application":format!("builtin:{}",enum_name(operation)),"arguments":args},

@@ -70,6 +70,15 @@ When the overlap is intended, put the rules in one group with `#[k::rule(nondet 
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).
 Bare `#[k::strict]` is K's own evaluation-order nondeterminism and needs no key.
 
+### Rules that leave the computation cell out
+
+A K rule names only the cells it needs, and that includes `<k>`.
+A readable `for Machine` record may leave the computation cell out: `burn: { fuel: f, acc: a } => { fuel: int::sub(f, 1), acc: int::add(a, f) }` under `#[k::requires(int::gt(f, 0))]` emits `rule [burn]: <fuel> F:Int => F:Int -Int 1 </fuel> <acc> A:Int => A:Int +Int F:Int </acc> requires F:Int >Int 0`, with no `<k>`.
+The omitted computation cell is framed like every omitted cell, so the rule fires whenever its cells match, interleaved with the program; a Rust reader expects a struct pattern without `..` to be exhaustive, but here omission means untouched.
+`krs expand` writes the reference `cells!` rule without a `KCell` entry or tail.
+Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
+The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

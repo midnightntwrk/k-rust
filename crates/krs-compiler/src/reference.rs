@@ -1094,7 +1094,10 @@ fn render_rule(
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
-    let tail = fresh_ident("tail", &mut reserved);
+    let tail = rule
+        .head
+        .as_ref()
+        .map(|_| fresh_ident("tail", &mut reserved));
     let state = fresh_ident("state", &mut reserved);
     let mut parameters = Vec::new();
     for binding in &rule.bindings {
@@ -1109,26 +1112,30 @@ fn render_rule(
         parameters.push(quote!(#name: #ty));
     }
 
-    let computation =
-        render_rule_cell_field(&rule.computation_cell.cell, &rule.configuration, package)?;
-    let subject = render_term(&rule.subject, true, package, bundle)?;
-    let mut left_cells = vec![quote! {
-        #computation: k::configuration::KCell(#subject, #tail @ ..)
-    }];
+    let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
-    let result_items = match &rule.result {
-        ProtocolHeadRuleResult::Replace(term) => {
-            vec![render_term(term, false, package, bundle)?]
-        }
-        ProtocolHeadRuleResult::Splice(items) => items
-            .iter()
-            .map(|term| render_term(term, false, package, bundle))
-            .collect::<Result<Vec<_>, _>>()?,
-        ProtocolHeadRuleResult::Erase => Vec::new(),
-    };
-    right_cells.push(quote! {
-        #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
-    });
+    // A clause without the computation cell leaves it out of both sides (E7).
+    if let (Some(head), Some(computation), Some(tail)) = (&rule.head, &rule.computation_cell, &tail)
+    {
+        let computation = render_rule_cell_field(&computation.cell, &rule.configuration, package)?;
+        let subject = render_term(&head.subject, true, package, bundle)?;
+        left_cells.push(quote! {
+            #computation: k::configuration::KCell(#subject, #tail @ ..)
+        });
+        let result_items = match &head.result {
+            ProtocolHeadRuleResult::Replace(term) => {
+                vec![render_term(term, false, package, bundle)?]
+            }
+            ProtocolHeadRuleResult::Splice(items) => items
+                .iter()
+                .map(|term| render_term(term, false, package, bundle))
+                .collect::<Result<Vec<_>, _>>()?,
+            ProtocolHeadRuleResult::Erase => Vec::new(),
+        };
+        right_cells.push(quote! {
+            #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+        });
+    }
 
     for (ordinal, extra) in rule.extras.iter().enumerate() {
         match extra {
@@ -1189,11 +1196,22 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
+    // The clause's `#[k::requires]` helper is consumed by the readable parser;
+    // the reference form restates it from the descriptor, after `#[k::rule]`.
+    let requires = rule
+        .requires
+        .as_ref()
+        .map(|condition| {
+            render_term(&condition.term, false, package, bundle)
+                .map(|term| quote!(#[k::requires(#term)]))
+        })
+        .transpose()?;
     let rule_attribute =
         reference_rule_attribute(rule.priority.as_ref(), rule.nondet.as_ref(), &label);
     syn::parse2(quote! {
         #(#attrs)*
         #rule_attribute
+        #requires
         pub fn #name(
             #(#parameters,)*
             k::cells! {

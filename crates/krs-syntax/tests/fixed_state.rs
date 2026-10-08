@@ -1008,3 +1008,63 @@ fn map_pattern_binding_conflicts_keep_term_before_frame_order_and_span() {
     );
     assert_eq!(error.span().start().column, source.find("tail ->").unwrap());
 }
+
+#[test]
+fn machine_records_may_leave_the_computation_cell_out() {
+    // E7: an omitted cell is untouched, and that includes the computation cell.
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Machine;
+
+        #[k::requires(int::gt(f, 0))]
+        burn: { fuel: f, acc: a } => { fuel: int::sub(f, 1), acc: int::add(a, f) };
+        ",
+    )
+    .unwrap();
+    let clause = &block.clauses()[0];
+    assert!(clause.head_result().is_none());
+    assert!(clause.computation_cell().is_none());
+    assert_eq!(
+        clause
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["f", "a"]
+    );
+    assert_eq!(clause.extras().len(), 2);
+    assert!(clause.rule().requires().is_some());
+    let anchors = clause.provenance().unwrap();
+    let pattern = anchors
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::RulePattern)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        pattern.len(),
+        1,
+        "one pattern anchor, at the subject record"
+    );
+    assert!(
+        anchors
+            .iter()
+            .all(|anchor| anchor.role() != ProvenanceRole::RuleLeftWildcard),
+        "the placeholder subject contributes no wildcard"
+    );
+
+    for (source, expected) in [
+        (
+            "for Machine; idle: {} => {};",
+            "a machine rule selects at least one cell",
+        ),
+        (
+            "for Machine; two: { k: [A, ..], k2: [B, ..] } => { k: [..], k2: [..] };",
+            "a machine rule must match at most one computation-cell sequence",
+        ),
+    ] {
+        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        assert!(
+            error.to_string().contains(expected),
+            "expected {expected:?} in {error}"
+        );
+    }
+}

@@ -51,8 +51,21 @@ what they block.
 6. **`{ .. }` in a cell position**: tail-only map pattern or all-framed
    cell record? Not exercised by IMP; the grammar must rule on it before
    larger definitions. [result README open list]
-7. **The no-k-head escape hatch** for machine rules that don't touch the
-   computation cell — layer-2 only per 13 §E, exact spelling open.
+7. ~~**The no-k-head escape hatch** for machine rules that don't touch the
+   computation cell~~ — **RESOLVED (2026-10, KF-015)**: no escape hatch and
+   no new spelling. A readable `for Machine` record may leave the
+   computation cell out, and an omitted computation cell is framed like
+   every omitted cell (E7): `burn: { fuel: f, acc: a } => { .. }` emits
+   `rule [burn]: <fuel> .. </fuel> <acc> .. </acc>` with no `<k>`. This
+   supersedes the earlier "layer-2 only" note; the layer-2 `cells!` subject
+   already accepted a record without `KCell`. A readable rule without the
+   computation cell that changes no cell is rejected
+   (`krs::analysis::rule-changes-no-cell`), and so is one whose every cell
+   pattern is an unguarded variable or `_` of the cell's sort, because it
+   is always enabled (`krs::analysis::always-enabled-rule`). The overlap
+   check treats rules with disjoint footprints as independent. Rejected: an
+   explicit `k: ..` marker (inconsistent with E7), a third table header,
+   and keeping the form reference-only.
    [14 §Relationships]
 
 ## Blocks the grammar surface

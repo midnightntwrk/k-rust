@@ -146,11 +146,11 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     .unwrap();
     assert!(matches!(
         block.clauses()[0].head_result(),
-        RuleHeadResult::Splice { items, .. } if items.len() == 2
+        Some(RuleHeadResult::Splice { items, .. }) if items.len() == 2
     ));
     assert!(matches!(
         block.clauses()[1].head_result(),
-        RuleHeadResult::Erase(_)
+        Some(RuleHeadResult::Erase(_))
     ));
     assert!(matches!(
         block.clauses()[2].extras(),

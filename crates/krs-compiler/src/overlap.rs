@@ -898,14 +898,39 @@ fn transitions_overlap(
     {
         return false;
     }
+    clauses_overlap(
+        &left.clauses,
+        left.requires,
+        &right.clauses,
+        right.requires,
+        graph,
+    )
+}
+
+/// Whether two transitions' clauses over one configuration can match the same
+/// configuration. Disjoint footprints are independent: the rules commute (F2
+/// amendment, clause 5, without the function-context part). Otherwise only the
+/// shared cells are unified.
+fn clauses_overlap(
+    left: &[ClauseView<'_>],
+    left_requires: Option<&SemanticTerm>,
+    right: &[ClauseView<'_>],
+    right_requires: Option<&SemanticTerm>,
+    graph: &SortGraph,
+) -> bool {
     let right_cells = right
-        .clauses
         .iter()
         .map(|clause| (clause.cell, clause))
         .collect::<BTreeMap<_, _>>();
+    if !left
+        .iter()
+        .any(|clause| right_cells.contains_key(clause.cell))
+    {
+        return false;
+    }
     let mut catalog = VariableCatalog::default();
     let mut unifier = Unifier::new(graph);
-    let cells_unify = left.clauses.iter().all(|left_clause| {
+    let cells_unify = left.iter().all(|left_clause| {
         right_cells
             .get(left_clause.cell)
             .is_none_or(|right_clause| {
@@ -922,8 +947,8 @@ fn transitions_overlap(
     if !cells_unify {
         return false;
     }
-    let left_guard = left.requires.map(|term| pattern(term, 0, &mut catalog));
-    let right_guard = right.requires.map(|term| pattern(term, 1, &mut catalog));
+    let left_guard = left_requires.map(|term| pattern(term, 0, &mut catalog));
+    let right_guard = right_requires.map(|term| pattern(term, 1, &mut catalog));
     !unifier.guards_complementary(left_guard.as_ref(), right_guard.as_ref())
 }
 
@@ -1016,6 +1041,9 @@ mod rule_keys_tests;
 
 #[cfg(test)]
 mod token_literal_tests;
+
+#[cfg(test)]
+mod framing_tests;
 
 #[cfg(test)]
 mod tests {

@@ -794,7 +794,7 @@ note = "Use extracts as scale evidence, never claim complete ports."
 
 [[concept]]
 id = "open-cell-questions"
-title = "Open cell-pattern and no-k-head questions"
+title = "Open cell-pattern questions"
 status = "open"
 coverage = "limitation"
 chapter = "limits"

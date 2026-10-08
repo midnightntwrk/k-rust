@@ -1995,13 +1995,13 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult),
             head_sort: None,
             configuration: config.clone(),
-            computation_cell: krs_ir::DescriptorCellReference {
+            computation_cell: Some(krs_ir::DescriptorCellReference {
                 key: key(ProvenanceRole::RuleLeftCellsField),
                 cell: krs_ir::DescriptorCellIdentity {
                     owner: config,
                     field: "k".into(),
                 },
-            },
+            }),
             bindings: vec![
                 DescriptorHeadRuleBinding {
                     name: "lhs".into(),
@@ -2012,28 +2012,34 @@ mod tests {
                     refinement: None,
                 },
             ],
-            subject: application(
-                DescriptorApplicationRef::Declared(item("syntax", "Add", ItemKind::Constructor)),
-                Arguments::named(
-                    ["lhs", "rhs"]
-                        .iter()
-                        .map(|name| NamedTermArgument {
-                            key: key(ProvenanceRole::RuleLeftReference),
-                            field: krs_ir::ProductionFieldId::new(*name).unwrap(),
-                            value: Box::new(var(name)),
-                        })
-                        .collect(),
+            head: Some(krs_ir::ProtocolHeadRuleHead {
+                subject: application(
+                    DescriptorApplicationRef::Declared(item(
+                        "syntax",
+                        "Add",
+                        ItemKind::Constructor,
+                    )),
+                    Arguments::named(
+                        ["lhs", "rhs"]
+                            .iter()
+                            .map(|name| NamedTermArgument {
+                                key: key(ProvenanceRole::RuleLeftReference),
+                                field: krs_ir::ProductionFieldId::new(*name).unwrap(),
+                                value: Box::new(var(name)),
+                            })
+                            .collect(),
+                    ),
                 ),
-            ),
-            result: DescriptorHeadRuleResult::Replace(application(
-                DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
-                Arguments::Positional(
-                    ["lhs", "rhs"]
-                        .iter()
-                        .map(|name| Box::new(var(name)))
-                        .collect(),
-                ),
-            )),
+                result: DescriptorHeadRuleResult::Replace(application(
+                    DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+                    Arguments::Positional(
+                        ["lhs", "rhs"]
+                            .iter()
+                            .map(|name| Box::new(var(name)))
+                            .collect(),
+                    ),
+                )),
+            }),
             requires: None,
             extras: vec![],
         }));

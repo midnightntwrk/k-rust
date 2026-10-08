@@ -894,9 +894,10 @@ fn collect_rules_macro(
                 bindings,
                 lhs: rule.parameter().pattern.spelling(),
                 result_kind: match clause.head_result() {
-                    krs_syntax::RuleHeadResult::Replace(_) => "replace",
-                    krs_syntax::RuleHeadResult::Splice { .. } => "splice",
-                    krs_syntax::RuleHeadResult::Erase(_) => "erase",
+                    None => "none",
+                    Some(krs_syntax::RuleHeadResult::Replace(_)) => "replace",
+                    Some(krs_syntax::RuleHeadResult::Splice { .. }) => "splice",
+                    Some(krs_syntax::RuleHeadResult::Erase(_)) => "erase",
                 }
                 .to_owned(),
                 extras,
@@ -1051,10 +1052,11 @@ pub(super) fn validate_reparsed_payload(
                     }
                 })
                 .collect::<Vec<_>>();
-            let host_rhs = match &rule.result {
-                krs_ir::ProtocolHeadRuleResult::Replace(_) => "replace",
-                krs_ir::ProtocolHeadRuleResult::Splice(_) => "splice",
-                krs_ir::ProtocolHeadRuleResult::Erase => "erase",
+            let host_rhs = match rule.head.as_ref().map(|head| &head.result) {
+                None => "none",
+                Some(krs_ir::ProtocolHeadRuleResult::Replace(_)) => "replace",
+                Some(krs_ir::ProtocolHeadRuleResult::Splice(_)) => "splice",
+                Some(krs_ir::ProtocolHeadRuleResult::Erase) => "erase",
             };
             if host_bindings != *bindings
                 || host_extras != *extras

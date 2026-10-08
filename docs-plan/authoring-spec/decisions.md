@@ -164,6 +164,16 @@ bug — report it, don't guess.
   accepted, mitigated by documentation (the Verus precedent).
   A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term; such a fixed-leaf rewrite must name the cell on both sides.
   This is the protocol-16 W1 extension qualified by KWasm's `<valstack>` operand-loading rules; it preserves the distinct framed-map forms and does not imply repeated symbolic equality in patterns.
+  *E7 note: the computation cell may be omitted (2026-10, KF-015).*
+  The record may leave the computation cell out; it is then framed like
+  every omitted cell, so the rule names only the cells it needs, as a K
+  rule does, and fires whenever they match, interleaved with the program
+  (`burn: { fuel: f, acc: a } => { .. }` emits a rule with no `<k>`). No
+  marker is written: an explicit `k: ..` would be inconsistent with this
+  decision. Such a rule is rejected when it changes no cell, and when every
+  cell pattern is an unguarded variable or `_` of the cell's sort, because
+  it is then always enabled and execution never terminates. The reference
+  surface stays K-faithful and gains no new error.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

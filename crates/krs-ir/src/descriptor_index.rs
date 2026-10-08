@@ -364,20 +364,22 @@ mod tests {
                 result_key: key(),
                 head_sort: None,
                 configuration: configuration.clone(),
-                computation_cell: DescriptorCellReference {
+                computation_cell: Some(DescriptorCellReference {
                     key: key(),
                     cell: DescriptorCellIdentity {
                         owner: configuration,
                         field: "k".into(),
                     },
-                },
+                }),
                 bindings: Vec::new(),
-                subject: DescriptorTerm::Variable {
-                    key: key(),
-                    path_key: key(),
-                    name: "head".into(),
-                },
-                result: ProtocolHeadRuleResult::Erase,
+                head: Some(crate::ProtocolHeadRuleHead {
+                    subject: DescriptorTerm::Variable {
+                        key: key(),
+                        path_key: key(),
+                        name: "head".into(),
+                    },
+                    result: ProtocolHeadRuleResult::Erase,
+                }),
                 requires: None,
                 extras: Vec::new(),
             })),

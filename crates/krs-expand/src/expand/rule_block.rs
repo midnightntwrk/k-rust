@@ -135,7 +135,11 @@ fn expand_head_rule(
         bindings.push(krs_ir::wire::WireHeadRuleBinding { name, refinement });
     }
 
-    let subject = builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
+    let subject = if clause.head_result().is_some() {
+        Some(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?)
+    } else {
+        None
+    };
 
     let mut have_ordinal = 0_u32;
     let mut update_ordinal = 0_u32;
@@ -184,19 +188,23 @@ fn expand_head_rule(
 
     builder.reset_side();
     let result = match clause.head_result() {
-        krs_syntax::RuleHeadResult::Replace(term) => {
+        None => None,
+        Some(krs_syntax::RuleHeadResult::Replace(term)) => {
             let term = builder.expand_wire(term.tree(), TermSide::Right, &mut slots)?;
-            krs_ir::wire::WireHeadRuleResult::Replace(term)
+            Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
-        krs_syntax::RuleHeadResult::Splice { items, .. } => {
+        Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
             let items = items
                 .iter()
                 .map(|item| builder.expand_wire(item.tree(), TermSide::Right, &mut slots))
                 .collect::<Result<Vec<_>, _>>()?;
-            krs_ir::wire::WireHeadRuleResult::Splice(items)
+            Some(krs_ir::wire::WireHeadRuleResult::Splice(items))
         }
-        krs_syntax::RuleHeadResult::Erase(_) => krs_ir::wire::WireHeadRuleResult::Erase,
+        Some(krs_syntax::RuleHeadResult::Erase(_)) => Some(krs_ir::wire::WireHeadRuleResult::Erase),
     };
+    let head = subject
+        .zip(result)
+        .map(|(subject, result)| krs_ir::wire::WireHeadRuleHead { subject, result });
     let mut update_extras = Vec::new();
     let mut rewrite_index = 0_usize;
     for extra in clause.extras() {
@@ -289,14 +297,17 @@ fn expand_head_rule(
     let name = name_ident.unraw().to_string();
     let parameter_type = rule.parameter().term_sort.ty();
     let (head_sort, configuration, computation_cell_name) = if configuration_owned {
-        let computation_cell = clause.computation_cell().ok_or_else(|| {
-            ExpandError::new(
-                expand::MISSING_COMPUTATION_CELL,
-                rule.item().sig.ident.span(),
-                "a configuration-owned rule is missing its computation-cell field",
-            )
-        })?;
-        let computation_cell = computation_cell.unraw().to_string();
+        let computation_cell = match (clause.computation_cell(), &head) {
+            (Some(cell), Some(_)) => Some(cell.unraw().to_string()),
+            (None, None) => None,
+            _ => {
+                return Err(ExpandError::new(
+                    expand::MISSING_COMPUTATION_CELL,
+                    rule.item().sig.ident.span(),
+                    "a configuration-owned rule is missing its computation-cell field",
+                ));
+            }
+        };
         (
             None,
             Some(krs_ir::wire::WireConfigurationReference {
@@ -306,7 +317,7 @@ fn expand_head_rule(
                     authored_path: sort_spelling,
                 },
             }),
-            Some(computation_cell),
+            computation_cell,
         )
     } else {
         (
@@ -340,8 +351,7 @@ fn expand_head_rule(
         configuration,
         computation_cell_name,
         bindings,
-        subject,
-        result,
+        head,
         requires,
         extras,
     }));
