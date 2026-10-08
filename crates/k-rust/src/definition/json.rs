@@ -37,8 +37,8 @@ use crate::kast::json::{self as term_json, JsonLabel, JsonSort, JsonTerm};
 use crate::{
     kast::{Label, ProductionIdentity, Term, TermMetadata, TermSpan},
     provenance::{
-        DestinationAnchor, GeneratingPass, LogicalSourceId, OriginRecord, ProvenanceLink, SourceId,
-        SourceOffsetMap, SourceOffsetSegment, SourceTable,
+        DestinationAnchor, GeneratingPass, LogicalSourceId, OriginRecord, OriginSet,
+        ProvenanceLink, SourceId, SourceOffsetMap, SourceOffsetSegment, SourceTable,
     },
 };
 
@@ -586,10 +586,10 @@ struct ProvenanceEncoder {
     source_references: Vec<JsonLogicalSource>,
     origin_sets: Vec<Vec<JsonProvenanceLink>>,
     // Table index of every origin set already written, keyed by its links.
-    by_links: HashMap<Arc<[ProvenanceLink]>, u32>,
+    by_links: HashMap<Vec<ProvenanceLink>, u32>,
     // Table index of every shared allocation already looked up, keyed by its address. The entry
     // holds the allocation, so the address cannot be reused by another set while encoding.
-    by_allocation: HashMap<*const ProvenanceLink, (u32, Arc<[ProvenanceLink]>)>,
+    by_allocation: HashMap<usize, (u32, OriginSet)>,
 }
 
 impl ProvenanceEncoder {
@@ -621,28 +621,29 @@ impl ProvenanceEncoder {
     /// Equal sets receive one index whether or not they share an allocation. A shared allocation
     /// is resolved by its address after its first lookup, so the links of a set shared by many
     /// receipts are compared and encoded once.
-    fn origin_set(&mut self, origins: &Arc<[ProvenanceLink]>) -> Result<u32, Error> {
-        let allocation = Arc::as_ptr(origins).cast::<ProvenanceLink>();
+    fn origin_set(&mut self, origins: &OriginSet) -> Result<u32, Error> {
+        let allocation = origins.address();
         if let Some((index, _)) = self.by_allocation.get(&allocation) {
             return Ok(*index);
         }
         measure::bump(Counter::ProvenanceEncoderSetKeys);
-        let index = match self.by_links.get(origins) {
+        let links = origins.links();
+        let index = match self.by_links.get(&links) {
             Some(index) => *index,
             None => {
                 let index = u32::try_from(self.origin_sets.len())
                     .map_err(|_| Error::InvalidProvenance("too many origin sets".into()))?;
-                let links = origins
+                let encoded = links
                     .iter()
                     .map(|link| encode_link(link, &self.source_references))
                     .collect::<Result<_, _>>()?;
-                self.origin_sets.push(links);
-                self.by_links.insert(Arc::clone(origins), index);
+                self.origin_sets.push(encoded);
+                self.by_links.insert(links, index);
                 index
             }
         };
         self.by_allocation
-            .insert(allocation, (index, Arc::clone(origins)));
+            .insert(allocation, (index, origins.clone()));
         Ok(index)
     }
 
@@ -747,7 +748,7 @@ fn memory_origin_record(value: &Value) -> Result<OriginRecord, Error> {
 fn decode_origin_sets(
     origin_sets: Vec<Vec<JsonProvenanceLink>>,
     source_table: &SourceTable,
-) -> Result<Vec<Arc<[ProvenanceLink]>>, Error> {
+) -> Result<Vec<OriginSet>, Error> {
     let decoded = origin_sets
         .into_iter()
         .map(|links| {
@@ -756,7 +757,6 @@ fn decode_origin_sets(
                 .into_iter()
                 .map(|link| decode_link(link, source_table))
                 .collect::<Result<Vec<_>, _>>()
-                .map(Arc::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut distinct = HashSet::with_capacity(decoded.len());
@@ -765,13 +765,14 @@ fn decode_origin_sets(
             "provenance origin-set table contains a duplicate set".into(),
         ));
     }
-    Ok(decoded)
+    drop(distinct);
+    Ok(decoded.into_iter().map(OriginSet::from).collect())
 }
 
 fn decode_attribute_sources(
     attributes: &mut Attributes,
     source_table: &SourceTable,
-    origin_sets: &[Arc<[ProvenanceLink]>],
+    origin_sets: &[OriginSet],
 ) -> Result<(), Error> {
     if let Some(source) = attributes.value(AttributeKey::SourceId).cloned() {
         attributes.set(
@@ -935,7 +936,7 @@ fn collect_metadata_child(
 fn decode_term_metadata(
     metadata: JsonTermMetadata,
     source_table: &SourceTable,
-    origin_sets: &[Arc<[ProvenanceLink]>],
+    origin_sets: &[OriginSet],
 ) -> Result<TermMetadata, Error> {
     Ok(TermMetadata {
         span: metadata
@@ -1011,7 +1012,7 @@ fn decode_link(
 /// Decode a receipt; its origin set is the table entry's allocation, shared rather than copied.
 fn decode_receipt(
     origin: JsonOriginReceipt,
-    origin_sets: &[Arc<[ProvenanceLink]>],
+    origin_sets: &[OriginSet],
 ) -> Result<OriginRecord, Error> {
     let origins = usize::try_from(origin.origins)
         .ok()
@@ -1024,7 +1025,7 @@ fn decode_receipt(
         })?;
     Ok(OriginRecord {
         pass: decode_pass(&origin.pass)?,
-        origins: Arc::clone(origins),
+        origins: origins.clone(),
         destination: origin.destination.map(decode_destination),
     })
 }
@@ -1980,15 +1981,10 @@ mod tests {
         }
     }
 
-    fn record(
-        pool: &[Arc<[ProvenanceLink]>],
-        set: usize,
-        pass: usize,
-        anchored: bool,
-    ) -> OriginRecord {
+    fn record(pool: &[OriginSet], set: usize, pass: usize, anchored: bool) -> OriginRecord {
         OriginRecord {
             pass: GeneratingPass::ALL[pass % GeneratingPass::ALL.len()],
-            origins: Arc::clone(&pool[set % pool.len()]),
+            origins: pool[set % pool.len()].clone(),
             destination: anchored.then(|| DestinationAnchor {
                 module: "MAIN".into(),
                 sentence: format!("rule:{set}"),
@@ -1998,7 +1994,7 @@ mod tests {
         }
     }
 
-    fn metadata(pool: &[Arc<[ProvenanceLink]>], receipt: Option<(usize, usize)>) -> TermMetadata {
+    fn metadata(pool: &[OriginSet], receipt: Option<(usize, usize)>) -> TermMetadata {
         TermMetadata {
             origin: receipt.map(|(set, pass)| Arc::new(record(pool, set, pass, true))),
             ..TermMetadata::default()
@@ -2007,14 +2003,14 @@ mod tests {
 
     /// Every origin set of a definition in traversal order: the sentence receipt, then the
     /// receipts of the body root and its child.
-    fn origin_sets(definition: &Definition) -> Vec<Option<Arc<[ProvenanceLink]>>> {
+    fn origin_sets(definition: &Definition) -> Vec<Option<OriginSet>> {
         let mut sets = Vec::new();
         for sentence in &definition.modules[0].local_sentences {
             sets.push(
                 sentence
                     .attributes()
                     .origin_record()
-                    .map(|record| Arc::clone(&record.origins)),
+                    .map(|record| record.origins.clone()),
             );
             let Sentence::Rule { body, .. } = &**sentence else {
                 unreachable!()
@@ -2026,7 +2022,7 @@ mod tests {
                 sets.push(
                     term.metadata()
                         .and_then(|metadata| metadata.origin.as_deref())
-                        .map(|origin| Arc::clone(&origin.origins)),
+                        .map(|origin| origin.origins.clone()),
                 );
             }
         }
@@ -2065,7 +2061,7 @@ mod tests {
             let pool = pool
                 .into_iter()
                 .map(|links| links.into_iter().map(link).collect::<Vec<_>>().into())
-                .collect::<Vec<Arc<[ProvenanceLink]>>>();
+                .collect::<Vec<OriginSet>>();
             let mut sources = SourceTable::default();
             sources.intern(LogicalSourceId::new("a.k", b"a"));
             sources.intern(LogicalSourceId::new("b.k", b"b"));
@@ -2146,12 +2142,12 @@ mod tests {
                         continue;
                     };
                     if let (Some(left), Some(right)) = (left, right)
-                        && Arc::ptr_eq(left, right)
+                        && left.ptr_eq(right)
                     {
-                        prop_assert!(Arc::ptr_eq(decoded_left, decoded_right));
+                        prop_assert!(decoded_left.ptr_eq(decoded_right));
                     }
                     prop_assert_eq!(
-                        Arc::ptr_eq(decoded_left, decoded_right),
+                        decoded_left.ptr_eq(decoded_right),
                         decoded_left == decoded_right
                     );
                 }
@@ -2163,7 +2159,7 @@ mod tests {
             prop_assert_eq!(table.len(), distinct.len());
             prop_assert_eq!(
                 table.iter().map(|set| set.as_array().unwrap().len()).sum::<usize>(),
-                distinct.iter().map(|set| set.len()).sum::<usize>()
+                distinct.iter().map(|set| set.links().len()).sum::<usize>()
             );
         }
     }

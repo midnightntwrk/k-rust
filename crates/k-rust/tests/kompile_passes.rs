@@ -5545,7 +5545,8 @@ fn macro_expansion_combines_call_site_and_macro_rule_sources() {
         .metadata()
         .and_then(|metadata| metadata.origin.as_deref())
         .unwrap()
-        .origins;
+        .origins
+        .links();
 
     let macro_rhs_index = origins.iter().position(|link| link == &macro_rhs).unwrap();
     let call_site_index = origins.iter().position(|link| link == &call_site).unwrap();
@@ -9262,7 +9263,7 @@ fn unchanged_rules_keep_their_own_origins_after_context_alias_removal() {
         };
         if let Some(record) = attributes.origin_record() {
             assert!(!record.origins.is_empty());
-            for origin in record.origins.iter() {
+            for origin in record.origins.links() {
                 match origin {
                     ProvenanceLink::Source { span } => {
                         assert_eq!(span.source, source_id);
@@ -11872,7 +11873,7 @@ fn fabricated_collection_units_replace_spans_with_generation_origins() {
         .as_deref()
         .expect("fabricated unit has an origin");
     assert_eq!(origin.pass, GeneratingPass::RemoveUnit);
-    assert_eq!(origin.origins.as_ref(), [ProvenanceLink::Source { span }]);
+    assert_eq!(origin.origins.links(), [ProvenanceLink::Source { span }]);
 }
 
 #[test]

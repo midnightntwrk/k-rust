@@ -726,7 +726,6 @@ fn render_sort(sort: &KoreSort) -> String {
 #[cfg(test)]
 mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
-    use std::sync::Arc;
 
     use super::{EmittedTheory, emitted_from};
     use crate::kore::ast::Sentence as KoreSentence;
@@ -761,7 +760,7 @@ mod tests {
     fn generated_origin() -> OriginRecord {
         OriginRecord {
             pass: GeneratingPass::GenerateSortPredicateRules,
-            origins: Arc::from([]),
+            origins: crate::provenance::OriginSet::new(),
             destination: None,
         }
     }

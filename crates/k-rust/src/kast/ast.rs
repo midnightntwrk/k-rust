@@ -904,7 +904,7 @@ mod tests {
     fn origin() -> Arc<OriginRecord> {
         Arc::new(OriginRecord {
             pass: crate::provenance::GeneratingPass::ResolveFun,
-            origins: Arc::from(Vec::new()),
+            origins: crate::provenance::OriginSet::new(),
             destination: None,
         })
     }
