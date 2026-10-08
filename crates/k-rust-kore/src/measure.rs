@@ -408,6 +408,10 @@ pub enum Counter {
     /// one per step that flattening, comparing or formatting a path visits, and one per step
     /// handed to a caller that walks a path itself.
     ProvenanceAnchorPathSteps,
+    /// Term nodes the provenance encoder expands in a preorder walk of a sentence field, to
+    /// number them for metadata addresses: one per node whose children a walk pushes, whichever
+    /// walk of the encoder does it.
+    ProvenanceEncoderPreorderSteps,
     /// Sentence allocations made by copy-on-write mutation of shared flat definitions.
     KompileSentenceCopies,
     /// Production identity digests computed while building catalogs.
@@ -536,7 +540,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 87;
+    pub const COUNT: usize = 88;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -567,6 +571,7 @@ impl Counter {
         Counter::ProvenanceEncoderAnchorRoots,
         Counter::ProvenanceNormalPartComparisons,
         Counter::ProvenanceAnchorPathSteps,
+        Counter::ProvenanceEncoderPreorderSteps,
         Counter::KompileSentenceCopies,
         Counter::KompileProductionIdentityDigests,
         Counter::ParserCompletedNodesInvalidated,
@@ -659,6 +664,7 @@ impl Counter {
             Counter::ProvenanceEncoderAnchorRoots => "provenance.encoder_anchor_roots",
             Counter::ProvenanceNormalPartComparisons => "provenance.normal_part_comparisons",
             Counter::ProvenanceAnchorPathSteps => "provenance.anchor_path_steps",
+            Counter::ProvenanceEncoderPreorderSteps => "provenance.encoder_preorder_steps",
             Counter::KompileSentenceCopies => "kompile.sentence_copies",
             Counter::KompileProductionIdentityDigests => "kompile.production_identity_digests",
             Counter::ParserCompletedNodesInvalidated => "parser.completed_nodes_invalidated",

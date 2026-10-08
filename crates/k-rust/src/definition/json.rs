@@ -3,7 +3,7 @@
 //! name = "KAST JSON encoding of flat definitions"
 //! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance", "ProvenanceEncoder::node_index", "ProvenanceEncoder::anchor", "collect_definition_metadata", "from_provenance_str", "decode_origin_sets", "decode_anchors", "attach_term_metadata"]
 //! variable = "N = encoded definition nodes; L = parts of the distinct origin-set allocations the receipts reach; A = distinct destination-path step allocations the receipts reach"
-//! counters = ["ProvenanceReceiptRenders", "ProvenanceEncoderSetKeys", "ProvenanceEncoderAnchorInternings", "ProvenanceEncoderAnchorRoots", "ProvenanceNormalPartComparisons", "ProvenanceDecoderSteps"]
+//! counters = ["ProvenanceReceiptRenders", "ProvenanceEncoderSetKeys", "ProvenanceEncoderAnchorInternings", "ProvenanceEncoderAnchorRoots", "ProvenanceNormalPartComparisons", "ProvenanceEncoderPreorderSteps", "ProvenanceDecoderSteps"]
 //! tests = ["crates/k-rust/tests/provenance_linearity.rs", "crates/k-rust/tests/provenance_routes.rs"]
 //! constrains = [{ id = "definition.provenance.record", site = "serialize_provenance", via = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization" }]
 //!
@@ -13,7 +13,7 @@
 //! ```
 //!
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
-//! Complexity: O(N + L + A). In `KRUST-PROVENANCE`, each receipt names its origin set by index into the `originSets` table and its destination by index into the `anchors` table, and each annotated node's metadata is addressed by its field and preorder index. The encoder computes each distinct set allocation's normal key once (a post-order walk memoised by allocation, `ProvenanceEncoderSetKeys`) and resolves each destination by walking its path up to the first step already resolved under its root (`ProvenanceEncoderAnchorInternings`), its root found by the names' allocations and interned by value once per pair of allocations (`ProvenanceEncoderAnchorRoots`), so a set or path reached along many paths of a shared DAG costs its own parts once. A key's parts are checked for repeats directly up to sixteen parts and through a hash set above (`ProvenanceNormalPartComparisons`), so a long flat sentence set costs linear time. The reader reads the format and version first, skipping the body, then checks and builds each table entry and attaches metadata in one preorder walk per field (`ProvenanceDecoderSteps`).
+//! Complexity: O(N + L + A). In `KRUST-PROVENANCE`, each receipt names its origin set by index into the `originSets` table and its destination by index into the `anchors` table, and each annotated node's metadata is addressed by its field and preorder index. The encoder computes each distinct set allocation's normal key once (a post-order walk memoised by allocation, `ProvenanceEncoderSetKeys`) and resolves each destination by walking its path up to the first step already resolved under its root (`ProvenanceEncoderAnchorInternings`), its root found by the names' allocations and interned by value once per pair of allocations (`ProvenanceEncoderAnchorRoots`), so a set or path reached along many paths of a shared DAG costs its own parts once. A key's parts are checked for repeats directly up to sixteen parts and through a hash set above (`ProvenanceNormalPartComparisons`), so a long flat sentence set costs linear time. The encoder addresses metadata by one preorder walk per field, which expands each node once (`ProvenanceEncoderPreorderSteps`). The reader reads the format and version first, skipping the body, then checks and builds each table entry and attaches metadata in one preorder walk per field (`ProvenanceDecoderSteps`).
 //! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
 //! KAST JSON version 4 and KRUST-PROVENANCE serialization for flat K definitions.
@@ -1228,7 +1228,13 @@ macro_rules! push_children_in_preorder {
 
 /// The children of `term`, its annotations removed, pushed onto `stack` in preorder
 /// (`push_children_in_preorder!`).
+///
+/// Every walk of the encoder that numbers nodes expands them here, so the measure of its work,
+/// `provenance.encoder_preorder_steps`, counts one per node expanded wherever the walk is
+/// written: one walk per field expands each node once, and a walk restarted from the field root
+/// to find a node's index expands every node before it again.
 fn push_children<'a>(term: &'a Term, stack: &mut Vec<&'a Term>) {
+    measure::bump(Counter::ProvenanceEncoderPreorderSteps);
     push_children_in_preorder!(term.unannotated(), stack, iter);
 }
 
@@ -3219,6 +3225,9 @@ mod tests {
     /// test counts itself: a walk without its visited-node memo, or keyed wrongly, exceeds its
     /// bound by orders of magnitude.
     ///
+    /// The encoder's numbering of metadata addresses expands at most the nodes of the sentence
+    /// fields, as the decoder's walk to attach them is bounded by the same nodes.
+    ///
     /// Sharing that the bytes cannot show (design §13.2, B2) is bounded structurally: the
     /// recorder holds one pair of name allocations per sentence and pass and the decoder one per
     /// root entry, the encoder interns each pair of name allocations by value once, and decoding
@@ -3309,6 +3318,15 @@ mod tests {
             "{internings} anchor internings for {} receipts and {} step allocations",
             reach.receipts,
             reach.steps
+        );
+        // Metadata addresses are numbered by one walk per field, which expands each node of the
+        // fields once; recomputing an annotated node's index by walking from its field's root
+        // expands about DEPTH^2 / 2 nodes per pass on this chain.
+        let expanded = encoding.get(Counter::ProvenanceEncoderPreorderSteps);
+        assert!(
+            expanded <= reach.nodes as u64,
+            "{expanded} nodes expanded to number {} nodes of the sentence fields",
+            reach.nodes
         );
 
         // The tables the document holds, rebuilt by the encoder's own walk: the document's term

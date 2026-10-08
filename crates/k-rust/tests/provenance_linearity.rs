@@ -29,7 +29,7 @@ use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_opt
 use k_rust_kore::measure::{Counter, Snapshot, snapshot};
 
 /// The provenance work counters whose growth the tests bound.
-const COUNTERS: [Counter; 10] = [
+const COUNTERS: [Counter; 11] = [
     Counter::ProvenanceSetNodesBuilt,
     Counter::ProvenanceSetPartsBuilt,
     Counter::ProvenanceLinksSteps,
@@ -39,6 +39,7 @@ const COUNTERS: [Counter; 10] = [
     Counter::ProvenanceEncoderAnchorRoots,
     Counter::ProvenanceNormalPartComparisons,
     Counter::ProvenanceAnchorPathSteps,
+    Counter::ProvenanceEncoderPreorderSteps,
     Counter::ProvenanceDecoderSteps,
 ];
 
