@@ -253,6 +253,11 @@ pub enum SyntaxErrorKind {
         /// Specific placement restriction.
         reason: &'static str,
     },
+    /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
+    InvalidSmtMetadata {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -335,6 +340,7 @@ impl SyntaxErrorKind {
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
+            Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
         }
     }
 }
@@ -567,7 +573,8 @@ impl fmt::Display for SyntaxError {
                 attribute,
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
-            SyntaxErrorKind::RawKShape { reason } => formatter.write_str(reason),
+            SyntaxErrorKind::RawKShape { reason }
+            | SyntaxErrorKind::InvalidSmtMetadata { reason } => formatter.write_str(reason),
         }
     }
 }

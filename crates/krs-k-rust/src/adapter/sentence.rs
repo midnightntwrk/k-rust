@@ -303,6 +303,15 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::FreshGenerator { .. } => {
                 attributes.insert("freshGenerator", json!(""));
             }
+            DefinitionProductionAttribute::Smtlib { symbol, .. } => {
+                attributes.insert("smtlib", json!(symbol));
+            }
+            DefinitionProductionAttribute::SmtHook { template, .. } => {
+                attributes.insert(
+                    "smt-hook",
+                    json!(native_smt_hook(template, sentence, attribute.origin())?),
+                );
+            }
             DefinitionProductionAttribute::Memo { .. } => {
                 attributes.insert("memo", json!(""));
             }
@@ -975,6 +984,42 @@ fn stdin_read_item(term: NativeTerm) -> NativeTerm {
         }
         other => other,
     }
+}
+
+/// K's `smt-hook` text of a template: each field becomes `#N`, its one-based
+/// position among the production's nonterminals, as in the emitted `.k`.
+fn native_smt_hook(
+    template: &[krs_ir::SmtFragment],
+    sentence: &ProductionSentence,
+    origin: &NodeOrigin,
+) -> Result<String, AdapterError> {
+    let nonterminals = sentence
+        .items()
+        .iter()
+        .filter_map(|item| match item.kind() {
+            GrammarProductionItemKind::NonTerminal { field, .. } => Some(field),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut text = String::new();
+    for fragment in template {
+        match fragment {
+            krs_ir::SmtFragment::Text(literal) => text.push_str(literal),
+            krs_ir::SmtFragment::Field(field) => {
+                let position = nonterminals
+                    .iter()
+                    .position(|candidate| *candidate == field)
+                    .ok_or_else(|| AdapterError::MissingReference {
+                        key: origin.key().clone(),
+                        kind: "production field",
+                        target: field.as_str().to_owned(),
+                    })?;
+                text.push('#');
+                text.push_str(&(position + 1).to_string());
+            }
+        }
+    }
+    Ok(text)
 }
 
 fn native_format(fragments: &[FormatFragment]) -> String {

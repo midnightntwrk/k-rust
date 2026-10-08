@@ -72,6 +72,7 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "RustVisibility",
     "SemanticSortRef",
     "SemanticTermKind",
+    "SmtFragment",
     "WireGrammarDescriptor",
     "WireProductionAttribute",
     "WireProductionItem",
@@ -137,6 +138,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorNodeOrigin",
     "DescriptorProduction",
     "DescriptorRuleCondition",
+    "DescriptorSmtFragment",
     "DescriptorSortReference",
     "FixedCell",
     "FixedCellClause",
@@ -839,6 +841,7 @@ fn registry() -> Registry {
     unsupported!(DescriptorProductionOwner: DescriptorProductionOwner);
     unsupported!(DescriptorProvenance: DescriptorProvenance);
     unsupported!(DescriptorRuleCondition: DescriptorRuleCondition);
+    unsupported!(DescriptorSmtFragment: DescriptorSmtFragment);
     unsupported!(DescriptorSortRef: DescriptorSortRef);
     unsupported!(DescriptorSortReference: DescriptorSortReference);
     unsupported!(DescriptorTerm: DescriptorTerm);
@@ -880,6 +883,7 @@ fn registry() -> Registry {
     unsupported!(SemanticTermKind: SemanticTermKind);
     unsupported!(SemanticTheory: SemanticTheory);
     unsupported!(SemanticVariable: SemanticVariable);
+    unsupported!(SmtFragment: SmtFragment);
     unsupported!(StructuredRuleDescriptor: StructuredRuleDescriptor);
     unsupported!(SubsortSentence: SubsortSentence);
     unsupported!(SyntaxSortSentence: SyntaxSortSentence);

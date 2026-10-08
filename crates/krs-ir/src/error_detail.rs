@@ -91,6 +91,7 @@ details! {
         ListCons => "list cons",
         ListTerminator => "list terminator",
         FreshGenerator => "fresh generator",
+        Smt => "smt",
     }
 }
 

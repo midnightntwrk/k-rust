@@ -349,6 +349,17 @@ pub struct FunctionAttribute {
     memo: Option<Ident>,
     fresh_generator: Option<Ident>,
     hook: Option<FunctionHook>,
+    smt: Option<FunctionSmt>,
+}
+
+/// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
+/// mutually exclusive.
+#[derive(Clone, Debug)]
+pub enum FunctionSmt {
+    /// `smtlib = "sym"`: the solver sees an uninterpreted SMT-LIB symbol.
+    Smtlib(LitStr),
+    /// `smt_hook = "tmpl"`: the solver sees the SMT-LIB term `tmpl`.
+    Hook(crate::SmtTemplate),
 }
 
 /// The `hook` value of `#[k::function]`.
@@ -418,6 +429,27 @@ impl FunctionAttribute {
         self.memo.as_ref()
     }
 
+    /// The function's SMT-LIB translation, `smtlib` or `smt_hook`.
+    #[must_use]
+    pub const fn smt(&self) -> Option<&FunctionSmt> {
+        self.smt.as_ref()
+    }
+
+    /// Checks `smt_hook` placeholders against the function's fields.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a placeholder naming no field and a positional `#N`.
+    pub fn validate_smt_fields<'a>(
+        &self,
+        fields: impl IntoIterator<Item = &'a Ident>,
+    ) -> Result<(), SyntaxError> {
+        match &self.smt {
+            Some(FunctionSmt::Hook(template)) => template.validate_fields(fields),
+            Some(FunctionSmt::Smtlib(_)) | None => Ok(()),
+        }
+    }
+
     /// The bare `fresh_generator` flag: K's `freshGenerator`, the function a
     /// fresh binder (`#[k::fresh(x: S)]`) of the result sort draws from.
     #[must_use]
@@ -462,6 +494,15 @@ impl FunctionAttribute {
                 0,
                 hook.range()?,
             ));
+        }
+        match &self.smt {
+            Some(FunctionSmt::Smtlib(literal)) => anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionSmtlib,
+                0,
+                TokenRange::for_tokens(literal)?,
+            )),
+            Some(FunctionSmt::Hook(template)) => anchors.extend(template.provenance()?),
+            None => {}
         }
         Ok(anchors)
     }
@@ -1203,6 +1244,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
     let mut sort = None;
     let mut syntax = None;
     let mut hook = None;
+    let mut smt = None;
     let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
@@ -1285,6 +1327,9 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
                 )
                 .into());
             }
+            "smtlib" | "smt_hook" => {
+                smt = Some(parse_function_smt(&key, input, smt.as_ref())?);
+            }
             "sort" | "syntax" | "hook" => {
                 input.parse::<Token![=]>()?;
                 let value: Expr = input.parse()?;
@@ -1358,7 +1403,102 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
         memo,
         fresh_generator,
         hook,
+        smt,
     })
+}
+
+/// Parses `smtlib = "sym"` or `smt_hook = "tmpl"` (KF-044).
+fn parse_function_smt(
+    key: &Ident,
+    input: ParseStream<'_>,
+    previous: Option<&FunctionSmt>,
+) -> Result<FunctionSmt, ParseError> {
+    let smt_error = |reason: String, span: proc_macro2::Span| {
+        SyntaxError::new(SyntaxErrorKind::InvalidSmtMetadata { reason }, span)
+    };
+    let name = key.to_string();
+    match previous {
+        Some(FunctionSmt::Smtlib(_)) if name == "smtlib" => {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::DuplicateArgument { name: "smtlib" },
+                key.span(),
+            )
+            .into());
+        }
+        Some(FunctionSmt::Hook(_)) if name == "smt_hook" => {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::DuplicateArgument { name: "smt_hook" },
+                key.span(),
+            )
+            .into());
+        }
+        Some(_) => {
+            return Err(smt_error(
+                "`smtlib` and `smt_hook` are mutually exclusive: K would let `smt-hook` win silently; give the function a name in Z3 (`smtlib`) or a meaning (`smt_hook`), not both".to_owned(),
+                key.span(),
+            )
+            .into());
+        }
+        None => {}
+    }
+    input.parse::<Token![=]>()?;
+    let value: Expr = input.parse()?;
+    let Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(literal),
+        attrs,
+    }) = &value
+    else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: if name == "smtlib" {
+                    "smtlib"
+                } else {
+                    "smt_hook"
+                },
+                expected: "a string literal",
+            },
+            value.span(),
+        )
+        .into());
+    };
+    if !attrs.is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: if name == "smtlib" {
+                    "smtlib"
+                } else {
+                    "smt_hook"
+                },
+                expected: "a string literal",
+            },
+            value.span(),
+        )
+        .into());
+    }
+    if name == "smt_hook" {
+        return Ok(FunctionSmt::Hook(crate::SmtTemplate::parse(
+            literal.clone(),
+        )?));
+    }
+    let symbol = literal.value();
+    if symbol.is_empty() {
+        return Err(smt_error(
+            "an `smtlib` symbol must not be empty; write the SMT-LIB name Z3 should give this function"
+                .to_owned(),
+            literal.span(),
+        )
+        .into());
+    }
+    if !krs_ir::is_smtlib_simple_symbol(&symbol) {
+        return Err(smt_error(
+            format!(
+                "`{symbol}` is not an SMT-LIB simple symbol: use ASCII letters, digits, and `~!@$%^&*_+=<>.?/-`, not starting with a digit"
+            ),
+            literal.span(),
+        )
+        .into());
+    }
+    Ok(FunctionSmt::Smtlib(literal.clone()))
 }
 
 #[expect(

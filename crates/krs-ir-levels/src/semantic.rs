@@ -1449,6 +1449,9 @@ pub enum SemanticValidationError {
     InvalidStrictnessField,
     /// Format metadata was empty or referenced a nonexistent item.
     InvalidFormat,
+    /// An `smtlib` symbol was not an SMT-LIB simple symbol, or an `smt_hook`
+    /// template was empty or named a field the production does not have.
+    InvalidSmtMetadata,
     /// Colour metadata was invalid: an empty colour or one containing `,` or
     /// `)`, a `colors` list whose length is not the terminal count plus the
     /// number of `%c`, or `%c`/`%r` without a colour.
@@ -1623,6 +1626,9 @@ impl fmt::Display for SemanticValidationError {
                 .write_str("strictness fields must be nonempty, distinct named nonterminals"),
             Self::InvalidFormat => formatter.write_str(
                 "format metadata must be nonempty and reference existing production items",
+            ),
+            Self::InvalidSmtMetadata => formatter.write_str(
+                "an smtlib symbol must be an SMT-LIB simple symbol, and an smt-hook template must be nonempty and name only nonterminal fields",
             ),
             Self::InvalidColors => formatter.write_str(
                 "colour metadata must name nonempty colours without `,` or `)`; `colors` needs one colour per terminal and per `%c`, and `%c`/`%r` need a colour",

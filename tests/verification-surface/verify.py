@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042).
+"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042), SMT translations (KF-044).
 
 The fixture packages are K tutorial lesson 1.21 in both layers:
 
@@ -51,6 +51,18 @@ Java `kprove` of the emitted spec proves it (`#Top`). The ablation
 routes. Java prints `#Top` even for a spec of only trusted claims, so the
 trusted status is pinned from the native report alone. Negative fixtures in
 the macro tests pin `trusted` with `circularity`, twice, and with a value.
+
+SMT translations (KF-044): `hook` declares `myAbs` with
+`smt_hook = "(ite (< {value} 0) (- 0 {value}) {value})"` and no equation, the
+rule `go(I) => myAbs(I) >=Int 0`, and the claim `abs-nonneg`
+(`go(I) => true`). The emitted K carries `smt-hook((ite (< #1 0) (- 0 #1)
+#1))`, and `clampSub`, whose template names its fields out of order, shows the
+renumbering (`#2` before `#1`). `krs prove` proves the claim with Z3, warns
+`krs::emit::smt-only-function` once per function without equations, and Java
+`kprove` of the emitted spec proves it too. `hook-ablation` gives `myAbs`
+`smtlib = "myAbs"` instead, an uninterpreted symbol: the claim then fails on
+both routes. A negative fixture pins two functions with one `smtlib` symbol;
+the macro tests pin the syntax diagnostics.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -152,11 +164,38 @@ TRUSTED_EXPECTED = {
     TRUSTED_ABLATION.package: ((TRUSTED_CALL_SPEC,), {"call-spec": "disproved"}, 1, False),
 }
 
+HOOK = Fixture(MANIFEST, "krs-verification-surface-hook")
+HOOK_ABLATION = Fixture(MANIFEST, "krs-verification-surface-hook-ablation")
+HOOK_EXPECTED = {
+    # package: (spec module, emitted productions, native statuses, krs prove exit status,
+    #           Java kprove proves, smt-only-function warnings)
+    HOOK.package: (
+        "KRS-SMT-HOOK-SPEC",
+        (
+            '  syntax Int ::= "myAbs" "(" Int ")" [symbol(myAbs), function, total, smt-hook((ite (< #1 0) (- 0 #1) #1))]\n',
+            '  syntax Int ::= "clampSub" "(" Int "," Int ")" [symbol(clampSub), function, total, smt-hook((ite (< #2 #1) 0 (- #2 #1)))]\n',
+        ),
+        {"abs-nonneg": "proven"},
+        0,
+        True,
+        2,
+    ),
+    HOOK_ABLATION.package: (
+        "KRS-SMT-HOOK-ABLATION-SPEC",
+        ('  syntax Int ::= "myAbs" "(" Int ")" [symbol(myAbs), function, total, smtlib(myAbs)]\n',),
+        {"abs-nonneg": "failed"},
+        1,
+        False,
+        0,
+    ),
+}
+
 NEGATIVE = (
     "exists-equation",
     "exists-unused",
     "exists-in-requires",
     "exists-shadows",
+    "smtlib-duplicate",
 )
 
 
@@ -598,11 +637,11 @@ def verify_ignored_ensures(harness: FixtureGate) -> None:
     print(f"PASS ensures-llvm: {warnings[0]}")
 
 
-def native_trusted_proof(harness: FixtureGate, fixture: Fixture) -> dict[str, Any]:
+def native_trusted_proof(harness: FixtureGate, fixture: Fixture, spec_module: str = TRUSTED_SPEC_MODULE) -> dict[str, Any]:
     """Run `krs prove` on every claim; return statuses, exit status, and warnings."""
 
     process = harness._krs(fixture, "prove", check=False)
-    prefix = re.escape(TRUSTED_SPEC_MODULE)
+    prefix = re.escape(spec_module)
     statuses = dict(re.findall(rf"^{prefix}\.([\w-]+): ([\w-]+)$", process.stdout, re.MULTILINE))
     if not statuses:
         raise GateError(f"{fixture.package}: krs prove printed no claim status:\n{process.stdout}\n{process.stderr}")
@@ -615,7 +654,7 @@ def native_trusted_proof(harness: FixtureGate, fixture: Fixture) -> dict[str, An
     }
 
 
-def java_trusted_proof(harness: FixtureGate, emitted: Emitted) -> dict[str, Any]:
+def java_trusted_proof(harness: FixtureGate, emitted: Emitted, spec_module: str = TRUSTED_SPEC_MODULE) -> dict[str, Any]:
     """Kompile the emitted definition for Haskell and `kprove` its whole spec module."""
 
     package = emitted.fixture.package
@@ -642,7 +681,7 @@ def java_trusted_proof(harness: FixtureGate, emitted: Emitted) -> dict[str, Any]
         raise GateError(f"{package}: kompile --backend haskell failed:\n{process.stderr}")
     proved = k.run(
         "kprove/spec", "kprove",
-        [emitted.directory / "spec.k", "--definition", kompiled, "--spec-module", TRUSTED_SPEC_MODULE],
+        [emitted.directory / "spec.k", "--definition", kompiled, "--spec-module", spec_module],
         timeout=600,
     )
     result = {"proven": proved.returncode == 0, "top": proved.stdout.strip() == "#Top"}
@@ -686,6 +725,31 @@ def verify_trusted(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove proven={java['proven']}")
 
 
+def verify_hook(harness: FixtureGate, fixture: Fixture) -> None:
+    """An `smt_hook` lets Z3 prove a claim about a function without equations; `smtlib` alone does not."""
+
+    spec_module, productions, statuses, exit_status, java_proves, smt_only = HOOK_EXPECTED[fixture.package]
+    harness.check(fixture)
+    emitted = harness.emit(fixture)
+    source = emitted.source.read_text(encoding="utf-8")
+    for fragment in productions:
+        if fragment not in source:
+            raise GateError(f"{fixture.package}: emitted K omits:\n{fragment}")
+
+    native = native_trusted_proof(harness, fixture, spec_module)
+    if native["statuses"] != statuses or native["exit"] != exit_status:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    if len(native["warnings"]) != smt_only or not all("[krs::emit::smt-only-function]" in line for line in native["warnings"]):
+        raise GateError(f"{fixture.package}: krs prove warned {native['warnings']!r}")
+    harness.pins.expect(("smt_proofs", fixture.package), native)
+
+    java = java_trusted_proof(harness, emitted, spec_module)
+    if java["proven"] != java_proves or java["top"] != java_proves:
+        raise GateError(f"{fixture.package}: kprove reported {json.dumps(java)}, expected proven={java_proves}")
+    harness.pins.expect(("smt_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove proven={java['proven']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -713,6 +777,8 @@ def main() -> int:
         verify_ignored_ensures(harness)
         verify_trusted(harness, TRUSTED)
         verify_trusted(harness, TRUSTED_ABLATION)
+        verify_hook(harness, HOOK)
+        verify_hook(harness, HOOK_ABLATION)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

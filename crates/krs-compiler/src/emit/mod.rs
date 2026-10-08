@@ -484,6 +484,63 @@ pub fn trusted_claim_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
     warnings
 }
 
+/// Returns one `krs::emit::smt-only-function` warning per function that has an
+/// `smt_hook` and no equation, in definition order (KF-044).
+///
+/// Such a function means something only to Z3 on symbolic paths; concrete
+/// execution leaves its applications unevaluated.
+#[must_use]
+pub fn smt_only_function_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
+    let defined = definition
+        .modules()
+        .iter()
+        .flat_map(DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Equation => {
+                match rule.body()?.from().kind() {
+                    krs_ir_levels::IrTermKind::Application {
+                        application: krs_ir::ApplicationRef::Declared(symbol),
+                        ..
+                    } => Some(symbol),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut warnings = Vec::new();
+    for module in definition.modules() {
+        for sentence in module.sentences() {
+            let DefinitionSentence::Production(production) = sentence else {
+                continue;
+            };
+            let Some(origin) = production.attributes().iter().find_map(|attribute| {
+                matches!(attribute, krs_ir::ProductionAttribute::SmtHook { .. })
+                    .then(|| attribute.origin())
+            }) else {
+                continue;
+            };
+            if defined.contains(production.symbol().id()) {
+                continue;
+            }
+            let mut diagnostic = Diagnostic::error(
+                codes::emit::SMT_ONLY_FUNCTION,
+                format!(
+                    "function `{}` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it",
+                    production.symbol().emitted_name()
+                ),
+                origin
+                    .origin()
+                    .exact_authored_range()
+                    .map_or(Location::None, Location::Source),
+            );
+            diagnostic.severity = krs_diagnostic::Severity::Warning;
+            warnings.push(diagnostic);
+        }
+    }
+    warnings
+}
+
 /// Renders one typed sentence with the definition's canonical emission context.
 ///
 /// This uses the same printer as [`emit_k`] and performs no normalization.

@@ -69,6 +69,7 @@ register_codes! {
         DUPLICATE_GENERATED_RANGE: "krs::emit::duplicate-generated-range" => "Rendered nodes attempted to own the same generated source range.",
         INVALID_SIDECAR: "krs::emit::invalid-sidecar" => "An emitted sidecar invariant failed.",
         TRUSTED_CLAIM: "krs::emit::trusted-claim" => "A `trusted` claim is assumed without proof; every Haskell build and every prove run reports it.",
+        SMT_ONLY_FUNCTION: "krs::emit::smt-only-function" => "A function with an `smt_hook` has no equation: Z3 evaluates it on symbolic paths, and concrete execution cannot.",
     }
     /// Diagnostics from collector package generation.
     generate {
@@ -192,6 +193,7 @@ register_codes! {
         FRESH_BINDER_POSITION: "krs::analysis::fresh-binder-position" => "A `#[k::fresh]` binder occurs in the pattern or `requires`, shadows a pattern binding, or is unused; a fresh value exists only once the step happens.",
         NO_FRESH_GENERATOR: "krs::analysis::no-fresh-generator" => "A `#[k::fresh]` binder has a sort without a `fresh_generator` function (Int and Id have K's own).",
         DUPLICATE_FRESH_GENERATOR: "krs::analysis::duplicate-fresh-generator" => "A sort has more than one `fresh_generator` function.",
+        DUPLICATE_SMTLIB: "krs::analysis::duplicate-smtlib" => "Two functions declare the same `smtlib` symbol, so Z3 would identify them.",
         INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
@@ -263,6 +265,7 @@ register_codes! {
         INVALID_LEXICAL_MACRO: "krs::syntax::invalid-lexical-macro" => "A `k::lexical!` or `k::layout!` block was malformed: it is empty, repeats a lexical name, names a lexical outside `[A-Z][A-Za-z0-9]*`, or has a malformed entry.",
         INVALID_SYNTAX_LIST_ATTRIBUTE: "krs::syntax::invalid-syntax-list" => "A `#[k::syntax_list]` enum was malformed: it needs exactly one two-field cons variant whose second field is the enum itself and one zero-field tuple terminator variant, a separator that is empty or one K terminal, no generics, and no `#[k::syntax]` on its variants.",
         RAW_K_SHAPE: "krs::syntax::raw-k-shape" => "A `raw_k!` text is not exactly one rule, claim, or context sentence.",
+        INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

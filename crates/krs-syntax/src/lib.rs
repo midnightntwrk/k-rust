@@ -32,7 +32,7 @@ pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
     ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
     ContextAliasAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook,
-    FunctionTotality, InitAttribute, PlacementFlag, PriorityAttribute, RuleAttribute,
+    FunctionSmt, FunctionTotality, InitAttribute, PlacementFlag, PriorityAttribute, RuleAttribute,
     SimplificationAttribute, SortAttribute, SubsortAttribute, SymbolAttribute,
     VariantSyntaxAttribute,
 };
@@ -46,10 +46,10 @@ pub use enum_constructor::{
 pub use error::{SyntaxError, SyntaxErrorKind};
 pub use grammar::{
     AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
-    PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, StrictnessAttribute, StrictnessKind,
-    StructuredFormat, StructuredFormatFragment, SubsortDeclaration, SyntaxTemplate,
-    SyntaxTemplateItem, TokenAttribute, TokenCarrier, TokenContent, TokenDeclaration, TokenStack,
-    parse_seqstrict_attribute, parse_strict_attribute,
+    PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, SmtTemplate, SmtTemplateFragment,
+    StrictnessAttribute, StrictnessKind, StructuredFormat, StructuredFormatFragment,
+    SubsortDeclaration, SyntaxTemplate, SyntaxTemplateItem, TokenAttribute, TokenCarrier,
+    TokenContent, TokenDeclaration, TokenStack, parse_seqstrict_attribute, parse_strict_attribute,
 };
 pub use initializer::{
     ComputationCellInitializer, ConfigurationVariable, ConfigurationVariableAttribute,

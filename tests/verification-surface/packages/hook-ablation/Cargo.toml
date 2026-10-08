@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-hook-ablation"
+description = "The hook fixture with smtlib in place of smt_hook: myAbs is uninterpreted in Z3 and abs-nonneg is not provable"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_hook_ablation"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SMT-HOOK-ABLATION"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

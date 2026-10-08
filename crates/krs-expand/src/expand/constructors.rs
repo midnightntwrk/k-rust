@@ -85,7 +85,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, item, None, [None, None], None)
+    constructor_like(env, attribute, item, None, [None, None], None, None)
 }
 
 pub(crate) fn function(
@@ -139,6 +139,7 @@ pub(crate) fn function(
             ))
         })
         .transpose()?;
+    let smt = expanded_smt(&function, &item)?;
     constructor_like(
         env,
         function.production().clone(),
@@ -146,7 +147,82 @@ pub(crate) fn function(
         Some((totality_anchor, function.is_total())),
         [memo, fresh_generator],
         hook,
+        smt,
     )
+}
+
+/// The `smtlib` or `smt_hook` of a function production, with its provenance
+/// anchors and its wire attribute (KF-044).
+pub(super) struct ExpandedSmt {
+    anchors: Vec<ProvenanceAnchor>,
+    attribute: WireProductionAttribute,
+}
+
+/// Checks `smt_hook` placeholders against the struct's fields and lowers the
+/// function's SMT key to its wire attribute.
+fn expanded_smt(
+    function: &krs_syntax::FunctionAttribute,
+    item: &TokenStream,
+) -> crate::Result<Option<ExpandedSmt>> {
+    let Some(smt) = function.smt() else {
+        return Ok(None);
+    };
+    let anchors = function
+        .provenance()?
+        .into_iter()
+        .filter(|anchor| {
+            matches!(
+                anchor.role(),
+                ProvenanceRole::FunctionSmtlib
+                    | ProvenanceRole::FunctionSmtHook
+                    | ProvenanceRole::SmtHookPlaceholder
+            )
+        })
+        .collect();
+    let attribute = match smt {
+        krs_syntax::FunctionSmt::Smtlib(literal) => WireProductionAttribute::Smtlib {
+            key: wire_key(ProvenanceRole::FunctionSmtlib, 0),
+            symbol: literal.value(),
+        },
+        krs_syntax::FunctionSmt::Hook(template) => {
+            let fields = syn::parse2::<ItemStruct>(item.clone())
+                .map(|item| {
+                    item.fields
+                        .into_iter()
+                        .filter_map(|field| field.ident)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            function.validate_smt_fields(&fields)?;
+            let mut placeholder = 0_u32;
+            let fragments = template
+                .fragments()
+                .iter()
+                .map(|fragment| match fragment {
+                    krs_syntax::SmtTemplateFragment::Text(text) => krs_ir::DescriptorSmtFragment {
+                        key: None,
+                        fragment: krs_ir::SmtFragment::Text(text.clone()),
+                    },
+                    krs_syntax::SmtTemplateFragment::Field(name) => {
+                        let key = wire_key(ProvenanceRole::SmtHookPlaceholder, placeholder);
+                        placeholder += 1;
+                        krs_ir::DescriptorSmtFragment {
+                            key: Some(key),
+                            fragment: krs_ir::SmtFragment::Field(
+                                krs_ir::ProductionFieldId::new(name.clone())
+                                    .expect("a checked placeholder is a Rust identifier"),
+                            ),
+                        }
+                    }
+                })
+                .collect();
+            WireProductionAttribute::SmtHook {
+                key: wire_key(ProvenanceRole::FunctionSmtHook, 0),
+                template: fragments,
+            }
+        }
+    };
+    Ok(Some(ExpandedSmt { anchors, attribute }))
 }
 
 /// The resolved `hook` value of a function production.
@@ -270,6 +346,7 @@ fn constructor_like(
     totality: Option<(ProvenanceAnchor, bool)>,
     [memo, fresh_generator]: [Option<ProvenanceAnchor>; 2],
     hook: Option<(ProvenanceAnchor, ExpandedHook)>,
+    smt: Option<ExpandedSmt>,
 ) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
@@ -350,6 +427,9 @@ fn constructor_like(
     }
     if let Some((anchor, _)) = &hook {
         grammar_anchors.push(anchor.clone());
+    }
+    if let Some(smt) = &smt {
+        grammar_anchors.extend(smt.anchors.iter().cloned());
     }
     if let Some(strictness) = &strictness {
         grammar_anchors.extend(strictness.provenance()?);
@@ -454,6 +534,7 @@ fn constructor_like(
         total,
         [memo.is_some(), fresh_generator.is_some()],
         hook.as_ref().map(|(_, operation)| operation),
+        smt.map(|smt| smt.attribute),
         alias.is_some(),
     )?;
 
@@ -866,6 +947,7 @@ fn constructor_grammar(
     total: bool,
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
+    smt: Option<WireProductionAttribute>,
     alias: bool,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
@@ -988,6 +1070,17 @@ fn constructor_grammar(
             WireProductionAttribute::FreshGenerator {
                 key: wire_key(ProvenanceRole::FunctionFreshGenerator, 0),
             },
+        );
+    }
+    // `smtlib` or `smt-hook` follows them and the hook (KF-044), as in KEVM's
+    // `[function, total, hook(..), smtlib(..)]`.
+    if let Some(smt) = smt {
+        attributes.insert(
+            1 + usize::from(total)
+                + usize::from(memo)
+                + usize::from(fresh_generator)
+                + usize::from(hook.is_some()),
+            smt,
         );
     }
     if alias {

@@ -937,7 +937,7 @@ fn validate_precedence_members(
     Ok(())
 }
 
-fn closest_variant<'a>(unknown: &str, variants: &'a [String]) -> Option<&'a str> {
+pub(crate) fn closest_variant<'a>(unknown: &str, variants: &'a [String]) -> Option<&'a str> {
     let (candidate, distance) = variants
         .iter()
         .map(|candidate| (candidate.as_str(), edit_distance(unknown, candidate)))

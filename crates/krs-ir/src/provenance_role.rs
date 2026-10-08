@@ -434,6 +434,12 @@ provenance_roles! {
     FunctionFreshGenerator => "function_fresh_generator",
     /// Optional claim trusted marker: the claim is assumed without proof.
     ClaimTrusted => "claim_trusted",
+    /// `smtlib = ".."` string of a function production: its uninterpreted SMT-LIB symbol.
+    FunctionSmtlib => "function_smtlib",
+    /// `smt_hook = ".."` template string of a function production.
+    FunctionSmtHook => "function_smt_hook",
+    /// One `{field}` placeholder of a function's `smt_hook` template.
+    SmtHookPlaceholder => "smt_hook_placeholder",
 }
 
 impl Serialize for ProvenanceRole {

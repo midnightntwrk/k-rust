@@ -65,6 +65,7 @@ macro_rules! validation_error {
             }
             ValidationError::InvalidEquationRoot(id) => $public::InvalidEquationRoot($identity(id)),
             ValidationError::InvalidFormat => $public::InvalidFormat,
+            ValidationError::InvalidSmtMetadata => $public::InvalidSmtMetadata,
             ValidationError::InvalidColors => $public::InvalidColors,
             ValidationError::InternalWithProgram => $public::InternalWithProgram,
             ValidationError::PreferAndAvoid => $public::PreferAndAvoid,

@@ -1148,8 +1148,16 @@ impl Sample for DescriptorProductionAttribute {
                 Self::FreshGenerator {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::Smtlib {
+                    key: sample::<ProvenanceKey>(),
+                    symbol: sample::<String>(),
+                },
+                Self::SmtHook {
+                    key: sample::<ProvenanceKey>(),
+                    template: sample::<Vec<DescriptorSmtFragment>>(),
+                },
             ],
-            22,
+            24,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1174,6 +1182,8 @@ impl Sample for DescriptorProductionAttribute {
                 Self::ListTerminator { .. } => 19,
                 Self::RawHook { .. } => 20,
                 Self::FreshGenerator { .. } => 21,
+                Self::Smtlib { .. } => 22,
+                Self::SmtHook { .. } => 23,
             },
         )
     }
@@ -1649,8 +1659,16 @@ impl<
                 Self::FreshGenerator {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::Smtlib {
+                    origin: sample::<NodeOrigin>(),
+                    symbol: sample::<String>(),
+                },
+                Self::SmtHook {
+                    origin: sample::<NodeOrigin>(),
+                    template: sample::<Vec<SmtFragment>>(),
+                },
             ],
-            23,
+            25,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1676,6 +1694,8 @@ impl<
                 Self::ListTerminator { .. } => 20,
                 Self::RawHook { .. } => 21,
                 Self::FreshGenerator { .. } => 22,
+                Self::Smtlib { .. } => 23,
+                Self::SmtHook { .. } => 24,
             },
         )
     }
@@ -2212,8 +2232,16 @@ impl Sample for WireProductionAttribute {
                 Self::FreshGenerator {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::Smtlib {
+                    key: sample::<ProvenanceKey>(),
+                    symbol: sample::<String>(),
+                },
+                Self::SmtHook {
+                    key: sample::<ProvenanceKey>(),
+                    template: sample::<Vec<DescriptorSmtFragment>>(),
+                },
             ],
-            22,
+            24,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2238,6 +2266,8 @@ impl Sample for WireProductionAttribute {
                 Self::ListTerminator { .. } => 19,
                 Self::RawHook { .. } => 20,
                 Self::FreshGenerator { .. } => 21,
+                Self::Smtlib { .. } => 22,
+                Self::SmtHook { .. } => 23,
             },
         )
     }
@@ -2652,6 +2682,36 @@ impl Sample for DescriptorFormatFragment {
             key: sample::<ProvenanceKey>(),
             fragment: sample::<FormatFragment>(),
         }]
+    }
+}
+impl Sample for DescriptorSmtFragment {
+    fn samples() -> Vec<Self> {
+        vec![
+            Self {
+                key: None,
+                fragment: SmtFragment::Text(sample::<String>()),
+            },
+            Self {
+                key: Some(sample::<ProvenanceKey>()),
+                fragment: SmtFragment::Field(sample::<ProductionFieldId>()),
+            },
+        ]
+    }
+}
+impl Sample for SmtFragment {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::Text(sample::<String>()),
+                Self::Field(sample::<ProductionFieldId>()),
+            ],
+            2,
+            "SmtFragment",
+            |value| match value {
+                Self::Text(..) => 0,
+                Self::Field(..) => 1,
+            },
+        )
     }
 }
 impl Sample for DescriptorHeadRule {
@@ -3279,6 +3339,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<FixedCellContent<SemanticSortRef, SemanticId>>(corpus, "FixedCellContent");
     insert::<FixedInitializerContent<SemanticId, SemanticTerm>>(corpus, "FixedInitializerContent");
     insert::<FormatFragment>(corpus, "FormatFragment");
+    insert::<SmtFragment>(corpus, "SmtFragment");
     insert::<GrammarDescriptor>(corpus, "GrammarDescriptor");
     insert::<GrammarProductionItemKind<SemanticSortRef>>(corpus, "GrammarProductionItemKind");
     insert::<OriginFrame>(corpus, "OriginFrame");
@@ -3363,6 +3424,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorDeclaration>(corpus, "DescriptorDeclaration");
     insert::<DescriptorFixedConfiguration>(corpus, "DescriptorFixedConfiguration");
     insert::<DescriptorFormatFragment>(corpus, "DescriptorFormatFragment");
+    insert::<DescriptorSmtFragment>(corpus, "DescriptorSmtFragment");
     insert::<DescriptorHeadRule>(corpus, "DescriptorHeadRule");
     insert::<DescriptorNodeOrigin>(corpus, "DescriptorNodeOrigin");
     insert::<DescriptorProduction>(corpus, "DescriptorProduction");

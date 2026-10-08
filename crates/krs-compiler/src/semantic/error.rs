@@ -202,6 +202,13 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending binder or function.
         range: Option<Box<SourceRange>>,
     },
+    /// Two functions declare the same `smtlib` symbol (KF-044).
+    DuplicateSmtlib {
+        /// Stable reason naming the symbol and both functions.
+        reason: String,
+        /// Sole exact authored range of the second declaration.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `stream` or `exit` cell does not have the shape K requires (KF-035).
     InvalidConsoleCell {
         /// Stable reason naming the cell.
@@ -335,6 +342,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
+            | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
@@ -387,6 +395,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
                 FreshProblem::InvalidGenerator => codes::analysis::INVALID_FRESH_GENERATOR,
             },
+            Self::DuplicateSmtlib { .. } => codes::analysis::DUPLICATE_SMTLIB,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -410,6 +419,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
+            | Self::DuplicateSmtlib { range, .. }
             | Self::InvalidConsoleCell { range, .. } => range
                 .as_deref()
                 .cloned()

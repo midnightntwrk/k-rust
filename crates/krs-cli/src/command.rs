@@ -249,7 +249,8 @@ impl CommandOutcome {
 }
 
 struct PreparedDefinition {
-    /// Allowed quoted hooks and `raw_k!` sentences, reported on every build.
+    /// Allowed quoted hooks and `raw_k!` sentences, and functions only Z3
+    /// can evaluate (`smt_hook` without equations), reported on every command.
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
     /// `k::is!` and `k::project!` terms that test nothing, reported on every build.
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
@@ -465,8 +466,12 @@ fn prepare(
         .timings
         .try_span("definition.lower", |_| lower_definition(&semantic))?;
     count_definition(&mut measurement.counters, &lowered);
+    let mut raw_k_warnings = raw_k.warnings;
+    raw_k_warnings.extend(krs_compiler::smt_only_function_warnings(
+        lowered.definition(),
+    ));
     Ok(PreparedDefinition {
-        raw_k_warnings: raw_k.warnings,
+        raw_k_warnings,
         sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition()),
         bundle,
         semantic,

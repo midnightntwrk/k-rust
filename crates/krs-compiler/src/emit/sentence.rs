@@ -5,7 +5,7 @@ use krs_ir::{
     FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
     GroupAssociativity, MapOperation, ProductionAttribute, ProductionGroupId, SemanticId,
-    SentenceKind, StrictnessKind,
+    SentenceKind, SmtFragment, StrictnessKind,
 };
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
@@ -230,6 +230,40 @@ fn is_list_terminator(sentence: &ProductionSentence) -> bool {
         .any(|attribute| matches!(attribute, ProductionAttribute::ListTerminator { .. }))
 }
 
+/// Renders an `smt_hook` template in K's positional form: each field becomes
+/// `#N`, its one-based position among the production's nonterminals (KF-044).
+pub(crate) fn smt_hook_text(
+    template: &[SmtFragment],
+    sentence: &ProductionSentence,
+) -> Result<String, EmitError> {
+    let nonterminals = sentence
+        .items()
+        .iter()
+        .filter_map(|item| match item.kind() {
+            GrammarProductionItemKind::NonTerminal { field, .. } => Some(field),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut text = String::new();
+    for fragment in template {
+        match fragment {
+            SmtFragment::Text(literal) => text.push_str(literal),
+            SmtFragment::Field(field) => {
+                let position = nonterminals
+                    .iter()
+                    .position(|candidate| *candidate == field)
+                    .ok_or_else(|| EmitError::UnsupportedShape {
+                        node: "smt-hook",
+                        detail: format!("placeholder `{{{}}}` names no field", field.as_str()),
+                    })?;
+                text.push('#');
+                text.push_str(&(position + 1).to_string());
+            }
+        }
+    }
+    Ok(text)
+}
+
 /// Prints the cons production of a syntactic list as K's `List{Elem, "sep"}`
 /// or `NeList{..}`; the tail item is the list sort itself and is implicit.
 fn emit_list_items(
@@ -329,6 +363,16 @@ fn emit_production_attribute(
         ProductionAttribute::Private { .. } => writer.push("private"),
         ProductionAttribute::Memo { .. } => writer.push("memo"),
         ProductionAttribute::FreshGenerator { .. } => writer.push("freshGenerator"),
+        ProductionAttribute::Smtlib { symbol, .. } => {
+            writer.push("smtlib(");
+            writer.push(symbol);
+            writer.push(")");
+        }
+        ProductionAttribute::SmtHook { template, .. } => {
+            writer.push("smt-hook(");
+            writer.push(&smt_hook_text(template, sentence)?);
+            writer.push(")");
+        }
         ProductionAttribute::ListCons { terminator, .. } => {
             writer.push("terminator-symbol(");
             writer.push(context.production(terminator)?.symbol().emitted_name());

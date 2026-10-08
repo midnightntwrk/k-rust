@@ -374,6 +374,17 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Memo { key } => ProductionAttribute::Memo {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::Smtlib { key, symbol } => ProductionAttribute::Smtlib {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            symbol: symbol.clone(),
+        },
+        DescriptorProductionAttribute::SmtHook { key, template } => ProductionAttribute::SmtHook {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            template: template
+                .iter()
+                .map(|fragment| fragment.fragment.clone())
+                .collect(),
+        },
         DescriptorProductionAttribute::ListCons {
             key,
             separator,

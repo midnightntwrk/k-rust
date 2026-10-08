@@ -8718,6 +8718,29 @@
         "ordinal": 0,
         "role": "sort_declaration"
       }
+    },
+    {
+      "attribute_kind": "smtlib",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "symbol": "sample"
+    },
+    {
+      "attribute_kind": "smt_hook",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "template": [
+        {
+          "fragment": {
+            "smt_kind": "text",
+            "value": "sample"
+          }
+        }
+      ]
     }
   ],
   "DescriptorProductionItem": [
@@ -8931,6 +8954,24 @@
           "role": "sort_declaration"
         },
         "term_kind": "variable"
+      }
+    }
+  ],
+  "DescriptorSmtFragment": [
+    {
+      "fragment": {
+        "smt_kind": "text",
+        "value": "sample"
+      }
+    },
+    {
+      "fragment": {
+        "smt_kind": "field",
+        "value": "field"
+      },
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       }
     }
   ],
@@ -13375,6 +13416,103 @@
           }
         ]
       }
+    },
+    {
+      "attribute_kind": "smtlib",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "symbol": "sample"
+    },
+    {
+      "attribute_kind": "smt_hook",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "template": [
+        {
+          "smt_kind": "text",
+          "value": "sample"
+        }
+      ]
     }
   ],
   "ProductionContextAliasReference": [
@@ -15230,7 +15368,10 @@
     "rule_fresh_binder_name",
     "rule_fresh_binder_sort",
     "function_fresh_generator",
-    "claim_trusted"
+    "claim_trusted",
+    "function_smtlib",
+    "function_smt_hook",
+    "smt_hook_placeholder"
   ],
   "RawSentence": [
     {
@@ -20736,6 +20877,16 @@
       }
     }
   ],
+  "SmtFragment": [
+    {
+      "smt_kind": "text",
+      "value": "sample"
+    },
+    {
+      "smt_kind": "field",
+      "value": "field"
+    }
+  ],
   "StructuredRuleDescriptor": [
     {
       "anywhere": {
@@ -23062,6 +23213,29 @@
         "ordinal": 0,
         "role": "sort_declaration"
       }
+    },
+    {
+      "attribute_kind": "smtlib",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "symbol": "sample"
+    },
+    {
+      "attribute_kind": "smt_hook",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "template": [
+        {
+          "fragment": {
+            "smt_kind": "text",
+            "value": "sample"
+          }
+        }
+      ]
     }
   ],
   "WireProductionItem": [

@@ -23,7 +23,8 @@ use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
     ListOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole,
-    RawSentenceKind, SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
+    RawSentenceKind, SentenceKind, SetOperation, SmtFragment, StableItemId, StrictnessKind,
+    TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -727,7 +728,32 @@ stage_shape! {
             /// Flag provenance.
             key: ProvenanceKey => [keep],
         },
+        /// Uninterpreted SMT-LIB symbol of a function (`smtlib`, KF-044).
+        Smtlib {
+            /// Symbol-string provenance.
+            key: ProvenanceKey => [keep],
+            /// SMT-LIB simple symbol.
+            symbol: String => [keep],
+        },
+        /// SMT-LIB template of a function (`smt_hook`, KF-044).
+        SmtHook {
+            /// Template-string provenance.
+            key: ProvenanceKey => [keep],
+            /// Template fragments; each field fragment keeps its placeholder provenance.
+            template: Vec<DescriptorSmtFragment> => [keep],
+        },
     }
+}
+
+/// One `smt_hook` template fragment; a field fragment carries its placeholder provenance.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorSmtFragment {
+    /// Placeholder provenance, present exactly for a field fragment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<ProvenanceKey>,
+    /// Typed fragment.
+    pub fragment: SmtFragment,
 }
 
 /// One provenance-bearing entry of a production's `colors` list.
@@ -2439,6 +2465,20 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "fresh_generator"
                 }
+                DescriptorProductionAttribute::Smtlib { key, symbol } => {
+                    require_key(key, provenance)?;
+                    if !crate::is_smtlib_simple_symbol(symbol) {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::InvalidSmtlibSymbol,
+                        ));
+                    }
+                    "smt"
+                }
+                DescriptorProductionAttribute::SmtHook { key, template } => {
+                    require_key(key, provenance)?;
+                    self.validate_smt_template(template, provenance)?;
+                    "smt"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -2497,6 +2537,11 @@ impl DescriptorProduction {
         if families.contains("fresh_generator") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::FreshGeneratorWithoutFunction,
+            ));
+        }
+        if families.contains("smt") && !families.contains("function") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::SmtWithoutFunction,
             ));
         }
         if families.contains("prefer") && families.contains("avoid") {
@@ -2788,6 +2833,44 @@ impl GrammarDescriptor {
 }
 
 impl DescriptorProduction {
+    /// Checks an `smt_hook` template: nonempty, adjacent text merged, and each
+    /// field fragment keyed and naming a nonterminal field of this production.
+    fn validate_smt_template(
+        &self,
+        template: &[DescriptorSmtFragment],
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        let invalid = || {
+            GrammarTransportError::InvalidProduction(GrammarProductionReason::InvalidSmtTemplate)
+        };
+        if template.is_empty() {
+            return Err(invalid());
+        }
+        let mut previous_text = false;
+        for fragment in template {
+            match (&fragment.fragment, &fragment.key) {
+                (SmtFragment::Text(text), None) => {
+                    if text.is_empty() || previous_text {
+                        return Err(invalid());
+                    }
+                    previous_text = true;
+                }
+                (SmtFragment::Field(field), Some(key)) => {
+                    require_key(key, provenance)?;
+                    let known = self.items.iter().any(|item| {
+                        matches!(item, DescriptorProductionItem::NonTerminal { field: name, .. } if name == field)
+                    });
+                    if !known {
+                        return Err(invalid());
+                    }
+                    previous_text = false;
+                }
+                _ => return Err(invalid()),
+            }
+        }
+        Ok(())
+    }
+
     /// Collects the keys of one production of a token carrier. The carrier's
     /// sort keys are its declaration; each production, its item, and its
     /// token metadata share the key of its `regex` or `terminal` literal,
@@ -3177,6 +3260,24 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::FreshGenerator { key } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionFreshGenerator, 0)?;
+                }
+                DescriptorProductionAttribute::Smtlib { key, .. } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionSmtlib, 0)?;
+                }
+                DescriptorProductionAttribute::SmtHook { key, template } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionSmtHook, 0)?;
+                    for (ordinal, key) in template
+                        .iter()
+                        .filter_map(|fragment| fragment.key.as_ref())
+                        .enumerate()
+                    {
+                        insert_exact(
+                            keys,
+                            key,
+                            ProvenanceRole::SmtHookPlaceholder,
+                            checked_index(ordinal)?,
+                        )?;
+                    }
                 }
                 DescriptorProductionAttribute::ListCons {
                     key,

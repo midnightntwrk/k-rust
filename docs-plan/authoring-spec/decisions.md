@@ -51,6 +51,30 @@ bug — report it, don't guess.
   module cannot refer to the definition's grammar without an import
   cycle). Rationale: A4's default stays intact, and every escape is
   visible in the package manifest and in every build's warnings.
+  *A4 extension: the `smt_hook` SMT-LIB template is a checked template
+  (2026-10 feature build, KF-044).* `#[k::function(.., smt_hook = "..")]`
+  gives a function a meaning in the SMT solver as an SMT-LIB term, such as
+  `"(ite (< {value} 0) (- 0 {value}) {value})"`. It is a checked
+  foreign-language template, the same category as `#[k::syntax]`:
+  SMT-LIB is Z3's input language and has no Rust spelling.
+  1. Each `{field}` placeholder must name a field of the function (an
+     unknown name reports the closest field); a field may occur any
+     number of times. Braces use std `format!` escaping (`{{`, `}}`).
+  2. The text must be one balanced S-expression; K's positional `#N`
+     (with the `{field}` it stands for as a suggestion) and a `"` are
+     rejected.
+  3. The emitted `smt-hook(..)` renumbers each placeholder to the field's
+     one-based nonterminal position, on both routes.
+  4. `smtlib = "sym"` (an SMT-LIB simple symbol) names the function in
+     the solver instead; the two keys are mutually exclusive (K would let
+     `smt-hook` win silently), and `smtlib` may be combined with `hook`.
+     Two functions with one `smtlib` symbol are an error.
+  Neither key is checked against the function's equations: both are
+  trusted. Alternatives rejected: K's positional `#N` templates (C4/C5
+  removed positional codes); SMT-LIB as Rust token trees (SMT-LIB symbols
+  do not survive Rust tokenisation); a separate `#[k::smt(..)]` attribute
+  (SMT metadata is function semantics and belongs in `#[k::function]`);
+  the keys on constructors for now (deferred; the same keys are planned).
 
 ## B. Sorts
 

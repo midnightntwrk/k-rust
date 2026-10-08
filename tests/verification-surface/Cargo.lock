@@ -105,6 +105,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-verification-surface-hook"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-verification-surface-hook-ablation"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-verification-surface-l21"
 version = "0.1.0"
 dependencies = [

@@ -146,6 +146,16 @@ Unlike `?X` from `#[k::exists]`, a fresh value is concrete, so every backend run
 `krs prove` reports it `trusted`, never `proven`, and every prove run and Haskell build warns once per trusted claim (`krs::emit::trusted-claim`).
 `trusted` is a bare flag after the label: a repeated `trusted`, `trusted = true`, and `trusted` with `circularity` are syntax errors (see [trusted claims](/verification/reachability-claims#trusted-claims)).
 
+### SMT translations of functions
+
+Z3 knows Int arithmetic but not your functions: during symbolic execution and proofs an application such as `myAbs(I)` is an unknown value to it.
+Two keys of `#[k::function]` change that, and both are trusted, because nothing checks them against the function's equations.
+`smtlib = "probeH"` gives the function a name in Z3, the uninterpreted SMT-LIB symbol `probeH`: Z3 then knows only that equal arguments give equal results (K's `smtlib(probeH)`).
+`smt_hook = "(ite (< {value} 0) (- 0 {value}) {value})"` gives it a meaning in Z3's language, an SMT-LIB term over the arguments, so a claim such as `go(I) => true` after the rule `go(I) => myAbs(I) >=Int 0` is proved even though `myAbs` has no equation.
+The template is checked like a `#[k::syntax]` template: each `{field}` names a field of the function (a field may occur any number of times, and `{{`/`}}` spell braces), the text is one balanced S-expression, and K's positional `#1` and a `"` are rejected; KRS emits K's `smt-hook(..)` with each placeholder renumbered to its field's position, so `clampSub({low}, {value})` with `(- {value} {low})` emits `(- #2 #1)`.
+The two keys are mutually exclusive, and `smtlib` may be combined with a typed `hook`, so the hook computes concrete values while Z3 sees a symbol (`krs::syntax::invalid-smt-metadata`); two functions with one `smtlib` symbol are rejected, because Z3 would treat them as one function (`krs::analysis::duplicate-smtlib`).
+A function with an `smt_hook` and no equation means something only to Z3: concrete execution leaves its applications unevaluated, and every command warns (`krs::emit::smt-only-function`).
+
 ### Console I/O and the exit cell
 
 `#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.

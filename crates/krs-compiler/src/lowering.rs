@@ -1742,6 +1742,14 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::FreshGenerator { .. } => {
                     ProductionAttribute::FreshGenerator { origin }
                 }
+                ProductionAttribute::Smtlib { symbol, .. } => ProductionAttribute::Smtlib {
+                    origin,
+                    symbol: symbol.clone(),
+                },
+                ProductionAttribute::SmtHook { template, .. } => ProductionAttribute::SmtHook {
+                    origin,
+                    template: template.clone(),
+                },
                 ProductionAttribute::ListCons {
                     separator,
                     non_empty,

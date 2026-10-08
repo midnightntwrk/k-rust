@@ -89,6 +89,13 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// hook catalog. `total` adds K's `total` attribute to the emitted `function`
 /// production; `partial` omits it, so an application that no equation covers
 /// has no denotation.
+///
+/// `smtlib = "sym"` names the function in the SMT solver as the
+/// uninterpreted SMT-LIB symbol `sym`; `smt_hook = "(ite (< {value} 0) ..)"`
+/// gives it a meaning there, an SMT-LIB term whose `{field}` placeholders
+/// stand for the arguments. The two keys are mutually exclusive, and
+/// `smtlib` may be combined with `hook`. Neither is checked against the
+/// function's equations: both are trusted.
 #[proc_macro_attribute]
 pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Function, attributes, item)

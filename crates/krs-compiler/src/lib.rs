@@ -22,7 +22,7 @@ pub mod testing;
 pub use artifacts::*;
 pub use emit::{
     EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source,
-    emit_k, trusted_claim_warnings,
+    emit_k, smt_only_function_warnings, trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};

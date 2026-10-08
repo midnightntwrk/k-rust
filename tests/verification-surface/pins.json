@@ -19,6 +19,14 @@
     "krs-verification-surface-trusted-ablation": {
       "definition.k": "cb99becedbc945d5f20ae104fe49825fca3257b80d8b568fe44a5997b46076d2",
       "spec.k": "8d5a60df347f29a95cc31eb7490285f64d4b93b9e0129ab58a2d5f544162064a"
+    },
+    "krs-verification-surface-hook": {
+      "definition.k": "4534d1aed587b1884647427aec5a888779c5ccbb5d440a9fdb5a75516c0b1001",
+      "spec.k": "700aac369146b160f8733e451717c6ba18c1d404d36aa8c0a65cf2d9d6071d7e"
+    },
+    "krs-verification-surface-hook-ablation": {
+      "definition.k": "8e2fed16db6211f3ec598830d9f4bae54f2d7f85e6bfcd464362b5f9ca620d15",
+      "spec.k": "c1cc39d30dcc93ebd9e9a1bd4e10edf027f43f251ccaa67658a677ee4e8b5fed"
     }
   },
   "capability_refusals": {
@@ -29,7 +37,9 @@
     "krs-verification-surface-l21": "f4d5a5b103985e1f14b08c231be764b9e97a2d57f4465dfa78d8ff867f3a1b4c",
     "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
     "krs-verification-surface-trusted": "33702242467e6c060b0b6cb3189f2c31e9e5c10b7c0d001e98cf75a2896977c8",
-    "krs-verification-surface-trusted-ablation": "b53f7d48f4382231af18df0c1827d9fd597760d53fbd82a24704e347fcef0c9f"
+    "krs-verification-surface-trusted-ablation": "b53f7d48f4382231af18df0c1827d9fd597760d53fbd82a24704e347fcef0c9f",
+    "krs-verification-surface-hook": "22967d483a94a2488d2f60d65d94cff4382c87336dac7c56c772a3d82f0add85",
+    "krs-verification-surface-hook-ablation": "ac79b7be1f50c86b5fc07e565a3c0c24a58c2290824435d5dfe18cf91c4a81cb"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -112,6 +122,9 @@
     ],
     "exists-shadows": [
       "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
+    ],
+    "smtlib-duplicate": [
+      "error[krs::analysis::duplicate-smtlib]: `First` and `Second` both declare `smtlib = \"probe\"`: Z3 would identify `probe` across two K functions; give each its own symbol"
     ]
   },
   "trusted_proofs": {
@@ -145,6 +158,41 @@
       "top": true
     },
     "krs-verification-surface-trusted-ablation": {
+      "proven": false,
+      "top": false
+    }
+  },
+  "smt_proofs": {
+    "krs-verification-surface-hook": {
+      "statuses": {
+        "abs-nonneg": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 1 claim proven"
+      ],
+      "warnings": [
+        "warning[krs::emit::smt-only-function]: function `myAbs` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it",
+        "warning[krs::emit::smt-only-function]: function `clampSub` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it"
+      ]
+    },
+    "krs-verification-surface-hook-ablation": {
+      "statuses": {
+        "abs-nonneg": "failed"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 0 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "smt_kprove": {
+    "krs-verification-surface-hook": {
+      "proven": true,
+      "top": true
+    },
+    "krs-verification-surface-hook-ablation": {
       "proven": false,
       "top": false
     }

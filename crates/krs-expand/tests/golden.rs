@@ -646,6 +646,25 @@ pub struct FreshExpr {
 "#,
     ),
     (
+        "function_smt_hook",
+        r#"
+#[k::function(total, sort = Int, syntax = "clampSub({low}, {value})", smt_hook = "(ite (< {value} {low}) 0 (- {value} {low}))")]
+pub struct ClampSub {
+    pub low: Term<k::builtin::int::Int>,
+    pub value: Term<k::builtin::int::Int>,
+}
+"#,
+    ),
+    (
+        "function_smtlib",
+        r#"
+#[k::function(total, sort = Int, syntax = "probeH({value})", smtlib = "probeH")]
+pub struct ProbeH {
+    pub value: Term<k::builtin::int::Int>,
+}
+"#,
+    ),
+    (
         "equation",
         r"
 #[k::equation]

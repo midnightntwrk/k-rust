@@ -142,6 +142,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidClaimMetadata(L::RuleId),
     InvalidEquationRoot(L::RuleId),
     InvalidFormat,
+    InvalidSmtMetadata,
     InvalidColors,
     InternalWithProgram,
     PreferAndAvoid,
@@ -1435,6 +1436,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut private = false;
     let mut memo = false;
     let mut fresh_generator = false;
+    let mut smt = false;
     let mut list = false;
     let mut raw_hook = false;
     for attribute in attributes {
@@ -1469,6 +1471,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Memo { .. } => std::mem::replace(&mut memo, true),
             ProductionAttribute::FreshGenerator { .. } => {
                 std::mem::replace(&mut fresh_generator, true)
+            }
+            ProductionAttribute::Smtlib { .. } | ProductionAttribute::SmtHook { .. } => {
+                std::mem::replace(&mut smt, true)
             }
             ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. } => {
                 std::mem::replace(&mut list, true)
@@ -1521,6 +1526,21 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Memo { .. }
             | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::RawHook { .. } => {}
+            ProductionAttribute::Smtlib { symbol, .. } => {
+                if !krs_ir::is_smtlib_simple_symbol(symbol) {
+                    return Err(L::error(ValidationError::InvalidSmtMetadata));
+                }
+            }
+            ProductionAttribute::SmtHook { template, .. } => {
+                let valid = !template.is_empty()
+                    && template.iter().all(|fragment| match fragment {
+                        krs_ir::SmtFragment::Text(text) => !text.is_empty(),
+                        krs_ir::SmtFragment::Field(field) => fields.contains(field),
+                    });
+                if !valid {
+                    return Err(L::error(ValidationError::InvalidSmtMetadata));
+                }
+            }
             ProductionAttribute::ListCons { separator, .. } => {
                 if !valid_list_cons::<L>(result_sort, items, separator) {
                     return Err(L::error(ValidationError::InvalidListProduction));
@@ -1564,7 +1584,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
     }
     validate_production_colors::<L>(items, attributes, colors.as_deref())?;
     // K's freshGenerator is a function; analysis requires it to be total (KF-022).
-    if (total || memo || fresh_generator) && !function {
+    // K's smtlib and smt-hook give a function's SMT translation (KF-044).
+    if (total || memo || fresh_generator || smt) && !function {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if (hook.is_some() || raw_hook) && !(function && total) {

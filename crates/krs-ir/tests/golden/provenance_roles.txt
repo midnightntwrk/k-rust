@@ -194,3 +194,6 @@ RuleFreshBinderName=rule_fresh_binder_name
 RuleFreshBinderSort=rule_fresh_binder_sort
 FunctionFreshGenerator=function_fresh_generator
 ClaimTrusted=claim_trusted
+FunctionSmtlib=function_smtlib
+FunctionSmtHook=function_smt_hook
+SmtHookPlaceholder=smt_hook_placeholder

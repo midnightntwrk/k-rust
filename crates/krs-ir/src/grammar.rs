@@ -263,6 +263,32 @@ pub enum FormatFragment {
     ColorReset,
 }
 
+/// One fragment of a function's `smt_hook` SMT-LIB template (KF-044).
+///
+/// A field fragment stands for the production's argument at that field; K's
+/// `smt-hook` spells it `#N`, the field's one-based nonterminal position.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "smt_kind", content = "value", rename_all = "snake_case")]
+pub enum SmtFragment {
+    /// Literal SMT-LIB text.
+    Text(String),
+    /// The argument at one named production field.
+    Field(ProductionFieldId),
+}
+
+/// Whether `symbol` is an SMT-LIB simple symbol: a nonempty sequence of
+/// ASCII letters, digits, and `~!@$%^&*_+=<>.?/-` that does not start with a
+/// digit (SMT-LIB 2.6, section 3.1).
+#[must_use]
+pub fn is_smtlib_simple_symbol(symbol: &str) -> bool {
+    const PUNCTUATION: &[u8] = b"~!@$%^&*_+=<>.?/-";
+    let mut bytes = symbol.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || PUNCTUATION.contains(&first))
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || PUNCTUATION.contains(&byte))
+}
+
 /// Strictness strategy for a production.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -534,6 +560,22 @@ pub enum ProductionAttribute<S, D> {
         /// Attribute provenance.
         origin: NodeOrigin,
     },
+    /// K's `smtlib(symbol)`: the SMT solver sees the function as the
+    /// uninterpreted SMT-LIB symbol `symbol` (KF-044).
+    Smtlib {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// SMT-LIB simple symbol.
+        symbol: String,
+    },
+    /// K's `smt-hook(template)`: the SMT solver sees the function as the
+    /// SMT-LIB term `template` over its arguments (KF-044).
+    SmtHook {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Checked template fragments in source order.
+        template: Vec<SmtFragment>,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -563,7 +605,9 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::ListCons { origin, .. }
             | Self::ListTerminator { origin, .. }
             | Self::RawHook { origin, .. }
-            | Self::FreshGenerator { origin } => origin,
+            | Self::FreshGenerator { origin }
+            | Self::Smtlib { origin, .. }
+            | Self::SmtHook { origin, .. } => origin,
         }
     }
 
@@ -596,6 +640,9 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::ListCons { .. } => Some(crate::ProductionAttributeFamily::ListCons),
             Self::ListTerminator { .. } => Some(crate::ProductionAttributeFamily::ListTerminator),
             Self::FreshGenerator { .. } => Some(crate::ProductionAttributeFamily::FreshGenerator),
+            Self::Smtlib { .. } | Self::SmtHook { .. } => {
+                Some(crate::ProductionAttributeFamily::Smt)
+            }
         }
     }
 }

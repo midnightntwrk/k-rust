@@ -48,66 +48,15 @@ impl SyntaxTemplate {
             ));
         }
 
-        let chars = text.char_indices().collect::<Vec<_>>();
         let mut items = Vec::new();
-        let mut terminal = String::new();
-        let mut cursor = 0;
-        while cursor < chars.len() {
-            let (_, character) = chars[cursor];
-            match character {
-                '{' if chars.get(cursor + 1).is_some_and(|(_, next)| *next == '{') => {
-                    terminal.push('{');
-                    cursor += 2;
-                }
-                '}' if chars.get(cursor + 1).is_some_and(|(_, next)| *next == '}') => {
-                    terminal.push('}');
-                    cursor += 2;
-                }
-                '{' => {
-                    push_terminal(&mut items, &mut terminal);
-                    let start = cursor + 1;
-                    let mut end = start;
-                    while end < chars.len() && chars[end].1 != '}' {
-                        if chars[end].1 == '{' {
-                            return Err(invalid_template(
-                                "nested `{` is not allowed in a placeholder",
-                                literal.span(),
-                            ));
-                        }
-                        end += 1;
-                    }
-                    if end == chars.len() {
-                        return Err(invalid_template(
-                            "an opening `{` has no closing `}`; did you mean `{{` for a literal opening brace?",
-                            literal.span(),
-                        ));
-                    }
-                    let name = chars[start..end]
-                        .iter()
-                        .map(|(_, value)| value)
-                        .collect::<String>();
-                    if name.is_empty() || syn::parse_str::<Ident>(&name).is_err() {
-                        return Err(invalid_template(
-                            "a placeholder must contain one Rust field identifier",
-                            literal.span(),
-                        ));
-                    }
-                    items.push(SyntaxTemplateItem::Field(name));
-                    cursor = end + 1;
-                }
-                '}' => {
-                    return Err(invalid_template(
-                        "an unmatched `}` must be escaped as `}}`",
-                        literal.span(),
-                    ));
-                }
-                other => {
-                    terminal.push(other);
-                    cursor += 1;
-                }
+        for piece in
+            scan_placeholders(&text).map_err(|reason| invalid_template(reason, literal.span()))?
+        {
+            match piece {
+                TemplatePiece::Text(mut terminal) => push_terminal(&mut items, &mut terminal),
+                TemplatePiece::Field(name) => items.push(SyntaxTemplateItem::Field(name)),
             }
         }
-        push_terminal(&mut items, &mut terminal);
         if items.is_empty() {
             return Err(invalid_template(
                 "the template must emit an item",
@@ -197,6 +146,259 @@ impl SyntaxTemplate {
         }
         Ok(anchors)
     }
+}
+
+/// One piece of a template string: literal text or a `{field}` placeholder.
+enum TemplatePiece {
+    Text(String),
+    Field(String),
+}
+
+/// Splits a template into text and named placeholders, with std `format!`
+/// escaping: `{{` and `}}` spell literal braces, and a placeholder is one Rust
+/// identifier between braces. Shared by syntax and SMT-LIB templates.
+fn scan_placeholders(text: &str) -> Result<Vec<TemplatePiece>, &'static str> {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut pieces = Vec::new();
+    let mut literal = String::new();
+    let mut cursor = 0;
+    while cursor < chars.len() {
+        match chars[cursor] {
+            '{' if chars.get(cursor + 1) == Some(&'{') => {
+                literal.push('{');
+                cursor += 2;
+            }
+            '}' if chars.get(cursor + 1) == Some(&'}') => {
+                literal.push('}');
+                cursor += 2;
+            }
+            '{' => {
+                if !literal.is_empty() {
+                    pieces.push(TemplatePiece::Text(std::mem::take(&mut literal)));
+                }
+                let start = cursor + 1;
+                let mut end = start;
+                while end < chars.len() && chars[end] != '}' {
+                    if chars[end] == '{' {
+                        return Err("nested `{` is not allowed in a placeholder");
+                    }
+                    end += 1;
+                }
+                if end == chars.len() {
+                    return Err(
+                        "an opening `{` has no closing `}`; did you mean `{{` for a literal opening brace?",
+                    );
+                }
+                let name = chars[start..end].iter().collect::<String>();
+                if name.is_empty() || syn::parse_str::<Ident>(&name).is_err() {
+                    return Err("a placeholder must contain one Rust field identifier");
+                }
+                pieces.push(TemplatePiece::Field(name));
+                cursor = end + 1;
+            }
+            '}' => return Err("an unmatched `}` must be escaped as `}}`"),
+            other => {
+                literal.push(other);
+                cursor += 1;
+            }
+        }
+    }
+    if !literal.is_empty() {
+        pieces.push(TemplatePiece::Text(literal));
+    }
+    Ok(pieces)
+}
+
+/// One checked fragment of a function's `smt_hook` SMT-LIB template.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SmtTemplateFragment {
+    /// Literal SMT-LIB text.
+    Text(String),
+    /// A named field placeholder, without its surrounding braces.
+    Field(String),
+}
+
+/// A checked `smt_hook` SMT-LIB template (KF-044).
+///
+/// It is a checked foreign-language template like `#[k::syntax]`: `{field}`
+/// placeholders name constructor fields and use std `format!` escaping, and
+/// the text is checked to be a balanced S-expression. K's positional `#N`
+/// and a `"` are rejected.
+#[derive(Clone, Debug)]
+pub struct SmtTemplate {
+    literal: LitStr,
+    fragments: Vec<SmtTemplateFragment>,
+}
+
+impl SmtTemplate {
+    /// Parses and checks one `smt_hook` literal.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an empty template, malformed braces or placeholders, a `"`,
+    /// and unbalanced parentheses.
+    pub fn parse(literal: LitStr) -> Result<Self, SyntaxError> {
+        let text = literal.value();
+        let error = |reason: String| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidSmtMetadata { reason },
+                literal.span(),
+            )
+        };
+        if text.trim().is_empty() {
+            return Err(error("an `smt_hook` template must not be empty".to_owned()));
+        }
+        if text.contains('"') {
+            return Err(error(
+                "an `smt_hook` template cannot contain `\"`: K's attribute value would end there; use an SMT-LIB term without string literals".to_owned(),
+            ));
+        }
+        let pieces = scan_placeholders(&text)
+            .map_err(|reason| error(format!("invalid `smt_hook` template: {reason}")))?;
+        let mut depth = 0_usize;
+        for piece in &pieces {
+            let TemplatePiece::Text(text) = piece else {
+                continue;
+            };
+            for character in text.chars() {
+                match character {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth = depth.checked_sub(1).ok_or_else(|| {
+                            error("the `smt_hook` template has an unmatched `)`: it must be one balanced S-expression".to_owned())
+                        })?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if depth != 0 {
+            return Err(error(
+                "the `smt_hook` template has an unclosed `(`: it must be one balanced S-expression"
+                    .to_owned(),
+            ));
+        }
+        let fragments = pieces
+            .into_iter()
+            .map(|piece| match piece {
+                TemplatePiece::Text(text) => SmtTemplateFragment::Text(text),
+                TemplatePiece::Field(name) => SmtTemplateFragment::Field(name),
+            })
+            .collect();
+        Ok(Self { literal, fragments })
+    }
+
+    /// Returns the original Rust string literal.
+    #[must_use]
+    pub const fn literal(&self) -> &LitStr {
+        &self.literal
+    }
+
+    /// Returns the text and placeholder fragments in source order.
+    #[must_use]
+    pub fn fragments(&self) -> &[SmtTemplateFragment] {
+        &self.fragments
+    }
+
+    /// Checks every placeholder against the production's fields, and rejects
+    /// K's positional `#N` with the `{field}` spelling it stands for.
+    ///
+    /// A field may occur any number of times, including not at all: the
+    /// template is the function's meaning, not its concrete syntax.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a placeholder naming no field (with the closest field name)
+    /// and a literal `#N`.
+    pub fn validate_fields<'a>(
+        &self,
+        fields: impl IntoIterator<Item = &'a Ident>,
+    ) -> Result<(), SyntaxError> {
+        let fields = fields
+            .into_iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let error = |reason: String| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidSmtMetadata { reason },
+                self.literal.span(),
+            )
+        };
+        for fragment in &self.fragments {
+            match fragment {
+                SmtTemplateFragment::Field(name) if !fields.contains(name) => {
+                    let hint = crate::enum_constructor::closest_variant(name, &fields).map_or_else(
+                        || {
+                            format!(
+                                "; the fields are {}",
+                                fields
+                                    .iter()
+                                    .map(|field| format!("`{{{field}}}`"))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        },
+                        |closest| format!("; did you mean `{{{closest}}}`?"),
+                    );
+                    return Err(error(format!(
+                        "`smt_hook` placeholder `{{{name}}}` names no field of this function{hint}"
+                    )));
+                }
+                SmtTemplateFragment::Text(text) => {
+                    if let Some(position) = positional_placeholder(text) {
+                        let hint = position
+                            .checked_sub(1)
+                            .and_then(|index| fields.get(index))
+                            .map_or_else(
+                                || "a `{field}` placeholder".to_owned(),
+                                |field| format!("`{{{field}}}`"),
+                            );
+                        return Err(error(format!(
+                            "`#{position}` is K's positional placeholder; name the field instead: did you mean {hint}?"
+                        )));
+                    }
+                }
+                SmtTemplateFragment::Field(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let range = TokenRange::for_tokens(&self.literal)?;
+        let mut anchors = vec![ProvenanceAnchor::new(
+            ProvenanceRole::FunctionSmtHook,
+            0,
+            range,
+        )];
+        let mut ordinals = ProvenanceAnchors::default();
+        for fragment in &self.fragments {
+            if matches!(fragment, SmtTemplateFragment::Field(_)) {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::SmtHookPlaceholder,
+                    ordinals.next(ProvenanceRole::SmtHookPlaceholder, self.literal.span())?,
+                    range,
+                ));
+            }
+        }
+        Ok(anchors)
+    }
+}
+
+/// The `N` of the first `#N` (a `#` followed by a decimal digit) in `text`.
+fn positional_placeholder(text: &str) -> Option<usize> {
+    let mut rest = text;
+    while let Some(index) = rest.find('#') {
+        rest = &rest[index + 1..];
+        let digits = rest
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        if !digits.is_empty() {
+            return Some(digits.parse().unwrap_or(usize::MAX));
+        }
+    }
+    None
 }
 
 pub(crate) fn push_terminal(items: &mut Vec<SyntaxTemplateItem>, terminal: &mut String) {
