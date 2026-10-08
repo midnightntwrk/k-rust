@@ -3,7 +3,8 @@
   "expand": {
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
     "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
-    "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50"
+    "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50",
+    "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -14,12 +15,16 @@
     },
     "krs-rule-forms-anywhere": {
       "definition.k": "9ff57bef179b5bdcd6fea1502f5810513a72ec4a8ce0da289b47a4765a16e607"
+    },
+    "krs-rule-forms-casts": {
+      "definition.k": "6b7c1e0d35a507e879059c1404b65f5111cf7c53efa147a5f01f26032ee6fcb6"
     }
   },
   "reference_sha256": {
     "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
     "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
-    "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521"
+    "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521",
+    "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -137,6 +142,46 @@
           "run": "wrap(seq(b, seq(c, d)))"
         }
       }
+    },
+    "krs-rule-forms-casts": {
+      "is-expression-int": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "is-expression-add": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "is-expression-block": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "is-expression-bool": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "bar": {
+        "parse": "accepted",
+        "run": "bar(3)"
+      },
+      "bar-not-int": {
+        "parse": "accepted",
+        "run": "bar(1 + 2)"
+      },
+      "baz": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "baz-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -178,6 +223,18 @@
     ],
     "anywhere-priority": [
       "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`"
+    ],
+    "binder-unused": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: binder `extra` is declared but does not occur in the subject"
+    ],
+    "binder-partial": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+    ],
+    "binder-misordered": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+    ],
+    "binder-incompatible": [
+      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
     ]
   },
   "known_divergences": {
@@ -200,6 +257,18 @@
         "java": {
           "parse": "accepted",
           "run": "wrap(seq(b, seq(c, d)))"
+        }
+      }
+    },
+    "krs-rule-forms-casts": {
+      "baz-undefined": {
+        "native": {
+          "parse": "accepted",
+          "run": "branches: stuck, trivial"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
         }
       }
     }

@@ -265,6 +265,7 @@ pub(super) fn lower_head_rule_descriptor(
         binding_constraints,
         wildcard_offset: 0,
         wildcards: Vec::new(),
+        declared_binders: BTreeMap::new(),
     };
     let head_sort = rule
         .head_sort
@@ -981,6 +982,19 @@ pub(super) fn lower_structured_rule_descriptor(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let binding_names = rule.bindings.iter().cloned().collect::<BTreeSet<_>>();
+    let declared_binders = rule
+        .typed_bindings
+        .iter()
+        .map(|binding| {
+            (
+                binding.name.clone(),
+                (
+                    semantic_sort_ref(&binding.sort.sort),
+                    binding.sort.key.clone(),
+                ),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
@@ -989,10 +1003,14 @@ pub(super) fn lower_structured_rule_descriptor(
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
-        binding_sorts: BTreeMap::new(),
+        binding_sorts: declared_binders
+            .iter()
+            .map(|(name, (sort, _))| (name.clone(), sort.clone()))
+            .collect(),
         binding_constraints: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
+        declared_binders,
     };
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
     let result_sort = semantic_sort_ref(&rule.result_sort.sort);

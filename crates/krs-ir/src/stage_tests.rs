@@ -689,6 +689,11 @@ fn structured_rule() -> StructuredRuleDescriptor {
         anywhere: None,
         simplification: None,
         pattern_key: key(2),
+        typed_bindings: vec![crate::DescriptorTypedBinding {
+            key: key(8),
+            name: "value".to_owned(),
+            sort: sort(9),
+        }],
         result_key: key(3),
         subject_sort: sort(4),
         result_sort: sort(5),
@@ -787,7 +792,7 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
     assert_mapping!(
         DescriptorPayload::StructuredRule(Box::new(structured_rule())),
         [map_head],
-        ["sort", "sort", "sort", "sort", "sort"]
+        ["sort", "sort", "sort", "sort", "sort", "sort"]
     );
 }
 

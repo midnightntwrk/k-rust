@@ -1,6 +1,7 @@
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
-use syn::{Expr, FnArg, ItemFn, ReturnType, Stmt, Type};
+use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 
 use super::condition::{RuleCondition, take_requires_helper};
 use super::pattern::{
@@ -30,10 +31,44 @@ pub struct RuleParameter {
     pub term_sort: TermSort,
 }
 
+/// The binder-list contract shared by every fn-shaped sentence (X5), as a
+/// diagnostic reason.
+pub const BINDER_LIST_CONTRACT: &str = "typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded)";
+
+/// One declared typed binder `name: Sort` before the subject of a rule fn
+/// (KF-009): K's sort-restricted variable `NAME:Sort`.
+#[derive(Clone, Debug)]
+pub struct RuleBinder {
+    name: Ident,
+    term_sort: TermSort,
+    parameter: PatType,
+}
+
+impl RuleBinder {
+    /// Returns the declared binding name.
+    #[must_use]
+    pub const fn name(&self) -> &Ident {
+        &self.name
+    }
+
+    /// Returns the declared sort, which may be narrower than inference would choose.
+    #[must_use]
+    pub const fn term_sort(&self) -> &TermSort {
+        &self.term_sort
+    }
+
+    /// Returns the complete authored `name: Type` parameter.
+    #[must_use]
+    pub const fn parameter(&self) -> &PatType {
+        &self.parameter
+    }
+}
+
 /// Validated one-clause rule function.
 #[derive(Clone, Debug)]
 pub struct RuleItem {
     pub(super) item: ItemFn,
+    pub(super) binders: Vec<RuleBinder>,
     pub(super) parameter: RuleParameter,
     result_sort: TermSort,
     result: TermExpression,
@@ -46,8 +81,9 @@ impl RuleItem {
     ///
     /// # Errors
     ///
-    /// Rejects signature modifiers, arity other than one, receivers, non-term
-    /// types, unsupported patterns, and bodies other than one named term.
+    /// Rejects signature modifiers, a missing subject, receivers, non-term
+    /// types, unsupported patterns, binder lists that break the binder-list
+    /// contract, and bodies other than one named term.
     pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
         Self::from_item_with_signs(item, NegativeLiteralSpans::default())
     }
@@ -75,9 +111,10 @@ impl RuleItem {
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
-        let argument = item.sig.inputs.first().ok_or_else(|| {
+        let binders = parse_rule_binders(item)?;
+        let argument = item.sig.inputs.last().ok_or_else(|| {
             unsupported_signature(
-                "a rule must have exactly one subject parameter",
+                "a rule must end with one subject parameter",
                 item.sig.span(),
             )
         })?;
@@ -100,6 +137,7 @@ impl RuleItem {
             signs,
         )?;
         let parameter_sort = sort_parser((*argument.ty).clone())?;
+        validate_binder_list(&binders, pattern.bindings())?;
 
         let ReturnType::Type(_, result_type) = &item.sig.output else {
             return Err(unsupported_signature(
@@ -113,6 +151,7 @@ impl RuleItem {
 
         Ok(Self {
             item: item.clone(),
+            binders,
             parameter: RuleParameter {
                 pattern,
                 term_sort: parameter_sort,
@@ -134,6 +173,13 @@ impl RuleItem {
     #[must_use]
     pub const fn parameter(&self) -> &RuleParameter {
         &self.parameter
+    }
+
+    /// Returns the declared typed binders: empty, or every subject binding in
+    /// first-occurrence order.
+    #[must_use]
+    pub fn binders(&self) -> &[RuleBinder] {
+        &self.binders
     }
 
     /// Returns the rule's result sort.
@@ -193,6 +239,26 @@ impl RuleItem {
                 TokenRange::for_tokens(self.result.expression())?,
             ),
         ];
+        for (ordinal, binder) in self.binders.iter().enumerate() {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleBindingParameter,
+                checked_ordinal(
+                    ordinal,
+                    ProvenanceRole::RuleBindingParameter,
+                    binder.name.span(),
+                )?,
+                TokenRange::for_tokens(&binder.parameter)?,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleBindingType,
+                checked_ordinal(
+                    ordinal,
+                    ProvenanceRole::RuleBindingType,
+                    binder.term_sort.sort().span(),
+                )?,
+                TokenRange::for_tokens(binder.term_sort.sort())?,
+            ));
+        }
         for (ordinal, range) in self
             .parameter
             .pattern
@@ -357,6 +423,14 @@ impl RuleItem {
                 symbol.path(),
             )?;
         }
+        for (ordinal, binder) in self.binders.iter().enumerate() {
+            push_candidate(
+                &mut candidates,
+                ProvenanceRole::RuleBindingType,
+                ordinal,
+                binder.term_sort.sort(),
+            )?;
+        }
         Ok(candidates)
     }
 
@@ -404,10 +478,10 @@ impl KrsSyntax for RuleItem {
 
 fn validate_signature_features(item: &ItemFn) -> Result<(), SyntaxError> {
     let signature = &item.sig;
-    if signature.inputs.len() != 1 {
+    if signature.inputs.is_empty() {
         return Err(unsupported_signature(
-            "a rule must have exactly one subject parameter",
-            signature.inputs.span(),
+            "a rule must end with one subject parameter",
+            signature.span(),
         ));
     }
     if let Some(token) = signature.constness {
@@ -444,6 +518,102 @@ fn validate_signature_features(item: &ItemFn) -> Result<(), SyntaxError> {
         return Err(unsupported_signature(
             "variadic rules are not supported",
             variadic.span(),
+        ));
+    }
+    Ok(())
+}
+
+fn binder_error(reason: String, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidBinderList { reason }, span)
+}
+
+/// Parses the typed binder parameters before the subject (KF-009, X5).
+fn parse_rule_binders(item: &ItemFn) -> Result<Vec<RuleBinder>, SyntaxError> {
+    let mut binders = Vec::<RuleBinder>::new();
+    let count = item.sig.inputs.len().saturating_sub(1);
+    for argument in item.sig.inputs.iter().take(count) {
+        let FnArg::Typed(argument) = argument else {
+            return Err(unsupported_signature(
+                "rules cannot have a `self` receiver",
+                argument.span(),
+            ));
+        };
+        if !argument.attrs.is_empty() {
+            return Err(unsupported_signature(
+                "parameter attributes are outside the rule shape",
+                argument.attrs[0].span(),
+            ));
+        }
+        let Pat::Ident(pattern) = &*argument.pat else {
+            return Err(binder_error(
+                "a typed binder must be a plain immutable identifier, as in `x: Int`; the subject parameter comes last".to_owned(),
+                argument.pat.span(),
+            ));
+        };
+        if pattern.by_ref.is_some() || pattern.mutability.is_some() || pattern.subpat.is_some() {
+            return Err(binder_error(
+                "a typed binder must be a plain immutable identifier, as in `x: Int`, without `ref`, `mut`, or `@`".to_owned(),
+                pattern.span(),
+            ));
+        }
+        crate::parse::validate_authored_binder(&pattern.ident.to_string(), pattern.ident.span())?;
+        if binders
+            .iter()
+            .any(|existing| existing.name.unraw() == pattern.ident.unraw())
+        {
+            return Err(binder_error(
+                format!("binder `{}` is declared twice", pattern.ident.unraw()),
+                pattern.ident.span(),
+            ));
+        }
+        let authored = (*argument.ty).clone();
+        let term_sort =
+            parse_term_sort(authored.clone()).or_else(|_| parse_readable_sort(authored))?;
+        binders.push(RuleBinder {
+            name: pattern.ident.clone(),
+            term_sort,
+            parameter: argument.clone(),
+        });
+    }
+    Ok(binders)
+}
+
+/// Checks the term-sentence binder-list contract (X5.2): no binder list, or
+/// every subject binding exactly once in first-occurrence order.
+fn validate_binder_list(binders: &[RuleBinder], bindings: &[Ident]) -> Result<(), SyntaxError> {
+    if binders.is_empty() {
+        return Ok(());
+    }
+    for binder in binders {
+        if !bindings
+            .iter()
+            .any(|binding| binding.unraw() == binder.name.unraw())
+        {
+            return Err(binder_error(
+                format!(
+                    "binder `{}` is declared but does not occur in the subject",
+                    binder.name.unraw()
+                ),
+                binder.name.span(),
+            ));
+        }
+    }
+    let mismatch = binders
+        .iter()
+        .zip(bindings)
+        .find(|(binder, binding)| binder.name.unraw() != binding.unraw())
+        .map(|(binder, _)| binder.name.span());
+    if binders.len() != bindings.len() || mismatch.is_some() {
+        let expected = bindings
+            .iter()
+            .map(|binding| binding.unraw().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(binder_error(
+            format!(
+                "{BINDER_LIST_CONTRACT}; a term sentence declares no binders or all of them, here `{expected}`"
+            ),
+            mismatch.unwrap_or_else(|| binders[0].name.span()),
         ));
     }
     Ok(())

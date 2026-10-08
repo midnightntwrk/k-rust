@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: priority (KF-010), nondet (KF-012), and anywhere rules (KF-026).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), and anywhere rules (KF-026).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -22,12 +22,24 @@ the outcomes must agree:
   `// krs-capability: AnywhereRule` comment, `symbols.json` records the
   requirement, and the Java Haskell reference route refuses the definition
   with `krs::capability::unavailable` before anything is kompiled;
+- `casts`: typed binder parameters on rule fns. `_e: Exp` narrows the
+  `Phrase` argument of `isExpression`, whose `owise` equation declares no
+  binders, so `isExpression(1)` and `isExpression(1 + 2)` are `true` and
+  `isExpression({})` and `isExpression(true)` are `false`; `i: Int` narrows
+  `bar`'s `Exp` field, so `bar(0)` steps through the projection
+  `{foo(I +Int 1)}:>Int` to `bar(3)` and `bar(1 + 2)` does not match; the
+  emitted rules carry `_E:Exp` and `I:Int`. `baz(12)` projects the block
+  `foo(12)` into `Int`, which has no value: a pinned divergence, as for
+  KF-013's failing projections (Java K aborts, `undefined`; k-rust ends in a
+  stuck leaf and a `#Bottom` leaf);
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
   one rule, a stale group member, a group mixing priorities, `nondet` on an
   equation, and `anywhere` on a readable clause, on a `cells!` rule, or with
-  `priority` each fail `krs check` with a pinned diagnostic.
+  `priority`, and typed binder lists that declare an unused binder, only some
+  binders, or binders out of order, or a declared sort an occurrence cannot
+  accept, each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -77,6 +89,19 @@ PRIORITY_PROGRAMS = (
     ),
 )
 
+CASTS = Fixture(MANIFEST, "krs-rule-forms-casts")
+CASTS_PROGRAMS = (
+    Program("is-expression-int", "isExpression(1)", "accepted", "true"),
+    Program("is-expression-add", "isExpression(1 + 2)", "accepted", "true"),
+    Program("is-expression-block", "isExpression({})", "accepted", "false"),
+    Program("is-expression-bool", "isExpression(true)", "accepted", "false"),
+    Program("bar", "bar(0)", "accepted", "bar(3)"),
+    Program("bar-not-int", "bar(1 + 2)", "accepted", "bar(1 + 2)"),
+    Program("baz", "baz(4)", "accepted", "4"),
+    # A pinned divergence (see pins.json and the module documentation).
+    Program("baz-undefined", "baz(12)", "accepted", "undefined"),
+)
+
 NONDET = Fixture(MANIFEST, "krs-rule-forms-nondet")
 ANYWHERE = Fixture(MANIFEST, "krs-rule-forms-anywhere")
 ANYWHERE_PROGRAMS = (
@@ -117,6 +142,10 @@ NEGATIVE = (
     "anywhere-readable",
     "anywhere-cells",
     "anywhere-priority",
+    "binder-unused",
+    "binder-partial",
+    "binder-misordered",
+    "binder-incompatible",
 )
 
 
@@ -196,6 +225,18 @@ def main() -> int:
             refresh=arguments.refresh_reference,
             divergences=pins.get("known_divergences", {}),
         )
+
+        harness.check(CASTS)
+        harness.expand(CASTS)
+        casts = harness.emit(CASTS)
+        emitted_attributes(casts, (
+            "rule isExpression ( _E:Exp ) => true [label(",
+            "rule isExpression ( _ ) => false [priority(200), label(",
+            "rule bar ( I:Int ) => bar ( {foo ( I:Int +Int 1 )}:>Int )\n    requires I:Int <Int 3 [label(",
+            "rule baz ( I:Int ) => {foo ( I:Int )}:>Int [label(",
+        ))
+        harness.compare(casts, CASTS_PROGRAMS, sort="Phrase")
+        print("PASS casts: typed binders narrow isExpression and bar, projections step bar(0) to bar(3), baz(12) a pinned divergence")
 
         harness.check(PRIORITY)
         harness.expand(PRIORITY)

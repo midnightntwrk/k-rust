@@ -948,25 +948,25 @@ fn whole_configuration_rules_require_exact_typed_term_binding_order() {
         (
             "fn bad(cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
             SyntaxErrorKind::UnsupportedRuleSignature {
-                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+                reason: krs_syntax::BINDER_LIST_CONTRACT,
             },
         ),
         (
             "fn bad(x: Term<Id>, unused: Term<Int>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
-            SyntaxErrorKind::UnsupportedRuleSignature {
-                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+            SyntaxErrorKind::InvalidBinderList {
+                reason: "binder `unused` is declared but does not occur in the subject".to_owned(),
             },
         ),
         (
             "fn bad(v: Term<Value>, x: Term<Id>, cells! { k: KCell(x, v, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, v, ..tail) } }",
             SyntaxErrorKind::UnsupportedRuleSignature {
-                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+                reason: krs_syntax::BINDER_LIST_CONTRACT,
             },
         ),
         (
             "fn bad(tail: Term<Id>, cells! { k: KCell(tail @ ..) }: Machine) -> Machine { cells! { k: KCell(..tail) } }",
             SyntaxErrorKind::UnsupportedRuleSignature {
-                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+                reason: krs_syntax::BINDER_LIST_CONTRACT,
             },
         ),
         (

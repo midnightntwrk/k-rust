@@ -191,6 +191,7 @@ register_codes! {
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
+        INCOMPATIBLE_BINDER: "krs::analysis::incompatible-binder" => "A typed binder's declared sort is not a subsort of the sort one of its occurrences needs.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {

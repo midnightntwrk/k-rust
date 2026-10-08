@@ -232,6 +232,8 @@ pub type WireGrammarDescriptor = StageGrammarDescriptor<WireStage>;
 
 /// Static wire-stage binding in a readable head rule.
 pub type WireHeadRuleBinding = ProtocolHeadRuleBinding<WireSortReference>;
+/// Typed binder of a term-shaped rule fn before host resolution (KF-009).
+pub type WireTypedBinding = crate::ProtocolTypedBinding<WireSortReference>;
 /// Static wire-stage result in a readable head rule.
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 /// Static wire-stage computation-cell head and rewrite in a readable head rule.
@@ -410,6 +412,7 @@ mod tests {
                 anywhere: None,
                 simplification: None,
                 pattern_key: key(),
+                typed_bindings: vec![],
                 result_key: key(),
                 subject_sort: sort(),
                 result_sort: sort(),

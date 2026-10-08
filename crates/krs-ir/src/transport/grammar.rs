@@ -19,7 +19,7 @@ use super::detail::{
     GrammarApplicationReason, GrammarProductionReason, GrammarTermReason, TransportField,
 };
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
-use crate::stage::{DescriptorStage, HostStage, stage_shape};
+use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
     ListOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole,
@@ -1538,6 +1538,29 @@ impl DescriptorRuleLabel {
     }
 }
 
+protocol_shape! {
+    /// One declared typed binder `name: Sort` of a term-shaped rule fn (KF-009).
+    ///
+    /// A term sentence declares no binders or every subject binder, in
+    /// first-occurrence order (the binder-list contract); the declared sort is
+    /// the binder's sort, possibly narrower than its occurrences need.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolTypedBinding<S => sort_map => U> {
+        /// Exact `name: Sort` parameter provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Binding name, one of the rule's subject bindings.
+        pub name: String => [keep],
+        /// Exact authored sort reference.
+        pub sort: S => [sort_map],
+    }
+}
+
+/// Host typed binder awaiting stable sort resolution.
+pub type HostTypedBinding = ProtocolTypedBinding<HostSortReference>;
+/// Stable typed binder.
+pub type DescriptorTypedBinding = ProtocolTypedBinding<DescriptorSortReference>;
+
 stage_shape! {
     /// Structured relational sentence.
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1573,6 +1596,10 @@ stage_shape! {
         pub anywhere: Option<ProvenanceKey> => [keep],
         /// Complete subject-pattern provenance.
         pub pattern_key: ProvenanceKey => [keep],
+        /// Declared typed binders in subject first-occurrence order; empty
+        /// when the fn declares none and every binder sort is inferred.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub typed_bindings: Vec<ProtocolTypedBinding<S::Sort>> => [vec protocol sort],
         /// Complete result-expression provenance.
         pub result_key: ProvenanceKey => [keep],
         /// Exact authored subject sort.
@@ -1866,6 +1893,36 @@ impl StructuredRuleDescriptor {
         Ok(())
     }
 
+    /// Validates the declared binder list: none, or every subject binding in
+    /// first-occurrence order, each with its parameter and sort keys.
+    fn validate_typed_bindings(
+        &self,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        if self.typed_bindings.is_empty() {
+            return Ok(());
+        }
+        if self.typed_bindings.len() != self.bindings.len() {
+            return Err(GrammarTransportError::InvalidBinding(
+                self.bindings
+                    .iter()
+                    .find(|name| !self.typed_bindings.iter().any(|typed| &typed.name == *name))
+                    .or_else(|| self.bindings.last())
+                    .cloned()
+                    .unwrap_or_default(),
+            ));
+        }
+        for (binding, name) in self.typed_bindings.iter().zip(&self.bindings) {
+            if &binding.name != name {
+                return Err(GrammarTransportError::InvalidBinding(binding.name.clone()));
+            }
+            require_key(&binding.key, provenance)?;
+            require_key(&binding.sort.key, provenance)?;
+            binding.sort.sort.validate()?;
+        }
+        Ok(())
+    }
+
     /// Validates local rule shape and all parser-keyed nested nodes.
     ///
     /// # Errors
@@ -1933,6 +1990,7 @@ impl StructuredRuleDescriptor {
                 TransportField::RuleBindings,
             ));
         }
+        self.validate_typed_bindings(provenance)?;
         let mut subject_variables = BTreeSet::new();
         self.subject
             .validate(provenance, &bindings, &mut subject_variables, true)?;
@@ -3143,6 +3201,21 @@ impl StructuredRuleDescriptor {
             }
         }
         insert_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
+        for (index, binding) in self.typed_bindings.iter().enumerate() {
+            let ordinal = checked_index(index)?;
+            insert_exact(
+                &mut keys,
+                &binding.key,
+                ProvenanceRole::RuleBindingParameter,
+                ordinal,
+            )?;
+            insert_exact(
+                &mut keys,
+                &binding.sort.key,
+                ProvenanceRole::RuleBindingType,
+                ordinal,
+            )?;
+        }
         insert_exact(
             &mut keys,
             &self.subject_sort.key,
@@ -3594,6 +3667,7 @@ mod traversal_tests {
             anywhere: None,
             simplification: None,
             pattern_key: key(1),
+            typed_bindings: vec![],
             result_key: key(2),
             subject_sort: sort(),
             result_sort: sort(),

@@ -514,6 +514,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             anywhere: None,
             simplification: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
+            typed_bindings: vec![],
             result_key: key(ProvenanceRole::RuleResult, 0),
             subject_sort: declared_sort(ProvenanceRole::RuleType, 0, expr.clone()),
             result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr.clone()),

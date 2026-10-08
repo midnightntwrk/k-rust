@@ -179,3 +179,4 @@ ConfigurationCellExit=configuration_cell_exit
 RawKDeclaration=raw_k_declaration
 SortTest=sort_test
 SortTestSort=sort_test_sort
+RuleBindingParameter=rule_binding_parameter

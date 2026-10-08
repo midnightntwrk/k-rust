@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "packages/anywhere",
+    "packages/casts",
     "packages/nondet",
     "packages/priority",
 ]

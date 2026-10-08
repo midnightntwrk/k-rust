@@ -7200,7 +7200,39 @@
             },
             "sort_source": "declared"
           }
-        }
+        },
+        "typed_bindings": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "sort": {
+                "sort": {
+                  "disambiguator": "",
+                  "item_kind": "sort",
+                  "item_name": "Value",
+                  "module_path": [
+                    "syntax"
+                  ],
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  }
+                },
+                "sort_source": "declared"
+              }
+            }
+          }
+        ]
       },
       "descriptor_kind": "structured_rule"
     },
@@ -15127,7 +15159,8 @@
     "configuration_cell_exit",
     "raw_k_declaration",
     "sort_test",
-    "sort_test_sort"
+    "sort_test_sort",
+    "rule_binding_parameter"
   ],
   "RawSentence": [
     {
@@ -20731,7 +20764,39 @@
           },
           "sort_source": "declared"
         }
-      }
+      },
+      "typed_bindings": [
+        {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "sort": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "sort": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "sort_source": "declared"
+            }
+          }
+        }
+      ]
     }
   ],
   "SubsortSentence": [
@@ -22072,7 +22137,26 @@
             "authored_path": "sample",
             "slot": 1
           }
-        }
+        },
+        "typed_bindings": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -22726,7 +22810,26 @@
           "authored_path": "sample",
           "slot": 1
         }
-      }
+      },
+      "typed_bindings": [
+        {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "sort": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "target": {
+              "authored_path": "sample",
+              "slot": 1
+            }
+          }
+        }
+      ]
     }
   ],
   "WireTerm": [

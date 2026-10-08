@@ -501,6 +501,15 @@ fn double(k::term![StaticExpr::Double(value)]: Term<Expr>) -> Term<Expr> {
 ",
     ),
     (
+        "rule_typed_binders",
+        r"
+#[k::rule]
+fn double_int(value: Term<Int>, k::term![StaticExpr::Double(value)]: Term<Expr>) -> Term<Expr> {
+    int::add(value, value)
+}
+",
+    ),
+    (
         "rule_cells",
         r"
 #[k::rule]

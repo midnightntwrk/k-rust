@@ -404,6 +404,8 @@ provenance_roles! {
     SortTest => "sort_test",
     /// Sort path of one `k::is!` or `k::project!` term.
     SortTestSort => "sort_test_sort",
+    /// One typed binder parameter `x: S` of a term-shaped rule fn (KF-009).
+    RuleBindingParameter => "rule_binding_parameter",
 }
 
 impl Serialize for ProvenanceRole {

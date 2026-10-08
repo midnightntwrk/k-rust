@@ -10,5 +10,5 @@ pub use block::{
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapUpdate};
-pub use item::{RuleItem, RuleParameter};
+pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;

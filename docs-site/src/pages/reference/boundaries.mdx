@@ -38,6 +38,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 | raw K sentences | qualified | `k::raw_k!` keeps one K rule, claim, or context verbatim in the package's semantics module, with `allow-raw-k = true`; K parses it with the package's grammar, a parse error fails the build, and every build warns (the strict profile refuses it) |
 | anywhere rules | qualified | `#[k::rule(anywhere)]` on term-shaped rules runs on the k-rust and Java LLVM routes; the Java Haskell route refuses it (`krs::capability::unavailable`), and k-rust leaves a left-hand side that nests the rule's own head unreduced |
 | floats | qualified | binary32 (`f32`) and binary64 (`f64`) Floats run on every route; a `FLOAT` operation applied to tokens only and formats other than `f32` and `f64` (`pNxM`) run only on Java K's LLVM backend, and the native and browser routes refuse them (`krs::capability::unavailable`); Java K's Haskell backend has no Float evaluator |
+| typed binders | qualified | a rule fn declares no binders or every subject binder, in first-occurrence order, each at its inferred sort or a narrower one; a declared sort an occurrence cannot accept is rejected |
 | sort tests and projections | qualified | `k::is!(S, t)` and `k::project!(S, t)` are K's `isS(T)` and `{T}:>S` in results, guards, and claims, never in patterns; a projection that does not apply aborts Java K's LLVM run, while k-rust splits on whether it is defined and ends in a stuck leaf and a `#Bottom` leaf |
 | console I/O | qualified | `stream` cells and the `exit` cell run with `krs run`, which reads standard input before the first step and prints the output cell when the run ends, and with Java K's `krun`; `krs search` and the browser route refuse them; the direct `io::write` and `io::putc` hooks run only on Java K |
 | KWasm, KMIR, KEVM | qualified | incremental extracts tracked in `semantics/coverage.toml`, not complete ports |
@@ -62,7 +63,7 @@ An implementation or example that depends on one of these must surface the decis
 ## Unsupported surface
 
 Optional cells and multiplicities other than the qualified star shape are unsupported.
-General matching logic, fresh-variable sentences, semantic casts, and arbitrary raw grammar are not current public features.
+General matching logic, fresh-variable sentences, strict casts (`::S` and `{T}<:S`), and arbitrary raw grammar are not current public features; a typed binder or `where x: S` narrows what a rule matches, and `k::project!` is K's projection cast.
 
 Method-call term sugar is deferred, and there is no `% ` format escape: a plain space in a format prints as written.
 Non-doc block comments inside DSL macro bodies are rejected.

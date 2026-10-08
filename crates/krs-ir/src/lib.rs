@@ -143,12 +143,13 @@ pub use transport::grammar::{
     HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
     HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction,
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
-    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, NamedTermArgument,
-    Production, ProductionAttribute as TransportProductionAttribute,
+    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypedBinding,
+    NamedTermArgument, Production, ProductionAttribute as TransportProductionAttribute,
     ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition, SortTestKind,
     StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
     TermArgumentRef, enum_variant_disambiguator,
 };
+pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
     DescriptorHeadRuleResult, HeadRule, HostHeadRule, HostHeadRuleBinding,

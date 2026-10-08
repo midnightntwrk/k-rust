@@ -560,6 +560,7 @@ fn lower_initializer_term(
         binding_constraints: initial_binding_constraints(binding_sorts),
         wildcard_offset: 0,
         wildcards: Vec::new(),
+        declared_binders: BTreeMap::new(),
     };
     builder.infer(term, expected_sort, false)?;
     builder.resolve_binding_sorts()?;

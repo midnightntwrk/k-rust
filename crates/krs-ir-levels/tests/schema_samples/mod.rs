@@ -700,6 +700,15 @@ impl<
         }]
     }
 }
+impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolTypedBinding<S> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            sort: sample::<S>(),
+        }]
+    }
+}
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleBinding<S> {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -3006,6 +3015,7 @@ impl Sample for StructuredRuleDescriptor {
             anywhere: sample::<Option<ProvenanceKey>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),
+            typed_bindings: sample::<Vec<DescriptorTypedBinding>>(),
             result_key: sample::<ProvenanceKey>(),
             subject_sort: sample::<DescriptorSortReference>(),
             result_sort: sample::<DescriptorSortReference>(),
@@ -3185,6 +3195,7 @@ impl Sample for WireStructuredRule {
             anywhere: sample::<Option<ProvenanceKey>>(),
             simplification: sample::<Option<DescriptorSimplification>>(),
             pattern_key: sample::<ProvenanceKey>(),
+            typed_bindings: sample::<Vec<WireTypedBinding>>(),
             result_key: sample::<ProvenanceKey>(),
             subject_sort: sample::<WireSortReference>(),
             result_sort: sample::<WireSortReference>(),

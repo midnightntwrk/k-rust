@@ -13,7 +13,7 @@ use crate::parse::{
 };
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
-use crate::rule::{RuleCondition, take_requires_helper};
+use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, take_requires_helper};
 use crate::term::{push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
@@ -404,6 +404,7 @@ impl StateContextAliasItem {
             ));
         }
         let typed = parse_typed_bindings(&item)?;
+        require_declared_binders_occur(&bindings, &typed)?;
         let ordinary_names = bindings
             .iter()
             .filter(|binding| binding.kind == StateRuleBindingKind::Term && binding.name != *here)
@@ -415,10 +416,7 @@ impl StateContextAliasItem {
                 .zip(ordinary_names)
                 .any(|((name, _), expected)| name != expected)
         {
-            return Err(signature_error(
-                "typed term parameters must exactly match non-HERE term bindings",
-                item.sig.span(),
-            ));
+            return Err(signature_error(BINDER_LIST_CONTRACT, item.sig.span()));
         }
         for ((_, sort), binding) in
             typed.into_iter().zip(bindings.iter_mut().filter(|binding| {
@@ -1033,10 +1031,31 @@ fn push_binding(
     Ok(())
 }
 
+/// Rejects a declared binder that the subject never binds (X5.6).
+fn require_declared_binders_occur(
+    bindings: &[StateRuleBinding],
+    typed: &[(Ident, TermSort)],
+) -> Result<(), SyntaxError> {
+    for (name, _) in typed {
+        if !bindings.iter().any(|binding| &binding.name == name) {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidBinderList {
+                    reason: format!(
+                        "binder `{name}` is declared but does not occur in the subject"
+                    ),
+                },
+                name.span(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn attach_typed_binding_sorts(
     bindings: &mut [StateRuleBinding],
     typed: Vec<(Ident, TermSort)>,
 ) -> Result<(), SyntaxError> {
+    require_declared_binders_occur(bindings, &typed)?;
     let subject_terms = bindings
         .iter()
         .filter(|binding| binding.kind == StateRuleBindingKind::Term)
@@ -1051,10 +1070,7 @@ fn attach_typed_binding_sorts(
         let span = typed
             .first()
             .map_or_else(proc_macro2::Span::call_site, |(name, _)| name.span());
-        return Err(signature_error(
-            "typed term parameters must exactly match subject term bindings in first-occurrence order",
-            span,
-        ));
+        return Err(signature_error(BINDER_LIST_CONTRACT, span));
     }
     for ((_, sort), binding) in typed.into_iter().zip(
         bindings

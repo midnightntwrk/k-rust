@@ -29,6 +29,9 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) binding_sorts: BTreeMap<String, SemanticSortRef>,
     /// Author-declared and occurrence-derived upper-bound constraints.
     pub(super) binding_constraints: BTreeMap<String, BTreeSet<SemanticSortRef>>,
+    /// Typed binders of a term-shaped rule fn (KF-009): the declared sort,
+    /// which every occurrence must accept, and its parameter-type key.
+    pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     pub(super) wildcard_offset: usize,
     pub(super) wildcards: Vec<SemanticVariable>,
 }
@@ -50,6 +53,7 @@ impl StructuredTermBuilder<'_> {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
                 }
                 if let Some(expected) = expected_sort {
+                    self.check_declared_binder(name, expected)?;
                     self.binding_constraints
                         .entry(name.clone())
                         .or_default()
@@ -1047,6 +1051,36 @@ impl StructuredTermBuilder<'_> {
             }),
             None => Ok(semantic),
         }
+    }
+
+    /// Rejects an occurrence of a typed binder whose position needs a sort
+    /// the declared sort is not below (KF-009). A narrower declared sort is
+    /// kept, as K keeps `X:S`.
+    fn check_declared_binder(
+        &self,
+        name: &str,
+        expected: &SemanticSortRef,
+    ) -> Result<(), DescriptorLoweringError> {
+        let Some((declared, key)) = self.declared_binders.get(name) else {
+            return Ok(());
+        };
+        if semantic_is_subsort(declared, expected, self.sort_parents) {
+            return Ok(());
+        }
+        Err(DescriptorLoweringError::IncompatibleBinder {
+            item: Box::new(self.descriptor.id().clone()),
+            reason: format!(
+                "binder `{name}` is declared `{}` but this occurrence needs `{}`",
+                super::overload::sort_name(declared),
+                super::overload::sort_name(expected),
+            ),
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        })
     }
 
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {

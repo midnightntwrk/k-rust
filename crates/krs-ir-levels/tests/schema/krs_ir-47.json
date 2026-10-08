@@ -1297,6 +1297,21 @@
       }
     ]
   },
+  "ProtocolTypedBinding": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "sort": "STR"
+      }
+    ]
+  },
   "ProvenanceKeyWire": {
     "STRUCT": [
       {

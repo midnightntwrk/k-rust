@@ -181,6 +181,11 @@ pub enum SyntaxErrorKind {
         /// Specific signature restriction.
         reason: &'static str,
     },
+    /// A rule fn's typed binder list broke the binder-list contract (KF-009, X5).
+    InvalidBinderList {
+        /// Specific binder or list restriction.
+        reason: String,
+    },
     /// A rule subject was not a supported named-constructor pattern.
     UnsupportedRulePattern {
         /// Specific pattern restriction.
@@ -305,7 +310,9 @@ impl SyntaxErrorKind {
             Self::InvalidStateMacro { .. } => codes::syntax::INVALID_STATE_MACRO,
             Self::InvalidTrivia { .. } => codes::syntax::INVALID_TRIVIA,
             Self::UnsupportedDslBlockComment { .. } => codes::syntax::UNSUPPORTED_DSL_BLOCK_COMMENT,
-            Self::UnsupportedRuleSignature { .. } => codes::syntax::UNSUPPORTED_RULE_SIGNATURE,
+            Self::UnsupportedRuleSignature { .. } | Self::InvalidBinderList { .. } => {
+                codes::syntax::UNSUPPORTED_RULE_SIGNATURE
+            }
             Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
             Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
@@ -512,6 +519,9 @@ impl fmt::Display for SyntaxError {
                 "non-documentation block comments are not allowed inside `{macro_name}!` bodies; use `//`"
             ),
             SyntaxErrorKind::UnsupportedRuleSignature { reason } => {
+                write!(formatter, "unsupported rule signature: {reason}")
+            }
+            SyntaxErrorKind::InvalidBinderList { reason } => {
                 write!(formatter, "unsupported rule signature: {reason}")
             }
             SyntaxErrorKind::UnsupportedRulePattern { reason } => {

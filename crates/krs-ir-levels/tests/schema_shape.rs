@@ -738,6 +738,7 @@ fn registry() -> Registry {
     trace!(ProtocolMapItem: ProtocolMapItem<String>);
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
+    trace!(ProtocolTypedBinding: ProtocolTypedBinding<String>);
     trace!(ProtocolRuleKSequenceItem: ProtocolRuleKSequenceItem<String>);
     trace!(ProtocolRuleMapItem: ProtocolRuleMapItem<String>);
     let listed: BTreeSet<_> = UNTRACEABLE

@@ -94,6 +94,21 @@ A rule that names a group and a cell inside it is rejected (`krs::analysis::grou
 A repeated (`*`) cell is a collection, not one nested cell, and cannot be named as a whole.
 The overlap check counts a group clause as sharing every cell inside the group.
 
+### Typed binders
+
+In a K pattern, `X:Int` is a runtime test: the rule matches only when the term bound to `X` has sort `Int`.
+In KRS it is the binder's declared type: `where x: Int` after a readable clause, or a typed parameter before the subject of a rule fn.
+`fn unwrap(k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` infers `v` at the sort of `Wrap`'s field, emits `rule wrap(V:Exp) => V:Exp`, and matches every expression; `fn unwrap(v: Term<Int>, k::term![Wrap { value: v }]: Term<Exp>) -> Term<Exp> { v }` emits `rule wrap(V:Int) => V:Int`, so `wrap(1 + 2)` no longer matches.
+A declared sort may be narrower than inference would choose, never wider or unrelated: a binder declared `Bool` in an `Exp` position is rejected (`krs::analysis::incompatible-binder`, "binder `x` is declared `Bool` but this occurrence needs `Exp`").
+A `_`-prefixed single-use binder keeps its name, so `fn is_expression_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool>` emits `rule isExpression(_E:Exp) => true`.
+
+The binder list is all or nothing.
+A rule fn whose subject is a `k::term![..]` either declares no binders, and every sort is inferred, or declares every subject binder exactly once, in the order the binders first occur in the subject; a `cells!` rule always declares all of them.
+`_`, remainders such as `tail @ ..`, and the `here` binder of a context alias are not declared.
+Narrowing one binder therefore means declaring all of them, each other one at its inferred sort; `krs expand` writes a readable rule's `where` the same way.
+A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
+KRS has no strict cast `::S` or `{T}<:S`: rule bodies are resolved Rust paths, never parsed by K, so there is nothing to disambiguate; `k::project!` is the cast a rule computes with.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

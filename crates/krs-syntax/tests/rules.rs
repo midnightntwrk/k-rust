@@ -142,8 +142,108 @@ fn malformed_rule_signatures_are_rejected() {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
-            SyntaxErrorKind::UnsupportedRuleSignature { .. } | SyntaxErrorKind::InvalidTermType
+            SyntaxErrorKind::UnsupportedRuleSignature { .. }
+                | SyntaxErrorKind::InvalidTermType
+                | SyntaxErrorKind::InvalidBinderList { .. }
         ));
+    }
+}
+
+#[test]
+fn term_sentences_take_no_binder_list_or_an_exhaustive_one() {
+    let declared = krs_syntax::RuleItem::parse_source(
+        "fn step(i: Term<Int>, k::term![Bar(i)]: Term<Exp>) -> Term<Exp> { Bar(i) }",
+    )
+    .unwrap();
+    let binders = declared
+        .binders()
+        .iter()
+        .map(|binder| {
+            (
+                binder.name().to_string(),
+                binder.term_sort().sort_token_text(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(binders, [("i".to_owned(), "Int".to_owned())]);
+    let anchors = declared.full_provenance().unwrap();
+    for role in [
+        ProvenanceRole::RuleBindingParameter,
+        ProvenanceRole::RuleBindingType,
+    ] {
+        assert_eq!(
+            anchors
+                .iter()
+                .filter(|anchor| anchor.key().role() == role)
+                .count(),
+            1,
+            "{role}"
+        );
+    }
+
+    let underscore = krs_syntax::RuleItem::parse_source(
+        "fn is_exp(_e: Exp, k::term![IsExpression(_e)]: Term<Bool>) -> Term<Bool> { true }",
+    )
+    .unwrap();
+    assert_eq!(underscore.binders()[0].name(), "_e");
+
+    let ordered = krs_syntax::RuleItem::parse_source(
+        "fn both(a: Term<Int>, b: Term<Exp>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+    )
+    .unwrap();
+    assert_eq!(ordered.binders().len(), 2);
+
+    let inferred = krs_syntax::RuleItem::parse_source(
+        "fn none(k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+    )
+    .unwrap();
+    assert!(inferred.binders().is_empty());
+}
+
+#[test]
+fn term_sentence_binder_lists_reject_contract_violations() {
+    let contract = |expected: &str| {
+        format!(
+            "{}; a term sentence declares no binders or all of them, here `{expected}`",
+            krs_syntax::BINDER_LIST_CONTRACT
+        )
+    };
+    for (source, reason) in [
+        (
+            "fn partial(a: Term<Int>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+            contract("a, b"),
+        ),
+        (
+            "fn misordered(b: Term<Exp>, a: Term<Int>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+            contract("a, b"),
+        ),
+        (
+            "fn unused(a: Term<Int>, c: Term<Int>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+            "binder `c` is declared but does not occur in the subject".to_owned(),
+        ),
+        (
+            "fn twice(a: Term<Int>, a: Term<Int>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { b }",
+            "binder `a` is declared twice".to_owned(),
+        ),
+        (
+            "fn mutable(mut a: Term<Int>, k::term![Wrap(a)]: Term<Exp>) -> Term<Exp> { a }",
+            "a typed binder must be a plain immutable identifier, as in `x: Int`, without `ref`, `mut`, or `@`".to_owned(),
+        ),
+        (
+            "fn by_ref(ref a: Term<Int>, k::term![Wrap(a)]: Term<Exp>) -> Term<Exp> { a }",
+            "a typed binder must be a plain immutable identifier, as in `x: Int`, without `ref`, `mut`, or `@`".to_owned(),
+        ),
+        (
+            "fn tuple((a, b): Term<Int>, k::term![Pair(a, b)]: Term<Exp>) -> Term<Exp> { a }",
+            "a typed binder must be a plain immutable identifier, as in `x: Int`; the subject parameter comes last".to_owned(),
+        ),
+    ] {
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidBinderList { reason },
+            "{source}"
+        );
     }
 }
 

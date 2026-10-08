@@ -20,7 +20,7 @@ use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
+use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -273,6 +273,8 @@ fn expand_ordinary_rule(
             authored_path: result_sort_spelling,
         },
     };
+    let (typed_bindings, binder_key_functions) =
+        typed_binders(rule, &facade, nonce, &cfg, &mut slots)?;
     let subject = term_builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
     term_builder.reset_side();
     let result = term_builder.expand_wire(rule.result().tree(), TermSide::Right, &mut slots)?;
@@ -324,6 +326,7 @@ fn expand_ordinary_rule(
         anywhere,
         simplification,
         pattern_key: wire_key(rule_pattern_role, 0),
+        typed_bindings,
         result_key: wire_key(rule_result_role, 0),
         subject_sort,
         result_sort,
@@ -374,10 +377,58 @@ fn expand_ordinary_rule(
             ::core::any::TypeId::of::<#result_sort_type>()
         }
 
+        #(#binder_key_functions)*
+
         #(#term_key_functions)*
 
         #factory_tokens
     })
+}
+
+/// Transports the declared typed binders of a term-shaped rule fn (KF-009):
+/// each sort resolves through its own type slot, keyed like a `cells!` rule's.
+fn typed_binders(
+    rule: &krs_syntax::RuleItem,
+    facade: &Path,
+    nonce: u64,
+    cfg: &[Attribute],
+    slots: &mut WireSlots,
+) -> crate::Result<(Vec<krs_ir::wire::WireTypedBinding>, Vec<TokenStream>)> {
+    let mut bindings = Vec::new();
+    let mut key_functions = Vec::new();
+    for (index, binder) in rule.binders().iter().enumerate() {
+        let ordinal = u32::try_from(index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                binder.name().span(),
+                "too many typed binders",
+            )
+        })?;
+        let sort = binder.term_sort();
+        let path = call_site_path(sort.sort())?;
+        let ty = sort_type_tokens(&path, sort.is_dynamic());
+        let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{ordinal}");
+        key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#ty>()
+            }
+        });
+        bindings.push(krs_ir::wire::WireTypedBinding {
+            key: wire_key(ProvenanceRole::RuleBindingParameter, ordinal),
+            name: binder.name().to_string(),
+            sort: wire_sort_reference(
+                slots,
+                facade,
+                ProvenanceRole::RuleBindingType,
+                ordinal,
+                &key_fn,
+                &sort.sort_token_text(),
+            ),
+        });
+    }
+    Ok((bindings, key_functions))
 }
 
 #[expect(
