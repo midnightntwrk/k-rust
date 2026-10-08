@@ -74,6 +74,27 @@ pub enum UnresolvedShape {
     Budget,
 }
 
+impl std::fmt::Display for UnresolvedShape {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Collection => formatter.write_str(
+                "two collections the unifier does not decide (map or set structure on both sides, or lists with elements at both ends)",
+            ),
+            Self::SetVariable => formatter.write_str("a set variable"),
+            Self::Function(symbol) => write!(
+                formatter,
+                "an application of `{symbol}`, whose value its equations decide, where a value is compared"
+            ),
+            Self::SortVariable => formatter.write_str("a sort variable the comparison needs resolved"),
+            Self::Family(symbol) => write!(
+                formatter,
+                "a comparison through the overload family of `{symbol}`, which is not known confluent"
+            ),
+            Self::Budget => formatter.write_str("more unifier branches than the check explores"),
+        }
+    }
+}
+
 /// The overload families of a definition: the connected components of its `symbol-overload`
 /// relation, and which of them are known confluent (stage 1, `confluence.rs`).
 #[derive(Clone, Debug, Default)]

@@ -237,6 +237,92 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     )
 }
 
+/// The warnings of the load-time critical-pair check of `definition`
+/// (`k_rust_backend::confluence`): one per row of the constructor and overload preconditions the
+/// definition violates, and one per pair of executable equations that does not provably join and
+/// withdraws a value claim, naming both equations with their written positions, the overlapped
+/// term, why the check does not join it, and the equation heads that get no value claim.
+pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
+    /// The characters of the overlapped term a warning prints before it cuts it short.
+    const OVERLAP_CHARACTERS: usize = 240;
+    let claims = definition.value_claims();
+    let equation = |rule: &k_rust_backend::rule::RewriteRule| {
+        let name = rule
+            .attributes
+            .label
+            .clone()
+            .unwrap_or_else(|| rule.attributes.unique_id.clone());
+        match rule.attributes.origins.first().and_then(written_position) {
+            Some(position) => format!("{name} at {position}"),
+            None => name,
+        }
+    };
+    let mut warnings = claims
+        .violations()
+        .iter()
+        .map(|violation| match &violation.rule {
+            Some(rule) => format!(
+                "warning: {} ({}); value claims rest on it",
+                violation.kind,
+                equation(rule)
+            ),
+            None => format!("warning: {}; value claims rest on it", violation.kind),
+        })
+        .collect::<Vec<_>>();
+    for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
+        if std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none() {
+            warnings.push(format!(
+                "warning: the equation {} is not checked ({}); no value claims are made for {}",
+                equation(&pair.first),
+                pair.reason,
+                withdrawn_heads(&pair.withdrawn)
+            ));
+            continue;
+        }
+        let equations = format!(
+            "the equations {} and {}",
+            equation(&pair.first),
+            equation(&pair.second)
+        );
+        let overlap = pair
+            .overlap
+            .as_ref()
+            .map(|overlap| {
+                let mut text = KorePrinter::compact().print_pattern(&externalize::term(overlap));
+                if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
+                    text.truncate(cut);
+                    text.push_str("...");
+                }
+                format!(" overlap at {text} and")
+            })
+            .unwrap_or_default();
+        warnings.push(format!(
+            "warning: {equations}{overlap} are not shown to join ({}); no value claims are made for {}",
+            pair.reason,
+            withdrawn_heads(&pair.withdrawn)
+        ));
+    }
+    warnings
+}
+
+/// The equation heads a non-joined pair withdraws, by K label, sorted, the first five listed and
+/// the rest counted.
+fn withdrawn_heads(withdrawn: &[k_rust_backend::term::Name]) -> String {
+    const LISTED_HEADS: usize = 5;
+    let mut labels = withdrawn
+        .iter()
+        .map(|head| k_label(head))
+        .collect::<Vec<_>>();
+    labels.sort();
+    let more = labels.len().saturating_sub(LISTED_HEADS);
+    labels.truncate(LISTED_HEADS);
+    if more == 0 {
+        labels.join(", ")
+    } else {
+        format!("{} and {more} more", labels.join(", "))
+    }
+}
+
 /// The K label a KORE symbol name encodes (`LbltDiv'LParUndsRParUnds'M'Unds'Int'Unds'Int` is
 /// `tDiv(_)_M_Int_Int`, and a production with `symbol(td)` is `td`), which is how the author
 /// wrote or declared the production; the KORE name itself when it is not a label encoding.

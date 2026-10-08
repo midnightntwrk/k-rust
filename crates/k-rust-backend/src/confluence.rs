@@ -260,6 +260,59 @@ pub enum UnjoinedReason {
     UnsupportedRightHandSide,
 }
 
+impl std::fmt::Display for UnjoinedReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DifferentResults => formatter.write_str("the two reducts reach different terms"),
+            Self::JoinBudget => formatter.write_str("the join ran out of steps or cases"),
+            Self::JoinRefused => formatter.write_str(
+                "a join step would bind or erase a subterm not shown defined on every instance",
+            ),
+            Self::ConditionOpen => {
+                formatter.write_str("the conditions are neither refuted nor enough to join")
+            }
+            Self::EnsuresDiffer => formatter.write_str("the two equations' ensures differ"),
+            Self::Unresolved(shape) => write!(formatter, "the overlap has {shape}"),
+            Self::UnboundResultVariables => formatter
+                .write_str("the right-hand side has variables the left-hand side does not bind"),
+            Self::ComputedBelowRoot(symbol) => write!(
+                formatter,
+                "the left-hand side holds an application of `{symbol}` below its root, which the evaluator never rewrites to it"
+            ),
+            Self::UnsupportedRightHandSide => {
+                formatter.write_str("the right-hand side is not a term")
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for ViolationKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConstructorHeaded(symbol) => {
+                write!(
+                    formatter,
+                    "an executable equation is headed by the constructor `{symbol}`"
+                )
+            }
+            Self::InjectionHeaded => {
+                formatter.write_str("an executable equation is headed by a sort injection")
+            }
+            Self::IndexedAt(index) => {
+                write!(formatter, "an executable equation is indexed at {index:?}")
+            }
+            Self::OverloadShape(symbol) => write!(
+                formatter,
+                "an overload equation of `{symbol}` does not have the shape g(inj(x1), ..., inj(xn)) = inj(h(x1, ..., xn))"
+            ),
+            Self::NoLeastCommonOverload(left, right) => write!(
+                formatter,
+                "the overloads `{left}` and `{right}` have no unique least common overload"
+            ),
+        }
+    }
+}
+
 /// A violated row of precondition P5.
 #[derive(Clone, Debug)]
 pub struct Violation {

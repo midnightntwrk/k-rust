@@ -2508,6 +2508,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         &compiled.main_module,
         &compiled.execution_rewrite_order,
     )?;
+    for warning in k_rust::backend::execution::value_claim_warnings(&backend) {
+        eprintln!("{warning}");
+    }
     // The initial configuration is as deep as the program and the configuration values, which
     // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
     // drops of the internal terms built from it. All of it runs on a stack the backend measures
@@ -3444,6 +3447,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         Backend::internalize_definition(&syntax, &options.module)?
     };
     timings.internalize_seconds = started.elapsed().as_secs_f64();
+    for warning in k_rust::backend::execution::value_claim_warnings(&definition) {
+        eprintln!("{warning}");
+    }
     if options.load_only {
         return timings.write(options.timings.as_deref());
     }
