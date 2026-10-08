@@ -85,7 +85,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, item, None, None)
+    constructor_like(env, attribute, item, None, None, None)
 }
 
 pub(crate) fn function(
@@ -146,11 +146,22 @@ pub(crate) fn function(
             ))
         })
         .transpose()?;
+    let memo = function
+        .memo()
+        .map(|flag| -> crate::Result<ProvenanceAnchor> {
+            Ok(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionMemo,
+                0,
+                TokenRange::for_tokens(flag)?,
+            ))
+        })
+        .transpose()?;
     constructor_like(
         env,
         function.production().clone(),
         item,
         Some((totality_anchor, function.is_total())),
+        memo,
         hook,
     )
 }
@@ -165,6 +176,7 @@ fn constructor_like(
     attribute: krs_syntax::ConstructorAttribute,
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
+    memo: Option<ProvenanceAnchor>,
     hook: Option<(ProvenanceAnchor, krs_ir::HookOperation)>,
 ) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
@@ -237,6 +249,9 @@ fn constructor_like(
                 .0
                 .clone(),
         );
+    }
+    if let Some(anchor) = &memo {
+        grammar_anchors.push(anchor.clone());
     }
     if let Some((anchor, _)) = &hook {
         grammar_anchors.push(anchor.clone());
@@ -342,6 +357,7 @@ fn constructor_like(
         "",
         functional,
         total,
+        memo.is_some(),
         hook.as_ref().map(|(_, operation)| operation),
         alias.is_some(),
     )?;
@@ -667,6 +683,7 @@ pub(crate) fn token(
 #[expect(
     clippy::too_many_arguments,
     clippy::too_many_lines,
+    clippy::fn_params_excessive_bools,
     reason = "Grammar lowering retains all declaration context in one expansion."
 )]
 fn constructor_grammar(
@@ -682,6 +699,7 @@ fn constructor_grammar(
     disambiguator: &str,
     functional: bool,
     total: bool,
+    memo: bool,
     hook: Option<&krs_ir::HookOperation>,
     alias: bool,
 ) -> crate::Result<TokenStream> {
@@ -778,6 +796,15 @@ fn constructor_grammar(
             WireProductionAttribute::Hook {
                 key: wire_key(function_hook_role, 0),
                 operation: *operation,
+            },
+        );
+    }
+    // K's memo hint follows the function and totality markers.
+    if memo {
+        attributes.insert(
+            if total { 2 } else { 1 },
+            WireProductionAttribute::Memo {
+                key: wire_key(ProvenanceRole::FunctionMemo, 0),
             },
         );
     }

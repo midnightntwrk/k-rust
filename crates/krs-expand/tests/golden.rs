@@ -154,6 +154,15 @@ pub struct Increment {
 "##,
     ),
     (
+        "function_memo",
+        r#"
+#[k::function(total, memo, sort = k::builtin::int::Int, syntax = "square({value})")]
+pub struct Square {
+    pub value: Term<k::builtin::int::Int>,
+}
+"#,
+    ),
+    (
         "function_hook",
         r#"
 #[k::function(

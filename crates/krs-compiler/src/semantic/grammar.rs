@@ -279,6 +279,9 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Prefer { key } => ProductionAttribute::Prefer {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::Memo { key } => ProductionAttribute::Memo {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+        },
         DescriptorProductionAttribute::Overload { target } => {
             let origin = semantic_origin(descriptor, target.key.clone(), "production-attribute")?;
             let DescriptorApplicationRef::Declared(id) = &target.application else {

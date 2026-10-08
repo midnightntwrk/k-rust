@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
-(KF-018), and production keys (KF-002, KF-038, KF-045).
+(KF-018), and production keys (KF-002, KF-038, KF-045, KF-046 memo).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -31,6 +31,8 @@ partition end to end on both routes:
   both, and a module importing the definition cannot use `helper(..)` in a
   rule: Java `kompile` and k-rust's outer loader both reject
   `fixtures/visibility-induced/induced.k`;
+- `memo`: the memoized `square(3)` evaluates to `9` on both routes, and both
+  KOREs carry `memo{}()` on its symbol;
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
   position; Java K accepts the emitted `.k`, the native and Java
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
@@ -88,6 +90,9 @@ VISIBILITY_PROGRAMS = (
 )
 VISIBILITY_ATTRIBUTES = (("inc", "wrap"), ("private",))
 INDUCED_MODULE = "KRS-VISIBILITY-INDUCED"
+MEMO = Fixture(MANIFEST, "krs-grammar-memo")
+MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
+MEMO_ATTRIBUTES = (("square",), ("memo",))
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
 FORMAT_ATTRIBUTES = ("format", "color", "colors")
 FORMAT_PROGRAM = "while (1) { x = 2; }"
@@ -375,6 +380,14 @@ def main() -> int:
         harness.compare(visibility, VISIBILITY_PROGRAMS, sort="Exp", attributes=VISIBILITY_ATTRIBUTES)
         verify_induced_visibility(harness, pins, visibility, workspace, arguments.refresh_reference)
         print("PASS visibility: inc 1 runs through the private helper; helper(..) is invisible to programs and importers on both routes")
+
+        harness.check(MEMO)
+        harness.expand(MEMO)
+        memo = harness.emit(MEMO)
+        harness.compare(memo, MEMO_PROGRAMS, sort="Exp", attributes=MEMO_ATTRIBUTES)
+        if "memo=''" not in harness.kore_attributes[MEMO.package]:
+            raise GateError(f"the memo function's KORE symbol lacks memo: {harness.kore_attributes[MEMO.package]!r}")
+        print("PASS memo: square(3) is 9 on both routes; memo on the symbol in both KOREs")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

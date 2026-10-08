@@ -227,6 +227,9 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Private { .. } => {
                 attributes.insert("private", json!(""));
             }
+            DefinitionProductionAttribute::Memo { .. } => {
+                attributes.insert("memo", json!(""));
+            }
             DefinitionProductionAttribute::Overload { target, .. } => {
                 attributes.insert(
                     "overload",

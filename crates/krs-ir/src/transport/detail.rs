@@ -163,6 +163,7 @@ details! {
         AliasFunctionMetadata => "alias metadata cannot be combined with function metadata",
         InternalProgramMetadata => "`internal` cannot be combined with `program`",
         PreferAvoidMetadata => "`prefer` cannot be combined with `avoid`",
+        MemoWithoutFunction => "`memo` requires function metadata",
         BracketConstructorField => "bracket nonterminal cannot claim a constructor field",
         BracketFieldName => "bracket nonterminal field must be `value`",
         BracketOwnerResultSortMismatch => "bracket owner and result sorts must be identical",

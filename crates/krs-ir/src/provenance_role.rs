@@ -374,6 +374,8 @@ provenance_roles! {
     ConstructorPrefer => "constructor_prefer",
     /// Target path of a production's `overload` key.
     ConstructorOverload => "constructor_overload",
+    /// Bare `memo` flag of a function production.
+    FunctionMemo => "function_memo",
 }
 
 impl Serialize for ProvenanceRole {

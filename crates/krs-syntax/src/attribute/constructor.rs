@@ -346,6 +346,7 @@ fn invalid_color(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
 pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
     totality: FunctionTotality,
+    memo: Option<Ident>,
     hook: Option<Path>,
 }
 
@@ -377,6 +378,12 @@ impl FunctionAttribute {
         self.hook.as_ref()
     }
 
+    /// The bare `memo` flag, K's memoization hint.
+    #[must_use]
+    pub const fn memo(&self) -> Option<&Ident> {
+        self.memo.as_ref()
+    }
+
     /// Returns complete production and totality provenance.
     ///
     /// # Errors
@@ -394,6 +401,13 @@ impl FunctionAttribute {
             0,
             TokenRange::for_tokens(marker)?,
         ));
+        if let Some(memo) = &self.memo {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionMemo,
+                0,
+                TokenRange::for_tokens(memo)?,
+            ));
+        }
         if let Some(hook) = &self.hook {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::FunctionHook,
@@ -1136,6 +1150,7 @@ fn placement_flag(key: &Ident) -> Option<PlacementFlag> {
 fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
     let missing_span = input.span();
     let mut totality = None;
+    let mut memo = None;
     let mut sort = None;
     let mut syntax = None;
     let mut hook = None;
@@ -1161,6 +1176,24 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
                 .into());
             }
             "total" => totality = Some(FunctionTotality::Total(key)),
+            "memo" if memo.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "memo" },
+                    key.span(),
+                )
+                .into());
+            }
+            "memo" if input.peek(Token![=]) => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidArgumentValue {
+                        name: "memo",
+                        expected: "a bare flag in `#[k::function]`",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "memo" => memo = Some(key),
             "partial" => totality = Some(FunctionTotality::Partial(key)),
             "sort" if sort.is_some() => {
                 return Err(SyntaxError::new(
@@ -1246,6 +1279,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             colors: ProductionColors::default(),
         },
         totality,
+        memo,
         hook,
     })
 }

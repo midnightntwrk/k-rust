@@ -85,6 +85,7 @@ details! {
         Prefer => "prefer",
         Overload => "overload",
         Private => "private",
+        Memo => "memo",
     }
 }
 

@@ -1001,8 +1001,11 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Overload {
                     target: sample::<DescriptorApplicationReference>(),
                 },
+                Self::Memo {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            17,
+            18,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1022,6 +1025,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
+                Self::Memo { .. } => 17,
             },
         )
     }
@@ -1431,8 +1435,11 @@ impl<
                 Self::Private {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::Memo {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            18,
+            19,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1453,6 +1460,7 @@ impl<
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
                 Self::Private { .. } => 17,
+                Self::Memo { .. } => 18,
             },
         )
     }
@@ -1932,8 +1940,11 @@ impl Sample for WireProductionAttribute {
                 Self::Overload {
                     target: sample::<WireApplicationReference>(),
                 },
+                Self::Memo {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            17,
+            18,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1953,6 +1964,7 @@ impl Sample for WireProductionAttribute {
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
                 Self::Overload { .. } => 16,
+                Self::Memo { .. } => 17,
             },
         )
     }

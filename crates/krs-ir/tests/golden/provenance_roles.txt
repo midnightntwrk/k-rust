@@ -164,3 +164,4 @@ RuleNondetGroup=rule_nondet_group
 RuleAnywhere=rule_anywhere
 ConstructorPrefer=constructor_prefer
 ConstructorOverload=constructor_overload
+FunctionMemo=function_memo

@@ -6,7 +6,8 @@
     "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
     "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
     "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588",
-    "krs-grammar-visibility": "d59404aefc321c16daaa16307186d698fd455474d963870b7764fe03135f650c"
+    "krs-grammar-visibility": "d59404aefc321c16daaa16307186d698fd455474d963870b7764fe03135f650c",
+    "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -29,6 +30,9 @@
     },
     "krs-grammar-visibility": {
       "definition.k": "e0fd6ce94eefbb5693014f93ee8115936e226127712de80c873e00105d4e0fe7"
+    },
+    "krs-grammar-memo": {
+      "definition.k": "8a221b36b665da6ca887e2d2b28f531530bb67e0dbb25f56f2d8a58d3ef1a2e6"
     }
   },
   "partition": {
@@ -51,7 +55,8 @@
     "krs-grammar-overload": "0f11b9406b0de0cfe1f0274e303ac8adef387b5e70ee05a3314c52117d9d99d1",
     "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa",
     "krs-grammar-visibility": "45aea99e7f9058760e079dab8aedfe710e750c8a0e5db8ec791b29391477c61f",
-    "visibility-induced": "2e91577251f0ebc0ac37c92e144d73e9745bed4a11a7b4908859f54a089ad2e6"
+    "visibility-induced": "2e91577251f0ebc0ac37c92e144d73e9745bed4a11a7b4908859f54a089ad2e6",
+    "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -137,6 +142,12 @@
         "parse": "rejected",
         "run": null
       }
+    },
+    "krs-grammar-memo": {
+      "compute": {
+        "parse": "accepted",
+        "run": "9"
+      }
     }
   },
   "diagnostics": {
@@ -189,7 +200,8 @@
     "krs-grammar-prefer": "ifThen \nifThenElse \n",
     "krs-grammar-overload": "dot \nlvalDot \noverload Lbldot LbllvalDot\n",
     "krs-grammar-overload-ambiguous": "dot \nlvalDot \n",
-    "krs-grammar-visibility": "inc \nwrap \n"
+    "krs-grammar-visibility": "inc \nwrap \n",
+    "krs-grammar-memo": "square memo=''\n"
   },
   "induced_rejections": {
     "visibility": {

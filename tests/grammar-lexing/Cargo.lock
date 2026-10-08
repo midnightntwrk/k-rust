@@ -86,6 +86,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-grammar-memo"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-grammar-overload"
 version = "0.1.0"
 dependencies = [

@@ -45,6 +45,7 @@ Targets chain to one root, whose symbol is K's family key, and K's overload axio
 A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the colour codes `%c` and `%r`, and `%%`; KRS emits each terminal by its position, so `while ({condition}) {body}` prints with `format(%1 %2%3%4 %5)`.
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
 `krun --color on` and `krs run --color always` print them; `kast --output program` does not, and prints an authored `%c` or `%r` as the letter `c` or `r`.
+`#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 

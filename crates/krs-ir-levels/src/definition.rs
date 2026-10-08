@@ -1787,7 +1787,8 @@ fn validate_production(
             | ProductionAttribute::Color { .. }
             | ProductionAttribute::Colors { .. }
             | ProductionAttribute::Prefer { .. }
-            | ProductionAttribute::Private { .. } => {}
+            | ProductionAttribute::Private { .. }
+            | ProductionAttribute::Memo { .. } => {}
             ProductionAttribute::Overload { target, .. } => {
                 require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
             }

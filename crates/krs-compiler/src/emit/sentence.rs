@@ -204,6 +204,7 @@ fn emit_production_attribute(
         ProductionAttribute::Avoid { .. } => writer.push("avoid"),
         ProductionAttribute::Prefer { .. } => writer.push("prefer"),
         ProductionAttribute::Private { .. } => writer.push("private"),
+        ProductionAttribute::Memo { .. } => writer.push("memo"),
         ProductionAttribute::Overload { target, .. } => {
             writer.push("overload(");
             writer.push(context.production(target)?.symbol().emitted_name());

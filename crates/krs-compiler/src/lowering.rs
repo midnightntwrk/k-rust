@@ -1491,6 +1491,7 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::Bracket { .. } => ProductionAttribute::Bracket { origin },
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
                 ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
+                ProductionAttribute::Memo { .. } => ProductionAttribute::Memo { origin },
                 ProductionAttribute::Overload { .. } => ProductionAttribute::Overload {
                     origin,
                     target: names.overload_root(production.id())?.ok_or_else(|| {

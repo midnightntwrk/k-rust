@@ -1259,6 +1259,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut prefer = false;
     let mut overload = false;
     let mut private = false;
+    let mut memo = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1283,6 +1284,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::Prefer { .. } => std::mem::replace(&mut prefer, true),
             ProductionAttribute::Overload { .. } => std::mem::replace(&mut overload, true),
             ProductionAttribute::Private { .. } => std::mem::replace(&mut private, true),
+            ProductionAttribute::Memo { .. } => std::mem::replace(&mut memo, true),
         };
         if already {
             let name = attribute
@@ -1327,7 +1329,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Colors { .. }
             | ProductionAttribute::Prefer { .. }
             | ProductionAttribute::Overload { .. }
-            | ProductionAttribute::Private { .. } => {}
+            | ProductionAttribute::Private { .. }
+            | ProductionAttribute::Memo { .. } => {}
         }
     }
     if internal && program {
@@ -1348,7 +1351,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
         return Err(L::error(ValidationError::InvalidOverloadProduction));
     }
     validate_production_colors::<L>(items, attributes, colors.as_deref())?;
-    if total && !function {
+    if (total || memo) && !function {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if hook.is_some() && !(function && total) {

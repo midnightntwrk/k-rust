@@ -687,6 +687,11 @@ stage_shape! {
             /// Target constructor identity and the target path's location.
             target: S::Application => [application],
         },
+        /// Memoization hint of a function production.
+        Memo {
+            /// Memo-flag provenance.
+            key: ProvenanceKey => [keep],
+        },
     }
 }
 
@@ -2108,6 +2113,10 @@ impl DescriptorProduction {
                     require_key(&target.key, provenance)?;
                     "overload"
                 }
+                DescriptorProductionAttribute::Memo { key } => {
+                    require_key(key, provenance)?;
+                    "memo"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -2135,6 +2144,11 @@ impl DescriptorProduction {
         if families.contains("internal") && families.contains("program") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::InternalProgramMetadata,
+            ));
+        }
+        if families.contains("memo") && !families.contains("function") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::MemoWithoutFunction,
             ));
         }
         if families.contains("prefer") && families.contains("avoid") {
@@ -2636,6 +2650,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Hook { key, .. } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionHook, 0)?;
+                }
+                DescriptorProductionAttribute::Memo { key } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionMemo, 0)?;
                 }
                 DescriptorProductionAttribute::Alias { key } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;

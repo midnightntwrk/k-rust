@@ -453,6 +453,11 @@ pub enum ProductionAttribute<S, D> {
         /// Attribute provenance.
         origin: NodeOrigin,
     },
+    /// K's `memo`: a hint that a function's results may be memoized.
+    Memo {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+    },
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -477,7 +482,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Colors { origin, .. }
             | Self::Prefer { origin }
             | Self::Overload { origin, .. }
-            | Self::Private { origin } => origin,
+            | Self::Private { origin }
+            | Self::Memo { origin } => origin,
         }
     }
 
@@ -504,6 +510,7 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Prefer { .. } => Some(crate::ProductionAttributeFamily::Prefer),
             Self::Overload { .. } => Some(crate::ProductionAttributeFamily::Overload),
             Self::Private { .. } => Some(crate::ProductionAttributeFamily::Private),
+            Self::Memo { .. } => Some(crate::ProductionAttributeFamily::Memo),
         }
     }
 }
