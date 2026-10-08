@@ -224,3 +224,33 @@ fn an_oracle_that_is_not_innermost_fails_the_priority_template() {
         );
     });
 }
+
+/// The V6 (d) failures of the V4-V6 run under `switches`: review 1's classes, which only the
+/// forced-consequence check sees independently of the closure's own rules.
+fn forced_failures(switches: Switches) -> Vec<String> {
+    contract_failures(switches)
+        .into_iter()
+        .filter(|failure| failure.contains(super::checks::FORCED))
+        .collect()
+}
+
+mutation!(
+    collapsing_every_total_symbol_is_caught_by_the_forced_consequences,
+    collapse_every_total,
+    forced_failures
+);
+mutation!(
+    reading_stuck_totals_as_bottom_is_caught_by_the_forced_consequences,
+    stuck_total_is_bottom,
+    forced_failures
+);
+mutation!(
+    dropping_the_supersort_closure_is_caught_by_the_forced_consequences,
+    drop_supersort_inhabitation,
+    forced_failures
+);
+mutation!(
+    dropping_t_obs_is_caught_by_the_forced_consequences,
+    drop_tobs,
+    forced_failures
+);

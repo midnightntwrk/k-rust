@@ -697,6 +697,10 @@ impl<'d> Universe<'d> {
             }
             ("eqInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left == right)),
             ("ltInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left < right)),
+            ("leInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left <= right)),
+            ("gtInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left > right)),
+            ("geInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left >= right)),
+            ("neInt", [Node::Int(left), Node::Int(right)]) => Some(self.boolean(left != right)),
             ("notBool", [Node::Bool(value)]) => Some(self.boolean(!value)),
             // `KEQUAL.eq` on normal forms: distinct normal forms are distinct elements of `M_NF`.
             ("eqA", [_, _]) => Some(self.boolean(arguments[0] == arguments[1])),
@@ -724,6 +728,14 @@ impl<'d> Universe<'d> {
             normal.complete && !normal.forms.contains(&BOTTOM)
         });
         defined && self.normalize(id).forms.contains(&BOTTOM)
+    }
+
+    /// The equations of the highest priority group of `symbol`.
+    pub(super) fn first_group(&self, symbol: u32) -> Vec<usize> {
+        self.groups[symbol as usize]
+            .first()
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The KORE text of `id`, with the subterm `hole` (if any) written as `variable`.

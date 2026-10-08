@@ -229,9 +229,13 @@ impl Generator<'_> {
         }
         let variable = int_var(self.rng.pick(&integers).as_str());
         let value = int(i64::try_from(self.rng.below(4)).unwrap());
-        Some(match self.rng.below(3) {
+        Some(match self.rng.below(7) {
             0 => int_equals(variable, value),
             1 => app("ltInt", vec![variable, value]),
+            2 => app("leInt", vec![variable, value]),
+            3 => app("gtInt", vec![variable, value]),
+            4 => app("geInt", vec![variable, value]),
+            5 => app("neInt", vec![variable, value]),
             _ => app("notBool", vec![int_equals(variable, value)]),
         })
     }
@@ -410,6 +414,17 @@ pub(super) fn random_definition(rng: &mut Rng) -> (Definition, Vec<Pat>) {
     }
     if !no_head && rng.percent(6) {
         let (with, extra) = through_total_function(definition);
+        definition = with;
+        seeds.extend(extra);
+    }
+    if !no_head && rng.percent(8) {
+        let wrapper = WRAPPERS[rng.below(WRAPPERS.len())];
+        let (with, extra) = observation_through(definition, wrapper, rng.percent(25));
+        definition = with;
+        seeds.extend(extra);
+    }
+    if !no_head && rng.percent(5) {
+        let (with, extra) = stuck_total_branch(definition);
         definition = with;
         seeds.extend(extra);
     }
@@ -711,7 +726,9 @@ pub(super) fn observation(definition: Definition, clash: bool) -> (Definition, V
 /// which are normal forms (the design's 3.13 (k)): `tw : Int -> W` and `tw2 : Y -> W`, with `Y`
 /// inhabited by an equation head `hW`. The head `gW` over `W` has two equations whose sides
 /// differ on every instance: the pair has instances (`W` is inhabited), and its variable does
-/// not observe `hW` through the non-injective `tw2` (3.13 (l)).
+/// not observe `hW` through the non-injective `tw2`, because `W` has a value in every model
+/// (`tw(0)`), which the model of the closure reads `tw2`'s applications to new values as (the
+/// design's "Revision after review 1", R1.3).
 pub(super) fn through_total_function(definition: Definition) -> (Definition, Vec<Pat>) {
     let mut definition = definition
         .total_function("tw", &["Int"], "W")
@@ -726,6 +743,112 @@ pub(super) fn through_total_function(definition: Definition) -> (Definition, Vec
         app("gW", vec![app("tw", vec![int(1)])]),
         app("gW", vec![app("tw2", vec![app("hW", vec![int(1)])])]),
         app("hW", vec![int(1)]),
+    ];
+    (definition, seeds)
+}
+
+/// How the elements of the observed sort are built from the value production's sort in
+/// [`observation_through`].
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Wrapper {
+    TotalFunction,
+    Functional,
+    Constructor,
+    Subsort,
+}
+
+pub(super) const WRAPPERS: [Wrapper; 4] = [
+    Wrapper::TotalFunction,
+    Wrapper::Functional,
+    Wrapper::Constructor,
+    Wrapper::Subsort,
+];
+
+/// N1 through a wrapper (review 1 of the check, F1): `gN(X:On) = mk(1)` and `gN(X:On) = mk(2)`,
+/// the elements of `On` built from `Vn` by `wrapper`, and `Vn` built only by the value
+/// production `vn`. Every model makes `On`, hence `Vn`, empty, so `vn(1)` is undefined. With
+/// `inhabited`, `On` also has a constant constructor `on0`: then the definition has no model.
+pub(super) fn observation_through(
+    definition: Definition,
+    wrapper: Wrapper,
+    inhabited: bool,
+) -> (Definition, Vec<Pat>) {
+    let mut definition = definition.head("vn", &["Int"], "Vn").symbol(
+        "gN",
+        &["On"],
+        "S",
+        Kind::Head {
+            value_production: false,
+            total: false,
+        },
+    );
+    let wrapped = |inner: Pat| match wrapper {
+        Wrapper::Subsort => inj("Vn", "On", inner),
+        Wrapper::TotalFunction | Wrapper::Functional | Wrapper::Constructor => {
+            app("uw", vec![inner])
+        }
+    };
+    definition = match wrapper {
+        Wrapper::TotalFunction => definition.total_function("uw", &["Vn"], "On"),
+        Wrapper::Functional => definition.functional("uw", &["Vn"], "On"),
+        Wrapper::Constructor => definition.constructor("uw", &["Vn"], "On"),
+        Wrapper::Subsort => definition.subsort("Vn", "On"),
+    };
+    if inhabited {
+        definition = definition.constructor("on0", &[], "On");
+    }
+    definition = definition
+        .equation(app("gN", vec![var("VarO", "On")]), app("mk", vec![int(1)]))
+        .equation(app("gN", vec![var("VarO", "On")]), app("mk", vec![int(2)]));
+    definition.sorts.push("On".into());
+    definition.sorts.push("Vn".into());
+    let mut seeds = vec![
+        app("gN", vec![wrapped(app("vn", vec![int(1)]))]),
+        app("vn", vec![int(1)]),
+    ];
+    if inhabited {
+        seeds.push(app("gN", vec![cons("on0")]));
+    }
+    (definition, seeds)
+}
+
+/// Review 1 of the check, F2: `ft(Y) = ht(gt(Y), Y)` and `ft(Y) = vt(Y)` with
+/// `gt(twt(I)) = mk(1 /Int 0)`, `twt` total and without equations. At `Y = twt(1)` the first
+/// side is undefined, so every model makes `vt(twt(1))` undefined.
+pub(super) fn stuck_total_branch(definition: Definition) -> (Definition, Vec<Pat>) {
+    let plain = Kind::Head {
+        value_production: false,
+        total: false,
+    };
+    let mut definition = definition
+        .total_function("twt", &["Int"], "Wt")
+        .symbol("gt", &["Wt"], "S", plain)
+        .symbol("ht", &["S", "Wt"], "S", plain)
+        .symbol("ft", &["Wt"], "S", plain)
+        .head("vt", &["Wt"], "S")
+        .equation(
+            app("gt", vec![app("twt", vec![int_var("VarI")])]),
+            undefined(),
+        )
+        .equation(
+            app("ht", vec![var("VarZ", "S"), var("VarW", "Wt")]),
+            app("vt", vec![var("VarW", "Wt")]),
+        )
+        .equation(
+            app("ft", vec![var("VarW", "Wt")]),
+            app(
+                "ht",
+                vec![app("gt", vec![var("VarW", "Wt")]), var("VarW", "Wt")],
+            ),
+        )
+        .equation(
+            app("ft", vec![var("VarW", "Wt")]),
+            app("vt", vec![var("VarW", "Wt")]),
+        );
+    definition.sorts.push("Wt".into());
+    let seeds = vec![
+        app("ft", vec![app("twt", vec![int(1)])]),
+        app("vt", vec![app("twt", vec![int(1)])]),
     ];
     (definition, seeds)
 }
@@ -933,6 +1056,18 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
     templates.push(("template irrelevant cluster".into(), definition, seeds));
     let (definition, seeds) = through_total_function(base());
     templates.push(("template total-function sort".into(), definition, seeds));
+    for wrapper in WRAPPERS {
+        for inhabited in [false, true] {
+            let (definition, seeds) = observation_through(base(), wrapper, inhabited);
+            templates.push((
+                format!("template observation through {wrapper:?} (inhabited {inhabited})"),
+                definition,
+                seeds,
+            ));
+        }
+    }
+    let (definition, seeds) = stuck_total_branch(base());
+    templates.push(("template stuck total branch".into(), definition, seeds));
     // No equation head: functions and lists only.
     templates.push((
         "template no head".into(),

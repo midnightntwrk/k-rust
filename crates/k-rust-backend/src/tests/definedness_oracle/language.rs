@@ -78,6 +78,9 @@ pub(super) enum Kind {
     Head { value_production: bool, total: bool },
     /// `function`, `total` when `total`.
     Function { total: bool },
+    /// `functional` and nothing else: a total symbol that is neither a constructor nor a function
+    /// (an uninterpreted symbol), whose applications are normal forms.
+    Functional,
     /// A hooked `Int` or `Bool` operation of the prelude.
     Hook,
 }
@@ -94,7 +97,7 @@ impl Symbol {
     /// Whether the symbol is defined on defined arguments: a constructor, or declared total.
     pub(super) fn total(&self) -> bool {
         match self.kind {
-            Kind::Constructor => true,
+            Kind::Constructor | Kind::Functional => true,
             Kind::Head { total, .. } | Kind::Function { total } => total,
             Kind::Hook => self.name != "divInt",
         }
@@ -149,13 +152,17 @@ pub(super) struct Definition {
     pub(super) lists: bool,
 }
 
-/// The prelude's hooked operations: `divInt` (`INT.tdiv`), `addInt`, `eqInt`, `ltInt`,
-/// `notBool`.
-pub(super) const HOOKS: [(&str, &[&str], &str, &str); 5] = [
+/// The prelude's hooked operations: `divInt` (`INT.tdiv`), `addInt`, the six comparisons of
+/// `Int`, and `notBool`.
+pub(super) const HOOKS: [(&str, &[&str], &str, &str); 9] = [
     ("divInt", &["Int", "Int"], "Int", "INT.tdiv"),
     ("addInt", &["Int", "Int"], "Int", "INT.add"),
     ("eqInt", &["Int", "Int"], "Bool", "INT.eq"),
     ("ltInt", &["Int", "Int"], "Bool", "INT.lt"),
+    ("leInt", &["Int", "Int"], "Bool", "INT.le"),
+    ("gtInt", &["Int", "Int"], "Bool", "INT.gt"),
+    ("geInt", &["Int", "Int"], "Bool", "INT.ge"),
+    ("neInt", &["Int", "Int"], "Bool", "INT.ne"),
     ("notBool", &["Bool"], "Bool", "BOOL.not"),
 ];
 
@@ -241,6 +248,11 @@ impl Definition {
 
     pub(super) fn function(self, name: &str, arguments: &[&str], result: &str) -> Self {
         self.symbol(name, arguments, result, Kind::Function { total: false })
+    }
+
+    /// A `functional` symbol that is neither a constructor nor a function.
+    pub(super) fn functional(self, name: &str, arguments: &[&str], result: &str) -> Self {
+        self.symbol(name, arguments, result, Kind::Functional)
     }
 
     /// A function declared `total`.
@@ -476,6 +488,7 @@ impl Definition {
                         "function{}()".to_owned()
                     }
                 }
+                Kind::Functional => "functional{}()".to_owned(),
                 Kind::Hook => unreachable!("hooks are in the prelude"),
             };
             writeln!(

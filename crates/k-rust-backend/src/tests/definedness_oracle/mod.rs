@@ -8,9 +8,11 @@
 //! made only at term indexes the load-time critical-pair check leaves untainted, and must hold
 //! in one model of the definition.
 //!
-//! The oracle ([`language`], [`engine`]) builds that model from the definition's axioms with no
+//! The oracle ([`language`], [`engine`], [`forced`]) evaluates the definition's axioms with no
 //! backend code below its interface: its own matching modulo the injection and overload axioms,
-//! its own evaluator, and its own taint closure. [`checks`] compares the backend's claims with it:
+//! its own evaluator of `M_NF`, its own taint closure, and its own derivation of what every model
+//! must satisfy. It does not build the model `M'` of the closure's construction. [`checks`]
+//! compares the backend's claims with it:
 //!
 //! - **V4.** On a definition the check accepts, every explored ground term whose evaluation ends
 //!   has exactly one normal form.
@@ -19,9 +21,14 @@
 //!   normal forms, and a claim on a generalization (a constructor or literal subterm replaced by
 //!   a variable) only when every explored instance satisfies it.
 //! - **V6.** On a definition with non-joined pairs: (a) the oracle's closure of the reported pairs
-//!   is the backend's taint set; (c) no claim is made on a term with a tainted application; and
-//!   (b) the claims on an untainted term whose evaluation applies only untainted equations agree
-//!   with its normal form, which is unique.
+//!   is the backend's taint set (a second implementation of the same rule, which shows the two
+//!   agree, not that the rule is sound); (c) no claim is made on a term with a tainted
+//!   application; and (b) the claims on an untainted term whose evaluation applies only
+//!   untainted equations agree with its normal form, which is unique.
+//! - **V6 (d).** On every definition the derivation does not show to have no model: no claim on
+//!   a term that every model makes undefined, nor on a generalization of one by a subterm every
+//!   model makes defined ([`forced`]). This is the test of property (B) that reads neither the
+//!   closure nor `M_NF`, so a closure, vacuity or join rule that misses a class shows here.
 //!
 //! Preconditions are measured, never assumed away: a query whose evaluation does not end within
 //! the bounds is outside P0 and counted (ceiling 10 % of queries), a definition that reaches a
@@ -43,6 +50,7 @@ mod checks;
 mod completeness;
 mod corpus;
 mod engine;
+mod forced;
 mod generator;
 mod language;
 mod mutations;
@@ -150,6 +158,11 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
             "{} of {} definitions outside P2 (ceiling 25 %)",
             tally.outside_totality, tally.definitions
         ));
+    }
+    // V6 (d) must have something to check: queries every model of a definition with a model
+    // makes undefined (the templates of review 1's classes give some in every run).
+    if tally.forced_undefined == 0 {
+        failures.push("no query undefined in every model of a definition with a model".into());
     }
     for class in Class::ALL {
         let count = tally.classes.get(&class).copied().unwrap_or(0);

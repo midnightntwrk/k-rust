@@ -2,7 +2,8 @@
 //! on accepted definitions), V5 (every claim agrees with `M_NF` there), and V6 (on definitions
 //! with non-joined pairs: (a) the taint set recomputed by the oracle, (c) no claim on a tainted
 //! term, and (b) the claims on untainted terms whose evaluation applies only untainted equations
-//! agree with their unique normal form).
+//! agree with their unique normal form), and V6 (d) on every definition with a model: no claim on
+//! a term, or a generalization of one, that every model makes undefined (`forced.rs`).
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -27,6 +28,9 @@ use crate::{
 
 /// Queries per definition, values per sort, and instances per generalization.
 const QUERIES: usize = 40;
+
+/// The mark of a V6 (d) failure, which the mutation tests of review 1's classes look for.
+pub(super) const FORCED: &str = "V6 (d)";
 const VALUES_PER_SORT: usize = 8;
 const VALUATIONS_PER_EQUATION: usize = 4;
 
@@ -92,6 +96,10 @@ pub(super) struct Tally {
     /// normal form under `->E`, and a sample of them.
     pub(super) divergent: usize,
     pub(super) divergences: Vec<String>,
+    /// V6 (d): queries every model of a definition with a model makes undefined, and
+    /// definitions shown to have no model (where nothing is checked).
+    pub(super) forced_undefined: usize,
+    pub(super) without_model: usize,
     pub(super) classes: BTreeMap<Class, usize>,
     /// The reasons of the non-joined pairs, counted.
     pub(super) reasons: BTreeMap<String, usize>,
@@ -115,6 +123,8 @@ impl Tally {
         self.withheld += other.withheld;
         self.markers += other.markers;
         self.divergent += other.divergent;
+        self.forced_undefined += other.forced_undefined;
+        self.without_model += other.without_model;
         if self.divergences.len() < 5 {
             self.divergences.extend(other.divergences);
             self.divergences.truncate(5);
@@ -130,7 +140,7 @@ impl Tally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} queries ({} outside P0), positive claims checked: {} tokens, {} certificates, {} marker claims, {} apartness, {} \\ceil discharges, {} generalizations; {} claims withheld on tainted terms; {} evaluations diverging from ->E; classes {:?}; {} failures",
+            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} queries ({} outside P0), positive claims checked: {} tokens, {} certificates, {} marker claims, {} apartness, {} \\ceil discharges, {} generalizations; {} claims withheld on tainted terms; {} evaluations diverging from ->E; {} queries undefined in every model, {} definitions without a model; classes {:?}; {} failures",
             self.definitions,
             self.rejected,
             self.accepted,
@@ -146,6 +156,8 @@ impl Tally {
             self.generalizations,
             self.withheld,
             self.divergent,
+            self.forced_undefined,
+            self.without_model,
             self.classes,
             self.failures.len()
         ) + &format!("; non-joined pairs by reason {:?}", self.reasons)
@@ -595,13 +607,16 @@ fn symbols_of(pattern: &Pat, into: &mut BTreeSet<String>) {
 }
 
 /// The equation heads whose applications can occur inside an element of `sort` in the model of
-/// the design's 3.8: the sorts of the subterms are closed under subsorts (an injection's
-/// operand), the argument sorts of constructors and equation heads, and the element sort of
-/// lists. A stuck application of a total function is a normal form, but no claim reads one, so
-/// that model interprets one whose arguments hold a new element by an old element of its sort
-/// (the oracle's functions are never injective), and its arguments are not observed.
+/// the design's 3.8, as corrected by its "Revision after review 1" (R1.2): the sorts of the
+/// subterms are closed under subsorts (an injection's operand), the element sort of lists, and
+/// the argument sorts of the symbols that model interprets formally on new arguments:
+/// constructors, equation heads, and total functions and `functional` symbols whose result sort
+/// has no element in some model (otherwise the model reads such an application by a fixed old
+/// element of its sort, and the oracle's total symbols are never injective). A partial
+/// function's stuck application is `\bottom`, and a hook's result a literal.
 pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<String> {
     let order = definition.sort_order();
+    let surely = surely_inhabited(definition);
     let mut reached = BTreeSet::from([sort.to_owned()]);
     let mut stack = vec![sort.to_owned()];
     while let Some(sort) = stack.pop() {
@@ -610,8 +625,14 @@ pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<
             next.push("Int".into());
         }
         for symbol in &definition.symbols {
-            let normal_form_root = matches!(symbol.kind, Kind::Constructor | Kind::Head { .. });
-            if normal_form_root && symbol.result == sort {
+            let formal = match symbol.kind {
+                Kind::Constructor | Kind::Head { .. } => true,
+                Kind::Function { total: true } | Kind::Functional => {
+                    !surely.contains(&symbol.result)
+                }
+                Kind::Function { total: false } | Kind::Hook => false,
+            };
+            if formal && symbol.result == sort {
                 next.extend(symbol.arguments.iter().cloned());
             }
         }
@@ -627,6 +648,29 @@ pub(super) fn observable_heads(definition: &Definition, sort: &str) -> BTreeSet<
         .filter(|symbol| symbol.is_head() && reached.contains(&symbol.result))
         .map(|symbol| symbol.name.clone())
         .collect()
+}
+
+/// The sorts with an element in every model: `Int`, `Bool` and `List`, the result sort of a
+/// symbol defined on defined arguments (a constructor, or one declared total) whose argument
+/// sorts are in the set, and the supersorts of a sort in the set.
+pub(super) fn surely_inhabited(definition: &Definition) -> BTreeSet<String> {
+    let mut set = BTreeSet::from(["Int".to_owned(), "Bool".to_owned(), "List".to_owned()]);
+    loop {
+        let before = set.len();
+        for symbol in &definition.symbols {
+            if symbol.total() && symbol.arguments.iter().all(|sort| set.contains(sort)) {
+                set.insert(symbol.result.clone());
+            }
+        }
+        for (sub, sup) in &definition.subsorts {
+            if set.contains(sub) {
+                set.insert(sup.clone());
+            }
+        }
+        if set.len() == before {
+            return set;
+        }
+    }
 }
 
 /// The oracle term of a ground backend term, when it is one the oracle's language writes.
@@ -997,6 +1041,12 @@ pub(super) fn check_definition(
             subterms.extend(universe.children(term));
         }
     }
+    // V6 (d): what every model makes undefined, from the axioms alone.
+    let forced = super::forced::derive(&mut universe, &asked);
+    if forced.inconsistent.is_some() {
+        tally.without_model = 1;
+    }
+    let forced_check = forced.inconsistent.is_none();
     let tainted_symbols = oracle_tainted
         .iter()
         .map(|name| universe.symbol_id(name))
@@ -1121,6 +1171,29 @@ pub(super) fn check_definition(
             && backend.irreducible_application_is_defined(&term);
         let mut failed = Vec::new();
         let mut fail = |failure: String| failed.push(failure);
+        // V6 (d): no claim on an untainted term that every model makes undefined.
+        if forced_check && forced.undefined(id) {
+            tally.forced_undefined += 1;
+        }
+        // Read independently of any taint set: a claim on such a term is wrong wherever it is
+        // made.
+        if forced_check && forced.undefined(id) && tally.outside_totality == 0 {
+            let claimed = [
+                (found.token, "instance-normal"),
+                (marker_claim, "an irreducible defined application"),
+                (
+                    found.ceil_top == Some(true) && !divergent,
+                    "defined (its \\ceil is discharged)",
+                ),
+            ];
+            for (made, what) in claimed {
+                if made {
+                    fail(format!(
+                        "{FORCED}: every model makes {shown} undefined, but it is called {what}"
+                    ));
+                }
+            }
+        }
         match place {
             Standing::Model if tally.outside_totality == 0 => {
                 if found.token {
@@ -1173,6 +1246,19 @@ pub(super) fn check_definition(
                 .failures
                 .push(format!("{label}: {failure}\n{}", describe()));
         }
+        // V6 (d) on generalizations: a claim on the query with a subterm defined in every model
+        // replaced by a variable holds, in particular, at that subterm.
+        if forced_check && forced.undefined(id) && tally.outside_totality == 0 {
+            forced_generalizations(
+                label,
+                &backend,
+                &mut universe,
+                &forced,
+                id,
+                &mut tally,
+                &describe,
+            );
+        }
         // Certificates.
         if let Some(result) = evaluation {
             let mut certified = Vec::new();
@@ -1182,6 +1268,13 @@ pub(super) fn check_definition(
                     continue;
                 };
                 let certified_place = standing(&mut universe, certified_id);
+                if forced_check && forced.undefined(certified_id) && tally.outside_totality == 0 {
+                    let text = universe.show(certified_id);
+                    tally.failures.push(format!(
+                        "{label}: {FORCED}: every model makes {text} undefined, but it carries the certificate\n{}",
+                        describe()
+                    ));
+                }
                 match certified_place {
                     Standing::Tainted => {
                         let text = universe.show(certified_id);
@@ -1253,6 +1346,48 @@ pub(super) fn check_definition(
         tally.failures.truncate(claim_failures_from);
     }
     (tally, verdict)
+}
+
+/// V6 (d) on generalizations of the query `id`, which every model makes undefined: for each of
+/// its proper subterms that every model makes defined (up to three), the query with that subterm
+/// replaced by a variable must get no claim that holds for every element, since the subterm is
+/// one and the instance is undefined.
+fn forced_generalizations(
+    label: &str,
+    backend: &BackendDefinition,
+    universe: &mut Universe<'_>,
+    forced: &super::forced::Forced,
+    id: Id,
+    tally: &mut Tally,
+    describe: &dyn Fn() -> String,
+) {
+    let mut holes = Vec::new();
+    let mut stack = universe.children(id);
+    while let Some(subterm) = stack.pop() {
+        if forced.defined(subterm) && !holes.contains(&subterm) {
+            holes.push(subterm);
+        } else {
+            stack.extend(universe.children(subterm));
+        }
+    }
+    holes.truncate(3);
+    for hole in holes {
+        let sort_name = universe.sort_name(universe.sort_of(hole)).to_owned();
+        let variable = format!("VarForced:Sort{sort_name}{{}}");
+        let kore = universe.kore(id, Some((hole, &variable)));
+        let result_sort = universe.sort_name(universe.sort_of(id)).to_owned();
+        let Ok(found) = claims(backend, &kore, &result_sort, true) else {
+            continue;
+        };
+        if found.token || found.ceil_top == Some(true) {
+            tally.failures.push(format!(
+                "{label}: {FORCED}: every model makes {} undefined, but {kore} is called {} for every element\n{}",
+                universe.show(id),
+                if found.token { "instance-normal" } else { "defined" },
+                describe()
+            ));
+        }
+    }
 }
 
 /// Checks the claims on the generalizations of `id`: each subterm that is a constructor
@@ -1407,6 +1542,7 @@ pub(super) fn describe(definition: &Definition) -> String {
                 if total { " total" } else { "" }
             ),
             Kind::Function { total } => format!("function{}", if total { " total" } else { "" }),
+            Kind::Functional => "functional".to_owned(),
             Kind::Hook => unreachable!(),
         };
         writeln!(
