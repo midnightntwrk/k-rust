@@ -181,7 +181,7 @@ impl Generator<'_> {
                     .map(|(name, _)| name.clone())
                     .collect::<Vec<_>>();
                 if !b_scope.is_empty() && self.rng.percent(25) {
-                    return inj("B", "A", var(self.rng.pick(&b_scope), "B"));
+                    return inj("B", "A", var(self.rng.pick(&b_scope).as_str(), "B"));
                 }
                 self.constructor_term(depth, |generator, sort, depth| {
                     generator.right(sort, depth, scope)
@@ -216,7 +216,7 @@ impl Generator<'_> {
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>();
         if self.predicate && !terms.is_empty() && self.rng.percent(30) {
-            let term = var(self.rng.pick(&terms), "A");
+            let term = var(self.rng.pick(&terms).as_str(), "A");
             let test = app("isc", vec![term]);
             return Some(if self.rng.percent(50) {
                 test
@@ -227,7 +227,7 @@ impl Generator<'_> {
         if integers.is_empty() {
             return None;
         }
-        let variable = int_var(self.rng.pick(&integers));
+        let variable = int_var(self.rng.pick(&integers).as_str());
         let value = int(i64::try_from(self.rng.below(4)).unwrap());
         Some(match self.rng.below(3) {
             0 => int_equals(variable, value),
