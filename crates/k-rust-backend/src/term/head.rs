@@ -179,12 +179,10 @@ impl NormalEvidence {
     /// predicate right-hand side) also withholds it.
     ///
     /// A failed `Evaluate` match holds on every instance, which is the test `instance_normal`
-    /// applies. It is about the term's value as well when the equation's left-hand side has
-    /// instance-normal arguments or its arguments' reducts miss the term's
-    /// (`BackendDefinition::failed_match_is_about_values`); the mark certifies the value only
-    /// when every failed match is, and the term's arguments' values are certified too. A ground
-    /// term is its own only instance, and the matcher reads no path condition, so the
-    /// certificate is independent of the path the term is met on. It is a property of the
+    /// applies. The mark certifies the value only where the term's index is untainted by the
+    /// load-time critical-pair check (`confluence`) and the term's arguments' values are
+    /// certified too. A ground term is its own only instance, and the matcher reads no path
+    /// condition, so the certificate is independent of the path the term is met on. It is a property of the
     /// term's structure, and it survives any later substitution that keeps the term by pointer.
     ///
     /// The arguments carry the bit as well. So every equation-head subterm was certified the same
@@ -232,11 +230,12 @@ impl NormalEvidence {
 ///   (`simplify::scan::scan_term_theory`, one scan per theory).
 ///
 /// Together they say that every term equation of the definition failed to match the application.
-/// A failed match reads no path condition, so the statement holds on every path. The scans also
-/// record whether every failure is about the application's value
-/// (`simplify::scan::FailedMatch`), which the certificate carries to
-/// `TermAttributes::certified_value`. A caller
-/// outside the crate can name the type but not build a value:
+/// A failed match reads no path condition, so the statement holds on every path. The certificate
+/// is evidence about the application's value only where the load-time critical-pair check
+/// leaves the application's index untainted (`confluence::ValueClaims::admit`): there the
+/// definition's normal-form model is a model of it, so a normal form is an element distinct
+/// from every other normal form. It carries that bit to `TermAttributes::certified_value`. A
+/// caller outside the crate can name the type but not build a value:
 ///
 /// ```compile_fail
 /// use k_rust_backend::term::head::NormalFormCertificate;
@@ -253,9 +252,8 @@ impl NormalEvidence {
 /// ```
 #[derive(Debug)]
 pub struct NormalFormCertificate {
-    /// Whether every equation that failed to match has a left-hand side with instance-normal
-    /// arguments, so that no valuation of it denotes the application's value either
-    /// (`term::TermAttributes::certified_value`).
+    /// Whether the application's index is untainted, so that the certificate is evidence about
+    /// its value (`term::TermAttributes::certified_value`).
     values: bool,
 }
 
@@ -263,14 +261,12 @@ impl NormalFormCertificate {
     #[must_use]
     pub(crate) fn new(
         _selection: SelectionComplete,
-        function_scan: NoOfferedEquationMatched<FunctionTheory>,
-        simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+        _function_scan: NoOfferedEquationMatched<FunctionTheory>,
+        _simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
         untainted: Option<crate::confluence::UntaintedIndex>,
     ) -> Self {
         Self {
-            values: untainted.is_some()
-                && function_scan.certifies_values()
-                && simplification_scan.certifies_values(),
+            values: untainted.is_some(),
         }
     }
 

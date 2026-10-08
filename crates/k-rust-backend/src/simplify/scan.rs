@@ -65,42 +65,7 @@ impl TermTheory for SimplificationTheory {
 /// a bare variable, failed to match it: its left-hand side has no instance in common with the
 /// term. Minted only by [`scan_term_theory`]; neither `Clone` nor `Copy`, so one scan yields
 /// one statement.
-pub(crate) struct NoOfferedEquationMatched<K> {
-    /// Whether every one of those failures is a [`FailedMatch`] that certifies values: then no
-    /// valuation of any offered left-hand side denotes the term's value either.
-    values: bool,
-    theory: PhantomData<K>,
-}
-
-impl<K> NoOfferedEquationMatched<K> {
-    /// Whether the statement is about the term's value as well as about the term.
-    pub(crate) fn certifies_values(&self) -> bool {
-        self.values
-    }
-}
-
-/// The evidence a failed attempt of a term-theory equation carries: the matcher's refutation of
-/// the left-hand side on the term, and whether that refutation is about values.
-///
-/// A failed match shows that no instance of the left-hand side is the term. An equation
-/// constrains the value its left-hand side denotes, so the failure shows that the equation does
-/// not hold of the term's value only when no instance of the left-hand side has the term as a
-/// reduct below its root (`BackendDefinition::failed_match_is_about_values`). Otherwise
-/// (`w(h(3))` under `h(3) = h(1)`, tried on `w(h(1))`) the equation does not apply, so the term
-/// stays a fixed point of the simplifier, but its value is not certified.
-pub(crate) struct FailedMatch {
-    _refutation: MatchFailed,
-    values: bool,
-}
-
-impl FailedMatch {
-    pub(super) fn new(refutation: MatchFailed, values: bool) -> Self {
-        Self {
-            _refutation: refutation,
-            values,
-        }
-    }
-}
+pub(crate) struct NoOfferedEquationMatched<K>(PhantomData<K>);
 
 pub(super) enum TheoryScan<K> {
     /// The result of the equation that applied, and that equation.
@@ -132,22 +97,18 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     indeterminate: &mut IndeterminateAttempts,
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
-    ) -> SimplifyResult<EquationAttempt<Simplification, FailedMatch>>,
+    ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
     let mut blocked = false;
     let mut not_cacheable = false;
-    let mut values = true;
     for rules in groups.values() {
         match scan_group(rules, indeterminate, |rule| {
             Ok(match attempt(rule)? {
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))
                 }
-                EquationAttempt::NotApplicable(failed) => {
-                    values &= failed.values;
-                    EquationAttempt::NotApplicable(failed)
-                }
+                EquationAttempt::NotApplicable(failed) => EquationAttempt::NotApplicable(failed),
                 EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
                 EquationAttempt::Unused => EquationAttempt::Unused,
                 EquationAttempt::Indeterminate(reason) => EquationAttempt::Indeterminate(reason),
@@ -172,20 +133,15 @@ pub(super) fn scan_term_theory<K: TermTheory>(
         TheoryScan::NotCacheable
     } else {
         // Every group of `groups`, the whole of what selection offers `term` in `K`, ended
-        // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(FailedMatch)`, and
-        // `values` records whether each of those failures certifies values.
-        TheoryScan::NotApplicable(NoOfferedEquationMatched {
-            values,
-            theory: PhantomData,
-        })
+        // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(MatchFailed)`.
+        TheoryScan::NotApplicable(NoOfferedEquationMatched(PhantomData))
     })
 }
 
 /// The outcome of one equation attempt. `N` is the evidence a `NotApplicable` attempt carries:
-/// [`FailedMatch`] (a [`MatchFailed`] and whether it is about values) for the term theories,
-/// whose scans the evaluated mark rests on, so that only a failed match of the left-hand side
-/// can be `NotApplicable` there; `()` for the ceil and predicate scans, which never feed the
-/// mark.
+/// [`MatchFailed`] for the term theories, whose scans the evaluated mark rests on, so that only
+/// a failed match of the left-hand side can be `NotApplicable` there; `()` for the ceil and
+/// predicate scans, which never feed the mark.
 pub(super) enum EquationAttempt<T, N> {
     NotApplicable(N),
     /// The equation is inapplicable under the current path condition, but may apply if the same

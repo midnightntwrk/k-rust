@@ -742,14 +742,14 @@ impl TermAttributes {
     /// Whether the `evaluated` mark of this term and of each of its subterms is evidence about
     /// the value the term denotes, not only that no equation matches it: a free-constructor
     /// application, injection, domain value or collection over such subterms, or an
-    /// equation-head application the simplifier marked with a certificate whose failed
-    /// equations all have left-hand sides with instance-normal arguments
-    /// (`head::NormalFormCertificate`). An equation constrains the value its left-hand side
-    /// denotes, and a failed match is a fact about terms, so it says that no valuation of the
-    /// left-hand side denotes the term's value only for such a left-hand side
-    /// (`BackendDefinition::pattern_arguments_normal`). Implies `evaluated`; the readers of the
-    /// mark as a value (`head::NormalEvidence::certified`, `head::certified_ground_normal_form`)
-    /// read this instead.
+    /// equation-head application the simplifier marked with a certificate whose index the
+    /// load-time critical-pair check leaves untainted (`head::NormalFormCertificate`,
+    /// `confluence::ValueClaims::admit`). A failed match is a fact about terms; it is a fact about
+    /// the value the term denotes only where the definition's normal-form model is a model of it,
+    /// which the check establishes per index. The `evaluated` mark alone is the simplifier's
+    /// cache, valid for every head. Implies `evaluated`; the readers of the mark as a value
+    /// (`head::NormalEvidence::certified`, `head::certified_ground_normal_form`) read this
+    /// instead.
     pub fn certified_value(&self) -> bool {
         self.certified_value
     }

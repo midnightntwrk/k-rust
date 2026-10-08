@@ -625,3 +625,47 @@ fn review_2_f3_an_injection_against_an_application_is_no_pair() {
     );
     assert_confluent(&definition);
 }
+
+/// A `concrete` equation applies only to ground terms, yet it is an axiom about every instance
+/// (precondition P4). The instance-normal scan therefore counts it as reaching every application
+/// it unifies with: `f(Y)` under `f(X) = mk(1) [concrete]` is not instance-normal, and
+/// `\ceil(f(Y))` keeps its obligation although the check names no pair.
+#[test]
+fn a_concrete_equation_counts_as_reaching_in_the_instance_normal_scan() {
+    let definition = definition(
+        "symbol f{}(SortInt{}) : SortS{} [anywhere{}(), value-production{}()]",
+        &[equation(
+            "f",
+            &["SortInt{}"],
+            "SortS{}",
+            &["VarX:SortInt{}"],
+            &format!("mk{{}}({})", int(1)),
+            r"\top{R}()",
+            "anywhere{}(), concrete{}()",
+        )],
+    );
+    assert_confluent(&definition);
+    assert_obligation_kept(&definition, "f{}(VarY:SortInt{})", "SortS{}");
+}
+
+/// A `symbolic` equation never applies to a ground term, so the simplifier leaves `f(1)` under
+/// `f(X) = mk(1) [symbolic]` unevaluated; the equation matched, so its scan is no failed match,
+/// and `f(1)` gets no certificate. Nor is it instance-normal (the equation unifies with it), so
+/// `\ceil(f(1))` keeps its obligation.
+#[test]
+fn a_symbolic_equation_that_matches_withholds_the_certificate() {
+    let definition = definition(
+        "symbol f{}(SortInt{}) : SortS{} [anywhere{}(), value-production{}()]",
+        &[equation(
+            "f",
+            &["SortInt{}"],
+            "SortS{}",
+            &["VarX:SortInt{}"],
+            &format!("mk{{}}({})", int(1)),
+            r"\top{R}()",
+            "anywhere{}(), symbolic{}()",
+        )],
+    );
+    assert_confluent(&definition);
+    assert_obligation_kept(&definition, &format!("f{{}}({})", int(1)), "SortS{}");
+}

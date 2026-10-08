@@ -248,40 +248,33 @@ impl<'t> NormalSubterms<'t> {
         term: &'t Term,
         mut subterm: impl FnMut(&Term) -> Option<InstanceNormal>,
     ) -> Option<Self> {
-        every_immediate_subterm(term, |immediate| subterm(immediate).is_some())
-            .then_some(Self { term })
+        let mut normal = |term: &Term| subterm(term).is_some();
+        let all = match term.kind() {
+            TermKind::Application { arguments, .. } => arguments.iter().all(&mut normal),
+            TermKind::Injection { term, .. } => normal(term),
+            TermKind::Map { entries, rest, .. } => {
+                entries
+                    .iter()
+                    .all(|(key, value)| normal(key) && normal(value))
+                    && rest.as_ref().is_none_or(&mut normal)
+            }
+            TermKind::List { heads, rest, .. } => {
+                heads.iter().all(&mut normal)
+                    && rest.as_ref().is_none_or(|(middle, tails)| {
+                        normal(middle) && tails.iter().all(&mut normal)
+                    })
+            }
+            TermKind::Set { elements, rest, .. } => {
+                elements.iter().all(&mut normal) && rest.as_ref().is_none_or(&mut normal)
+            }
+            TermKind::And(left, right) => normal(left) && normal(right),
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        };
+        all.then_some(Self { term })
     }
 
     fn holds_for(&self, term: &Term) -> bool {
         self.term == term
-    }
-}
-
-/// Whether `normal` holds for each immediate subterm of `term`, asked in the order
-/// [`NormalSubterms::of`] states, stopping at the first that fails; `true` for a variable or a
-/// domain value. Also asked, with a predicate of its own, about the left-hand side of an
-/// equation (`instance_normal::patterns::pattern_facts`); it mints no token.
-pub(super) fn every_immediate_subterm(term: &Term, mut normal: impl FnMut(&Term) -> bool) -> bool {
-    match term.kind() {
-        TermKind::Application { arguments, .. } => arguments.iter().all(&mut normal),
-        TermKind::Injection { term, .. } => normal(term),
-        TermKind::Map { entries, rest, .. } => {
-            entries
-                .iter()
-                .all(|(key, value)| normal(key) && normal(value))
-                && rest.as_ref().is_none_or(&mut normal)
-        }
-        TermKind::List { heads, rest, .. } => {
-            heads.iter().all(&mut normal)
-                && rest
-                    .as_ref()
-                    .is_none_or(|(middle, tails)| normal(middle) && tails.iter().all(&mut normal))
-        }
-        TermKind::Set { elements, rest, .. } => {
-            elements.iter().all(&mut normal) && rest.as_ref().is_none_or(&mut normal)
-        }
-        TermKind::And(left, right) => normal(left) && normal(right),
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
     }
 }
 
