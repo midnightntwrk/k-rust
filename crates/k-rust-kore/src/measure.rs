@@ -859,6 +859,10 @@ impl Drop for MergeOnDrop {
 /// Validation may reuse the measured algorithms (for example, resolving a definition to inspect
 /// its catalogs), but that work is not part of the compilation contract represented by the
 /// counters. The suppression is thread-local, like the counters themselves.
+///
+/// Work that a build without those validations also does must not run under it: measures such
+/// as `provenance.links_steps` and `provenance.anchor_path_steps` count every walk outside it,
+/// and a guard reading them is blind to whatever runs inside.
 pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
     imp::without_counting(work)
 }
