@@ -36,7 +36,8 @@
 //! the random run, `KRUST_DEFINEDNESS_ORACLE_VARIANTS` the variants per probe; each accepts
 //! decimal or `0x`-prefixed hexadecimal. Run with `--nocapture` for the summaries,
 //! `KRUST_DEFINEDNESS_ORACLE_VERBOSE` for each query, `KRUST_DEFINEDNESS_ORACLE_KORE` for each
-//! definition's KORE text.
+//! definition's KORE text, `KRUST_DEFINEDNESS_ORACLE_PROGRESS` for each definition's label as it
+//! starts.
 
 mod checks;
 mod completeness;

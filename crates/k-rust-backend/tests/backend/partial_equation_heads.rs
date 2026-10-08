@@ -486,7 +486,7 @@ fn a_refuted_requires_does_not_discharge_definedness_through_a_reducible_pattern
     assert_w_h_keeps_its_obligation(&definition);
 }
 
-/// Integers, `mk` and `w : H -> S` (a value production), for the narrowing probes below; each
+/// Integers, `mk` and `w : H -> S` (a value production), for the overlap probes below; each
 /// adds its sorts, symbols and equations in place of `{rest}`.
 const NARROWING: &str = r#"[]
     module MAIN
@@ -535,9 +535,9 @@ fn subsort(sub: &str, sup: &str) -> String {
     )
 }
 
-fn narrowing_definition(rest: &[String]) -> BackendDefinition {
+fn overlap_probe_definition(rest: &[String]) -> BackendDefinition {
     internalize(&NARROWING.replace("{rest}", &rest.join("\n        ")))
-        .expect("the narrowing definition should internalize")
+        .expect("the overlap probe definition should internalize")
 }
 
 fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept: &str) {
@@ -553,11 +553,11 @@ fn assert_ceil_kept(definition: &BackendDefinition, term: &str, sort: &str, kept
 /// subsort axioms make `inj{B,T}(b0)` the value `inj{A,T}(inj{B,A}(b0))`, an instance of the
 /// `h` equation's argument at `X = inj{B,A}(b0)`. So `h(inj{B,T}(b0)) = k(inj{B,A}(b0))`, and
 /// `w(k(inj{B,A}(b0)))` is the undefined `w(h(inj{B,T}(b0)))`: neither `\ceil` may simplify to
-/// `\top`. The right-hand side `k(X)` is a reduct of `h(inj{B,T}(b0))` although the equation's
-/// injection source `A` lies above the term's `B`.
+/// `\top`, although the `h` equation's injection source `A` lies above the term's `B` (the
+/// overlap is modulo injection composition).
 #[test]
-fn narrowing_reads_an_injection_from_a_lower_sort_as_one_from_the_pattern_sort() {
-    let definition = narrowing_definition(&[
+fn an_overlap_modulo_injection_composition_keeps_the_obligation() {
+    let definition = overlap_probe_definition(&[
         "sort SortB{} []".into(),
         "sort SortA{} []".into(),
         "sort SortT{} []".into(),
@@ -585,12 +585,11 @@ fn narrowing_reads_an_injection_from_a_lower_sort_as_one_from_the_pattern_sort()
 /// Sorts `C < A < T` and `C < B < T`, with `A` and `B` unrelated; `h(inj{A,T}(X:A)) = k(X)`,
 /// `g() = inj{C,B}(c0)` and `w(h(inj{B,T}(g()))) = mk(1 /Int 0)`. Injections compose, so
 /// `inj{B,T}(g()) = inj{C,T}(c0) = inj{A,T}(inj{C,A}(c0))`: `h(inj{B,T}(g())) = k(inj{C,A}(c0))`,
-/// and `w(k(inj{C,A}(c0)))` is undefined. The `h` equation's injection from `A` reaches the
-/// injection from the unrelated `B` through the reduct of its operand, an injection from the
-/// common subsort `C`.
+/// and `w(k(inj{C,A}(c0)))` is undefined. The `h` equation's injection from `A` meets the
+/// injection from the unrelated `B` at their common subsort `C`.
 #[test]
-fn narrowing_reads_an_injection_from_an_unrelated_sort_through_a_common_subsort() {
-    let definition = narrowing_definition(&[
+fn an_overlap_through_a_common_subsort_keeps_the_obligation() {
+    let definition = overlap_probe_definition(&[
         "sort SortC{} []".into(),
         "sort SortA{} []".into(),
         "sort SortB{} []".into(),
@@ -625,14 +624,14 @@ fn narrowing_reads_an_injection_from_an_unrelated_sort_through_a_common_subsort(
 /// `g(5) = f(0)`, `h(g(X)) = k2(X)` and `w(h(f(0))) = mk(1 /Int 0)`. Then
 /// `h(f(0)) = h(g(5)) = k2(5)`, so `w(k2(5))` is the undefined `w(h(f(0)))`. The `h` equation's
 /// argument `g(X)` is not normal on every instance, so that `g(X)` and `f(0)` differ as terms
-/// does not keep `k2(X)` from being a reduct of `h(f(0))`.
+/// does not make `h(f(0))` and `k2(5)` different values.
 #[test]
-fn narrowing_reads_a_reducible_left_hand_side_argument_up_to_its_values() {
+fn an_overlap_at_a_reducible_left_hand_side_argument_keeps_the_obligation() {
     let int_to = |head: &str, sort: &str, attributes: &str| {
         format!("symbol {head}{{}}(SortInt{{}}) : {sort} [{attributes}]")
     };
     let value_production = "anywhere{}(), function{}(), value-production{}()";
-    let definition = narrowing_definition(&[
+    let definition = overlap_probe_definition(&[
         "sort SortG{} []".into(),
         int_to("f", "SortG{}", value_production),
         int_to("g", "SortG{}", value_production),
@@ -664,17 +663,16 @@ fn narrowing_reads_a_reducible_left_hand_side_argument_up_to_its_values() {
 
 /// `g(8) = g(7)`, `h(g(X)) = k2(X)` and `w(h(g(7))) = mk(1 /Int 0)`, with `k2` a value
 /// production that no equation rewrites. Then `k2(8) = h(g(8)) = h(g(7))`, so `w(k2(8))` is
-/// undefined. Narrowing `h(g(X))` against `h(g(7))` succeeds at `X = 7` only, but `g(X)` is not
-/// normal on every instance: at `X = 8` its value is `g(7)` too, so `k2(8)` is a reduct of
-/// `h(g(7))` as well, which the binding `X = 7` alone does not cover.
+/// undefined. Matching `h(g(X))` against `h(g(7))` succeeds at `X = 7` only, but `g(X)` is not
+/// normal on every instance: at `X = 8` its value is `g(7)` too, so `h(g(7))` is also `k2(8)`.
 #[test]
-fn narrowing_binds_no_variable_through_a_reducible_left_hand_side_argument() {
+fn a_reducible_left_hand_side_argument_equates_more_instances_than_its_match() {
     let int_to = |head: &str, sort: &str| {
         format!(
             "symbol {head}{{}}(SortInt{{}}) : {sort} [anywhere{{}}(), function{{}}(), value-production{{}}()]"
         )
     };
-    let definition = narrowing_definition(&[
+    let definition = overlap_probe_definition(&[
         "sort SortG{} []".into(),
         int_to("g", "SortG{}"),
         "symbol h{}(SortG{}) : SortH{} [anywhere{}(), function{}(), value-production{}()]".into(),
@@ -783,7 +781,7 @@ fn overlap_definition(equations: &[(&str, &str)]) -> BackendDefinition {
             right,
         )
     }));
-    narrowing_definition(&rest)
+    overlap_probe_definition(&rest)
 }
 
 const UNDEFINED_MK: &str = r#"mk{}(divInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")))"#;
@@ -849,7 +847,7 @@ fn an_equations_own_root_step_from_an_overlapped_instance_reaches_its_normal_for
 #[test]
 fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
     let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
-    let definition = narrowing_definition(&[
+    let definition = overlap_probe_definition(&[
         r#"hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]"#.into(),
         r#"hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]"#.into(),
         "symbol f{}(SortInt{}, SortInt{}) : SortS{} [anywhere{}(), function{}(), value-production{}()]".into(),
@@ -879,7 +877,7 @@ fn a_refuted_requires_does_not_discharge_definedness_under_a_root_overlap() {
 /// `{second}` independent: `f(e(1), k(3))` has the normal forms of `f(d(1), c)` and of
 /// `f(d(3), c)`.
 fn root_overlap_definition(second: &str, last: String) -> BackendDefinition {
-    narrowing_definition(&[
+    overlap_probe_definition(&[
         r#"hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]"#.to_string(),
         r#"hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]"#.into(),
         "sort SortA{} []".into(),
@@ -992,18 +990,18 @@ fn chained_reducts_definition(first: &str, rest: &[String]) -> BackendDefinition
         ),
     ];
     equations.extend(rest.iter().cloned());
-    narrowing_definition(&equations)
+    overlap_probe_definition(&equations)
 }
 
 const CHAINED_SUBJECT: &str = "f{}(m{}(m2{}(c{}())))";
 
 /// [`chained_reducts_definition`] with `q(c, X, X) = c`, `p(k(Y), V) = m(h(Y, V))` and `h(k({name}), V) =
 /// m2(q({name}, V, s(d)))`. By the axioms `f(m(m2(c))) = f(m(m2(q(c, s(d), s(d))))) =
-/// f(m(h(k(c), s(d)))) = f(p(k(k(c)), s(d))) = mk(1 /Int 0)`, undefined. Reading `f`'s
-/// argument `p(A, s(Z))`, the `h` equation's step leaves its own variable unbound beside the `f`
-/// equation's `Z`; named alike (`VarZ`), the two must still be read apart.
+/// f(m(h(k(c), s(d)))) = f(p(k(k(c)), s(d))) = mk(1 /Int 0)`, undefined. The `h` equation's
+/// variable and the `f` equation's `Z` are independent; named alike (`VarZ`), they must still
+/// be read apart.
 #[test]
-fn a_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_left_hand_sides() {
+fn a_chain_of_steps_keeps_the_variables_of_its_equations_apart() {
     for name in ["VarZ", "VarU"] {
         let definition = chained_reducts_definition(
             "c{}()",
@@ -1031,11 +1029,10 @@ fn a_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_left_hand_s
 /// [`chained_reducts_definition`] with `q(k(c), X, X) = c`, `p(k(Y), V) = m(h(c, V))`, `h(v(X), V) =
 /// m2(q(X, V, s(d)))` and `v(k({name})) = c`. `c` is the value of `v(k(c))`, so by the axioms
 /// `f(m(m2(c))) = f(m(m2(q(k(c), s(d), s(d))))) = f(m(h(v(k(c)), s(d)))) = f(m(h(c, s(d)))) =
-/// f(p(k(Y), s(d))) = mk(1 /Int 0)`, undefined. Reading `h(c, s(Z))` through the `v`
-/// equation binds the `h` equation's `X` to `k({name})` with `{name}` unbound; named like the
-/// `f` equation's `Z` (`VarZ`), the two must still be read apart.
+/// f(p(k(Y), s(d))) = mk(1 /Int 0)`, undefined. The `v` equation's variable and the `f`
+/// equation's `Z` are independent; named alike (`VarZ`), they must still be read apart.
 #[test]
-fn a_composed_reduct_keeps_a_variable_narrowing_leaves_unbound_apart_from_the_left_hand_sides() {
+fn a_composed_chain_of_steps_keeps_the_variables_of_its_equations_apart() {
     for name in ["VarZ", "VarU"] {
         let definition = chained_reducts_definition(
             "k{}(c{}())",
@@ -1088,9 +1085,8 @@ fn conditional_f_m(arguments: &str, sorts: &str) -> String {
 /// `f(V, k(Y)) = f(V, j(V, Y))`, `f(n(Y), k(W)) = mk(1 /Int 0)` and `f(n(n({name})), j(W, Y2)) =
 /// f(m(q({name}, W, Y2)), c)`, and with `conditional` also `f(m(X), c) = mk(X /Int 0) requires
 /// X ==Int 3`. By the axioms `f(m(0), c) = f(m(q(c, n(n(c)), d)), c) = f(n(n(c)), j(n(n(c)), d)) =
-/// f(n(n(c)), k(d)) = mk(1 /Int 0)`, undefined. The overlap representative of the `f(n(Y), k(W))`
-/// equation that reaches `f(m(q(Y', W', Y2)), c)` holds variables of three copies; stored apart,
-/// they cover `f(m(q(c, n(n(c)), d)), c)`, whose `q` the first equation rewrites.
+/// f(n(n(c)), k(d)) = mk(1 /Int 0)`, undefined. The conversion passes through three equations
+/// whose variables are independent whatever they are named.
 fn stored_names_definition(name: &str, conditional: bool) -> BackendDefinition {
     let mut rest = EQ_INT
         .iter()
@@ -1143,14 +1139,13 @@ fn stored_names_definition(name: &str, conditional: bool) -> BackendDefinition {
             "X0:SortA{}, X1:SortA{}",
         ));
     }
-    narrowing_definition(&rest)
+    overlap_probe_definition(&rest)
 }
 
-/// Review 5, F1: a stored overlap representative keeps every variable it holds apart, whatever
-/// the equations name them, with or without a conditional equation that matches the subject
-/// with a refuted `requires`.
+/// Review 5, F1: the obligation stays whatever the equations name their variables, with or
+/// without a conditional equation that matches the subject with a refuted `requires`.
 #[test]
-fn a_stored_representative_keeps_apart_the_variables_of_every_copy_it_holds() {
+fn equations_that_name_their_variables_alike_keep_the_obligation_they_reach() {
     let subject = r#"f{}(m{}(\dv{SortInt{}}("0")), c{}())"#;
     for name in ["VarY", "VarU"] {
         for conditional in [false, true] {
@@ -1165,9 +1160,9 @@ fn a_stored_representative_keeps_apart_the_variables_of_every_copy_it_holds() {
 /// productions; `v(n_i(Z)) = s_i(Z)`, `p(s0(A), s0(B)) = m(r(A, B))`, `r(c1, c2) = 0` and
 /// `f(p(v(W1), v(W2))) = mk(1 /Int 0)`, and with `conditional` also `f(m(X)) = mk(X /Int 0) requires
 /// X ==Int 3`. By the axioms `f(m(0)) = f(m(r(c1, c2))) = f(p(s0(c1), s0(c2))) =
-/// f(p(v(n0(c1)), v(n0(c2)))) = mk(1 /Int 0)`, undefined. With 70 `v` equations each `v(Wi)` has
-/// more reducts than the representatives kept, and both fall back to every right-hand side `v`
-/// reaches; read as one copy, the `s0(Z)` of the two positions would share `Z`.
+/// f(p(v(n0(c1)), v(n0(c2)))) = mk(1 /Int 0)`, undefined. With 70 `v` equations, each argument
+/// position of `p` can be reached by many right-hand sides, and the two positions are
+/// independent.
 fn bound_fallback_definition(count: usize, conditional: bool) -> BackendDefinition {
     let constructor = |name: &str, arguments: &str| {
         format!(
@@ -1229,13 +1224,13 @@ fn bound_fallback_definition(count: usize, conditional: bool) -> BackendDefiniti
             "X0:SortA{}",
         ));
     }
-    narrowing_definition(&rest)
+    overlap_probe_definition(&rest)
 }
 
-/// Review 5, F2: past the bound on representatives, each argument position reads the
-/// right-hand sides it falls back to as fresh copies, so two positions do not share a variable.
+/// Review 5, F2: with few and with many `v` equations, the two argument positions stay
+/// independent and the obligation stays.
 #[test]
-fn the_representatives_past_the_bound_are_fresh_copies_of_the_right_hand_sides() {
+fn many_equations_reaching_two_positions_keep_the_obligation() {
     let subject = r#"f{}(m{}(\dv{SortInt{}}("0")))"#;
     for count in [3, 70] {
         for conditional in [false, true] {
