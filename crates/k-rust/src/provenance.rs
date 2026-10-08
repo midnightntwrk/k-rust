@@ -3663,4 +3663,112 @@ mod tests {
         assert_eq!(receipts[0].destination.as_ref().unwrap().path, [0]);
         assert_eq!(receipts[1].destination.as_ref().unwrap().path, [0]);
     }
+
+    /// The edit `(kind, at, replacement)` applied to `term` at its node `at` (an index into
+    /// `test_terms::positions`): 0 replaces the node with `replacement`, 1 wraps it in a new
+    /// application, 2 makes it the pattern of a new alias, 3 the right side of a new rewrite whose
+    /// left side is `replacement`, and 4 relabels it when it is an application, keeping its
+    /// arguments.
+    fn edit_term(term: &mut Term, (kind, at, replacement): &(u8, prop::sample::Index, Term)) {
+        let steps = {
+            let positions = crate::kast::test_terms::positions(term);
+            positions[at.index(positions.len())].0.clone()
+        };
+        let node = crate::kast::test_terms::at_path_mut(term, &steps);
+        let original = node.clone();
+        *node = match kind {
+            0 => replacement.clone(),
+            1 => Term::apply("wrap", vec![original]),
+            2 => Term::As {
+                pattern: Box::new(original),
+                alias: Box::new(Term::variable("V")),
+            },
+            3 => Term::Rewrite {
+                left: Box::new(replacement.clone()),
+                right: Box::new(original),
+            },
+            _ => {
+                let relabelled = match original.unannotated() {
+                    Term::Apply { arguments, .. } => {
+                        Some(Term::apply("relabelled", arguments.clone()))
+                    }
+                    Term::InjectedLabel(_)
+                    | Term::Rewrite { .. }
+                    | Term::As { .. }
+                    | Term::Variable { .. }
+                    | Term::Sequence(_)
+                    | Term::Token { .. }
+                    | Term::Annotated { .. } => None,
+                };
+                relabelled.unwrap_or(original)
+            }
+        };
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Every receipt a pass allocates names the position of the node that carries it: its
+        /// destination is the sentence's field followed by the child steps from the field's root
+        /// to the node, as `test_terms::positions` states them (a `Rewrite`'s left side is step 0
+        /// and its right side 1, an `As`'s pattern 0 and its alias 1, items by index). The terms
+        /// hold every constructor, and the edits reach every numbering site of the recorder: a
+        /// node whose counterpart has its constructor, one whose counterpart does not, and a node
+        /// built above a term it keeps unchanged (design §14.1, C3).
+        #[test]
+        fn every_receipt_a_pass_allocates_sits_at_its_destination(
+            term in crate::kast::test_terms::every_constructor(),
+            spans in prop::collection::vec(any::<bool>(), 1..16),
+            edits in prop::collection::vec(
+                (0_u8..5, any::<prop::sample::Index>(), crate::kast::test_terms::every_constructor()),
+                1..4,
+            ),
+            field in 0_u32..3,
+        ) {
+            let mut start = 0usize;
+            let before_term = crate::kast::test_terms::decorated(&term, &mut || {
+                start += 1;
+                spans[start % spans.len()].then(|| TermMetadata {
+                    span: Some(TermSpan {
+                        source: SourceId(0),
+                        start,
+                        end: start + 1,
+                    }),
+                    ..TermMetadata::default()
+                })
+            });
+            let mut after_term = before_term.clone();
+            for edit in &edits {
+                edit_term(&mut after_term, edit);
+            }
+            let in_field = |term: Term| {
+                let Sentence::Rule { body, requires, ensures, attributes } = rule(Term::apply("unused", Vec::new())) else {
+                    unreachable!()
+                };
+                let mut fields = [body, requires, ensures];
+                fields[field as usize] = term;
+                let [body, requires, ensures] = fields;
+                definition_with_rules(vec![Sentence::Rule { body, requires, ensures, attributes }])
+            };
+            let after = record_generated_origins(
+                &in_field(before_term),
+                in_field(after_term),
+                GeneratingPass::ConcretizeCells,
+            );
+            let sentence = &after.modules[0].local_sentences[0];
+            let term = sentence.term(field).expect("a rule has three fields");
+            for (steps, node) in crate::kast::test_terms::positions(term) {
+                let Some(receipt) = node.metadata().and_then(|metadata| metadata.origin.as_deref()) else {
+                    continue;
+                };
+                prop_assert_eq!(receipt.pass, GeneratingPass::ConcretizeCells);
+                let destination = receipt.destination.as_ref().expect("a term receipt has one");
+                let mut expected = vec![field];
+                expected.extend(steps);
+                prop_assert_eq!(destination.path.to_vec(), expected);
+                prop_assert_eq!(destination.sentence_index, 0);
+                prop_assert_eq!(&*destination.module, "MAIN");
+            }
+        }
+    }
 }

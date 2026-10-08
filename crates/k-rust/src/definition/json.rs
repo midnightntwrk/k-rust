@@ -391,7 +391,8 @@ struct JsonTermMetadataEntry {
     field: u32,
     /// The node's index in the preorder walk of the field's term: annotations are not nodes,
     /// and children are taken in order (`Rewrite` left then right, `As` pattern then alias,
-    /// sequence items and application arguments in order).
+    /// sequence items and application arguments in order). The writer and the reader both walk
+    /// by `push_children_in_preorder!`.
     node: u32,
     metadata: JsonTermMetadata,
 }
@@ -1195,46 +1196,44 @@ fn source_id_from_value(value: Value, source_table: &SourceTable) -> Result<Sour
     source_id(source_table, index)
 }
 
-/// The children of `term`, its annotations removed, pushed onto `stack` last first, so that
-/// popping visits them in order: `Rewrite` left then right, `As` pattern then alias, items and
-/// arguments in order.
-fn push_children<'a>(term: &'a Term, stack: &mut Vec<&'a Term>) {
-    match term.unannotated() {
-        Term::Rewrite { left, right } => {
-            stack.push(right);
-            stack.push(left);
+/// The preorder child order of term metadata addresses, stated once for both walks.
+///
+/// A node's `node` index is its position in the preorder walk of its field: annotations are not
+/// nodes, `Rewrite` is followed by its left then its right side, `As` by its pattern then its
+/// alias, and a sequence or an application by its items in order. The writer numbers nodes and
+/// the reader finds them by this one statement, expanded for shared and for mutable borrows
+/// (`$items` is `iter` or `iter_mut`), so the two cannot disagree; changing it changes the
+/// format. Children are pushed last first, so that popping visits them in order.
+macro_rules! push_children_in_preorder {
+    ($term:expr, $stack:expr, $items:ident) => {
+        match $term {
+            Term::Rewrite { left, right } => {
+                $stack.push(right);
+                $stack.push(left);
+            }
+            Term::As { pattern, alias } => {
+                $stack.push(alias);
+                $stack.push(pattern);
+            }
+            Term::Sequence(items)
+            | Term::Apply {
+                arguments: items, ..
+            } => $stack.extend(items.$items().rev()),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
+            Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
         }
-        Term::As { pattern, alias } => {
-            stack.push(alias);
-            stack.push(pattern);
-        }
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => stack.extend(items.iter().rev()),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
-        Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
-    }
+    };
 }
 
-/// The mutable counterpart of [`push_children`].
+/// The children of `term`, its annotations removed, pushed onto `stack` in preorder
+/// (`push_children_in_preorder!`).
+fn push_children<'a>(term: &'a Term, stack: &mut Vec<&'a Term>) {
+    push_children_in_preorder!(term.unannotated(), stack, iter);
+}
+
+/// The mutable counterpart of [`push_children`], from the same statement of the order.
 fn push_children_mut<'a>(term: &'a mut Term, stack: &mut Vec<&'a mut Term>) {
-    match unannotated_mut(term) {
-        Term::Rewrite { left, right } => {
-            stack.push(right);
-            stack.push(left);
-        }
-        Term::As { pattern, alias } => {
-            stack.push(alias);
-            stack.push(pattern);
-        }
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => stack.extend(items.iter_mut().rev()),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
-        Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
-    }
+    push_children_in_preorder!(unannotated_mut(term), stack, iter_mut);
 }
 
 /// Write the metadata of every annotated node, addressed by its field and its preorder index,
@@ -2719,19 +2718,50 @@ mod tests {
         }
     }
 
-    /// Random terms of up to four levels over three labels, some nodes carrying a span.
+    /// Random rule bodies: an application at the root, and below it terms of up to three more
+    /// levels in which every constructor occurs (rewrites, aliases, sequences, applications,
+    /// variables and tokens), some nodes carrying a span.
     fn route_term() -> impl Strategy<Value = Term> {
-        let leaf = (0_u8..3, proptest::option::of(0_usize..20))
-            .prop_map(|(label, span)| spanned(Term::apply(format!("l{label}"), Vec::new()), span));
-        leaf.prop_recursive(4, 24, 3, |inner| {
-            (
-                0_u8..3,
-                proptest::option::of(0_usize..20),
-                prop::collection::vec(inner, 1..4),
+        let span = || proptest::option::of(0_usize..20);
+        let leaf = (0_u8..3, 0_u8..3, span()).prop_map(|(kind, label, span)| {
+            let leaf = match kind {
+                0 => Term::apply(format!("l{label}"), Vec::new()),
+                1 => Term::variable(format!("X{label}")),
+                _ => Term::Token {
+                    token: label.to_string(),
+                    sort: Sort::new("Int"),
+                },
+            };
+            spanned(leaf, span)
+        });
+        let inner = leaf.prop_recursive(3, 24, 3, move |inner| {
+            (0_u8..4, 0_u8..3, span(), prop::collection::vec(inner, 2..4)).prop_map(
+                |(kind, label, span, mut children)| {
+                    let node = match kind {
+                        0 | 1 => {
+                            let second = Box::new(children.swap_remove(1));
+                            let first = Box::new(children.swap_remove(0));
+                            if kind == 0 {
+                                Term::Rewrite {
+                                    left: first,
+                                    right: second,
+                                }
+                            } else {
+                                Term::As {
+                                    pattern: first,
+                                    alias: second,
+                                }
+                            }
+                        }
+                        2 => Term::Sequence(children),
+                        _ => Term::apply(format!("n{label}"), children),
+                    };
+                    spanned(node, span)
+                },
             )
-                .prop_map(|(label, span, children)| {
-                    spanned(Term::apply(format!("n{label}"), children), span)
-                })
+        });
+        (0_u8..3, span(), prop::collection::vec(inner, 1..4)).prop_map(|(label, span, children)| {
+            spanned(Term::apply(format!("n{label}"), children), span)
         })
     }
 
@@ -2805,16 +2835,239 @@ mod tests {
     }
 
     /// Replace the node `depth` levels down the leftmost path of `term` (or its leaf, when the
-    /// path is shorter) with a new leaf labelled `label`.
+    /// path is shorter) with a new leaf labelled `label`; the leftmost child of a rewrite is its
+    /// left side and of an alias its pattern.
     fn replace_leftmost(term: &mut Term, depth: usize, label: &str) {
-        let descends = matches!(
-            term.unannotated(),
-            Term::Apply { arguments, .. } if !arguments.is_empty()
+        let first = match unannotated_mut(term) {
+            Term::Rewrite { left: first, .. } | Term::As { pattern: first, .. } => {
+                Some(&mut **first)
+            }
+            Term::Sequence(items)
+            | Term::Apply {
+                arguments: items, ..
+            } => items.first_mut(),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+            Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
+        };
+        match first {
+            Some(first) if depth > 0 => replace_leftmost(first, depth - 1, label),
+            _ => *term = Term::apply(label, Vec::new()),
+        }
+    }
+
+    /// The preorder of term-metadata addresses on a term holding every constructor, against a
+    /// list written from the format's statement of it (`JsonTermMetadataEntry::node`): each node
+    /// carries a sort naming it, and the entry with index k must carry the k-th name. Both walks
+    /// built from `push_children_in_preorder!` visit the same list.
+    #[test]
+    fn metadata_addresses_number_every_constructor_in_preorder() {
+        let named = |term: Term, name: &str| {
+            term.with_metadata(TermMetadata {
+                sort: Some(Sort::new(name)),
+                ..TermMetadata::default()
+            })
+        };
+        let body = named(
+            Term::apply(
+                "r",
+                vec![named(
+                    Term::Rewrite {
+                        left: Box::new(named(
+                            Term::As {
+                                pattern: Box::new(named(
+                                    Term::apply(
+                                        "f",
+                                        vec![
+                                            named(Term::variable("X"), "X"),
+                                            named(
+                                                Term::Token {
+                                                    token: "1".into(),
+                                                    sort: Sort::new("Int"),
+                                                },
+                                                "one",
+                                            ),
+                                        ],
+                                    ),
+                                    "f",
+                                )),
+                                alias: Box::new(named(Term::variable("Y"), "Y")),
+                            },
+                            "as",
+                        )),
+                        right: Box::new(named(
+                            Term::Sequence(vec![
+                                named(Term::apply("g", Vec::new()), "g"),
+                                named(Term::InjectedLabel(crate::kast::Label::new("h")), "h"),
+                            ]),
+                            "seq",
+                        )),
+                    },
+                    "rewrite",
+                )],
+            ),
+            "r",
         );
-        if depth == 0 || !descends {
-            *term = Term::apply(label, Vec::new());
-        } else if let Term::Apply { arguments, .. } = unannotated_mut(term) {
-            replace_leftmost(&mut arguments[0], depth - 1, label);
+        let expected = ["r", "rewrite", "as", "f", "X", "one", "Y", "seq", "g", "h"];
+        let name = |term: &Term| {
+            term.metadata()
+                .and_then(|metadata| metadata.sort.as_ref())
+                .map(|sort| sort.name.clone())
+                .expect("every node is named")
+        };
+        let mut visited = Vec::new();
+        let mut pending = vec![&body];
+        while let Some(term) = pending.pop() {
+            visited.push(name(term));
+            push_children(term, &mut pending);
+        }
+        assert_eq!(visited, expected);
+        let mut copy = body.clone();
+        let mut visited = Vec::new();
+        let mut pending = vec![&mut copy];
+        while let Some(term) = pending.pop() {
+            visited.push(name(term));
+            push_children_mut(term, &mut pending);
+        }
+        assert_eq!(visited, expected);
+
+        let definition = route_definition(body, &Attributes::default());
+        let document: Value = serde_json::from_str(
+            &to_provenance_string(&definition, &SourceTable::default()).unwrap(),
+        )
+        .unwrap();
+        let written = document["termMetadata"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                (
+                    entry["node"].as_u64().unwrap(),
+                    entry["metadata"]["sort"]["name"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            written,
+            (0..).zip(expected.map(String::from)).collect::<Vec<_>>()
+        );
+    }
+
+    /// One sentence of each term-bearing kind (rule, claim, context, context alias,
+    /// configuration), its fields taken from `terms` in order, each node given metadata drawn
+    /// from `seeds`: a span in either of two sources, a production, a sort and a receipt, each
+    /// present or not.
+    fn shapes_definition(terms: &[Term], seeds: &[u32]) -> Definition {
+        let mut next = 0usize;
+        let mut metadata = || {
+            let bits = seeds[next % seeds.len()];
+            next += 1;
+            let start = ((bits >> 4) & 63) as usize;
+            let metadata = TermMetadata {
+                span: (bits & 1 << 2 != 0).then(|| TermSpan {
+                    source: SourceId(((bits >> 3) & 1) as usize),
+                    start,
+                    end: start + 1 + ((bits >> 10) & 3) as usize,
+                }),
+                production: (bits & 1 << 12 != 0)
+                    .then(|| ProductionIdentity::from_digest([((bits >> 13) & 0xff) as u8; 16])),
+                sort: (bits & 1 << 21 != 0).then(|| Sort::new(format!("S{}", (bits >> 22) & 3))),
+                origin: (bits & 1 << 24 != 0).then(|| {
+                    Arc::new(OriginRecord {
+                        pass: GeneratingPass::ALL
+                            [((bits >> 25) & 31) as usize % GeneratingPass::ALL.len()],
+                        origins: vec![link((bits & 1 << 30 != 0, ((bits >> 4) & 3) as u8))].into(),
+                        destination: Some(DestinationAnchor {
+                            module: "MAIN".into(),
+                            sentence: "s".into(),
+                            sentence_index: (bits >> 31) & 1,
+                            path: AnchorPath::from(vec![(bits >> 27) & 3]),
+                        }),
+                    })
+                }),
+            };
+            (metadata != TermMetadata::default()).then_some(metadata)
+        };
+        let mut terms = terms
+            .iter()
+            .map(|term| crate::kast::test_terms::decorated(term, &mut metadata));
+        let mut term = || terms.next().expect("one term per field");
+        let sentences = vec![
+            Sentence::Rule {
+                body: term(),
+                requires: term(),
+                ensures: term(),
+                attributes: Attributes::default(),
+            },
+            Sentence::Claim {
+                body: term(),
+                requires: term(),
+                ensures: term(),
+                attributes: Attributes::default(),
+            },
+            Sentence::Context {
+                body: term(),
+                requires: term(),
+                attributes: Attributes::default(),
+            },
+            Sentence::ContextAlias {
+                body: term(),
+                requires: term(),
+                attributes: Attributes::default(),
+            },
+            Sentence::Configuration {
+                body: term(),
+                ensures: term(),
+                attributes: Attributes::default(),
+            },
+        ];
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: sentences.into_iter().map(Arc::new).collect(),
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// The metadata of a term in any field of any term-bearing sentence kind, decoded from
+        /// its document, is the metadata of the node it was written for, and re-encoding the
+        /// decoded definition gives the same bytes. The terms hold every constructor, and
+        /// decoded and written nodes are paired by the constructors' fields
+        /// (`test_terms::paired`), not by the walk that numbers them, so a reader that walks any
+        /// arm in another order than the writer attaches metadata to a node it does not match
+        /// (design §14.1, G4c for C1, C2, C5, C6 and C10).
+        #[test]
+        fn term_metadata_round_trips_on_every_constructor_and_field(
+            terms in prop::collection::vec(crate::kast::test_terms::every_constructor(), 12),
+            seeds in prop::collection::vec(any::<u32>(), 1..48),
+        ) {
+            let sources = sources();
+            let definition = shapes_definition(&terms, &seeds);
+            let encoded = to_provenance_string(&definition, &sources).unwrap();
+            let decoded = from_provenance_str(&encoded).unwrap().definition;
+            prop_assert_eq!(&decoded, &definition);
+            for (written, read) in definition.modules[0]
+                .local_sentences
+                .iter()
+                .zip(&decoded.modules[0].local_sentences)
+            {
+                for ((field, written), (read_field, read)) in written.terms().zip(read.terms()) {
+                    prop_assert_eq!(field, read_field);
+                    for (written, read) in crate::kast::test_terms::paired(written, read) {
+                        prop_assert_eq!(read.metadata(), written.metadata(), "field {}", field);
+                    }
+                }
+            }
+            prop_assert_eq!(to_provenance_string(&decoded, &sources).unwrap(), encoded);
         }
     }
 

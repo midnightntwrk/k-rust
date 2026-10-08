@@ -212,3 +212,285 @@ fn golden_documents_of_a_deep_and_a_wide_fixture() {
         );
     });
 }
+
+/// A document holding every arm of the format's conventions, pinned byte for byte (design §14.1,
+/// G4b): two modules and several sentences; a rule with metadata in all three fields and a
+/// configuration with metadata in its `ensures`; every term constructor (application, rewrite,
+/// alias, sequence, variable, token, injected label) with metadata; spans in two sources, a
+/// production and a sort; a sentence receipt naming a source link and a sentence link; and term
+/// receipts of two passes under a rewrite and an alias, the later ones naming the earlier sets.
+/// A change of how any of these is numbered or written, in the writer and reader together,
+/// shows as a reviewed change of this snapshot. The test also checks that the document still
+/// holds every arm, so that editing the fixture cannot drop one unnoticed.
+#[test]
+fn golden_document_of_every_shape() {
+    use k_rust::definition::{Attributes, Definition, FlatModule, Sentence};
+    use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
+    use k_rust::provenance::{
+        GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord, ProvenanceLink, SourceId,
+        SourceTable, record_generated_origins,
+    };
+    use std::sync::Arc;
+
+    let mut sources = SourceTable::default();
+    let main_source = sources.intern(LogicalSourceId::new("fixture.k", b"fixture"));
+    let other_source = sources.intern(LogicalSourceId::new("other.k", b"other"));
+    let span = |source: SourceId, start: usize| TermSpan {
+        source,
+        start,
+        end: start + 2,
+    };
+    let spanned = |term: Term, source: SourceId, start: usize| {
+        term.with_metadata(TermMetadata {
+            span: Some(span(source, start)),
+            ..TermMetadata::default()
+        })
+    };
+    let token = |token: &str, sort: &str| Term::Token {
+        token: token.into(),
+        sort: Sort::new(sort),
+    };
+    let label = |name: &str| Attributes::new([("label".into(), name.into())].into());
+    // `r((f(X) #as ALIAS) => (g() ~> TOKEN))`, every node spanned; `f` carries a production and
+    // the alias a sort. `pattern` replaces `f(X)` when given.
+    let body = |alias: &str, number: &str, pattern: Option<Term>| {
+        let pattern = pattern.unwrap_or_else(|| {
+            Term::apply("f", vec![spanned(Term::variable("X"), main_source, 8)]).with_metadata(
+                TermMetadata {
+                    span: Some(span(main_source, 6)),
+                    production: ProductionIdentity::from_hex("0123456789abcdef0123456789abcdef"),
+                    ..TermMetadata::default()
+                },
+            )
+        });
+        let alias = Term::variable(alias).with_metadata(TermMetadata {
+            span: Some(span(main_source, 12)),
+            sort: Some(Sort::new("Exp")),
+            ..TermMetadata::default()
+        });
+        spanned(
+            Term::apply(
+                "r",
+                vec![spanned(
+                    Term::Rewrite {
+                        left: Box::new(spanned(
+                            Term::As {
+                                pattern: Box::new(pattern),
+                                alias: Box::new(alias),
+                            },
+                            main_source,
+                            4,
+                        )),
+                        right: Box::new(spanned(
+                            Term::Sequence(vec![
+                                spanned(Term::apply("g", Vec::new()), main_source, 16),
+                                spanned(token(number, "Int"), main_source, 20),
+                            ]),
+                            main_source,
+                            14,
+                        )),
+                    },
+                    main_source,
+                    2,
+                )],
+            ),
+            main_source,
+            0,
+        )
+    };
+    let main_rule = |body: Term| Sentence::Rule {
+        body,
+        requires: spanned(
+            Term::apply("c", vec![spanned(Term::variable("X"), other_source, 2)]),
+            other_source,
+            0,
+        ),
+        ensures: spanned(token("true", "Bool"), other_source, 4),
+        attributes: label("MAIN.shapes"),
+    };
+    let configuration = Sentence::Configuration {
+        body: spanned(
+            Term::apply(
+                "cell",
+                vec![spanned(
+                    Term::InjectedLabel(Label::new("h")),
+                    main_source,
+                    26,
+                )],
+            ),
+            main_source,
+            24,
+        ),
+        ensures: spanned(token("true", "Bool"), main_source, 30),
+        attributes: label("MAIN.config"),
+    };
+    let mut other_attributes = label("OTHER.rule");
+    other_attributes.insert(
+        ORIGIN_ATTRIBUTE,
+        OriginRecord {
+            pass: GeneratingPass::MacroExpansion,
+            origins: vec![
+                ProvenanceLink::Source {
+                    span: span(other_source, 6),
+                },
+                ProvenanceLink::Sentence {
+                    unique_id: "a".repeat(64),
+                },
+            ]
+            .into(),
+            destination: None,
+        }
+        .to_value(),
+    );
+    let other_rule = Sentence::Rule {
+        body: spanned(
+            Term::apply("o", vec![spanned(Term::variable("Z"), other_source, 10)]),
+            other_source,
+            8,
+        ),
+        requires: token("true", "Bool"),
+        ensures: token("true", "Bool"),
+        attributes: other_attributes,
+    };
+    let definition = |main: Sentence, previous: Option<&Definition>| {
+        let main = match previous {
+            Some(previous) => {
+                let mut main = main;
+                *attributes_mut(&mut main) =
+                    previous.modules[0].local_sentences[0].attributes().clone();
+                main
+            }
+            None => main,
+        };
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                FlatModule {
+                    name: "MAIN".into(),
+                    imports: Vec::new(),
+                    local_sentences: vec![Arc::new(main), Arc::new(configuration.clone())],
+                    attributes: Attributes::default(),
+                },
+                FlatModule {
+                    name: "OTHER".into(),
+                    imports: Vec::new(),
+                    local_sentences: vec![Arc::new(other_rule.clone())],
+                    attributes: Attributes::default(),
+                },
+            ],
+            attributes: Attributes::default(),
+        }
+    };
+    fn attributes_mut(sentence: &mut Sentence) -> &mut Attributes {
+        match sentence {
+            Sentence::Rule { attributes, .. } => attributes,
+            _ => unreachable!("the main sentence is a rule"),
+        }
+    }
+    let loaded = definition(main_rule(body("Y", "1", None)), None);
+    // The first pass renames the alias and changes the token: the root, the rewrite, the alias
+    // node, the new variable and the sequence are receipted.
+    let first = record_generated_origins(
+        &loaded,
+        definition(main_rule(body("W", "2", None)), Some(&loaded)),
+        GeneratingPass::ConcretizeCells,
+    );
+    // The second places the pattern, unchanged, under a new injection, in the first pass's
+    // output (whose receipts the other nodes keep): the nodes above the pattern and the
+    // injection are receipted, naming the first pass's sets.
+    fn bare(mut term: &mut Term) -> &mut Term {
+        while let Term::Annotated { term: inner, .. } = term {
+            term = inner;
+        }
+        term
+    }
+    let mut second_main = (*first.modules[0].local_sentences[0]).clone();
+    let Sentence::Rule {
+        body: second_body, ..
+    } = &mut second_main
+    else {
+        unreachable!()
+    };
+    let Term::Apply { arguments, .. } = bare(second_body) else {
+        unreachable!()
+    };
+    let Term::Rewrite { left, .. } = bare(&mut arguments[0]) else {
+        unreachable!()
+    };
+    let Term::As { pattern, .. } = bare(left) else {
+        unreachable!()
+    };
+    let moved = (**pattern).clone();
+    **pattern = Term::apply("inj", vec![moved]);
+    let second = record_generated_origins(
+        &first,
+        definition(second_main, Some(&first)),
+        GeneratingPass::AddSortInjections,
+    );
+
+    let document = json::to_provenance_string_pretty(&second, &sources).unwrap();
+    let envelope: serde_json::Value = serde_json::from_str(&document).unwrap();
+    let mut nodes = std::collections::BTreeSet::new();
+    let mut pending = vec![&envelope["term"]];
+    while let Some(value) = pending.pop() {
+        match value {
+            serde_json::Value::Object(members) => {
+                if let Some(serde_json::Value::String(node)) = members.get("node") {
+                    nodes.insert(node.clone());
+                }
+                pending.extend(members.values());
+            }
+            serde_json::Value::Array(items) => pending.extend(items),
+            _ => {}
+        }
+    }
+    for node in [
+        "KApply",
+        "KRewrite",
+        "KAs",
+        "KSequence",
+        "KVariable",
+        "KToken",
+        "InjectedKLabel",
+    ] {
+        assert!(nodes.contains(node), "the document holds no {node}");
+    }
+    let entries = envelope["termMetadata"].as_array().unwrap();
+    let has = |test: &dyn Fn(&serde_json::Value) -> bool| entries.iter().any(test);
+    for field in 0..3 {
+        assert!(
+            has(&|entry| entry["moduleIndex"] == 0
+                && entry["sentenceIndex"] == 0
+                && entry["field"] == field),
+            "no metadata in the rule's field {field}"
+        );
+    }
+    assert!(has(
+        &|entry| entry["sentenceIndex"] == 1 && entry["field"] == 1
+    ));
+    assert!(has(&|entry| entry["moduleIndex"] == 1));
+    for member in ["span", "production", "sort", "origin"] {
+        assert!(
+            has(&|entry| !entry["metadata"][member].is_null()),
+            "no {member}"
+        );
+    }
+    for source in 0..2 {
+        assert!(has(&|entry| entry["metadata"]["span"]["source"] == source));
+    }
+    let parts = envelope["originSets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry.as_array().unwrap())
+        .map(|part| part["kind"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(parts, ["sentence", "set", "source"].into());
+    let anchors = envelope["anchors"].as_array().unwrap();
+    assert!(anchors.iter().any(|anchor| !anchor["module"].is_null()));
+    assert!(anchors.iter().any(|anchor| !anchor["parent"].is_null()));
+
+    let mut settings = insta::Settings::clone_current();
+    settings.set_prepend_module_to_snapshot(false);
+    settings.bind(|| insta::assert_snapshot!("provenance_golden_shapes", document));
+}
