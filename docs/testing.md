@@ -89,6 +89,7 @@ It is a manual check, not a gate: run it before removing tests or restructuring 
 | CLI options, process status, RPC schema, or host binding behavior | CLI, RPC, Node, or WASM surface tests | The public surface contract |
 | Compatibility requiring a running reference | The applicable `scripts/reference-*.sh` gate and `scripts/reference-differential.toml` | Output from the pinned reference toolchain |
 | Broad upstream corpus exploration and acceptance tracking | `scripts/conformance/run.py` and `scripts/conformance/expectations.toml` | Upstream recipes, recorded outputs, and confirmed live oracles |
+| The load-time critical-pair check's verdict on whole definitions (FUN, SIMPLE, KOOL, WASM, IELE and the overload cases) | `scripts/value-contract-corpus.sh` and `scripts/value-contract-corpus.toml`, on the definitions the conformance driver compiled | The recorded verdicts and counts; a change is a precision or cost change to explain |
 
 A kompile stage's contract belongs in its pass module, stated on the definition the pipeline hands that stage: `kompile::stage_harness::run_to_stage` (test-only) loads a prelude-free source as `kcompile --no-prelude` does, runs the stages before the named one, and returns that stage's input and output, so the test needs no hand-built input that later drifts from what the earlier stages produce.
 A backend semantic contract belongs with backend tests even when it was discovered through a CLI command.
