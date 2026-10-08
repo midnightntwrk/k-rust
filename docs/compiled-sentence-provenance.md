@@ -49,4 +49,4 @@ A receipt is `{"pass","origins":i,"destination":a|null}`.
 The bytes of a document are a function of the definition and of each receipt's pass, destination and normal form, where the normal form of a set is its unfolding (every named set replaced by its own parts, whatever is shared) with the normal-form rules applied entry by entry.
 They do not depend on which sets or paths share memory, so decoding a document and writing it again gives the same bytes, and a compilation of a decoded definition writes the same documents as a compilation of the source.
 They are not a function of the link lists alone: two sets with equal lists can be written as different entries.
-The reader refuses every other version, and any document that breaks the table rules above.
+The reader reads `format` and `version` first, skipping every other member, so it refuses every other version by its version whatever the shape of that version's body; it also refuses any version 8 document that breaks the table rules above.

@@ -1,0 +1,151 @@
+{
+  "format": "KRUST-PROVENANCE",
+  "version": 7,
+  "term": {
+    "node": "KDefinition",
+    "mainModule": "MAIN",
+    "modules": [
+      {
+        "node": "KFlatModule",
+        "name": "MAIN",
+        "imports": [
+          {
+            "node": "KImport",
+            "name": "PRELUDE",
+            "isPublic": true
+          }
+        ],
+        "localSentences": [
+          {
+            "node": "KRule",
+            "body": {
+              "node": "KApply",
+              "label": {
+                "node": "KLabel",
+                "name": "h",
+                "params": []
+              },
+              "arity": 1,
+              "args": [
+                {
+                  "node": "KVariable",
+                  "name": "X"
+                }
+              ]
+            },
+            "requires": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "ensures": {
+              "node": "KToken",
+              "sort": {
+                "node": "KSort",
+                "name": "Bool",
+                "params": []
+              },
+              "token": "true"
+            },
+            "att": {
+              "node": "KAtt",
+              "att": {
+                "label": "MAIN.rule",
+                "org.krust.provenance.Origin": {
+                  "destination": {
+                    "module": "MAIN",
+                    "path": [],
+                    "sentence": "MAIN.rule",
+                    "sentenceIndex": 0
+                  },
+                  "origins": 0,
+                  "pass": "macro-expansion"
+                }
+              }
+            }
+          }
+        ],
+        "att": {
+          "node": "KAtt",
+          "att": {}
+        }
+      }
+    ],
+    "att": {
+      "node": "KAtt",
+      "att": {}
+    }
+  },
+  "sources": [
+    {
+      "logical": "src/definition.k",
+      "contentHash": "f33e20688318fa3c580de69044d7c6836d75a033c5263adb697cf558836bae74"
+    }
+  ],
+  "originSets": [
+    [
+      {
+        "kind": "source",
+        "source": {
+          "logical": "src/definition.k",
+          "contentHash": "f33e20688318fa3c580de69044d7c6836d75a033c5263adb697cf558836bae74"
+        },
+        "start": 0,
+        "end": 1
+      },
+      {
+        "kind": "source",
+        "source": {
+          "logical": "src/definition.k",
+          "contentHash": "f33e20688318fa3c580de69044d7c6836d75a033c5263adb697cf558836bae74"
+        },
+        "start": 1,
+        "end": 2
+      }
+    ]
+  ],
+  "termMetadata": [
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "path": [],
+      "metadata": {
+        "origin": {
+          "pass": "macro-expansion",
+          "origins": 0,
+          "destination": {
+            "module": "MAIN",
+            "sentence": "MAIN.rule",
+            "sentenceIndex": 0,
+            "path": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "moduleIndex": 0,
+      "sentenceIndex": 0,
+      "field": 0,
+      "path": [
+        0
+      ],
+      "metadata": {
+        "span": {
+          "source": {
+            "logical": "src/definition.k",
+            "contentHash": "f33e20688318fa3c580de69044d7c6836d75a033c5263adb697cf558836bae74"
+          },
+          "start": 1,
+          "end": 2
+        }
+      }
+    }
+  ]
+}

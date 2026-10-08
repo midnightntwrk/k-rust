@@ -914,23 +914,6 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
         json::from_provenance_str(&provenance_with_placeholder.to_string()),
         Err(json::Error::InvalidProvenance(_))
     ));
-    let previous = json::PROVENANCE_VERSION - 1;
-    let old_version = encoded.replace(
-        &format!("\"version\":{}", json::PROVENANCE_VERSION),
-        &format!("\"version\":{previous}"),
-    );
-    let error = json::from_provenance_str(&old_version).unwrap_err();
-    assert!(matches!(
-        error,
-        json::Error::UnsupportedProvenanceVersion(version) if version == previous
-    ));
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "KRUST-PROVENANCE version {previous} is not supported; this build reads version {}",
-            json::PROVENANCE_VERSION
-        )
-    );
     let kast: Value = serde_json::from_str(&json::to_string(&context_alias).unwrap()).unwrap();
     let mut kast_with_alias = kast;
     kast_with_alias["term"]["modules"][0]["localSentences"][0] =
@@ -1402,8 +1385,7 @@ fn version_8_document() -> (String, SourceTable) {
 /// entry that is not in normal form (naming the empty entry, repeating a part, being a single
 /// reference) or repeats another, a sentence receipt naming a set that names sets, an anchor
 /// that repeats another or extends no earlier entry, a receipt naming an absent anchor, and
-/// metadata addresses out of order, repeated or past their field. A document of version 7 is
-/// refused by version.
+/// metadata addresses out of order, repeated or past their field.
 #[test]
 fn provenance_version_8_tables_reject_malformed_entries() {
     let (encoded, _) = version_8_document();
@@ -1433,7 +1415,6 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         [value!(0), value!(1)]
     );
     assert!(json::from_provenance_str(&encoded).is_ok());
-
     let invalid = |change: &dyn Fn(&mut Value)| {
         let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
         change(&mut envelope);
@@ -1579,10 +1560,68 @@ fn provenance_version_8_tables_reject_malformed_entries() {
         )),
         Err(json::Error::Json(_))
     ));
-    assert!(matches!(
-        invalid(&|e| e["version"] = value!(7)),
-        Err(json::Error::UnsupportedProvenanceVersion(7))
-    ));
+}
+
+/// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), from the
+/// definition [`version_8_document`] builds.
+const PROVENANCE_VERSION_7: &str = include_str!("fixtures/provenance-version-7.json");
+
+/// A document of another version is refused by its version whatever the shape of its body, and
+/// a document of another format by its format, before the body is read: a document the version
+/// 7 writer wrote (sources named by identity, full paths, no anchor table), the same document as
+/// version 6 (whose shape version 7 kept), a document of a version this build does not know
+/// whose body version 8 cannot read, and a version 8 body under another version.
+#[test]
+fn provenance_documents_of_other_versions_are_refused_by_version() {
+    let version_7: Value = serde_json::from_str(PROVENANCE_VERSION_7).unwrap();
+    assert_eq!(version_7["version"], 7);
+    assert!(version_7["originSets"][0][0]["source"].is_object());
+    assert!(version_7.get("anchors").is_none());
+    assert!(version_7["termMetadata"][1]["path"].is_array());
+    let refused = |text: &str| json::from_provenance_str(text).unwrap_err();
+
+    let error = refused(PROVENANCE_VERSION_7);
+    assert!(
+        matches!(error, json::Error::UnsupportedProvenanceVersion(7)),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "KRUST-PROVENANCE version 7 is not supported; this build reads version 8"
+    );
+    let mut version_6 = version_7.clone();
+    version_6["version"] = value!(6);
+    let error = refused(&version_6.to_string());
+    assert!(
+        matches!(error, json::Error::UnsupportedProvenanceVersion(6)),
+        "{error:?}"
+    );
+
+    let (encoded, _) = version_8_document();
+    let mut later: Value = serde_json::from_str(&encoded).unwrap();
+    later["version"] = value!(9);
+    later["anchors"] = value!({"roots": [], "steps": []});
+    later["receipts"] = value!([]);
+    let error = refused(&later.to_string());
+    assert!(
+        matches!(error, json::Error::UnsupportedProvenanceVersion(9)),
+        "{error:?}"
+    );
+    let mut relabelled: Value = serde_json::from_str(&encoded).unwrap();
+    relabelled["version"] = value!(7);
+    let error = refused(&relabelled.to_string());
+    assert!(
+        matches!(error, json::Error::UnsupportedProvenanceVersion(7)),
+        "{error:?}"
+    );
+
+    let mut foreign = version_7;
+    foreign["format"] = value!("KAST");
+    let error = refused(&foreign.to_string());
+    assert!(
+        matches!(&error, json::Error::UnsupportedFormat(format) if format == "KAST"),
+        "{error:?}"
+    );
 }
 
 /// A path allocation may extend different roots (anchors built by hand share whatever they

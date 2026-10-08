@@ -342,6 +342,16 @@ struct ProvenanceEnvelope<S = JsonSentence> {
     term_metadata: Vec<JsonTermMetadataEntry>,
 }
 
+/// The members of a `KRUST-PROVENANCE` envelope that every version has written, read before
+/// anything else: every other member is skipped unread (serde ignores unknown keys, and
+/// serde_json skips a value with an explicit stack, without recursion), so a document of any
+/// version, whatever the shape of its body, is classified by its format and version.
+#[derive(Deserialize)]
+struct ProvenanceHeader {
+    format: String,
+    version: u32,
+}
+
 /// The identity of one entry of the envelope's `sources` table.
 struct JsonLogicalSource {
     logical: String,
@@ -558,14 +568,19 @@ fn serialize_provenance(
 /// depth is read or refused on any thread. The origin-set and anchor tables are flat arrays whose
 /// entries refer to earlier entries, and term metadata is attached by one preorder walk per
 /// field, so every part of the reader is linear in the document and none recurses.
+///
+/// The format and version are read first, by a header that skips every other member, and the
+/// body is parsed only as version 8: a document of another version is refused by its version
+/// whatever the shape of its body, rather than by the first member version 8 shapes otherwise.
 pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
+    let header: ProvenanceHeader = serde_json::from_str(input)?;
+    if header.format != PROVENANCE_FORMAT {
+        return Err(Error::UnsupportedFormat(header.format));
+    }
+    if header.version != PROVENANCE_VERSION {
+        return Err(Error::UnsupportedProvenanceVersion(header.version));
+    }
     let envelope: ProvenanceEnvelope<ReadSentence> = serde_json::from_str(input)?;
-    if envelope.format != PROVENANCE_FORMAT {
-        return Err(Error::UnsupportedFormat(envelope.format));
-    }
-    if envelope.version != PROVENANCE_VERSION {
-        return Err(Error::UnsupportedProvenanceVersion(envelope.version));
-    }
     let mut source_table = SourceTable::default();
     for (index, source) in envelope.sources.into_iter().enumerate() {
         let id = source_table.intern_extraction(

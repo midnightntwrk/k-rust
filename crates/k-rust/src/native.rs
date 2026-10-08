@@ -64,7 +64,7 @@ impl ExecutionPayload {
         let text = std::str::from_utf8(&self.bytes)
             .map_err(|error| corrupt_payload_error(&self.file, error, RECOMPILE_REMEDY))?;
         Ok(definition_json::from_provenance_str(text)
-            .map_err(|error| corrupt_payload_error(&self.file, error, RECOMPILE_REMEDY))?
+            .map_err(|error| payload_decode_error(&self.file, error, RECOMPILE_REMEDY))?
             .definition)
     }
 }
@@ -230,7 +230,7 @@ pub fn load_runnable_artifact(
     let frontend = std::str::from_utf8(&frontend)
         .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
     let frontend = definition_json::from_provenance_str(frontend)
-        .map_err(|error| corrupt_payload_error(&manifest.frontend.file, error, remedy))?;
+        .map_err(|error| payload_decode_error(&manifest.frontend.file, error, remedy))?;
     let configuration_variables = manifest
         .configuration_variables
         .into_iter()
@@ -304,6 +304,20 @@ fn read_validated_payload(
         .into());
     }
     Ok(bytes)
+}
+
+/// The error of decoding a provenance payload. A payload in a provenance version this build does
+/// not read was written by another krust, and is reported as such rather than as corrupt.
+fn payload_decode_error(file: &str, error: definition_json::Error, remedy: &str) -> io::Error {
+    match error {
+        definition_json::Error::UnsupportedProvenanceVersion(_) => io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "runnable artifact payload `{file}` was written by another krust: {error}; {remedy}"
+            ),
+        ),
+        error => corrupt_payload_error(file, error, remedy),
+    }
 }
 
 fn corrupt_payload_error(file: &str, error: impl std::fmt::Display, remedy: &str) -> io::Error {
