@@ -2,12 +2,14 @@
 //!
 //! Source locations are rewritten only inside the K frontend's `Source` attributes.
 //! Compiler-generated `Var'Unds'GenN` names are alpha-normalized per sentence through the comparator's variable walker.
-//! Other variable names and all sentence structure remain significant.
+//! The K frontend emits a module's `subsort` axioms in hash-set order, which varies between runs of the same input,
+//! so those axioms are sorted among the positions they occupy.
+//! Other variable names, the order of every other sentence, and all sentence structure remain significant.
 
 use std::{error::Error, fs, path::Path};
 
 use k_rust::kore::{
-    ast::{Attributes, KoreString, Pattern},
+    ast::{Attributes, KoreString, Pattern, Sentence},
     parser::parse_definition,
     printer::Printer,
 };
@@ -16,6 +18,7 @@ use sha2::{Digest, Sha256};
 use crate::kore_compare::{alpha_normalize_generated_variables, sentence_attributes_mut};
 
 const SOURCE_ATTRIBUTE: &str = "org'Stop'kframework'Stop'attributes'Stop'Source";
+const SUBSORT_ATTRIBUTE: &str = "subsort";
 
 /// Return the SHA-256 digest of structurally normalized, pretty-printed KORE.
 ///
@@ -28,6 +31,7 @@ pub fn digest(source: &str, semantics: &Path) -> Result<String, Box<dyn Error>> 
     }
     let semantics = semantics.to_str().ok_or("semantics path must be UTF-8")?;
     let mut definition = parse_definition(source)?;
+    let printer = Printer::pretty(100);
     let mut counts = SourceCounts::default();
     rewrite_attributes(&mut definition.attributes, semantics, &mut counts)?;
     for module in &mut definition.modules {
@@ -36,6 +40,7 @@ pub fn digest(source: &str, semantics: &Path) -> Result<String, Box<dyn Error>> 
             rewrite_attributes(sentence_attributes_mut(sentence), semantics, &mut counts)?;
             alpha_normalize_generated_variables(sentence);
         }
+        sort_subsort_axioms(&mut module.sentences, printer);
     }
     if counts.semantics == 0 {
         return Err("definition.kore does not record its semantics source".into());
@@ -43,8 +48,38 @@ pub fn digest(source: &str, semantics: &Path) -> Result<String, Box<dyn Error>> 
     if counts.builtin == 0 {
         return Err("definition.kore does not record K's builtin sources".into());
     }
-    let printed = Printer::pretty(100).print_definition(&definition);
-    Ok(format!("{:x}", Sha256::digest(printed.as_bytes())))
+    let canonical = printer.print_definition(&definition);
+    Ok(format!("{:x}", Sha256::digest(canonical.as_bytes())))
+}
+
+/// Sort a module's `subsort` axioms by their printed form, keeping the positions they occupy.
+fn sort_subsort_axioms(sentences: &mut [Sentence], printer: Printer) {
+    let positions: Vec<usize> = sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| is_subsort_axiom(sentence))
+        .map(|(position, _)| position)
+        .collect();
+    let mut axioms: Vec<(String, Sentence)> = positions
+        .iter()
+        .map(|&position| {
+            let sentence = sentences[position].clone();
+            (printer.print_sentence(&sentence), sentence)
+        })
+        .collect();
+    axioms.sort_by(|left, right| left.0.cmp(&right.0));
+    for (position, (_, sentence)) in positions.into_iter().zip(axioms) {
+        sentences[position] = sentence;
+    }
+}
+
+fn is_subsort_axiom(sentence: &Sentence) -> bool {
+    let Sentence::Axiom { attributes, .. } = sentence else {
+        return false;
+    };
+    attributes.0.iter().any(|attribute| {
+        matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == SUBSORT_ATTRIBUTE)
+    })
 }
 
 /// Read and digest one kompiled KORE definition.
@@ -132,6 +167,50 @@ mod tests {
             first_digest,
             digest(&changed, Path::new("/tmp/b/semantics.k")).unwrap()
         );
+    }
+
+    #[test]
+    fn subsort_axiom_order_is_canonical_but_other_order_remains_significant() {
+        let subsort = |sort: &str| {
+            format!(
+                "  axiom{{R}} \\exists{{R}} (Val:SortKItem{{}}, \\equals{{SortKItem{{}}, R}} (Val:SortKItem{{}}, \
+                 inj{{{sort}{{}}, SortKItem{{}}}} (From:{sort}{{}}))) [subsort{{{sort}{{}}, SortKItem{{}}}}()]\n"
+            )
+        };
+        let module = |sentences: &[String]| {
+            format!(
+                "[org'Stop'kframework'Stop'attributes'Stop'Source{{}}(\"Source(/tmp/a/semantics.k)\")]\n\
+                 module M\n\
+                   sort SortA{{}} [org'Stop'kframework'Stop'attributes'Stop'Source{{}}(\"Source(/opt/k/include/kframework/builtin/domains.md)\")]\n\
+                   sort SortB{{}} []\n\
+                 {}\
+                 endmodule []\n",
+                sentences.concat()
+            )
+        };
+        let symbol = |name: &str| format!("  symbol {name}{{}}(SortA{{}}) : SortB{{}} []\n");
+        let semantics = Path::new("/tmp/a/semantics.k");
+        let ordered = module(&[
+            subsort("SortA"),
+            subsort("SortB"),
+            symbol("Lblf"),
+            symbol("Lblg"),
+        ]);
+        let swapped = module(&[
+            subsort("SortB"),
+            subsort("SortA"),
+            symbol("Lblf"),
+            symbol("Lblg"),
+        ]);
+        let reordered = module(&[
+            subsort("SortA"),
+            subsort("SortB"),
+            symbol("Lblg"),
+            symbol("Lblf"),
+        ]);
+        let digest_of = |source: &str| digest(source, semantics).unwrap();
+        assert_eq!(digest_of(&ordered), digest_of(&swapped));
+        assert_ne!(digest_of(&ordered), digest_of(&reordered));
     }
 
     #[test]

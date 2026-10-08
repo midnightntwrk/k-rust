@@ -43,6 +43,7 @@
 //! It wraps [`k_rust::kore::parser::parse_pattern`]; its result contains the retained `state` name.
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
+//! The digest also sorts each module's `subsort` axioms in place, which the K frontend emits in run-dependent order.
 //! It canonicalizes source paths and compiler-generated variable names and returns `sha256` of the pretty-printed KORE definition.
 //! `kore.attributes` is available before `definition.load` and requires `kore` (a KORE definition path), `labels` (K label names, encoded to KORE symbol names with [`k_rust::kast::identifier::encode_label`]), and `attributes` (attribute names).
 //! It parses the definition with [`k_rust::kore::parser::parse_definition`] and returns `symbols`, an object mapping each label to an object of the named string attributes its unique symbol declaration carries.
