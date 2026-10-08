@@ -790,15 +790,6 @@ impl AnchorPath {
         self.0.is_none()
     }
 
-    /// Whether both paths are the same allocation (or both empty).
-    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
-            (None, None) => true,
-            (Some(_), None) | (None, Some(_)) => false,
-        }
-    }
-
     /// The steps of the path, from the field down.
     pub fn to_vec(&self) -> Vec<u32> {
         let mut steps = Vec::with_capacity(self.len());
@@ -922,38 +913,6 @@ fn link_value(link: &ProvenanceLink) -> Value {
             "kind": "sentence",
             "uniqueId": unique_id,
         }),
-    }
-}
-
-impl OriginRecord {
-    /// Whether two term receipts are interchangeable for incremental resolution, counting the
-    /// links and path steps read in `kompile.resolve_metadata_compares`.
-    pub(crate) fn identical(&self, other: &Self) -> bool {
-        let mut work = 0u64;
-        let same = self.pass == other.pass
-            && {
-                if !Arc::ptr_eq(&self.origins, &other.origins) {
-                    work += self.origins.len().min(other.origins.len()) as u64;
-                }
-                self.origins == other.origins
-            }
-            && match (&self.destination, &other.destination) {
-                (None, None) => true,
-                (Some(left), Some(right)) => {
-                    left.module == right.module
-                        && left.sentence == right.sentence
-                        && left.sentence_index == right.sentence_index
-                        && {
-                            if !left.path.ptr_eq(&right.path) {
-                                work += left.path.len().min(right.path.len()) as u64;
-                            }
-                            left.path == right.path
-                        }
-                }
-                (None, Some(_)) | (Some(_), None) => false,
-            };
-        measure::add(Counter::KompileResolveMetadataCompares, work);
-        same
     }
 }
 
@@ -2306,7 +2265,6 @@ mod tests {
     /// rule's `n` spans) and destination are equal but separately allocated, and comparing the
     /// two results reads at most one unit per annotated node, whatever `n`.
     #[test]
-    #[ignore = "term receipts are compared by value until unit provenance-v8 step 2"]
     fn reuse_test_compares_term_receipts_in_constant_work_per_node() {
         let compares = |n: usize| {
             let (before, after) = wide_rewrap(n);
