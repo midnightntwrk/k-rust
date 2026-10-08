@@ -341,3 +341,140 @@ fn census_unknown_hook_probes() {
     eprintln!("CENSUS_HOOK_PROBES inert={inert:?} implemented={implemented:?}");
     assert!(Path::new(support::DIR).join("t13implemented.k").exists());
 }
+
+/// Review 1 of CS-01 (VI-T13 class V6): a LIST/MAP/SET unit, element or concat hook over a
+/// non-standard collection sort C. Only C's own metadata symbol is canonicalized into a C
+/// collection by the backend; any other symbol carrying the hook is evaluated by the builtin,
+/// which builds K's standard SortList/SortMap/SortSet value at declared sort C.
+fn typed_collection_fixture(module: &str, collection: &str, extra: &str, start: &str) -> String {
+    format!(
+        "module {module}-SYNTAX\n  imports INT-SYNTAX\n  imports BASIC-K\n  \
+         syntax Prog ::= start(Int) [symbol(start)] | chk(KItem) [symbol(chk)] | done(Int) [symbol(done)]\n\
+         endmodule\nmodule {module}\n  imports {module}-SYNTAX\n  imports BASIC-K\n  imports INT\n  \
+         imports BOOL\n  imports K-EQUAL\n  configuration <k> .K </k>\n{collection}{extra}  \
+         rule [start]: start(I) => chk({start})\n  rule [hit]: chk(_:Coll) => done(1)\n  \
+         rule [range]: chk(X:KItem) => done(7) requires X ==K X [priority(60)]\n  \
+         rule [rangeow]: chk(_) => done(0) [owise]\nendmodule\n"
+    )
+}
+
+const TYPED_LIST: &str = "  syntax Coll [hook(LIST.List)]\n  \
+    syntax Coll ::= Coll Coll [function, total, left, assoc, hook(LIST.concat), symbol(_Coll_), element(CollItem), unit(.Coll)]\n  \
+    syntax Coll ::= \".Coll\" [function, total, hook(LIST.unit), symbol(.Coll)]\n  \
+    syntax Coll ::= CollItem(Int) [function, total, hook(LIST.element), symbol(CollItem)]\n";
+const TYPED_MAP: &str = "  syntax Coll [hook(MAP.Map)]\n  \
+    syntax Coll ::= Coll Coll [function, total, left, assoc, comm, hook(MAP.concat), symbol(_Coll_), element(CollItem), unit(.Coll)]\n  \
+    syntax Coll ::= \".Coll\" [function, total, hook(MAP.unit), symbol(.Coll)]\n  \
+    syntax Coll ::= CollItem(Int, Int) [function, total, hook(MAP.element), symbol(CollItem)]\n";
+const TYPED_SET: &str = "  syntax Coll [hook(SET.Set)]\n  \
+    syntax Coll ::= Coll Coll [function, total, left, assoc, comm, idem, hook(SET.concat), symbol(_Coll_), element(CollItem), unit(.Coll)]\n  \
+    syntax Coll ::= \".Coll\" [function, total, hook(SET.unit), symbol(.Coll)]\n  \
+    syntax Coll ::= CollItem(Int) [function, total, hook(SET.element), symbol(CollItem)]\n";
+
+fn compile_text(name: &str, module: &str, text: String) -> ValidatedDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
+    };
+    let loaded = Baseline::load(
+        ResolvedSource::new(name, text),
+        module,
+        None,
+        &mut resolver,
+        &support::options(),
+    )
+    .unwrap_or_else(|e| panic!("{name}: {e}"));
+    NativeValidator::bind(loaded, CompileOptions::default())
+        .compile_baseline()
+        .unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+#[test]
+fn census_role_hook_only_on_the_metadata_symbol() {
+    use CensusClass::H;
+    let rows = [
+        // Review 1 reproducers: Killed on an equivalent mutant while census-natural.
+        (
+            "RVLISTELEM",
+            TYPED_LIST,
+            "  syntax Coll ::= mk2(Int) [function, total, hook(LIST.element), symbol(mk2)]\n",
+            "mk2(I)",
+            vec![(H, "Lblmk2")],
+        ),
+        (
+            "RVLISTUNIT",
+            TYPED_LIST,
+            "  syntax Coll ::= mt() [function, total, hook(LIST.unit), symbol(mt)]\n",
+            "mt()",
+            vec![(H, "Lblmt")],
+        ),
+        (
+            "RVMAPELEM",
+            TYPED_MAP,
+            "  syntax Coll ::= mk2(Int, Int) [function, total, hook(MAP.element), symbol(mk2)]\n",
+            "mk2(I, I)",
+            vec![(H, "Lblmk2")],
+        ),
+        (
+            "RVSETELEM",
+            TYPED_SET,
+            "  syntax Coll ::= mk2(Int) [function, total, hook(SET.element), symbol(mk2)]\n",
+            "mk2(I)",
+            vec![(H, "Lblmk2")],
+        ),
+        // Fail closed beyond the reproducers: a second unit over a typed map or set, and a
+        // concat that is not C's metadata concat, are findings too.
+        (
+            "RVMAPUNIT",
+            TYPED_MAP,
+            "  syntax Coll ::= mt() [function, total, hook(MAP.unit), symbol(mt)]\n",
+            "mt()",
+            vec![(H, "Lblmt")],
+        ),
+        (
+            "RVLISTCAT",
+            TYPED_LIST,
+            "  syntax Coll ::= cat(Coll, Coll) [function, total, hook(LIST.concat), symbol(cat)]\n",
+            "cat(CollItem(I), .Coll)",
+            vec![(H, "Lblcat")],
+        ),
+        // Controls: the metadata element itself, and MAP.in_keys (result Bool) over a typed map.
+        ("RVLISTCTL", TYPED_LIST, "", "CollItem(I)", vec![]),
+        (
+            "RVMAPINKEYS",
+            TYPED_MAP,
+            "  syntax Bool ::= Int \"inK\" Coll [function, total, hook(MAP.in_keys), symbol(inK)]\n",
+            "CollItem(I, I)",
+            vec![],
+        ),
+    ];
+    for (module, collection, extra, start, expected) in rows {
+        let name = format!("{}.k", module.to_ascii_lowercase());
+        let side = compile_text(
+            &name,
+            module,
+            typed_collection_fixture(module, collection, extra, start),
+        );
+        let census = declaration_census(&side).unwrap();
+        let actual: Vec<_> = census
+            .findings()
+            .iter()
+            .map(|f| (f.class, f.symbol.as_str()))
+            .collect();
+        assert_eq!(actual, expected, "{name}: {}", census.text());
+        assert_eq!(
+            census.verdict(),
+            if expected.is_empty() {
+                CensusVerdict::Natural
+            } else {
+                CensusVerdict::Flagged
+            },
+            "{name}: {}",
+            census.text()
+        );
+        assert!(census.inert().is_empty(), "{name}: {}", census.text());
+        eprintln!(
+            "CENSUS_ROLE_HOOK {}",
+            json!({"file": name, "census": census.value()})
+        );
+    }
+}

@@ -310,18 +310,57 @@ enum RolePosition {
 }
 use RolePosition::{Bool, Collection, Element, Key, Value};
 
+/// Which symbols may carry a C-H hook over a non-standard collection sort C.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RoleCarrier {
+    /// Only C's own metadata symbol of this role: `Term::application` canonicalizes exactly
+    /// that symbol into a C collection, while any other symbol with the hook is evaluated by
+    /// the builtin, which builds K's standard List/Map/Set value whatever its declared sort
+    /// (kb/builtin/list.rs `element`/`unit`, map.rs, set.rs; CS-01 review 1, VI-T13 V6).
+    Unit,
+    Element,
+    Concat,
+    /// Any symbol: the hook's value is a Bool, not a collection.
+    AnySymbol,
+}
+
 /// Closed C-H table: positions are taken from the corresponding domains.md declarations.
-const COLLECTION_ROLE_POSITIONS: &[(&str, &[RolePosition], RolePosition)] = &[
-    ("MAP.concat", &[Collection, Collection], Collection),
-    ("MAP.unit", &[], Collection),
-    ("MAP.element", &[Key, Value], Collection),
-    ("MAP.in_keys", &[Key, Collection], Bool),
-    ("SET.concat", &[Collection, Collection], Collection),
-    ("SET.unit", &[], Collection),
-    ("SET.element", &[Element], Collection),
-    ("LIST.concat", &[Collection, Collection], Collection),
-    ("LIST.unit", &[], Collection),
-    ("LIST.element", &[Element], Collection),
+const COLLECTION_ROLE_POSITIONS: &[(&str, &[RolePosition], RolePosition, RoleCarrier)] = &[
+    (
+        "MAP.concat",
+        &[Collection, Collection],
+        Collection,
+        RoleCarrier::Concat,
+    ),
+    ("MAP.unit", &[], Collection, RoleCarrier::Unit),
+    (
+        "MAP.element",
+        &[Key, Value],
+        Collection,
+        RoleCarrier::Element,
+    ),
+    (
+        "MAP.in_keys",
+        &[Key, Collection],
+        Bool,
+        RoleCarrier::AnySymbol,
+    ),
+    (
+        "SET.concat",
+        &[Collection, Collection],
+        Collection,
+        RoleCarrier::Concat,
+    ),
+    ("SET.unit", &[], Collection, RoleCarrier::Unit),
+    ("SET.element", &[Element], Collection, RoleCarrier::Element),
+    (
+        "LIST.concat",
+        &[Collection, Collection],
+        Collection,
+        RoleCarrier::Concat,
+    ),
+    ("LIST.unit", &[], Collection, RoleCarrier::Unit),
+    ("LIST.element", &[Element], Collection, RoleCarrier::Element),
 ];
 
 struct CollectionRoles<'a> {
@@ -419,7 +458,7 @@ fn natural_role(
         })
         && COLLECTION_ROLE_POSITIONS
             .iter()
-            .any(|(h, args, result)| *h == hook && role_signature(symbol, args, *result, &roles))
+            .any(|(h, args, result, _)| *h == hook && role_signature(symbol, args, *result, &roles))
 }
 fn natural_collection_hook(
     symbol: &Symbol,
@@ -429,21 +468,62 @@ fn natural_collection_hook(
     let Some(hook) = symbol.attributes.hook.as_deref() else {
         return false;
     };
-    let Some((_, positions, result)) = COLLECTION_ROLE_POSITIONS
+    let Some((_, positions, result, carrier)) = COLLECTION_ROLE_POSITIONS
         .iter()
-        .find(|(h, _, _)| *h == hook)
+        .find(|(h, _, _, _)| *h == hook)
     else {
         return false;
     };
-    backend.symbols().values().filter_map(|s| s.attributes.collection.as_ref()).any(|metadata| {
+    // A collection-building role is natural only on the symbol whose own metadata names it
+    // for that role; every other metadata, and every symbol without metadata, is a finding.
+    let candidates: Vec<&CollectionMetadata> = match carrier {
+        RoleCarrier::AnySymbol => backend
+            .symbols()
+            .values()
+            .filter_map(|s| s.attributes.collection.as_ref())
+            .collect(),
+        RoleCarrier::Unit | RoleCarrier::Element | RoleCarrier::Concat => {
+            symbol.attributes.collection.iter().collect()
+        }
+    };
+    candidates.into_iter().any(|metadata| {
         let roles = collection_roles(metadata);
-        let standard = match roles.namespace { "MAP" => "SortMap", "LIST" => "SortList", _ => "SortSet" };
-        roles.sort != standard && hook.starts_with(&format!("{}.", roles.namespace))
-            && [&roles.symbols.unit, &roles.symbols.element, &roles.symbols.concat].iter().all(|n| backend.symbols().get(*n).is_some_and(|s| natural_role(s,metadata,backend)))
+        let carrier_matches = match carrier {
+            RoleCarrier::Unit => symbol.name == roles.symbols.unit,
+            RoleCarrier::Element => symbol.name == roles.symbols.element,
+            RoleCarrier::Concat => symbol.name == roles.symbols.concat,
+            RoleCarrier::AnySymbol => true,
+        };
+        let standard = match roles.namespace {
+            "MAP" => "SortMap",
+            "LIST" => "SortList",
+            _ => "SortSet",
+        };
+        carrier_matches
+            && roles.sort != standard
+            && hook.starts_with(&format!("{}.", roles.namespace))
+            && [
+                &roles.symbols.unit,
+                &roles.symbols.element,
+                &roles.symbols.concat,
+            ]
+            .iter()
+            .all(|n| {
+                backend
+                    .symbols()
+                    .get(*n)
+                    .is_some_and(|s| natural_role(s, metadata, backend))
+            })
             && role_signature(symbol, positions, *result, &roles)
             // Require the closed table itself to agree with a standard prelude signature.
             && signatures.iter().any(|s| {
-                let standard_roles = CollectionRoles { sort: standard, key: Some("SortKItem"), value: Some("SortKItem"), element: Some("SortKItem"), ..roles };
+                let standard_roles = CollectionRoles {
+                    sort: standard,
+                    key: Some("SortKItem"),
+                    value: Some("SortKItem"),
+                    element: Some("SortKItem"),
+                    ..roles
+                };
                 role_signature(s, positions, *result, &standard_roles)
             })
     })
