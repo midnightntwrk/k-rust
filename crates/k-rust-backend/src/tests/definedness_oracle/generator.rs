@@ -619,6 +619,35 @@ pub(super) fn diamond(definition: Definition, joining: bool) -> (Definition, Vec
     (definition, seeds)
 }
 
+/// An inner position at a greater overload production whose lesser production has an equation:
+/// `go` over `lo` (`Lo < Gr`), `lo(1) = lo(2)`, and `use(go(I)) = mk(I)` (`mk(1)` when
+/// `joining`). The subject `use(inj(lo(1)))` matches `use`'s left-hand side only modulo the
+/// overload axioms, and `lo(1)` rewrites at the position `go(I)`: an inner pair whose second
+/// equation has a sort below the position's (review 2 of the check, F3). It gives `mk(1)` and,
+/// after `lo(1) = lo(2)`, `mk(2)` unless `joining`.
+pub(super) fn injected_inner(definition: Definition, joining: bool) -> (Definition, Vec<Pat>) {
+    let mut definition = definition
+        .subsort("Lo", "Gr")
+        .head("lo", &["Int"], "Lo")
+        .total_head("go", &["Int"], "Gr")
+        .overload("go", "lo")
+        .head("use", &["Gr"], "S")
+        .equation(app("lo", vec![int(1)]), app("lo", vec![int(2)]))
+        .equation(
+            app("use", vec![app("go", vec![int_var("VarI")])]),
+            app("mk", vec![if joining { int(1) } else { int_var("VarI") }]),
+        );
+    for sort in ["Lo", "Gr"] {
+        definition.sorts.push(sort.into());
+    }
+    let seeds = vec![
+        app("use", vec![app("go", vec![int(1)])]),
+        app("use", vec![app("go", vec![int(2)])]),
+        app("lo", vec![int(1)]),
+    ];
+    (definition, seeds)
+}
+
 /// A family that is not confluent: `g2 : Tt -> Hh` over `l1 : Aa -> Hh` and `l2 : Bb -> Hh`, with
 /// `Cc < Aa, Bb < Tt` and no lesser production below both, so `g2(inj(c0))` lowers to two
 /// different normal forms.
@@ -962,6 +991,14 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
         let (definition, seeds) = diamond(base(), joining);
         templates.push((
             format!("template diamond (joining {joining})"),
+            definition,
+            seeds,
+        ));
+    }
+    for joining in [true, false] {
+        let (definition, seeds) = injected_inner(base(), joining);
+        templates.push((
+            format!("template injected inner (joining {joining})"),
             definition,
             seeds,
         ));

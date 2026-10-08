@@ -6,6 +6,15 @@
 //! check must have unified `(rho1, q, rho2)` (either order at the root) with a unifier that
 //! generalizes `theta`, or have answered an unresolved shape. Positions are positions of `l1`,
 //! fixed by construction, so no instance can hide a position.
+//!
+//! A position whose pattern is an application of a greater overload production also gets
+//! *lowered* instances: the lesser production's application `h(a)` (under its injection), which
+//! the left-hand side matches there only modulo the overload axioms; every equation applying at
+//! `h(a)` must have been unified with the position. Two limits: the root pair of an equation
+//! with itself is not required, because the oracle's language matches unitarily (lists only, one
+//! rest each), so two matchings of one subject coincide (the self pairs of map and set patterns
+//! are tested by brute force in `confluence/tests/review_two.rs`); and lowered instances skip
+//! left-hand sides with aliases.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -33,6 +42,9 @@ pub(super) struct Completeness {
     pub(super) redexes: usize,
     /// Of those, covered by an unresolved shape.
     pub(super) unresolved: usize,
+    /// Lowered instances tried (a lesser production's application at a greater production's
+    /// position).
+    pub(super) lowered: usize,
     pub(super) failures: Vec<String>,
 }
 
@@ -41,6 +53,7 @@ impl Completeness {
         self.definitions += other.definitions;
         self.redexes += other.redexes;
         self.unresolved += other.unresolved;
+        self.lowered += other.lowered;
         self.failures.extend(other.failures);
     }
 }
@@ -293,10 +306,13 @@ pub(super) fn check_completeness(
                     continue;
                 }
                 for (second, second_valuation) in &applying {
+                    // The language matches unitarily (lists hold one rest), so an equation's two
+                    // matchings of one subject coincide: no self peak at the root. Self pairs of
+                    // map and set patterns are checked by brute force in the check's own tests
+                    // (`confluence/tests/review_two.rs`).
                     if root && *second == first {
                         continue;
                     }
-                    result.redexes += 1;
                     let mut candidates = Vec::new();
                     if let Some(records) = by_pair.get(&(first, position.clone(), *second)) {
                         candidates.extend(records.iter().map(|record| (*record, &valuation)));
@@ -305,41 +321,150 @@ pub(super) fn check_completeness(
                         candidates.extend(records.iter().map(|record| (*record, second_valuation)));
                     }
                     let shown = universe.show(redex);
-                    if candidates.is_empty() {
-                        result.failures.push(format!(
-                            "{label}: eq{second} applies at {shown}, position {position:?} of eq{first}, and the pair was not unified\n  definition:\n{}",
-                            describe()
-                        ));
+                    cover(
+                        &mut result,
+                        &mut universe,
+                        candidates,
+                        &format!(
+                            "{label}: eq{second} applies at {shown}, position {position:?} of eq{first}"
+                        ),
+                        &describe,
+                    );
+                }
+            }
+            // Lowered instances: at a proper position whose pattern is an application of a
+            // greater overload production `g`, a normal-form subject there is the lowest form
+            // `inj(h(a))` of a lesser production `h`, which the left-hand side matches only
+            // modulo the overload axioms. Every equation applying at `h(a)` is an inner pair of
+            // the position. (Left-hand sides with aliases are skipped: an alias's value would
+            // have to be rebuilt in lowest form.)
+            if has_alias(&equation.lhs) {
+                continue;
+            }
+            for (position, subpattern) in &positions {
+                let Pat::App(name, _) = subpattern else {
+                    continue;
+                };
+                if position.is_empty() {
+                    continue;
+                }
+                let greater = universe.symbol_id(name);
+                for lesser in universe.lesser_productions(greater) {
+                    let arity = definition.symbols[lesser as usize].arguments.len();
+                    let mut arguments = Vec::with_capacity(arity);
+                    for index in 0..arity {
+                        let sort = universe.argument_sort(lesser, index);
+                        let candidates = candidates_of(&mut universe, &values, sort);
+                        if candidates.is_empty() {
+                            break;
+                        }
+                        arguments.push(*rng.pick(&candidates));
+                    }
+                    if arguments.len() != arity
+                        || !arguments
+                            .iter()
+                            .all(|argument| universe.is_normal_form(*argument))
+                    {
                         continue;
                     }
-                    let mut covered = false;
-                    let mut unresolved = false;
-                    let mut undecidable = false;
-                    for (record, theta) in candidates {
-                        match &record.unifiers {
-                            Err(_) => unresolved = true,
-                            Ok(unifiers) => {
-                                match generalizes(&mut universe, record, unifiers, theta) {
-                                    Some(true) => covered = true,
-                                    Some(false) => {}
-                                    None => undecidable = true,
-                                }
-                            }
-                        }
+                    let redex = universe.node(Node::App(lesser, arguments));
+                    let (from, to) = (universe.result_sort(lesser), universe.result_sort(greater));
+                    let subject = if from == to {
+                        redex
+                    } else {
+                        universe.node(Node::Inj(from, to, redex))
+                    };
+                    let mut lowered = valuation.clone();
+                    let mut inner = BTreeMap::new();
+                    pattern_variables(subpattern, &mut inner);
+                    for variable in inner.keys() {
+                        lowered.remove(variable);
                     }
-                    if unresolved && !covered {
-                        result.unresolved += 1;
-                    } else if !covered && !undecidable {
-                        result.failures.push(format!(
-                            "{label}: eq{second} applies at {shown}, position {position:?} of eq{first}, and no unifier of the pair generalizes the valuation\n  definition:\n{}",
-                            describe()
-                        ));
+                    if !universe.matches(subpattern, subject, &mut lowered) {
+                        continue;
+                    }
+                    let (applying, ended) = universe.applicable(redex);
+                    if !ended {
+                        continue;
+                    }
+                    result.lowered += 1;
+                    for (second, _) in &applying {
+                        let candidates = by_pair
+                            .get(&(first, position.clone(), *second))
+                            .map(|records| {
+                                records
+                                    .iter()
+                                    .map(|record| (*record, &lowered))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        let shown = universe.show(subject);
+                        cover(
+                            &mut result,
+                            &mut universe,
+                            candidates,
+                            &format!(
+                                "{label}: eq{second} applies at {shown}, lowered at position {position:?} of eq{first}"
+                            ),
+                            &describe,
+                        );
                     }
                 }
             }
         }
     }
     result
+}
+
+/// Whether `pattern` holds an alias `\and(p, X)`.
+fn has_alias(pattern: &Pat) -> bool {
+    match pattern {
+        Pat::As(..) => true,
+        Pat::App(_, arguments) => arguments.iter().any(has_alias),
+        Pat::Inj(_, _, inner) => has_alias(inner),
+        Pat::List(prefix, _, suffix) => prefix.iter().chain(suffix).any(has_alias),
+        Pat::Var(..) | Pat::Int(_) => false,
+    }
+}
+
+/// One redex V3 requires covered: some recorded unification of the pair generalizes its
+/// valuation, or answered an unresolved shape.
+fn cover(
+    result: &mut Completeness,
+    universe: &mut Universe<'_>,
+    candidates: Vec<(&RecordedOverlap, &HashMap<String, Id>)>,
+    redex: &str,
+    describe: &dyn Fn() -> String,
+) {
+    result.redexes += 1;
+    if candidates.is_empty() {
+        result.failures.push(format!(
+            "{redex}, and the pair was not unified\n  definition:\n{}",
+            describe()
+        ));
+        return;
+    }
+    let mut covered = false;
+    let mut unresolved = false;
+    let mut undecidable = false;
+    for (record, theta) in candidates {
+        match &record.unifiers {
+            Err(_) => unresolved = true,
+            Ok(unifiers) => match generalizes(universe, record, unifiers, theta) {
+                Some(true) => covered = true,
+                Some(false) => {}
+                None => undecidable = true,
+            },
+        }
+    }
+    if unresolved && !covered {
+        result.unresolved += 1;
+    } else if !covered && !undecidable {
+        result.failures.push(format!(
+            "{redex}, and no unifier of the pair generalizes the valuation\n  definition:\n{}",
+            describe()
+        ));
+    }
 }
 
 /// V3 over the templates, the probes and `cases` random definitions.
@@ -381,13 +506,15 @@ fn every_overlap_of_random_equations_is_enumerated() {
         let first = super::environment("KRUST_DEFINEDNESS_ORACLE_FIRST", 0);
         let total = run_completeness_from(first, cases, seed);
         eprintln!(
-            "overlap enumeration (seed {seed:#x}): {} definitions, {} redexes, {} covered by an unresolved shape, {} failures",
+            "overlap enumeration (seed {seed:#x}): {} definitions, {} redexes, {} covered by an unresolved shape, {} lowered instances, {} failures",
             total.definitions,
             total.redexes,
             total.unresolved,
+            total.lowered,
             total.failures.len()
         );
         assert!(total.redexes > 0, "no redex found");
+        assert!(total.lowered > 0, "no lowered instance tried");
         assert!(total.failures.is_empty(), "{}", total.failures.join("\n"));
     });
 }

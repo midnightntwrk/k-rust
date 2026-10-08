@@ -130,6 +130,11 @@ mutation!(
     completeness_failures
 );
 mutation!(
+    dropping_injected_inner_pairs_is_caught,
+    drop_injected_inner,
+    completeness_failures
+);
+mutation!(
     dropping_glb_branches_is_caught,
     drop_glb_branches,
     unifier_failures

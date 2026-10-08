@@ -265,7 +265,7 @@ fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
     // (fixture, pairs, unifier branches, join steps, simplifier calls)
     const PINS: [(&str, usize, usize, usize, usize); 2] = [
         ("fun lists", 18, 236, 38, 0),
-        ("oracle templates", 53, 98, 16, 6),
+        ("oracle templates", 57, 124, 24, 6),
     ];
     let mut measured = Vec::new();
     let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")

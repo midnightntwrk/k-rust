@@ -274,12 +274,25 @@ impl<'d> Universe<'d> {
         }
     }
 
-    fn argument_sort(&self, symbol: u32, index: usize) -> u32 {
+    pub(super) fn argument_sort(&self, symbol: u32, index: usize) -> u32 {
         self.sort_ids[&self.definition.symbols[symbol as usize].arguments[index]]
     }
 
-    fn result_sort(&self, symbol: u32) -> u32 {
+    pub(super) fn result_sort(&self, symbol: u32) -> u32 {
         self.sort_ids[&self.definition.symbols[symbol as usize].result]
+    }
+
+    /// The lesser productions of the greater production `greater` (the overload order,
+    /// transitively closed), sorted.
+    pub(super) fn lesser_productions(&self, greater: u32) -> Vec<u32> {
+        let mut lesser = self
+            .overloads
+            .iter()
+            .filter(|(above, _)| *above == greater)
+            .map(|(_, below)| *below)
+            .collect::<Vec<_>>();
+        lesser.sort_unstable();
+        lesser
     }
 
     /// The application of the greater production `greater` that the overload axioms equate with

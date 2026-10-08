@@ -72,6 +72,9 @@ pub(crate) struct Switches {
     pub(crate) drop_several_matches: bool,
     /// `SortReach`: no edges from a collection sort to its element, key and value sorts.
     pub(crate) drop_collection_edges: bool,
+    /// Drop every inner pair whose second equation has a sort below the position's (review 2's
+    /// seeded defect D9).
+    pub(crate) drop_injected_inner: bool,
 }
 
 #[cfg(test)]
@@ -104,6 +107,7 @@ thread_local! {
             misread_int_le: false,
             drop_several_matches: false,
             drop_collection_edges: false,
+            drop_injected_inner: false,
         })
     };
 }

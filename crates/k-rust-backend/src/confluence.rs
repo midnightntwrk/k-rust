@@ -953,11 +953,12 @@ impl Context<'_> {
         let (inner_sort, second_sort) = (inner.sort(), second.lhs.sort());
         let injected = inner_sort != second_sort;
         if injected
-            && self
-                .definition
-                .sort_graph()
-                .check_subsort(&second_sort, &inner_sort)
-                != Ok(true)
+            && (switches::active().drop_injected_inner
+                || self
+                    .definition
+                    .sort_graph()
+                    .check_subsort(&second_sort, &inner_sort)
+                    != Ok(true))
         {
             return Classified::Fine;
         }
