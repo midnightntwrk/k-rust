@@ -311,6 +311,12 @@ impl RuleClause {
         };
         let mut have_cell = 0_usize;
         let mut update_cell = 0_usize;
+        // Wildcards in extra-cell patterns, such as `frame: _`, continue the
+        // subject's wildcard ordinals in clause order.
+        let mut wildcard = anchors
+            .iter()
+            .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
+            .count();
         for extra in &self.extras {
             match extra {
                 RuleExtra::HaveMap { cell, key, value } => {
@@ -390,6 +396,20 @@ impl RuleClause {
                         TokenRange::for_tokens(cell)?,
                     ));
                     append_rule_pattern_anchors(&mut anchors, before, before_tree, &mut left)?;
+                    let mut wildcards = Vec::new();
+                    before_tree.wildcard_ranges_preorder(&mut wildcards);
+                    for range in wildcards {
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleLeftWildcard,
+                            checked_ordinal(
+                                wildcard,
+                                ProvenanceRole::RuleLeftWildcard,
+                                range.first(),
+                            )?,
+                            range,
+                        ));
+                        wildcard += 1;
+                    }
 
                     let right_ordinal = checked_ordinal(
                         update_cell,

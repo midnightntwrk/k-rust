@@ -562,7 +562,7 @@ status = "current"
 coverage = "advanced"
 chapter = "scale"
 prerequisites = ["fixed-configurations", "machine-rules"]
-evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs", "semantics/kevm/src/lib.rs"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs", "semantics/kevm/src/lib.rs", "tests/configuration-cells/packages/groups/src/lib.rs"]
 
 [[concept]]
 id = "nested-cell-field-metadata"

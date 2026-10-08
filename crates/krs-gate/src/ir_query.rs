@@ -264,6 +264,7 @@ impl<'a> Context<'a> {
         match sort {
             DefinitionSortRef::Declared(id) => self.names[id].to_owned(),
             DefinitionSortRef::Builtin(sort) => sort.k_name().to_owned(),
+            DefinitionSortRef::Cell(id) => krs_ir_levels::k_surface::cell_sort_name(self.cells[id]),
         }
     }
     fn term(&self, term: &DefinitionTerm) -> Value {

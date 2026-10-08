@@ -20,6 +20,7 @@ pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
     match sort {
         DescriptorSortRef::Declared(id) => SemanticSortRef::Declared(id.clone()),
         DescriptorSortRef::Builtin(sort) => SemanticSortRef::Builtin(*sort),
+        DescriptorSortRef::Cell(id) => SemanticSortRef::Cell(id.clone()),
     }
 }
 
@@ -53,6 +54,28 @@ pub(super) fn build_semantic_sort_parents(
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
             | DescriptorPayload::ContextAlias(_) => {}
+        }
+    }
+    // K makes every generated cell sort a subsort of KItem, so a whole-group
+    // binder (`FrameCell`, KF-016) may stand wherever a KItem is expected.
+    let k_item = descriptors
+        .iter()
+        .map(|descriptor| descriptor.id())
+        .find(|id| {
+            id.item_kind() == krs_ir::ItemKind::Sort
+                && id.item_name() == "KItem"
+                && id.package().k_namespace() == "KRS-FRAMEWORK"
+                && id.package().cargo_name() == "krs"
+                && id.package().cargo_source() == "framework"
+        });
+    if let Some(k_item) = k_item {
+        for descriptor in descriptors {
+            if matches!(descriptor.payload(), DescriptorPayload::Cell(_)) {
+                parents
+                    .entry(SemanticSortRef::Cell(descriptor.id().clone()))
+                    .or_default()
+                    .insert(SemanticSortRef::Declared(k_item.clone()));
+            }
         }
     }
     parents

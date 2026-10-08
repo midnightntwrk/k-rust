@@ -65,10 +65,13 @@ pub(crate) fn cells(input: TokenStream) -> crate::Result<TokenStream> {
     let island_import_checks = nested_state_island_import_checks(&input);
     let cells = parse_cells_expression(input)?;
     let mut expressions = Vec::new();
-    let wrappers = cells.entries().iter().map(krs_syntax::CellsEntry::wrapper);
+    let wrappers = cells
+        .entries()
+        .iter()
+        .filter_map(krs_syntax::CellsEntry::wrapper);
     for entry in cells.entries() {
         match entry.value() {
-            StateTerm::Term(term) => expressions.push(term.expression()),
+            StateTerm::Term(term) | StateTerm::Group(term) => expressions.push(term.expression()),
             StateTerm::KSequence(sequence) => {
                 expressions.extend(sequence.items().iter().map(TermExpression::expression));
             }

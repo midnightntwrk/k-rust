@@ -1068,3 +1068,86 @@ fn machine_records_may_leave_the_computation_cell_out() {
         );
     }
 }
+
+#[test]
+fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
+    let pattern = krs_syntax::parse_cells_pattern(
+        krs_syntax::parse::tokens_from_source(
+            "k: KCell(Pop(), tail @ ..), frame: f, saved: _, state @ ..",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(pattern.entries().len(), 3);
+    assert!(pattern.entries()[0].wrapper().is_some());
+    for entry in &pattern.entries()[1..] {
+        assert!(entry.wrapper().is_none(), "{}", entry.name());
+        assert!(matches!(entry.value(), StateTerm::Group(_)));
+    }
+    let wrappers = pattern
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::CellsWrapper)
+        .count();
+    assert_eq!(wrappers, 1);
+
+    let expression = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source(
+            "k: KCell(..tail), frame: k::fragment![Frame { pc: p, gas: g }], ..state",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        expression.entries()[1].value(),
+        StateTerm::Group(term) if matches!(term.tree(), krs_syntax::TermTree::Cell(_))
+    ));
+
+    let rule = krs_syntax::StateRuleItem::parse_source(
+        r"
+        pub fn push(
+            s: Term<List>,
+            f: crate::Frame,
+            cells! {
+                k: KCell(Push(), tail @ ..),
+                stack: Cell(s),
+                frame: f,
+                state @ ..
+            }: crate::Machine,
+        ) -> crate::Machine {
+            cells! {
+                k: KCell(..tail),
+                stack: Cell(list::concat(list::item(f), s)),
+                frame: f,
+                ..state
+            }
+        }
+        ",
+    )
+    .unwrap();
+    assert_eq!(
+        rule.bindings()
+            .iter()
+            .filter(|binding| binding.kind() == krs_syntax::StateRuleBindingKind::Term)
+            .map(|binding| binding.name().to_string())
+            .collect::<Vec<_>>(),
+        ["s", "f"]
+    );
+
+    let group_entry = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "cells",
+        reason: "nested cell entries are a binder, `_`, or fragment!",
+    };
+    for source in ["frame: 3", "frame: [f]", "frame: crate::f"] {
+        let error =
+            krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap_err();
+        assert_eq!(error.kind(), &group_entry, "{source}");
+    }
+    let error = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source("frame: _").unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), &group_entry);
+}

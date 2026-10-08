@@ -94,6 +94,7 @@ details! {
         WrapperAndInitializerStateFamilyDisagree => "wrapper and initializer state family disagree",
         MissingConfigurationHostOwner => "fixed configuration lacks a nominal host owner",
         MissingNestedCellHostOwner => "nested cell declaration lacks a nominal host owner",
+        InvalidGroupCellEntry => "a nested cell entry is a binder, `_`, or fragment!",
     }
 }
 

@@ -79,6 +79,17 @@ The omitted computation cell is framed like every omitted cell, so the rule fire
 Such a rule is rejected when it changes no cell (`krs::analysis::rule-changes-no-cell`), and when every cell pattern is a variable or `_` of the cell's sort and it has no guard, because it is then always enabled and execution never terminates (`krs::analysis::always-enabled-rule`).
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
+### Whole nested-cell variables
+
+A nested cell is a value too: K gives `<frame>` the generated sort `FrameCell` (the cell name capitalised, hyphens removed, then `Cell`), so one variable captures the whole cell, as KEVM saves `<callState>` on its call stack.
+In a readable record, `frame: f` binds the nested cell itself, not a Rust copy of its fields: `push: { k: [Push(), ..], stack: s, frame: f } => { k: [..], stack: list::concat(list::item(f), s), frame: f }` emits `<stack> S:List => ListItem(F:FrameCell) S:List </stack> F:FrameCell`, and `pop` restores a saved frame with `frame: _` in the pattern and `frame: f` in the result, emitted as `(_:FrameCell => F:FrameCell)`.
+The group clause is written bare, never inside `<frame>...</frame>`, and a group the rule names covers every cell inside it.
+A nested entry is a group binder, `_` (patterns only), or a complete `k::fragment![Frame { .. }]`; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
+Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
+A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
+A repeated (`*`) cell is a collection, not one nested cell, and cannot be named as a whole.
+The overlap check counts a group clause as sharing every cell inside the group.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

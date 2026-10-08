@@ -5,7 +5,7 @@ use crate::ir_level::{
     IrVariable, RuleBodyRef,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellContentFrame, CellPost,
     CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
@@ -70,6 +70,19 @@ pub(crate) trait Validation: IrLevel {
     ) -> Result<(), Self::Error>;
     /// Extracts an authored item or generated symbol from a sort reference.
     fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration>;
+    /// The generated sort of a nested cell: `Cell(declaration)` in Semantic
+    /// IR (absent when the cell records no declaration), `Cell(symbol)` in
+    /// Definition IR.
+    fn group_sort(cell: &FixedCell<Self::Sort, Self::Cell>) -> Option<Self::Sort>;
+    /// Extracts the cell named by a group-cell sort (`IrSortRef::Cell`).
+    fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration>;
+    /// Checks the cell named by a group-cell sort (`IrSortRef::Cell`): a
+    /// nominal `#[k::cell]` declaration in Semantic IR, a fixed-cell symbol in
+    /// Definition IR.
+    fn require_cell_sort(
+        declarations: &Declarations<Self>,
+        id: &Self::Declaration,
+    ) -> Result<(), Self::Error>;
     /// Selects the semantic item kind or emitted symbol kind for the same role.
     fn required_kind(role: DeclarationRole) -> Self::Kind;
     /// Missing references report dangling items in Semantic IR and dangling symbols in Definition IR.
@@ -163,6 +176,9 @@ pub(crate) fn require_sort<L: Validation>(
 ) -> Result<(), L::Error> {
     if let Some(id) = L::declared_sort(sort) {
         require_kind::<L>(declarations, id, L::required_kind(DeclarationRole::Sort))?;
+    }
+    if let Some(id) = L::cell_sort(sort) {
+        L::require_cell_sort(declarations, id)?;
     }
     Ok(())
 }
@@ -346,6 +362,39 @@ fn configuration_leaf_sorts<L: Validation>(
     Ok(leaf_sorts)
 }
 
+/// Nested (group) cells with their generated cell sort, when the level can
+/// name it, and every leaf below them.
+type GroupCells<L> =
+    BTreeMap<<L as IrLevel>::Cell, (Option<<L as IrLevel>::Sort>, BTreeSet<<L as IrLevel>::Cell>)>;
+
+fn configuration_groups<L: Validation>(configuration: &Configuration<L>) -> GroupCells<L> {
+    fn leaves<L: Validation>(cell: &FixedCell<L::Sort, L::Cell>, output: &mut BTreeSet<L::Cell>) {
+        match cell.content() {
+            FixedCellContent::Term { .. } => {
+                output.insert(cell.id().clone());
+            }
+            FixedCellContent::Children { children } => {
+                for child in children {
+                    leaves::<L>(child, output);
+                }
+            }
+        }
+    }
+    fn groups<L: Validation>(cells: &[FixedCell<L::Sort, L::Cell>], output: &mut GroupCells<L>) {
+        for cell in cells {
+            if let FixedCellContent::Children { children } = cell.content() {
+                let mut below = BTreeSet::new();
+                leaves::<L>(cell, &mut below);
+                output.insert(cell.id().clone(), (L::group_sort(cell), below));
+                groups::<L>(children, output);
+            }
+        }
+    }
+    let mut output = BTreeMap::new();
+    groups::<L>(configuration.cells(), &mut output);
+    output
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
@@ -361,29 +410,46 @@ pub(crate) fn validate_configuration_rewrite<L: Validation>(
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let leaf_sorts = configuration_leaf_sorts::<L>(configuration)?;
-    let mentioned = rewrite
-        .clauses()
-        .iter()
-        .map(|clause| clause.cell().clone())
-        .collect::<BTreeSet<_>>();
+    let groups = configuration_groups::<L>(configuration);
     let omitted = rewrite
         .omitted_siblings()
         .iter()
         .cloned()
         .collect::<BTreeSet<_>>();
-    if mentioned.len() != rewrite.clauses().len()
-        || omitted.len() != rewrite.omitted_siblings().len()
-        || !mentioned.is_disjoint(&omitted)
-        || mentioned.union(&omitted).cloned().collect::<BTreeSet<_>>()
+    // Each clause covers its leaf, or every leaf below its whole group cell
+    // (KF-016); covered and omitted leaves partition the configuration.
+    let mut covered = BTreeSet::new();
+    let mut disjoint = omitted.len() == rewrite.omitted_siblings().len();
+    for clause in rewrite.clauses() {
+        let leaves = match clause.kind() {
+            CellClauseKind::Content => leaf_sorts
+                .contains_key(clause.cell())
+                .then(|| vec![clause.cell().clone()]),
+            CellClauseKind::Whole => groups
+                .get(clause.cell())
+                .map(|(_, leaves)| leaves.iter().cloned().collect()),
+        }
+        .ok_or(L::error(ValidationError::InvalidCellFraming))?;
+        for leaf in leaves {
+            disjoint &= !omitted.contains(&leaf) && covered.insert(leaf);
+        }
+    }
+    if !disjoint
+        || covered.union(&omitted).cloned().collect::<BTreeSet<_>>()
             != leaf_sorts.keys().cloned().collect()
     {
         return Err(L::error(ValidationError::InvalidCellFraming));
     }
     insert_node::<L>(nodes, rewrite.origin().key())?;
     for clause in rewrite.clauses() {
-        let sort = leaf_sorts
-            .get(clause.cell())
-            .ok_or(L::error(ValidationError::InvalidCellFraming))?;
+        let sort = match clause.kind() {
+            CellClauseKind::Content => leaf_sorts.get(clause.cell()),
+            CellClauseKind::Whole => groups
+                .get(clause.cell())
+                .and_then(|(sort, _)| sort.as_ref())
+                .filter(|_| clause.frame() == &CellContentFrame::Exact),
+        }
+        .ok_or(L::error(ValidationError::InvalidCellFraming))?;
         insert_node::<L>(nodes, clause.origin().key())?;
         validate_term::<L>(
             clause.before(),

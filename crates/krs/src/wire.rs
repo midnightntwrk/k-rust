@@ -997,8 +997,8 @@ mod tests {
             remainder: krs_ir::ProtocolRuleFrame::Exact,
             cells: vec![krs_ir::ProtocolRuleCell {
                 field: wire_cell(),
-                wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
-                wrapper: krs_ir::CellWrapper::Cell,
+                wrapper_key: Some(key(ProvenanceRole::ConfigurationCellWrapper)),
+                wrapper: Some(krs_ir::CellWrapper::Cell),
                 value: krs_ir::ProtocolRuleStateTerm::Term(wire_term()),
             }],
         }
@@ -1010,8 +1010,8 @@ mod tests {
             remainder: krs_ir::ProtocolRuleFrame::Exact,
             cells: vec![krs_ir::ProtocolRuleCell {
                 field: host_cell(),
-                wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
-                wrapper: krs_ir::CellWrapper::Cell,
+                wrapper_key: Some(key(ProvenanceRole::ConfigurationCellWrapper)),
+                wrapper: Some(krs_ir::CellWrapper::Cell),
                 value: krs_ir::ProtocolRuleStateTerm::Term(host_term()),
             }],
         }

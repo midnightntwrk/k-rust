@@ -127,7 +127,7 @@ fn render_term_with_binders(
                     ))
                 })?);
                 output.push(":");
-                output.push(context.sort_name_ref(term.sort())?);
+                output.push(&context.sort_name_ref(term.sort())?);
             }
         }
         DefinitionTermKind::Application {
@@ -169,7 +169,7 @@ fn render_term_with_binders(
                             if overloaded && is_wildcard(argument) {
                                 let mut wildcard = Rendered::default();
                                 wildcard.push("_:");
-                                wildcard.push(context.sort_name_ref(argument.sort())?);
+                                wildcard.push(&context.sort_name_ref(argument.sort())?);
                                 output.append(wildcard.finish(argument.origin().key(), 0));
                             } else {
                                 output.append(render_term_with_binders(
@@ -524,7 +524,7 @@ fn render_collection<'a>(
     }
     if spec.is_projected() {
         output.push("}:>");
-        output.push(context.sort_name_ref(result_sort)?);
+        output.push(&context.sort_name_ref(result_sort)?);
     }
     Ok(())
 }

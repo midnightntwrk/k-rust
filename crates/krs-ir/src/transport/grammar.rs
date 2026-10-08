@@ -68,6 +68,9 @@ pub enum DescriptorSortRef {
     Declared(StableItemId),
     /// A compiler-provided sort from the exact builtin catalog.
     Builtin(BuiltinSort),
+    /// The generated sort of a nested `#[k::cell]` declaration, used only by
+    /// whole-group rule binders (KF-016).
+    Cell(StableItemId),
 }
 
 /// One stable sort reference paired with its exact parser-owned origin key.
@@ -1582,12 +1585,15 @@ impl DescriptorSortRef {
     /// Returns [`GrammarTransportError::SortReferenceKind`] when a declared
     /// target is not a sort identity.
     pub fn validate(&self) -> Result<(), GrammarTransportError> {
-        if let Self::Declared(id) = self
-            && id.item_kind() != ItemKind::Sort
-        {
-            return Err(GrammarTransportError::SortReferenceKind(id.item_kind()));
+        match self {
+            Self::Declared(id) if id.item_kind() != ItemKind::Sort => {
+                Err(GrammarTransportError::SortReferenceKind(id.item_kind()))
+            }
+            Self::Cell(id) if id.item_kind() != ItemKind::Cell => {
+                Err(GrammarTransportError::SortReferenceKind(id.item_kind()))
+            }
+            Self::Declared(_) | Self::Builtin(_) | Self::Cell(_) => Ok(()),
         }
-        Ok(())
     }
 }
 

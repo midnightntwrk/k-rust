@@ -384,7 +384,7 @@ impl<'a> InitializerBuilder<'a> {
         state: &StateTerm,
     ) -> crate::Result<ProtocolInitializerStateTerm<WireTerm>> {
         match state {
-            StateTerm::Term(term) => {
+            StateTerm::Term(term) | StateTerm::Group(term) => {
                 let term = self.expand_term(term, None)?;
                 Ok(ProtocolInitializerStateTerm::Term(term))
             }

@@ -311,7 +311,7 @@ fn validate_rule_cells_references(
     for cell in &cells.cells {
         require_cell_field(&cell.field.cell, declarations)?;
         match &cell.value {
-            ProtocolRuleStateTerm::Term(term) => {
+            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
                 validate_structured_term_references(term, declarations)?;
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {

@@ -220,6 +220,24 @@ impl<
                 sample::<S>(),
             )
             .unwrap(),
+            Self::nested(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                "group",
+                sample::<Vec<CellAttribute>>(),
+                vec![
+                    Self::leaf(
+                        sample::<NodeOrigin>(),
+                        sample::<C>(),
+                        "cell",
+                        sample::<Vec<CellAttribute>>(),
+                        sample::<S>(),
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap()
+            .with_declaration(sample::<StableItemId>()),
         ]
     }
 }

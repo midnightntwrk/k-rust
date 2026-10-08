@@ -93,6 +93,10 @@ pub enum IrSortRef<D> {
     Declared(D),
     /// Sort intrinsic to the K language.
     Builtin(BuiltinSort),
+    /// K's generated sort of one nested (group) cell, such as `FrameCell` for
+    /// `<frame>`: the nominal `#[k::cell]` declaration at Semantic level and
+    /// the group cell's symbol at Definition level. It is a subsort of `KItem`.
+    Cell(D),
 }
 
 impl<D> IrSortRef<D> {

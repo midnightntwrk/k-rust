@@ -1015,7 +1015,9 @@ fn append_state_term_anchors(
     term_ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     match value {
-        StateTerm::Term(term) => append_term_anchors(term, output, term_ordinal),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_anchors(term, output, term_ordinal)
+        }
         StateTerm::KSequence(sequence) => {
             output.extend(sequence.provenance()?);
             for term in sequence.items() {
@@ -1145,7 +1147,9 @@ fn append_state_term_candidates(
     ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     match value {
-        StateTerm::Term(term) => append_term_candidates(term, variables, output, ordinal),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_candidates(term, variables, output, ordinal)
+        }
         StateTerm::KSequence(sequence) => {
             for item in sequence.items() {
                 append_term_candidates(item, variables, output, ordinal)?;

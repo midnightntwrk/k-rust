@@ -368,15 +368,15 @@ fn rule_cell(
                 field: name.into(),
             },
         },
-        wrapper_key: key(
+        wrapper_key: Some(key(
             side_role(
                 side,
                 ProvenanceRole::RuleLeftCellsWrapper,
                 ProvenanceRole::RuleRightCellsWrapper,
             ),
             ordinal,
-        ),
-        wrapper,
+        )),
+        wrapper: Some(wrapper),
         value,
     }
 }
@@ -990,15 +990,15 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
                 field: host_type_key::<HostRuleCellField>(),
             },
         },
-        wrapper_key: key(
+        wrapper_key: Some(key(
             side_role(
                 side,
                 ProvenanceRole::RuleLeftCellsWrapper,
                 ProvenanceRole::RuleRightCellsWrapper,
             ),
             0,
-        ),
-        wrapper: CellWrapper::Cell,
+        )),
+        wrapper: Some(CellWrapper::Cell),
         value: ProtocolRuleStateTerm::Term(value),
     };
     HostConfigurationRule {

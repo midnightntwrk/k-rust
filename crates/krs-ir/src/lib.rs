@@ -97,9 +97,9 @@ pub use provenance_role::{ProvenanceRole, RuleRole, RuleSide};
 pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
-    CellAttribute, CellCollectionType, CellColor, CellContentFrame, CellMultiplicity, CellPost,
-    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
-    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
+    CellMultiplicity, CellPost, ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent,
+    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, ListOperation,
     MapOperation, SetOperation, StateShapeError, TermMapOperation,
 };

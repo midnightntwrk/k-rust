@@ -129,7 +129,39 @@ pub(super) fn declared_cell_field_table(
 struct HeadRuleCellTarget {
     identity: krs_ir::DescriptorCellIdentity,
     names: Vec<String>,
-    wrapper: krs_ir::CellWrapper,
+    /// The leaf wrapper; absent for a fixed nested (group) cell, which a
+    /// readable record names as a whole (KF-016).
+    wrapper: Option<krs_ir::CellWrapper>,
+}
+
+fn head_rule_cell_target(
+    field: &krs_ir::HostCellField,
+    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
+    wrapper: Option<krs_ir::CellWrapper>,
+) -> Result<HeadRuleCellTarget, CollectionError> {
+    let identity = cell_fields
+        .get(&field.reference.cell.resolve())
+        .cloned()
+        .ok_or_else(|| {
+            CollectionError::new(
+                CollectionErrorKind::UnresolvedTypeReference,
+                format!(
+                    "fixed cell `{}` has no stable owner/field identity",
+                    field.rust_field
+                ),
+            )
+        })?;
+    let mut names = vec![field.rust_field.clone()];
+    if let Some(emitted) = &field.emitted_name
+        && !names.contains(&emitted.value)
+    {
+        names.push(emitted.value.clone());
+    }
+    Ok(HeadRuleCellTarget {
+        identity,
+        names,
+        wrapper,
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -155,31 +187,12 @@ fn collect_head_rule_cells(
     for field in &declaration.fields {
         match &field.content {
             krs_ir::ProtocolCellContent::Leaf { wrapper, .. } => {
-                let identity = cell_fields
-                    .get(&field.reference.cell.resolve())
-                    .cloned()
-                    .ok_or_else(|| {
-                        CollectionError::new(
-                            CollectionErrorKind::UnresolvedTypeReference,
-                            format!(
-                                "fixed cell `{}` has no stable owner/field identity",
-                                field.rust_field
-                            ),
-                        )
-                    })?;
-                let mut names = vec![field.rust_field.clone()];
-                if let Some(emitted) = &field.emitted_name
-                    && !names.contains(&emitted.value)
-                {
-                    names.push(emitted.value.clone());
-                }
-                cells.push(HeadRuleCellTarget {
-                    identity,
-                    names,
-                    wrapper: *wrapper,
-                });
+                cells.push(head_rule_cell_target(field, cell_fields, Some(*wrapper))?);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
+                if field.multiplicity.is_none() {
+                    cells.push(head_rule_cell_target(field, cell_fields, None)?);
+                }
                 let key = declaration.declaration.key.resolve();
                 if !visiting.insert(key) {
                     return Err(CollectionError::new(
@@ -279,7 +292,7 @@ pub(super) fn resolve_head_rule_targets(
         let computations = targets[0]
             .cells
             .iter()
-            .filter(|cell| cell.wrapper == krs_ir::CellWrapper::KCell)
+            .filter(|cell| cell.wrapper == Some(krs_ir::CellWrapper::KCell))
             .count();
         if computations != 1 {
             let detail = match computations {
@@ -340,7 +353,7 @@ fn resolve_head_rule_target<'a>(
         .cells
         .iter()
         .filter(|cell| {
-            cell.wrapper == krs_ir::CellWrapper::KCell
+            cell.wrapper == Some(krs_ir::CellWrapper::KCell)
                 && rule
                     .computation_cell_name
                     .as_ref()
@@ -722,6 +735,14 @@ fn resolve_sort_reference(
     let sort = if let Some((id, kind)) =
         declarations.get(&HostApplicationIdentity::Nominal(type_id))
     {
+        if *kind == ItemKind::Cell {
+            // A whole-group binder is typed by its nested `#[k::cell]`
+            // struct, whose K sort is the group's generated cell sort (KF-016).
+            return Ok(DescriptorSortReference {
+                key: reference.key.clone(),
+                sort: DescriptorSortRef::Cell(id.clone()),
+            });
+        }
         if *kind != ItemKind::Sort {
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
@@ -1175,7 +1196,7 @@ mod tests {
             cells: vec![HeadRuleCellTarget {
                 identity,
                 names: vec!["k".to_owned()],
-                wrapper: krs_ir::CellWrapper::KCell,
+                wrapper: Some(krs_ir::CellWrapper::KCell),
             }],
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));

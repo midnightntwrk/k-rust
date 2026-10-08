@@ -92,6 +92,28 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the rule's subject record.
         range: Option<Box<SourceRange>>,
     },
+    /// A rule selects a nested (group) cell together with a cell below it
+    /// (KF-016).
+    GroupAndDescendant {
+        /// The rule.
+        rule: Box<StableItemId>,
+        /// Rust field of the selected group cell.
+        group: String,
+        /// Rust field of the selected cell below it.
+        descendant: String,
+        /// Sole exact authored range of the rule's subject.
+        range: Option<Box<SourceRange>>,
+    },
+    /// One nominal `#[k::cell]` declaration is the content of two cell
+    /// fields, so its generated cell sort is ambiguous (KF-016).
+    AmbiguousCellSort {
+        /// The nested cell declaration.
+        declaration: Box<StableItemId>,
+        /// Rust fields whose content it is, in declaration order.
+        fields: Vec<String>,
+        /// Sole exact authored range of the second field.
+        range: Option<Box<SourceRange>>,
+    },
     /// A readable rule without the computation cell matches every
     /// configuration, so execution never terminates (KF-015).
     AlwaysEnabledRule {
@@ -196,6 +218,30 @@ impl fmt::Display for DescriptorLoweringError {
                 "rule `{}` changes no cell: every cell it names keeps its content and it leaves the computation cell out, so applying it changes nothing",
                 rule.item_name()
             ),
+            Self::GroupAndDescendant {
+                rule,
+                group,
+                descendant,
+                ..
+            } => write!(
+                formatter,
+                "rule `{}` selects the nested cell `{group}` and the cell `{descendant}` inside it; the whole-cell entry `{group}` already names every cell below it, so select one or the other",
+                rule.item_name()
+            ),
+            Self::AmbiguousCellSort {
+                declaration,
+                fields,
+                ..
+            } => write!(
+                formatter,
+                "cell declaration `{}` is the content of more than one cell field ({}), so its K cell sort is ambiguous; declare one struct per nested cell",
+                declaration.item_name(),
+                fields
+                    .iter()
+                    .map(|field| format!("`{field}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Self::AlwaysEnabledRule { rule, .. } => write!(
                 formatter,
                 "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
@@ -225,6 +271,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
             Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
             Self::AlwaysEnabledRule { .. } => codes::analysis::ALWAYS_ENABLED_RULE,
+            Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
+            Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -239,7 +287,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidOverload { range, .. }
             | Self::PrivateProductionInSpec { range, .. }
             | Self::RuleChangesNoCell { range, .. }
-            | Self::AlwaysEnabledRule { range, .. } => range
+            | Self::AlwaysEnabledRule { range, .. }
+            | Self::GroupAndDescendant { range, .. }
+            | Self::AmbiguousCellSort { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

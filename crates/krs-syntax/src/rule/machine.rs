@@ -105,7 +105,23 @@ fn parse_machine_pattern_record(
             MachinePatternCell::MapItem { key, value }
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
-            let (pattern, tree) = parse_rule_pattern(pattern, true, true, signs)?;
+            let (pattern, tree) = match pattern {
+                // `frame: _` matches a whole cell whose content the rule
+                // ignores, such as a nested cell it overwrites (KF-016).
+                Pat::Wild(wildcard) if wildcard.attrs.is_empty() => {
+                    let tree = TermTree::Wildcard(TokenRange::for_tokens(&wildcard)?);
+                    (
+                        RulePattern::Native {
+                            pattern: Pat::Wild(wildcard),
+                            paths: Vec::new(),
+                            bindings: Vec::new(),
+                            nodes: Vec::new(),
+                        },
+                        tree,
+                    )
+                }
+                pattern => parse_rule_pattern(pattern, true, true, signs)?,
+            };
             MachinePatternCell::Term {
                 pattern: Box::new(pattern),
                 tree: Box::new(tree),

@@ -570,6 +570,7 @@ fn render_reference_term_type(
         krs_ir::DescriptorSortRef::Declared(id) => Err(
             ReferenceExpansionError::ExternalReferenceSort(Box::new(id.clone())),
         ),
+        krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
     }
 }
 
@@ -579,6 +580,25 @@ fn render_reference_token_term_type(
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let token = render_declared_path(id, package)?;
     Ok(quote!(k::Term<#token>))
+}
+
+/// Whether `cell` is a fixed nested (group) cell, whose `cells!` entry is
+/// written without a wrapper because it mirrors the expanded struct (KF-016).
+fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::DescriptorBundle) -> bool {
+    bundle.descriptors().iter().any(|descriptor| {
+        if descriptor.id() != &cell.owner {
+            return false;
+        }
+        let declaration = match descriptor.payload() {
+            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
+            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
+            _ => return false,
+        };
+        declaration.fields.iter().any(|field| {
+            field.rust_field == cell.field
+                && matches!(field.content, krs_ir::ProtocolCellContent::Nested { .. })
+        })
+    })
 }
 
 fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
@@ -1171,15 +1191,22 @@ fn render_rule(
                 after,
                 ..
             } => {
+                let group = is_group_cell(&cell.cell, bundle);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
                 let after = render_term(after, false, package, bundle)?;
-                left_cells.push(quote! {
-                    #cell: k::configuration::Cell(#before)
-                });
-                right_cells.push(quote! {
-                    #cell: k::configuration::Cell(#after)
-                });
+                if group {
+                    // A nested field's entry has no wrapper (KF-016).
+                    left_cells.push(quote!(#cell: #before));
+                    right_cells.push(quote!(#cell: #after));
+                } else {
+                    left_cells.push(quote! {
+                        #cell: k::configuration::Cell(#before)
+                    });
+                    right_cells.push(quote! {
+                        #cell: k::configuration::Cell(#after)
+                    });
+                }
             }
         }
     }
@@ -1429,7 +1456,10 @@ fn render_sort_type(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
-        SemanticSortRef::Declared(id) => render_declared_path(id, package),
+        // A whole-group binder is typed by its nested `#[k::cell]` struct (KF-016).
+        SemanticSortRef::Declared(id) | SemanticSortRef::Cell(id) => {
+            render_declared_path(id, package)
+        }
         SemanticSortRef::Builtin(sort) => {
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
@@ -1442,7 +1472,9 @@ fn render_descriptor_sort(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
-        krs_ir::DescriptorSortRef::Declared(id) => render_declared_path(id, package),
+        krs_ir::DescriptorSortRef::Declared(id) | krs_ir::DescriptorSortRef::Cell(id) => {
+            render_declared_path(id, package)
+        }
         krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
     }
 }

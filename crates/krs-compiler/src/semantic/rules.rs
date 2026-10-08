@@ -72,7 +72,8 @@ pub(super) fn require_fixed_configuration<'a>(
 }
 
 /// Returns the semantic identities of every fixed leaf cell of `declaration`
-/// that `selected` does not name, in declaration order.
+/// that `selected` does not name, in declaration order. A selected nested
+/// (group) cell covers every leaf below it (KF-016).
 pub(super) fn omitted_leaf_cells(
     declaration: &DescriptorCellDeclaration,
     declarations: &DescriptorIndex<'_>,
@@ -82,6 +83,7 @@ pub(super) fn omitted_leaf_cells(
     collect_declared_leaf_identities(
         declaration,
         declarations,
+        selected,
         &mut BTreeSet::new(),
         &mut all_leaves,
     )?;
@@ -90,6 +92,81 @@ pub(super) fn omitted_leaf_cells(
         .filter(|identity| !selected.contains(identity))
         .map(|identity| semantic_cell_id(&identity))
         .collect()
+}
+
+/// Rejects a rule that selects a nested (group) cell together with one of
+/// the cells below it (KF-016): the group clause already names that cell.
+pub(super) fn check_group_descendants(
+    descriptor: &Descriptor,
+    pattern_key: &ProvenanceKey,
+    declaration: &DescriptorCellDeclaration,
+    declarations: &DescriptorIndex<'_>,
+    selected: &BTreeSet<DescriptorCellIdentity>,
+) -> Result<(), DescriptorLoweringError> {
+    fn below(
+        declaration: &DescriptorCellDeclaration,
+        declarations: &DescriptorIndex<'_>,
+        depth: usize,
+        output: &mut Vec<DescriptorCellIdentity>,
+    ) -> Result<(), DescriptorLoweringError> {
+        if depth > 64 {
+            return Err(DescriptorLoweringError::UnsupportedShape {
+                node: "nested cell declaration",
+                detail: "cyclic nominal cell declaration".into(),
+            });
+        }
+        for field in &declaration.fields {
+            output.push(field.reference.cell.clone());
+            if let ProtocolCellContent::Nested { declaration } = &field.content {
+                below(
+                    declarations.cell(&declaration.declaration)?,
+                    declarations,
+                    depth + 1,
+                    output,
+                )?;
+            }
+        }
+        Ok(())
+    }
+    fn first_conflict(
+        declaration: &DescriptorCellDeclaration,
+        declarations: &DescriptorIndex<'_>,
+        selected: &BTreeSet<DescriptorCellIdentity>,
+        depth: usize,
+    ) -> Result<Option<(String, String)>, DescriptorLoweringError> {
+        if depth > 64 {
+            return Ok(None);
+        }
+        for field in &declaration.fields {
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                continue;
+            };
+            let nested = declarations.cell(&declaration.declaration)?;
+            if selected.contains(&field.reference.cell) {
+                let mut descendants = Vec::new();
+                below(nested, declarations, 0, &mut descendants)?;
+                if let Some(descendant) = descendants.iter().find(|cell| selected.contains(cell)) {
+                    return Ok(Some((field.rust_field.clone(), descendant.field.clone())));
+                }
+            }
+            if let Some(conflict) = first_conflict(nested, declarations, selected, depth + 1)? {
+                return Ok(Some(conflict));
+            }
+        }
+        Ok(None)
+    }
+    let Some((group, descendant)) = first_conflict(declaration, declarations, selected, 0)? else {
+        return Ok(());
+    };
+    Err(DescriptorLoweringError::GroupAndDescendant {
+        rule: Box::new(descriptor.id().clone()),
+        group,
+        descendant,
+        range: semantic_origin(descriptor, pattern_key.clone(), "group-descendant-pattern")?
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+    })
 }
 
 /// Lowers an optional rule priority; its origin label names the authored key.
@@ -218,6 +295,13 @@ pub(super) fn lower_head_rule_descriptor(
     if rule.head.is_none() {
         check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
+    check_group_descendants(
+        descriptor,
+        &rule.pattern_key,
+        &configuration.declaration,
+        declarations,
+        &selected,
+    )?;
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     let body = FixedConfigurationRewrite::new(
         semantic_origin(
@@ -449,6 +533,12 @@ fn seed_head_rule_sorts(
             sort, arguments, ..
         } = &declared.content
         else {
+            if let ProtocolCellContent::Nested { declaration } = &declared.content {
+                cell_sorts.insert(
+                    cell.cell.clone(),
+                    SemanticSortRef::Cell(declaration.declaration.clone()),
+                );
+            }
             continue;
         };
         cell_sorts.insert(cell.cell.clone(), semantic_sort_ref(&sort.sort));
@@ -645,10 +735,30 @@ fn lower_head_rule_extra(
     }
     let declared = require_cell_field(&cell_reference.cell, declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule extra",
-            detail: "extra cell is not a fixed leaf".into(),
-        });
+        let (
+            ProtocolCellContent::Nested { declaration },
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                result_key,
+                before,
+                after,
+            },
+        ) = (&declared.content, extra)
+        else {
+            return Err(DescriptorLoweringError::UnsupportedShape {
+                node: "head-anchored rule extra",
+                detail: "a nested cell entry is a binder, `_`, or fragment!, not a map pattern"
+                    .into(),
+            });
+        };
+        return lower_head_rule_group_rewrite(
+            builder,
+            cell,
+            result_key,
+            before,
+            after,
+            &declaration.declaration,
+        );
     };
     match extra {
         krs_ir::ProtocolHeadRuleExtra::HaveMap {
@@ -797,15 +907,51 @@ fn lower_head_rule_cell_rewrite(
     Ok(clause)
 }
 
+/// Lowers a whole nested (group) cell entry of a readable record, such as
+/// `frame: f`, into a whole-cell clause of the group's generated cell sort
+/// (KF-016). An entry restated unchanged is preserved.
+fn lower_head_rule_group_rewrite(
+    builder: &mut StructuredTermBuilder<'_>,
+    cell: &DescriptorCellReference,
+    result_key: &ProvenanceKey,
+    before: &DescriptorTerm,
+    after: &DescriptorTerm,
+    declaration: &StableItemId,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    let expected = SemanticSortRef::Cell(declaration.clone());
+    let before = builder.lower(before, Some(&expected), true)?;
+    let after = builder.lower(after, Some(&expected), false)?;
+    let post = if same_term(&before, &after) {
+        CellPost::Preserve
+    } else {
+        CellPost::Replace { term: after }
+    };
+    let clause = FixedCellClause::whole(
+        semantic_origin(descriptor, cell.key.clone(), "completed-group-rewrite")?,
+        semantic_cell_id(&cell.cell)?,
+        before,
+        post,
+    );
+    let _ = semantic_origin(
+        descriptor,
+        result_key.clone(),
+        "completed-group-rewrite-result",
+    )?;
+    Ok(clause)
+}
+
 fn collect_declared_leaf_identities(
     declaration: &DescriptorCellDeclaration,
     declarations: &DescriptorIndex<'_>,
+    selected: &BTreeSet<DescriptorCellIdentity>,
     visiting: &mut BTreeSet<StableItemId>,
     leaves: &mut Vec<DescriptorCellIdentity>,
 ) -> Result<(), DescriptorLoweringError> {
     for field in &declaration.fields {
         match &field.content {
             ProtocolCellContent::Leaf { .. } => leaves.push(field.reference.cell.clone()),
+            ProtocolCellContent::Nested { .. } if selected.contains(&field.reference.cell) => {}
             ProtocolCellContent::Nested { declaration } => {
                 if !visiting.insert(declaration.declaration.clone()) {
                     return Err(DescriptorLoweringError::UnsupportedShape {
@@ -814,7 +960,7 @@ fn collect_declared_leaf_identities(
                     });
                 }
                 let nested = declarations.cell(&declaration.declaration)?;
-                collect_declared_leaf_identities(nested, declarations, visiting, leaves)?;
+                collect_declared_leaf_identities(nested, declarations, selected, visiting, leaves)?;
                 visiting.remove(&declaration.declaration);
             }
         }

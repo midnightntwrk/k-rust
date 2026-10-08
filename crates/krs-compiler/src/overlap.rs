@@ -105,6 +105,8 @@ struct SortGraph {
     parents: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     ancestors: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     compatible: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    /// Every cell below each group cell (KF-016).
+    descendants: BTreeMap<SemanticId, BTreeSet<SemanticId>>,
 }
 
 impl SortGraph {
@@ -128,6 +130,32 @@ impl SortGraph {
                     .entry(edge.subsort().clone())
                     .or_default()
                     .insert(edge.supersort().clone());
+            }
+        }
+        // Every generated group-cell sort (KF-016) is a subsort of KItem.
+        let k_item = graph
+            .candidates
+            .iter()
+            .find(|sort| {
+                matches!(sort, SemanticSortRef::Declared(id)
+                    if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
+            })
+            .cloned();
+        for module in modules {
+            let mut groups = Vec::new();
+            if let Some(configuration) = module.configuration() {
+                group_cells(configuration.cells(), &mut groups);
+            }
+            for (cell, sort, descendants) in groups {
+                graph.descendants.insert(cell, descendants);
+                graph.candidates.insert(sort.clone());
+                if let Some(k_item) = &k_item {
+                    graph
+                        .parents
+                        .entry(sort)
+                        .or_default()
+                        .insert(k_item.clone());
+                }
             }
         }
         graph.build_closure();
@@ -168,6 +196,18 @@ impl SortGraph {
         self.compatible
             .get(left)
             .is_some_and(|compatible| compatible.contains(right))
+    }
+
+    /// Whether one of two distinct cells is a group cell containing the
+    /// other: their clauses then constrain the same leaves (KF-016).
+    fn nested(&self, left: &SemanticId, right: &SemanticId) -> bool {
+        self.descendants
+            .get(left)
+            .is_some_and(|below| below.contains(right))
+            || self
+                .descendants
+                .get(right)
+                .is_some_and(|below| below.contains(left))
     }
 }
 
@@ -508,6 +548,39 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
         },
         SemanticTermKind::Rewrite { .. } => {
             unreachable!("configuration clause pre-patterns are never rewrites")
+        }
+    }
+}
+
+/// Every nested (group) cell below `cells`: its identity, its generated cell
+/// sort, and every cell below it (KF-016).
+fn group_cells(
+    cells: &[krs_ir::FixedCell<SemanticSortRef, SemanticId>],
+    output: &mut Vec<(SemanticId, SemanticSortRef, BTreeSet<SemanticId>)>,
+) {
+    fn below(
+        cells: &[krs_ir::FixedCell<SemanticSortRef, SemanticId>],
+        output: &mut BTreeSet<SemanticId>,
+    ) {
+        for cell in cells {
+            output.insert(cell.id().clone());
+            if let krs_ir::FixedCellContent::Children { children } = cell.content() {
+                below(children, output);
+            }
+        }
+    }
+    for cell in cells {
+        if let krs_ir::FixedCellContent::Children { children } = cell.content() {
+            if let Some(declaration) = cell.declaration() {
+                let mut descendants = BTreeSet::new();
+                below(children, &mut descendants);
+                output.push((
+                    cell.id().clone(),
+                    SemanticSortRef::Cell(declaration.clone()),
+                    descendants,
+                ));
+            }
+            group_cells(children, output);
         }
     }
 }
@@ -922,10 +995,14 @@ fn clauses_overlap(
         .iter()
         .map(|clause| (clause.cell, clause))
         .collect::<BTreeMap<_, _>>();
-    if !left
-        .iter()
-        .any(|clause| right_cells.contains_key(clause.cell))
-    {
+    // A whole group clause shares its leaves with a clause on any cell
+    // inside it (KF-016); such pairs are assumed to unify (conservative).
+    if !left.iter().any(|clause| {
+        right_cells.contains_key(clause.cell)
+            || right
+                .iter()
+                .any(|other| graph.nested(clause.cell, other.cell))
+    }) {
         return false;
     }
     let mut catalog = VariableCatalog::default();

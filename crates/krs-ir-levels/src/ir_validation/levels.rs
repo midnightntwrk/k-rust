@@ -161,8 +161,26 @@ impl Validation for SemanticLevel {
     fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             SemanticSortRef::Declared(id) => Some(id),
-            SemanticSortRef::Builtin(_) => None,
+            SemanticSortRef::Builtin(_) | SemanticSortRef::Cell(_) => None,
         }
+    }
+
+    fn group_sort(cell: &FixedCell<Self::Sort, Self::Cell>) -> Option<Self::Sort> {
+        cell.declaration().cloned().map(SemanticSortRef::Cell)
+    }
+
+    fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
+        match sort {
+            SemanticSortRef::Cell(id) => Some(id),
+            SemanticSortRef::Declared(_) | SemanticSortRef::Builtin(_) => None,
+        }
+    }
+
+    fn require_cell_sort(
+        _: &Declarations<Self>,
+        id: &Self::Declaration,
+    ) -> Result<(), Self::Error> {
+        expect_kind::<Self>(id, id.item_kind(), ItemKind::Cell)
     }
 
     fn required_kind(role: DeclarationRole) -> Self::Kind {
@@ -278,8 +296,26 @@ impl Validation for DefinitionLevel {
     fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             DefinitionSortRef::Declared(id) => Some(id),
-            DefinitionSortRef::Builtin(_) => None,
+            DefinitionSortRef::Builtin(_) | DefinitionSortRef::Cell(_) => None,
         }
+    }
+
+    fn group_sort(cell: &FixedCell<Self::Sort, Self::Cell>) -> Option<Self::Sort> {
+        Some(DefinitionSortRef::Cell(cell.id().clone()))
+    }
+
+    fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
+        match sort {
+            DefinitionSortRef::Cell(id) => Some(id),
+            DefinitionSortRef::Declared(_) | DefinitionSortRef::Builtin(_) => None,
+        }
+    }
+
+    fn require_cell_sort(
+        declarations: &Declarations<Self>,
+        id: &Self::Declaration,
+    ) -> Result<(), Self::Error> {
+        require_kind::<Self>(declarations, id, SymbolKind::Cell)
     }
 
     fn required_kind(role: DeclarationRole) -> Self::Kind {

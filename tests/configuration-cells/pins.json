@@ -1,15 +1,20 @@
 {
   "schema": 1,
   "expand": {
-    "krs-configuration-cells-framing": "1e1446373c43bfd51f86ce84778dc83c274aa89995e7e9b7d5ad0f1e9867f395"
+    "krs-configuration-cells-framing": "1e1446373c43bfd51f86ce84778dc83c274aa89995e7e9b7d5ad0f1e9867f395",
+    "krs-configuration-cells-groups": "d72f732696c7a90ca7f5d9bf23a03043db00e434d98ce3b01f769bd48e04c26f"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
       "definition.k": "8c1fe6115705fe03d74ac708c1d0052dd872185a2a7a5789ef39bb16005146b5"
+    },
+    "krs-configuration-cells-groups": {
+      "definition.k": "fcb18d395d26d4d3ab1c11e8096d33d525671195cbc6e576b9a100e3b9eb0ab4"
     }
   },
   "reference_sha256": {
-    "krs-configuration-cells-framing": "ffccd4fa80d54a99a74602c887277e1598033006f5daf56aed763c8adf0b81e7"
+    "krs-configuration-cells-framing": "ffccd4fa80d54a99a74602c887277e1598033006f5daf56aed763c8adf0b81e7",
+    "krs-configuration-cells-groups": "74fa3a00535d5e62abf8e925a3cf7c099878f44ba08a85ab64333fd13af0fbdf"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -21,6 +26,20 @@
         "parse": "accepted",
         "run": "6"
       }
+    },
+    "krs-configuration-cells-groups": {
+      "push-pop": {
+        "parse": "accepted",
+        "run": "310"
+      },
+      "save-restore": {
+        "parse": "accepted",
+        "run": "310"
+      },
+      "call-ret": {
+        "parse": "accepted",
+        "run": "310"
+      }
     }
   },
   "diagnostics": {
@@ -29,6 +48,15 @@
     ],
     "identity-framed-rule": [
       "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content and it leaves the computation cell out, so applying it changes nothing"
+    ],
+    "group-and-leaf": [
+      "error[krs::analysis::group-and-descendant]: rule `peek` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other"
+    ],
+    "reused-cell-declaration": [
+      "error[krs::analysis::ambiguous-cell-sort]: cell declaration `Frame` is the content of more than one cell field (`current`, `saved`), so its K cell sort is ambiguous; declare one struct per nested cell"
+    ],
+    "group-literal": [
+      "error[krs::rust-expansion::uncoded-error]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!"
     ]
   }
 }

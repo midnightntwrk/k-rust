@@ -10,7 +10,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 pub use crate::catalog::{ListOperation, MapOperation, SetOperation, TermMapOperation};
-use crate::{NodeOrigin, SemanticId};
+use crate::{NodeOrigin, SemanticId, StableItemId};
 
 /// User-authored root policy for a fixed configuration.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -212,6 +212,11 @@ pub struct FixedCell<S, C> {
     name: String,
     attributes: Vec<CellAttribute>,
     content: FixedCellContent<S, C>,
+    /// Nominal `#[k::cell]` declaration of a nested cell, recorded in Semantic
+    /// IR so that a group-cell sort (`IrSortRef::Cell`) can name its cell.
+    /// Definition IR names the cell by its symbol instead and omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    declaration: Option<StableItemId>,
 }
 
 impl<S, C> FixedCell<S, C> {
@@ -234,6 +239,7 @@ impl<S, C> FixedCell<S, C> {
             name,
             attributes,
             content: FixedCellContent::Term { sort },
+            declaration: None,
         })
     }
 
@@ -261,6 +267,7 @@ impl<S, C> FixedCell<S, C> {
             name,
             attributes,
             content: FixedCellContent::Children { children },
+            declaration: None,
         })
     }
 
@@ -292,6 +299,19 @@ impl<S, C> FixedCell<S, C> {
     #[must_use]
     pub const fn content(&self) -> &FixedCellContent<S, C> {
         &self.content
+    }
+
+    /// Records the nominal `#[k::cell]` declaration of a nested cell.
+    #[must_use]
+    pub fn with_declaration(mut self, declaration: StableItemId) -> Self {
+        self.declaration = Some(declaration);
+        self
+    }
+
+    /// Returns the nominal declaration of a nested cell in Semantic IR.
+    #[must_use]
+    pub const fn declaration(&self) -> Option<&StableItemId> {
+        self.declaration.as_ref()
     }
 }
 
@@ -621,7 +641,30 @@ pub enum CellPost<T> {
     },
 }
 
-/// One leaf-cell clause in a simultaneous configuration rewrite.
+/// What a configuration-rewrite clause matches and rewrites.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CellClauseKind {
+    /// The content of one leaf cell, written inside its `<cell>` brackets.
+    #[default]
+    Content,
+    /// One whole nested (group) cell, written as a term of its generated
+    /// `<Name>Cell` sort without enclosing brackets (KF-016). The frame is
+    /// always exact.
+    Whole,
+}
+
+impl CellClauseKind {
+    /// Returns whether this is the default leaf-content kind.
+    #[must_use]
+    pub const fn is_content(&self) -> bool {
+        matches!(self, Self::Content)
+    }
+}
+
+/// One cell clause in a simultaneous configuration rewrite.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FixedCellClause<C, T> {
@@ -630,6 +673,9 @@ pub struct FixedCellClause<C, T> {
     before: T,
     after: CellPost<T>,
     frame: CellContentFrame,
+    /// Leaf content or a whole group cell; omitted when it is leaf content.
+    #[serde(default, skip_serializing_if = "CellClauseKind::is_content")]
+    kind: CellClauseKind,
 }
 
 /// One leaf-cell pattern in a one-sided configuration sentence.
@@ -771,7 +817,36 @@ impl<C, T> FixedCellClause<C, T> {
             before,
             after,
             frame,
+            kind: CellClauseKind::Content,
         }
+    }
+
+    /// Creates a clause over one whole nested (group) cell, whose terms have
+    /// the group's generated cell sort and whose frame is exact (KF-016).
+    #[must_use]
+    pub const fn whole(origin: NodeOrigin, cell: C, before: T, after: CellPost<T>) -> Self {
+        Self {
+            origin,
+            cell,
+            before,
+            after,
+            frame: CellContentFrame::Exact,
+            kind: CellClauseKind::Whole,
+        }
+    }
+
+    /// Replaces the clause kind, preserving every other field; IR validation
+    /// checks that a whole-cell clause keeps an exact frame.
+    #[must_use]
+    pub const fn with_kind(mut self, kind: CellClauseKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Returns whether the clause rewrites leaf content or a whole group cell.
+    #[must_use]
+    pub const fn kind(&self) -> CellClauseKind {
+        self.kind
     }
 
     /// Returns clause provenance.

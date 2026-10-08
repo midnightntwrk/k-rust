@@ -38,6 +38,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         declarations,
         &mut visiting,
     )?;
+    check_unambiguous_cell_sorts(&cells)?;
 
     let mut binding_sorts = BTreeMap::new();
     let mut variables = Vec::with_capacity(configuration.initializer.variables.len());
@@ -91,6 +92,43 @@ pub(super) fn lower_fixed_configuration_descriptor(
         variables,
         initializer,
     )?)
+}
+
+/// Rejects a nominal `#[k::cell]` declaration that is the content of more
+/// than one nested cell: its generated K cell sort would name two cells
+/// (KF-016).
+fn check_unambiguous_cell_sorts(
+    cells: &[FixedCell<SemanticSortRef, SemanticId>],
+) -> Result<(), DescriptorLoweringError> {
+    fn walk<'a>(
+        cells: &'a [FixedCell<SemanticSortRef, SemanticId>],
+        seen: &mut BTreeMap<&'a StableItemId, Vec<&'a FixedCell<SemanticSortRef, SemanticId>>>,
+    ) {
+        for cell in cells {
+            if let Some(declaration) = cell.declaration() {
+                seen.entry(declaration).or_default().push(cell);
+            }
+            if let krs_ir::FixedCellContent::Children { children } = cell.content() {
+                walk(children, seen);
+            }
+        }
+    }
+    let mut seen = BTreeMap::new();
+    walk(cells, &mut seen);
+    for (declaration, fields) in seen {
+        if let [_, second, ..] = fields.as_slice() {
+            return Err(DescriptorLoweringError::AmbiguousCellSort {
+                declaration: Box::new(declaration.clone()),
+                fields: fields.iter().map(|cell| cell.name().to_owned()).collect(),
+                range: second
+                    .origin()
+                    .origin()
+                    .exact_authored_range()
+                    .map(Box::new),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn lower_cell_declaration(
@@ -151,6 +189,7 @@ fn lower_cell_declaration(
                     lower_cell_declaration(nested, nested_declaration, declarations, visiting)?;
                 visiting.remove(&declaration.declaration);
                 FixedCell::nested(origin, id, name, attributes, children)?
+                    .with_declaration(declaration.declaration.clone())
             }
         };
         cells.push(cell);

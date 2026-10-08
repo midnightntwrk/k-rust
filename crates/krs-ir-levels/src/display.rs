@@ -9,6 +9,7 @@ impl<D: fmt::Display> fmt::Display for IrSortRef<D> {
         match self {
             Self::Declared(id) => id.fmt(formatter),
             Self::Builtin(sort) => sort.fmt(formatter),
+            Self::Cell(id) => write!(formatter, "cell sort of {id}"),
         }
     }
 }

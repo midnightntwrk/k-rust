@@ -121,7 +121,11 @@ impl StructuredTermBuilder<'_> {
                 ..
             } => {
                 let k_item = self.cell_k_item_sort()?;
+                let whole_group = expected_sort.is_some_and(|expected| {
+                    *expected == SemanticSortRef::Cell(declaration.clone())
+                });
                 if let Some(expected) = expected_sort
+                    && !whole_group
                     && !semantic_is_subsort(&k_item, expected, self.sort_parents)
                 {
                     return Err(self.invalid_term(
@@ -546,7 +550,7 @@ impl StructuredTermBuilder<'_> {
                 key,
                 declaration,
                 fields,
-            } => self.lower_cell_term(key, declaration, fields, subject),
+            } => self.lower_cell_term(key, declaration, fields, expected_sort, subject),
         }
     }
 
@@ -732,8 +736,18 @@ impl StructuredTermBuilder<'_> {
         key: &ProvenanceKey,
         owner: &StableItemId,
         fields: &[krs_ir::DescriptorCellTermField],
+        expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        // A fragment that is a whole group-cell clause has the group's
+        // generated cell sort (KF-016); elsewhere it keeps the KItem sort it
+        // always had, so existing emitted and native terms are unchanged.
+        let whole = SemanticSortRef::Cell(owner.clone());
+        let sort = if expected_sort == Some(&whole) {
+            whole
+        } else {
+            self.cell_k_item_sort()?
+        };
         let declaration = self.cell_declaration(owner)?.clone();
         let supplied = fields
             .iter()
@@ -768,7 +782,7 @@ impl StructuredTermBuilder<'_> {
         let identity = self.cell_identity_for_declaration(owner)?;
         Ok(SemanticTerm::cell(
             semantic_origin(self.descriptor, key.clone(), "cell-term")?,
-            self.cell_k_item_sort()?,
+            sort,
             semantic_cell_id(identity)?,
             children,
         ))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Configuration-cells feature gate: readable machine rules that leave `k` out (KF-015).
+"""Configuration-cells feature gate: rules that leave `k` out (KF-015) and
+whole nested-cell variables (KF-016).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -13,10 +14,25 @@ the outcomes must agree:
   writes acc to the computation cell, so both routes end with `6` there.
   `krs check` accepts the package: `done` and `burn` share no cell, so the
   overlap check does not report them (F2 amendment, clause 5);
+- `groups`: `push: { .., frame: f } => { stack: list::concat(list::item(f), s), frame: f }`
+  binds the whole nested cell `<frame>` to one variable of K's generated
+  sort `FrameCell`, and `pop` restores it with `frame: f` on the result
+  side. The emitted rules name `F:FrameCell` and write the group clause
+  bare; `krs expand` writes the entry without a `Cell(..)` wrapper and types
+  the binder by the nested `#[k::cell]` struct. `save`/`restore` restate the
+  leaves and rebuild the frame with `k::fragment!`, and `call`/`ret` are the
+  reference spelling of `push`/`pop`. Starting from an empty stack, pc 0 and
+  gas 13, each of the three programs ends with pc 3 and gas 10 natively, and
+  `report` writes 310 (`100 * pc + gas`) to the computation cell on both
+  routes;
 - negative fixtures: a rule without the computation cell whose only pattern
-  is an unguarded variable (`krs::analysis::always-enabled-rule`) and one
-  that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`)
-  each fail `krs check` with a pinned diagnostic.
+  is an unguarded variable (`krs::analysis::always-enabled-rule`), one
+  that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
+  a rule that selects a nested cell and a cell inside it
+  (`krs::analysis::group-and-descendant`), a cell declaration that is the
+  content of two cell fields (`krs::analysis::ambiguous-cell-sort`), and
+  `frame: 3` in a `cells!` entry each fail `krs check` with a pinned
+  diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -73,9 +89,47 @@ BURN_REFERENCE = (
     ") -> crate::Machine {\n"
 )
 
+GROUPS = Fixture(MANIFEST, "krs-configuration-cells-groups")
+GROUPS_START = (("STACK", ".List"), ("PC", "0"), ("GAS", "13"))
+GROUPS_PROGRAMS = tuple(
+    Program(name, f"bump bump {save} bump {restore} bump report", "accepted", "310", variables=GROUPS_START)
+    for name, save, restore in (
+        ("push-pop", "push", "pop"),
+        ("save-restore", "save", "restore"),
+        ("call-ret", "call", "ret"),
+    )
+)
+
+PUSH_K = (
+    "  rule [push]:\n"
+    "    <k> push => .K ... </k>\n"
+    "    <stack> S:List => ListItem(F:FrameCell) S:List </stack>\n"
+    "    F:FrameCell\n"
+)
+POP_K = (
+    "  rule [pop]:\n"
+    "    <k> pop => .K ... </k>\n"
+    "    <stack> ListItem(F:FrameCell) S:List => S:List </stack>\n"
+    "    (_:FrameCell => F:FrameCell)\n"
+)
+PUSH_REFERENCE = (
+    '#[k::rule(label = "push")]\n'
+    "pub fn push(\n"
+    "    s: k::Term<k::builtin::List>,\n"
+    "    f: crate::Frame,\n"
+    "    k::cells! {\n"
+    "        k : k::configuration::KCell(crate ::Cmd::Push(), tail @ ..), stack :\n"
+    "        k::configuration::Cell(s), frame : f, state @ ..\n"
+    "    }: crate::Machine,\n"
+    ") -> crate::Machine {\n"
+)
+
 NEGATIVE = (
     "unguarded-framed-rule",
     "identity-framed-rule",
+    "group-and-leaf",
+    "reused-cell-declaration",
+    "group-literal",
 )
 
 
@@ -116,6 +170,21 @@ def verify_framing(harness: FixtureGate) -> None:
     final_cells(harness, emitted, FRAMING_PROGRAMS[0], {"fuel": "0", "acc": "6"})
 
 
+def verify_groups(harness: FixtureGate) -> None:
+    harness.check(GROUPS)
+    expansion = harness.expand(GROUPS)
+    if PUSH_REFERENCE not in expansion:
+        raise GateError("the reference form of `push` lost its unwrapped group entry or its `crate::Frame` binder")
+    emitted = harness.emit(GROUPS)
+    source = emitted.source.read_text(encoding="utf-8")
+    for rule in (PUSH_K, POP_K):
+        if rule not in source:
+            raise GateError(f"emitted K changed a whole-cell rule:\n{source}")
+    harness.compare(emitted, GROUPS_PROGRAMS, sort="Stmt")
+    for program in GROUPS_PROGRAMS:
+        final_cells(harness, emitted, program, {"pc": "3", "gas": "10"})
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -141,6 +210,9 @@ def main() -> int:
 
         verify_framing(harness)
         print("PASS framing: burn frames k on both routes, done ends with fuel 0 and acc 6, report writes 6")
+
+        verify_groups(harness)
+        print("PASS groups: push/pop, save/restore and call/ret each end with pc 3 and gas 10, report writes 310")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

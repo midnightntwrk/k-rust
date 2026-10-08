@@ -294,6 +294,9 @@ protocol_shape! {
         KSequence(value: ProtocolRuleKSequence<T> => [nested term_map]),
         /// Structured map.
         Map(value: ProtocolRuleMap<T> => [nested term_map]),
+        /// A whole nested (group) cell, written without a wrapper: a group
+        /// binder, `_`, or a complete `k::fragment!` term (KF-016).
+        Group(value: T => [term_map]),
     }
 }
 
@@ -304,10 +307,13 @@ protocol_shape! {
     pub struct ProtocolRuleCell<I => cell_map => I2, T => term_map => T2> {
         /// Exact selected-field provenance and owner-qualified identity.
         pub field: I => [cell_map],
-        /// Exact `Cell`/`KCell` wrapper path provenance.
-        pub wrapper_key: ProvenanceKey => [keep],
-        /// Typed wrapper meaning.
-        pub wrapper: CellWrapper => [keep],
+        /// Exact `Cell`/`KCell` wrapper path provenance; absent exactly for a
+        /// whole group-cell entry, which has no wrapper (KF-016).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub wrapper_key: Option<ProvenanceKey> => [keep],
+        /// Typed wrapper meaning; absent exactly when `wrapper_key` is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub wrapper: Option<CellWrapper> => [keep],
         /// Structured cell state.
         pub value: ProtocolRuleStateTerm<T> => [nested term_map],
     }
@@ -555,7 +561,7 @@ fn validate_context_alias_frames<I, T, S>(
     let mut discovered = BTreeSet::new();
     for cell in &cells.cells {
         match &cell.value {
-            ProtocolRuleStateTerm::Term(_) => {}
+            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => {}
             ProtocolRuleStateTerm::KSequence(sequence) => validate_context_alias_frame(
                 &sequence.tail,
                 ContextAliasBindingUse::KSequenceFrame,
@@ -646,7 +652,9 @@ fn count_here_in_cells<I>(cells: &ProtocolRuleCells<I, DescriptorTerm>, here: &s
 
 fn count_here_in_state(state: &ProtocolRuleStateTerm<DescriptorTerm>, here: &str) -> usize {
     match state {
-        ProtocolRuleStateTerm::Term(term) => count_here_in_term(term, here),
+        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+            count_here_in_term(term, here)
+        }
         ProtocolRuleStateTerm::KSequence(sequence) => sequence
             .items
             .iter()
@@ -707,7 +715,7 @@ fn collect_cells_keys<I>(
     }
     for cell in &cells.cells {
         keys.insert(cell.field.cell_key().clone());
-        keys.insert(cell.wrapper_key.clone());
+        keys.extend(cell.wrapper_key.iter().cloned());
         collect_state_keys(&cell.value, keys);
     }
 }
@@ -735,7 +743,9 @@ fn collect_state_keys(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) {
     match state {
-        ProtocolRuleStateTerm::Term(term) => collect_term_keys(term, keys),
+        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+            collect_term_keys(term, keys);
+        }
         ProtocolRuleStateTerm::KSequence(sequence) => {
             keys.extend(sequence.payload_key.iter().cloned());
             keys.extend(sequence.dot_k_key.iter().cloned());
@@ -1578,14 +1588,16 @@ fn validate_rule_cells<S: RuleValidationStage>(
             counters.cells_field,
         )?;
         counters.cells_field = rule_increment(counters.cells_field)?;
-        insert_state_exact(
-            keys,
-            &cell.wrapper_key,
-            side,
-            RuleRole::CellsWrapper,
-            counters.cells_wrapper,
-        )?;
-        counters.cells_wrapper = rule_increment(counters.cells_wrapper)?;
+        if let Some(wrapper_key) = &cell.wrapper_key {
+            insert_state_exact(
+                keys,
+                wrapper_key,
+                side,
+                RuleRole::CellsWrapper,
+                counters.cells_wrapper,
+            )?;
+            counters.cells_wrapper = rule_increment(counters.cells_wrapper)?;
+        }
         validate_rule_wrapper(cell.wrapper, &cell.value)?;
         validate_rule_state::<S>(&cell.value, side, bindings, discovered, counters, keys)?;
     }
@@ -1602,14 +1614,16 @@ fn validate_rule_cells<S: RuleValidationStage>(
 }
 
 fn validate_rule_wrapper<T>(
-    wrapper: CellWrapper,
+    wrapper: Option<CellWrapper>,
     value: &ProtocolRuleStateTerm<T>,
 ) -> Result<(), StateTransportError> {
     match (wrapper, value) {
-        (CellWrapper::KCell, ProtocolRuleStateTerm::KSequence(_))
-        | (CellWrapper::Cell, ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_)) => {
-            Ok(())
-        }
+        (Some(CellWrapper::KCell), ProtocolRuleStateTerm::KSequence(_))
+        | (
+            Some(CellWrapper::Cell),
+            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_),
+        )
+        | (None, ProtocolRuleStateTerm::Group(_)) => Ok(()),
         _ => Err(StateTransportError::InvalidCellContent(
             StateCellContentReason::RuleWrapperAndStateFamilyDisagree,
         )),
@@ -1630,6 +1644,17 @@ fn validate_rule_state<S: RuleValidationStage>(
 ) -> Result<(), StateTransportError> {
     match state {
         ProtocolRuleStateTerm::Term(term) => {
+            validate_rule_term::<S>(term, side.into(), bindings, discovered, counters, keys)
+        }
+        ProtocolRuleStateTerm::Group(term) => {
+            if !matches!(
+                term,
+                Term::Variable { .. } | Term::Wildcard { .. } | Term::Cell { .. }
+            ) {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::InvalidGroupCellEntry,
+                ));
+            }
             validate_rule_term::<S>(term, side.into(), bindings, discovered, counters, keys)
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {

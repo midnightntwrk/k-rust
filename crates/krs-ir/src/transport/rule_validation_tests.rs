@@ -338,8 +338,8 @@ fn cells<S: ValidationStage>(reference: S::Cell) -> ProtocolRuleCells<S::Cell, T
         key: key(ProvenanceRole::RuleLeftCellsPayload),
         cells: vec![ProtocolRuleCell {
             field: reference,
-            wrapper_key: key(ProvenanceRole::RuleLeftCellsWrapper),
-            wrapper: CellWrapper::Cell,
+            wrapper_key: Some(key(ProvenanceRole::RuleLeftCellsWrapper)),
+            wrapper: Some(CellWrapper::Cell),
             value: ProtocolRuleStateTerm::Term(Term::Literal {
                 key: key(ProvenanceRole::RuleLeftLiteral),
                 literal: DescriptorLiteral::Bool(true),

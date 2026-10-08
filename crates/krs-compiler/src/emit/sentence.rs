@@ -41,9 +41,9 @@ pub(super) fn emit_sentence(
         }
         DefinitionSentence::Subsort(sentence) => {
             writer.push("syntax ");
-            writer.push(context.sort_name_ref(sentence.supersort())?);
+            writer.push(&context.sort_name_ref(sentence.supersort())?);
             writer.push(" ::= ");
-            writer.push(context.sort_name_ref(sentence.subsort())?);
+            writer.push(&context.sort_name_ref(sentence.subsort())?);
         }
         DefinitionSentence::Production(sentence) => emit_production(sentence, context, writer)?,
         DefinitionSentence::Precedence(sentence) => {
@@ -88,7 +88,7 @@ fn emit_production(
         }
     }
     writer.push("syntax ");
-    writer.push(context.sort_name_ref(sentence.result_sort())?);
+    writer.push(&context.sort_name_ref(sentence.result_sort())?);
     writer.push(" ::= ");
     for (index, item) in sentence.items().iter().enumerate() {
         if index != 0 {
@@ -98,7 +98,7 @@ fn emit_production(
         match item.kind() {
             GrammarProductionItemKind::Terminal { text } => writer.push(&quoted_outer(text)),
             GrammarProductionItemKind::NonTerminal { sort, .. } => {
-                writer.push(context.sort_name_ref(sort)?);
+                writer.push(&context.sort_name_ref(sort)?);
             }
             GrammarProductionItemKind::RegexTerminal { regex, .. } => {
                 writer.push("r");
@@ -307,7 +307,7 @@ fn emit_production_attribute(
             }
             writer.push(", result(");
             let result_start = writer.source.len();
-            writer.push(context.sort_name_ref(result_sort.sort())?);
+            writer.push(&context.sort_name_ref(result_sort.sort())?);
             writer.record(
                 result_sort.origin().key(),
                 result_start,
@@ -497,7 +497,7 @@ fn emit_initializer_term(
         writer.push("$");
         writer.push(declaration.external_name());
         writer.push(":");
-        writer.push(context.sort_name_ref(term.sort())?);
+        writer.push(&context.sort_name_ref(term.sort())?);
         writer.record(term.origin().key(), start, writer.source.len())?;
         writer.record(declaration.origin().key(), start, writer.source.len())?;
         if let Some(sequence) = sequence_origin {
@@ -764,6 +764,36 @@ fn emit_cell_clause(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let start = writer.source.len();
+    if clause.kind() == krs_ir::CellClauseKind::Whole {
+        // A whole group cell is a term of its generated cell sort, written
+        // bare (KF-016): `F:FrameCell` or `(_Gen0:FrameCell => F:FrameCell)`.
+        writer.push(&" ".repeat(indent));
+        match clause.after() {
+            CellPost::Preserve => {
+                writer.append_rendered(render_term(clause.before(), context, names, false)?)?;
+            }
+            CellPost::Replace { term } => {
+                writer.push("(");
+                let mut before = render_term(clause.before(), context, names, false)?;
+                if let DefinitionTermKind::Variable { variable } = clause.before().kind()
+                    && variable.kind() == krs_ir::SemanticIdKind::Wildcard
+                {
+                    // A bare `_` beside the cells gives K no sort to infer;
+                    // name the generated cell sort: `(_:FrameCell => F:FrameCell)`.
+                    before.text.push(':');
+                    before
+                        .text
+                        .push_str(&context.sort_name_ref(clause.before().sort())?);
+                }
+                writer.append_rendered(before)?;
+                writer.push(" => ");
+                writer.append_rendered(render_term(term, context, names, false)?)?;
+                writer.push(")");
+            }
+        }
+        writer.record(clause.origin().key(), start, writer.source.len())?;
+        return Ok(());
+    }
     let name = context.cell_name(clause.cell())?;
     writer.push(&" ".repeat(indent));
     writer.push("<");

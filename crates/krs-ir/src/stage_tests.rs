@@ -423,8 +423,8 @@ fn rule_cells() -> DescriptorRuleCells {
         key: key(0),
         cells: vec![rule::ProtocolRuleCell {
             field: cell(1),
-            wrapper_key: key(2),
-            wrapper: cfg::CellWrapper::Cell,
+            wrapper_key: Some(key(2)),
+            wrapper: Some(cfg::CellWrapper::Cell),
             value: rule::ProtocolRuleStateTerm::Term(term(3)),
         }],
         remainder: rule::ProtocolRuleFrame::Bind {

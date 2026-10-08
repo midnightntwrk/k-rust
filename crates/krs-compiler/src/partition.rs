@@ -305,6 +305,7 @@ fn sort_display(sort: &SemanticSortRef) -> String {
     match sort {
         SemanticSortRef::Declared(id) => id.item_name().to_owned(),
         SemanticSortRef::Builtin(sort) => sort.k_name().to_owned(),
+        SemanticSortRef::Cell(id) => format!("{}Cell", id.item_name()),
     }
 }
 

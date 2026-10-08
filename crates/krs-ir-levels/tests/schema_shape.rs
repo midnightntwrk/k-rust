@@ -628,6 +628,7 @@ fn registry() -> Registry {
     trace!(CellCollectionType: CellCollectionType);
     trace!(CellColor: CellColor);
     trace!(CellMultiplicity: CellMultiplicity);
+    trace!(CellClauseKind: CellClauseKind);
     trace!(CellWrapper: CellWrapper);
     trace!(ClaimModality: ClaimModality);
     trace!(CollectorMeasureDocument: CollectorMeasureDocument);

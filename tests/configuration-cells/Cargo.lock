@@ -56,6 +56,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-groups"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-diagnostic"
 version = "0.1.0"
 dependencies = [

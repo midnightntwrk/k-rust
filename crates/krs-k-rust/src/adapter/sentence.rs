@@ -727,6 +727,11 @@ impl Adapter<'_> {
                         )?),
                     },
                 };
+                if clause.kind() == krs_ir::CellClauseKind::Whole {
+                    // A whole group cell sits in `#cells` as a term of its
+                    // generated `<Name>Cell` sort, without brackets (KF-016).
+                    return Ok(content);
+                }
                 self.framed_cell(clause.cell(), content, clause.frame(), clause.origin())
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;

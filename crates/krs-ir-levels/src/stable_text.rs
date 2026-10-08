@@ -11,6 +11,7 @@ impl StableText for SemanticSortRef {
         Cow::Owned(match self {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
+            Self::Cell(id) => format!("Cell({})", id.stable_text()),
         })
     }
 }
@@ -26,6 +27,7 @@ impl StableText for DefinitionSortRef {
         Cow::Owned(match self {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
+            Self::Cell(id) => format!("Cell({})", id.stable_text()),
         })
     }
 }

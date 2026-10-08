@@ -993,16 +993,20 @@ impl ConfigurationValidationStage for DescriptorStage {
         wrapper: CellWrapper,
         sort: &DescriptorSortReference,
     ) -> Result<(), StateTransportError> {
-        sort.sort
-            .validate()
-            .map_err(|_| StateTransportError::ItemKind {
-                field: TransportField::CellContentSort,
-                expected: TransportItemKind::SortOrBuiltin,
-                actual: match &sort.sort {
-                    DescriptorSortRef::Declared(id) => id.item_kind(),
-                    DescriptorSortRef::Builtin(_) => ItemKind::Sort,
-                },
-            })?;
+        let invalid = |actual| StateTransportError::ItemKind {
+            field: TransportField::CellContentSort,
+            expected: TransportItemKind::SortOrBuiltin,
+            actual,
+        };
+        match &sort.sort {
+            DescriptorSortRef::Cell(id) => return Err(invalid(id.item_kind())),
+            DescriptorSortRef::Declared(id) => {
+                sort.sort.validate().map_err(|_| invalid(id.item_kind()))?;
+            }
+            DescriptorSortRef::Builtin(_) => {
+                sort.sort.validate().map_err(|_| invalid(ItemKind::Sort))?;
+            }
+        }
         validate_k_cell_sort(wrapper, &sort.sort)
     }
 

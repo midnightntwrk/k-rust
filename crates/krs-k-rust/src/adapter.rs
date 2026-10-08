@@ -313,10 +313,15 @@ impl<'a> Adapter<'a> {
         sort: &DefinitionSortRef,
         origin: &NodeOrigin,
     ) -> Result<NativeSort, AdapterError> {
-        Ok(NativeSort::new(match sort {
-            DefinitionSortRef::Declared(symbol) => self.symbol_name(symbol, origin)?,
-            DefinitionSortRef::Builtin(sort) => sort.k_name(),
-        }))
+        Ok(match sort {
+            DefinitionSortRef::Declared(symbol) => {
+                NativeSort::new(self.symbol_name(symbol, origin)?)
+            }
+            DefinitionSortRef::Builtin(sort) => NativeSort::new(sort.k_name()),
+            DefinitionSortRef::Cell(cell) => NativeSort::new(
+                krs_ir_levels::k_surface::cell_sort_name(self.cell_name(cell, origin)?).as_str(),
+            ),
+        })
     }
 
     fn group_name(

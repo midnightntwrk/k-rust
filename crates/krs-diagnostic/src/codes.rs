@@ -178,6 +178,8 @@ register_codes! {
         PRIVATE_PRODUCTION_IN_SPEC: "krs::analysis::private-production-in-spec" => "A claim names a private production, which proof modules cannot see.",
         ALWAYS_ENABLED_RULE: "krs::analysis::always-enabled-rule" => "A rule without the computation cell matches every configuration, so execution never terminates.",
         RULE_CHANGES_NO_CELL: "krs::analysis::rule-changes-no-cell" => "A rule without the computation cell changes no cell.",
+        GROUP_AND_DESCENDANT: "krs::analysis::group-and-descendant" => "A rule selects a nested cell together with a cell inside it.",
+        AMBIGUOUS_CELL_SORT: "krs::analysis::ambiguous-cell-sort" => "One cell declaration is the content of two cell fields, so its K cell sort is ambiguous.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {

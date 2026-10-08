@@ -10,7 +10,7 @@ use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
 use crate::path::{path_text, plain_path_last, unqualified_path_ident};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
-    TokenRange,
+    TermTree, TokenRange,
 };
 
 /// Whether a compiler-owned state island occurs in pattern or expression position.
@@ -351,14 +351,18 @@ pub enum StateTerm {
     KSequence(KSequence),
     /// Compiler-parsed map operation.
     Map(MapExpression),
+    /// A whole nested (group) cell written without a wrapper: a group
+    /// binder, `_`, or a complete `k::fragment!` term (KF-016).
+    Group(TermExpression),
 }
 
-/// One selected fixed leaf in a `cells!` payload.
+/// One selected fixed cell in a `cells!` payload: a leaf with its
+/// `Cell(..)`/`KCell(..)` wrapper, or a whole nested cell without one.
 #[derive(Clone, Debug)]
 pub struct CellsEntry {
     name: Ident,
     owner: Option<Path>,
-    wrapper: Path,
+    wrapper: Option<Path>,
     value: StateTerm,
 }
 
@@ -379,10 +383,11 @@ impl CellsEntry {
         self.owner.as_ref()
     }
 
-    /// Returns the authored `Cell`/`KCell` wrapper path.
+    /// Returns the authored `Cell`/`KCell` wrapper path, absent exactly for a
+    /// whole nested-cell entry ([`StateTerm::Group`]).
     #[must_use]
-    pub const fn wrapper(&self) -> &Path {
-        &self.wrapper
+    pub const fn wrapper(&self) -> Option<&Path> {
+        self.wrapper.as_ref()
     }
 
     /// Returns the compiler-parsed leaf contents.
@@ -440,11 +445,13 @@ impl CellsExpression {
                 ordinal,
                 TokenRange::for_tokens(&entry.name)?,
             ));
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsWrapper,
-                ordinal,
-                TokenRange::for_tokens(&entry.wrapper)?,
-            ));
+            if let Some(wrapper) = &entry.wrapper {
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::CellsWrapper,
+                    ordinal,
+                    TokenRange::for_tokens(wrapper)?,
+                ));
+            }
         }
         if let Some(range) = self.remainder.range() {
             output.push(ProvenanceAnchor::new(
@@ -901,6 +908,19 @@ fn parse_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
+                if !starts_wrapped_entry(input) {
+                    entries.push(CellsEntry {
+                        name,
+                        owner,
+                        wrapper: None,
+                        value: parse_group_entry(input, context)?,
+                    });
+                    if input.is_empty() {
+                        break;
+                    }
+                    input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+                    continue;
+                }
                 let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
                 let Some(last) = plain_path_last(&wrapper) else {
                     return Err(state_error(
@@ -925,7 +945,7 @@ fn parse_cells(
                 entries.push(CellsEntry {
                     name,
                     owner,
-                    wrapper,
+                    wrapper: Some(wrapper),
                     value,
                 });
                 if input.is_empty() {
@@ -955,6 +975,46 @@ fn parse_cells(
             )
         },
     )
+}
+
+/// Whether the next entry value is a wrapper application `Path(..)`, as
+/// every leaf entry is; a whole nested-cell entry is not (KF-016).
+fn starts_wrapped_entry(input: ParseStream<'_>) -> bool {
+    let fork = input.fork();
+    fork.parse::<Path>().is_ok() && fork.peek(syn::token::Paren)
+}
+
+/// Parses a whole nested-cell entry value: a group binder, `_` (patterns
+/// only), or a complete `k::fragment!` term (KF-016).
+fn parse_group_entry(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Result<StateTerm, SyntaxError> {
+    let mut tokens = TokenStream::new();
+    while !input.is_empty() && !input.peek(Token![,]) && !starts_remainder(input) {
+        tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
+    }
+    let invalid = |span| {
+        state_error(
+            "cells",
+            "nested cell entries are a binder, `_`, or fragment!",
+            span,
+        )
+    };
+    if tokens.is_empty() {
+        return Err(invalid(input.span()));
+    }
+    let span = tokens.span();
+    let expression = syn::parse2::<Expr>(tokens).map_err(|_| invalid(span))?;
+    let term = state_term_expression(expression, context).map_err(|_| invalid(span))?;
+    match term.tree() {
+        TermTree::Reference(path) if path.get_ident().is_some() => Ok(StateTerm::Group(term)),
+        TermTree::Wildcard(_) if context == StateMacroContext::Pattern => {
+            Ok(StateTerm::Group(term))
+        }
+        TermTree::Cell(_) => Ok(StateTerm::Group(term)),
+        _ => Err(invalid(span)),
+    }
 }
 
 fn parse_state_term(

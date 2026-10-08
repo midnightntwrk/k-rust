@@ -491,7 +491,9 @@ fn collect_rule_cells_packages(cells: &DescriptorRuleCells, packages: &mut BTree
     for cell in &cells.cells {
         packages.insert(cell.field.cell.owner.package().clone());
         match &cell.value {
-            ProtocolRuleStateTerm::Term(term) => collect_term_packages(term, packages),
+            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+                collect_term_packages(term, packages);
+            }
             ProtocolRuleStateTerm::KSequence(sequence) => {
                 for item in &sequence.items {
                     collect_term_packages(&item.value, packages);

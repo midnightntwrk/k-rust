@@ -281,7 +281,7 @@ impl<'a> EmitContext<'a> {
             return Ok(value.to_owned());
         }
         let sort = self.sort_name_ref(sort)?;
-        match (token::token_literal(value), token::token_literal(sort)) {
+        match (token::token_literal(value), token::token_literal(&sort)) {
             (Some(value), Some(sort)) => Ok(format!("#token({value},{sort})")),
             _ => Err(EmitError::UnsupportedShape {
                 node: "token",
@@ -296,10 +296,18 @@ impl<'a> EmitContext<'a> {
             .ok_or_else(|| EmitError::InvalidReference(format!("missing source sort {id}")))
     }
 
-    fn sort_name_ref(&self, sort: &DefinitionSortRef) -> Result<&str, EmitError> {
+    fn sort_name_ref(
+        &self,
+        sort: &DefinitionSortRef,
+    ) -> Result<std::borrow::Cow<'_, str>, EmitError> {
         match sort {
-            DefinitionSortRef::Declared(id) => self.sort_name(id),
-            DefinitionSortRef::Builtin(sort) => Ok(sort.k_name()),
+            DefinitionSortRef::Declared(id) => self.sort_name(id).map(std::borrow::Cow::Borrowed),
+            DefinitionSortRef::Builtin(sort) => Ok(std::borrow::Cow::Borrowed(sort.k_name())),
+            DefinitionSortRef::Cell(id) => self
+                .index
+                .cell_sort_name(id)
+                .map(std::borrow::Cow::Owned)
+                .ok_or_else(|| EmitError::InvalidReference(format!("missing source cell {id}"))),
         }
     }
 

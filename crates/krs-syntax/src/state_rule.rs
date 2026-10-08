@@ -901,7 +901,9 @@ fn count_term_binding_occurrences_in_cells(cells: &CellsExpression, binding: &Id
 
 fn count_term_binding_occurrences_in_state(state: &StateTerm, binding: &Ident) -> usize {
     match state {
-        StateTerm::Term(term) => count_term_binding_occurrences(term, binding),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            count_term_binding_occurrences(term, binding)
+        }
         StateTerm::KSequence(sequence) => sequence
             .items()
             .iter()
@@ -934,7 +936,7 @@ fn collect_state_term_bindings(
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
     match term {
-        StateTerm::Term(term) => collect_term_bindings(term, output),
+        StateTerm::Term(term) | StateTerm::Group(term) => collect_term_bindings(term, output),
         StateTerm::KSequence(sequence) => {
             for item in sequence.items() {
                 collect_term_bindings(item, output)?;
@@ -1051,7 +1053,9 @@ fn validate_result_reuses(
     )?;
     for entry in cells.entries() {
         match entry.value() {
-            StateTerm::Term(term) => validate_term_reuses(term, bindings)?,
+            StateTerm::Term(term) | StateTerm::Group(term) => {
+                validate_term_reuses(term, bindings)?;
+            }
             StateTerm::KSequence(sequence) => {
                 for item in sequence.items() {
                     validate_term_reuses(item, bindings)?;
@@ -1132,7 +1136,9 @@ fn append_state_term_provenance(
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     match term {
-        StateTerm::Term(term) => append_term_provenance(term, side, counters, output),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_provenance(term, side, counters, output)
+        }
         StateTerm::KSequence(sequence) => {
             append_remapped(sequence.provenance()?, side, counters, output)?;
             for item in sequence.items() {
@@ -1241,12 +1247,14 @@ fn append_cells_candidates(
             RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
             RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
         };
-        let ordinal = counters.next(wrapper_role, entry.wrapper().span())?;
-        output.push(ReferenceCandidate {
-            key: key(wrapper_role, ordinal),
-            path: entry.wrapper().clone(),
-            kind: StateRuleReferenceKind::CellWrapper,
-        });
+        if let Some(wrapper) = entry.wrapper() {
+            let ordinal = counters.next(wrapper_role, wrapper.span())?;
+            output.push(ReferenceCandidate {
+                key: key(wrapper_role, ordinal),
+                path: wrapper.clone(),
+                kind: StateRuleReferenceKind::CellWrapper,
+            });
+        }
         append_state_term_candidates(entry.value(), side, bindings, &mut counters, output)?;
     }
     Ok(())
@@ -1260,7 +1268,9 @@ fn append_state_term_candidates(
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     match state {
-        StateTerm::Term(term) => append_term_candidates(term, side, bindings, counters, output),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            append_term_candidates(term, side, bindings, counters, output)
+        }
         StateTerm::KSequence(sequence) => {
             for term in sequence.items() {
                 append_term_candidates(term, side, bindings, counters, output)?;
@@ -1458,7 +1468,7 @@ fn claim_terms<'a>(
 fn append_cells_terms<'a>(cells: &'a CellsExpression, output: &mut Vec<&'a TermExpression>) {
     for entry in cells.entries() {
         match entry.value() {
-            StateTerm::Term(term) => output.push(term),
+            StateTerm::Term(term) | StateTerm::Group(term) => output.push(term),
             StateTerm::KSequence(sequence) => output.extend(sequence.items().iter()),
             StateTerm::Map(map) => output.extend(map_terms(map)),
         }

@@ -120,6 +120,11 @@ impl Sample for CellMultiplicity {
         vec![Self::Star]
     }
 }
+impl Sample for CellClauseKind {
+    fn samples() -> Vec<Self> {
+        vec![Self::Content, Self::Whole]
+    }
+}
 impl Sample for CellWrapper {
     fn samples() -> Vec<Self> {
         vec![Self::Cell]
@@ -781,12 +786,14 @@ impl Sample for DefinitionSortRef {
             vec![
                 Self::Declared(sample::<SymbolId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
+                Self::Cell(sample::<SymbolId>()),
             ],
-            2,
+            3,
             "DefinitionSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
+                Self::Cell(..) => 2,
             },
         )
     }
@@ -1092,12 +1099,14 @@ impl Sample for DescriptorSortRef {
             vec![
                 Self::Declared(sample::<StableItemId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
+                Self::Cell(sample::<StableItemId>()),
             ],
-            2,
+            3,
             "DescriptorSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
+                Self::Cell(..) => 2,
             },
         )
     }
@@ -1749,13 +1758,15 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleSt
                 Self::Term(sample::<T>()),
                 Self::KSequence(sample::<ProtocolRuleKSequence<T>>()),
                 Self::Map(sample::<ProtocolRuleMap<T>>()),
+                Self::Group(sample::<T>()),
             ],
-            3,
+            4,
             "ProtocolRuleStateTerm",
             |value| match value {
                 Self::Term(..) => 0,
                 Self::KSequence(..) => 1,
                 Self::Map(..) => 2,
+                Self::Group(..) => 3,
             },
         )
     }
@@ -1787,12 +1798,14 @@ impl Sample for SemanticSortRef {
             vec![
                 Self::Declared(sample::<StableItemId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
+                Self::Cell(sample::<StableItemId>()),
             ],
-            2,
+            3,
             "SemanticSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
+                Self::Cell(..) => 2,
             },
         )
     }
@@ -2429,13 +2442,21 @@ impl<
 > Sample for FixedCellClause<C, T>
 {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<C>(),
-            sample::<T>(),
-            sample::<CellPost<T>>(),
-            sample::<CellContentFrame>(),
-        )]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                sample::<T>(),
+                sample::<CellPost<T>>(),
+                sample::<CellContentFrame>(),
+            ),
+            Self::whole(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                sample::<T>(),
+                sample::<CellPost<T>>(),
+            ),
+        ]
     }
 }
 impl<
@@ -2582,12 +2603,20 @@ impl<
 > Sample for ProtocolRuleCell<I, T>
 {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            field: sample::<I>(),
-            wrapper_key: sample::<ProvenanceKey>(),
-            wrapper: sample::<CellWrapper>(),
-            value: sample::<ProtocolRuleStateTerm<T>>(),
-        }]
+        vec![
+            Self {
+                field: sample::<I>(),
+                wrapper_key: Some(sample::<ProvenanceKey>()),
+                wrapper: Some(sample::<CellWrapper>()),
+                value: sample::<ProtocolRuleStateTerm<T>>(),
+            },
+            Self {
+                field: sample::<I>(),
+                wrapper_key: None,
+                wrapper: None,
+                value: ProtocolRuleStateTerm::Group(sample::<T>()),
+            },
+        ]
     }
 }
 impl<

@@ -111,6 +111,13 @@ impl<'a> DefinitionIndex<'a> {
         self.cells.get(id).copied()
     }
 
+    /// Returns K's generated sort name of a fixed cell, such as `FrameCell`
+    /// for `<frame>` (see [`cell_sort_name`]).
+    #[must_use]
+    pub fn cell_sort_name(&self, id: &SymbolId) -> Option<String> {
+        self.cell_name(id).map(cell_sort_name)
+    }
+
     /// Returns a context alias's authored name without backend escaping.
     #[must_use]
     pub fn context_alias_name(&self, id: &StableItemId) -> Option<&'a str> {
@@ -357,6 +364,27 @@ impl BuiltinRequirements {
             }
         }
     }
+}
+
+/// K's generated sort name of a cell: each hyphen-separated word of the cell
+/// name capitalised and joined, followed by `Cell` (`<call-stack>` has sort
+/// `CallStackCell`). It matches k-rust's `cell_sort_name` function.
+#[must_use]
+pub fn cell_sort_name(cell_name: &str) -> String {
+    let mut output = String::new();
+    let mut uppercase = true;
+    for character in cell_name.chars() {
+        if character == '-' {
+            uppercase = true;
+        } else if uppercase {
+            output.extend(character.to_uppercase());
+            uppercase = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output.push_str("Cell");
+    output
 }
 
 #[cfg(test)]

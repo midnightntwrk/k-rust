@@ -236,15 +236,15 @@ fn rule_cell(
                 field: name.into(),
             },
         },
-        wrapper_key: key(
+        wrapper_key: Some(key(
             side_role(
                 side,
                 ProvenanceRole::RuleLeftCellsWrapper,
                 ProvenanceRole::RuleRightCellsWrapper,
             ),
             ordinal,
-        ),
-        wrapper,
+        )),
+        wrapper: Some(wrapper),
         value,
     }
 }

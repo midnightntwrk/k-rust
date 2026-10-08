@@ -369,6 +369,8 @@ struct NamingPass {
     sorts: BTreeMap<StableItemId, SymbolIdentity>,
     productions: BTreeMap<StableItemId, SymbolIdentity>,
     fixed_cells: BTreeMap<krs_ir::SemanticId, SymbolId>,
+    /// Nested cells by nominal declaration, naming group-cell sorts.
+    group_cells: BTreeMap<StableItemId, SymbolId>,
     rules: BTreeMap<StableItemId, LabelIdentity>,
     /// The root of every overload family member, including each root itself.
     overload_roots: BTreeMap<StableItemId, StableItemId>,
@@ -465,6 +467,7 @@ impl NamingPass {
                 name_fixed_cells(
                     configuration.cells(),
                     &mut pass.fixed_cells,
+                    &mut pass.group_cells,
                     &mut identities,
                     &mut emitted,
                 )?;
@@ -535,6 +538,16 @@ impl NamingPass {
         Ok(self.sort(id)?.id().clone())
     }
 
+    fn group_cell(&self, declaration: &StableItemId) -> Result<SymbolId, LoweringError> {
+        self.group_cells
+            .get(declaration)
+            .cloned()
+            .ok_or_else(|| LoweringError::UnsupportedShape {
+                node: "cell sort reference",
+                detail: format!("{declaration} is not the declaration of a configuration cell"),
+            })
+    }
+
     fn production(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
         self.productions
             .get(id)
@@ -574,6 +587,7 @@ impl NamingPass {
 fn name_fixed_cells(
     cells: &[FixedCell<SemanticSortRef, krs_ir::SemanticId>],
     lowered: &mut BTreeMap<krs_ir::SemanticId, SymbolId>,
+    groups: &mut BTreeMap<StableItemId, SymbolId>,
     identities: &mut BTreeMap<String, String>,
     emitted: &mut BTreeMap<String, String>,
 ) -> Result<(), LoweringError> {
@@ -595,9 +609,12 @@ fn name_fixed_cells(
             CollisionNamespace::EmittedSymbol,
             cell.origin(),
         )?;
+        if let Some(declaration) = cell.declaration() {
+            groups.insert(declaration.clone(), id.clone());
+        }
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
-            name_fixed_cells(children, lowered, identities, emitted)?;
+            name_fixed_cells(children, lowered, groups, identities, emitted)?;
         }
     }
     Ok(())
@@ -691,7 +708,7 @@ fn lower_module(
     {
         let item = match subsort.subsort() {
             SemanticSortRef::Declared(item) => Some(item),
-            SemanticSortRef::Builtin(_) => None,
+            SemanticSortRef::Builtin(_) | SemanticSortRef::Cell(_) => None,
         };
         sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
             origins.lower(
@@ -1141,7 +1158,8 @@ fn lower_configuration_rewrite(
                         },
                     },
                     lower_frame(clause.frame(), origins)?,
-                ))
+                )
+                .with_kind(clause.kind()))
             })
             .collect::<Result<Vec<_>, LoweringError>>()?,
         rewrite
@@ -1324,6 +1342,9 @@ fn lower_sort_ref(
     match sort {
         SemanticSortRef::Declared(id) => Ok(DefinitionSortRef::Declared(names.sort_id(id)?)),
         SemanticSortRef::Builtin(sort) => Ok(DefinitionSortRef::Builtin(*sort)),
+        SemanticSortRef::Cell(declaration) => {
+            Ok(DefinitionSortRef::Cell(names.group_cell(declaration)?))
+        }
     }
 }
 

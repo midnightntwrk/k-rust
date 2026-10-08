@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "packages/framing",
+    "packages/groups",
 ]
 resolver = "3"
 

@@ -514,27 +514,31 @@ impl<'a> StateRuleBuilder<'a> {
         let mut output = Vec::new();
         for entry in cells.entries() {
             let field_ordinal = take_counter(&mut self.counters.field)?;
-            let wrapper_ordinal = take_counter(&mut self.counters.wrapper)?;
             let field_key = self.key(RuleRole::CellsField, field_ordinal);
-            let wrapper_key = self.key(RuleRole::CellsWrapper, wrapper_ordinal);
             let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
-            let computation = entry
-                .wrapper()
-                .segments
-                .iter()
-                .any(|segment| segment.ident == "KCell");
-            if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
-                return Err(ExpandError::new(
-                    expand::CELL_STATE_FAMILY_MISMATCH,
-                    entry.wrapper().span(),
-                    "cell wrapper and rule state family disagree",
-                ));
-            }
-            let wrapper = if computation {
-                CellWrapper::KCell
+            let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
+                let wrapper_ordinal = take_counter(&mut self.counters.wrapper)?;
+                let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
+                if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
+                    return Err(ExpandError::new(
+                        expand::CELL_STATE_FAMILY_MISMATCH,
+                        path.span(),
+                        "cell wrapper and rule state family disagree",
+                    ));
+                }
+                let wrapper = if computation {
+                    CellWrapper::KCell
+                } else {
+                    CellWrapper::Cell
+                };
+                (
+                    Some(self.key(RuleRole::CellsWrapper, wrapper_ordinal)),
+                    Some(wrapper),
+                )
             } else {
-                CellWrapper::Cell
+                // A whole nested-cell entry has no wrapper (KF-016).
+                (None, None)
             };
             let value = self.expand_state(entry.value(), slots)?;
             output.push(ProtocolRuleCell {
@@ -573,6 +577,9 @@ impl<'a> StateRuleBuilder<'a> {
                 self.expand_k(sequence, slots)?,
             )),
             StateTerm::Map(map) => Ok(ProtocolRuleStateTerm::Map(self.expand_map(map, slots)?)),
+            StateTerm::Group(term) => Ok(ProtocolRuleStateTerm::Group(
+                self.expand_term(term.tree(), slots)?,
+            )),
         }
     }
 

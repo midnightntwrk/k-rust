@@ -19,8 +19,8 @@ use super::infer::{StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 use super::rules::{
-    framework_k_item_sort, lower_nondet_group, lower_rule_label, lower_rule_priority,
-    omitted_leaf_cells, require_fixed_configuration,
+    check_group_descendants, framework_k_item_sort, lower_nondet_group, lower_rule_label,
+    lower_rule_priority, omitted_leaf_cells, require_fixed_configuration,
 };
 
 /// Stable rule cell as transported for configuration rules and context aliases.
@@ -80,6 +80,22 @@ impl StateRuleTerms<'_> {
         let descriptor = self.descriptor;
         match state {
             ProtocolRuleStateTerm::Term(term) => {
+                if matches!(declared_sort, SemanticSortRef::Cell(_)) {
+                    return Err(DescriptorLoweringError::InvalidTerm {
+                        id: Box::new(descriptor.id().clone()),
+                        detail: "a nested cell entry is a binder, `_`, or fragment!, without a `Cell(..)` wrapper".into(),
+                    });
+                }
+                self.term(term, Some(declared_sort), binding_sorts, subject)
+            }
+            ProtocolRuleStateTerm::Group(term) => {
+                if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
+                    return Err(DescriptorLoweringError::InvalidTerm {
+                        id: Box::new(descriptor.id().clone()),
+                        detail: "a leaf cell entry needs its `Cell(..)` or `KCell(..)` wrapper"
+                            .into(),
+                    });
+                }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
@@ -234,6 +250,13 @@ pub(super) fn lower_configuration_rule_descriptor(
         .iter()
         .map(|cell| cell.field.cell.clone())
         .collect::<BTreeSet<_>>();
+    check_group_descendants(
+        descriptor,
+        &rule.pattern_key,
+        &configuration.declaration,
+        declarations,
+        &selected,
+    )?;
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     if matches!(rule.subject.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
         return Err(DescriptorLoweringError::UnsupportedShape {
@@ -353,13 +376,39 @@ fn lower_configuration_rule_clause(
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "configuration rule cell",
-            detail: "rules over nominal parent cells are not represented by fixed-cell clauses"
-                .into(),
-        });
+        let ProtocolCellContent::Nested { declaration } = &declared.content else {
+            unreachable!("a fixed cell is a leaf or nested");
+        };
+        if declared.multiplicity.is_some() {
+            return Err(DescriptorLoweringError::UnsupportedShape {
+                node: "configuration rule cell",
+                detail: format!(
+                    "the repeated cell `{}` is a cell collection, not one nested cell, so a rule cannot name it as a whole",
+                    subject.field.cell.field
+                ),
+            });
+        }
+        return lower_configuration_group_clause(
+            terms,
+            subject,
+            result,
+            &declaration.declaration,
+            subject_sorts,
+            result_sorts,
+        );
     };
-    if subject.wrapper != *wrapper || result.is_some_and(|result| result.wrapper != *wrapper) {
+    if subject.wrapper.is_none() || result.is_some_and(|result| result.wrapper.is_none()) {
+        return Err(DescriptorLoweringError::InvalidTerm {
+            id: Box::new(descriptor.id().clone()),
+            detail: format!(
+                "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
+                subject.field.cell.field
+            ),
+        });
+    }
+    if subject.wrapper != Some(*wrapper)
+        || result.is_some_and(|result| result.wrapper != Some(*wrapper))
+    {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(subject.field.cell.owner.clone()),
             detail: format!(
@@ -407,6 +456,58 @@ fn lower_configuration_rule_clause(
         before,
         post,
         frame,
+    ))
+}
+
+/// Lowers one whole nested (group) cell entry, `frame: f`, `frame: _` or
+/// `frame: k::fragment![..]`, into a whole-cell clause whose terms have the
+/// group's generated cell sort (KF-016).
+fn lower_configuration_group_clause(
+    terms: &mut StateRuleTerms<'_>,
+    subject: &DescriptorRuleCell,
+    result: Option<&DescriptorRuleCell>,
+    declaration: &StableItemId,
+    subject_sorts: &BTreeMap<String, SemanticSortRef>,
+    result_sorts: &BTreeMap<String, SemanticSortRef>,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = terms.descriptor;
+    let group_entry = |cell: &DescriptorRuleCell| {
+        cell.wrapper.is_none() && matches!(cell.value, ProtocolRuleStateTerm::Group(_))
+    };
+    if !group_entry(subject) || result.is_some_and(|result| !group_entry(result)) {
+        return Err(DescriptorLoweringError::InvalidTerm {
+            id: Box::new(descriptor.id().clone()),
+            detail: format!(
+                "the nested cell entry `{}` is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
+                subject.field.cell.field
+            ),
+        });
+    }
+    let sort = SemanticSortRef::Cell(declaration.clone());
+    let before = terms.state_term(
+        &subject.value,
+        &sort,
+        &subject.field.key,
+        subject_sorts,
+        true,
+    )?;
+    let post = match result {
+        Some(result) => {
+            let after =
+                terms.state_term(&result.value, &sort, &result.field.key, result_sorts, false)?;
+            if semantic_terms_equivalent(&before, &after) {
+                CellPost::Preserve
+            } else {
+                CellPost::Replace { term: after }
+            }
+        }
+        None => CellPost::Preserve,
+    };
+    Ok(FixedCellClause::whole(
+        semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,
+        semantic_cell_id(&subject.field.cell)?,
+        before,
+        post,
     ))
 }
 
@@ -571,7 +672,7 @@ fn lower_context_alias_cell(
             detail: "context aliases select leaf cells only".into(),
         });
     };
-    if pattern.wrapper != *wrapper {
+    if pattern.wrapper != Some(*wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(pattern.field.cell.owner.clone()),
             detail: "context-alias wrapper disagrees with its cell declaration".into(),
@@ -639,7 +740,7 @@ fn associative_state_frame(
 
 fn rule_state_frame(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> RuleStateFrame<'_> {
     match state {
-        ProtocolRuleStateTerm::Term(_) => RuleStateFrame::Exact,
+        ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => RuleStateFrame::Exact,
         ProtocolRuleStateTerm::KSequence(sequence) => {
             associative_state_frame(AssociativeStateFamily::KSequence, &sequence.tail)
         }
