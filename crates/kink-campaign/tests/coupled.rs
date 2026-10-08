@@ -8688,3 +8688,270 @@ fn audit_vi_t12_declared_total_partial_hook_is_never_killed() {
         }
     });
 }
+
+// ---------------------------------------------------------------- TB-03 review 1 fix round 1
+
+/// The one authored subterm of `rule` that satisfies `pred`.
+fn t12_find(baseline: &Baseline, rule: &str, pred: &dyn Fn(&Term) -> bool) -> Vec<u32> {
+    fn walk(
+        baseline: &Baseline,
+        rule: &str,
+        path: &mut Vec<u32>,
+        pred: &dyn Fn(&Term) -> bool,
+        out: &mut Vec<Vec<u32>>,
+    ) {
+        let at = TermRef::new(support::rule(baseline, rule), path.as_slice());
+        let Some(here) = baseline.term(&at) else {
+            return;
+        };
+        if pred(here.unannotated()) {
+            out.push(path.clone());
+        }
+        for child in 0.. {
+            path.push(child);
+            let exists = baseline
+                .term(&TermRef::new(
+                    support::rule(baseline, rule),
+                    path.as_slice(),
+                ))
+                .is_some();
+            if exists {
+                walk(baseline, rule, path, pred, out);
+            }
+            path.pop();
+            if !exists {
+                break;
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    for root in [0, 1] {
+        walk(baseline, rule, &mut vec![root], pred, &mut paths);
+    }
+    assert_eq!(paths.len(), 1, "{rule}: {paths:?}");
+    paths.pop().expect("one subterm")
+}
+
+fn t12_applies(prefix: &'static str) -> impl Fn(&Term) -> bool {
+    move |term| matches!(term, Term::Apply { label, .. } if label.name.starts_with(prefix))
+}
+
+fn t12_string(text: &str) -> Term {
+    Term::Token {
+        token: format!("\"{text}\""),
+        sort: Sort::new("String"),
+    }
+}
+
+/// Review 1 F1: kompile folds constant STRING hook applications after the loaded KAST is read,
+/// and writes U+0080..U+00FF as `\xHH`, which the KORE emitter reads as one raw byte. The
+/// folded token is in the compiled execution definition only; G-S must see it there.
+/// Each folded baseline is refused; a mutant that inserts the folded call is Unknown.
+#[test]
+fn audit_vi_t12_review1_constant_folded_strings_are_refused() {
+    with_stack(|| {
+        let file = std::path::Path::new(support::DIR).join("t12fold.k");
+        let mut rows = Vec::new();
+        for (id, module, find, replacement, program) in [
+            (
+                "fold-chr",
+                "T12FOLDCHR",
+                t12_applies("chrChar"),
+                t12_string("é"),
+                app("start", vec![support::int(233)]),
+            ),
+            (
+                "fold-concat",
+                "T12FOLDCAT",
+                t12_applies("_+String_"),
+                t12_string("é"),
+                app("start", vec![support::int(233)]),
+            ),
+            (
+                "fold-pair",
+                "T12FOLDPAIR",
+                t12_applies("_+String_"),
+                t12_string("Ã©"),
+                app("pair", vec![support::int(195), support::int(169)]),
+            ),
+        ] {
+            let validator =
+                NativeValidator::bind(support::load_path(&file, module), CompileOptions::default());
+            let baseline = validator.baseline();
+            let label = format!("{module}.p");
+            let path = t12_find(baseline, &label, &find);
+            let patch = Patch::new(vec![replaced(baseline, &label, &path, replacement)])
+                .expect("unfolded literal patch");
+            let generation = fixed(baseline, &[(&label, &[0])], "tb03-fold", &patch);
+            let tests = [case(
+                id,
+                support::initial_state(program, "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module,
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let detail = run_campaign(&campaign, &generation, mode)
+                    .err()
+                    .map(|failure| failure.to_string());
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB03-F1 {id} {mode:?}: {result:?} {detail:?}");
+                rows.push((id, mode, result, detail));
+            }
+        }
+        let folded = rows;
+
+        // Mutant-only direction: the clean baseline is admitted, the mutant folds chrChar(233).
+        let validator = NativeValidator::bind(
+            support::load_path(&file, "T12FOLDCLEAN"),
+            CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let chr = t12_find(baseline, "T12FOLDCLEAN.start", &t12_applies("chrChar"));
+        let Term::Apply { label: chr, .. } = baseline
+            .term(&TermRef::new(
+                support::rule(baseline, "T12FOLDCLEAN.start"),
+                chr.as_slice(),
+            ))
+            .expect("chrChar")
+            .unannotated()
+            .clone()
+        else {
+            panic!("chrChar application")
+        };
+        let label = "T12FOLDCLEAN.p";
+        let path = t12_find(
+            baseline,
+            label,
+            &|term| matches!(term, Term::Token { token, .. } if token == "\"é\""),
+        );
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            label,
+            &path,
+            Term::apply(chr.name, vec![int_token(233)]),
+        )])
+        .expect("folded call patch");
+        let generation = fixed(baseline, &[(label, &[0])], "tb03-fold-mutant", &patch);
+        let tests = [case(
+            "fold-mutant-only",
+            support::initial_state(app("start", vec![support::int(233)]), "SortProg"),
+            &[whole_term()],
+        )];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "T12FOLDCLEAN",
+            observation: &[],
+            classify: &tv01_classify,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        let mut rows = Vec::new();
+        for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let result = ViResult::of(&campaign, &generation, mode);
+            eprintln!("TB03-F1 fold-mutant-only {mode:?}: {result:?}");
+            rows.push((mode, result));
+        }
+        // Every row is measured before the first assertion (complete failing-first logs).
+        for (id, mode, result, detail) in folded {
+            assert_eq!(
+                result,
+                ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                "{id} {mode:?}"
+            );
+            assert!(
+                detail.is_some_and(|detail| detail.contains("G-S")),
+                "{id} {mode:?}"
+            );
+        }
+        for (mode, result) in rows {
+            assert_eq!(
+                result,
+                ViResult::Ran {
+                    tests: vec![],
+                    status: MutantStatus::Unknown,
+                    killing: vec![]
+                },
+                "{mode:?}"
+            );
+        }
+    });
+}
+
+/// Review 1 F2: k-rust canonicalizes Int text only at `SortInt`; a renamed INT.Int-hooked
+/// sort is compared by spelling, so a test-written noncanonical value is refused at input.
+/// The canonical control still runs and agrees.
+#[test]
+fn audit_vi_t12_review1_renamed_int_test_spelling_is_refused() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(support::load("t12int.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let label = "T12INT.o";
+        let path = t12_token_path(baseline, label, "0");
+        let patch =
+            Patch::new(vec![replaced(baseline, label, &path, int_token(7))]).expect("owise patch");
+        let generation = fixed(baseline, &[(label, &[0])], "tb03-renamed-int", &patch);
+        let my = |text: &str| {
+            k_rust::kore::parser::parse_pattern(&format!(r#"\dv{{SortMyInt{{}}}}("{text}")"#))
+                .expect("MyInt value")
+        };
+        let mut rows = Vec::new();
+        for (id, left, right) in [
+            ("renamed-int-007", "007", "7"),
+            ("renamed-int-plus7", "+7", "7"),
+            ("renamed-int-minus0", "-0", "0"),
+            ("renamed-int-control", "7", "7"),
+        ] {
+            let tests = [case(
+                id,
+                support::initial_state(app("chk", vec![my(left), my(right)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "T12INT",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let detail = run_campaign(&campaign, &generation, mode)
+                    .err()
+                    .map(|failure| failure.to_string());
+                let result = ViResult::of(&campaign, &generation, mode);
+                eprintln!("TB03-F2 {id} {mode:?}: {result:?} {detail:?}");
+                rows.push((id, mode, result, detail));
+            }
+        }
+        for (id, mode, result, detail) in rows {
+            if id == "renamed-int-control" {
+                assert_eq!(
+                    result,
+                    ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![]
+                    },
+                    "{id} {mode:?}"
+                );
+            } else {
+                assert_eq!(
+                    result,
+                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                    "{id} {mode:?}"
+                );
+                assert!(
+                    detail.is_some_and(|detail| detail.contains("noncanonical")),
+                    "{id} {mode:?}"
+                );
+            }
+        }
+    });
+}

@@ -473,3 +473,138 @@ fn syntax_axioms_share_the_hook_registry_and_parse_failures_are_typed() {
         ));
     }
 }
+
+/// TB-03 review 1 F1: constant folding creates String tokens after the loaded KAST, spelling
+/// U+0080..U+00FF as `\xHH`; the KORE emitter reads that as one raw byte. G-S therefore also
+/// scans the compiled execution definition, where the folded token is visible.
+#[test]
+fn review1_constant_folded_string_tokens_are_refused_in_the_execution_definition() {
+    let file = Path::new(support::DIR).join("t12fold.k");
+    for module in ["T12FOLDCHR", "T12FOLDCAT", "T12FOLDPAIR"] {
+        let side =
+            NativeValidator::bind(support::load_path(&file, module), CompileOptions::default())
+                .compile_baseline()
+                .unwrap_or_else(|error| panic!("{module}: {error}"));
+        match validate_representation(&side) {
+            Err(RepresentationError::Finding(finding)) => {
+                assert_eq!(
+                    finding.clause,
+                    RepresentationClause::StringSpelling,
+                    "{module}"
+                );
+                assert_eq!(finding.sort, "SortString", "{module}");
+            }
+            other => panic!("{module}: folded String admitted: {other:?}"),
+        }
+    }
+    let side = NativeValidator::bind(
+        support::load_path(&file, "T12FOLDCLEAN"),
+        CompileOptions::default(),
+    )
+    .compile_baseline()
+    .expect("clean fold fixture");
+    assert_eq!(validate_representation(&side), Ok(()));
+}
+
+/// TB-03 review 1 F1, defence in depth: a compiled String domain value must be UTF-8 text
+/// (k-rust's String values are UTF-8). Bytes values remain byte sequences.
+#[test]
+fn review1_compiled_string_domain_values_must_be_utf8() {
+    for value in [r#"\xe9"#, r#"\xc3"#, r#"A\xff"#] {
+        let definition = kore(
+            DECLARATIONS,
+            &format!(r#"axiom{{}} \dv{{SortText{{}}}}("{value}") [UNIQUE'Unds'ID{{}}("byte-id")]"#),
+        );
+        let finding = validate_representation_ast(&definition, None, &loaded(None)).unwrap_err();
+        assert_eq!(
+            finding.clause,
+            RepresentationClause::StringSpelling,
+            "{value}"
+        );
+        assert_eq!(finding.sort, "SortText");
+        assert_eq!(finding.sentence_unique_id.as_deref(), Some("byte-id"));
+    }
+    for value in [r#"\xc3\xa9"#, r#"é"#, "A", ""] {
+        let definition = kore(
+            DECLARATIONS,
+            &format!(r#"axiom{{}} \dv{{SortText{{}}}}("{value}") []"#),
+        );
+        assert!(
+            validate_representation_ast(&definition, None, &loaded(None)).is_ok(),
+            "{value}"
+        );
+    }
+    let definition = kore(
+        r#"hooked-sort SortText{} [hook{}("BYTES.Bytes")]"#,
+        r#"axiom{} \dv{SortText{}}("\xe9") []"#,
+    );
+    assert!(validate_representation_ast(&definition, None, &loaded(None)).is_ok());
+}
+
+/// TB-03 review 1 minor: alias bodies are unfolded into axioms by the backend, so G-F, G-M,
+/// G-I and the String rule scan them too (kompile emits no alias at 927b9ce6).
+#[test]
+fn review1_alias_declaration_bodies_are_scanned() {
+    for (sort, value, clause) in [
+        ("SortFloat", "1.0", RepresentationClause::FloatLiteral),
+        ("SortMInt", "1p8", RepresentationClause::MIntLiteral),
+        (
+            "SortOtherInt",
+            "007",
+            RepresentationClause::RenamedIntLiteral,
+        ),
+        ("SortText", r#"\xe9"#, RepresentationClause::StringSpelling),
+    ] {
+        let definition = kore(
+            DECLARATIONS,
+            &format!(
+                r#"alias lit{{}}() : {sort}{{}} where lit{{}}() := \dv{{{sort}{{}}}}("{value}") []"#
+            ),
+        );
+        assert_eq!(
+            validate_representation_ast(&definition, None, &loaded(None))
+                .unwrap_err()
+                .clause,
+            clause,
+            "{sort}"
+        );
+    }
+    let definition = kore(
+        DECLARATIONS,
+        r#"alias lit{}() : SortOtherInt{} where lit{}() := \dv{SortOtherInt{}}("7") []"#,
+    );
+    assert!(validate_representation_ast(&definition, None, &loaded(None)).is_ok());
+}
+
+/// TB-03 review 1 F2: a test-written value of a renamed INT.Int-hooked sort must be canonical
+/// decimal at any polarity; k-rust canonicalizes Int text only at `SortInt`.
+#[test]
+fn review1_input_renamed_int_values_must_be_canonical_decimal() {
+    let mut backend = input_backend();
+    for value in ["007", "+7", "-0", "07", " 7", "0x7", "", "-"] {
+        let node = parse_pattern(&format!(r#"\dv{{SortOtherInt{{}}}}("{value}")"#)).unwrap();
+        for state in [
+            node.clone(),
+            Pattern::Not {
+                sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                argument: Box::new(node),
+            },
+        ] {
+            let failure = validate_test_initial_state(&mut backend, &state).unwrap_err();
+            assert!(format!("{failure:?}").contains("noncanonical"), "{value}");
+        }
+    }
+    for syntax in [
+        r#"\dv{SortOtherInt{}}("7")"#,
+        r#"\dv{SortOtherInt{}}("0")"#,
+        r#"\dv{SortOtherInt{}}("-12")"#,
+        r#"\dv{SortInt{}}("007")"#,
+        r#"\dv{SortInt{}}("+7")"#,
+    ] {
+        let node = parse_pattern(syntax).unwrap();
+        assert!(
+            validate_test_initial_state(&mut backend, &node).is_ok(),
+            "{syntax}"
+        );
+    }
+}

@@ -87,6 +87,8 @@ use crate::step_events::{ObservationDecider, StepObservation, StepPresence, cano
 /// into a String unchanged (TB-02 review 3, F1).
 /// Float domain values are refused at any polarity: token spelling and Float equality
 /// disagree, even for a hook-produced canonical spelling (TB-02 review 2, F1).
+/// MInt domain values, and domain values of an `INT.Int`-hooked sort other than `SortInt`
+/// whose text is not canonical decimal, are refused at any polarity (TB-03, review 1 F2).
 /// A definition that declares `STRING.token2string` over an argument sort, or
 /// `STRING.string2token` into a result sort, that is builtin, hooked or a sort variable is
 /// refused for every test state: k-rust's hooks copy bytes between such a sort and String
@@ -153,6 +155,19 @@ pub fn validate_test_initial_state(
             {
                 return Err(ExecutionAdapterFailure::InvalidState(
                     "test state contains a MInt domain value without canonical token identity"
+                        .into(),
+                ));
+            }
+            // k-rust canonicalizes Int text only at SortInt; a renamed INT.Int-hooked sort is
+            // compared by spelling, so only canonical decimal is admitted (TB-03 review 1, F2).
+            if let Pattern::DomainValue { sort, value } = node
+                && matches!(sort, Sort::Application { name, .. }
+                    if name != "SortInt" && definition.sorts().get(name.as_str()).is_some_and(
+                        |sort| sort.hook.as_deref() == Some("INT.Int")))
+                && !crate::representation::canonical_decimal(value.as_bytes())
+            {
+                return Err(ExecutionAdapterFailure::InvalidState(
+                    "test state contains a noncanonical Int spelling at a renamed INT.Int sort"
                         .into(),
                 ));
             }

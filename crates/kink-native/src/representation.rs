@@ -1,7 +1,9 @@
 //! Admission of compiled sides whose token representations support syntactic comparison.
 //!
 //! This is a pure syntax gate (TB-03, VI-T12). It scans every compiled axiom, including
-//! equations, lemmas and generated axioms, and the separately emitted macros. It does not
+//! equations, lemmas and generated axioms, alias bodies, and the separately emitted macros.
+//! String tokens are checked in the loaded KAST and in the compiled execution definition, which
+//! holds the tokens kompile creates by constant folding (TB-03 review 1, F1). It does not
 //! rewrite tokens: respelling one literal cannot make it agree with every Float format.
 
 use std::{
@@ -109,12 +111,17 @@ impl From<ParseError> for RepresentationError {
 }
 
 /// Validate one already compiled side before any execution.
+///
+/// G-S scans both the loaded KAST and the compiled execution definition: kompile's constant
+/// folding creates String tokens after loading (TB-03 review 1, F1), and the execution
+/// definition is the KAST that the KORE emitter reads, after every transform stage.
 pub fn validate_representation(side: &ValidatedDefinition) -> Result<(), RepresentationError> {
-    validate_representation_kore(
-        &side.artifacts().definition_kore,
-        &side.artifacts().syntax_definition_kore,
-        &side.artifacts().macros_kore,
-        side.definition(),
+    let artifacts = side.artifacts();
+    validate_kore_texts(
+        &artifacts.definition_kore,
+        &artifacts.syntax_definition_kore,
+        &artifacts.macros_kore,
+        &[side.definition(), &artifacts.execution_definition],
     )
 }
 
@@ -126,13 +133,22 @@ pub fn validate_representation_kore(
     macros: &str,
     loaded: &LoadedDefinition,
 ) -> Result<(), RepresentationError> {
+    validate_kore_texts(definition, syntax, macros, &[loaded])
+}
+
+fn validate_kore_texts(
+    definition: &str,
+    syntax: &str,
+    macros: &str,
+    kast: &[&LoadedDefinition],
+) -> Result<(), RepresentationError> {
     let mut parsed = vec![parse_definition(definition)?];
     for text in [syntax, macros] {
         if !text.trim().is_empty() {
             parsed.push(parse_definition(text)?);
         }
     }
-    validate_artifacts(&parsed.iter().collect::<Vec<_>>(), loaded).map_err(Into::into)
+    validate_artifacts(&parsed.iter().collect::<Vec<_>>(), kast).map_err(Into::into)
 }
 
 /// The same gate on parsed artifacts; exposed for clause-level tests without compiling
@@ -146,13 +162,13 @@ pub fn validate_representation_ast(
         &std::iter::once(definition)
             .chain(macros)
             .collect::<Vec<_>>(),
-        loaded,
+        &[loaded],
     )
 }
 
 fn validate_artifacts(
     artifacts: &[&Definition],
-    loaded: &LoadedDefinition,
+    kast: &[&LoadedDefinition],
 ) -> Result<(), RepresentationFinding> {
     let mut hooks = BTreeMap::new();
     for artifact in artifacts {
@@ -197,6 +213,12 @@ fn validate_artifacts(
                         pattern,
                         attributes,
                         ..
+                    }
+                    // The backend unfolds alias bodies into axioms (TB-03 review 1, minor).
+                    | Sentence::AliasDeclaration {
+                        right: pattern,
+                        attributes,
+                        ..
                     } => {
                         let mut work = vec![pattern.as_ref()];
                         while let Some(node) = work.pop() {
@@ -209,6 +231,11 @@ fn validate_artifacts(
                                             && !canonical_decimal(value.as_bytes()) =>
                                     {
                                         Some(RepresentationClause::RenamedIntLiteral)
+                                    }
+                                    // k-rust's String values are UTF-8 text; a compiled byte
+                                    // that is not denotes no K String (TB-03 review 1, F1).
+                                    Some("STRING.String") if value.as_utf8().is_err() => {
+                                        Some(RepresentationClause::StringSpelling)
                                     }
                                     _ => None,
                                 };
@@ -224,6 +251,18 @@ fn validate_artifacts(
             }
         }
     }
+    for definition in kast {
+        string_tokens(definition, &hooks)?;
+    }
+    Ok(())
+}
+
+/// G-S over one KAST definition: every token of a String-hooked sort, in any sentence of any
+/// module, including modules outside the compiled closure.
+fn string_tokens(
+    loaded: &LoadedDefinition,
+    hooks: &BTreeMap<&str, &str>,
+) -> Result<(), RepresentationFinding> {
     let mut loaded_string_sorts = BTreeSet::new();
     for module in &loaded.modules {
         for sentence in &module.local_sentences {
@@ -325,7 +364,8 @@ fn finding(
     }
 }
 
-fn canonical_decimal(value: &[u8]) -> bool {
+/// Canonical decimal Int text: `0`, or an optional minus and a nonzero leading digit.
+pub(crate) fn canonical_decimal(value: &[u8]) -> bool {
     if value == b"0" {
         return true;
     }
