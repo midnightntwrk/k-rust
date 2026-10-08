@@ -10,6 +10,7 @@
 //!   backend's definition and unifier ([`feasibility::BackendRelations`]).
 //!
 pub mod bridge;
+pub mod census;
 mod equivalence;
 pub mod execution;
 pub mod feasibility;
@@ -23,6 +24,10 @@ pub mod step_events;
 mod support;
 mod validator;
 
+pub use census::{
+    CensusClass, CensusError, CensusFinding, CensusVerdict, DeclarationCensus, InertDeclaration,
+    declaration_census,
+};
 pub use equivalence::equivalent_compilation;
 pub use validator::{MutantRejection, NativeFailure, NativeValidator, ValidatedDefinition};
 

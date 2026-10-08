@@ -1,0 +1,343 @@
+//! Pinned declaration-census rows and reference-prelude audits.
+
+#[path = "../../../testdata/k/support.rs"]
+mod support;
+
+use std::{collections::BTreeSet, path::Path, time::Instant};
+
+use k_rust::{
+    builtin,
+    kompile::{CompilationBackend, CompileOptions},
+    outer::{ResolvedSource, SyntaxBody},
+};
+use k_rust_backend::{
+    builtin::{BuiltinError, BuiltinResult, UnsupportedHookReason, evaluate_hook},
+    definition::BackendDefinition,
+};
+use kink_native::census::{
+    CensusClass, CensusVerdict, DeclarationCensus, EXCLUDED_REFERENCE_MODULES, FOLDED_HOOKS,
+    REFERENCE_FILES, declaration_census, internalize, reference_prelude,
+};
+use kink_native::{NativeValidator, ValidatedDefinition};
+use kink_patch::Baseline;
+use serde_json::json;
+
+const PROTECTED: &[&str] = &[
+    "counter.k",
+    "symmem.k",
+    "symmem_release.k",
+    "guardedmem.k",
+    "guardedeq.k",
+    "guardeddiv.k",
+    "effectmem.k",
+    "memory.k",
+];
+
+fn compile(name: &str) -> ValidatedDefinition {
+    NativeValidator::bind(support::load(name), CompileOptions::default())
+        .compile_baseline()
+        .unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+fn expected(name: &str) -> Option<Vec<(CensusClass, &'static str)>> {
+    use CensusClass::{C, H, U};
+    Some(match name {
+        "t13ite.k" => vec![(H, "Lbli2b")],
+        "t13owk.k" => vec![(H, "LbladdB")],
+        "t13tok.k" => vec![(H, "Lblb2t"), (H, "Lbltok2s")],
+        "t13role.k" => vec![
+            (C, "Lbl'Stop'LI"),
+            (C, "Lbl'Unds'LI'Unds'"),
+            (C, "LblmkFoo"),
+        ],
+        "t13typedlist.k" => vec![(H, "LblgetLE")],
+        "t13implemented.k" => vec![(U, "Lblkeccak")],
+        "tb02bytestoken.k" => vec![(H, "Lblb2s")],
+        "tb02stringtoken.k" => vec![(H, "Lbls2b")],
+        "t13natural.k" | "t13inert.k" => vec![],
+        _ if PROTECTED.contains(&name) => vec![],
+        _ => return None,
+    })
+}
+
+fn assert_row(name: &str, census: &DeclarationCensus) {
+    if let Some(expected) = expected(name) {
+        assert_eq!(
+            census.verdict(),
+            if expected.is_empty() {
+                CensusVerdict::Natural
+            } else {
+                CensusVerdict::Flagged
+            },
+            "{name}: {}",
+            census.text()
+        );
+        let actual: Vec<_> = census
+            .findings()
+            .iter()
+            .map(|f| (f.class, f.symbol.as_str()))
+            .collect();
+        assert_eq!(actual, expected, "{name}: {}", census.text());
+    }
+    if name == "t13inert.k" {
+        assert_eq!(census.inert().len(), 1);
+        assert_eq!(census.inert()[0].symbol, "Lblinert");
+        assert_eq!(census.inert()[0].hook, "INT.kinktestUnimplemented");
+    }
+}
+
+#[test]
+fn census_fixture_verdicts() {
+    for name in [
+        "t13ite.k",
+        "t13owk.k",
+        "t13tok.k",
+        "t13role.k",
+        "t13typedlist.k",
+        "t13natural.k",
+        "t13inert.k",
+        "t13implemented.k",
+        "tb02bytestoken.k",
+        "tb02stringtoken.k",
+    ] {
+        let census = declaration_census(&compile(name)).unwrap();
+        assert_row(name, &census);
+        eprintln!(
+            "CENSUS_FIXTURE {}",
+            json!({"file":name,"census":census.value()})
+        );
+    }
+}
+
+#[test]
+fn census_protected_fixtures_are_natural() {
+    reference_prelude().unwrap();
+    for name in PROTECTED {
+        let side = compile(name);
+        let start = Instant::now();
+        let census = declaration_census(&side).unwrap();
+        assert_row(name, &census);
+        if *name == "counter.k" {
+            eprintln!("COUNTER_CENSUS_MICROS {}", start.elapsed().as_micros());
+        }
+    }
+}
+
+#[test]
+fn census_testdata_table() {
+    let mut paths: Vec<_> = std::fs::read_dir(support::DIR)
+        .unwrap()
+        .map(|p| p.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "k"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let module = text
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("module "))
+            .next_back()
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap();
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
+        };
+        let loaded = match Baseline::load(
+            ResolvedSource::new(name, text.clone()),
+            module,
+            None,
+            &mut resolver,
+            &support::options(),
+        ) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                eprintln!(
+                    "CENSUS_LOAD_REFUSED {}",
+                    json!({"file": name, "error": error.to_string()})
+                );
+                continue;
+            }
+        };
+        let side = NativeValidator::bind(loaded, CompileOptions::default())
+            .compile_baseline()
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let census = declaration_census(&side).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_row(name, &census);
+        eprintln!(
+            "CENSUS_TABLE {}",
+            json!({"file":name,"verdict":format!("{:?}",census.verdict()),"classes":census.findings().iter().map(|f|format!("{:?}",f.class)).collect::<BTreeSet<_>>(),"inert":census.inert().iter().map(|i|i.hook.clone()).collect::<BTreeSet<_>>() })
+        );
+    }
+}
+
+#[test]
+fn census_is_deterministic() {
+    for name in ["counter.k", "t13role.k"] {
+        let first = declaration_census(&compile(name)).unwrap();
+        let second = declaration_census(&compile(name)).unwrap();
+        assert_eq!(first.text(), second.text());
+        assert_eq!(first.digest(), second.digest());
+        assert!(!first.text().contains(env!("CARGO_MANIFEST_DIR")));
+        assert!(!first.text().contains("/home"));
+        for finding in first.findings() {
+            assert_eq!(finding.source.as_deref(), Some("Source(t13role.k)"));
+            assert!(finding.location.is_some());
+        }
+    }
+}
+
+fn reference_backend() -> BackendDefinition {
+    let side = reference_prelude().unwrap();
+    internalize(side).unwrap()
+}
+
+#[test]
+fn census_reference_prelude_is_natural() {
+    let side = reference_prelude().unwrap();
+    let census = declaration_census(side).unwrap();
+    assert_eq!(
+        census.verdict(),
+        CensusVerdict::Natural,
+        "{}",
+        census.text()
+    );
+    assert!(census.findings().is_empty());
+    let backend = reference_backend();
+    let hooked = backend
+        .symbols()
+        .values()
+        .filter(|s| s.attributes.hook.is_some())
+        .count();
+    let hooks: BTreeSet<_> = backend
+        .symbols()
+        .values()
+        .filter_map(|s| s.attributes.hook.clone())
+        .collect();
+    assert_eq!(hooked, 287);
+    assert_eq!(hooks.len(), 285);
+    eprintln!(
+        "CENSUS_REFERENCE {}",
+        json!({"files":REFERENCE_FILES,"hooked_symbols":hooked,"hooks":hooks.len()})
+    );
+}
+
+#[test]
+fn census_fold_table_has_reference_declarations() {
+    let backend = reference_backend();
+    for hook in FOLDED_HOOKS {
+        assert!(
+            backend
+                .symbols()
+                .values()
+                .any(|s| s.attributes.hook.as_deref() == Some(hook)),
+            "folded hook {hook} has no reference declaration"
+        );
+    }
+    assert_eq!(FOLDED_HOOKS.len(), 62);
+}
+
+#[test]
+fn census_excluded_modules_fail_and_declare_no_hooked_symbol() {
+    let mut found = BTreeSet::new();
+    for file in REFERENCE_FILES {
+        let source = builtin::embedded(file).unwrap();
+        let code = if file.ends_with(".md") {
+            k_rust::outer::extract_fenced_k_code(&source.text, "k").unwrap()
+        } else {
+            source.text.clone()
+        };
+        let parsed = k_rust::outer::parse(source.source, &code).unwrap();
+        for module in parsed.modules {
+            if !EXCLUDED_REFERENCE_MODULES.contains(&module.name.as_str()) {
+                continue;
+            }
+            found.insert(module.name.clone());
+            assert!(
+                !module
+                    .attributes
+                    .iter()
+                    .any(|a| a.key == CompilationBackend::Rust.excluded_module_attribute())
+            );
+            for sentence in &module.sentences {
+                if let k_rust::outer::Sentence::Syntax(syntax) = sentence
+                    && let SyntaxBody::Productions(blocks) = &syntax.body
+                {
+                    assert!(
+                        blocks
+                            .iter()
+                            .flat_map(|b| &b.productions)
+                            .all(|p| p.attributes.iter().all(|a| a.key != "hook")),
+                        "{} declares a hooked symbol",
+                        module.name
+                    );
+                }
+            }
+            let mut resolver = |_: &str, required: &str| {
+                builtin::embedded(required).ok_or_else(|| format!("{required} is not embedded"))
+            };
+            let text = format!(
+                "requires \"{file}\"\nmodule CENSUS-REFERENCE\n imports {}\nendmodule\n",
+                module.name
+            );
+            let result = Baseline::load(
+                ResolvedSource::new("census-reference.k", text),
+                "CENSUS-REFERENCE",
+                None,
+                &mut resolver,
+                &support::options(),
+            )
+            .map_err(|e| e.to_string())
+            .and_then(|b| {
+                NativeValidator::bind(b, CompileOptions::default())
+                    .compile_baseline()
+                    .map_err(|e| e.to_string())
+            })
+            .and_then(|side| internalize(&side).map_err(|e| e.to_string()));
+            let error = result.expect_err("excluded module must fail alone");
+            eprintln!(
+                "CENSUS_EXCLUDED {}",
+                json!({"file":file,"module":module.name,"error":error})
+            );
+        }
+    }
+    assert_eq!(
+        found,
+        EXCLUDED_REFERENCE_MODULES
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect()
+    );
+}
+
+#[test]
+fn census_unknown_hook_probes() {
+    let inert = evaluate_hook("INT.kinktestUnimplemented", &[]);
+    assert_eq!(
+        inert,
+        Ok(Ok(BuiltinResult::Unsupported(
+            UnsupportedHookReason::NotImplemented
+        )))
+    );
+    let implemented = evaluate_hook("KRYPTO.keccak256", &[]);
+    assert_eq!(
+        implemented,
+        Ok(Err(BuiltinError::WrongArity {
+            hook: "KRYPTO.keccak256".to_owned(),
+            expected: 1,
+            actual: 0
+        }))
+    );
+    for file in REFERENCE_FILES {
+        assert!(
+            !builtin::embedded(file)
+                .unwrap()
+                .text
+                .contains("KRYPTO.keccak256")
+        );
+    }
+    eprintln!("CENSUS_HOOK_PROBES inert={inert:?} implemented={implemented:?}");
+    assert!(Path::new(support::DIR).join("t13implemented.k").exists());
+}
