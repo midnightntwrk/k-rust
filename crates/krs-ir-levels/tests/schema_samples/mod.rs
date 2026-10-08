@@ -998,8 +998,11 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Prefer {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::Overload {
+                    target: sample::<DescriptorApplicationReference>(),
+                },
             ],
-            16,
+            17,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1018,6 +1021,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
+                Self::Overload { .. } => 16,
             },
         )
     }
@@ -1353,7 +1357,11 @@ impl Sample for OriginFrame {
         )
     }
 }
-impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttribute<S> {
+impl<
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    D: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for ProductionAttribute<S, D>
+{
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -1416,8 +1424,12 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                 Self::Prefer {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::Overload {
+                    origin: sample::<NodeOrigin>(),
+                    target: sample::<D>(),
+                },
             ],
-            16,
+            17,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1436,6 +1448,7 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionAttr
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
+                Self::Overload { .. } => 16,
             },
         )
     }
@@ -1912,8 +1925,11 @@ impl Sample for WireProductionAttribute {
                 Self::Prefer {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::Overload {
+                    target: sample::<WireApplicationReference>(),
+                },
             ],
-            16,
+            17,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1932,6 +1948,7 @@ impl Sample for WireProductionAttribute {
                 Self::Color { .. } => 13,
                 Self::Colors { .. } => 14,
                 Self::Prefer { .. } => 15,
+                Self::Overload { .. } => 16,
             },
         )
     }
@@ -2913,7 +2930,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<GrammarDescriptor>(corpus, "GrammarDescriptor");
     insert::<GrammarProductionItemKind<SemanticSortRef>>(corpus, "GrammarProductionItemKind");
     insert::<OriginFrame>(corpus, "OriginFrame");
-    insert::<ProductionAttribute<SemanticSortRef>>(corpus, "ProductionAttribute");
+    insert::<ProductionAttribute<SemanticSortRef, StableItemId>>(corpus, "ProductionAttribute");
     insert::<ProtocolCellContent<DescriptorSortReference, DescriptorCellDeclarationReference>>(
         corpus,
         "ProtocolCellContent",

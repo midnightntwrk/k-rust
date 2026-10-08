@@ -172,9 +172,61 @@ pub(crate) fn symbol_instances(
     Ok(serde_json::to_value(instances)?)
 }
 
+/// The `symbol-overload` axioms of a definition as sorted (general,
+/// specific) pairs of KORE symbol names.
+///
+/// Both Java K and k-rust turn K's `overload(_)` attribute into one such
+/// axiom per directly related pair of a family; neither keeps the attribute
+/// on the symbol declarations.
+///
+/// # Errors
+///
+/// Fails for unreadable or invalid KORE and for a `symbol-overload`
+/// attribute that is not two symbol applications.
+pub(crate) fn overload_axioms(
+    kore: &std::path::Path,
+) -> Result<Vec<[String; 2]>, Box<dyn std::error::Error>> {
+    use k_rust::kore::{ast::Sentence, parser::parse_definition};
+
+    let definition = parse_definition(&std::fs::read_to_string(kore)?)?;
+    let mut pairs = Vec::new();
+    for sentence in definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+    {
+        let Sentence::Axiom { attributes, .. } = sentence else {
+            continue;
+        };
+        for attribute in &attributes.0 {
+            let Pattern::Application { symbol, arguments } = attribute else {
+                continue;
+            };
+            if symbol.name != "symbol-overload" {
+                continue;
+            }
+            let [
+                Pattern::Application {
+                    symbol: general, ..
+                },
+                Pattern::Application {
+                    symbol: specific, ..
+                },
+            ] = arguments.as_slice()
+            else {
+                return Err("a `symbol-overload` attribute is not two symbol applications".into());
+            };
+            pairs.push([general.name.clone(), specific.name.clone()]);
+        }
+    }
+    pairs.sort();
+    pairs.dedup();
+    Ok(pairs)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{symbol_attributes, symbol_instances};
+    use super::{overload_axioms, symbol_attributes, symbol_instances};
 
     #[test]
     fn reads_the_instances_a_parametric_symbol_is_applied_at() {
@@ -232,10 +284,34 @@ mod tests {
                 "skip": {"format": "%cskip%r"},
             })
         );
+        assert!(overload_axioms(&path).unwrap().is_empty());
         let missing = symbol_attributes(&path, &strings(&["absent"]), &strings(&["format"]));
         assert_eq!(
             missing.unwrap_err().to_string(),
             "KORE declares no symbol for label `absent`"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reads_symbol_overload_axioms_as_sorted_pairs() {
+        let directory =
+            std::env::temp_dir().join(format!("krs-gate-kore-overloads-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("definition.kore");
+        std::fs::write(
+            &path,
+            "[]\nmodule M\n  sort SortExp{} []\n  \
+             axiom{R} \\top{R}() [symbol-overload{}(Lbldot{}(), LbllvalDot{}())]\n  \
+             axiom{R} \\top{R}() [symbol-overload{}(Lbldot{}(), LblarrowDot{}())]\nendmodule []\n",
+        )
+        .unwrap();
+        assert_eq!(
+            overload_axioms(&path).unwrap(),
+            [
+                ["Lbldot".to_owned(), "LblarrowDot".to_owned()],
+                ["Lbldot".to_owned(), "LbllvalDot".to_owned()],
+            ]
         );
         std::fs::remove_dir_all(directory).unwrap();
     }

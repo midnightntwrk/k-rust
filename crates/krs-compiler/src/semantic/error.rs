@@ -67,6 +67,15 @@ pub enum DescriptorLoweringError {
         /// What is wrong with the group.
         problem: NondetGroupProblem,
     },
+    /// An `overload` key relates productions K cannot treat as one family.
+    InvalidOverload {
+        /// Production that carries the key.
+        production: Box<StableItemId>,
+        /// Stable reason naming both productions.
+        reason: String,
+        /// Sole exact authored range of the target path.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -152,6 +161,9 @@ impl fmt::Display for DescriptorLoweringError {
                     "nondet group `{group}` mixes priorities {first} and {second}; rules at different priorities never compete"
                 ),
             },
+            Self::InvalidOverload { reason, .. } => {
+                write!(formatter, "invalid `overload`: {reason}")
+            }
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -172,6 +184,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
+            Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -182,7 +195,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
-            Self::NondetGroup { range, .. } => range
+            Self::NondetGroup { range, .. } | Self::InvalidOverload { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

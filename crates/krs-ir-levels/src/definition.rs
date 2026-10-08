@@ -56,7 +56,7 @@ pub type DefinitionApplicationRef = ApplicationRef<SymbolId>;
 pub type ProductionItem = GrammarProductionItem<DefinitionSortRef>;
 
 /// Classified Definition production metadata.
-pub type DefinitionProductionAttribute = ProductionAttribute<DefinitionSortRef>;
+pub type DefinitionProductionAttribute = ProductionAttribute<DefinitionSortRef, SymbolId>;
 
 /// Stable generated symbol identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -1355,6 +1355,8 @@ pub enum DefinitionValidationError {
     PreferAndAvoid,
     /// A token or bracket production was marked `prefer`.
     PreferOnParseOnlyProduction,
+    /// A function, token, or bracket production carried `overload`.
+    InvalidOverloadProduction,
     /// A production kept `internal` or `program`, which lowering consumes when
     /// it places productions in the program-syntax or semantics module.
     SemanticOnlyProductionAttribute(SymbolId),
@@ -1528,6 +1530,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::PreferAndAvoid => {
                 formatter.write_str("a production is either preferred or avoided, not both")
             }
+            Self::InvalidOverloadProduction => formatter.write_str(
+                "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
+            ),
             Self::PreferOnParseOnlyProduction => {
                 formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")
             }
@@ -1782,6 +1787,9 @@ fn validate_production(
             | ProductionAttribute::Color { .. }
             | ProductionAttribute::Colors { .. }
             | ProductionAttribute::Prefer { .. } => {}
+            ProductionAttribute::Overload { target, .. } => {
+                require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
+            }
             ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),

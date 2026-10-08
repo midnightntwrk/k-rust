@@ -8182,6 +8182,32 @@
         "ordinal": 0,
         "role": "sort_declaration"
       }
+    },
+    {
+      "attribute_kind": "overload",
+      "target": {
+        "application": {
+          "application": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          },
+          "application_source": "declared"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      }
     }
   ],
   "DescriptorProductionItem": [
@@ -11744,6 +11770,65 @@
           }
         ]
       }
+    },
+    {
+      "attribute_kind": "overload",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "target": {
+        "disambiguator": "",
+        "item_kind": "sort",
+        "item_name": "Value",
+        "module_path": [
+          "syntax"
+        ],
+        "package": {
+          "cargo_name": "schema",
+          "cargo_source": "workspace",
+          "cargo_version": "0.1.0",
+          "k_namespace": "ORG-EXAMPLE-SCHEMA"
+        }
+      }
     }
   ],
   "ProductionContextAliasReference": [
@@ -13473,7 +13558,8 @@
     "equation_owise",
     "rule_nondet_group",
     "rule_anywhere",
-    "constructor_prefer"
+    "constructor_prefer",
+    "constructor_overload"
   ],
   "RuleSentence": [
     {
@@ -20598,6 +20684,17 @@
       "key": {
         "ordinal": 0,
         "role": "sort_declaration"
+      }
+    },
+    {
+      "attribute_kind": "overload",
+      "target": {
+        "authored_path": "sample",
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "target": 1
       }
     }
   ],

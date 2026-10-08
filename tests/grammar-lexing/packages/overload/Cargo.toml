@@ -1,0 +1,21 @@
+[package]
+name = "krs-grammar-overload"
+description = "Overload fixture: an LVal field access that specialises the Exp field access"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_overload"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-OVERLOAD"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

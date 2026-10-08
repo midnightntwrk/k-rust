@@ -506,12 +506,29 @@ fn expand_enum_variant(
     let group = variant
         .precedence_group()
         .map(|ordinal| enum_precedence_group_name(declaration, ordinal));
+    let overload = variant
+        .syntax()
+        .and_then(krs_syntax::VariantSyntaxAttribute::overload)
+        .map(|target| {
+            super::productions::overload_wire(
+                facade,
+                target,
+                &format_ident!("__krs_overload_target_{nonce:016x}_{index}"),
+                cfg,
+                &mut grammar_slots,
+            )
+        });
+    let overload_tokens = overload
+        .as_ref()
+        .map(|overload| overload.tokens.clone())
+        .unwrap_or_default();
     let mut attributes = if let Some(syntax) = variant.syntax() {
         super::productions::constructor_metadata_wire(
             group.or_else(|| syntax.group().map(syn::LitStr::value)),
             syntax.avoid(),
             syntax.prefer(),
             syntax.placement(),
+            overload.map(|overload| overload.attribute),
             &super::productions::ColorMetadata {
                 color: syntax.color(),
                 colors: syntax.colors(),
@@ -633,6 +650,7 @@ fn expand_enum_variant(
     Ok(quote! {
         #(#field_key_functions)*
         #strictness_key
+        #overload_tokens
 
         #descriptor_factory_tokens
 

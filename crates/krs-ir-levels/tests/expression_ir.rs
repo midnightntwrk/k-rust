@@ -75,7 +75,7 @@ fn production(
     emitted: &str,
     result_sort: DefinitionSortRef,
     items: Vec<ProductionItem>,
-    attributes: Vec<ProductionAttribute<DefinitionSortRef>>,
+    attributes: Vec<ProductionAttribute<DefinitionSortRef, SymbolId>>,
 ) -> DefinitionSentence {
     DefinitionSentence::Production(
         ProductionSentence::new(
@@ -850,6 +850,40 @@ fn rejects_prefer_with_avoid_and_on_parse_only_productions() {
             DefinitionValidationError::PreferOnParseOnlyProduction,
         );
     }
+}
+
+#[test]
+fn overload_names_a_production_symbol_on_a_constructor() {
+    let overload = |key: &str, target: &str| {
+        serde_json::json!({
+            "attribute_kind": "overload",
+            "origin": serde_json::to_value(node(key)).unwrap(),
+            "target": target,
+        })
+    };
+    let mut accepted = expression_json();
+    production_mut(&mut accepted, "production.neg")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap()
+        .push(overload("production.neg.overload", "production.add"));
+    serde_json::from_value::<DefinitionIr>(accepted).unwrap();
+
+    let mut dangling = expression_json();
+    production_mut(&mut dangling, "production.neg")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap()
+        .push(overload("production.neg.overload", "production.missing"));
+    assert!(serde_json::from_value::<DefinitionIr>(dangling).is_err());
+
+    let mut token = expression_json();
+    production_mut(&mut token, "production.id")["sentence"]["attributes"]
+        .as_array_mut()
+        .unwrap()
+        .push(overload("production.id.overload", "production.add"));
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(token),
+        DefinitionValidationError::InvalidOverloadProduction,
+    );
 }
 
 #[test]

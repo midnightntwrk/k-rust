@@ -8,6 +8,7 @@ mod grammar;
 mod infer;
 mod open_sorts;
 mod origin;
+mod overload;
 mod package;
 mod references;
 mod rules;
@@ -117,6 +118,7 @@ pub fn lower_descriptor_bundle(
         );
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
+    overload::check_overloads(&modules, &semantic_sort_parents)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {
             declarations

@@ -139,6 +139,14 @@ fn render_term_with_binders(
             }
             ApplicationRef::Declared(symbol) => {
                 let production = context.production(symbol)?;
+                // K parses an untyped `_` at an argument of an overloaded
+                // production as the most general family member, so a
+                // wildcard there names its sort and K selects the member
+                // the structured term denotes.
+                let overloaded = production
+                    .attributes()
+                    .iter()
+                    .any(|attribute| matches!(attribute, ProductionAttribute::Overload { .. }));
                 let mut arguments = arguments.iter();
                 for (index, item) in production.items().iter().enumerate() {
                     if index != 0 {
@@ -158,8 +166,16 @@ fn render_term_with_binders(
                             if parenthesize {
                                 output.push("(");
                             }
-                            output
-                                .append(render_term_with_binders(argument, context, false, names)?);
+                            if overloaded && is_wildcard(argument) {
+                                let mut wildcard = Rendered::default();
+                                wildcard.push("_:");
+                                wildcard.push(context.sort_name_ref(argument.sort())?);
+                                output.append(wildcard.finish(argument.origin().key(), 0));
+                            } else {
+                                output.append(render_term_with_binders(
+                                    argument, context, false, names,
+                                )?);
+                            }
                             if parenthesize {
                                 output.push(")");
                             }
@@ -240,6 +256,13 @@ fn render_term_with_binders(
         }
     }
     Ok(output.finish(term.origin().key(), start))
+}
+
+fn is_wildcard(term: &DefinitionTerm) -> bool {
+    matches!(
+        term.kind(),
+        DefinitionTermKind::Variable { variable } if variable.kind() == SemanticIdKind::Wildcard
+    )
 }
 
 fn parenthesize_declared_child(

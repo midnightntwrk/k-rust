@@ -372,6 +372,8 @@ provenance_roles! {
     RuleAnywhere => "rule_anywhere",
     /// Typed `prefer` flag in a constructor attribute.
     ConstructorPrefer => "constructor_prefer",
+    /// Target path of a production's `overload` key.
+    ConstructorOverload => "constructor_overload",
 }
 
 impl Serialize for ProvenanceRole {

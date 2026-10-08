@@ -3,7 +3,9 @@
   "expand": {
     "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282",
     "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4",
-    "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151"
+    "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
+    "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
+    "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -17,6 +19,12 @@
     },
     "krs-grammar-prefer": {
       "definition.k": "67edfbe87cfcc6c657016bb16f8ddeed61c6f3e2c9e11e0668daadd77ba85966"
+    },
+    "krs-grammar-overload": {
+      "definition.k": "ab71641453cbb99b24ce6ce0c7516812db756b68750903e92c896b2bfd02be72"
+    },
+    "krs-grammar-overload-ambiguous": {
+      "definition.k": "221131bcd5c71af8eaea99e3629d6cef2233d3625ec7536860da1308424d0bd2"
     }
   },
   "partition": {
@@ -35,7 +43,9 @@
     "krs-grammar-partition": "b5efe564c517d4efa254ef508c6ae714bbc9ad77f899e512bce5bd4b6fe54bdb",
     "krs-grammar-kevm-case": "cd3b6a00d3e958f904a49796b8d252b6ec46ded60fdea007d54bfe7b8245f0ab",
     "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961",
-    "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0"
+    "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0",
+    "krs-grammar-overload": "0f11b9406b0de0cfe1f0274e303ac8adef387b5e70ee05a3314c52117d9d99d1",
+    "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -91,6 +101,26 @@
         "parse": "accepted",
         "run": "skip"
       }
+    },
+    "krs-grammar-overload": {
+      "lval-access": {
+        "parse": "accepted",
+        "run": "lvalue"
+      },
+      "value-access": {
+        "parse": "accepted",
+        "run": "value"
+      }
+    },
+    "krs-grammar-overload-ambiguous": {
+      "lval-access": {
+        "parse": "rejected",
+        "run": null
+      },
+      "value-access": {
+        "parse": "accepted",
+        "run": "value"
+      }
     }
   },
   "diagnostics": {
@@ -117,6 +147,15 @@
     ],
     "prefer-avoid": [
       "error[krs::rust-expansion::uncoded-error]: `prefer` must be omitted: a production is either preferred or avoided, not both"
+    ],
+    "overload-arity": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: `LValSyntax::LvalField` takes 1 argument but its target `ExpSyntax::Dot` takes 2 arguments; an overload has the target's arity"
+    ],
+    "overload-not-subsort": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: `LValSyntax::LvalDot` does not specialise `ExpSyntax::Dot`: its sort `Id` is not a subsort of `Int`"
+    ],
+    "overload-cycle": [
+      "error[krs::analysis::invalid-overload]: invalid `overload`: the overload targets form a cycle: `ExpSyntax::Dot` -> `LValSyntax::LvalDot` -> `ExpSyntax::Dot`"
     ]
   },
   "format": {
@@ -125,6 +164,8 @@
     "krs_parse_program": "while (1) {\n  c// assignr\n  x = 2;\n}\n"
   },
   "kore_attributes": {
-    "krs-grammar-prefer": "ifThen \nifThenElse \n"
+    "krs-grammar-prefer": "ifThen \nifThenElse \n",
+    "krs-grammar-overload": "dot \nlvalDot \noverload Lbldot LbllvalDot\n",
+    "krs-grammar-overload-ambiguous": "dot \nlvalDot \n"
   }
 }

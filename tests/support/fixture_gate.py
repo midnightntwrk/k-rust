@@ -125,6 +125,8 @@ class FixtureGate:
     environment: Mapping[str, str]
     refresh: bool = False
     divergences: dict[str, Any] = field(default_factory=dict)
+    kore_attributes: dict[str, str] = field(default_factory=dict)
+    """The agreed KORE attribute lines of each package compared with `attributes`."""
 
     def _krs(self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str, check: bool = True) -> subprocess.CompletedProcess[str]:
         argv = fixture.invocation(self.krs).argv(command, *fixture.argv_extra(), *extra)
@@ -298,6 +300,7 @@ class FixtureGate:
                 f"native:\n{native}java:\n{java}"
             )
         self.pins.expect(("kore_attributes", emitted.fixture.package), native)
+        self.kore_attributes[emitted.fixture.package] = native
 
     def _attribute_reducer(self, emitted: Emitted, attributes: tuple[Sequence[str], Sequence[str]]):
         labels, names = attributes
@@ -463,14 +466,16 @@ def fixture_packages(manifest: Path, names: Sequence[str]) -> Iterator[Fixture]:
 
 def kore_attribute_lines(gate: Path, kore: Path, labels: Sequence[str], names: Sequence[str], *,
                          environment: Mapping[str, str] | None = None) -> str:
-    """Return the named string attributes of the labels' KORE symbol declarations, one line each.
+    """Return the named string attributes of the labels' KORE symbol declarations, one line each,
+    then one `overload GENERAL SPECIFIC` line per `symbol-overload` axiom.
 
     `krs-gate` parses the definition (Java K writes each declaration on one
-    line and k-rust across several); the lines name K labels.
+    line and k-rust across several); the attribute lines name K labels and the
+    overload lines KORE symbols. A flag attribute reads as `''`.
     """
 
-    rows = krs_gate.kore_attributes(gate, kore, labels, names, environment=environment)
+    rows, overloads = krs_gate.kore_symbols(gate, kore, labels, names, environment=environment)
     return "".join(
         f"{label} " + " ".join(f"{name}={rows[label][name]!r}" for name in sorted(rows[label])) + "\n"
         for label in labels
-    )
+    ) + "".join(f"overload {general} {specific}\n" for general, specific in overloads)

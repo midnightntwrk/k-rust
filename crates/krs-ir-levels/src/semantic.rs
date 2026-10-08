@@ -66,7 +66,7 @@ pub type SemanticApplicationRef = ApplicationRef<StableItemId>;
 pub type SemanticProductionItem = GrammarProductionItem<SemanticSortRef>;
 
 /// Classified semantic production metadata.
-pub type SemanticProductionAttribute = ProductionAttribute<SemanticSortRef>;
+pub type SemanticProductionAttribute = ProductionAttribute<SemanticSortRef, StableItemId>;
 
 /// A resolved sort reference in semantic IR.
 pub type SemanticSortRef = crate::IrSortRef<StableItemId>;
@@ -348,6 +348,13 @@ impl SemanticTheory {
                             &declarations,
                             alias.alias(),
                             ItemKind::ContextAlias,
+                        )?;
+                    }
+                    if let ProductionAttribute::Overload { target, .. } = attribute {
+                        require_kind::<SemanticLevel>(
+                            &declarations,
+                            target,
+                            ItemKind::Constructor,
                         )?;
                     }
                 }
@@ -1318,6 +1325,8 @@ pub enum SemanticValidationError {
     PreferAndAvoid,
     /// A token or bracket production was marked `prefer`.
     PreferOnParseOnlyProduction,
+    /// A function, token, or bracket production carried `overload`.
+    InvalidOverloadProduction,
     /// A bracket production did not have exactly one nonterminal.
     InvalidBracketProduction,
     /// Total metadata occurred without function metadata.
@@ -1476,6 +1485,9 @@ impl fmt::Display for SemanticValidationError {
             Self::PreferAndAvoid => {
                 formatter.write_str("a production is either preferred or avoided, not both")
             }
+            Self::InvalidOverloadProduction => formatter.write_str(
+                "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
+            ),
             Self::PreferOnParseOnlyProduction => {
                 formatter.write_str("`prefer` applies only to constructor and function productions, not to token or bracket productions")
             }

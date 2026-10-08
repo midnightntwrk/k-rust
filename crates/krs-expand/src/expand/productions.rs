@@ -11,7 +11,7 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
-use super::tokens::{call_site_path, spelling};
+use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
 
 pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,
@@ -93,6 +93,65 @@ pub(super) fn check_placement_visibility(
     Ok(())
 }
 
+/// The expansion of one `overload = Path` key.
+pub(super) struct OverloadWire {
+    /// The target's type-key function and a rustc-checked pattern use of the
+    /// target, so rustc reports an unknown or private target (E0433, E0603)
+    /// at the authored path and rust-analyzer navigates from it.
+    pub(super) tokens: TokenStream,
+    /// The `overload` production attribute.
+    pub(super) attribute: krs_ir::wire::WireProductionAttribute,
+}
+
+/// Expands the target of `overload = Path`: an enum variant `Enum::Variant`
+/// or a constructor struct.
+pub(super) fn overload_wire(
+    facade: &Path,
+    target: &Path,
+    key_fn: &Ident,
+    cfg: &[Attribute],
+    slots: &mut super::terms::WireSlots,
+) -> OverloadWire {
+    use super::terms::wire_key;
+    // The owner keeps the authored spans, so rustc reports an unknown or
+    // private target at the path the author wrote.
+    let (owner, variant) = enum_variant_parts(target).map_or_else(
+        || (target.clone(), None),
+        |(owner, variant)| (owner, Some(variant)),
+    );
+    let owner_key = quote!(#facade::HostTypeKey(#key_fn));
+    let slot = if let Some(variant) = &variant {
+        let marker = variant_marker_function(variant);
+        slots.variant_slot_for_grammar(&owner_key, &quote!(#facade::HostTypeKey(#owner::#marker)))
+    } else {
+        slots.nominal_target_slot(&owner_key)
+    };
+    let tokens = quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        fn #key_fn() -> ::core::any::TypeId {
+            ::core::any::TypeId::of::<#owner>()
+        }
+
+        #(#cfg)*
+        #[doc(hidden)]
+        #[allow(irrefutable_let_patterns)]
+        const _: () = {
+            let _ = |value| if let #target { .. } = value {};
+        };
+    };
+    OverloadWire {
+        tokens,
+        attribute: krs_ir::wire::WireProductionAttribute::Overload {
+            target: krs_ir::wire::WireApplicationReference {
+                key: wire_key(ProvenanceRole::ConstructorOverload, 0),
+                target: slot,
+                authored_path: spelling(target),
+            },
+        },
+    }
+}
+
 /// A production's `color` literal or `colors` literals.
 pub(super) struct ColorMetadata<'a> {
     pub(super) color: Option<&'a syn::LitStr>,
@@ -104,6 +163,7 @@ pub(super) fn constructor_metadata_wire(
     avoid: bool,
     prefer: bool,
     placement: Option<krs_syntax::PlacementFlag>,
+    overload: Option<krs_ir::wire::WireProductionAttribute>,
     colors: &ColorMetadata<'_>,
     format: Option<&krs_syntax::StructuredFormat>,
 ) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
@@ -141,6 +201,7 @@ pub(super) fn constructor_metadata_wire(
         }),
         None => {}
     }
+    attributes.extend(overload);
     if let Some(color) = colors.color {
         attributes.push(Attribute::Color {
             key: wire_key(ProvenanceRole::ConstructorColor, 0),

@@ -370,6 +370,8 @@ struct NamingPass {
     productions: BTreeMap<StableItemId, SymbolIdentity>,
     fixed_cells: BTreeMap<krs_ir::SemanticId, SymbolId>,
     rules: BTreeMap<StableItemId, LabelIdentity>,
+    /// The root of every overload family member, including each root itself.
+    overload_roots: BTreeMap<StableItemId, StableItemId>,
 }
 
 impl NamingPass {
@@ -506,7 +508,17 @@ impl NamingPass {
                     .insert(rule.id().clone(), LabelIdentity::new(id, name)?);
             }
         }
+        pass.overload_roots = overload_roots(theory)?;
         Ok(pass)
+    }
+
+    /// Returns the symbol of the overload family root of `id`, when `id`
+    /// belongs to a family.
+    fn overload_root(&self, id: &StableItemId) -> Result<Option<SymbolId>, LoweringError> {
+        self.overload_roots
+            .get(id)
+            .map(|root| Ok(self.production(root)?.id().clone()))
+            .transpose()
     }
 
     fn sort(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
@@ -1366,11 +1378,53 @@ fn lower_production_items(
         .collect()
 }
 
+fn lower_production_attributes(
+    production: &SemanticProduction,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<krs_ir_levels::DefinitionProductionAttribute>, LoweringError> {
+    let mut attributes = lower_authored_production_attributes(production, names, origins)?;
+    // An overload family's root carries the family key too: K identifies a
+    // family by the root's symbol, and the root declares it.
+    let marked = production
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Overload { .. }));
+    if !marked && let Some(root) = names.overload_root(production.id())? {
+        let origin = origins.lower(
+            production.origin(),
+            "production-overload-root",
+            Some(production.id()),
+            None,
+        )?;
+        let position = attributes
+            .iter()
+            .position(|attribute| {
+                matches!(
+                    attribute,
+                    ProductionAttribute::Color { .. }
+                        | ProductionAttribute::Colors { .. }
+                        | ProductionAttribute::Format { .. }
+                        | ProductionAttribute::Strictness { .. }
+                )
+            })
+            .unwrap_or(attributes.len());
+        attributes.insert(
+            position,
+            ProductionAttribute::Overload {
+                origin,
+                target: root,
+            },
+        );
+    }
+    Ok(attributes)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Keeps exhaustive production attribute lowering in one match."
 )]
-fn lower_production_attributes(
+fn lower_authored_production_attributes(
     production: &SemanticProduction,
     names: &NamingPass,
     origins: &mut OriginPass,
@@ -1421,6 +1475,15 @@ fn lower_production_attributes(
                 ProductionAttribute::Bracket { .. } => ProductionAttribute::Bracket { origin },
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
                 ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
+                ProductionAttribute::Overload { .. } => ProductionAttribute::Overload {
+                    origin,
+                    target: names.overload_root(production.id())?.ok_or_else(|| {
+                        LoweringError::UnsupportedShape {
+                            node: "overload family",
+                            detail: format!("{} has no overload root", production.id()),
+                        }
+                    })?,
+                },
                 ProductionAttribute::Format { fragments, .. } => ProductionAttribute::Format {
                     origin,
                     fragments: fragments.clone(),
@@ -1576,6 +1639,47 @@ fn lower_term(
                 .collect::<Result<Vec<_>, _>>()?,
         )),
     }
+}
+
+/// Maps every overload family member and root to the root its `overload`
+/// targets lead to. The semantic pass has rejected dangling targets and
+/// cycles; they fail here too rather than loop.
+fn overload_roots(
+    theory: &SemanticTheory,
+) -> Result<BTreeMap<StableItemId, StableItemId>, LoweringError> {
+    let targets = theory
+        .modules()
+        .iter()
+        .flat_map(SemanticModule::productions)
+        .filter_map(|production| {
+            production
+                .attributes()
+                .iter()
+                .find_map(|attribute| match attribute {
+                    ProductionAttribute::Overload { target, .. } => {
+                        Some((production.id().clone(), target.clone()))
+                    }
+                    _ => None,
+                })
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut roots = BTreeMap::new();
+    for member in targets.keys() {
+        let mut root = member;
+        let mut seen = BTreeSet::from([member]);
+        while let Some(next) = targets.get(root) {
+            if !seen.insert(next) {
+                return Err(LoweringError::UnsupportedShape {
+                    node: "overload family",
+                    detail: format!("the overload targets of {member} form a cycle"),
+                });
+            }
+            root = next;
+        }
+        roots.insert(member.clone(), root.clone());
+        roots.insert(root.clone(), root.clone());
+    }
+    Ok(roots)
 }
 
 fn select_main_module(theory: &SemanticTheory) -> Result<&SemanticModule, LoweringError> {

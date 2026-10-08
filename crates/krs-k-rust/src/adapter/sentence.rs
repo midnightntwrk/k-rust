@@ -224,6 +224,12 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Prefer { .. } => {
                 attributes.insert("prefer", json!(""));
             }
+            DefinitionProductionAttribute::Overload { target, .. } => {
+                attributes.insert(
+                    "overload",
+                    json!(self.symbol_name(target, attribute.origin())?),
+                );
+            }
             DefinitionProductionAttribute::Format { fragments, .. } => {
                 attributes.insert("format", json!(native_format(fragments)));
             }

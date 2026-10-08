@@ -859,7 +859,7 @@ note = "These are design-checklist concepts, not current public syntax."
 
 [[concept]]
 id = "unsupported-grammar"
-title = "Syntactic lists, overload declarations, and general raw grammar"
+title = "Syntactic lists and general raw grammar"
 status = "unsupported"
 coverage = "limitation"
 chapter = "limits"

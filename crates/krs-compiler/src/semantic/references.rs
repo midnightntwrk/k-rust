@@ -119,6 +119,9 @@ fn validate_grammar_references(
                 if let DescriptorProductionAttribute::Strictness { result_sort, .. } = attribute {
                     validate_sort_ref(&result_sort.sort, declarations)?;
                 }
+                if let DescriptorProductionAttribute::Overload { target } = attribute {
+                    validate_application_ref(&target.application, declarations)?;
+                }
             }
         }
         GrammarDescriptor::Subsort {

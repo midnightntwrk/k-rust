@@ -545,7 +545,8 @@ impl Session {
             &strings("labels")?,
             &strings("attributes")?,
         )?;
-        Ok(json!({"symbols": symbols}))
+        let overloads = crate::kore_attributes::overload_axioms(kore)?;
+        Ok(json!({"symbols": symbols, "overloads": overloads}))
     }
 
     fn instances(request: &Value) -> Result<Value, Box<dyn Error>> {

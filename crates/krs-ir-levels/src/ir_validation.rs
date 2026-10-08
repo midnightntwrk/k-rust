@@ -128,6 +128,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InternalWithProgram,
     PreferAndAvoid,
     PreferOnParseOnlyProduction,
+    InvalidOverloadProduction,
     InvalidFunctionProduction,
     InvalidHookSignature(HookOperation),
     InvalidBn128PointConstructor {
@@ -1222,7 +1223,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     id: &L::Declaration,
     result_sort: &L::Sort,
     items: &[GrammarProductionItem<L::Sort>],
-    attributes: &[ProductionAttribute<L::Sort>],
+    attributes: &[ProductionAttribute<L::Sort, L::Declaration>],
 ) -> Result<(), L::Error> {
     if items.is_empty() {
         return Err(L::error(ValidationError::EmptyProduction(id.clone())));
@@ -1256,6 +1257,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut program = false;
     let mut colors = None;
     let mut prefer = false;
+    let mut overload = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -1278,6 +1280,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
                 .replace(values.iter().map(String::as_str).collect())
                 .is_some(),
             ProductionAttribute::Prefer { .. } => std::mem::replace(&mut prefer, true),
+            ProductionAttribute::Overload { .. } => std::mem::replace(&mut overload, true),
         };
         if already {
             let name = attribute
@@ -1320,7 +1323,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Program { .. }
             | ProductionAttribute::Color { .. }
             | ProductionAttribute::Colors { .. }
-            | ProductionAttribute::Prefer { .. } => {}
+            | ProductionAttribute::Prefer { .. }
+            | ProductionAttribute::Overload { .. } => {}
         }
     }
     if internal && program {
@@ -1334,6 +1338,11 @@ pub(crate) fn validate_production_shape<L: Validation>(
     // constructors, so a preference on them has no meaning.
     if prefer && (token || bracket) {
         return Err(L::error(ValidationError::PreferOnParseOnlyProduction));
+    }
+    // An overload family relates constructors; functions, tokens, and
+    // brackets are not members.
+    if overload && (function || token || bracket) {
+        return Err(L::error(ValidationError::InvalidOverloadProduction));
     }
     validate_production_colors::<L>(items, attributes, colors.as_deref())?;
     if total && !function {
@@ -1409,7 +1418,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
 /// which is stricter than K: without one they have no effect.
 fn validate_production_colors<L: Validation>(
     items: &[GrammarProductionItem<L::Sort>],
-    attributes: &[ProductionAttribute<L::Sort>],
+    attributes: &[ProductionAttribute<L::Sort, L::Declaration>],
     colors: Option<&[&str]>,
 ) -> Result<(), L::Error> {
     let color_controls = attributes
@@ -1646,7 +1655,7 @@ pub(crate) fn collect_configuration_nodes<L: Validation>(
 pub(crate) struct ProductionView<'a, L: Validation> {
     pub result_sort: &'a L::Sort,
     pub items: &'a [GrammarProductionItem<L::Sort>],
-    pub attributes: &'a [ProductionAttribute<L::Sort>],
+    pub attributes: &'a [ProductionAttribute<L::Sort, L::Declaration>],
 }
 
 /// BN128 hooks must use the backend's named point sorts and unique integer-field constructors.

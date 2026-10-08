@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Grammar and lexing feature gate: program-syntax partition (KF-005), formats
-(KF-018), and production keys (KF-002).
+(KF-018), and production keys (KF-002, KF-038).
 
 Each package emits `<NS>-SYNTAX`, the grammar programs may use, and `<NS>`,
 which imports it and adds what only rules may use. This gate checks the
@@ -20,6 +20,12 @@ partition end to end on both routes:
   `second`, and an unambiguous program is unaffected; `prefer` is a parser
   attribute that K 7.1.337 does not write to KORE, and the native
   `syntaxDefinition.kore` agrees (pinned);
+- `overload`: `LValSyntax::LvalDot` overloads `ExpSyntax::Dot`, so `a.b`
+  parses as `lvalDot(a, b)` on both routes and the rule written on the `LVal`
+  production fires, while `1.b` stays a `dot`; both KOREs carry the one
+  `symbol-overload` axiom of the family. `overload-ambiguous`, the same
+  grammar without the key, makes `a.b` ambiguous on both routes and has no
+  axiom;
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
   position; Java K accepts the emitted `.k`, the native and Java
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
@@ -28,8 +34,9 @@ partition end to end on both routes:
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
-  `colors` list that does not match the printed terminals, and `prefer` with
-  `avoid`.
+  `colors` list that does not match the printed terminals, `prefer` with
+  `avoid`, and an overload with another arity, one whose sort is not a
+  subsort of its target's, and two productions that overload each other.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -66,6 +73,8 @@ KEVM_CASE = Fixture(MANIFEST, "krs-grammar-kevm-case")
 PROGRAM_WARNING = Fixture(MANIFEST, "krs-grammar-program-warning")
 FORMAT = Fixture(MANIFEST, "krs-grammar-format")
 PREFER = Fixture(MANIFEST, "krs-grammar-prefer")
+OVERLOAD = Fixture(MANIFEST, "krs-grammar-overload")
+OVERLOAD_AMBIGUOUS = Fixture(MANIFEST, "krs-grammar-overload-ambiguous")
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
 FORMAT_ATTRIBUTES = ("format", "color", "colors")
 FORMAT_PROGRAM = "while (1) { x = 2; }"
@@ -95,6 +104,21 @@ PREFER_PROGRAMS = (
     Program("if-then", "if false then first", "accepted", "skip"),
 )
 PREFER_ATTRIBUTES = (("ifThen", "ifThenElse"), ("prefer", "avoid"))
+OVERLOAD_PROGRAMS = (
+    Program(
+        "lval-access", "a.b", "accepted", "lvalue",
+        kast='lvalDot(#token("a","Id"),#token("b","Id"))',
+    ),
+    Program(
+        "value-access", "1.b", "accepted", "value",
+        kast='dot(#token("1","Int"),#token("b","Id"))',
+    ),
+)
+OVERLOAD_AMBIGUOUS_PROGRAMS = (
+    Program("lval-access", "a.b", "rejected"),
+    Program("value-access", "1.b", "accepted", "value"),
+)
+OVERLOAD_ATTRIBUTES = (("dot", "lvalDot"), ("overload",))
 KEVM_PROGRAMS = (
     Program("emit", "emit(1)", "accepted", "done"),
     Program("log-entry", "logEntry(1, .List, .Bytes)", "rejected"),
@@ -112,6 +136,9 @@ NEGATIVE = (
     ),
     ("colors-mismatch", "colors-mismatch", "krs-grammar-colors-mismatch", ()),
     ("prefer-avoid", "prefer-avoid", "krs-grammar-prefer-avoid", ()),
+    ("overload-arity", "overload-arity", "krs-grammar-overload-arity", ()),
+    ("overload-not-subsort", "overload-not-subsort", "krs-grammar-overload-not-subsort", ()),
+    ("overload-cycle", "overload-cycle", "krs-grammar-overload-cycle", ()),
 )
 
 
@@ -267,6 +294,21 @@ def main() -> int:
         prefer = harness.emit(PREFER)
         harness.compare(prefer, PREFER_PROGRAMS, sort="Stmt", attributes=PREFER_ATTRIBUTES)
         print("PASS prefer: the dangling else binds to the inner if on both routes; KORE attributes agree")
+
+        for fixture, programs in (
+            (OVERLOAD, OVERLOAD_PROGRAMS), (OVERLOAD_AMBIGUOUS, OVERLOAD_AMBIGUOUS_PROGRAMS),
+        ):
+            harness.check(fixture)
+            harness.expand(fixture)
+            emitted = harness.emit(fixture)
+            harness.compare(emitted, programs, sort="Exp", attributes=OVERLOAD_ATTRIBUTES)
+        axioms = {
+            package: [line for line in harness.kore_attributes[package].splitlines() if line.startswith("overload ")]
+            for package in (OVERLOAD.package, OVERLOAD_AMBIGUOUS.package)
+        }
+        if len(axioms[OVERLOAD.package]) != 1 or axioms[OVERLOAD_AMBIGUOUS.package]:
+            raise GateError(f"expected one overload axiom with the key and none without it: {axioms}")
+        print("PASS overload: a.b is lvalDot on both routes and the LVal rule fires; one overload axiom; ambiguous without the key")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

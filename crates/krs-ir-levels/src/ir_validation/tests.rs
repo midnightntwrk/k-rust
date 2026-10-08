@@ -190,10 +190,13 @@ fn duplicate_term_origins_precede_dangling_sorts_and_variables() {
     );
 }
 
+/// A level's production attribute.
+type LevelAttribute<L> = ProductionAttribute<<L as IrLevel>::Sort, <L as IrLevel>::Declaration>;
+
 fn bn128_point_check<L: Validation>(
     sorts: &BTreeMap<&L::Declaration, &str>,
     point_sort: &L::Sort,
-    constructors: &[(usize, Option<ProductionAttribute<L::Sort>>)],
+    constructors: &[(usize, Option<LevelAttribute<L>>)],
     hook: HookOperation,
 ) -> Result<(), L::Error> {
     let constructor_items = constructors

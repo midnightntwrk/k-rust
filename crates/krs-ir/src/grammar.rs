@@ -314,6 +314,10 @@ impl<S> ProductionResultSort<S> {
 }
 
 /// One classified production attribute with mandatory provenance.
+///
+/// `S` is the level's sort reference and `D` its declaration identity: an
+/// authored item at the Semantic level and a generated symbol at the
+/// Definition level.
 #[cfg_attr(
     target_pointer_width = "64",
     expect(
@@ -323,7 +327,7 @@ impl<S> ProductionResultSort<S> {
 )]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProductionAttribute<S> {
+pub enum ProductionAttribute<S, D> {
     /// Literal documentation emitted as a K source comment.
     Documentation {
         /// Documentation provenance.
@@ -431,9 +435,20 @@ pub enum ProductionAttribute<S> {
         /// Attribute provenance.
         origin: NodeOrigin,
     },
+    /// K's `overload(key)`: the production belongs to an overload family.
+    ///
+    /// At the Semantic level `target` is the authored target production; at
+    /// the Definition level it is the family root, whose symbol is K's family
+    /// key, and the root carries the attribute too.
+    Overload {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// The overloaded production.
+        target: D,
+    },
 }
 
-impl<S> ProductionAttribute<S> {
+impl<S, D> ProductionAttribute<S, D> {
     /// Returns mandatory attribute provenance.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
@@ -453,7 +468,8 @@ impl<S> ProductionAttribute<S> {
             | Self::Program { origin }
             | Self::Color { origin, .. }
             | Self::Colors { origin, .. }
-            | Self::Prefer { origin } => origin,
+            | Self::Prefer { origin }
+            | Self::Overload { origin, .. } => origin,
         }
     }
 
@@ -478,6 +494,7 @@ impl<S> ProductionAttribute<S> {
                 Some(crate::ProductionAttributeFamily::Color)
             }
             Self::Prefer { .. } => Some(crate::ProductionAttributeFamily::Prefer),
+            Self::Overload { .. } => Some(crate::ProductionAttributeFamily::Overload),
         }
     }
 }

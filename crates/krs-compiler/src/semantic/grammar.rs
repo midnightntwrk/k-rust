@@ -178,10 +178,14 @@ fn lower_production_item(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keeps exhaustive production attribute lowering in one match."
+)]
 fn lower_production_attribute(
     descriptor: &Descriptor,
     attribute: &DescriptorProductionAttribute,
-) -> Result<ProductionAttribute<SemanticSortRef>, DescriptorLoweringError> {
+) -> Result<ProductionAttribute<SemanticSortRef, StableItemId>, DescriptorLoweringError> {
     Ok(match attribute {
         DescriptorProductionAttribute::Documentation { key, text } => {
             ProductionAttribute::Documentation {
@@ -275,5 +279,19 @@ fn lower_production_attribute(
         DescriptorProductionAttribute::Prefer { key } => ProductionAttribute::Prefer {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
         },
+        DescriptorProductionAttribute::Overload { target } => {
+            let origin = semantic_origin(descriptor, target.key.clone(), "production-attribute")?;
+            let DescriptorApplicationRef::Declared(id) = &target.application else {
+                return Err(DescriptorLoweringError::InvalidOverload {
+                    production: Box::new(descriptor.id().clone()),
+                    reason: "the target is a builtin operation; `overload` relates constructor productions".to_owned(),
+                    range: origin.origin().exact_authored_range().map(Box::new),
+                });
+            };
+            ProductionAttribute::Overload {
+                origin,
+                target: id.clone(),
+            }
+        }
     })
 }

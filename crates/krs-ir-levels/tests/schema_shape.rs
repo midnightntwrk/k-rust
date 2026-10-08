@@ -886,7 +886,7 @@ fn registry() -> Registry {
     unsupported!(GrammarProductionItem: GrammarProductionItem<String>);
     unsupported!(GrammarProductionItemKind: GrammarProductionItemKind<String>);
     unsupported!(ProductionResultSort: ProductionResultSort<String>);
-    unsupported!(ProductionAttribute: ProductionAttribute<String>);
+    unsupported!(ProductionAttribute: ProductionAttribute<String, String>);
     unsupported!(FixedCell: FixedCell<String,String>);
     unsupported!(FixedCellContent: FixedCellContent<String,String>);
     unsupported!(FixedConfigurationVariable: FixedConfigurationVariable<String>);

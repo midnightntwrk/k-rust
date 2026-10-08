@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::value::{
-    parse_avoid_value, parse_format_value, parse_group_value, parse_prefer_value, parse_sort_value,
-    parse_syntax_value,
+    parse_avoid_value, parse_format_value, parse_group_value, parse_overload_value,
+    parse_prefer_value, parse_sort_value, parse_syntax_value,
 };
 
 /// Arguments of `#[k::constructor(...)]`.
@@ -33,6 +33,7 @@ pub struct ConstructorAttribute {
     avoid_literal: Option<LitBool>,
     prefer_literal: Option<LitBool>,
     placement: PlacementFlags,
+    overload: Option<Path>,
     colors: ProductionColors,
 }
 
@@ -495,6 +496,7 @@ pub struct VariantSyntaxAttribute {
     avoid_literal: Option<LitBool>,
     prefer_literal: Option<LitBool>,
     placement: PlacementFlags,
+    overload: Option<Path>,
     colors: ProductionColors,
 }
 
@@ -527,6 +529,12 @@ impl VariantSyntaxAttribute {
     #[must_use]
     pub const fn prefer(&self) -> bool {
         self.prefer_literal.is_some()
+    }
+
+    /// Returns the target path of the production's `overload` key.
+    #[must_use]
+    pub const fn overload(&self) -> Option<&Path> {
+        self.overload.as_ref()
     }
 
     /// Returns the authored structured-format literal, when present.
@@ -650,6 +658,13 @@ impl VariantSyntaxAttribute {
             ));
         }
         anchors.extend(self.placement.anchors()?);
+        if let Some(overload) = &self.overload {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorOverload,
+                0,
+                TokenRange::for_tokens(overload)?,
+            ));
+        }
         anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
@@ -668,6 +683,12 @@ impl ConstructorAttribute {
     #[must_use]
     pub const fn prefer(&self) -> bool {
         self.prefer_literal.is_some()
+    }
+
+    /// Returns the target path of the production's `overload` key.
+    #[must_use]
+    pub const fn overload(&self) -> Option<&Path> {
+        self.overload.as_ref()
     }
 
     /// Returns the production's `internal` or `program` flag.
@@ -796,6 +817,13 @@ impl ConstructorAttribute {
             ));
         }
         anchors.extend(self.placement.anchors()?);
+        if let Some(overload) = &self.overload {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConstructorOverload,
+                0,
+                TokenRange::for_tokens(overload)?,
+            ));
+        }
         anchors.extend(self.colors.anchors()?);
         if let Some(format) = &self.structured_format {
             anchors.push(ProvenanceAnchor::new(
@@ -871,6 +899,7 @@ enum ConstructorKey {
     Group,
     Avoid,
     Prefer,
+    Overload,
     Format,
 }
 
@@ -882,6 +911,7 @@ impl ConstructorKey {
             "group" => Ok(Self::Group),
             "avoid" => Ok(Self::Avoid),
             "prefer" => Ok(Self::Prefer),
+            "overload" => Ok(Self::Overload),
             "format" => Ok(Self::Format),
             _ => Err(SyntaxError::new(
                 SyntaxErrorKind::UnknownArgument {
@@ -899,6 +929,7 @@ enum VariantSyntaxKey {
     Group,
     Avoid,
     Prefer,
+    Overload,
     Format,
 }
 
@@ -908,6 +939,7 @@ impl VariantSyntaxKey {
             "group" => Ok(Self::Group),
             "avoid" => Ok(Self::Avoid),
             "prefer" => Ok(Self::Prefer),
+            "overload" => Ok(Self::Overload),
             "format" => Ok(Self::Format),
             _ => Err(SyntaxError::new(
                 SyntaxErrorKind::UnknownArgument {
@@ -931,6 +963,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
     let mut group = None;
     let mut avoid = None;
     let mut prefer = None;
+    let mut overload = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
     let mut colors = ProductionColors::default();
@@ -996,6 +1029,13 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
             {
                 return Err(preference_conflict(&key).into());
             }
+            ConstructorKey::Overload if overload.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "overload" },
+                    key.span(),
+                )
+                .into());
+            }
             ConstructorKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
@@ -1014,6 +1054,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
             ConstructorKey::Group => group = Some(parse_group_value(value)?),
             ConstructorKey::Avoid => avoid = Some(parse_avoid_value(value)?),
             ConstructorKey::Prefer => prefer = Some(parse_prefer_value(value)?),
+            ConstructorKey::Overload => overload = Some(parse_overload_value(value)?),
             ConstructorKey::Format => format = Some(parse_format_value(value)?),
         }
 
@@ -1062,6 +1103,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         structured_format,
         avoid_literal: avoid,
         prefer_literal: prefer,
+        overload,
         placement,
         colors,
     })
@@ -1199,6 +1241,7 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             structured_format: None,
             avoid_literal: None,
             prefer_literal: None,
+            overload: None,
             placement,
             colors: ProductionColors::default(),
         },
@@ -1362,6 +1405,7 @@ fn parse_variant_syntax_stream(
     let mut group = None;
     let mut avoid = None;
     let mut prefer = None;
+    let mut overload = None;
     let mut format = None;
     let mut placement = PlacementFlags::default();
     let mut colors = ProductionColors::default();
@@ -1416,6 +1460,13 @@ fn parse_variant_syntax_stream(
             {
                 return Err(preference_conflict(&key).into());
             }
+            VariantSyntaxKey::Overload if overload.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "overload" },
+                    key.span(),
+                )
+                .into());
+            }
             VariantSyntaxKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
@@ -1436,6 +1487,7 @@ fn parse_variant_syntax_stream(
                 VariantSyntaxKey::Group => group = Some(parse_group_value(value)?),
                 VariantSyntaxKey::Avoid => avoid = Some(parse_avoid_value(value)?),
                 VariantSyntaxKey::Prefer => prefer = Some(parse_prefer_value(value)?),
+                VariantSyntaxKey::Overload => overload = Some(parse_overload_value(value)?),
                 VariantSyntaxKey::Format => format = Some(parse_format_value(value)?),
             }
         }
@@ -1463,6 +1515,7 @@ fn parse_variant_syntax_stream(
         structured_format,
         avoid_literal: avoid,
         prefer_literal: prefer,
+        overload,
         placement,
         colors,
     })

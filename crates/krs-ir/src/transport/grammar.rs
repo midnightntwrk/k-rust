@@ -573,8 +573,8 @@ stage_shape! {
     #[serde(
         rename = "DescriptorProductionAttribute",
         bound(
-            serialize = "S::Sort: Serialize, S::ContextAlias: Serialize",
-            deserialize = "S::Sort: Deserialize<'de>, S::ContextAlias: Deserialize<'de>"
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::ContextAlias: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::ContextAlias: Deserialize<'de>"
         ),
         tag = "attribute_kind", rename_all = "snake_case",
         deny_unknown_fields
@@ -681,6 +681,11 @@ stage_shape! {
         Prefer {
             /// Prefer-attribute provenance.
             key: ProvenanceKey => [keep],
+        },
+        /// Membership in the overload family of the target production.
+        Overload {
+            /// Target constructor identity and the target path's location.
+            target: S::Application => [application],
         },
     }
 }
@@ -2099,6 +2104,10 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "prefer"
                 }
+                DescriptorProductionAttribute::Overload { target } => {
+                    require_key(&target.key, provenance)?;
+                    "overload"
+                }
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
@@ -2569,6 +2578,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Prefer { key } => {
                     insert_exact(keys, key, ProvenanceRole::ConstructorPrefer, 0)?;
+                }
+                DescriptorProductionAttribute::Overload { target } => {
+                    insert_exact(keys, &target.key, ProvenanceRole::ConstructorOverload, 0)?;
                 }
                 DescriptorProductionAttribute::Format { key, fragments } => {
                     insert_exact(keys, key, ProvenanceRole::ConstructorFormat, 0)?;

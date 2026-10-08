@@ -92,8 +92,21 @@ def kore_attributes(
 ) -> dict[str, dict[str, str]]:
     """Read symbol-declaration attributes of a KORE definition in one unloaded session."""
 
+    return kore_symbols(krs_gate, kore, labels, attributes, environment=environment)[0]
+
+
+def kore_symbols(
+    krs_gate: Path, kore: Path, labels: Sequence[str], attributes: Sequence[str], *,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[dict[str, dict[str, str]], list[list[str]]]:
+    """Read symbol-declaration attributes and the sorted `symbol-overload` axiom
+    pairs of a KORE definition in one unloaded session."""
+
     with Session(krs_gate, environment=environment) as session:
-        return session.kore_attributes(kore, list(labels), list(attributes))
+        response = session.request(
+            "kore.attributes", kore=os.fspath(kore), labels=list(labels), attributes=list(attributes),
+        )
+    return response["symbols"], response["overloads"]
 
 
 def kore_instances(

@@ -722,11 +722,25 @@ fn constructor_grammar(
         nonce,
         cfg,
     )?;
+    let overload = attribute.overload().map(|target| {
+        super::productions::overload_wire(
+            facade,
+            target,
+            &format_ident!("__krs_overload_target_{nonce:016x}"),
+            cfg,
+            &mut slots,
+        )
+    });
+    let overload_tokens = overload
+        .as_ref()
+        .map(|overload| overload.tokens.clone())
+        .unwrap_or_default();
     let mut attributes = super::productions::constructor_metadata_wire(
         attribute.group.as_ref().map(syn::LitStr::value),
         attribute.avoid,
         attribute.prefer(),
         attribute.placement(),
+        overload.map(|overload| overload.attribute),
         &super::productions::ColorMetadata {
             color: attribute.color(),
             colors: attribute.colors(),
@@ -818,6 +832,7 @@ fn constructor_grammar(
 
     Ok(quote! {
         #strict_key_function
+        #overload_tokens
 
         #factory_tokens
     })

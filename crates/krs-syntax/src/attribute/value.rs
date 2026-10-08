@@ -124,6 +124,37 @@ pub(super) fn parse_sort_value(value: Expr) -> Result<Path, ParseError> {
     Ok(path)
 }
 
+/// Parses the target of `overload = Path`: a plain Rust path to the
+/// overloaded production (`ExpSyntax::Dot` or a constructor struct).
+pub(super) fn parse_overload_value(value: Expr) -> Result<Path, ParseError> {
+    let Expr::Path(ExprPath {
+        attrs,
+        qself: None,
+        path,
+    }) = value
+    else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "overload",
+                expected: "a Rust path to the overloaded production",
+            },
+            value.span(),
+        )
+        .into());
+    };
+    if !attrs.is_empty() || !is_plain_path(&path) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "overload",
+                expected: "a plain Rust path to the overloaded production, without generic arguments",
+            },
+            path.span(),
+        )
+        .into());
+    }
+    Ok(path)
+}
+
 pub(super) fn parse_parent_paths_value(value: Expr) -> Result<Vec<Path>, ParseError> {
     let Expr::Array(array) = value else {
         return Err(SyntaxError::new(

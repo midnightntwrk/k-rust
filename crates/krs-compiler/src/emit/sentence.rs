@@ -203,6 +203,11 @@ fn emit_production_attribute(
         }
         ProductionAttribute::Avoid { .. } => writer.push("avoid"),
         ProductionAttribute::Prefer { .. } => writer.push("prefer"),
+        ProductionAttribute::Overload { target, .. } => {
+            writer.push("overload(");
+            writer.push(context.production(target)?.symbol().emitted_name());
+            writer.push(")");
+        }
         ProductionAttribute::Format { fragments, .. } => {
             writer.push("format(");
             for fragment in fragments {

@@ -218,6 +218,17 @@ pub enum StmtSyntax {
 "#,
     ),
     (
+        "constructors_overload",
+        r#"
+#[k::constructors(sort = LVal, result = k::KResult)]
+#[k::precedence((LvalDot))]
+pub enum LValSyntax {
+    #[k::syntax("{base}.{field}", overload = ExpSyntax::Dot)]
+    LvalDot { base: LVal, field: Id },
+}
+"#,
+    ),
+    (
         "constructors_records",
         r#"
 #[k::constructors(sort = Value)]

@@ -83,6 +83,7 @@ details! {
         Program => "program",
         Color => "color",
         Prefer => "prefer",
+        Overload => "overload",
     }
 }
 

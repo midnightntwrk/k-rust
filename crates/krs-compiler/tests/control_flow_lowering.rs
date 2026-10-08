@@ -224,7 +224,7 @@ fn calc_syntax_module() -> SemanticModule {
 fn control_production(
     name: &str,
     items: Vec<SemanticProductionItem>,
-    attributes: Vec<ProductionAttribute<SemanticSortRef>>,
+    attributes: Vec<ProductionAttribute<SemanticSortRef, krs_ir::StableItemId>>,
 ) -> SemanticProduction {
     SemanticProduction::new(
         origin(&format!("imp.production.{name}")),
