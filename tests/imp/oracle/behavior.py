@@ -132,6 +132,8 @@ class NativeSummary:
     execution_count: int
     depth_state_count: int
     search_count: int
+    pretty_count: int
+    program_count: int
     evidence_sha256: str
     reports: Mapping[str, Mapping[str, Any]]
     """The `krs-exec/1` run report of every complete execution case, by case name."""
@@ -202,6 +204,7 @@ def _execute(
     search: bool = False,
     kill_after: int | None = None,
     unlimited_address_space: bool = False,
+    output: str = "json",
 ) -> subprocess.CompletedProcess[str]:
     # krun parses with the syntax/main modules frozen into the compiled
     # definition; unlike kast, it has no --module option.
@@ -210,7 +213,7 @@ def _execute(
         command.append("--search")
     if depth is not None:
         command.extend(["--depth", str(depth)])
-    command.extend(["--output", "json"])
+    command.extend(["--output", output])
     command.extend(f"-c{configuration}" for configuration in configurations)
     command.append(str(path))
     prefix: tuple[str, ...] = ()
@@ -340,6 +343,9 @@ def compare_behavior(
         execution_jobs.append({
             "full": [job(execute(f"krun/{side}/{case.name}", route)) for route, side in sides]
             if case.run_to_completion else None,
+            # `krun --output pretty` on the actual route, which `krs run` prints identically (KF-017).
+            "pretty": job(execute(f"krun-pretty/actual/{case.name}", actual, output="pretty"))
+            if case.run_to_completion else None,
             "depths": [
                 [
                     job(execute(f"krun-depth/{side}/{case.name}@{depth:03d}", route, depth=depth))
@@ -388,7 +394,9 @@ def compare_behavior(
     results = settle_all(jobs, worker_limit)
 
     with krs_gate.Session(gate, environment=z3_environment()) as session:
-        evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
+        evidence: dict[str, Any] = {
+            "parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}, "pretty": {},
+        }
         depth_count = 0
 
         for case, index in zip(plan.parse_cases, parse_jobs):
@@ -424,6 +432,10 @@ def compare_behavior(
                 if full[0] != full[1]:
                     raise GateError(f"final state differs for {case.name}")
                 evidence["execution"][case.name] = {"term": full[0]}
+                pretty = results[indices["pretty"]].get()
+                if pretty.returncode != 0:
+                    raise GateError(f"krun --output pretty failed for {case.name}: {compact(pretty)}")
+                evidence["pretty"][case.name] = pretty.stdout
 
             for depth, pair_indices in zip(case.depths, indices["depths"]):
                 states = [
@@ -565,6 +577,13 @@ def compare_native(
     `collections` inspection, because the two backends associate them
     differently.
 
+    Grammar-directed printing (KF-017) is compared byte for byte: each complete
+    execution's final state as `krs run` prints it must equal `krun --output
+    pretty` on the actual route, and each accepted parse case as `krs parse
+    --output program` prints it must equal the actual route's `kast --module
+    <main> --output program` (stripped, as the unparse pair is pinned), which
+    reverses the main module's aliases (the `zeroAlias` pairs).
+
     `divergences` names the reviewed known divergences. `depth-zero`: LLVM
     `krun --depth 0` prints the unevaluated initial-configuration function
     application, while k-rust evaluates it before it counts steps; each
@@ -573,12 +592,26 @@ def compare_native(
     zero steps), so a change on either side fails.
     """
 
-    native: dict[str, Any] = {"execution": {}, "search": {}}
+    native: dict[str, Any] = {"execution": {}, "search": {}, "pretty": {}, "program": {}}
     reports: dict[str, Mapping[str, Any]] = {}
     depth_count = 0
     search_count = 0
     with krs_gate.Session(gate, environment=z3_environment()) as session:
         session.load(definition_ir, module)
+        for case in plan.parse_cases:
+            printed = session.term_unparse(
+                "program", program=case.path.read_text(encoding="utf-8"),
+                program_name=case.path.name, sort=case.sort,
+            )
+            if printed["warnings"]:
+                raise GateError(f"krs parse --output program warned for {case.name}: {printed['warnings']}")
+            java = evidence["parse"][case.name]["unparse"][1]
+            if printed["text"].strip() != java:
+                raise GateError(
+                    f"krs parse --output program differs from kast --output program for {case.name}: "
+                    f"native={printed['text']!r}; kast={java!r}"
+                )
+            native["program"][case.name] = printed["text"]
         for case in plan.execution_cases:
             inputs = {
                 "program": execution_input(case),
@@ -586,7 +619,17 @@ def compare_native(
                 "variables": configuration_variables(case.configurations),
             }
             if case.run_to_completion:
-                report = session.exec_run(**inputs)
+                report = dict(session.exec_run(**inputs, print_style="pretty"))
+                printed = report.pop("printed")
+                if printed["warnings"]:
+                    raise GateError(f"krs run printed {case.name} with warnings: {printed['warnings']}")
+                java_pretty = evidence["pretty"][case.name]
+                if printed["text"] + "\n" != java_pretty:
+                    raise GateError(
+                        f"krs run output differs from krun --output pretty for {case.name}: "
+                        f"native={printed['text']!r}; krun={java_pretty!r}"
+                    )
+                native["pretty"][case.name] = printed["text"]
                 term = session.kast_inspect(
                     "collections", session.kast_normalize("behavior", report["state"], policy=policy)
                 )
@@ -640,6 +683,8 @@ def compare_native(
         execution_count=len(native["execution"]) - depth_count,
         depth_state_count=depth_count,
         search_count=search_count,
+        pretty_count=len(native["pretty"]),
+        program_count=len(native["program"]),
         evidence_sha256=json_sha256(native),
         reports=reports,
     )

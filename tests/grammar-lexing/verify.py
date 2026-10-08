@@ -16,7 +16,8 @@ partition end to end on both routes:
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
   position; Java K accepts the emitted `.k`, the native and Java
   `syntaxDefinition.kore` agree on every `format` and `colors` attribute, and
-  `krun --color on` output is pinned through the reference cache;
+  `krun --color on` output is pinned through the reference cache, and
+  `krs run --color always` must print it byte for byte (KF-017);
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, and
@@ -179,6 +180,14 @@ def verify_format(harness: FixtureGate, pins: Ledger, workspace: Path, refresh: 
         raise GateError(f"krun --color on printed no colours:\n{colored.stdout}{colored.stderr}")
     pins.expect(("format", "kore_attributes"), native_attributes)
     pins.expect(("format", "krun_color"), colored.stdout)
+    # KF-017: `krs run --color always` prints the final state byte for byte as `krun --color on` does.
+    native_colored = harness.run_command(FORMAT, "run", program, "--color", "always")
+    if native_colored != colored.stdout:
+        raise GateError(
+            f"krs run --color always differs from krun --color on:\nkrs:\n{native_colored!r}\nkrun:\n{colored.stdout!r}"
+        )
+    # `kast --output program` formats with the authored format, so `%c` and `%r` print as letters.
+    pins.expect(("format", "krs_parse_program"), harness.run_command(FORMAT, "parse", "--output", "program", program))
     print(f"PASS grammar-lexing {FORMAT.package} reference snapshot: {k.finish()}")
 
 
@@ -226,7 +235,10 @@ def main() -> int:
         print("PASS kevm-case: LogRecord::Entry and BlockHashLookup placed in KRS-EVM; programs cannot contain them")
 
         verify_format(harness, pins, workspace, arguments.refresh_reference)
-        print("PASS format: terminals by position; colours agree in native and Java KORE; krun --color on pinned")
+        print(
+            "PASS format: terminals by position; colours agree in native and Java KORE; "
+            "krun --color on pinned and printed identically by krs run"
+        )
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

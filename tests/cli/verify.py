@@ -253,6 +253,11 @@ def run_commands(
         if b"krs run: stuck after 1 step; <k> starts with `bar" not in run_json.stderr:
             raise ValueError(f"krs run status line differs: {run_json.stderr!r}")
         run_kore = cli_command(binary, "run", manifest, target, extra=("--output", "kore"))
+        # The default output is grammar-directed (KF-017), as `krun --output pretty` prints the state;
+        # the reference step requires it to equal krun's byte for byte.
+        run_pretty = cli_command(binary, "run", manifest, target)
+        if run_pretty.returncode != 0 or b"\n    bar ~> .K\n" not in run_pretty.stdout:
+            raise ValueError(f"krs run pretty output differs: {compact(run_pretty)}")
         trace = cli_command(binary, "run", manifest, target, extra=("--trace", "--output", "none"))
         if run_kore.returncode != 0 or trace.returncode != 0 or trace.stdout:
             raise ValueError(compact(run_kore if run_kore.returncode != 0 else trace))
@@ -269,16 +274,23 @@ def run_commands(
             raise ValueError(compact(parse_kast if parse_kast.returncode != 0 else parse_json))
         if json.loads(parse_json.stdout)["term"]["label"]["name"] != "foo":
             raise ValueError(f"krs parse --output json differs: {parse_json.stdout!r}")
+        parse_program = cli_command(
+            binary, "parse", manifest, target, extra=("--sort", "ObjectTerm", "--output", "program", str(program)),
+        )
+        if parse_program.returncode != 0 or parse_program.stdout != b"foo\n":
+            raise ValueError(f"krs parse --output program differs: {compact(parse_program)}")
     except (KeyError, ValueError) as error:
         results.add(f"{workspace.name}_run", "FAIL", str(error))
         return None
     results.add(
         f"{workspace.name}_run", "PASS",
-        "krs run (json, kore, trace) and krs parse (kast, json) reproduce foo -> bar natively",
+        "krs run (pretty, json, kore, trace) and krs parse (kast, json, program) reproduce foo -> bar natively",
     )
     return {
         "native-run/run.json": run_json.stdout,
         "native-run/final.kore": run_kore.stdout,
+        "native-run/final.pretty": run_pretty.stdout,
+        "native-run/parse.program": parse_program.stdout,
         "native-run/trace.txt": trace.stderr,
         "native-run/parse.kast": parse_kast.stdout,
         "native-run/parse.json": parse_json.stdout,
@@ -469,16 +481,17 @@ def reference_execution(
     main_module = krs_gate.ir_query(gate, workspace, {"kind": "modules"}, environment=z3_environment())["main_module"]
     definition = workspace / "compiled-definition"
     try:
-        compile_process, initial, final = reference_runs(k, source, main_module, definition)
+        compile_process, initial, final, pretty = reference_runs(k, source, main_module, definition)
     except GateError as error:
         results.add("reference_execution", "FAIL", str(error))
         return None
     if compile_process.returncode != 0:
         results.add("reference_execution", "FAIL", compact(compile_process))
         return None
-    if initial.returncode != 0 or final.returncode != 0:
-        results.add("reference_execution", "FAIL", compact(initial if initial.returncode != 0 else final))
-        return None
+    for process in (initial, final, pretty):
+        if process.returncode != 0:
+            results.add("reference_execution", "FAIL", compact(process))
+            return None
     try:
         with krs_gate.Session(gate, environment=z3_environment()) as session:
             session.load(definition_ir, main_module)
@@ -492,6 +505,9 @@ def reference_execution(
             cells = ["k", "generatedCounter"]
             if session.observe("final", cells) != session.observe("native", cells):
                 raise GateError("krs run and krun final states differ")
+            # `krs run` prints the final state byte for byte as `krun --output pretty` does (KF-017).
+            if artifacts["native-run/final.pretty"].decode("utf-8") != pretty.stdout:
+                raise GateError(f"krs run and krun --output pretty differ: {pretty.stdout!r}")
     except (GateError, OSError, UnicodeError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return None
@@ -506,9 +522,9 @@ def reference_execution(
 def reference_runs(
     k: Snapshot, source: Path, main_module: str, definition: Path
 ) -> tuple[subprocess.CompletedProcess[str], ...]:
-    """Compile the emitted K and run it to depth zero and to completion.
+    """Compile the emitted K and run it to depth zero and to completion, as KORE and as `--output pretty`.
 
-    Execution stops at a rejected compilation, whose result is then returned three times.
+    Execution stops at a rejected compilation, whose result is then returned four times.
     """
 
     compile_process = k.run(
@@ -529,13 +545,14 @@ def reference_runs(
         timeout=240,
     )
     if compile_process.returncode != 0:
-        return compile_process, compile_process, compile_process
+        return compile_process, compile_process, compile_process, compile_process
     initial = k.run(
         "krun/initial", "krun",
         ["--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60,
     )
     final = k.run("krun/final", "krun", ["--definition", str(definition), "--output", "kore"], timeout=60)
-    return compile_process, initial, final
+    pretty = k.run("krun/pretty", "krun", ["--definition", str(definition), "--output", "pretty"], timeout=60)
+    return compile_process, initial, final, pretty
 
 
 def dollar_id_claims(

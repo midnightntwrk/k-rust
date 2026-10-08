@@ -876,10 +876,20 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
         if printed.get("schema") != "krs-exec/1" or printed.get("run") != summary.reports[name]:
             raise GateError(f"krs run --output json differs from the session's krs-exec report for {name}")
         cli_digests[name] = sha256_text(process.stdout)
+        # The real `krs run` prints the final state as `krun --output pretty` does (its default output, KF-017).
+        pretty = run(
+            krs_invocation(rust_build.krs).argv("run", case.path, *bindings),
+            timeout=900, environment=env,
+        )
+        if pretty.stdout != context.behavior_evidence["pretty"][name]:
+            raise GateError(f"krs run differs from krun --output pretty for {name}: {pretty.stdout!r}")
+        cli_digests[f"{name}/pretty"] = sha256_text(pretty.stdout)
     observed = {
         "execution_count": summary.execution_count,
         "depth_state_count": summary.depth_state_count,
         "search_count": summary.search_count,
+        "pretty_count": summary.pretty_count,
+        "program_count": summary.program_count,
         "evidence_sha256": summary.evidence_sha256,
         "cli_sha256": cli_digests,
     }
@@ -915,7 +925,9 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
     proven = sum(verdict == "proven" for verdict in verdicts.values())
     return (
         f"{summary.execution_count} krs run executions, {summary.depth_state_count} depth states, and "
-        f"{summary.search_count} krs search sets equal krun; {len(cli_digests)} CLI reports pinned; "
+        f"{summary.search_count} krs search sets equal krun; {summary.pretty_count} krs run prints equal "
+        f"krun --output pretty and {summary.program_count} krs parse prints equal kast --output program; "
+        f"{len(cli_digests)} CLI outputs pinned; "
         f"krs prove: {proven} of {len(verdicts)} proven, {len(diverging)} named known divergences"
     )
 

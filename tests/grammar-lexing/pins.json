@@ -99,6 +99,7 @@
   },
   "format": {
     "kore_attributes": "while colors='magenta,magenta,magenta' format='%cwhile%r %c(%r%1%c)%r %2'\nblock colors='blue,blue' format='%c{%r%i%n%1%d%n%c}%r'\nassignX colors='green,red,red,red' format='%c// assign%r%n%cx%r %c=%r %1%c;%r'\nskip format='%cskip%r'\n",
-    "krun_color": "<k>\u001b[0m\n  \u001b[38;5;201mwhile\u001b[0m \u001b[38;5;201m(\u001b[0m1\u001b[38;5;201m)\u001b[0m \u001b[38;5;21m{\u001b[0m\n    \u001b[38;5;46m// assign\u001b[0m\n    \u001b[38;5;196mx\u001b[0m \u001b[38;5;196m=\u001b[0m 2\u001b[38;5;196m;\u001b[0m\n  \u001b[38;5;21m}\u001b[0m ~> .K\n</k>\u001b[0m\n"
+    "krun_color": "<k>\u001b[0m\n  \u001b[38;5;201mwhile\u001b[0m \u001b[38;5;201m(\u001b[0m1\u001b[38;5;201m)\u001b[0m \u001b[38;5;21m{\u001b[0m\n    \u001b[38;5;46m// assign\u001b[0m\n    \u001b[38;5;196mx\u001b[0m \u001b[38;5;196m=\u001b[0m 2\u001b[38;5;196m;\u001b[0m\n  \u001b[38;5;21m}\u001b[0m ~> .K\n</k>\u001b[0m\n",
+    "krs_parse_program": "while (1) {\n  c// assignr\n  x = 2;\n}\n"
   }
 }

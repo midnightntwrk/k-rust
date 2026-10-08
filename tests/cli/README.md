@@ -24,8 +24,9 @@ different absolute paths. Each run checks all four commands against the same
 
 Each run then exercises the run commands natively on the same theory, through `krs-exec` and the `k-rust` symbolic backend:
 
+- `krs run` prints the final state through the grammar (its default `--output pretty`, KF-017), `<machine>` around `<k>` holding `bar ~> .K`, which the reference step below requires to equal Java `krun --output pretty` byte for byte;
 - `krs run --output json` reports `halt: stuck` after one step with `bar` at the head of `<k>`; `--output kore` prints the final state, which the reference step below compares with Java `krun`'s; `--trace` prints the one step with its authored source position;
-- `krs parse --sort ObjectTerm` prints `foo` as KAST text and as KAST JSON.
+- `krs parse --sort ObjectTerm` prints `foo` as KAST text, as KAST JSON, and as program text (`--output program`).
 
 Relocated outputs must be byte-identical and match `pins.json`. These pins are
 independent of the in-tree minimal-definition oracle: this package intentionally has its own

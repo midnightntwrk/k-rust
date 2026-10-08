@@ -28,11 +28,13 @@
     "native-run/parse.json": "23c8b2b783292f338832f5a3c06ded9edf695a12d33f7f5cbc3923cff765befa",
     "native-run/parse.kast": "18a7a86507bbcd724a66eb706b1a48732e4eb0b2054da44ddd578c7a94996b9f",
     "native-run/run.json": "89d63e29db027cbe54c48a816e0fe019b1da1f53d74df35bfc8989543afbd083",
-    "native-run/trace.txt": "fc0111a0db6095f32480f423db32bdf9e63f64a26219b7e65942b1c9672dcc35"
+    "native-run/trace.txt": "fc0111a0db6095f32480f423db32bdf9e63f64a26219b7e65942b1c9672dcc35",
+    "native-run/final.pretty": "ee775fdeb2e96390a71a89a5e716769f33283ea9523e05bed152316b078eefc0",
+    "native-run/parse.program": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"
   },
   "reference_sha256": {
-    "execution": "13defa87927d2c08c5f010c5d09626d382a2ed033bcdd51317fba8a8dbfbc02a",
+    "execution": "af076cb54666dda61c82e4f9ec5d7b1bf926b91a7ab8eae26e775b6344cf4432",
     "dollar-id-claims": "145294c22a66b316d68b7d3c59fa5d390750605cad0fefd50fb4fb89aecc710a",
-    "claims-prove": "ed54338e502c08d6d64f297a9217c2c2ccc50d8f020ee7cc8262b353f858d0a4"
+    "claims-prove": "c3cf0dd6a63b3d8c5dd6cbb9161a3fa72e8651aab858f959c4b02d1cb87ee1b2"
   }
 }

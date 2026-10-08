@@ -157,6 +157,11 @@ class FixtureGate:
         self._krs(fixture, "build", "--output", directory)
         return directory
 
+    def run_command(self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str) -> str:
+        """Run a `krs parse`, `run`, `search`, or `prove` command on the fixture and return its stdout."""
+
+        return self._krs(fixture, command, *extra).stdout
+
     def emit(self, fixture: Fixture) -> Emitted:
         """Emit canonical K, pin every `.k` artifact, and return the artifacts."""
 

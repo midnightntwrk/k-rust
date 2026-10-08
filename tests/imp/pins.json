@@ -33,13 +33,13 @@
       ]
     },
     "expected": {
-      "depth_state_count": 246,
-      "evidence_sha256": "48160cc7aa19afe188b76eaf80989ba3a79b6e1d7e63a514e8030c7979fbfa14",
-      "execution_count": 31,
-      "failure_count": 1,
       "parse_count": 23,
+      "execution_count": 31,
+      "depth_state_count": 246,
+      "search_count": 16,
       "rejection_count": 8,
-      "search_count": 16
+      "failure_count": 1,
+      "evidence_sha256": "bd95e56cc4baa2bc557527ba769ceb2af9491c09469ffea0870118c83d19dde9"
     },
     "term_policy": {
       "actual": {
@@ -2060,7 +2060,7 @@
     "kompile-tests": "1d649d60788008766571af2cef3b7a7fe350f350de08eef4252f1f4010adb140",
     "source-definitions": "536636eba2ba91558b28ecdd12172868470c08a0d586624996d8e80827589724",
     "native-claims": "0ba85f14e954774d0b49e84cf880d21014f81bd36cb3e33bdad39978d7160a13",
-    "behavior": "43668c3626a14f4b6e15e1bbdbef0524a4db6e7770149dc783fda81effb82a74",
+    "behavior": "f2fd2c7f1569ec1e60d39561cf1ee3879b9820b11ed4bf36e48e6e60970500da",
     "proofs": "0d72fd978a356f43d6689213887e5a8a551b37198aaf238e11eea92f2ca9f2b8",
     "frontend-diagnostic": "34bf4709af866f436e3ff2020d8e3aec6748dc264db30999bb1783d7ab5ff491"
   },
@@ -2087,10 +2087,14 @@
       "execution_count": 30,
       "depth_state_count": 246,
       "search_count": 16,
-      "evidence_sha256": "d9f3cbd94e7263c8b788df48eec7b3d000e6db1c322b0a613a49f75137ccbabb",
+      "pretty_count": 30,
+      "program_count": 23,
+      "evidence_sha256": "0b3ac0277f0dd39f7457d3531689256f6f3be3e6098614450d95f246b312b677",
       "cli_sha256": {
         "while-followed.imp": "6996ab8b00bf28d02d5b33399cc2094c6a6ec5e9f3a7ee356bea760803d094f3",
-        "stuck-undefined-variable.calc": "757555c3931e67f41152dbcb577ace34f880de2e5a2c7b1aa36244e4b25338b1"
+        "while-followed.imp/pretty": "1ce57ae5e515bdfdc677593c1fe18bb98452e7f8e7f60c5ea74f3dd7c4a0d85a",
+        "stuck-undefined-variable.calc": "757555c3931e67f41152dbcb577ace34f880de2e5a2c7b1aa36244e4b25338b1",
+        "stuck-undefined-variable.calc/pretty": "f7263a57278dfddac7218421702e1bfcf8cf883a2aa21c6afef042af78889393"
       }
     }
   },

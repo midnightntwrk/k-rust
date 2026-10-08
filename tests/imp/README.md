@@ -43,8 +43,9 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
   named-projector allowance;
 - IMP.6 `parser-execution-search`: parser and unparser comparison over the
   expression, IMP state, and IMP control flow corpora; concrete execution,
-  all frozen depth states, stuck states, and failures; and finite and
-  bounded-live search frontier comparison;
+  all frozen depth states, stuck states, and failures; finite and
+  bounded-live search frontier comparison; and `krun --output pretty` of
+  every complete execution on the actual route, recorded for IMP.9;
 - IMP.7 `bounded-proofs`: bounded proof comparison for the 20 claims plus
   the depth-zero invocation;
 - IMP.8 `compatibility-reproduction`: stable-name, diagnostic-boundary,
@@ -52,9 +53,16 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
 - IMP.9 `native-run-and-proofs`: every complete execution, depth state, and
   bounded search of IMP.6 runs again through `krs-exec` (the `krs run` and
   `krs search` code paths, in one `krs-gate` session over the emitted
-  Definition IR) and must equal krun's normalized result; one finished and
+  Definition IR) and must equal krun's normalized result; each complete
+  execution's final state, printed as `krs run` prints it (KF-017,
+  `krs-unparse`), must equal `krun --output pretty` byte for byte, and each
+  accepted parse case printed as `krs parse --output program` must equal the
+  actual route's `kast --module KRS-IMP --output program` (including the
+  `zeroAlias` pairs of `allowed_unparse_pairs`); one finished and
   one stuck program also run through the real `krs run --output json`, whose
-  stdout must be the session's report and is pinned (`native_run`); and
+  stdout must be the session's report, and through the real `krs run`, whose
+  default output must equal `krun --output pretty`; both stdouts are pinned
+  (`native_run`); and
   `krs prove` proves every claim with Z3 at the Java proof bound, with each
   verdict pinned in `native_proof_verdicts`. A verdict must agree with the
   pinned Java status in `proof_outcomes` (`proved` with `proven`,
