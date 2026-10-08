@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/kink-campaign",
+  "crates/kink-corpus",
   "crates/kink-native",
   "crates/kink-patch",
   "crates/kink-pattern",
@@ -17,6 +18,8 @@ version = "0.1.0"
 k-rust = { version = "=0.4.0", path = "../k-rust-927b9ce6/crates/k-rust", default-features = false }
 k-rust-backend = { version = "=0.3.0", path = "../k-rust-927b9ce6/crates/k-rust-backend", default-features = false }
 kink-native = { path = "crates/kink-native" }
+kink-campaign = { path = "crates/kink-campaign" }
+kink-corpus = { path = "crates/kink-corpus" }
 kink-patch = { path = "crates/kink-patch" }
 kink-pattern = { path = "crates/kink-pattern" }
 serde_json = "1.0.149"

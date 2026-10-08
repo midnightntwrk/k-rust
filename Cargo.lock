@@ -415,6 +415,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kink-corpus"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-campaign",
+ "kink-native",
+ "kink-patch",
+ "serde_json",
+]
+
+[[package]]
 name = "kink-native"
 version = "0.1.0"
 dependencies = [
