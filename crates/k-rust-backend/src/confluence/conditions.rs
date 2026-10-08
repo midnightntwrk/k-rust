@@ -142,6 +142,9 @@ fn atom(term: &Term, polarity: bool) -> (Atom, bool) {
         Some(("BOOL.not", [inner])) => atom(inner, !polarity),
         Some(("INT.lt", [left, right])) => (Atom::Less(left.clone(), right.clone()), polarity),
         Some(("INT.gt", [left, right])) => (Atom::Less(right.clone(), left.clone()), polarity),
+        Some(("INT.le", [left, right])) if super::switches::active().misread_int_le => {
+            (Atom::Less(left.clone(), right.clone()), !polarity)
+        }
         Some(("INT.le", [left, right])) => (Atom::Less(right.clone(), left.clone()), !polarity),
         Some(("INT.ge", [left, right])) => (Atom::Less(left.clone(), right.clone()), !polarity),
         Some(("INT.eq" | "KEQUAL.eq" | "BOOL.eq", [left, right])) => {
@@ -180,3 +183,6 @@ fn fails_where_defined(atom: &Atom) -> bool {
 fn has_key(map: &Term, key: &Term) -> bool {
     matches!(map.kind(), TermKind::Map { entries, .. } if entries.iter().any(|(entry, _)| entry == key))
 }
+
+#[cfg(test)]
+mod tests;

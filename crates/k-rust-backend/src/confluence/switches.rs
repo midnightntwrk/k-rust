@@ -66,6 +66,8 @@ pub(crate) struct Switches {
     /// `SortReach`: collapse every non-injective total symbol and every uninterpreted symbol,
     /// whether or not its sort is surely inhabited (revision 2's 3.13 (l) before R1.3).
     pub(crate) collapse_every_total: bool,
+    /// Conditions: read `a <=Int b` as `notBool (a <Int b)` instead of `notBool (b <Int a)`.
+    pub(crate) misread_int_le: bool,
 }
 
 #[cfg(test)]
@@ -95,6 +97,7 @@ thread_local! {
             drop_supersort_inhabitation: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
+            misread_int_le: false,
         })
     };
 }
