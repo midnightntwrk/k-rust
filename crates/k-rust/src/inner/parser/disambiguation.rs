@@ -19,13 +19,13 @@
 //! id = "parser.disambiguation.resolve_applications"
 //! name = "resolution of application nodes against visible productions"
 //! sites = ["Grammar::resolve_packed_applications"]
-//! variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
+//! variable = "N = application nodes; R = productions in the grammar; K = KList nodes below the applications; a = distinct argument vectors of one application no longer than its label's longest arity"
 //! counters = ["ParserPackedApplicationResolutions"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N x a x R)"
+//! bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 //! ```
 //!
 //! ```toml algorithm
@@ -113,7 +113,7 @@
 //! id = "parser.disambiguation.resolve_ambiguity"
 //! name = "resolution and reporting of remaining ambiguity"
 //! sites = ["Grammar::resolve_ambiguities", "Grammar::resolve_ambiguities_node", "Grammar::factor_ambiguities"]
-//! variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
+//! variable = "N = owned nodes; A = ambiguity alternatives"
 //! counters = []
 //! no_counter = "final ambiguity resolution has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -121,7 +121,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+//! bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -145,14 +145,14 @@
 //! inference paths remain independent oracles and must produce the same accepted tree.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use super::{
-    AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
-    cmp_packed_structurally, lower_term, packed_terms_in_structural_order,
+    AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm,
+    Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term, TermSpan, string};
 
@@ -171,6 +171,17 @@ fn packed_sets_share_nodes(
 
 type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
+/// Argument vectors, each a sequence of packed nodes.
+type ArgumentLists = Rc<Vec<Vec<Rc<PackedTerm>>>>;
+/// What one application-resolution pass keeps: the argument vectors of a `#KList` node up to
+/// a length, and its shortest one's length, by node identity (each entry keeps its node alive
+/// so that its address is not reused), and the structural comparisons its orderings made.
+#[derive(Default)]
+struct KListMemo {
+    flattened: HashMap<(*const PackedTerm, usize), (Rc<PackedTerm>, ArgumentLists)>,
+    shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
+    order: StructuralOrder,
+}
 type PackedPriorityChildMemo =
     HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
 
@@ -234,88 +245,91 @@ impl Grammar {
         term: Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
     ) -> Rc<PackedTerm> {
-        // Invariant: every memoized identity has a complete factored result; recursion only visits
-        // unrecorded children or alternatives.
-        let identity = Rc::as_ptr(&term);
-        if let Some((_, factored)) = memo.get(&identity) {
-            return Rc::clone(factored);
-        }
-        let factored = match &term.node {
-            PackedNode::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => {
-                let factored_children = children
-                    .iter()
-                    .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
-                    .collect::<Vec<_>>();
-                if factored_children
-                    .iter()
-                    .zip(children)
-                    .all(|(factored, original)| Rc::ptr_eq(factored, original))
-                {
-                    Rc::clone(&term)
-                } else {
-                    PackedTerm::instantiated_production(
-                        *production,
-                        parameters.clone(),
-                        factored_children,
-                        metadata.clone(),
-                    )
-                }
+        crate::stack::guarded(|| {
+            // Invariant: every memoized identity has a complete factored result; recursion only visits
+            // unrecorded children or alternatives.
+            let identity = Rc::as_ptr(&term);
+            if let Some((_, factored)) = memo.get(&identity) {
+                return Rc::clone(factored);
             }
-            PackedNode::Term(_) => Rc::clone(&term),
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let factored_children = children
-                    .iter()
-                    .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
-                    .collect::<Vec<_>>();
-                if factored_children
-                    .iter()
-                    .zip(children)
-                    .all(|(factored, original)| Rc::ptr_eq(factored, original))
-                {
-                    Rc::clone(&term)
-                } else {
-                    PackedTerm::production(*production, factored_children, metadata.clone())
-                }
-            }
-            PackedNode::Ambiguity(alternatives) => {
-                let mut flattened = BTreeSet::new();
-                for alternative in alternatives {
-                    let alternative = self.factor_packed_ambiguities(Rc::clone(alternative), memo);
-                    match &alternative.node {
-                        PackedNode::Ambiguity(nested) => {
-                            flattened.extend(nested.iter().cloned());
-                        }
-                        _ => {
-                            flattened.insert(alternative);
-                        }
+            let factored = match &term.node {
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => {
+                    let factored_children = children
+                        .iter()
+                        .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
+                        .collect::<Vec<_>>();
+                    if factored_children
+                        .iter()
+                        .zip(children)
+                        .all(|(factored, original)| Rc::ptr_eq(factored, original))
+                    {
+                        Rc::clone(&term)
+                    } else {
+                        PackedTerm::instantiated_production(
+                            *production,
+                            parameters.clone(),
+                            factored_children,
+                            metadata.clone(),
+                        )
                     }
                 }
-                let factored = self.factor_packed_production_alternatives(flattened, memo);
-                if matches!(
-                    &factored.node,
-                    PackedNode::Ambiguity(factored_alternatives)
-                        if packed_sets_share_nodes(factored_alternatives, alternatives)
-                ) {
-                    Rc::clone(&term)
-                } else {
-                    factored
+                PackedNode::Term(_) => Rc::clone(&term),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let factored_children = children
+                        .iter()
+                        .map(|child| self.factor_packed_ambiguities(Rc::clone(child), memo))
+                        .collect::<Vec<_>>();
+                    if factored_children
+                        .iter()
+                        .zip(children)
+                        .all(|(factored, original)| Rc::ptr_eq(factored, original))
+                    {
+                        Rc::clone(&term)
+                    } else {
+                        PackedTerm::production(*production, factored_children, metadata.clone())
+                    }
                 }
-            }
-        };
-        // Retain the input allocation as part of the entry. Factoring recursively creates
-        // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
-        // would let a later allocation reuse the address and receive the wrong cached result.
-        memo.insert(identity, (term, Rc::clone(&factored)));
-        factored
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut flattened = BTreeSet::new();
+                    for alternative in alternatives {
+                        let alternative =
+                            self.factor_packed_ambiguities(Rc::clone(alternative), memo);
+                        match &alternative.node {
+                            PackedNode::Ambiguity(nested) => {
+                                flattened.extend(nested.iter().cloned());
+                            }
+                            _ => {
+                                flattened.insert(alternative);
+                            }
+                        }
+                    }
+                    let factored = self.factor_packed_production_alternatives(flattened, memo);
+                    if matches!(
+                        &factored.node,
+                        PackedNode::Ambiguity(factored_alternatives)
+                            if packed_sets_share_nodes(factored_alternatives, alternatives)
+                    ) {
+                        Rc::clone(&term)
+                    } else {
+                        factored
+                    }
+                }
+            };
+            // Retain the input allocation as part of the entry. Factoring recursively creates
+            // temporary ambiguity nodes; allowing one to drop while its raw address remains a key
+            // would let a later allocation reuse the address and receive the wrong cached result.
+            memo.insert(identity, (term, Rc::clone(&factored)));
+            factored
+        })
     }
 
     fn factor_packed_production_alternatives(
@@ -510,159 +524,167 @@ impl Grammar {
         memo: &mut PackedTransformMemo,
         child_memo: &mut PackedPriorityChildMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        // Invariant: node entries are complete context-free results and child entries are complete
-        // for the `(identity, parent, side)` context.
-        let identity = Rc::as_ptr(&term);
-        if let Some((_, filtered)) = memo.get(&identity) {
-            return filtered.clone();
-        }
-        measure::bump(Counter::ParserPackedPriorityComputations);
-        let filtered = (|| -> PackedTransformResult {
-            match &term.node {
-                PackedNode::InstantiatedProduction { .. } => {
-                    unreachable!("instantiated productions are created after packed priority")
-                }
-                PackedNode::Term(_) => Ok(Rc::clone(&term)),
-                PackedNode::Ambiguity(original_alternatives) => {
-                    let mut alternatives = original_alternatives.clone();
-                    for preferred in [
-                        InternalLabel::KRewrite,
-                        InternalLabel::KSequence,
-                        InternalLabel::Let,
-                    ]
-                    .map(InternalLabel::as_str)
-                    {
-                        let matching = alternatives
-                            .iter()
-                            .filter(|alternative| {
-                                self.packed_top_parse_label(alternative) == Some(preferred)
-                            })
-                            .cloned()
-                            .collect::<BTreeSet<_>>();
-                        if !matching.is_empty() {
-                            alternatives = matching;
-                        }
+        crate::stack::guarded(|| {
+            // Invariant: node entries are complete context-free results and child entries are complete
+            // for the `(identity, parent, side)` context.
+            let identity = Rc::as_ptr(&term);
+            if let Some((_, filtered)) = memo.get(&identity) {
+                return filtered.clone();
+            }
+            measure::bump(Counter::ParserPackedPriorityComputations);
+            let filtered = (|| -> PackedTransformResult {
+                match &term.node {
+                    PackedNode::InstantiatedProduction { .. } => {
+                        unreachable!("instantiated productions are created after packed priority")
                     }
-                    let mut retained = BTreeSet::new();
-                    let mut errors = Vec::new();
-                    for alternative in alternatives {
-                        match self.filter_packed_priority_memo(
-                            Rc::clone(&alternative),
-                            memo,
-                            child_memo,
-                        ) {
-                            Ok(alternative) => match &alternative.node {
-                                PackedNode::Ambiguity(nested) => {
-                                    retained.extend(nested.iter().cloned())
-                                }
-                                _ => {
-                                    retained.insert(alternative);
-                                }
-                            },
-                            Err(error) => {
-                                errors.push((alternative, error));
+                    PackedNode::Term(_) => Ok(Rc::clone(&term)),
+                    PackedNode::Ambiguity(original_alternatives) => {
+                        let mut alternatives = original_alternatives.clone();
+                        for preferred in [
+                            InternalLabel::KRewrite,
+                            InternalLabel::KSequence,
+                            InternalLabel::Let,
+                        ]
+                        .map(InternalLabel::as_str)
+                        {
+                            let matching = alternatives
+                                .iter()
+                                .filter(|alternative| {
+                                    self.packed_top_parse_label(alternative) == Some(preferred)
+                                })
+                                .cloned()
+                                .collect::<BTreeSet<_>>();
+                            if !matching.is_empty() {
+                                alternatives = matching;
                             }
                         }
-                    }
-                    if retained.is_empty() {
-                        Err(canonical_packed_error(errors))
-                    } else if packed_sets_share_nodes(&retained, original_alternatives) {
-                        Ok(Rc::clone(&term))
-                    } else {
-                        Ok(PackedTerm::ambiguity(retained))
-                    }
-                }
-                PackedNode::Production {
-                    production,
-                    children,
-                    metadata,
-                } => {
-                    let descriptor = &self.productions[*production];
-                    let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
-                        BTreeSet::new()
-                    } else {
-                        descriptor.apply_priority.clone().unwrap_or_else(|| {
-                            let mut positions = BTreeSet::new();
-                            if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
-                                positions.insert(1);
-                            }
-                            if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
-                                positions.insert(children.len());
-                            }
-                            positions
-                        })
-                    };
-                    let child_count = children.len();
-                    let filtered_children = children
-                        .iter()
-                        .enumerate()
-                        .map(|(index, child)| {
-                            let position = index + 1;
-                            let side = checked.contains(&position).then(|| {
-                                if position == 1
-                                    && matches!(
-                                        descriptor.items.first(),
-                                        Some(Item::NonTerminal(_))
-                                    )
-                                {
-                                    Side::Left
-                                } else if position == child_count
-                                    && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
-                                {
-                                    Side::Right
-                                } else {
-                                    Side::Middle
-                                }
-                            });
-                            self.filter_packed_priority_child(
-                                *production,
-                                Rc::clone(child),
-                                side,
+                        let mut retained = BTreeSet::new();
+                        let mut errors = Vec::new();
+                        for alternative in alternatives {
+                            match self.filter_packed_priority_memo(
+                                Rc::clone(&alternative),
                                 memo,
                                 child_memo,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if filtered_children
-                        .iter()
-                        .zip(children)
-                        .all(|(filtered, original)| Rc::ptr_eq(filtered, original))
-                    {
-                        Ok(Rc::clone(&term))
-                    } else {
-                        Ok(PackedTerm::production(
-                            *production,
-                            filtered_children,
-                            metadata.clone(),
-                        ))
+                            ) {
+                                Ok(alternative) => match &alternative.node {
+                                    PackedNode::Ambiguity(nested) => {
+                                        retained.extend(nested.iter().cloned())
+                                    }
+                                    _ => {
+                                        retained.insert(alternative);
+                                    }
+                                },
+                                Err(error) => {
+                                    errors.push((alternative, error));
+                                }
+                            }
+                        }
+                        if retained.is_empty() {
+                            Err(canonical_packed_error(errors))
+                        } else if packed_sets_share_nodes(&retained, original_alternatives) {
+                            Ok(Rc::clone(&term))
+                        } else {
+                            Ok(PackedTerm::ambiguity(retained))
+                        }
+                    }
+                    PackedNode::Production {
+                        production,
+                        children,
+                        metadata,
+                    } => {
+                        let descriptor = &self.productions[*production];
+                        let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort
+                        {
+                            BTreeSet::new()
+                        } else {
+                            descriptor.apply_priority.clone().unwrap_or_else(|| {
+                                let mut positions = BTreeSet::new();
+                                if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+                                    positions.insert(1);
+                                }
+                                if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
+                                    positions.insert(children.len());
+                                }
+                                positions
+                            })
+                        };
+                        let child_count = children.len();
+                        let filtered_children = children
+                            .iter()
+                            .enumerate()
+                            .map(|(index, child)| {
+                                let position = index + 1;
+                                let side = checked.contains(&position).then(|| {
+                                    if position == 1
+                                        && matches!(
+                                            descriptor.items.first(),
+                                            Some(Item::NonTerminal(_))
+                                        )
+                                    {
+                                        Side::Left
+                                    } else if position == child_count
+                                        && matches!(
+                                            descriptor.items.last(),
+                                            Some(Item::NonTerminal(_))
+                                        )
+                                    {
+                                        Side::Right
+                                    } else {
+                                        Side::Middle
+                                    }
+                                });
+                                self.filter_packed_priority_child(
+                                    *production,
+                                    Rc::clone(child),
+                                    side,
+                                    memo,
+                                    child_memo,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if filtered_children
+                            .iter()
+                            .zip(children)
+                            .all(|(filtered, original)| Rc::ptr_eq(filtered, original))
+                        {
+                            Ok(Rc::clone(&term))
+                        } else {
+                            Ok(PackedTerm::production(
+                                *production,
+                                filtered_children,
+                                metadata.clone(),
+                            ))
+                        }
                     }
                 }
-            }
-        })();
-        memo.insert(identity, (Rc::clone(&term), filtered.clone()));
-        filtered
+            })();
+            memo.insert(identity, (Rc::clone(&term), filtered.clone()));
+            filtered
+        })
     }
 
     pub(super) fn packed_top_parse_label<'a>(&'a self, term: &'a PackedTerm) -> Option<&'a str> {
-        let PackedNode::Production {
-            production,
-            children,
-            ..
-        } = &term.node
-        else {
-            return None;
-        };
-        let descriptor = &self.productions[*production];
-        descriptor.parse_label.as_deref().or_else(|| {
-            if descriptor.syntactic_subsort
-                || (descriptor.parse_label.is_none() && children.len() == 1)
-            {
-                children
-                    .first()
-                    .and_then(|child| self.packed_top_parse_label(child))
-            } else {
-                None
-            }
+        crate::stack::guarded(|| {
+            let PackedNode::Production {
+                production,
+                children,
+                ..
+            } = &term.node
+            else {
+                return None;
+            };
+            let descriptor = &self.productions[*production];
+            descriptor.parse_label.as_deref().or_else(|| {
+                if descriptor.syntactic_subsort
+                    || (descriptor.parse_label.is_none() && children.len() == 1)
+                {
+                    children
+                        .first()
+                        .and_then(|child| self.packed_top_parse_label(child))
+                } else {
+                    None
+                }
+            })
         })
     }
 
@@ -758,123 +780,135 @@ impl Grammar {
     /// wrappers deliberately exempt from priority checking.
     #[cfg(test)]
     pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(mut alternatives) => {
-                // A rule body's rewrite, sequence and `#let` scope over the user syntax around
-                // them, so these three structural forms take precedence over every other
-                // top-level interpretation, in this order. This is what makes
-                // `lhs => rhs #And condition` scope as a rewrite whose RHS contains `#And`
-                // instead of retaining the competing `#And(rewrite(lhs, rhs), condition)` tree.
-                for preferred in ["#KRewrite", "#KSequence", "#let"] {
-                    let matching = alternatives
-                        .iter()
-                        .filter(|alternative| self.top_parse_label(alternative) == Some(preferred))
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
-                    if !matching.is_empty() {
-                        alternatives = matching;
-                    }
-                }
-                let mut retained = BTreeSet::new();
-                let mut first_error = None;
-                for alternative in alternatives {
-                    match self.filter_priority(alternative) {
-                        Ok(ParsedTerm::Ambiguity(nested)) => retained.extend(nested),
-                        Ok(alternative) => {
-                            retained.insert(alternative);
-                        }
-                        Err(error) => {
-                            first_error.get_or_insert(error);
+        crate::stack::guarded(|| {
+            match term.into_parts() {
+                ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+                ParsedParts::Ambiguity(mut alternatives) => {
+                    // A rule body's rewrite, sequence and `#let` scope over the user syntax around
+                    // them, so these three structural forms take precedence over every other
+                    // top-level interpretation, in this order. This is what makes
+                    // `lhs => rhs #And condition` scope as a rewrite whose RHS contains `#And`
+                    // instead of retaining the competing `#And(rewrite(lhs, rhs), condition)` tree.
+                    for preferred in ["#KRewrite", "#KSequence", "#let"] {
+                        let matching = alternatives
+                            .iter()
+                            .filter(|alternative| {
+                                self.top_parse_label(alternative) == Some(preferred)
+                            })
+                            .cloned()
+                            .collect::<BTreeSet<_>>();
+                        if !matching.is_empty() {
+                            alternatives = matching;
                         }
                     }
-                }
-                match retained.len() {
-                    0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
-                    1 => Ok(retained.pop_first().expect("length was one")),
-                    _ => Ok(ParsedTerm::Ambiguity(retained)),
-                }
-            }
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let descriptor = &self.productions[production];
-                let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
-                    BTreeSet::new()
-                } else {
-                    descriptor.apply_priority.clone().unwrap_or_else(|| {
-                        let mut positions = BTreeSet::new();
-                        if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
-                            positions.insert(1);
-                        }
-                        if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
-                            positions.insert(children.len());
-                        }
-                        positions
-                    })
-                };
-                let child_count = children.len();
-                let children = children
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, child)| {
-                        let position = index + 1;
-                        let side = checked.contains(&position).then(|| {
-                            if position == 1
-                                && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)))
-                            {
-                                Side::Left
-                            } else if position == child_count
-                                && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
-                            {
-                                Side::Right
-                            } else {
-                                Side::Middle
+                    let mut retained = BTreeSet::new();
+                    let mut first_error = None;
+                    for alternative in alternatives {
+                        match self
+                            .filter_priority(alternative)
+                            .map(ParsedTerm::into_parts)
+                        {
+                            Ok(ParsedParts::Ambiguity(nested)) => retained.extend(nested),
+                            Ok(alternative) => {
+                                retained.insert(ParsedTerm::from(alternative));
                             }
-                        });
-                        self.filter_priority_child(descriptor, child, side)
-                    })
-                    .collect::<Result<_, _>>()?;
-                Ok(ParsedTerm::Production {
+                            Err(error) => {
+                                first_error.get_or_insert(error);
+                            }
+                        }
+                    }
+                    match retained.len() {
+                        0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                        1 => Ok(retained.pop_first().expect("length was one")),
+                        _ => Ok(ParsedTerm::Ambiguity(retained)),
+                    }
+                }
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
-                })
+                } => {
+                    let descriptor = &self.productions[production];
+                    let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
+                        BTreeSet::new()
+                    } else {
+                        descriptor.apply_priority.clone().unwrap_or_else(|| {
+                            let mut positions = BTreeSet::new();
+                            if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
+                                positions.insert(1);
+                            }
+                            if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
+                                positions.insert(children.len());
+                            }
+                            positions
+                        })
+                    };
+                    let child_count = children.len();
+                    let children = children
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, child)| {
+                            let position = index + 1;
+                            let side = checked.contains(&position).then(|| {
+                                if position == 1
+                                    && matches!(
+                                        descriptor.items.first(),
+                                        Some(Item::NonTerminal(_))
+                                    )
+                                {
+                                    Side::Left
+                                } else if position == child_count
+                                    && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
+                                {
+                                    Side::Right
+                                } else {
+                                    Side::Middle
+                                }
+                            });
+                            self.filter_priority_child(descriptor, child, side)
+                        })
+                        .collect::<Result<_, _>>()?;
+                    Ok(ParsedTerm::Production {
+                        production,
+                        children,
+                        metadata,
+                    })
+                }
+                ParsedParts::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after priority filtering")
+                }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("instantiated productions are created after priority filtering")
-            }
-        }
+        })
     }
 
     #[cfg(test)]
     fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
-        let (production, children) = match term {
-            ParsedTerm::Production {
-                production,
-                children,
-                ..
-            }
-            | ParsedTerm::InstantiatedProduction {
-                production,
-                children,
-                ..
-            } => (*production, children),
-            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
-        };
-        let descriptor = &self.productions[production];
-        descriptor.parse_label.as_deref().or_else(|| {
-            if descriptor.syntactic_subsort
-                || (descriptor.parse_label.is_none() && children.len() == 1)
-            {
-                children
-                    .first()
-                    .and_then(|child| self.top_parse_label(child))
-            } else {
-                None
-            }
+        crate::stack::guarded(|| {
+            let (production, children) = match term {
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    ..
+                }
+                | ParsedTerm::InstantiatedProduction {
+                    production,
+                    children,
+                    ..
+                } => (*production, children),
+                ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
+            };
+            let descriptor = &self.productions[production];
+            descriptor.parse_label.as_deref().or_else(|| {
+                if descriptor.syntactic_subsort
+                    || (descriptor.parse_label.is_none() && children.len() == 1)
+                {
+                    children
+                        .first()
+                        .and_then(|child| self.top_parse_label(child))
+                } else {
+                    None
+                }
+            })
         })
     }
 
@@ -885,32 +919,88 @@ impl Grammar {
         child: ParsedTerm,
         side: Option<Side>,
     ) -> Result<ParsedTerm, ParseError> {
-        if let ParsedTerm::Ambiguity(alternatives) = child {
-            let mut retained = BTreeSet::new();
-            let mut first_error = None;
-            for alternative in alternatives {
-                match self.filter_priority_child(parent, alternative, side) {
-                    Ok(ParsedTerm::Ambiguity(nested)) => retained.extend(nested),
-                    Ok(alternative) => {
-                        retained.insert(alternative);
-                    }
-                    Err(error) => {
-                        first_error.get_or_insert(error);
+        crate::stack::guarded(|| {
+            let mut child = child;
+            if let ParsedTerm::Ambiguity(alternatives) = &mut child {
+                let alternatives = std::mem::take(alternatives);
+                let mut retained = BTreeSet::new();
+                let mut first_error = None;
+                for alternative in alternatives {
+                    match self
+                        .filter_priority_child(parent, alternative, side)
+                        .map(ParsedTerm::into_parts)
+                    {
+                        Ok(ParsedParts::Ambiguity(nested)) => retained.extend(nested),
+                        Ok(alternative) => {
+                            retained.insert(ParsedTerm::from(alternative));
+                        }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
+                        }
                     }
                 }
+                return match retained.len() {
+                    0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                    1 => Ok(retained.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                };
             }
-            return match retained.len() {
-                0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
-                1 => Ok(retained.pop_first().expect("length was one")),
-                _ => Ok(ParsedTerm::Ambiguity(retained)),
-            };
-        }
-        if let Some(side) = side
-            && let Some(error) = self.child_violation(parent, &child, side)
+            if let Some(side) = side
+                && let Some(error) = self.child_violation(parent, &child, side)
+            {
+                return Err(error);
+            }
+            self.filter_priority(child)
+        })
+    }
+
+    /// Whether the priority filter rejects a node of production `child` as the child of a node
+    /// of production `parent` at child position `position` (1-based, among the parent's
+    /// nonterminals), whatever the two nodes' children are: the check
+    /// [`Self::filter_packed_priority_memo`] makes at that edge finds a scope, cast, priority or
+    /// associativity violation, so no reading the filter accepts has that edge. Both
+    /// productions are those of the nodes: a production whose node is its child's
+    /// (`build_packed_term`) has no parse label and is never rejected, and a token production
+    /// builds no production node. A record production's edges are checked only after its
+    /// node is collapsed into another production's, so for one the answer is `false`.
+    pub(super) fn edge_rejects(&self, parent: usize, child: usize, position: usize) -> bool {
+        let descriptor = &self.productions[parent];
+        let child_descriptor = &self.productions[child];
+        if descriptor.record.is_some()
+            || descriptor.syntactic_subsort
+            || child_descriptor.record.is_some()
+            || child_descriptor.token
         {
-            return Err(error);
+            return false;
         }
-        self.filter_priority(child)
+        let child_count = descriptor
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count();
+        let first = position == 1 && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)));
+        let last = position == child_count
+            && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)));
+        let checked = match &descriptor.apply_priority {
+            Some(positions) => positions.contains(&position),
+            None => first || last,
+        };
+        if !checked {
+            return false;
+        }
+        let side = if first {
+            Side::Left
+        } else if last {
+            Side::Right
+        } else {
+            Side::Middle
+        };
+        let shallow = ParsedTerm::Production {
+            production: child,
+            children: Vec::new(),
+            metadata: crate::kast::TermMetadata::default(),
+        };
+        self.child_violation(descriptor, &shallow, side).is_some()
     }
 
     fn child_violation(
@@ -975,24 +1065,14 @@ impl Grammar {
                 child: child_label.clone(),
             });
         }
-        if side == Side::Right
-            && self
-                .associativities
-                .left
-                .contains(&(parent_label.clone(), child_label.clone()))
-        {
+        if side == Side::Right && self.associativity_forbids(parent_label, child_label, false) {
             return Some(ParseError::Associativity {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
                 side: "right",
             });
         }
-        if side == Side::Left
-            && self
-                .associativities
-                .right
-                .contains(&(parent_label.clone(), child_label.clone()))
-        {
+        if side == Side::Left && self.associativity_forbids(parent_label, child_label, true) {
             return Some(ParseError::Associativity {
                 parent: parent_label.clone(),
                 child: child_label.clone(),
@@ -1013,9 +1093,9 @@ impl Grammar {
     /// sites = ["Grammar::resolve_ambiguities_node"]
     /// ```
     fn resolve_ambiguities_node(&self, term: ParsedTerm) -> Result<Term, ParseError> {
-        match term {
-            ParsedTerm::Term(term) => Ok(term),
-            ParsedTerm::Production {
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(term) => Ok(term),
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -1026,7 +1106,7 @@ impl Grammar {
                     .collect::<Result<Vec<_>, _>>()?;
                 self.lower_production(production, None, children, metadata)
             }
-            ParsedTerm::InstantiatedProduction {
+            ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 children,
@@ -1038,7 +1118,7 @@ impl Grammar {
                     .collect::<Result<Vec<_>, _>>()?;
                 self.lower_production(production, Some(&parameters), children, metadata)
             }
-            ParsedTerm::Ambiguity(alternatives) => {
+            ParsedParts::Ambiguity(alternatives) => {
                 let parses = alternatives.iter().fold(0usize, |count, alternative| {
                     count.saturating_add(Self::ambiguity_count(alternative))
                 });
@@ -1071,7 +1151,7 @@ impl Grammar {
                     .map(|(term, _)| term)
                     .expect("an ambiguity has at least one alternative"))
             }
-        }
+        })
     }
 
     fn lower_production(
@@ -1089,9 +1169,9 @@ impl Grammar {
             if let Some(label) = &mut instantiated.label {
                 label.parameters = parameters.to_vec();
             }
-            lower_term(&instantiated, &children, span, &self.sort_denotations)?
+            lower_term(&instantiated, children, span, &self.sort_denotations)?
         } else {
-            lower_term(production, &children, span, &self.sort_denotations)?
+            lower_term(production, children, span, &self.sort_denotations)?
         };
         Ok(term.with_metadata(metadata))
     }
@@ -1122,15 +1202,15 @@ impl Grammar {
     }
 
     fn remove_brackets_and_syntactic_casts_node(&self, term: ParsedTerm) -> ParsedTerm {
-        match term {
-            ParsedTerm::Term(_) => term,
-            ParsedTerm::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
+            ParsedParts::Ambiguity(alternatives) => ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
                     .map(|alternative| self.remove_brackets_and_syntactic_casts_node(alternative))
                     .collect(),
             ),
-            ParsedTerm::Production {
+            ParsedParts::Production {
                 production,
                 mut children,
                 metadata,
@@ -1156,7 +1236,7 @@ impl Grammar {
                         .collect(),
                 }
             }
-            ParsedTerm::InstantiatedProduction {
+            ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 mut children,
@@ -1184,7 +1264,7 @@ impl Grammar {
                         .collect(),
                 }
             }
-        }
+        })
     }
 
     /// Resolve `#KApply` nodes to every visible production with the same label and arity.
@@ -1193,192 +1273,305 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveApplications);
-        self.resolve_packed_applications_memo(term, &mut HashMap::new())
+        self.resolve_packed_applications_memo(term, &mut HashMap::new(), &mut KListMemo::default())
     }
 
     fn resolve_packed_applications_memo(
         &self,
         term: Rc<PackedTerm>,
         memo: &mut PackedTransformMemo,
+        klists: &mut KListMemo,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        // Invariant: every memoized identity has its complete `#KApply` resolution; recursion only
-        // visits identities absent from the memo.
-        let identity = Rc::as_ptr(&term);
-        if let Some((_, resolved)) = memo.get(&identity) {
-            return resolved.clone();
-        }
-        let resolved = (|| -> PackedTransformResult {
-            match &term.node {
-                PackedNode::InstantiatedProduction { .. } => {
-                    unreachable!(
-                        "instantiated productions are created after application resolution"
-                    )
-                }
-                PackedNode::Term(_) => Ok(Rc::clone(&term)),
-                PackedNode::Ambiguity(alternatives) => {
-                    let mut resolved = BTreeSet::new();
-                    let mut first_error = None;
-                    for alternative in packed_terms_in_structural_order(alternatives) {
-                        match self.resolve_packed_applications_memo(Rc::clone(&alternative), memo) {
-                            Ok(alternative) => match &alternative.node {
-                                PackedNode::Ambiguity(nested) => {
-                                    resolved.extend(nested.iter().cloned())
+        crate::stack::guarded(|| {
+            // Invariant: every memoized identity has its complete `#KApply` resolution; recursion only
+            // visits identities absent from the memo.
+            let identity = Rc::as_ptr(&term);
+            if let Some((_, resolved)) = memo.get(&identity) {
+                return resolved.clone();
+            }
+            let resolved = (|| -> PackedTransformResult {
+                match &term.node {
+                    PackedNode::InstantiatedProduction { .. } => {
+                        unreachable!(
+                            "instantiated productions are created after application resolution"
+                        )
+                    }
+                    PackedNode::Term(_) => Ok(Rc::clone(&term)),
+                    PackedNode::Ambiguity(alternatives) => {
+                        let mut resolved = BTreeSet::new();
+                        let mut first_error = None;
+                        for alternative in klists.order.sorted(alternatives) {
+                            match self.resolve_packed_applications_memo(
+                                Rc::clone(&alternative),
+                                memo,
+                                klists,
+                            ) {
+                                Ok(alternative) => match &alternative.node {
+                                    PackedNode::Ambiguity(nested) => {
+                                        resolved.extend(nested.iter().cloned())
+                                    }
+                                    _ => {
+                                        resolved.insert(alternative);
+                                    }
+                                },
+                                Err(error) => {
+                                    first_error.get_or_insert(error);
                                 }
-                                _ => {
-                                    resolved.insert(alternative);
+                            }
+                        }
+                        if resolved.is_empty() {
+                            Err(first_error.expect("an empty ambiguity had no resolution result"))
+                        } else {
+                            Ok(PackedTerm::ambiguity(resolved))
+                        }
+                    }
+                    PackedNode::Production {
+                        production,
+                        children,
+                        metadata,
+                    } => {
+                        if self.productions[*production]
+                            .label
+                            .as_ref()
+                            .is_some_and(|label| label.is(InternalLabel::KApply))
+                        {
+                            measure::bump(Counter::ParserPackedApplicationResolutions);
+                        }
+                        let children = children
+                            .iter()
+                            .map(|child| {
+                                self.resolve_packed_applications_memo(
+                                    Rc::clone(child),
+                                    memo,
+                                    klists,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if self.productions[*production]
+                            .label
+                            .as_ref()
+                            .map(|label| label.name.as_str())
+                            != Some(InternalLabel::KApply.as_str())
+                        {
+                            Ok(PackedTerm::production(
+                                *production,
+                                children,
+                                metadata.clone(),
+                            ))
+                        } else {
+                            let [label, arguments] = children.as_slice() else {
+                                return Err(ParseError::UnknownApplication {
+                                    label: "<malformed>".into(),
+                                    arity: children.len().saturating_sub(1),
+                                });
+                            };
+                            let label = packed_klabel_name(label).ok_or_else(|| {
+                                ParseError::UnknownApplication {
+                                    label: "<malformed>".into(),
+                                    arity: 0,
                                 }
-                            },
-                            Err(error) => {
-                                first_error.get_or_insert(error);
+                            })?;
+                            // Only argument vectors as long as some production of the label
+                            // can match; an application with none reports the shortest
+                            // reading of its arguments.
+                            let longest = self
+                                .productions
+                                .iter()
+                                .enumerate()
+                                .filter(|(candidate, candidate_production)| {
+                                    *candidate != *production
+                                        && candidate_production.record.is_none()
+                                        && candidate_production.label.as_ref().is_some_and(
+                                            |candidate_label| candidate_label.name == label,
+                                        )
+                                })
+                                .map(|(_, candidate_production)| {
+                                    production_arity(candidate_production)
+                                })
+                                .max();
+                            let argument_lists = match longest {
+                                Some(longest) => {
+                                    self.flatten_packed_klist(arguments, longest, klists)?
+                                }
+                                None => Rc::default(),
+                            };
+                            let mut candidates = BTreeSet::new();
+                            for arguments in argument_lists.iter() {
+                                for (candidate, candidate_production) in
+                                    self.productions.iter().enumerate()
+                                {
+                                    if candidate != *production
+                                        && candidate_production.record.is_none()
+                                        && candidate_production.label.as_ref().is_some_and(
+                                            |candidate_label| candidate_label.name == label,
+                                        )
+                                        && production_arity(candidate_production) == arguments.len()
+                                    {
+                                        let candidate = candidate_production
+                                            .term_production
+                                            .unwrap_or(candidate);
+                                        let mut candidate_metadata = metadata.clone();
+                                        candidate_metadata.production =
+                                            self.productions[candidate].source_production;
+                                        candidates.insert(PackedTerm::production(
+                                            candidate,
+                                            arguments.clone(),
+                                            candidate_metadata,
+                                        ));
+                                    }
+                                }
+                            }
+                            if candidates.is_empty() {
+                                Err(ParseError::UnknownApplication {
+                                    label,
+                                    arity: self.shortest_packed_klist(arguments, klists),
+                                })
+                            } else {
+                                Ok(PackedTerm::ambiguity(candidates))
                             }
                         }
                     }
-                    if resolved.is_empty() {
-                        Err(first_error.expect("an empty ambiguity had no resolution result"))
-                    } else {
-                        Ok(PackedTerm::ambiguity(resolved))
+                }
+            })();
+            memo.insert(identity, (term, resolved.clone()));
+            resolved
+        })
+    }
+
+    /// The argument vectors that the readings of `term`, a `#KList` reading of an
+    /// application's arguments, flatten to, those at most `longest` long, each once.
+    ///
+    /// The readings of a comma list are an ambiguous `K "," K` tree whose sublists may also
+    /// read as single elements, so their number is exponential in the list's length, while
+    /// the packed forest shares every sublist. Each node's vectors are computed once
+    /// (`klists`), and a vector longer than every arity of the label is dropped as soon as it
+    /// is built, since appending never shortens it.
+    fn flatten_packed_klist(
+        &self,
+        term: &Rc<PackedTerm>,
+        longest: usize,
+        klists: &mut KListMemo,
+    ) -> Result<ArgumentLists, ParseError> {
+        crate::stack::guarded(|| {
+            let key = (Rc::as_ptr(term), longest);
+            if let Some((_, flattened)) = klists.flattened.get(&key) {
+                return Ok(Rc::clone(flattened));
+            }
+            let mut seen = HashSet::new();
+            let mut flattened = Vec::new();
+            let mut keep = |arguments: Vec<Rc<PackedTerm>>| {
+                if arguments.len() <= longest
+                    && seen.insert(arguments.iter().map(Rc::as_ptr).collect::<Vec<_>>())
+                {
+                    flattened.push(arguments);
+                }
+            };
+            match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after K-list flattening")
+                }
+                // The vectors are a set (an application's candidates are), so the
+                // alternatives are read in any order.
+                PackedNode::Ambiguity(alternatives) => {
+                    for alternative in alternatives {
+                        for arguments in self
+                            .flatten_packed_klist(alternative, longest, klists)?
+                            .iter()
+                        {
+                            keep(arguments.clone());
+                        }
                     }
                 }
                 PackedNode::Production {
                     production,
                     children,
-                    metadata,
-                } => {
-                    if self.productions[*production]
-                        .label
-                        .as_ref()
-                        .is_some_and(|label| label.is(InternalLabel::KApply))
-                    {
-                        measure::bump(Counter::ParserPackedApplicationResolutions);
-                    }
-                    let children = children
-                        .iter()
-                        .map(|child| self.resolve_packed_applications_memo(Rc::clone(child), memo))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if self.productions[*production]
-                        .label
-                        .as_ref()
-                        .map(|label| label.name.as_str())
-                        != Some(InternalLabel::KApply.as_str())
-                    {
-                        Ok(PackedTerm::production(
-                            *production,
-                            children,
-                            metadata.clone(),
-                        ))
-                    } else {
-                        let [label, arguments] = children.as_slice() else {
-                            return Err(ParseError::UnknownApplication {
-                                label: "<malformed>".into(),
-                                arity: children.len().saturating_sub(1),
-                            });
-                        };
-                        let label = packed_klabel_name(label).ok_or_else(|| {
-                            ParseError::UnknownApplication {
-                                label: "<malformed>".into(),
-                                arity: 0,
-                            }
-                        })?;
-                        let argument_lists = self.flatten_packed_klist(arguments)?;
-                        let arities = argument_lists.iter().map(Vec::len).collect::<BTreeSet<_>>();
-                        let mut candidates = BTreeSet::new();
-                        for arguments in argument_lists {
-                            for (candidate, candidate_production) in
-                                self.productions.iter().enumerate()
-                            {
-                                if candidate != *production
-                                    && candidate_production.record.is_none()
-                                    && candidate_production.label.as_ref().is_some_and(
-                                        |candidate_label| candidate_label.name == label,
-                                    )
-                                    && production_arity(candidate_production) == arguments.len()
-                                {
-                                    let candidate =
-                                        candidate_production.term_production.unwrap_or(candidate);
-                                    let mut candidate_metadata = metadata.clone();
-                                    candidate_metadata.production =
-                                        self.productions[candidate].source_production;
-                                    candidates.insert(PackedTerm::production(
-                                        candidate,
-                                        arguments.clone(),
-                                        candidate_metadata,
-                                    ));
+                    ..
+                } => match self.productions[*production]
+                    .label
+                    .as_ref()
+                    .map(|label| label.name.as_str())
+                {
+                    Some("#EmptyKList") => keep(Vec::new()),
+                    Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
+                        let left = self.flatten_packed_klist(&children[0], longest, klists)?;
+                        let right = self.flatten_packed_klist(&children[1], longest, klists)?;
+                        for left in left.iter() {
+                            for right in right.iter() {
+                                if left.len() + right.len() <= longest {
+                                    keep(left.iter().chain(right).cloned().collect());
                                 }
                             }
                         }
-                        if candidates.is_empty() {
-                            Err(ParseError::UnknownApplication {
-                                label,
-                                arity: arities.first().copied().unwrap_or(0),
-                            })
-                        } else {
-                            Ok(PackedTerm::ambiguity(candidates))
-                        }
                     }
-                }
+                    _ => keep(vec![Rc::clone(term)]),
+                },
+                PackedNode::Term(_) => keep(vec![Rc::clone(term)]),
             }
-        })();
-        memo.insert(identity, (term, resolved.clone()));
-        resolved
+            let flattened = Rc::new(flattened);
+            klists
+                .flattened
+                .insert(key, (Rc::clone(term), Rc::clone(&flattened)));
+            Ok(flattened)
+        })
     }
 
-    fn flatten_packed_klist(
-        &self,
-        term: &Rc<PackedTerm>,
-    ) -> Result<Vec<Vec<Rc<PackedTerm>>>, ParseError> {
-        let flattened = match &term.node {
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("instantiated productions are created after K-list flattening")
+    /// The length of the shortest argument vector a reading of `term`, a `#KList` reading of an
+    /// application's arguments, flattens to (as [`Self::flatten_packed_klist`] without a bound),
+    /// computed once per node.
+    fn shortest_packed_klist(&self, term: &Rc<PackedTerm>, klists: &mut KListMemo) -> usize {
+        crate::stack::guarded(|| {
+            if let Some((_, shortest)) = klists.shortest.get(&Rc::as_ptr(term)) {
+                return *shortest;
             }
-            PackedNode::Ambiguity(alternatives) => {
-                let mut flattened = Vec::new();
-                for alternative in packed_terms_in_structural_order(alternatives) {
-                    flattened.extend(self.flatten_packed_klist(&alternative)?);
+            let shortest = match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after K-list flattening")
                 }
-                flattened
-            }
-            PackedNode::Production {
-                production,
-                children,
-                ..
-            } => match self.productions[*production]
-                .label
-                .as_ref()
-                .map(|label| label.name.as_str())
-            {
-                Some("#EmptyKList") => vec![Vec::new()],
-                Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
-                    let left = self.flatten_packed_klist(&children[0])?;
-                    let right = self.flatten_packed_klist(&children[1])?;
-                    left.into_iter()
-                        .flat_map(|left| {
-                            right.iter().map(move |right| {
-                                let mut combined = left.clone();
-                                combined.extend(right.iter().cloned());
-                                combined
-                            })
-                        })
-                        .collect()
-                }
-                _ => vec![vec![Rc::clone(term)]],
-            },
-            PackedNode::Term(_) => vec![vec![Rc::clone(term)]],
-        };
-        Ok(flattened)
+                PackedNode::Ambiguity(alternatives) => alternatives
+                    .iter()
+                    .map(|alternative| self.shortest_packed_klist(alternative, klists))
+                    .min()
+                    .unwrap_or(0),
+                PackedNode::Production {
+                    production,
+                    children,
+                    ..
+                } => match self.productions[*production]
+                    .label
+                    .as_ref()
+                    .map(|label| label.name.as_str())
+                {
+                    Some("#EmptyKList") => 0,
+                    Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
+                        self.shortest_packed_klist(&children[0], klists)
+                            + self.shortest_packed_klist(&children[1], klists)
+                    }
+                    _ => 1,
+                },
+                PackedNode::Term(_) => 1,
+            };
+            klists
+                .shortest
+                .insert(Rc::as_ptr(term), (Rc::clone(term), shortest));
+            shortest
+        })
     }
 
     #[cfg(test)]
     pub(super) fn resolve_applications(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => {
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+            ParsedParts::Ambiguity(alternatives) => {
                 let mut resolved = BTreeSet::new();
                 let mut first_error = None;
                 for alternative in alternatives {
-                    match self.resolve_applications(alternative) {
-                        Ok(ParsedTerm::Ambiguity(nested)) => resolved.extend(nested),
+                    match self
+                        .resolve_applications(alternative)
+                        .map(ParsedTerm::into_parts)
+                    {
+                        Ok(ParsedParts::Ambiguity(nested)) => resolved.extend(nested),
                         Ok(alternative) => {
-                            resolved.insert(alternative);
+                            resolved.insert(ParsedTerm::from(alternative));
                         }
                         Err(error) => {
                             first_error.get_or_insert(error);
@@ -1391,7 +1584,7 @@ impl Grammar {
                     _ => Ok(ParsedTerm::Ambiguity(resolved)),
                 }
             }
-            ParsedTerm::Production {
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -1457,60 +1650,62 @@ impl Grammar {
                     _ => Ok(ParsedTerm::Ambiguity(candidates)),
                 }
             }
-            ParsedTerm::InstantiatedProduction { .. } => {
+            ParsedParts::InstantiatedProduction { .. } => {
                 unreachable!("applications are resolved before sort inference")
             }
-        }
+        })
     }
 
     #[cfg(test)]
     fn flatten_klist(&self, term: &ParsedTerm) -> Result<Vec<Vec<ParsedTerm>>, ParseError> {
-        let flattened = match term {
-            ParsedTerm::Ambiguity(alternatives) => {
-                let mut flattened = Vec::new();
-                for alternative in alternatives {
-                    flattened.extend(self.flatten_klist(alternative)?);
+        crate::stack::guarded(|| {
+            let flattened = match term {
+                ParsedTerm::Ambiguity(alternatives) => {
+                    let mut flattened = Vec::new();
+                    for alternative in alternatives {
+                        flattened.extend(self.flatten_klist(alternative)?);
+                    }
+                    flattened
                 }
-                flattened
-            }
-            ParsedTerm::Production {
-                production,
-                children,
-                ..
-            } => match self.productions[*production]
-                .label
-                .as_ref()
-                .map(|label| label.name.as_str())
-            {
-                Some("#EmptyKList") => vec![Vec::new()],
-                Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
-                    let left = self.flatten_klist(&children[0])?;
-                    let right = self.flatten_klist(&children[1])?;
-                    left.into_iter()
-                        .flat_map(|left| {
-                            right.iter().map(move |right| {
-                                let mut combined = left.clone();
-                                combined.extend(right.iter().cloned());
-                                combined
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    ..
+                } => match self.productions[*production]
+                    .label
+                    .as_ref()
+                    .map(|label| label.name.as_str())
+                {
+                    Some("#EmptyKList") => vec![Vec::new()],
+                    Some(name) if name == InternalLabel::KList.as_str() && children.len() == 2 => {
+                        let left = self.flatten_klist(&children[0])?;
+                        let right = self.flatten_klist(&children[1])?;
+                        left.into_iter()
+                            .flat_map(|left| {
+                                right.iter().map(move |right| {
+                                    let mut combined = left.clone();
+                                    combined.extend(right.iter().cloned());
+                                    combined
+                                })
                             })
-                        })
-                        .collect()
+                            .collect()
+                    }
+                    _ => vec![vec![term.clone()]],
+                },
+                ParsedTerm::Term(_) => vec![vec![term.clone()]],
+                ParsedTerm::InstantiatedProduction { .. } => {
+                    unreachable!("K lists are flattened before sort inference")
                 }
-                _ => vec![vec![term.clone()]],
-            },
-            ParsedTerm::Term(_) => vec![vec![term.clone()]],
-            ParsedTerm::InstantiatedProduction { .. } => {
-                unreachable!("K lists are flattened before sort inference")
-            }
-        };
-        Ok(flattened)
+            };
+            Ok(flattened)
+        })
     }
 
     /// Factor alternatives with a shared production into one differing child.
     pub(super) fn factor_ambiguities(&self, term: ParsedTerm) -> ParsedTerm {
-        match term {
-            ParsedTerm::Term(_) => term,
-            ParsedTerm::Production {
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -1522,7 +1717,7 @@ impl Grammar {
                     .map(|child| self.factor_ambiguities(child))
                     .collect(),
             },
-            ParsedTerm::InstantiatedProduction {
+            ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 children,
@@ -1536,13 +1731,13 @@ impl Grammar {
                     .map(|child| self.factor_ambiguities(child))
                     .collect(),
             },
-            ParsedTerm::Ambiguity(alternatives) => {
+            ParsedParts::Ambiguity(alternatives) => {
                 let mut flattened = BTreeSet::new();
                 for alternative in alternatives {
-                    match self.factor_ambiguities(alternative) {
-                        ParsedTerm::Ambiguity(nested) => flattened.extend(nested),
+                    match self.factor_ambiguities(alternative).into_parts() {
+                        ParsedParts::Ambiguity(nested) => flattened.extend(nested),
                         alternative => {
-                            flattened.insert(alternative);
+                            flattened.insert(ParsedTerm::from(alternative));
                         }
                     }
                 }
@@ -1597,8 +1792,8 @@ impl Grammar {
                     let child_alternatives = alternatives
                         .into_iter()
                         .map(|alternative| {
-                            let ParsedTerm::InstantiatedProduction { mut children, .. } =
-                                alternative
+                            let ParsedParts::InstantiatedProduction { mut children, .. } =
+                                alternative.into_parts()
                             else {
                                 unreachable!()
                             };
@@ -1658,7 +1853,8 @@ impl Grammar {
                 let child_alternatives = alternatives
                     .into_iter()
                     .map(|alternative| {
-                        let ParsedTerm::Production { mut children, .. } = alternative else {
+                        let ParsedParts::Production { mut children, .. } = alternative.into_parts()
+                        else {
                             unreachable!()
                         };
                         children.remove(*index)
@@ -1672,7 +1868,7 @@ impl Grammar {
                     metadata,
                 }
             }
-        }
+        })
     }
 
     /// Resolve a nullary overloaded production to the unique least production with the same
@@ -1691,15 +1887,15 @@ impl Grammar {
         &self,
         term: ParsedTerm,
     ) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+            ParsedParts::Ambiguity(alternatives) => Ok(ParsedTerm::Ambiguity(
                 alternatives
                     .into_iter()
                     .map(|alternative| self.resolve_overloaded_terminators_node(alternative))
                     .collect::<Result<_, _>>()?,
             )),
-            ParsedTerm::Production {
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -1778,7 +1974,7 @@ impl Grammar {
                     metadata,
                 })
             }
-            ParsedTerm::InstantiatedProduction {
+            ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 children,
@@ -1792,7 +1988,7 @@ impl Grammar {
                     .map(|child| self.resolve_overloaded_terminators_node(child))
                     .collect::<Result<_, _>>()?,
             }),
-        }
+        })
     }
 
     /// Apply post-inference overload and `prefer`/`avoid` selection at every ambiguity, pushing
@@ -1837,104 +2033,106 @@ impl Grammar {
     /// to one term without it lowers to the same term with it. An `avoid` production below a
     /// frontier node does not count, as it does not below the top production in step 2.
     fn filter_overloads_prefer_avoid_node(&self, term: ParsedTerm) -> ParsedTerm {
-        // Invariant: recursion strictly descends the owned tree (factoring moves an ambiguity
-        // strictly downward) and retains exactly the maximal overload choices after prefer/avoid
-        // classification.
-        match term {
-            ParsedTerm::Term(_) => term,
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => ParsedTerm::Production {
-                production,
-                metadata,
-                children: children
-                    .into_iter()
-                    .map(|child| self.filter_overloads_prefer_avoid_node(child))
-                    .collect(),
-            },
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                metadata,
-                children: children
-                    .into_iter()
-                    .map(|child| self.filter_overloads_prefer_avoid_node(child))
-                    .collect(),
-            },
-            ParsedTerm::Ambiguity(mut alternatives) => {
-                if alternatives.len() == 1 {
-                    return self.filter_overloads_prefer_avoid_node(
-                        alternatives.pop_first().expect("length was one"),
-                    );
-                }
+        crate::stack::guarded(|| {
+            // Invariant: recursion strictly descends the owned tree (factoring moves an ambiguity
+            // strictly downward) and retains exactly the maximal overload choices after prefer/avoid
+            // classification.
+            match term.into_parts() {
+                ParsedParts::Term(leaf) => ParsedTerm::Term(leaf),
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => ParsedTerm::Production {
+                    production,
+                    metadata,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.filter_overloads_prefer_avoid_node(child))
+                        .collect(),
+                },
+                ParsedParts::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    metadata,
+                } => ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    metadata,
+                    children: children
+                        .into_iter()
+                        .map(|child| self.filter_overloads_prefer_avoid_node(child))
+                        .collect(),
+                },
+                ParsedParts::Ambiguity(mut alternatives) => {
+                    if alternatives.len() == 1 {
+                        return self.filter_overloads_prefer_avoid_node(
+                            alternatives.pop_first().expect("length was one"),
+                        );
+                    }
 
-                alternatives = self.remove_overloads(alternatives);
-                if alternatives.len() == 1 {
-                    return self.filter_overloads_prefer_avoid_node(
-                        alternatives.pop_first().expect("length was one"),
-                    );
-                }
+                    alternatives = self.remove_overloads(alternatives);
+                    if alternatives.len() == 1 {
+                        return self.filter_overloads_prefer_avoid_node(
+                            alternatives.pop_first().expect("length was one"),
+                        );
+                    }
 
-                let preferred = alternatives
-                    .iter()
-                    .filter(|alternative| self.is_preferred(alternative))
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
-                if !preferred.is_empty() {
-                    alternatives = preferred;
-                } else {
-                    let retained = alternatives
+                    let preferred = alternatives
                         .iter()
-                        .filter(|alternative| !self.is_avoided(alternative))
+                        .filter(|alternative| self.is_preferred(alternative))
                         .cloned()
                         .collect::<BTreeSet<_>>();
-                    if !retained.is_empty() {
-                        alternatives = retained;
+                    if !preferred.is_empty() {
+                        alternatives = preferred;
+                    } else {
+                        let retained = alternatives
+                            .iter()
+                            .filter(|alternative| !self.is_avoided(alternative))
+                            .cloned()
+                            .collect::<BTreeSet<_>>();
+                        if !retained.is_empty() {
+                            alternatives = retained;
+                        }
+                    }
+
+                    let alternatives = alternatives
+                        .into_iter()
+                        .map(|alternative| self.filter_overloads_prefer_avoid_node(alternative))
+                        .collect::<BTreeSet<_>>();
+                    if alternatives.len() == 1 {
+                        return alternatives.into_iter().next().expect("length was one");
+                    }
+                    let ambiguity = ParsedTerm::Ambiguity(alternatives);
+                    let factored = self.factor_ambiguities(ambiguity.clone());
+                    if factored != ambiguity {
+                        return self.filter_overloads_prefer_avoid_node(factored);
+                    }
+                    let ParsedParts::Ambiguity(alternatives) = ambiguity.into_parts() else {
+                        unreachable!("the ambiguity was built above")
+                    };
+                    let count = alternatives.len();
+                    let mut selected = self.select_at_frontier(alternatives);
+                    if selected.len() == count {
+                        return ParsedTerm::Ambiguity(selected);
+                    }
+                    if selected.len() == 1 {
+                        return selected.pop_first().expect("length was one");
+                    }
+                    // The survivors are already filtered, and a subset of mutually non-dominated
+                    // overloads is unchanged by step 1 and a fixpoint of step 2 and of the frontier
+                    // step, so only a factoring change needs another pass.
+                    let ambiguity = ParsedTerm::Ambiguity(selected);
+                    let factored = self.factor_ambiguities(ambiguity.clone());
+                    if factored == ambiguity {
+                        ambiguity
+                    } else {
+                        self.filter_overloads_prefer_avoid_node(factored)
                     }
                 }
-
-                let alternatives = alternatives
-                    .into_iter()
-                    .map(|alternative| self.filter_overloads_prefer_avoid_node(alternative))
-                    .collect::<BTreeSet<_>>();
-                if alternatives.len() == 1 {
-                    return alternatives.into_iter().next().expect("length was one");
-                }
-                let ambiguity = ParsedTerm::Ambiguity(alternatives);
-                let factored = self.factor_ambiguities(ambiguity.clone());
-                if factored != ambiguity {
-                    return self.filter_overloads_prefer_avoid_node(factored);
-                }
-                let ParsedTerm::Ambiguity(alternatives) = ambiguity else {
-                    unreachable!("the ambiguity was built above")
-                };
-                let count = alternatives.len();
-                let mut selected = self.select_at_frontier(alternatives);
-                if selected.len() == count {
-                    return ParsedTerm::Ambiguity(selected);
-                }
-                if selected.len() == 1 {
-                    return selected.pop_first().expect("length was one");
-                }
-                // The survivors are already filtered, and a subset of mutually non-dominated
-                // overloads is unchanged by step 1 and a fixpoint of step 2 and of the frontier
-                // step, so only a factoring change needs another pass.
-                let ambiguity = ParsedTerm::Ambiguity(selected);
-                let factored = self.factor_ambiguities(ambiguity.clone());
-                if factored == ambiguity {
-                    ambiguity
-                } else {
-                    self.filter_overloads_prefer_avoid_node(factored)
-                }
             }
-        }
+        })
     }
 
     /// The frontier step of [`Self::filter_overloads_prefer_avoid_node`]: repeatedly classify the
@@ -2121,57 +2319,61 @@ impl Grammar {
         term: Rc<PackedTerm>,
         expansion_memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
     ) -> Rc<PackedTerm> {
-        // Invariant: every visited identity is memoized completely, and an ambiguity moves only
-        // toward the rule-content root.
-        if let PackedNode::Ambiguity(alternatives) = &term.node {
-            let mut lifted = BTreeSet::new();
-            for alternative in alternatives {
-                let alternative = self
-                    .push_top_lhs_packed_ambiguity_up_memo(Rc::clone(alternative), expansion_memo);
-                match &alternative.node {
-                    PackedNode::Ambiguity(nested) => lifted.extend(nested.iter().cloned()),
-                    _ => {
-                        lifted.insert(alternative);
+        crate::stack::guarded(|| {
+            // Invariant: every visited identity is memoized completely, and an ambiguity moves only
+            // toward the rule-content root.
+            if let PackedNode::Ambiguity(alternatives) = &term.node {
+                let mut lifted = BTreeSet::new();
+                for alternative in alternatives {
+                    let alternative = self.push_top_lhs_packed_ambiguity_up_memo(
+                        Rc::clone(alternative),
+                        expansion_memo,
+                    );
+                    match &alternative.node {
+                        PackedNode::Ambiguity(nested) => lifted.extend(nested.iter().cloned()),
+                        _ => {
+                            lifted.insert(alternative);
+                        }
                     }
                 }
+                return PackedTerm::ambiguity(lifted);
             }
-            return PackedTerm::ambiguity(lifted);
-        }
-        let PackedNode::Production {
-            production,
-            children,
-            metadata,
-        } = &term.node
-        else {
-            return term;
-        };
-        if !self.productions[*production]
-            .result
-            .is_frontend(FrontendSort::RuleContent)
-            || children.is_empty()
-        {
-            return term;
-        }
-        let bodies = self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), expansion_memo);
-        if bodies.len() == 1 {
-            let body = bodies.into_iter().next().expect("length was one");
-            if Rc::ptr_eq(&body, &children[0]) {
+            let PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } = &term.node
+            else {
+                return term;
+            };
+            if !self.productions[*production]
+                .result
+                .is_frontend(FrontendSort::RuleContent)
+                || children.is_empty()
+            {
                 return term;
             }
-            let mut rebuilt_children = children.clone();
-            rebuilt_children[0] = body;
-            return PackedTerm::production(*production, rebuilt_children, metadata.clone());
-        }
-        PackedTerm::ambiguity(
-            bodies
-                .into_iter()
-                .map(|body| {
-                    let mut alternative_children = children.clone();
-                    alternative_children[0] = body;
-                    PackedTerm::production(*production, alternative_children, metadata.clone())
-                })
-                .collect(),
-        )
+            let bodies = self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), expansion_memo);
+            if bodies.len() == 1 {
+                let body = bodies.into_iter().next().expect("length was one");
+                if Rc::ptr_eq(&body, &children[0]) {
+                    return term;
+                }
+                let mut rebuilt_children = children.clone();
+                rebuilt_children[0] = body;
+                return PackedTerm::production(*production, rebuilt_children, metadata.clone());
+            }
+            PackedTerm::ambiguity(
+                bodies
+                    .into_iter()
+                    .map(|body| {
+                        let mut alternative_children = children.clone();
+                        alternative_children[0] = body;
+                        PackedTerm::production(*production, alternative_children, metadata.clone())
+                    })
+                    .collect(),
+            )
+        })
     }
 
     fn expand_packed_rule_body_lhs(
@@ -2179,189 +2381,192 @@ impl Grammar {
         body: Rc<PackedTerm>,
         memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
     ) -> BTreeSet<Rc<PackedTerm>> {
-        // Invariant: every memoized identity has all rewrite-LHS alternatives expanded once while
-        // shared descendants remain shared.
-        let identity = Rc::as_ptr(&body);
-        if let Some((_, expanded)) = memo.get(&identity) {
-            return expanded.clone();
-        }
-        let expanded = match &body.node {
-            PackedNode::Ambiguity(alternatives) => alternatives
-                .iter()
-                .flat_map(|alternative| {
-                    self.expand_packed_rule_body_lhs(Rc::clone(alternative), memo)
-                })
-                .collect(),
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let label = self.productions[*production]
-                    .label
-                    .as_ref()
-                    .map(|label| label.name.as_str());
-                if label == Some(InternalLabel::WithConfig.as_str()) && !children.is_empty() {
-                    self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), memo)
-                        .into_iter()
-                        .map(|child| {
-                            let mut alternative_children = children.clone();
-                            alternative_children[0] = child;
-                            PackedTerm::production(
-                                *production,
-                                alternative_children,
-                                metadata.clone(),
-                            )
-                        })
-                        .collect()
-                } else if label == Some(InternalLabel::KRewrite.as_str())
-                    && children.len() == 2
-                    && matches!(&children[0].node, PackedNode::Ambiguity(_))
-                {
-                    let PackedNode::Ambiguity(alternatives) = &children[0].node else {
-                        unreachable!()
-                    };
-                    alternatives
-                        .iter()
-                        .map(|left| {
-                            PackedTerm::production(
-                                *production,
-                                vec![Rc::clone(left), Rc::clone(&children[1])],
-                                metadata.clone(),
-                            )
-                        })
-                        .collect()
-                } else {
+        crate::stack::guarded(|| {
+            // Invariant: every memoized identity has all rewrite-LHS alternatives expanded once while
+            // shared descendants remain shared.
+            let identity = Rc::as_ptr(&body);
+            if let Some((_, expanded)) = memo.get(&identity) {
+                return expanded.clone();
+            }
+            let expanded = match &body.node {
+                PackedNode::Ambiguity(alternatives) => alternatives
+                    .iter()
+                    .flat_map(|alternative| {
+                        self.expand_packed_rule_body_lhs(Rc::clone(alternative), memo)
+                    })
+                    .collect(),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let label = self.productions[*production]
+                        .label
+                        .as_ref()
+                        .map(|label| label.name.as_str());
+                    if label == Some(InternalLabel::WithConfig.as_str()) && !children.is_empty() {
+                        self.expand_packed_rule_body_lhs(Rc::clone(&children[0]), memo)
+                            .into_iter()
+                            .map(|child| {
+                                let mut alternative_children = children.clone();
+                                alternative_children[0] = child;
+                                PackedTerm::production(
+                                    *production,
+                                    alternative_children,
+                                    metadata.clone(),
+                                )
+                            })
+                            .collect()
+                    } else if label == Some(InternalLabel::KRewrite.as_str())
+                        && children.len() == 2
+                        && matches!(&children[0].node, PackedNode::Ambiguity(_))
+                    {
+                        let PackedNode::Ambiguity(alternatives) = &children[0].node else {
+                            unreachable!()
+                        };
+                        alternatives
+                            .iter()
+                            .map(|left| {
+                                PackedTerm::production(
+                                    *production,
+                                    vec![Rc::clone(left), Rc::clone(&children[1])],
+                                    metadata.clone(),
+                                )
+                            })
+                            .collect()
+                    } else {
+                        BTreeSet::from([Rc::clone(&body)])
+                    }
+                }
+                PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {
                     BTreeSet::from([Rc::clone(&body)])
                 }
-            }
-            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => {
-                BTreeSet::from([Rc::clone(&body)])
-            }
-        };
-        memo.insert(identity, (body, expanded.clone()));
-        expanded
+            };
+            memo.insert(identity, (body, expanded.clone()));
+            expanded
+        })
     }
 
     #[cfg(test)]
     pub(super) fn push_top_lhs_ambiguity_up(&self, term: ParsedTerm) -> ParsedTerm {
-        if let ParsedTerm::Ambiguity(alternatives) = term {
-            let lifted = alternatives
-                .into_iter()
-                .map(|alternative| self.push_top_lhs_ambiguity_up(alternative))
-                .flat_map(|alternative| match alternative {
-                    ParsedTerm::Ambiguity(nested) => nested,
-                    alternative => BTreeSet::from([alternative]),
-                })
-                .collect();
-            return ParsedTerm::Ambiguity(lifted);
-        }
-        let ParsedTerm::Production {
-            production,
-            mut children,
-            metadata,
-        } = term
-        else {
-            return term;
-        };
-        if self.productions[production].result.name != "#RuleContent" || children.is_empty() {
-            return ParsedTerm::Production {
-                production,
-                children,
-                metadata,
+        crate::stack::guarded(|| {
+            let (production, mut children, metadata) = match term.into_parts() {
+                ParsedParts::Ambiguity(alternatives) => {
+                    let lifted = alternatives
+                        .into_iter()
+                        .map(|alternative| self.push_top_lhs_ambiguity_up(alternative))
+                        .flat_map(|alternative| match alternative.into_parts() {
+                            ParsedParts::Ambiguity(nested) => nested,
+                            alternative => BTreeSet::from([ParsedTerm::from(alternative)]),
+                        })
+                        .collect();
+                    return ParsedTerm::Ambiguity(lifted);
+                }
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => (production, children, metadata),
+                term => return ParsedTerm::from(term),
             };
-        }
-        let bodies = self.expand_rule_body_lhs(children.remove(0));
-        if bodies.len() == 1 {
-            children.insert(0, bodies.into_iter().next().expect("length was one"));
-            return ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            };
-        }
-        ParsedTerm::Ambiguity(
-            bodies
-                .into_iter()
-                .map(|body| {
-                    let mut alternative_children = children.clone();
-                    alternative_children.insert(0, body);
-                    ParsedTerm::Production {
-                        production,
-                        children: alternative_children,
-                        metadata: metadata.clone(),
-                    }
-                })
-                .collect(),
-        )
+            if self.productions[production].result.name != "#RuleContent" || children.is_empty() {
+                return ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                };
+            }
+            let bodies = self.expand_rule_body_lhs(children.remove(0));
+            if bodies.len() == 1 {
+                children.insert(0, bodies.into_iter().next().expect("length was one"));
+                return ParsedTerm::Production {
+                    production,
+                    children,
+                    metadata,
+                };
+            }
+            ParsedTerm::Ambiguity(
+                bodies
+                    .into_iter()
+                    .map(|body| {
+                        let mut alternative_children = children.clone();
+                        alternative_children.insert(0, body);
+                        ParsedTerm::Production {
+                            production,
+                            children: alternative_children,
+                            metadata: metadata.clone(),
+                        }
+                    })
+                    .collect(),
+            )
+        })
     }
 
     #[cfg(test)]
     fn expand_rule_body_lhs(&self, body: ParsedTerm) -> BTreeSet<ParsedTerm> {
-        let body = match body {
-            ParsedTerm::Ambiguity(alternatives) => {
-                return alternatives
+        crate::stack::guarded(|| {
+            let (production, mut children, metadata) = match body.into_parts() {
+                ParsedParts::Ambiguity(alternatives) => {
+                    return alternatives
+                        .into_iter()
+                        .flat_map(|alternative| self.expand_rule_body_lhs(alternative))
+                        .collect();
+                }
+                ParsedParts::Production {
+                    production,
+                    children,
+                    metadata,
+                } => (production, children, metadata),
+                body => return BTreeSet::from([ParsedTerm::from(body)]),
+            };
+            let label = self.productions[production]
+                .label
+                .as_ref()
+                .map(|label| label.name.as_str());
+            if label == Some("#withConfig") && !children.is_empty() {
+                let expanded = self.expand_rule_body_lhs(children.remove(0));
+                return expanded
                     .into_iter()
-                    .flat_map(|alternative| self.expand_rule_body_lhs(alternative))
+                    .map(|child| {
+                        let mut alternative_children = children.clone();
+                        alternative_children.insert(0, child);
+                        ParsedTerm::Production {
+                            production,
+                            children: alternative_children,
+                            metadata: metadata.clone(),
+                        }
+                    })
                     .collect();
             }
-            body => body,
-        };
-        let ParsedTerm::Production {
-            production,
-            mut children,
-            metadata,
-        } = body
-        else {
-            return BTreeSet::from([body]);
-        };
-        let label = self.productions[production]
-            .label
-            .as_ref()
-            .map(|label| label.name.as_str());
-        if label == Some("#withConfig") && !children.is_empty() {
-            let expanded = self.expand_rule_body_lhs(children.remove(0));
-            return expanded
-                .into_iter()
-                .map(|child| {
-                    let mut alternative_children = children.clone();
-                    alternative_children.insert(0, child);
-                    ParsedTerm::Production {
-                        production,
-                        children: alternative_children,
-                        metadata: metadata.clone(),
-                    }
-                })
-                .collect();
-        }
-        if label != Some("#KRewrite") || children.len() != 2 {
-            return BTreeSet::from([ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            }]);
-        }
-        let left = children.remove(0);
-        let right = children.remove(0);
-        match left {
-            ParsedTerm::Ambiguity(alternatives) => alternatives
-                .into_iter()
-                .map(|left| ParsedTerm::Production {
+            if label != Some("#KRewrite") || children.len() != 2 {
+                return BTreeSet::from([ParsedTerm::Production {
                     production,
-                    children: vec![left, right.clone()],
-                    metadata: metadata.clone(),
-                })
-                .collect(),
-            left => BTreeSet::from([ParsedTerm::Production {
-                production,
-                children: vec![left, right],
-                metadata,
-            }]),
-        }
+                    children,
+                    metadata,
+                }]);
+            }
+            let left = children.remove(0);
+            let right = children.remove(0);
+            match left.into_parts() {
+                ParsedParts::Ambiguity(alternatives) => alternatives
+                    .into_iter()
+                    .map(|left| ParsedTerm::Production {
+                        production,
+                        children: vec![left, right.clone()],
+                        metadata: metadata.clone(),
+                    })
+                    .collect(),
+                left => BTreeSet::from([ParsedTerm::Production {
+                    production,
+                    children: vec![ParsedTerm::from(left), right],
+                    metadata,
+                }]),
+            }
+        })
     }
 
     pub(super) fn ambiguity_count(term: &ParsedTerm) -> usize {
-        match term {
+        crate::stack::guarded(|| match term {
             ParsedTerm::Term(_) => 1,
             ParsedTerm::Production { children, .. } => {
                 children.iter().fold(1usize, |count, child| {
@@ -2378,7 +2583,7 @@ impl Grammar {
                     count.saturating_add(Self::ambiguity_count(item))
                 })
             }
-        }
+        })
     }
 }
 
@@ -2493,61 +2698,63 @@ pub(crate) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
 /// the same instantiated parameters and arity, or equal leaves (a leaf or ambiguity is compared
 /// whole, so equal ones have nothing below them). Otherwise the position is a frontier position.
 fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a ParsedTerm>>) {
-    // Invariant: `nodes` holds one node per alternative at one common-prefix position, so every
-    // pushed position has one node per alternative, in alternative order; recursion descends
-    // only through shared headers, whose arity is equal.
-    let (first, rest) = nodes.split_first().expect("an ambiguity has alternatives");
-    let children = |node: &'a ParsedTerm| match node {
-        ParsedTerm::Production { children, .. }
-        | ParsedTerm::InstantiatedProduction { children, .. } => children.as_slice(),
-        ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => &[],
-    };
-    let shared_header = rest.iter().all(|node| match (*first, *node) {
-        (
-            ParsedTerm::Production {
-                production,
-                children,
-                ..
-            },
-            ParsedTerm::Production {
-                production: other,
-                children: other_children,
-                ..
-            },
-        ) => production == other && children.len() == other_children.len(),
-        (
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                ..
-            },
-            ParsedTerm::InstantiatedProduction {
-                production: other,
-                parameters: other_parameters,
-                children: other_children,
-                ..
-            },
-        ) => {
-            production == other
-                && parameters == other_parameters
-                && children.len() == other_children.len()
+    crate::stack::guarded(|| {
+        // Invariant: `nodes` holds one node per alternative at one common-prefix position, so every
+        // pushed position has one node per alternative, in alternative order; recursion descends
+        // only through shared headers, whose arity is equal.
+        let (first, rest) = nodes.split_first().expect("an ambiguity has alternatives");
+        let children = |node: &'a ParsedTerm| match node {
+            ParsedTerm::Production { children, .. }
+            | ParsedTerm::InstantiatedProduction { children, .. } => children.as_slice(),
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => &[],
+        };
+        let shared_header = rest.iter().all(|node| match (*first, *node) {
+            (
+                ParsedTerm::Production {
+                    production,
+                    children,
+                    ..
+                },
+                ParsedTerm::Production {
+                    production: other,
+                    children: other_children,
+                    ..
+                },
+            ) => production == other && children.len() == other_children.len(),
+            (
+                ParsedTerm::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    ..
+                },
+                ParsedTerm::InstantiatedProduction {
+                    production: other,
+                    parameters: other_parameters,
+                    children: other_children,
+                    ..
+                },
+            ) => {
+                production == other
+                    && parameters == other_parameters
+                    && children.len() == other_children.len()
+            }
+            (ParsedTerm::Term(_), ParsedTerm::Term(_))
+            | (ParsedTerm::Ambiguity(_), ParsedTerm::Ambiguity(_)) => first == node,
+            _ => false,
+        });
+        if !shared_header {
+            frontier.push(nodes.to_vec());
+            return;
         }
-        (ParsedTerm::Term(_), ParsedTerm::Term(_))
-        | (ParsedTerm::Ambiguity(_), ParsedTerm::Ambiguity(_)) => first == node,
-        _ => false,
-    });
-    if !shared_header {
-        frontier.push(nodes.to_vec());
-        return;
-    }
-    for index in 0..children(first).len() {
-        let below = nodes
-            .iter()
-            .map(|node| &children(node)[index])
-            .collect::<Vec<_>>();
-        collect_frontier(&below, frontier);
-    }
+        for index in 0..children(first).len() {
+            let below = nodes
+                .iter()
+                .map(|node| &children(node)[index])
+                .collect::<Vec<_>>();
+            collect_frontier(&below, frontier);
+        }
+    })
 }
 
 #[cfg(test)]
@@ -2786,7 +2993,7 @@ mod tests {
         ]);
 
         let factored = grammar.factor_ambiguities(ParsedTerm::Ambiguity(alternatives));
-        let ParsedTerm::Production { children, .. } = factored else {
+        let ParsedParts::Production { children, .. } = factored.into_parts() else {
             panic!("expected the shared production to be factored")
         };
         assert!(matches!(children[0], ParsedTerm::Ambiguity(ref items) if items.len() == 2));

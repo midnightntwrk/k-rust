@@ -10,13 +10,18 @@
 //!
 //! Cost: the body is walked at most four times (a sort walk and a placement walk per branch of a
 //! body with a rewrite, one of each otherwise) and the conditions once. At every node the walk
-//! records the node's path in an ordered map, copies or projects the resolved subterm there
-//! (`Walk::projected`, linear in the subterm), and asks the injector for the node's sort and
-//! placement as injection does. For N nodes of height h that is O(N x h x (log N + P + S)) with
-//! the injector's P and S, plus the parametric instance searches and one semantic-cast
-//! resolution of the sentence. `kompile.macros.expand` computes this view once per rewrite of a
+//! names the node's path by its node in a trie the walks share (`PathTrie`, constant time per
+//! step), types the resolved subterm there in place, and asks the injector for the node's sort
+//! and placement as injection does, the injector inferring each node's sort once per expected
+//! sort over the whole typing (`NaturalSorts`). Only a node above a rewrite (or, in the right
+//! branch, above an as-pattern) is typed on a projected copy of its subterm
+//! (`Walk::projected`). For N nodes, k of them above a rewrite, of height h, that is
+//! O(N x (P + S) + k x h) with the injector's P and S, plus the parametric instance searches
+//! and one semantic-cast resolution of the sentence; reading every path back out of the typing
+//! (`PathMap::iter`) costs O(N x h). `kompile.macros.expand` computes this view once per rewrite of a
 //! sentence when some macro rule has a parametric head.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -72,8 +77,8 @@ pub struct BranchTyping {
 /// of an as-pattern, exists in one branch only and is in `positions`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SentenceTyping {
-    pub positions: BTreeMap<Vec<u32>, PositionTyping>,
-    pub branches: BTreeMap<Vec<u32>, BranchTyping>,
+    pub positions: PathMap<PositionTyping>,
+    pub branches: PathMap<BranchTyping>,
     /// The sort of each named variable that semantic-cast resolution determines.
     pub variables: BTreeMap<String, Sort>,
     /// The instance injection gives the label of each application of a parametric production,
@@ -81,7 +86,203 @@ pub struct SentenceTyping {
     /// label's own instance, which a downcast placing the application at a narrower sort does
     /// not change. A path typed with different instances in the two branches of a rewrite has
     /// no entry.
-    pub(crate) instances: BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
+    pub(crate) instances: PathMap<Vec<Option<Sort>>>,
+}
+
+/// The paths of one sentence's positions, interned as a trie: node 0 is the empty path, and each
+/// other node is its parent's path extended by one step. A walk that descends one step at a
+/// time names each position by its node in constant time, so a typing of N positions takes
+/// O(N) memory rather than one path, as long as its depth, per position.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PathTrie {
+    /// The parent and the last step of each node but the root.
+    parents: Vec<(usize, u32)>,
+    /// The children of each node, by step, in ascending order of step.
+    children: Vec<Vec<(u32, usize)>>,
+}
+
+impl PathTrie {
+    fn new() -> Self {
+        Self {
+            parents: vec![(0, 0)],
+            children: vec![Vec::new()],
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    /// The node of `node`'s path extended by `step`, added when it is new.
+    fn child(&mut self, node: usize, step: u32) -> usize {
+        match self.children[node].binary_search_by_key(&step, |(step, _)| *step) {
+            Ok(index) => self.children[node][index].1,
+            Err(index) => {
+                let child = self.children.len();
+                self.children.push(Vec::new());
+                self.parents.push((node, step));
+                self.children[node].insert(index, (step, child));
+                child
+            }
+        }
+    }
+
+    fn find_child(&self, node: usize, step: u32) -> Option<usize> {
+        self.children[node]
+            .binary_search_by_key(&step, |(step, _)| *step)
+            .ok()
+            .map(|index| self.children[node][index].1)
+    }
+
+    fn find(&self, path: &[u32]) -> Option<usize> {
+        path.iter()
+            .try_fold(0, |node, step| self.find_child(node, *step))
+    }
+
+    fn path(&self, mut node: usize) -> Vec<u32> {
+        let mut path = Vec::new();
+        while node != 0 {
+            let (parent, step) = self.parents[node];
+            path.push(step);
+            node = parent;
+        }
+        path.reverse();
+        path
+    }
+
+    /// Every node, each before its descendants and children in ascending order of step: the
+    /// order of their paths.
+    fn preorder(&self) -> Vec<usize> {
+        let mut order = Vec::with_capacity(self.len());
+        let mut pending = vec![0];
+        while let Some(node) = pending.pop() {
+            order.push(node);
+            pending.extend(self.children[node].iter().rev().map(|(_, child)| *child));
+        }
+        order
+    }
+}
+
+/// A map from the paths of a sentence's positions to values, over a [`PathTrie`] the maps of
+/// one typing share. Paths are compared and ordered as the step sequences they are.
+#[derive(Clone)]
+pub struct PathMap<V> {
+    trie: std::sync::Arc<PathTrie>,
+    values: Vec<Option<V>>,
+    len: usize,
+}
+
+impl<V> Default for PathMap<V> {
+    fn default() -> Self {
+        Self::over(std::sync::Arc::new(PathTrie::new()), Vec::new())
+    }
+}
+
+impl<V> PathMap<V> {
+    /// The map of `values`, indexed by the nodes of `trie`.
+    fn over(trie: std::sync::Arc<PathTrie>, mut values: Vec<Option<V>>) -> Self {
+        values.resize_with(trie.len(), || None);
+        let len = values.iter().filter(|value| value.is_some()).count();
+        Self { trie, values, len }
+    }
+
+    pub fn get(&self, path: &[u32]) -> Option<&V> {
+        self.trie
+            .find(path)
+            .and_then(|node| self.values[node].as_ref())
+    }
+
+    pub fn get_mut(&mut self, path: &[u32]) -> Option<&mut V> {
+        self.trie
+            .find(path)
+            .and_then(|node| self.values[node].as_mut())
+    }
+
+    pub fn contains_key(&self, path: &[u32]) -> bool {
+        self.get(path).is_some()
+    }
+
+    pub fn insert(&mut self, path: Vec<u32>, value: V) -> Option<V> {
+        let trie = std::sync::Arc::make_mut(&mut self.trie);
+        let node = path.iter().fold(0, |node, step| trie.child(node, *step));
+        self.values.resize_with(trie.len(), || None);
+        let previous = self.values[node].replace(value);
+        self.len += usize::from(previous.is_none());
+        previous
+    }
+
+    pub fn remove(&mut self, path: &[u32]) -> Option<V> {
+        let removed = self
+            .trie
+            .find(path)
+            .and_then(|node| self.values[node].take());
+        self.len -= usize::from(removed.is_some());
+        removed
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Every path with its value, in the order of the paths.
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<u32>, &V)> + '_ {
+        self.trie.preorder().into_iter().filter_map(|node| {
+            self.values[node]
+                .as_ref()
+                .map(|value| (self.trie.path(node), value))
+        })
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = Vec<u32>> + '_ {
+        self.iter().map(|(path, _)| path)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.iter().map(|(_, value)| value)
+    }
+}
+
+impl<V> Extend<(Vec<u32>, V)> for PathMap<V> {
+    fn extend<I: IntoIterator<Item = (Vec<u32>, V)>>(&mut self, entries: I) {
+        for (path, value) in entries {
+            self.insert(path, value);
+        }
+    }
+}
+
+impl<V> FromIterator<(Vec<u32>, V)> for PathMap<V> {
+    fn from_iter<I: IntoIterator<Item = (Vec<u32>, V)>>(entries: I) -> Self {
+        let mut map = Self::default();
+        map.extend(entries);
+        map
+    }
+}
+
+impl<'a, V> IntoIterator for &'a PathMap<V> {
+    type Item = (Vec<u32>, &'a V);
+    type IntoIter = Box<dyn Iterator<Item = (Vec<u32>, &'a V)> + 'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Box::new(self.iter())
+    }
+}
+
+impl<V: PartialEq> PartialEq for PathMap<V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().eq(other.iter())
+    }
+}
+
+impl<V: Eq> Eq for PathMap<V> {}
+
+impl<V: fmt::Debug> fmt::Debug for PathMap<V> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_map().entries(self.iter()).finish()
+    }
 }
 
 impl SentenceTyping {
@@ -188,6 +389,7 @@ impl<'a> SentenceTyper<'a> {
                 sorts: View::Owned(sorts),
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),
+                natural_sorts: std::cell::RefCell::default(),
             },
             declared,
         })
@@ -291,26 +493,36 @@ impl<'a> SentenceTyper<'a> {
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
+        // Every term the walks type is a node of `resolved`, or a projection built for one and
+        // typed outside the memo, so the injector's sort memo holds for the whole typing.
+        injector.memoized(|| self.typing_with_memo(loaded, resolved, variables, top))
+    }
+
+    fn typing_with_memo(
+        &self,
+        loaded: [&Term; 3],
+        resolved: [&Term; 3],
+        variables: BTreeMap<String, Sort>,
+        top: Option<&Sort>,
+    ) -> Result<SentenceTyping, SortInjectionError> {
+        let injector = &self.injector;
         let top = top
             .cloned()
             .unwrap_or_else(|| injector.fresh_sort_parameter());
         let boolean = Sort::builtin(BuiltinSort::Bool);
+        let mut trie = PathTrie::new();
+        let projections = Projections::of(resolved[0]);
 
-        let mut conditions = Walk::new(injector, Branch::Only);
+        let mut conditions = Walk::new(injector, Branch::Only, &mut trie, &projections);
         for (field, loaded, resolved) in
             [(1u32, loaded[1], resolved[1]), (2, loaded[2], resolved[2])]
         {
-            let mut path = vec![field];
+            let mut path = Cursor::root();
+            path.push(conditions.trie, field);
             let slot = conditions.visit(loaded, resolved, &mut path, &boolean)?;
             conditions.place(&path, &slot, &boolean)?;
         }
-        let (positions, instances) = conditions.finish();
-        let mut typing = SentenceTyping {
-            positions,
-            branches: BTreeMap::new(),
-            variables,
-            instances,
-        };
+        let (mut positions, mut instances) = conditions.finish();
         // As `inject_rule_body`: a body with a rewrite is the rewrite of its two projections,
         // typed at their least upper bound below the top hint, and each projection is
         // injected at that bound; a body without one is typed below the top hint and
@@ -322,10 +534,16 @@ impl<'a> SentenceTyper<'a> {
         } else {
             &[Branch::Only]
         };
+        let body = |trie: &mut PathTrie| {
+            let mut path = Cursor::root();
+            path.push(trie, 0);
+            path
+        };
         let mut sorts = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch);
-            sorts.extend(walk.visit(loaded[0], resolved[0], &mut vec![0], &top)?.sort);
+            let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
+            let mut path = body(walk.trie);
+            sorts.extend(walk.visit(loaded[0], resolved[0], &mut path, &top)?.sort);
         }
         let position = match branches {
             [Branch::Only] => sorts.first().cloned(),
@@ -335,8 +553,8 @@ impl<'a> SentenceTyper<'a> {
         let mut maps = Vec::new();
         let mut branch_instances = Vec::new();
         for branch in branches {
-            let mut walk = Walk::new(injector, *branch);
-            let mut path = vec![0];
+            let mut walk = Walk::new(injector, *branch, &mut trie, &projections);
+            let mut path = body(walk.trie);
             let hint = position.clone().unwrap_or_else(|| top.clone());
             let slot = walk.visit(loaded[0], resolved[0], &mut path, &hint)?;
             if *branch != Branch::Only
@@ -348,44 +566,171 @@ impl<'a> SentenceTyper<'a> {
             maps.push(positions);
             branch_instances.push(instances);
         }
+        // The walks name positions by the nodes of one trie, so the branches' typings of a
+        // position are merged by node.
+        let mut branch_typings = Vec::new();
         let first = maps.remove(0);
         match maps.pop() {
-            None => typing.positions.extend(first),
+            None => merge_into(&mut positions, first),
             Some(right) => {
                 let mut left = first;
-                for (path, right) in right {
-                    match left.remove(&path) {
-                        Some(left) if left == right => {
-                            typing.positions.insert(path, left);
-                        }
-                        Some(left) => {
-                            typing.branches.insert(path, BranchTyping { left, right });
-                        }
-                        None => {
-                            typing.positions.insert(path, right);
-                        }
+                for (node, right) in right.into_iter().enumerate() {
+                    let Some(right) = right else {
+                        continue;
+                    };
+                    let left = left.get_mut(node).and_then(Option::take);
+                    match left {
+                        Some(left) if left == right => set(&mut positions, node, left),
+                        Some(left) => branch_typings.push((node, BranchTyping { left, right })),
+                        None => set(&mut positions, node, right),
                     }
                 }
-                typing.positions.extend(left);
+                merge_into(&mut positions, left);
             }
         }
         let first = branch_instances.remove(0);
         match branch_instances.pop() {
-            None => typing.instances.extend(first),
+            None => merge_into(&mut instances, first),
             Some(right) => {
                 let mut left = first;
-                for (path, right) in right {
-                    match left.remove(&path) {
+                for (node, right) in right.into_iter().enumerate() {
+                    let Some(right) = right else {
+                        continue;
+                    };
+                    match left.get_mut(node).and_then(Option::take) {
                         Some(left) if left != right => {}
-                        _ => {
-                            typing.instances.insert(path, right);
-                        }
+                        _ => set(&mut instances, node, right),
                     }
                 }
-                typing.instances.extend(left);
+                merge_into(&mut instances, left);
             }
         }
-        Ok(typing)
+        let trie = std::sync::Arc::new(trie);
+        let mut branches = Vec::new();
+        for (node, typing) in branch_typings {
+            set(&mut branches, node, typing);
+        }
+        Ok(SentenceTyping {
+            positions: PathMap::over(std::sync::Arc::clone(&trie), positions),
+            branches: PathMap::over(std::sync::Arc::clone(&trie), branches),
+            variables,
+            instances: PathMap::over(trie, instances),
+        })
+    }
+}
+
+/// Values by trie node.
+type NodeValues<V> = Vec<Option<V>>;
+
+fn set<V>(values: &mut NodeValues<V>, node: usize, value: V) {
+    if values.len() <= node {
+        values.resize_with(node + 1, || None);
+    }
+    values[node] = Some(value);
+}
+
+/// Add each value of `from` to `into` at its node.
+fn merge_into<V>(into: &mut NodeValues<V>, from: NodeValues<V>) {
+    for (node, value) in from.into_iter().enumerate() {
+        if let Some(value) = value {
+            set(into, node, value);
+        }
+    }
+}
+
+/// The current path of a walk, as the trie nodes of its prefixes.
+struct Cursor {
+    nodes: Vec<usize>,
+}
+
+impl Cursor {
+    fn root() -> Self {
+        Self { nodes: vec![0] }
+    }
+
+    fn node(&self) -> usize {
+        *self.nodes.last().expect("a cursor holds the root")
+    }
+
+    fn push(&mut self, trie: &mut PathTrie, step: u32) {
+        let node = trie.child(self.node(), step);
+        self.nodes.push(node);
+    }
+
+    fn pop(&mut self) {
+        self.nodes.pop();
+    }
+}
+
+/// The nodes of a rule body under which the rewrite projection changes something: those that
+/// are or contain a rewrite (both branches), and those that are or contain an as-pattern (the
+/// right branch, which keeps an as-pattern's alias). A node outside them is its own projection,
+/// so the walk types it in place rather than on a copy. Nodes are named by address; the body is
+/// borrowed for the whole typing.
+struct Projections {
+    rewrites: std::collections::HashSet<usize>,
+    rewrites_or_aliases: std::collections::HashSet<usize>,
+}
+
+impl Projections {
+    fn of(body: &Term) -> Self {
+        let mut rewrites = std::collections::HashSet::new();
+        let mut rewrites_or_aliases = std::collections::HashSet::new();
+        // Post-order with an explicit stack: a node is visited after its children.
+        let mut pending = vec![(body, false)];
+        let mut flags: Vec<(bool, bool)> = Vec::new();
+        // Invariant: `flags` holds, for each child of a node whose children were all visited,
+        // whether it contains a rewrite and whether it contains a rewrite or an as-pattern.
+        while let Some((term, visited)) = pending.pop() {
+            let children = immediate_children(term);
+            if !visited {
+                pending.push((term, true));
+                pending.extend(children.iter().rev().map(|child| (*child, false)));
+                continue;
+            }
+            let mut rewrite = matches!(term, Term::Rewrite { .. });
+            let mut either = rewrite || matches!(term, Term::As { .. });
+            for (child_rewrite, child_either) in flags.split_off(flags.len() - children.len()) {
+                rewrite |= child_rewrite;
+                either |= child_either;
+            }
+            let address = std::ptr::from_ref(term) as usize;
+            if rewrite {
+                rewrites.insert(address);
+            }
+            if either {
+                rewrites_or_aliases.insert(address);
+            }
+            flags.push((rewrite, either));
+        }
+        Self {
+            rewrites,
+            rewrites_or_aliases,
+        }
+    }
+
+    /// Whether projecting `term`, a node of the body, for the branch `right` selects changes it.
+    fn changes(&self, term: &Term, right: bool) -> bool {
+        let address = std::ptr::from_ref(term) as usize;
+        if right {
+            self.rewrites_or_aliases.contains(&address)
+        } else {
+            self.rewrites.contains(&address)
+        }
+    }
+}
+
+/// The direct subterms of `term`, an annotation's term included.
+fn immediate_children(term: &Term) -> Vec<&Term> {
+    match term {
+        Term::Annotated { term, .. } => vec![term],
+        Term::Rewrite { left, right } => vec![left, right],
+        Term::As { pattern, alias } => vec![pattern, alias],
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => items.iter().collect(),
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
     }
 }
 
@@ -399,22 +744,26 @@ enum Branch {
 }
 
 /// The term occupying a position in compilation, and the sort injection places it at.
-struct Slot {
-    /// The resolved and projected term at the position.
-    term: Term,
+struct Slot<'r> {
+    /// The resolved and projected term at the position: the resolved node itself where the
+    /// projection leaves it unchanged, else its projection.
+    term: Cow<'r, Term>,
     /// The sort injection places it at; `None` for syntax without a sort.
     sort: Option<Sort>,
 }
 
-struct Walk<'a, 'view, 'definition> {
+struct Walk<'a, 'view, 'definition, 't> {
     injector: &'a SortInjector<'view, 'definition>,
     branch: Branch,
-    positions: BTreeMap<Vec<u32>, PositionTyping>,
-    instances: BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
+    /// The paths of the typing's positions; the walk's values are indexed by its nodes.
+    trie: &'t mut PathTrie,
+    projections: &'t Projections,
+    positions: NodeValues<PositionTyping>,
+    instances: NodeValues<Vec<Option<Sort>>>,
     /// Positions whose term occupies an enclosing position's slot (a rewrite's side in a branch,
     /// an as-pattern's alias in the right branch, the operand of a cast the projection drops):
     /// the enclosing requirement applies to them. Inner pairs come first.
-    delegates: Vec<(Vec<u32>, Vec<u32>)>,
+    delegates: Vec<(usize, usize)>,
     /// Whether the terms being visited are still projected. `rewrite_projection` copies the
     /// left side of a rewrite as it is, so inside a left side nothing is projected; it projects
     /// a right side recursively.
@@ -424,13 +773,20 @@ struct Walk<'a, 'view, 'definition> {
     is_lhs: bool,
 }
 
-impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
-    fn new(injector: &'a SortInjector<'view, 'definition>, branch: Branch) -> Self {
+impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
+    fn new(
+        injector: &'a SortInjector<'view, 'definition>,
+        branch: Branch,
+        trie: &'t mut PathTrie,
+        projections: &'t Projections,
+    ) -> Self {
         Self {
             injector,
             branch,
-            positions: BTreeMap::new(),
-            instances: BTreeMap::new(),
+            trie,
+            projections,
+            positions: Vec::new(),
+            instances: Vec::new(),
             delegates: Vec::new(),
             projecting: branch != Branch::Only,
             is_lhs: branch == Branch::Left,
@@ -438,15 +794,15 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
     }
 
     /// Visit a child with `(projecting, is_lhs)` set to `mode` for it, restoring them afterwards.
-    fn child_with(
+    fn child_with<'r>(
         &mut self,
         mode: (bool, bool),
         loaded: &Term,
-        resolved: &Term,
-        path: &mut Vec<u32>,
+        resolved: &'r Term,
+        path: &mut Cursor,
         index: usize,
         hint: &Sort,
-    ) -> Result<Slot, SortInjectionError> {
+    ) -> Result<Slot<'r>, SortInjectionError> {
         let saved = (self.projecting, self.is_lhs);
         (self.projecting, self.is_lhs) = mode;
         let slot = self.child(loaded, resolved, path, index, hint);
@@ -454,57 +810,68 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         slot
     }
 
-    #[allow(clippy::type_complexity)]
-    fn finish(
-        mut self,
-    ) -> (
-        BTreeMap<Vec<u32>, PositionTyping>,
-        BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
-    ) {
-        for (from, to) in self.delegates.iter().rev() {
+    fn finish(mut self) -> (NodeValues<PositionTyping>, NodeValues<Vec<Option<Sort>>>) {
+        for (from, to) in std::mem::take(&mut self.delegates).into_iter().rev() {
             let required = self
-                .positions
-                .get(from)
+                .position(from)
                 .and_then(|position| position.required.clone());
-            if let Some(position) = self.positions.get_mut(to) {
+            if let Some(position) = self.position_mut(to) {
                 position.required = required;
             }
         }
         (self.positions, self.instances)
     }
 
-    /// The term compilation sees at a position: `resolved` with the walk's projection applied.
-    fn projected(&self, resolved: &Term) -> Term {
-        if !self.projecting {
-            return resolved.clone();
+    fn position(&self, node: usize) -> Option<&PositionTyping> {
+        self.positions.get(node).and_then(Option::as_ref)
+    }
+
+    fn position_mut(&mut self, node: usize) -> Option<&mut PositionTyping> {
+        self.positions.get_mut(node).and_then(Option::as_mut)
+    }
+
+    /// Run `work`, an inference of the injector over `term`, with the injector's sort memo
+    /// suspended when `term` is a projection built for the walk rather than a node of the
+    /// resolved sentence.
+    #[expect(
+        clippy::ptr_arg,
+        reason = "whether the term is borrowed from the sentence decides the memo"
+    )]
+    fn infer<T>(&self, term: &Cow<'_, Term>, work: impl FnOnce(&Term) -> T) -> T {
+        match term {
+            Cow::Borrowed(term) => work(term),
+            Cow::Owned(term) => self.injector.unmemoized(|| work(term)),
         }
+    }
+
+    /// The term compilation sees at a position: `resolved` with the walk's projection applied,
+    /// which is `resolved` itself unless a rewrite (or, in the right branch, an as-pattern) lies
+    /// within it.
+    fn projected<'r>(&self, resolved: &'r Term) -> Cow<'r, Term> {
         let right = self.branch == Branch::Right;
-        let mut projects = false;
-        resolved.visit_preorder(&mut |term| {
-            projects |=
-                matches!(term, Term::Rewrite { .. }) || (right && matches!(term, Term::As { .. }));
-        });
-        if projects {
-            rewrite_projection(resolved, right, &self.injector.subsorts)
+        if self.projecting && self.projections.changes(resolved, right) {
+            Cow::Owned(rewrite_projection(resolved, right, &self.injector.subsorts))
         } else {
-            resolved.clone()
+            Cow::Borrowed(resolved)
         }
     }
 
     /// Record `required` at `path` and reject the slot's term unless compilation places it there.
     fn place(
         &mut self,
-        path: &[u32],
-        slot: &Slot,
+        path: &Cursor,
+        slot: &Slot<'_>,
         required: &Sort,
     ) -> Result<(), SortInjectionError> {
-        if let Some(position) = self.positions.get_mut(path) {
+        if let Some(position) = self.position_mut(path.node()) {
             position.required = reported(required);
         }
         let Some(sort) = &slot.sort else {
             return Ok(());
         };
-        if self.injector.places(&slot.term, sort, required)? {
+        if self.infer(&slot.term, |term| {
+            self.injector.places(term, sort, required)
+        })? {
             Ok(())
         } else {
             Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
@@ -515,15 +882,15 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         }
     }
 
-    fn child(
+    fn child<'r>(
         &mut self,
         loaded: &Term,
-        resolved: &Term,
-        path: &mut Vec<u32>,
+        resolved: &'r Term,
+        path: &mut Cursor,
         index: usize,
         hint: &Sort,
-    ) -> Result<Slot, SortInjectionError> {
-        path.push(step(index));
+    ) -> Result<Slot<'r>, SortInjectionError> {
+        path.push(self.trie, step(index));
         let slot = self.visit(loaded, resolved, path, hint);
         path.pop();
         slot
@@ -531,26 +898,28 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
 
     fn place_child(
         &mut self,
-        path: &mut Vec<u32>,
+        path: &mut Cursor,
         index: usize,
-        slot: &Slot,
+        slot: &Slot<'_>,
         required: &Sort,
     ) -> Result<(), SortInjectionError> {
-        path.push(step(index));
+        path.push(self.trie, step(index));
         let placed = self.place(path, slot, required);
         path.pop();
         placed
     }
 
-    fn delegate(&mut self, path: &[u32], index: usize) {
-        let mut to = path.to_vec();
-        to.push(step(index));
-        self.delegates.push((path.to_vec(), to));
+    fn delegate(&mut self, path: &Cursor, index: usize) {
+        let to = self.trie.child(path.node(), step(index));
+        self.delegates.push((path.node(), to));
     }
 
-    fn record(&mut self, path: &[u32], sort: Option<Sort>) {
-        let position = self.positions.entry(path.to_vec()).or_default();
-        position.sort = sort;
+    fn record(&mut self, path: &Cursor, sort: Option<Sort>) {
+        let node = path.node();
+        if self.positions.len() <= node {
+            self.positions.resize_with(node + 1, || None);
+        }
+        self.positions[node].get_or_insert_default().sort = sort;
     }
 
     /// Type the loaded term at `path`, whose resolved form (semantic casts replaced by sort
@@ -560,13 +929,13 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         clippy::wildcard_enum_match_arm,
         reason = "Term is not a sentence kind; only the listed variants are special here"
     )]
-    fn visit(
+    fn visit<'r>(
         &mut self,
         loaded: &Term,
-        resolved: &Term,
-        path: &mut Vec<u32>,
+        resolved: &'r Term,
+        path: &mut Cursor,
         hint: &Sort,
-    ) -> Result<Slot, SortInjectionError> {
+    ) -> Result<Slot<'r>, SortInjectionError> {
         self.record(path, None);
         match loaded.unannotated() {
             Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
@@ -590,12 +959,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                     // the cast's own position with it (resolution put a rewrite's cast on each
                     // side, which occupies the cast's position).
                     self.delegate(path, 0);
-                } else {
-                    let mut operand = path.clone();
-                    operand.push(0);
-                    if let Some(position) = self.positions.get_mut(&operand) {
-                        position.required = reported(&target);
-                    }
+                } else if let Some(operand) = self.trie.find_child(path.node(), 0)
+                    && let Some(position) = self.position_mut(operand)
+                {
+                    position.required = reported(&target);
                 }
                 self.record(path, slot.sort.as_ref().and_then(reported));
                 Ok(slot)
@@ -701,29 +1068,35 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
 
     /// A term the injector types directly: `inject_with_position`'s sort for it at a position of
     /// sort `hint`, and `visit_children`'s placement of its children.
-    fn injected(
+    fn injected<'r>(
         &mut self,
         loaded: &Term,
-        resolved: &Term,
-        path: &mut Vec<u32>,
+        resolved: &'r Term,
+        path: &mut Cursor,
         hint: &Sort,
-    ) -> Result<Slot, SortInjectionError> {
+    ) -> Result<Slot<'r>, SortInjectionError> {
         let injector = self.injector;
         let term = self.projected(resolved);
-        let (sort, downcast) = injector.sort_and_downcast(&term, Some(hint), false)?;
+        let (sort, downcast) = self.infer(&term, |term| {
+            injector.sort_and_downcast(term, Some(hint), false)
+        })?;
         // A downcast is injected as `project:S` over the term without its cast sort, whose
         // children are then placed by that term's own sort.
+        let stripped;
         let (children_of, actual) = if downcast.is_some() {
-            let mut stripped = term.clone().into_unannotated();
+            let mut without_cast = term.as_ref().clone().into_unannotated();
             if let Some(metadata) = term.metadata() {
                 let mut metadata = metadata.clone();
                 metadata.sort = None;
-                stripped = stripped.with_metadata(metadata);
+                without_cast = without_cast.with_metadata(metadata);
             }
-            let natural = injector.term_sort(&stripped, Some(&Sort::builtin(BuiltinSort::K)))?;
-            (stripped, natural)
+            stripped = Cow::Owned(without_cast);
+            let natural = self.infer(&stripped, |term| {
+                injector.term_sort(term, Some(&Sort::builtin(BuiltinSort::K)))
+            })?;
+            (&stripped, natural)
         } else {
-            (term.clone(), sort.clone())
+            (&term, sort.clone())
         };
         #[expect(
             clippy::wildcard_enum_match_arm,
@@ -749,16 +1122,19 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 else {
                     unreachable!("projection keeps applications")
                 };
-                let signature = injector.signature(
-                    &children_of,
-                    label,
-                    projected_arguments,
-                    Some(&actual),
-                    false,
-                )?;
+                let signature = self.infer(children_of, |children_of| {
+                    injector.signature(
+                        children_of,
+                        label,
+                        projected_arguments,
+                        Some(&actual),
+                        false,
+                    )
+                })?;
                 if !signature.label.parameters.is_empty() {
-                    self.instances.insert(
-                        path.clone(),
+                    set(
+                        &mut self.instances,
+                        path.node(),
                         signature.label.parameters.iter().map(reported).collect(),
                     );
                 }
@@ -828,8 +1204,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                     Sort::builtin(BuiltinSort::K)
                 };
                 for (index, (item, resolved)) in items.iter().zip(resolved_items).enumerate() {
-                    let item_sort =
-                        injector.term_sort(&self.projected(resolved), Some(&context))?;
+                    let projected_item = self.projected(resolved);
+                    let item_sort = self.infer(&projected_item, |item| {
+                        injector.term_sort(item, Some(&context))
+                    })?;
                     let required = if item_sort.is_builtin(BuiltinSort::K) {
                         Sort::builtin(BuiltinSort::K)
                     } else {
@@ -849,12 +1227,12 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
 
     /// An authored cell `L(#dots|#noDots, body, #dots|#noDots)`: the markers have no sort, and the
     /// body is placed at the cell's single content sort when it has one.
-    fn authored_cell(
+    fn authored_cell<'r>(
         &mut self,
         loaded: &Term,
-        resolved: &Term,
-        path: &mut Vec<u32>,
-    ) -> Result<Slot, SortInjectionError> {
+        resolved: &'r Term,
+        path: &mut Cursor,
+    ) -> Result<Slot<'r>, SortInjectionError> {
         let injector = self.injector;
         let (
             Term::Apply { label, arguments },

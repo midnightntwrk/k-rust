@@ -4927,6 +4927,18 @@ fn expand_mgo_beside(source: &str, deep_rule: Sentence) -> String {
 
 /// [`expand_mgo_beside`] for the program `program`.
 fn expand_beside(source: &str, deep_rule: Sentence, program: &str) -> String {
+    expand_beside_into(source, deep_rule, program, |term| {
+        Printer::new().print_term(term)
+    })
+}
+
+/// [`expand_beside`], with the expanded program read by `read` on the worker's 2 MiB of stack.
+fn expand_beside_into<T: Send + 'static>(
+    source: &str,
+    deep_rule: Sentence,
+    program: &str,
+    read: fn(&Term) -> T,
+) -> T {
     let mut definition = parsed(source);
     definition
         .modules
@@ -4950,7 +4962,7 @@ fn expand_beside(source: &str, deep_rule: Sentence, program: &str) -> String {
                 .unwrap()
                 .expand_program("MAIN", program, &Sort::new("KItem"))
                 .unwrap();
-            Printer::new().print_term(expanded.term())
+            read(expanded.term())
         })
         .expect("the worker should spawn")
         .join()
@@ -4982,6 +4994,49 @@ fn macro_rules_of_any_depth_are_prepared_on_a_small_stack() {
         Attributes::default(),
     );
     assert_eq!(expand_mgo_beside(source, deep_rule), "go(.KList)");
+}
+
+/// Instantiating a macro rule copies its right-hand side into the term being expanded, so the
+/// expansion's stack covers the deepest macro rule as well as the input: the program `mdeep`,
+/// one level deep, expands on a thread of 2 MiB of stack through `mdeep => done(s(...100,000...
+/// (z)))` to that term. The expansion once sized its stack from the input's depth alone and
+/// overflowed in the instantiation.
+#[test]
+fn a_macro_right_side_of_any_depth_is_instantiated_on_a_small_stack() {
+    const DEPTH: usize = 100_000;
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax KItem ::= done(Nat) [symbol(done)] | "mdeep" [macro, symbol(mdeep)]
+        endmodule
+    "#};
+    let deep = (0..DEPTH).fold(application("z", Vec::new()), |term, _| {
+        application("s", vec![term])
+    });
+    let deep_rule = rule(
+        rewrite(
+            application("mdeep", Vec::new()),
+            application("done", vec![deep]),
+        ),
+        Attributes::default(),
+    );
+    let (labels, leaf) = expand_beside_into(source, deep_rule, "mdeep", |term| {
+        let mut labels = Vec::new();
+        let mut term = term;
+        while let Term::Apply { label, arguments } = term.unannotated() {
+            labels.push(label.name.clone());
+            match arguments.as_slice() {
+                [argument] => term = argument,
+                _ => break,
+            }
+        }
+        (labels, term.to_string())
+    });
+    assert_eq!(labels.len(), DEPTH + 2);
+    assert_eq!(labels[0], "done");
+    assert!(labels[1..].iter().take(DEPTH).all(|label| label == "s"));
+    assert_eq!(labels[DEPTH + 1], "z");
+    assert_eq!(leaf, "z(.KList)");
 }
 
 /// A definition with a parametric macro head, `mp`, is prepared on a thread of 2 MiB of stack
@@ -5062,16 +5117,104 @@ fn a_parametric_macro_rule_a_program_never_applies_is_not_typed() {
     );
 }
 
+/// The environment variable that makes [`applied_deep_parametric_macro_rule_child`] run, in the
+/// child process of [`a_deep_parametric_macro_rule_a_program_applies_is_typed_in_linear_memory`].
+const APPLIED_DEEP_PARAMETRIC_CHILD: &str = "K_RUST_TEST_APPLIED_DEEP_PARAMETRIC_MACRO_CHILD";
+
+/// The work of [`a_deep_parametric_macro_rule_a_program_applies_is_typed_in_linear_memory`]; it
+/// does nothing unless that test runs it in its child process.
+#[test]
+fn applied_deep_parametric_macro_rule_child() {
+    if std::env::var_os(APPLIED_DEEP_PARAMETRIC_CHILD).is_none() {
+        return;
+    }
+    let (source, deep_rule) = applied_parametric_macro(APPLIED_DEPTH);
+    let (labels, leaf) = expand_beside_into(source, deep_rule, "pair(mp(z), mp(one))", |term| {
+        let mut labels = Vec::new();
+        let mut term = term;
+        while let Term::Apply { label, arguments } = term.unannotated() {
+            labels.push(label.name.clone());
+            match arguments.first() {
+                Some(first) => term = first,
+                None => break,
+            }
+        }
+        (labels, term.to_string())
+    });
+    assert_eq!(labels.len(), APPLIED_DEPTH + 2, "pair, the s and z");
+    assert_eq!(labels[0], "pair");
+    assert!(labels[1..=APPLIED_DEPTH].iter().all(|label| label == "s"));
+    assert_eq!(leaf, "z(.KList)");
+}
+
+/// The depth of the `Nat` rule of [`applied_deep_parametric_macro_rule_child`].
+const APPLIED_DEPTH: usize = 10_000;
+
+/// Typing a sentence takes memory and time linear in its size: the program `pair(mp(z),
+/// mp(one))` applies a parametric macro head whose `Nat` rule is 10,000 levels deep, which the
+/// expander types when the first subject with that head is tried, in a child process limited to
+/// 1 GiB of address space. The typing view once copied the subterm at every position and keyed
+/// every position by its full path, O(N x h): 15.9 GB at 10,000 levels. (The expansion that
+/// follows, in the typed mode a parametric head selects, addresses each subterm it visits by its
+/// path from the root, O(h) per visit, which keeps this test at 10,000 levels.)
+#[cfg(target_os = "linux")]
+#[test]
+fn a_deep_parametric_macro_rule_a_program_applies_is_typed_in_linear_memory() {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -v 1048576 && exec "$0" "$@""#)
+        .arg(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "applied_deep_parametric_macro_rule_child",
+            "--nocapture",
+        ])
+        .args(["--test-threads", "1"])
+        .env(APPLIED_DEEP_PARAMETRIC_CHILD, "1")
+        .output()
+        .expect("the test binary re-runs itself");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the expansion through a deep parametric macro rule failed under 1 GiB of address space ({}):\n{stdout}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The definition of [`a_deep_parametric_macro_rule_is_typed_when_a_program_applies_its_head`],
+/// whose `Nat` rule `mp(X:Nat) => s(...(X))` is `depth` levels deep.
+fn applied_parametric_macro(depth: usize) -> (&'static str, Sentence) {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+          syntax Pos ::= "one" [symbol(one)] | p(Pos) [symbol(p)]
+          syntax KItem ::= pair(Nat, Pos) [symbol(pair)]
+          syntax {S} S ::= "mp(" S ")" [macro, symbol(mp)]
+          rule mp(Y:Pos) => p(Y)
+        endmodule
+    "#};
+    let variable = Term::Variable {
+        name: "X".into(),
+        sort: Some(Sort::new("Nat")),
+    };
+    let deep = (0..depth).fold(variable.clone(), |term, _| application("s", vec![term]));
+    let deep_rule = rule(
+        rewrite(application("mp", vec![variable]), deep),
+        Attributes::default(),
+    );
+    (source, deep_rule)
+}
+
 /// A program that applies a parametric macro head types the head's rules when the first subject
 /// with that head is tried: `mp(z)` takes the `Nat` rule, 2,000 levels deep, and `mp(one)` the
 /// `Pos` rule, on a thread of 2 MiB of stack. That the instances typed on first use decide which
 /// rule applies is pinned by `parametric_macro_rules_apply_only_at_their_head_instance`.
 ///
-/// The typing of the deep rule runs on a stack zone measured from the rule's depth, but this
-/// test does not pin that the zone is proportional to the depth: expansion itself already runs
-/// on a segment of its own red zone plus 32 MiB, which covers a 2,000-level typing, and a rule
-/// deep enough to need more (about 8,000 levels in the `dev` profile) takes over 10 GB to type.
-/// It pins that the typing happens, on first use, and gives the instance rule selection needs.
+/// It pins that the typing happens, on first use, and gives the instance rule selection needs;
+/// that the typing runs on a stack zone measured from the rule's depth, and in memory linear in
+/// it, is pinned at 10,000 levels by
+/// `a_deep_parametric_macro_rule_a_program_applies_is_typed_in_linear_memory`.
 #[test]
 fn a_deep_parametric_macro_rule_is_typed_when_a_program_applies_its_head() {
     let source = indoc! {r#"
@@ -8499,7 +8642,7 @@ fn equal_concretized_defaults_have_distinct_destination_paths() {
                 term.metadata()
                     .and_then(|metadata| metadata.origin.as_deref())
                     .and_then(|origin| origin.destination.as_ref())
-                    .map(|destination| (destination.path.clone(), destination.sentence_index)),
+                    .map(|destination| (destination.path.to_vec(), destination.sentence_index)),
             ));
         }
         match term.unannotated() {

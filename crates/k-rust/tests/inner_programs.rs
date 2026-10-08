@@ -1179,3 +1179,99 @@ fn fu24_program_start_sort_reports_the_denotation() {
     let parser = ProgramParser::new(&definition, "M").unwrap();
     assert_eq!(parser.start_sort(&Sort::new("A")), &Sort::new("S"));
 }
+
+/// The number of applications on the path from `term` through first arguments, counted
+/// without recursion.
+fn first_argument_depth(term: &Term) -> usize {
+    let mut depth = 0;
+    let mut term = term;
+    while let Term::Apply { arguments, .. } = term.unannotated() {
+        depth += 1;
+        let Some(first) = arguments.first() else {
+            break;
+        };
+        term = first;
+    }
+    depth
+}
+
+/// A program is as deep as its author writes it, and every pass after recognition descends once
+/// per level of its parse: the packed-forest and owned-tree disambiguation passes, sort
+/// inference, lowering, and the drops of the forest and of what each pass discards. A numeral
+/// 100,000 levels deep is parsed on a thread of 256 KiB of stack, and so are a program failing at
+/// its bottom (a no-parse error) and one with a closing parenthesis too many; each pass continues
+/// on a fresh stack segment where the thread's runs low. They once recursed on the caller's stack
+/// and overflowed at about 4,000 levels of the 8 MiB main thread.
+#[test]
+fn programs_of_any_depth_are_parsed_on_a_small_stack() {
+    const DEPTH: usize = 100_000;
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Nat ::= "z" | s(Nat)
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+    let numeral = |leaf: &str, extra: &str| {
+        format!("{}{leaf}{}{extra}", "s(".repeat(DEPTH), ")".repeat(DEPTH))
+    };
+    let (good, unknown, unbalanced) = (numeral("z", ""), numeral("q", ""), numeral("z", ")"));
+    std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let parsed = parser.parse(&Sort::new("Nat"), &good).unwrap();
+            assert_eq!(first_argument_depth(parsed.typed_term()), DEPTH + 1);
+            let error = parser.parse(&Sort::new("Nat"), &unknown).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("unexpected character sequence 'q'"),
+                "{error}"
+            );
+            let error = parser.parse(&Sort::new("Nat"), &unbalanced).unwrap_err();
+            assert!(
+                error.to_string().contains("unexpected token ')'"),
+                "{error}"
+            );
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the programs should parse or be refused");
+}
+
+/// A nesting of a parametric production is parsed on a small stack too, whether its instances
+/// are read at the sort of their argument (`p(wrap(...(z)))`, every `wrap` a `Nat`) or at a sort
+/// above it (`wrap(...(z))` as a `KItem`, where every level is a `wrap` at `KItem` and at
+/// `Nat`). List completion instantiates each node from its children's sorts and once recursed
+/// through the whole nesting below each node, on the caller's stack: about 4,000 levels
+/// overflowed the 8 MiB main thread.
+#[test]
+fn parametric_nestings_of_any_depth_are_parsed_on_a_small_stack() {
+    const DEPTH: usize = 10_000;
+    let definition = lowered(
+        indoc! {r#"
+            module MAIN
+              syntax Nat ::= "z" [symbol(z)]
+              syntax {S} S ::= wrap(S) [symbol(wrap)]
+              syntax KItem ::= p(Nat) [symbol(p)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+    let parser = ProgramParser::new(&definition, "MAIN").unwrap();
+    let nesting = format!("{}z{}", "wrap(".repeat(DEPTH), ")".repeat(DEPTH));
+    let applied = format!("p({nesting})");
+    std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || {
+            let parsed = parser.parse(&Sort::new("KItem"), &applied).unwrap();
+            assert_eq!(first_argument_depth(parsed.typed_term()), DEPTH + 2);
+            let parsed = parser.parse(&Sort::new("KItem"), &nesting).unwrap();
+            assert_eq!(first_argument_depth(parsed.typed_term()), DEPTH + 1);
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the programs should parse");
+}

@@ -6324,6 +6324,109 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The levels of the configuration [`run_on_a_deep_pattern`] gives the `kore-*` commands.
+const DEEP_PATTERN_LEVELS: usize = 100_000;
+
+/// Run `command` (`kore-exec` or `kore-match-disjunction`) with `arguments` naming
+/// `{definition}`, `{pattern}` and `{output}`: a definition of `z` and `s`, the configuration
+/// `s(...100,000...(z))` and the file the command writes; the command must succeed, and its
+/// output file is returned.
+fn run_on_a_deep_pattern(command: &str, arguments: &[&str]) -> String {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let pattern = root.join("pattern.kore");
+    let result = root.join("result.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortN{} []
+  symbol z{}() : SortN{} [constructor{}()]
+  symbol s{}(SortN{}) : SortN{} [constructor{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &pattern,
+        format!(
+            "{}z{{}}(){}",
+            "s{}(".repeat(DEEP_PATTERN_LEVELS),
+            ")".repeat(DEEP_PATTERN_LEVELS)
+        ),
+    )
+    .unwrap();
+    let arguments = arguments
+        .iter()
+        .map(|argument| match *argument {
+            "{definition}" => definition.to_str().unwrap(),
+            "{pattern}" => pattern.to_str().unwrap(),
+            "{output}" => result.to_str().unwrap(),
+            argument => argument,
+        })
+        .collect::<Vec<_>>();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg(command)
+        .args(&arguments)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{command}: {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result = fs::read_to_string(&result).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    result
+}
+
+/// `kore-exec` reads a KORE pattern file of any depth, and verifies, internalizes, executes and
+/// prints it on a stack the backend measures from the pattern: a configuration 100,000 levels
+/// deep runs, and `--depth 0` returns it. Its backend passes once ran on a stack sized for the
+/// definition alone and overflowed the main thread.
+#[test]
+fn kore_exec_takes_a_pattern_of_any_depth() {
+    let executed = run_on_a_deep_pattern(
+        "kore-exec",
+        &[
+            "{definition}",
+            "--module",
+            "MAIN",
+            "--pattern",
+            "{pattern}",
+            "--depth",
+            "0",
+            "--output",
+            "{output}",
+        ],
+    );
+    assert_eq!(executed.matches("s{}(").count(), DEEP_PATTERN_LEVELS);
+    assert!(executed.contains("z{}()"));
+}
+
+/// `kore-match-disjunction` matches a configuration 100,000 levels deep against itself, both read
+/// from files, on a stack the backend measures from the two patterns.
+#[test]
+fn kore_match_disjunction_takes_patterns_of_any_depth() {
+    let matched = run_on_a_deep_pattern(
+        "kore-match-disjunction",
+        &[
+            "{definition}",
+            "--module",
+            "MAIN",
+            "--match",
+            "{pattern}",
+            "--disjunction",
+            "{pattern}",
+            "--output",
+            "{output}",
+        ],
+    );
+    assert_eq!(matched, r"\top{SortN{}}()");
+}
+
 /// A hand-written KORE definition for the `kore-*` servers: `a => f(a)`, `b => c`, and the
 /// function equation `f(a) = b`, so `a` executes to `c` in two steps through the equation.
 fn kore_rpc_definition() -> PathBuf {
@@ -13739,6 +13842,29 @@ fn kcompile_source(source: &str) -> Output {
         .unwrap();
     fs::remove_dir_all(root).unwrap();
     output
+}
+
+/// `kcompile` compiles and writes out a rule body 5,000 levels deep, an operator chain inside
+/// an application: every compile stage and the writing of the artifacts (the definition's KORE,
+/// JSON and provenance) run on a stack measured from the deepest term. The first compile pass
+/// that recursed per level overflowed the 8 MiB main thread at 4,000 levels.
+#[test]
+fn kcompile_compiles_a_rule_body_thousands_of_levels_deep() {
+    let chain = (0..5_000)
+        .map(|operand| (operand % 10).to_string())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let source = format!(
+        "module MAIN\n  imports INT\n  syntax E ::= Int | E \"+\" E [left, symbol(plus)]\n  \
+         syntax KItem ::= foo(E) [symbol(foo)]\n  rule foo({chain}) => .K\nendmodule\n"
+    );
+    let output = kcompile_source(&source);
+    assert!(
+        output.status.success(),
+        "{}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

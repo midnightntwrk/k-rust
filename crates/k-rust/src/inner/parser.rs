@@ -1,14 +1,14 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance"]
-//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
+//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "Grammar::priority_admits", "RemainingTokens::new", "Reach::rest_follows", "InstanceNodes::intern"]
+//! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
 //!
 //! [[cost]]
 //! mode = "recognition (the chart loop of recognize)"
-//! bound = "O(B x s) chart allocation plus O(p x d)"
+//! bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; a chain written directly as a side of a rewrite keeps every doomed reading that takes the rewrite as an operand (cubic) unless the input has only one token that can begin a rewrite, sequence or #let, where the first attempt skips them (DoomedEdges); the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
@@ -16,18 +16,18 @@
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
 //!
 //! [[cost]]
-//! mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts"
+//! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
+//! bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "parser.lower.term"
 //! name = "lowering of parsed terms into KAST"
 //! sites = ["lower_term"]
-//! variable = "N = parsed tree nodes; h = parsed tree height"
+//! variable = "N = parsed tree nodes"
 //! counters = []
 //! no_counter = "term lowering has no dedicated counter"
 //! consumes = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -36,7 +36,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x h), one subtree clone per lowered node"
+//! bound = "O(N), each node built from its lowered children, which it takes over without copying"
 //! ```
 //!
 //! ```toml algorithm
@@ -115,7 +115,7 @@ use self::grammar::{render_added_production, render_production};
 
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -141,7 +141,7 @@ pub(crate) use self::disambiguation::parse_apply_priority;
 use self::lists::UserList;
 #[cfg(feature = "cli")]
 pub(crate) use self::parametric::concretize_parametric_productions;
-use self::prediction::PredictionAnalysis;
+use self::prediction::{DeferredScopes, PredictionAnalysis};
 #[cfg(feature = "cli")]
 pub(crate) use self::scanner::DEFAULT_LAYOUT;
 pub(super) use self::scanner::Scanner;
@@ -192,10 +192,334 @@ struct ParseContext {
     diagnostic_provenance: bool,
 }
 
+/// Which work a recognition may skip because it cannot contribute to a parse.
+///
+/// The scanner is deterministic: the only token any item can scan at a position is the
+/// scanner's winner there. A prediction whose production cannot begin with that token, and a
+/// completion whose callers can continue neither with it nor through a nullable rest to a
+/// caller that can, are part of no parse of the input. Skipping them leaves every parse, and
+/// so the forest and every error computed from it, as it is; it does change what the
+/// diagnostic of an attempt that finds no derivation reads (the items of its last chart), so
+/// such an attempt that skipped anything is retried with `Retry`
+/// (`Grammar::parse_with_context_and_diagnostic_provenance`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PredictionMode {
+    /// Skip predictions and completions that cannot contribute to a parse.
     Filtered,
+    /// Make every prediction and completion.
     Unfiltered,
+    /// Make every prediction, and skip a completion only where the next token starts before
+    /// `horizon` (the last chart a failed `Filtered` attempt reached) and only when the input
+    /// cannot continue the item it would advance: its rest cannot begin with the next token,
+    /// nor complete through a nullable rest into an item whose rest can, whatever the priority
+    /// and associativity relations say. Such an item scans nothing and completes into nothing
+    /// that scans, so every chart from the horizon on, including the last non-empty one that
+    /// the no-parse diagnostic reads, has the items of `Unfiltered` (the `Filtered` attempt
+    /// keeps a subset of them, so its last chart is not after theirs). An item a completion
+    /// adds is relocated to the position of the next token, so nothing skipped where the next
+    /// token starts before the horizon can reach those charts. And every item of a derivation
+    /// of the whole input is kept, so when the relations reject every derivation the retry
+    /// meets a rejection and reports a violation, as `Unfiltered` does. `Filtered` also skips
+    /// items whose node the relations forbid wherever it could sit; that keeps every parse but
+    /// drops items that scan, so a retry must not.
+    Retry { horizon: usize },
+}
+
+impl PredictionMode {
+    /// Whether completions that cannot contribute to a parse are skipped where the next token
+    /// starts at `position`.
+    fn prunes_completions_at(self, position: usize) -> bool {
+        match self {
+            Self::Filtered => true,
+            Self::Unfiltered => false,
+            Self::Retry { horizon } => position < horizon,
+        }
+    }
+}
+
+/// What a filtered recognition judges a skipped completion by (`Grammar::advanced_item_useful`).
+#[derive(Clone, Copy)]
+struct Reach<'a> {
+    analysis: &'a PredictionAnalysis,
+    cycles: &'a SameSpanCycles,
+    /// The relations judged: `Ignored` keeps every item the input can continue, whatever the
+    /// relations say of where its node could sit (`PredictionMode::Retry`).
+    filter: PriorityFilter,
+    /// The start position and the start sort's id.
+    root: (usize, usize),
+    /// The tokens of the input from some position at or before `from` on; read when the
+    /// relations are judged.
+    remaining: Option<&'a RemainingTokens>,
+    /// The position of the next token, where every caller's rest begins at the earliest.
+    from: usize,
+    /// Which edges to a doomed node may be skipped.
+    doomed: DoomedEdges,
+    /// Set when an edge that `DoomedEdges::Kept` keeps is skipped.
+    doomed_pruned: &'a std::cell::Cell<bool>,
+}
+
+impl Reach<'_> {
+    /// Where the callers of an item's node can begin their own rests, when the items of
+    /// `production` from `dot` on are matched by the tokens of the input after `after`, where
+    /// the node's span ends at the earliest: `after` itself when they can all match the empty
+    /// string, otherwise just past the first token they can begin with that occurs at or after
+    /// `after` (the node ends past every token its rest scans, and the callers' rests come
+    /// after it); `None` when no such token remains, so that no node of the item can end. With
+    /// the tokens not read (`remaining` unset) every rest is taken to follow at `after`.
+    fn rest_follows(self, production: usize, dot: usize, after: usize) -> Option<usize> {
+        if self.analysis.rest_is_nullable(production, dot) {
+            return Some(after);
+        }
+        let Some(remaining) = self.remaining else {
+            return Some(after);
+        };
+        remaining
+            .first_from(after, |lexeme| {
+                self.analysis
+                    .rest_can_start_with(production, dot, Some(lexeme))
+            })
+            .map(|position| position + 1)
+    }
+
+    /// The latest position at which the items of `production` from `dot` on can begin so that
+    /// [`Self::rest_follows`] is at most `latest`: the inverse bound, with which a node whose
+    /// callers' rests may begin up to `latest` passes the bound down to the item's own node.
+    /// `None` when no position does.
+    fn rest_latest(self, production: usize, dot: usize, latest: usize) -> Option<usize> {
+        if self.analysis.rest_is_nullable(production, dot) {
+            return Some(latest);
+        }
+        let Some(remaining) = self.remaining else {
+            return Some(latest);
+        };
+        remaining.last_up_to(latest.checked_sub(1)?, |lexeme| {
+            self.analysis
+                .rest_can_start_with(production, dot, Some(lexeme))
+        })
+    }
+}
+
+/// Where each lexeme is the scanner's token, in the input read from one position on.
+///
+/// The scanner is deterministic: an item scans at a position only the scanner's winner there,
+/// and the next item is relocated to the next position past its layout. So the input is one
+/// sequence of tokens, and whether an item's rest can begin at or after a position is whether
+/// one of the lexemes it can begin with is a token there or later.
+struct RemainingTokens {
+    /// The positions of each lexeme's tokens, ascending, by lexeme.
+    positions: HashMap<usize, Vec<usize>>,
+    /// The positions, ascending, of the tokens that witness a node whose scope error the
+    /// priority filter defers (`DeferredScopes::Witnessed`).
+    deferrals: Vec<usize>,
+}
+
+impl RemainingTokens {
+    /// Read the tokens from `from`, a position the recognizer reached, to the end of the input
+    /// or to the first position where no token wins or a token matches nothing (an empty token
+    /// leaves the position, and so the next token, unchanged, so no item reads past it).
+    fn new(
+        grammar: &Grammar,
+        input: &str,
+        from: usize,
+        deferred_scopes: &DeferredScopes,
+        scanner_cache: &mut [ScanCacheEntry],
+    ) -> Self {
+        let mut positions = HashMap::<usize, Vec<usize>>::new();
+        let mut deferrals = Vec::new();
+        let mut position = from;
+        // Invariant: `position` is a token boundary reached from `from`; it strictly increases
+        // at every token read, so the loop ends, and each lexeme's positions are ascending.
+        loop {
+            let canonical = grammar.canonical_position(input, position, scanner_cache);
+            let Some(ScanWinner::Token { lexeme, end }) = grammar.scanner.winner(
+                &grammar.layout,
+                input,
+                canonical,
+                &mut scanner_cache[canonical],
+            ) else {
+                break;
+            };
+            positions.entry(lexeme).or_default().push(canonical);
+            if deferred_scopes.witnesses(lexeme) {
+                deferrals.push(canonical);
+            }
+            if end <= canonical {
+                break;
+            }
+            position = end;
+        }
+        Self {
+            positions,
+            deferrals,
+        }
+    }
+
+    /// The first token at or after `position` that witnesses a node whose scope error the
+    /// priority filter defers.
+    fn first_deferral_from(&self, position: usize) -> Option<usize> {
+        self.deferrals
+            .get(
+                self.deferrals
+                    .partition_point(|deferral| *deferral < position),
+            )
+            .copied()
+    }
+
+    /// How many such witnesses the input holds.
+    fn deferral_count(&self) -> usize {
+        self.deferrals.len()
+    }
+
+    /// How many such witnesses come before `position`.
+    fn deferrals_before(&self, position: usize) -> usize {
+        self.deferrals
+            .partition_point(|deferral| *deferral < position)
+    }
+
+    /// The first position at or after `after` where the token is a lexeme for which `accepts`
+    /// holds.
+    fn first_from(&self, after: usize, accepts: impl Fn(usize) -> bool) -> Option<usize> {
+        self.positions
+            .iter()
+            .filter(|(lexeme, _)| accepts(**lexeme))
+            .filter_map(|(_, positions)| {
+                positions
+                    .get(positions.partition_point(|position| *position < after))
+                    .copied()
+            })
+            .min()
+    }
+
+    /// The last position at or before `before` where the token is a lexeme for which
+    /// `accepts` holds.
+    fn last_up_to(&self, before: usize, accepts: impl Fn(usize) -> bool) -> Option<usize> {
+        self.positions
+            .iter()
+            .filter(|(lexeme, _)| accepts(**lexeme))
+            .filter_map(|(_, positions)| {
+                positions
+                    .partition_point(|position| *position <= before)
+                    .checked_sub(1)
+                    .map(|index| positions[index])
+            })
+            .max()
+    }
+}
+
+/// Whether a caller can hold a node at its dot in a reading the priority filter keeps
+/// (`Grammar::boundary_admits`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Admission {
+    No,
+    Yes,
+    /// Only when the caller's own node ends past the token at this position: the edge breaks a
+    /// relation, which drops the caller's node at completion unless an earlier check of it
+    /// meets a scope error the filter defers, and such an error needs a node of a rewrite,
+    /// sequence or `#let`, which contains a token that witnesses it, the first of which at or
+    /// after the caller's origin lies here.
+    IfEndsAfter(usize),
+}
+
+impl Admission {
+    /// The earliest `after` of the caller's node, given the earliest its rest allows.
+    fn after(self, after: usize) -> Option<usize> {
+        match self {
+            Self::No => None,
+            Self::Yes => Some(after),
+            Self::IfEndsAfter(witness) => Some(after.max(witness + 1)),
+        }
+    }
+}
+
+/// A node the root-reachability searches judge: its origin, the production that builds it, and
+/// the production of the node it is in the forest (`Grammar::stands_for`).
+type NodeKey = (usize, usize, usize);
+
+/// A completion `Grammar::completion_useful` judges: the node, the scanner's next token, and
+/// how many witnesses of a deferred scope error come before the position.
+type CompletionKey = (NodeKey, Option<usize>, usize);
+
+/// What the root-reachability searches of one recognition learned of a node
+/// (`Grammar::node_reaches_root`): it can be part of a parse when its callers' rests may begin
+/// at any position up to `reaches_up_to`, and cannot when they begin at `fails_from` or later.
+/// Both bounds are exact for the position they were found at and carry over in the one
+/// direction: a later start only removes tokens a rest can use.
+#[derive(Clone, Copy, Default)]
+struct Reaching {
+    reaches_up_to: Option<usize>,
+    fails_from: Option<usize>,
+}
+
+impl Reaching {
+    fn known(self, after: usize) -> Option<bool> {
+        if self.fails_from.is_some_and(|fails| fails <= after) {
+            Some(false)
+        } else if self.reaches_up_to.is_some_and(|reaches| after <= reaches) {
+            Some(true)
+        } else {
+            None
+        }
+    }
+}
+
+/// The nodes a recognition built for instances of parametric productions, by production of the
+/// parsed term, span and children.
+///
+/// Every concrete instance of one parametric production is one production of the parsed term
+/// (`Production::term_production`), so instances that complete over one span with the same
+/// children build one node, as the forest means it: under `syntax {S} S ::= wrap(S)`, the `wrap`
+/// of a `Nat` read at `Nat` and at `KItem` are the same `wrap` node. Built separately, they are
+/// equal but distinct, and so are the nodes above them, all the way up a nesting, so that
+/// comparing two of them (a chart deciding whether a derivation is new) descends the whole
+/// nesting: quadratic work in its depth. Interned, each pair is one node and the comparison
+/// stops at the first level. Keys name children by address; the table holds every node it
+/// names, and so its children, for the rest of the recognition, so an address is not reused.
+#[derive(Default)]
+struct InstanceNodes(HashMap<(usize, usize, usize, Vec<*const PackedTerm>), Rc<PackedTerm>>);
+
+impl InstanceNodes {
+    /// The node equal to `term`, built over `start..end`, that this recognition built first.
+    fn intern(&mut self, term: Rc<PackedTerm>, start: usize, end: usize) -> Rc<PackedTerm> {
+        let PackedNode::Production {
+            production,
+            children,
+            ..
+        } = &term.node
+        else {
+            return term;
+        };
+        let key = (
+            *production,
+            start,
+            end,
+            children.iter().map(Rc::as_ptr).collect::<Vec<_>>(),
+        );
+        match self.0.entry(key) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                if entry.get().node == term.node {
+                    Rc::clone(entry.get())
+                } else {
+                    term
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => Rc::clone(entry.insert(term)),
+        }
+    }
+}
+
+/// What a parse attempt skipped, for the decision to retry it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Pruning {
+    /// Which edges to a doomed node the attempt may skip (`DoomedEdges`); set by the caller.
+    pub(super) doomed: DoomedEdges,
+    /// Whether the attempt skipped an edge that `DoomedEdges::Kept` keeps.
+    pub(super) doomed_pruned: bool,
+    /// Whether the attempt skipped a prediction or a completion an unfiltered attempt makes.
+    pub(super) pruned: bool,
+    /// The last non-empty chart of the attempt's recognition of the whole input under the
+    /// priority and associativity relations, when it found no derivation of the input; `None`
+    /// when it found one, or when recognition itself failed (a cycle).
+    pub(super) furthest: Option<usize>,
 }
 
 /// Whether recognition drops the derivations that the priority and associativity relations rule
@@ -208,6 +532,30 @@ pub(super) enum PriorityFilter {
     Ignored,
 }
 
+/// Whether a filtered recognition may skip an edge that would build a doomed node: one that
+/// breaks a relation but that the priority filter keeps for the preference among the readings
+/// of the root, because it, or a child checked before the breaking edge, holds a rewrite,
+/// sequence or `#let` below an operator (a scope error the filter defers).
+///
+/// The preference reads a doomed node only when it is, or lies inside, a reading of the root
+/// rooted at a rewrite, sequence or `#let`; every other doomed node is dropped by the filter
+/// after recognition, or discarded with the losing readings. Such a node contains a rewrite,
+/// sequence or `#let` node, and so a token of its first lexical item (`DeferredScopes`); a
+/// rewrite, sequence or `#let` node above it holds its own such token, outside every child.
+/// So in an input with one such token in all, no doomed node is read by the preference, and
+/// skipping the edges to them leaves every reading that can be the parse. What it changes is
+/// the forest a failed parse is explained from: an attempt that skipped one and failed is made
+/// again keeping them (`Grammar::parse_with_context_and_diagnostic_provenance`).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum DoomedEdges {
+    /// Keep every edge the filter could keep for the preference.
+    #[default]
+    Kept,
+    /// Skip every edge that breaks a relation when the input has one token that can begin a
+    /// rewrite, sequence or `#let`.
+    SkippedBesideOneScope,
+}
+
 /// The outcome of the recognition phase of one parse attempt.
 struct Recognition {
     charts: Vec<Chart>,
@@ -215,6 +563,8 @@ struct Recognition {
     parses: BTreeSet<Rc<PackedTerm>>,
     /// The first priority or associativity violation that removed a derivation, in chart order.
     first_violation: Option<ParseError>,
+    /// Whether an edge that `DoomedEdges::Kept` keeps was skipped.
+    doomed_pruned: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -648,6 +998,22 @@ struct Production {
 }
 
 impl Production {
+    /// Whether a node of this production is its only child itself (`build_packed_term`): an
+    /// unlabelled or transparent production with one nonterminal that is not a token, record or
+    /// bracket adds no node to the forest, so the filters judge the child wherever it stands.
+    fn passes_child_through(&self) -> bool {
+        !self.token
+            && self.record.is_none()
+            && !self.bracket
+            && (self.transparent || self.label.is_none())
+            && self
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::NonTerminal(_)))
+                .count()
+                == 1
+    }
+
     /// Whether the production recognizes machine-integer literals. A literal such as `3p8`
     /// spells its width after the `p`/`P`, so it denotes a value of the machine-integer sort of
     /// that width: its sort parameter comes from the token text, not from the instantiation that
@@ -847,6 +1213,8 @@ pub struct Grammar {
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
+    // Invariant: when set, this indexes `associativities`; cleared whenever they change.
+    associativity_index: OnceLock<AssociativityIndex>,
     subsort_relations: SubsortRelations,
     syntactic_subsort_relations: SubsortRelations,
     overloads: PartialOrder<ProductionIdentity>,
@@ -861,6 +1229,35 @@ pub struct Grammar {
     placeholders: BTreeMap<Sort, Placeholder>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,
+}
+
+/// The associativity relations by parent label, so that a pair of labels is looked up without
+/// copying either.
+#[derive(Clone, Debug, Default)]
+struct AssociativityIndex {
+    /// The labels each label may not have as its right child (`left` associativity).
+    left: HashMap<String, HashSet<String>>,
+    /// The labels each label may not have as its left child (`right` associativity).
+    right: HashMap<String, HashSet<String>>,
+}
+
+impl AssociativityIndex {
+    fn new(relations: &AssociativityRelations) -> Self {
+        let index = |pairs: &BTreeSet<(String, String)>| {
+            let mut by_parent = HashMap::<String, HashSet<String>>::new();
+            for (parent, child) in pairs {
+                by_parent
+                    .entry(parent.clone())
+                    .or_default()
+                    .insert(child.clone());
+            }
+            by_parent
+        };
+        Self {
+            left: index(&relations.left),
+            right: index(&relations.right),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -886,6 +1283,7 @@ impl Default for Grammar {
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
+            associativity_index: OnceLock::new(),
             subsort_relations: SubsortRelations::default(),
             syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
@@ -1047,20 +1445,46 @@ impl Grammar {
             provenance,
             diagnostic_provenance,
         };
-        let mut pruned = false;
-        let result =
-            self.parse_attempt(start, input, context, PredictionMode::Filtered, &mut pruned);
-        // Failed first scans still contribute to chart-derived diagnostics. Retry the complete
-        // pipeline so every error, including inference and ambiguity errors, stays unchanged.
-        // Invariant: an unfiltered retry occurs exactly when the filtered recognizer pruned at
-        // least one prediction, and it reruns the complete pipeline with the same context.
-        if result.is_err() && pruned {
+        let mut pruning = Pruning {
+            doomed: DoomedEdges::SkippedBesideOneScope,
+            ..Pruning::default()
+        };
+        let mut result = self.parse_attempt(
+            start,
+            input,
+            context,
+            PredictionMode::Filtered,
+            &mut pruning,
+        );
+        // Skipping the edges to doomed nodes keeps every reading that can be the parse, but not
+        // the forest a failure is computed from (`DoomedEdges`): such a failure is computed
+        // again keeping them.
+        if result.is_err() && pruning.doomed_pruned {
+            pruning = Pruning::default();
+            result = self.parse_attempt(
+                start,
+                input,
+                context,
+                PredictionMode::Filtered,
+                &mut pruning,
+            );
+        }
+        // A failure without a derivation is explained from the chart, whose items the skipped
+        // work changes: retry it with the skipped work restored where the diagnostic reads it.
+        // A failure after recognition (an ambiguity, sort inference, a relation error of the
+        // forest, a cycle) is computed from the forest, which skipping leaves as it is
+        // (`PredictionMode`), so it is already the error of an unfiltered recognition.
+        // Invariant: a retry occurs exactly when the filtered recognizer pruned at least one
+        // prediction or completion and found no derivation of the input, and it reruns the
+        // complete pipeline with the same context, skipping completions only before the last
+        // chart the filtered recognition reached.
+        if let (Err(_), true, Some(horizon)) = (&result, pruning.pruned, pruning.furthest) {
             self.parse_attempt(
                 start,
                 input,
                 context,
-                PredictionMode::Unfiltered,
-                &mut pruned,
+                PredictionMode::Retry { horizon },
+                &mut Pruning::default(),
             )
         } else {
             result
@@ -1073,7 +1497,7 @@ impl Grammar {
         input: &str,
         context: ParseContext,
         prediction_mode: PredictionMode,
-        pruned: &mut bool,
+        pruning: &mut Pruning,
     ) -> Result<Term, ParseError> {
         let ParseContext {
             is_anywhere,
@@ -1101,6 +1525,7 @@ impl Grammar {
             charts,
             parses,
             first_violation,
+            doomed_pruned,
         } = self.recognize(
             start_id,
             start_position,
@@ -1108,11 +1533,32 @@ impl Grammar {
             provenance,
             prediction_mode,
             PriorityFilter::Enforced,
-            pruned,
+            None,
+            matches!(prediction_mode, PredictionMode::Retry { .. }),
+            pruning.doomed,
+            &mut pruning.pruned,
             &mut scanner_cache,
             &priority_memos,
         )?;
+        pruning.doomed_pruned = doomed_pruned;
         if parses.is_empty() {
+            pruning.furthest = Some(
+                charts
+                    .iter()
+                    .rposition(|chart| !chart.states.is_empty())
+                    .unwrap_or(0),
+            );
+            // An attempt that skipped edges to doomed nodes and failed is made again keeping
+            // them, which explains the failure; this one is not explained.
+            if doomed_pruned {
+                return Err(self.no_parse(
+                    input,
+                    provenance,
+                    diagnostic_provenance,
+                    &charts,
+                    &mut scanner_cache,
+                ));
+            }
             return Err(match first_violation {
                 None => self.no_parse(
                     input,
@@ -1130,7 +1576,7 @@ impl Grammar {
                         input,
                         context,
                         prediction_mode,
-                        pruned,
+                        &mut pruning.pruned,
                         &mut scanner_cache,
                     )
                 }
@@ -1174,7 +1620,22 @@ impl Grammar {
     /// operand of a `=>` that never comes) does not. The input is therefore recognized again
     /// with the relations ignored: when that recognition also fails, the input has no derivation
     /// at all and the error is the place where it stops; otherwise the error is a violation of a
-    /// derivation of the whole input.
+    /// derivation of the whole input, read from the forest of those derivations. That forest
+    /// leaves out a node that repeats itself over one span (`Grammar::recognize`): no reading
+    /// passes the relations, so the repetition is no cycle of a reading, and the derivations
+    /// without it break the relations as every derivation does. Reporting instead the violation
+    /// the failed recognition met first would make the error depend on the order it met items
+    /// in, and on which items it skipped, including items no derivation of the input contains.
+    ///
+    /// Whether a derivation exists, and the items of the last chart where none does, do not
+    /// depend on the parse forest, which for an ambiguous grammar (every chain of a binary
+    /// operator) grows far faster than its chart. So the input is first recognized with every
+    /// node replaced by one stand-in node: each item then has one derivation and is processed
+    /// once, and with the relations ignored nothing is filtered by a node's structure, so the
+    /// items of every chart and the start items spanning the input are those of the
+    /// forest-building recognition. Only a derivation of the whole input needs the forest. A
+    /// grammar with a production on a same-span cycle, whose detection reads node structure,
+    /// always builds it.
     #[allow(clippy::too_many_arguments)]
     fn explain_violation(
         &self,
@@ -1188,8 +1649,42 @@ impl Grammar {
         scanner_cache: &mut [ScanCacheEntry],
     ) -> ParseError {
         let priority_memos = RefCell::new(PackedPriorityMemos::default());
-        // A recognition error (a cycle) that only the ignored relations let through says nothing
-        // about this input's failure.
+        let cycles = self
+            .same_span_cycles
+            .get_or_init(|| SameSpanCycles::new(self));
+        if cycles.is_empty() {
+            let stand_in = PackedTerm::leaf(Term::Token {
+                token: String::new(),
+                sort: Sort::new("K"),
+            });
+            // A recognition error (a cycle) that only the ignored relations let through says
+            // nothing about this input's failure.
+            let Ok(Recognition { charts, parses, .. }) = self.recognize(
+                start_id,
+                start_position,
+                input,
+                context.provenance,
+                prediction_mode,
+                PriorityFilter::Ignored,
+                Some(&stand_in),
+                false,
+                DoomedEdges::Kept,
+                pruned,
+                scanner_cache,
+                &priority_memos,
+            ) else {
+                return first_violation;
+            };
+            if parses.is_empty() {
+                return self.no_parse(
+                    input,
+                    context.provenance,
+                    context.diagnostic_provenance,
+                    &charts,
+                    scanner_cache,
+                );
+            }
+        }
         let Ok(Recognition { charts, parses, .. }) = self.recognize(
             start_id,
             start_position,
@@ -1197,10 +1692,15 @@ impl Grammar {
             context.provenance,
             prediction_mode,
             PriorityFilter::Ignored,
+            None,
+            true,
+            DoomedEdges::Kept,
             pruned,
             scanner_cache,
             &priority_memos,
         ) else {
+            // Only a recognition error other than a repetition (which this recognition cuts)
+            // ends here; the violation met first is then the only one known.
             return first_violation;
         };
         if parses.is_empty() {
@@ -1221,7 +1721,18 @@ impl Grammar {
 
     /// The recognition phase of a parse attempt: the Earley chart of `input` from the start sort
     /// and the completed start productions spanning it, dropping the derivations that violate the
-    /// priority and associativity relations when `filter` enforces them.
+    /// priority and associativity relations when `filter` enforces them. With a `stand_in`,
+    /// every completed node is that node, so the recognition decides which items exist without
+    /// building a forest (`Grammar::explain_violation`); it is used only with the relations
+    /// ignored, and only for a grammar without same-span cycles.
+    ///
+    /// With `cut_repetitions`, a node that repeats itself over one span is left out of the
+    /// forest instead of being reported as a cycle. Only a recognition made for the diagnostic of
+    /// a failed parse cuts: a retry (`PredictionMode::Retry`), and the recognition with the
+    /// relations ignored that explains a violation. A repetition adds no item (the node it
+    /// repeats already completed the same state), so the charts are those of a recognition that
+    /// reports it; and a failed parse has no reading the relations allow, so the repetition is
+    /// part of no reading of the input the recognition could report as infinitely ambiguous.
     #[allow(clippy::too_many_arguments)]
     fn recognize(
         &self,
@@ -1231,6 +1742,9 @@ impl Grammar {
         provenance: ParseProvenance,
         prediction_mode: PredictionMode,
         filter: PriorityFilter,
+        stand_in: Option<&Rc<PackedTerm>>,
+        cut_repetitions: bool,
+        doomed: DoomedEdges,
         pruned: &mut bool,
         scanner_cache: &mut [ScanCacheEntry],
         priority_memos: &RefCell<PackedPriorityMemos>,
@@ -1239,6 +1753,30 @@ impl Grammar {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
+        let completion_analysis = (prediction_mode != PredictionMode::Unfiltered).then(|| {
+            self.prediction_analysis
+                .get_or_init(|| PredictionAnalysis::new(self))
+        });
+        // Whether a completion over `[origin, position]` of a production is useful when the
+        // scanner's next token is `winner`, by `(origin, production, stands for, winner, region)`
+        // (`Grammar::completion_useful`).
+        let mut useful_completions = HashMap::new();
+        // Whether a node of a production starting in a chart can be part of a parse of the whole
+        // input, by `(origin, production, stands for)` (`Grammar::node_reaches_root`).
+        let mut reaching_nodes = HashMap::new();
+        // The tokens of the input from the first position a completion asks about them on,
+        // read once, when the relations decide whether a node can reach the root.
+        let mut remaining_tokens = None;
+        let doomed_pruned = std::cell::Cell::new(false);
+        // The relations a skipped completion is judged by (`PredictionMode`): a retry judges
+        // only whether the input can continue an item, never where the relations let its node
+        // sit.
+        let usefulness_filter = match prediction_mode {
+            PredictionMode::Retry { .. } => PriorityFilter::Ignored,
+            PredictionMode::Filtered | PredictionMode::Unfiltered => filter,
+        };
+        let mut instance_nodes = InstanceNodes::default();
+        let root = (start_position, start_id);
         let cycles = self
             .same_span_cycles
             .get_or_init(|| SameSpanCycles::new(self));
@@ -1263,6 +1801,10 @@ impl Grammar {
         for position in start_position..=input.len() {
             // Empty charts can lie inside a UTF-8 character; only evaluate layout on dispatch.
             let mut canonical_position = None;
+            // The lexeme of the token the scanner reads next, once a completion here asks for
+            // it: `Some(None)` where no token follows, and `None` until asked or at the end of
+            // the input, where nothing is skipped.
+            let mut lookahead: Option<Option<Option<usize>>> = None;
             // Invariant: every queued state has new derivation information not yet dispatched;
             // processing either advances it or monotonically grows a chart state.
             while let Some(state) = charts[position].agenda.pop_front() {
@@ -1385,6 +1927,8 @@ impl Grammar {
                             priority_memos,
                             filter,
                             cycles,
+                            stand_in,
+                            cut_repetitions,
                         );
                         if let Some(cycle) = &completed.cycle {
                             return Err(cycle.clone());
@@ -1442,7 +1986,15 @@ impl Grammar {
                             derivation_count,
                             revisit,
                         );
-                        if self.productive_unary_cycles.contains(&state.production) {
+                        // A retry builds the node: its first lap may be the only node of its sort
+                        // over the span, and the callers it advances are items of the chart the
+                        // diagnostic reads. `SameSpanCycles` flags every such production (a
+                        // labelled unary production whose child derives its result through unary
+                        // productions), so its second lap is a repetition over one span, which
+                        // the retry cuts below (`cut_repetitions`).
+                        if self.productive_unary_cycles.contains(&state.production)
+                            && !cut_repetitions
+                        {
                             return Err(self.productive_unary_cycle_error(
                                 state.production,
                                 input,
@@ -1459,15 +2011,24 @@ impl Grammar {
                             update_chart_work_counters(|counters| {
                                 counters.primary_completion_candidates += 1;
                             });
-                            let term = build_packed_term(
-                                state.production,
-                                production,
-                                children,
-                                input,
-                                state.origin,
-                                position,
-                                provenance,
-                            );
+                            let term = if let Some(stand_in) = stand_in {
+                                Rc::clone(stand_in)
+                            } else {
+                                let term = build_packed_term(
+                                    state.production,
+                                    production,
+                                    children,
+                                    input,
+                                    state.origin,
+                                    position,
+                                    provenance,
+                                );
+                                if production.term_production.is_some() {
+                                    instance_nodes.intern(term, state.origin, position)
+                                } else {
+                                    term
+                                }
+                            };
                             match match filter {
                                 PriorityFilter::Enforced => self.filter_or_defer_packed_priority(
                                     Rc::clone(&term),
@@ -1476,8 +2037,10 @@ impl Grammar {
                                 PriorityFilter::Ignored => Ok(Rc::clone(&term)),
                             } {
                                 Ok(term) => {
-                                    if cycles.contains(state.production) {
-                                        check_same_span_repetition(
+                                    // A repetition over one span makes the forest infinite; a
+                                    // retry cuts it (`cut_repetitions`).
+                                    let repeats = cycles.contains(state.production)
+                                        && match check_same_span_repetition(
                                             self,
                                             &charts[position],
                                             state.production,
@@ -1485,9 +2048,14 @@ impl Grammar {
                                             input,
                                             state.origin,
                                             position,
-                                        )?;
+                                        ) {
+                                            Ok(()) => false,
+                                            Err(_) if cut_repetitions => true,
+                                            Err(cycle) => return Err(cycle),
+                                        };
+                                    if !repeats {
+                                        nodes.insert(term);
                                     }
-                                    nodes.insert(term);
                                 }
                                 Err(error) => {
                                     invalid.push((term, error));
@@ -1497,9 +2065,45 @@ impl Grammar {
                         if first_violation.is_none() && !invalid.is_empty() {
                             first_violation = Some(canonical_packed_error(invalid));
                         }
+                        // A nonempty completion before the horizon advances only the callers
+                        // whose advanced item can contribute to a parse (`PredictionMode`).
+                        let winner = match completion_analysis {
+                            Some(_)
+                                if state.origin < position
+                                    && prediction_mode.prunes_completions_at(canonical) =>
+                            {
+                                if usefulness_filter == PriorityFilter::Enforced
+                                    && remaining_tokens.is_none()
+                                    && let Some(analysis) = completion_analysis
+                                {
+                                    remaining_tokens = Some(RemainingTokens::new(
+                                        self,
+                                        input,
+                                        start_position,
+                                        analysis.deferred_scopes(),
+                                        scanner_cache,
+                                    ));
+                                }
+                                *lookahead.get_or_insert_with(|| {
+                                    (canonical < input.len()).then(|| {
+                                        match self.scanner.winner(
+                                            &self.layout,
+                                            input,
+                                            canonical,
+                                            &mut scanner_cache[canonical],
+                                        ) {
+                                            Some(ScanWinner::Token { lexeme, .. }) => Some(lexeme),
+                                            Some(ScanWinner::Layout { .. }) | None => None,
+                                        }
+                                    })
+                                })
+                            }
+                            _ => None,
+                        };
                         let mut advance = |chart: &mut Chart,
                                            caller: State,
-                                           caller_derivations: &Derivations|
+                                           caller_derivations: &Derivations,
+                                           earlier: Option<&[Chart]>|
                          -> Result<(), ParseError> {
                             #[cfg(test)]
                             update_chart_work_counters(|counters| {
@@ -1512,6 +2116,35 @@ impl Grammar {
                                 filter,
                                 &mut first_violation,
                             );
+                            let advanced = State {
+                                dot: caller.dot + 1,
+                                ..caller
+                            };
+                            if let (Some(analysis), Some(winner), Some(earlier)) =
+                                (completion_analysis, winner, earlier)
+                                && !completed.is_empty()
+                                && !self.advanced_item_useful(
+                                    earlier,
+                                    advanced,
+                                    self.stands_for(advanced.production, state.production),
+                                    winner,
+                                    Reach {
+                                        analysis,
+                                        cycles,
+                                        filter: usefulness_filter,
+                                        root,
+                                        remaining: remaining_tokens.as_ref(),
+                                        from: canonical,
+                                        doomed,
+                                        doomed_pruned: &doomed_pruned,
+                                    },
+                                    &mut useful_completions,
+                                    &mut reaching_nodes,
+                                )
+                            {
+                                *pruned = true;
+                                return Ok(());
+                            }
                             if !completed.is_empty() {
                                 self.add_chart_extensions(
                                     chart,
@@ -1537,7 +2170,12 @@ impl Grammar {
                                 .flatten()
                             {
                                 if let Some(caller_derivations) = origin.states.get(caller) {
-                                    advance(&mut later[0], *caller, caller_derivations)?;
+                                    advance(
+                                        &mut later[0],
+                                        *caller,
+                                        caller_derivations,
+                                        Some(&*earlier),
+                                    )?;
                                 }
                             }
                         } else {
@@ -1556,7 +2194,7 @@ impl Grammar {
                                 })
                                 .collect::<Vec<_>>();
                             for (caller, caller_derivations) in callers {
-                                advance(&mut charts[position], caller, &caller_derivations)?;
+                                advance(&mut charts[position], caller, &caller_derivations, None)?;
                             }
                         }
                     }
@@ -1584,6 +2222,8 @@ impl Grammar {
                 priority_memos,
                 filter,
                 cycles,
+                stand_in,
+                cut_repetitions,
             );
             if let Some(cycle) = &completed.cycle {
                 return Err(cycle.clone());
@@ -1597,6 +2237,7 @@ impl Grammar {
             charts,
             parses,
             first_violation,
+            doomed_pruned: doomed_pruned.get(),
         })
     }
 
@@ -1608,6 +2249,421 @@ impl Grammar {
         let cleaned = self.remove_brackets_and_syntactic_casts(listed);
         let cleaned = self.factor_ambiguities(cleaned);
         self.resolve_ambiguities(cleaned)
+    }
+
+    /// Whether `advanced`, an item a nonempty completion ending at the current position
+    /// advances, can contribute to a parse when the scanner's next token is the lexeme `winner`
+    /// (`None` where no token follows): its remaining items can begin with that token, or they
+    /// can all match the empty string and the completion of its production is useful
+    /// ([`Self::completion_useful`]). `earlier` holds the charts before the current position,
+    /// which are final. `stands_for` is the production of the node the advanced item's node is
+    /// in the forest ([`Self::stands_for`]).
+    #[allow(clippy::too_many_arguments)]
+    fn advanced_item_useful(
+        &self,
+        earlier: &[Chart],
+        advanced: State,
+        stands_for: usize,
+        winner: Option<usize>,
+        reach: Reach<'_>,
+        memo: &mut HashMap<CompletionKey, bool>,
+        reaching: &mut HashMap<NodeKey, Reaching>,
+    ) -> bool {
+        if reach
+            .analysis
+            .rest_can_start_with(advanced.production, advanced.dot, winner)
+        {
+            return reach
+                .rest_follows(advanced.production, advanced.dot, reach.from)
+                .is_some_and(|after| {
+                    self.node_reaches_root(
+                        earlier,
+                        (advanced.origin, advanced.production, stands_for),
+                        after,
+                        reach,
+                        reaching,
+                    )
+                });
+        }
+        reach
+            .analysis
+            .rest_is_nullable(advanced.production, advanced.dot)
+            && self.completion_useful(
+                earlier,
+                (advanced.origin, advanced.production, stands_for),
+                winner,
+                reach,
+                memo,
+                reaching,
+            )
+    }
+
+    /// The production of the node that a node of `production` over a child built by `child` is
+    /// in the forest: the child's own when `production` passes its child through
+    /// ([`Production::passes_child_through`]), so that the relations judge the node they will
+    /// see at each edge. A `child` that itself passes its child through stands for a node of a
+    /// production the search does not know; it is judged as itself, which has no label, and no
+    /// relation rejects it.
+    fn stands_for(&self, production: usize, child: usize) -> usize {
+        if self.productions[production].passes_child_through() {
+            child
+        } else {
+            production
+        }
+    }
+
+    /// Whether a node of `production` starting in chart `origin`, whose callers' rests begin at
+    /// `after` at the earliest, can be part of a parse of the whole input: it is a node of the
+    /// start sort at the start, or some item waiting for its sort in chart `origin` admits it at
+    /// its dot ([`Self::boundary_admits`]), can finish its own production on the tokens from
+    /// `after` on ([`Reach::rest_follows`]), and its own node can be part of a parse in turn,
+    /// with its callers' rests beginning past the first token that rest scans. This is what the
+    /// relations and the input decide of a chain: under `E ::= E "+" E [left]`, a sum starting
+    /// after the first operand can only become the right operand of a sum, which the relation
+    /// forbids, or the left operand of another operator at its origin, which the priorities may
+    /// forbid (`E "*" E > E "+" E`) and which, when the input holds no such operator from
+    /// `after` on (the K prelude's `#And` at every sort), can never be finished; in a rule body,
+    /// the left operand of the rule's own rewrite, whose `=>` comes after the `)` that closes
+    /// the call around the chain, so that the rewrite would end where no `)` is left. So its
+    /// items are part of no parse. A production on a same-span or productive unary cycle can,
+    /// as in [`Self::completion_useful`]. A node is `(origin, production, stands for)`: each
+    /// edge is judged with the production of the node the filters will see there
+    /// ([`Self::stands_for`]), so that a sum that becomes an operand through an unlabelled
+    /// production (`#RuleE ::= E` in a rule grammar whose argument positions admit rewrites) is
+    /// judged as the sum.
+    ///
+    /// The answer depends on the node, the final chart `origin` and `after`, and a later
+    /// `after` only removes tokens the rests can use; it is memoized in `memo` by node as the
+    /// bounds of `after` it is known for ([`Reaching`]), and searched with an explicit stack, as
+    /// in [`Self::completion_useful`].
+    ///
+    /// Judged without the relations (`filter` ignored) every node is taken to reach the root:
+    /// this question is about where a node can sit in a parse, and a recognition that must
+    /// keep every item the input can continue does not ask it.
+    fn node_reaches_root(
+        &self,
+        earlier: &[Chart],
+        node: NodeKey,
+        after: usize,
+        reach: Reach<'_>,
+        memo: &mut HashMap<NodeKey, Reaching>,
+    ) -> bool {
+        if reach.filter == PriorityFilter::Ignored {
+            return true;
+        }
+        if let Some(reaches) = memo.get(&node).and_then(|known| known.known(after)) {
+            return reaches;
+        }
+        let reaches_by_itself = |origin: usize, production: usize| {
+            (origin, self.productions[production].result_id) == reach.root
+                || reach.cycles.contains(production)
+                || self.productive_unary_cycles.contains(&production)
+        };
+        // The earliest `after` each node was pushed with: a node pushed again with the same or
+        // a later one can reach no more than it could then.
+        let mut visited = HashMap::from([(node, after)]);
+        // Each frame: the node, its `after`, the waiting items examined, and the rest
+        // (production, dot) of the caller that admitted the node below it (none for the first).
+        let mut stack = vec![(node, after, 0usize, None::<(usize, usize)>)];
+        // Invariant: `stack` is a chain of nodes, each admitted by an item waiting for it whose
+        // rest the tokens from the node's `after` on can follow and whose node is the next,
+        // with that next node's `after` past the first token the rest scans; `visited` holds
+        // every node pushed, with the earliest `after` it was pushed with, and the fourth
+        // component counts the waiting items of each already examined.
+        // The latest `after` with which the node of the top frame, by the path found, reaches
+        // the root.
+        let found = 'search: loop {
+            let Some(((origin, production, stands_for), after, next_caller, _)) = stack.last_mut()
+            else {
+                break 'search None;
+            };
+            if *next_caller == 0 && reaches_by_itself(*origin, *production) {
+                break 'search Some(usize::MAX);
+            }
+            let callers = earlier[*origin]
+                .waiting
+                .get(&self.productions[*production].result_id)
+                .map_or(&[][..], Vec::as_slice);
+            let Some(caller) = callers.get(*next_caller).copied() else {
+                stack.pop();
+                continue;
+            };
+            *next_caller += 1;
+            let Some(caller_after) = reach
+                .rest_follows(caller.production, caller.dot + 1, *after)
+                .and_then(|caller_after| {
+                    self.boundary_admits(caller, *stands_for, reach)
+                        .after(caller_after)
+                })
+            else {
+                continue;
+            };
+            let node = (
+                caller.origin,
+                caller.production,
+                self.stands_for(caller.production, *stands_for),
+            );
+            let rest = (caller.production, caller.dot + 1);
+            let known = memo.get(&node).copied().unwrap_or_default();
+            match known.known(caller_after) {
+                Some(true) => {
+                    let latest = known
+                        .reaches_up_to
+                        .expect("a node known to reach has a bound");
+                    break 'search Some(
+                        reach
+                            .rest_latest(rest.0, rest.1, latest)
+                            .expect("the rest follows at the node's own bound"),
+                    );
+                }
+                Some(false) => {}
+                None => {
+                    if visited
+                        .get(&node)
+                        .is_none_or(|pushed| caller_after < *pushed)
+                    {
+                        visited.insert(node, caller_after);
+                        stack.push((node, caller_after, 0, Some(rest)));
+                    }
+                }
+            }
+        };
+        match found {
+            Some(mut latest) => {
+                // Pass the bound down the path: each node reaches the root, by it, with any
+                // `after` up to the latest at which the rest that admits it into the next node
+                // can still begin.
+                for (node, after, _, rest) in stack.into_iter().rev() {
+                    debug_assert!(after <= latest);
+                    let known = memo.entry(node).or_default();
+                    known.reaches_up_to = known.reaches_up_to.max(Some(latest));
+                    if let Some((rest_production, rest_dot)) = rest {
+                        latest = reach
+                            .rest_latest(rest_production, rest_dot, latest)
+                            .expect("the rest follows at the node's own bound");
+                    }
+                }
+                true
+            }
+            None => {
+                for (node, after) in visited {
+                    let known = memo.entry(node).or_default();
+                    known.fails_from =
+                        Some(known.fails_from.map_or(after, |fails| fails.min(after)));
+                }
+                false
+            }
+        }
+    }
+
+    /// Whether a completion of `production` over `[origin, here]` can contribute to a parse
+    /// when the scanner's next token is the lexeme `winner`: some item waiting for its sort in
+    /// chart `origin` admits a node of it ([`Self::boundary_admits`]) and its advanced item is
+    /// useful ([`Self::advanced_item_useful`]). A production that can take part in a same-span
+    /// or productive unary cycle is useful, so that a node it repeats is built and the cycle is
+    /// reported; a cycle that only items the input cannot continue would reach is part of no
+    /// parse of the input (whose forest is then finite) and is not met, as with a skipped
+    /// prediction. An item that can continue with `winner` counts only when its node can be part
+    /// of a parse of the whole input ([`Self::node_reaches_root`]).
+    ///
+    /// The answer depends only on the node `(origin, production, stands for)` (as in
+    /// [`Self::node_reaches_root`]), `winner` and the final chart `origin` (and, through
+    /// [`Self::node_reaches_root`], on the tokens that remain, which only shrink), so it is
+    /// memoized in `memo`. The search over the chain of callers uses an explicit
+    /// stack; when it finds no useful item, no item it visited reaches one, and all of them are
+    /// recorded as useless.
+    fn completion_useful(
+        &self,
+        earlier: &[Chart],
+        node: NodeKey,
+        winner: Option<usize>,
+        reach: Reach<'_>,
+        memo: &mut HashMap<CompletionKey, bool>,
+        reaching: &mut HashMap<NodeKey, Reaching>,
+    ) -> bool {
+        // A caller completed here through a nullable rest ends here, so whether its node holds
+        // a witness of a deferred scope error (`Admission::IfEndsAfter`) depends on how many
+        // witnesses come before this position, which is part of the key.
+        let region = reach
+            .remaining
+            .map_or(0, |remaining| remaining.deferrals_before(reach.from));
+        if let Some(useful) = memo.get(&(node, winner, region)) {
+            return *useful;
+        }
+        let mut visited = HashSet::from([node]);
+        let mut stack = vec![(node, 0usize)];
+        // Invariant: `stack` is a chain of completions, each of which some caller of the one
+        // before it would complete through a nullable rest; `visited` holds every completion
+        // pushed, and the third component counts the callers of each already examined.
+        let found = 'search: loop {
+            let Some(((origin, production, stands_for), next_caller)) = stack.last_mut() else {
+                break 'search false;
+            };
+            if *next_caller == 0
+                && (reach.cycles.contains(*production)
+                    || self.productive_unary_cycles.contains(production))
+            {
+                break 'search true;
+            }
+            let callers = earlier[*origin]
+                .waiting
+                .get(&self.productions[*production].result_id)
+                .map_or(&[][..], Vec::as_slice);
+            let Some(caller) = callers.get(*next_caller).copied() else {
+                stack.pop();
+                continue;
+            };
+            *next_caller += 1;
+            let admission = self.boundary_admits(caller, *stands_for, reach);
+            if admission == Admission::No {
+                continue;
+            }
+            let dot = caller.dot + 1;
+            let caller_node = (
+                caller.origin,
+                caller.production,
+                self.stands_for(caller.production, *stands_for),
+            );
+            if reach
+                .analysis
+                .rest_can_start_with(caller.production, dot, winner)
+                && reach
+                    .rest_follows(caller.production, dot, reach.from)
+                    .and_then(|after| admission.after(after))
+                    .is_some_and(|after| {
+                        self.node_reaches_root(earlier, caller_node, after, reach, reaching)
+                    })
+            {
+                break 'search true;
+            }
+            if !reach.analysis.rest_is_nullable(caller.production, dot)
+                || admission.after(reach.from) != Some(reach.from)
+            {
+                continue;
+            }
+            match memo.get(&(caller_node, winner, region)) {
+                Some(true) => break 'search true,
+                Some(false) => {}
+                None => {
+                    if visited.insert(caller_node) {
+                        stack.push((caller_node, 0));
+                    }
+                }
+            }
+        };
+        if found {
+            for (node, _) in stack {
+                memo.insert((node, winner, region), true);
+            }
+        } else {
+            for node in visited {
+                memo.insert((node, winner, region), false);
+            }
+        }
+        found
+    }
+
+    /// Whether `caller` can hold a node built by `child` at its dot in a reading the filters
+    /// keep; `child` is the production of the node the filters see there
+    /// ([`Self::stands_for`]). The associativity boundary [`Self::filter_associative_boundary`]
+    /// drops the node before the caller packs it, in every grammar (judged from `child`'s own
+    /// parse label; a production without one whose node stands for a node of an unknown
+    /// production passes that node's label up, which is not known here, so it is kept). The priority filter judges the edge when the caller completes
+    /// ([`Self::priority_admits`]): a violation drops the caller's node, unless the filter has
+    /// already met, in an earlier child or in another reading of this one, a rewrite, sequence
+    /// or `#let` below an operator, a scope error it defers so that a reading rooted at the
+    /// rewrite can be preferred over the one with the error, keeping the doomed node in the
+    /// forest until then. Such an error needs a node of a rewrite, sequence or `#let` inside
+    /// the caller's node, so a violation removes the reading wherever the caller's node holds no
+    /// token that witnesses one ([`DeferredScopes`]); in a grammar without them, always.
+    fn boundary_admits(&self, caller: State, child: usize, reach: Reach<'_>) -> Admission {
+        if reach.filter == PriorityFilter::Ignored {
+            return Admission::Yes;
+        }
+        if !self.associativity_admits(caller, child) {
+            return Admission::No;
+        }
+        if self.priority_admits(caller, child) {
+            return Admission::Yes;
+        }
+        match reach.analysis.deferred_scopes() {
+            DeferredScopes::Absent => Admission::No,
+            DeferredScopes::Unwitnessed => Admission::Yes,
+            DeferredScopes::Witnessed(_) => match reach.remaining {
+                None => Admission::Yes,
+                Some(remaining) => match remaining.first_deferral_from(caller.origin) {
+                    None => Admission::No,
+                    Some(_)
+                        if reach.doomed == DoomedEdges::SkippedBesideOneScope
+                            && remaining.deferral_count() == 1 =>
+                    {
+                        reach.doomed_pruned.set(true);
+                        Admission::No
+                    }
+                    Some(witness) => Admission::IfEndsAfter(witness),
+                },
+            },
+        }
+    }
+
+    /// Whether [`Self::filter_associative_boundary`] keeps a node built by `child` as the
+    /// child of `caller` at its dot.
+    fn associativity_admits(&self, caller: State, child: usize) -> bool {
+        let production = &self.productions[caller.production];
+        let Some(parent) = production.parse_label.as_deref() else {
+            return true;
+        };
+        let left_child = if caller.dot == 0 {
+            true
+        } else if caller.dot + 1 == production.items.len() {
+            false
+        } else {
+            return true;
+        };
+        let Some(child) = self.productions[child].parse_label.as_deref() else {
+            return true;
+        };
+        !self.associativity_forbids(parent, child, left_child)
+    }
+
+    /// Whether the associativity relations forbid a node labelled `child` as the leftmost
+    /// (`left_child`) or the rightmost child of one labelled `parent`.
+    pub(super) fn associativity_forbids(
+        &self,
+        parent: &str,
+        child: &str,
+        left_child: bool,
+    ) -> bool {
+        let index = self
+            .associativity_index
+            .get_or_init(|| AssociativityIndex::new(&self.associativities));
+        let by_parent = if left_child {
+            &index.right
+        } else {
+            &index.left
+        };
+        by_parent
+            .get(parent)
+            .is_some_and(|children| children.contains(child))
+    }
+
+    /// Whether the priority filter's check of the edge between `caller`'s node and a node built
+    /// by `child` at the caller's dot passes ([`Grammar::edge_rejects`]: no scope, cast,
+    /// priority or associativity violation there). A temporary recognition production builds
+    /// the node of another production (`Production::term_production`) whose child positions it
+    /// does not know: it passes.
+    fn priority_admits(&self, caller: State, child: usize) -> bool {
+        let recognizer = &self.productions[caller.production];
+        if recognizer.term_production.is_some() {
+            return true;
+        }
+        let position = recognizer.items[..caller.dot]
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count()
+            + 1;
+        let node = self.productions[child].term_production.unwrap_or(child);
+        !self.edge_rejects(caller.production, node, position)
     }
 
     /// Drop completed nodes whose top label violates the caller's associativity on the side they
@@ -1628,16 +2684,16 @@ impl Grammar {
         if filter == PriorityFilter::Ignored {
             return Cow::Borrowed(nodes);
         }
-        let (relation, side) = if caller.dot == 0 {
-            (&self.associativities.right, "left")
+        let (left_child, side) = if caller.dot == 0 {
+            (true, "left")
         } else if caller.dot + 1 == production.items.len() {
-            (&self.associativities.left, "right")
+            (false, "right")
         } else {
             return Cow::Borrowed(nodes);
         };
         let violates = |node: &PackedTerm| {
             self.packed_top_parse_label(node)
-                .is_some_and(|child| relation.contains(&(parent.to_owned(), child.to_owned())))
+                .is_some_and(|child| self.associativity_forbids(parent, child, left_child))
         };
         // Most boundaries reject nothing; they pass the caller's set through without copying it.
         if !nodes.iter().any(|node| violates(node)) {
@@ -1650,7 +2706,7 @@ impl Grammar {
                     let Some(child) = self.packed_top_parse_label(node) else {
                         return true;
                     };
-                    if !relation.contains(&(parent.to_owned(), child.to_owned())) {
+                    if !self.associativity_forbids(parent, child, left_child) {
                         return true;
                     }
                     first_violation.get_or_insert_with(|| ParseError::Associativity {
@@ -1943,14 +2999,17 @@ fn term_metadata(
 ///
 /// Fails only for a production labelled `#OuterCast` whose result sort has no sort projection;
 /// `span` locates that diagnostic.
+/// The KAST term of one node of `production` over its lowered `children`, which it takes over:
+/// a node is built from its children without copying them, so lowering a tree costs time in
+/// proportion to its size, whatever its height.
 fn lower_term(
     production: &Production,
-    children: &[Term],
+    mut children: Vec<Term>,
     span: Option<TermSpan>,
     denotations: &SortDenotations,
 ) -> Result<Term, ParseError> {
     if production.transparent || production.label.is_none() && children.len() == 1 {
-        return Ok(children[0].clone());
+        return Ok(children.swap_remove(0));
     }
     let mut label = production
         .label
@@ -1969,7 +3028,7 @@ fn lower_term(
         })?;
     }
     if label.is(InternalLabel::KToken)
-        && let [value, sort] = children
+        && let [value, sort] = children.as_slice()
         && let (Some(value), Some(sort)) = (kstring_token(value), kstring_token(sort))
         && let (Ok(value), Ok(sort)) = (
             crate::kast::string::unquote(value),
@@ -1982,20 +3041,25 @@ fn lower_term(
             sort: denotations.denote(&sort).clone(),
         });
     }
-    Ok(match (InternalLabel::of(&label.name), children) {
-        (Some(InternalLabel::EmptyK), []) => Term::Sequence(Vec::new()),
-        (Some(InternalLabel::KSequence), items) => Term::sequence(items.iter().cloned()),
-        (Some(InternalLabel::KRewrite), [left, right]) => Term::Rewrite {
-            left: Box::new(left.clone()),
-            right: Box::new(right.clone()),
-        },
-        (Some(InternalLabel::KAs), [pattern, alias]) => Term::As {
-            pattern: Box::new(pattern.clone()),
-            alias: Box::new(alias.clone()),
-        },
+    let pair = |children: Vec<Term>| -> [Box<Term>; 2] {
+        let [first, second] = <[Term; 2]>::try_from(children)
+            .unwrap_or_else(|_| unreachable!("the arm matched two children"));
+        [Box::new(first), Box::new(second)]
+    };
+    Ok(match (InternalLabel::of(&label.name), children.len()) {
+        (Some(InternalLabel::EmptyK), 0) => Term::Sequence(Vec::new()),
+        (Some(InternalLabel::KSequence), _) => Term::sequence(children),
+        (Some(InternalLabel::KRewrite), 2) => {
+            let [left, right] = pair(children);
+            Term::Rewrite { left, right }
+        }
+        (Some(InternalLabel::KAs), 2) => {
+            let [pattern, alias] = pair(children);
+            Term::As { pattern, alias }
+        }
         _ => Term::Apply {
             label,
-            arguments: children.to_vec(),
+            arguments: children,
         },
     })
 }
@@ -2044,7 +3108,7 @@ mod chart_tests {
                     diagnostic_provenance: false,
                 },
                 PredictionMode::Unfiltered,
-                &mut false,
+                &mut Pruning::default(),
             )
         }
 
@@ -2209,7 +3273,7 @@ mod chart_tests {
         }
 
         #[test]
-        fn retries_errors_after_forest_construction() {
+        fn reports_errors_after_forest_construction_without_a_retry() {
             let grammar = Grammar::from_sentences(&[
                 production("Start", vec![nonterminal("Choice")], "start"),
                 production(
@@ -2236,7 +3300,7 @@ mod chart_tests {
             ));
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
-            assert_eq!(PARSE_ATTEMPTS.get(), 2);
+            assert_eq!(PARSE_ATTEMPTS.get(), 1);
         }
 
         #[test]
@@ -2267,7 +3331,7 @@ mod chart_tests {
             }
             // At byte one the regex wins without consuming '?'. It must still be inserted;
             // the resulting root stops short of EOF, so this whole input is correctly rejected.
-            let mut pruned = false;
+            let mut pruning = Pruning::default();
             CHART_PREDICTION_ATTEMPTS.set(0);
             let result = grammar.parse_attempt(
                 &Sort::new("Start"),
@@ -2281,10 +3345,10 @@ mod chart_tests {
                     diagnostic_provenance: false,
                 },
                 PredictionMode::Filtered,
-                &mut pruned,
+                &mut pruning,
             );
             assert!(result.is_err());
-            assert!(pruned);
+            assert!(pruning.pruned);
             assert_eq!(CHART_PREDICTION_ATTEMPTS.get(), 1);
         }
     }
@@ -2341,9 +3405,9 @@ mod chart_tests {
 
     fn derivation(term: ParsedTerm) -> Derivation {
         fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
-            match term {
-                ParsedTerm::Term(term) => PackedTerm::leaf(term),
-                ParsedTerm::Production {
+            match term.into_parts() {
+                ParsedParts::Term(term) => PackedTerm::leaf(term),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
@@ -2352,10 +3416,10 @@ mod chart_tests {
                     children.into_iter().map(pack).collect(),
                     metadata,
                 ),
-                ParsedTerm::Ambiguity(alternatives) => {
+                ParsedParts::Ambiguity(alternatives) => {
                     PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
                 }
-                ParsedTerm::InstantiatedProduction { .. } => {
+                ParsedParts::InstantiatedProduction { .. } => {
                     panic!("chart tests do not construct post-inference productions")
                 }
             }
@@ -2499,10 +3563,7 @@ mod chart_tests {
                 false,
             )
             .unwrap();
-        grammar
-            .associativities
-            .left
-            .insert(("plus".to_owned(), "plus".to_owned()));
+        grammar.add_left_associative("plus");
         let operands = 30;
         let input = std::iter::repeat_n("x:S", operands)
             .collect::<Vec<_>>()
@@ -3275,7 +4336,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([losing, preferred])))
             .expect("the preferred collapsed record satisfies priority");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected preferred rewrite root");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3400,7 +4461,7 @@ mod chart_tests {
                 first, second, survivor,
             ])))
             .expect("the surviving record remains after both shared failures");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected surviving wrapper");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3510,7 +4571,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(PackedTerm::ambiguity(BTreeSet::from([failing, surviving])))
             .expect("the later ambiguity alternative survives");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected surviving wrapper");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {
@@ -3843,7 +4904,7 @@ mod chart_tests {
         let materialized = grammar
             .materialize_packed_forest(forest)
             .expect("the preferred root and collapsed record satisfy priority");
-        let ParsedTerm::Production { children, .. } = materialized else {
+        let ParsedParts::Production { children, .. } = materialized.into_parts() else {
             panic!("expected preferred root production");
         };
         let ParsedTerm::Production { children, .. } = &children[0] else {

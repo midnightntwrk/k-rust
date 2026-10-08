@@ -22,7 +22,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse forest"
-//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
+//! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 //! ```
 //!
 //! Generation and collapse of Scala-compatible record productions.
@@ -39,12 +39,13 @@ use k_rust_kore::measure::{self, Algorithm};
 use crate::definition::ProductionItem;
 use crate::kast::{Sort, Term, TermSpan};
 
-#[cfg(test)]
-use super::ParsedTerm;
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, RecordProduction, RecordProductionKind,
-    canonical_packed_error, cmp_packed_structurally, packed_terms_in_structural_order,
+    StructuralOrder, canonical_packed_error, cmp_packed_structurally,
+    packed_terms_in_structural_order,
 };
+#[cfg(test)]
+use super::{ParsedParts, ParsedTerm};
 
 type PackedRecordResult = Result<Rc<PackedTerm>, ParseError>;
 type PackedRecordMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedRecordResult)>;
@@ -234,7 +235,14 @@ impl Grammar {
         let mut generated = BTreeMap::new();
         let mut next = 0;
         let mut memo = HashMap::new();
-        self.collapse_packed_records(term, &mut names, &mut generated, &mut next, &mut memo)
+        self.collapse_packed_records(
+            term,
+            &mut names,
+            &mut generated,
+            &mut next,
+            &mut memo,
+            &mut StructuralOrder::default(),
+        )
     }
 
     fn collapse_packed_records(
@@ -244,91 +252,96 @@ impl Grammar {
         generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
         memo: &mut PackedRecordMemo,
+        order: &mut StructuralOrder,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        let identity = Rc::as_ptr(&term);
-        if let Some((_, collapsed)) = memo.get(&identity) {
-            return collapsed.clone();
-        }
-        let collapsed = match &term.node {
-            PackedNode::InstantiatedProduction { .. } => {
-                unreachable!("instantiated productions are created after record collapse")
+        crate::stack::guarded(|| {
+            let identity = Rc::as_ptr(&term);
+            if let Some((_, collapsed)) = memo.get(&identity) {
+                return collapsed.clone();
             }
-            PackedNode::Term(_) => Ok(Rc::clone(&term)),
-            PackedNode::Ambiguity(alternatives) => {
-                let mut retained = BTreeSet::new();
-                let mut errors = Vec::new();
-                // Invariant: every processed alternative is memoized recursively, and `retained`
-                // holds the successful flattened results in deterministic structural order.
-                for alternative in packed_terms_in_structural_order(alternatives) {
-                    match self.collapse_packed_records(
-                        Rc::clone(&alternative),
-                        names,
-                        generated,
-                        next,
-                        memo,
-                    ) {
-                        Ok(collapsed) => match &collapsed.node {
-                            PackedNode::Ambiguity(nested) => {
-                                for nested in packed_terms_in_structural_order(nested) {
-                                    retained.insert(nested);
+            let collapsed = match &term.node {
+                PackedNode::InstantiatedProduction { .. } => {
+                    unreachable!("instantiated productions are created after record collapse")
+                }
+                PackedNode::Term(_) => Ok(Rc::clone(&term)),
+                PackedNode::Ambiguity(alternatives) => {
+                    let mut retained = BTreeSet::new();
+                    let mut errors = Vec::new();
+                    // Invariant: every processed alternative is memoized recursively, and the
+                    // alternatives are processed in deterministic structural order, which is the
+                    // order generated names are allocated in; `retained` holds the successful
+                    // flattened results.
+                    for alternative in order.sorted(alternatives) {
+                        match self.collapse_packed_records(
+                            Rc::clone(&alternative),
+                            names,
+                            generated,
+                            next,
+                            memo,
+                            order,
+                        ) {
+                            Ok(collapsed) => match &collapsed.node {
+                                PackedNode::Ambiguity(nested) => {
+                                    retained.extend(nested.iter().cloned());
                                 }
-                            }
-                            _ => {
-                                retained.insert(collapsed);
-                            }
-                        },
-                        Err(error) => errors.push((alternative, error)),
+                                _ => {
+                                    retained.insert(collapsed);
+                                }
+                            },
+                            Err(error) => errors.push((alternative, error)),
+                        }
+                    }
+                    if retained.is_empty() {
+                        Err(canonical_packed_error(errors))
+                    } else {
+                        Ok(PackedTerm::ambiguity(retained))
                     }
                 }
-                if retained.is_empty() {
-                    Err(canonical_packed_error(errors))
-                } else {
-                    Ok(PackedTerm::ambiguity(retained))
-                }
-            }
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } if self.productions[*production].record.is_some() => self
-                .collapse_packed_record(*production, children, metadata, names, generated, next)
-                .and_then(|collapsed| {
-                    self.collapse_packed_records(collapsed, names, generated, next, memo)
-                }),
-            PackedNode::Production {
-                production,
-                children,
-                metadata,
-            } => {
-                let mut collapsed_children = Vec::with_capacity(children.len());
-                let mut errors = Vec::new();
-                // Invariant: each completed prefix of `collapsed_children` corresponds to the
-                // same prefix of input children; errors retain the original child identity.
-                for child in children {
-                    match self.collapse_packed_records(
-                        Rc::clone(child),
-                        names,
-                        generated,
-                        next,
-                        memo,
-                    ) {
-                        Ok(collapsed) => collapsed_children.push(collapsed),
-                        Err(error) => errors.push((Rc::clone(child), error)),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } if self.productions[*production].record.is_some() => self
+                    .collapse_packed_record(*production, children, metadata, names, generated, next)
+                    .and_then(|collapsed| {
+                        self.collapse_packed_records(collapsed, names, generated, next, memo, order)
+                    }),
+                PackedNode::Production {
+                    production,
+                    children,
+                    metadata,
+                } => {
+                    let mut collapsed_children = Vec::with_capacity(children.len());
+                    let mut errors = Vec::new();
+                    // Invariant: each completed prefix of `collapsed_children` corresponds to the
+                    // same prefix of input children; errors retain the original child identity.
+                    for child in children {
+                        match self.collapse_packed_records(
+                            Rc::clone(child),
+                            names,
+                            generated,
+                            next,
+                            memo,
+                            order,
+                        ) {
+                            Ok(collapsed) => collapsed_children.push(collapsed),
+                            Err(error) => errors.push((Rc::clone(child), error)),
+                        }
+                    }
+                    if errors.is_empty() {
+                        Ok(PackedTerm::production(
+                            *production,
+                            collapsed_children,
+                            metadata.clone(),
+                        ))
+                    } else {
+                        Err(canonical_packed_error(errors))
                     }
                 }
-                if errors.is_empty() {
-                    Ok(PackedTerm::production(
-                        *production,
-                        collapsed_children,
-                        metadata.clone(),
-                    ))
-                } else {
-                    Err(canonical_packed_error(errors))
-                }
-            }
-        };
-        memo.insert(identity, (term, collapsed.clone()));
-        collapsed
+            };
+            memo.insert(identity, (term, collapsed.clone()));
+            collapsed
+        })
     }
 
     fn collapse_packed_record(
@@ -398,64 +411,67 @@ impl Grammar {
         term: Rc<PackedTerm>,
         original: usize,
     ) -> Result<BTreeSet<BTreeMap<String, Rc<PackedTerm>>>, ParseError> {
-        if let PackedNode::Ambiguity(alternatives) = &term.node {
-            let mut fields = BTreeSet::new();
-            for alternative in packed_terms_in_structural_order(alternatives) {
-                fields.extend(self.collect_packed_record_fields(alternative, original)?);
-            }
-            return Ok(fields);
-        }
-        let PackedNode::Production {
-            production,
-            children,
-            ..
-        } = &term.node
-        else {
-            return Err(record_error("malformed generated record production"));
-        };
-        let metadata = self.productions[*production]
-            .record
-            .as_ref()
-            .ok_or_else(|| record_error("malformed generated record production"))?;
-        if metadata.original != original {
-            return Err(record_error("mismatched generated record production"));
-        }
-        match &metadata.kind {
-            RecordProductionKind::Zero | RecordProductionKind::Empty => {
-                Ok(BTreeSet::from([BTreeMap::new()]))
-            }
-            RecordProductionKind::Main | RecordProductionKind::Subsort => {
-                let [child] = children.as_slice() else {
-                    return Err(record_error("malformed generated record list"));
-                };
-                self.collect_packed_record_fields(Rc::clone(child), original)
-            }
-            RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
-                let [child] = children.as_slice() else {
-                    return Err(record_error("malformed generated record item"));
-                };
-                Ok(BTreeSet::from([BTreeMap::from([(
-                    key.clone(),
-                    Rc::clone(child),
-                )])]))
-            }
-            RecordProductionKind::Repeat => {
-                let [prefix, item] = children.as_slice() else {
-                    return Err(record_error("malformed generated record list"));
-                };
-                let items = self.collect_packed_record_items(Rc::clone(item), original)?;
-                let prefixes = self.collect_packed_record_fields(Rc::clone(prefix), original)?;
+        crate::stack::guarded(|| {
+            if let PackedNode::Ambiguity(alternatives) = &term.node {
                 let mut fields = BTreeSet::new();
-                for prefix in prefixes {
-                    for (key, value) in &items {
-                        let mut candidate = prefix.clone();
-                        insert_packed_field(&mut candidate, key, Rc::clone(value))?;
-                        fields.insert(candidate);
-                    }
+                for alternative in packed_terms_in_structural_order(alternatives) {
+                    fields.extend(self.collect_packed_record_fields(alternative, original)?);
                 }
-                Ok(fields)
+                return Ok(fields);
             }
-        }
+            let PackedNode::Production {
+                production,
+                children,
+                ..
+            } = &term.node
+            else {
+                return Err(record_error("malformed generated record production"));
+            };
+            let metadata = self.productions[*production]
+                .record
+                .as_ref()
+                .ok_or_else(|| record_error("malformed generated record production"))?;
+            if metadata.original != original {
+                return Err(record_error("mismatched generated record production"));
+            }
+            match &metadata.kind {
+                RecordProductionKind::Zero | RecordProductionKind::Empty => {
+                    Ok(BTreeSet::from([BTreeMap::new()]))
+                }
+                RecordProductionKind::Main | RecordProductionKind::Subsort => {
+                    let [child] = children.as_slice() else {
+                        return Err(record_error("malformed generated record list"));
+                    };
+                    self.collect_packed_record_fields(Rc::clone(child), original)
+                }
+                RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
+                    let [child] = children.as_slice() else {
+                        return Err(record_error("malformed generated record item"));
+                    };
+                    Ok(BTreeSet::from([BTreeMap::from([(
+                        key.clone(),
+                        Rc::clone(child),
+                    )])]))
+                }
+                RecordProductionKind::Repeat => {
+                    let [prefix, item] = children.as_slice() else {
+                        return Err(record_error("malformed generated record list"));
+                    };
+                    let items = self.collect_packed_record_items(Rc::clone(item), original)?;
+                    let prefixes =
+                        self.collect_packed_record_fields(Rc::clone(prefix), original)?;
+                    let mut fields = BTreeSet::new();
+                    for prefix in prefixes {
+                        for (key, value) in &items {
+                            let mut candidate = prefix.clone();
+                            insert_packed_field(&mut candidate, key, Rc::clone(value))?;
+                            fields.insert(candidate);
+                        }
+                    }
+                    Ok(fields)
+                }
+            }
+        })
     }
 
     fn collect_packed_record_items(
@@ -463,15 +479,17 @@ impl Grammar {
         term: Rc<PackedTerm>,
         original: usize,
     ) -> Result<BTreeSet<(String, Rc<PackedTerm>)>, ParseError> {
-        if let PackedNode::Ambiguity(alternatives) = &term.node {
-            let mut items = BTreeSet::new();
-            for alternative in packed_terms_in_structural_order(alternatives) {
-                items.extend(self.collect_packed_record_items(alternative, original)?);
+        crate::stack::guarded(|| {
+            if let PackedNode::Ambiguity(alternatives) = &term.node {
+                let mut items = BTreeSet::new();
+                for alternative in packed_terms_in_structural_order(alternatives) {
+                    items.extend(self.collect_packed_record_items(alternative, original)?);
+                }
+                Ok(items)
+            } else {
+                Ok(BTreeSet::from([self.packed_record_item(term, original)?]))
             }
-            Ok(items)
-        } else {
-            Ok(BTreeSet::from([self.packed_record_item(term, original)?]))
-        }
+        })
     }
 
     fn packed_record_item(
@@ -511,14 +529,14 @@ impl Grammar {
         generated: &mut BTreeMap<(TermSpan, usize, usize), String>,
         next: &mut usize,
     ) -> Result<ParsedTerm, ParseError> {
-        match term {
-            ParsedTerm::Term(_) => Ok(term),
-            ParsedTerm::Ambiguity(alternatives) => alternatives
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+            ParsedParts::Ambiguity(alternatives) => alternatives
                 .into_iter()
                 .map(|term| self.collapse_records(term, names, generated, next))
                 .collect::<Result<BTreeSet<_>, _>>()
                 .map(ParsedTerm::Ambiguity),
-            ParsedTerm::Production {
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -527,7 +545,7 @@ impl Grammar {
                     self.collapse_record(production, children, metadata, names, generated, next)?;
                 self.collapse_records(collapsed, names, generated, next)
             }
-            ParsedTerm::Production {
+            ParsedParts::Production {
                 production,
                 children,
                 metadata,
@@ -539,10 +557,10 @@ impl Grammar {
                     .map(|term| self.collapse_records(term, names, generated, next))
                     .collect::<Result<_, _>>()?,
             }),
-            ParsedTerm::InstantiatedProduction { .. } => {
+            ParsedParts::InstantiatedProduction { .. } => {
                 unreachable!("record productions collapse before sort inference")
             }
-        }
+        })
     }
 
     #[cfg(test)]
@@ -615,66 +633,70 @@ impl Grammar {
         term: ParsedTerm,
         original: usize,
     ) -> Result<BTreeSet<BTreeMap<String, ParsedTerm>>, ParseError> {
-        if let ParsedTerm::Ambiguity(alternatives) = term {
-            let mut fields = BTreeSet::new();
-            for alternative in alternatives {
-                fields.extend(self.collect_record_fields(alternative, original)?);
-            }
-            return Ok(fields);
-        }
-        let ParsedTerm::Production {
-            production,
-            mut children,
-            ..
-        } = term
-        else {
-            return Err(record_error("malformed generated record production"));
-        };
-        let metadata = self.productions[production]
-            .record
-            .as_ref()
-            .ok_or_else(|| record_error("malformed generated record production"))?;
-        if metadata.original != original {
-            return Err(record_error("mismatched generated record production"));
-        }
-        match &metadata.kind {
-            RecordProductionKind::Zero | RecordProductionKind::Empty => {
-                Ok(BTreeSet::from([BTreeMap::new()]))
-            }
-            RecordProductionKind::Main | RecordProductionKind::Subsort => {
-                if children.len() != 1 {
-                    return Err(record_error("malformed generated record list"));
-                }
-                self.collect_record_fields(children.pop().expect("length was one"), original)
-            }
-            RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
-                if children.len() != 1 {
-                    return Err(record_error("malformed generated record item"));
-                }
-                Ok(BTreeSet::from([BTreeMap::from([(
-                    key.clone(),
-                    children.pop().expect("length was one"),
-                )])]))
-            }
-            RecordProductionKind::Repeat => {
-                if children.len() != 2 {
-                    return Err(record_error("malformed generated record list"));
-                }
-                let item = children.pop().expect("length was two");
-                let items = self.collect_record_items(item, original)?;
-                let prefixes = self
-                    .collect_record_fields(children.pop().expect("one child remains"), original)?;
-                let mut fields = BTreeSet::new();
-                for prefix in prefixes {
-                    for (key, value) in &items {
-                        let mut candidate = prefix.clone();
-                        insert_field(&mut candidate, key, value.clone())?;
-                        fields.insert(candidate);
+        crate::stack::guarded(|| {
+            let (production, mut children) = match term.into_parts() {
+                ParsedParts::Ambiguity(alternatives) => {
+                    let mut fields = BTreeSet::new();
+                    for alternative in alternatives {
+                        fields.extend(self.collect_record_fields(alternative, original)?);
                     }
+                    return Ok(fields);
                 }
-                Ok(fields)
+                ParsedParts::Production {
+                    production,
+                    children,
+                    ..
+                } => (production, children),
+                _ => return Err(record_error("malformed generated record production")),
+            };
+            let metadata = self.productions[production]
+                .record
+                .as_ref()
+                .ok_or_else(|| record_error("malformed generated record production"))?;
+            if metadata.original != original {
+                return Err(record_error("mismatched generated record production"));
             }
-        }
+            match &metadata.kind {
+                RecordProductionKind::Zero | RecordProductionKind::Empty => {
+                    Ok(BTreeSet::from([BTreeMap::new()]))
+                }
+                RecordProductionKind::Main | RecordProductionKind::Subsort => {
+                    if children.len() != 1 {
+                        return Err(record_error("malformed generated record list"));
+                    }
+                    self.collect_record_fields(children.pop().expect("length was one"), original)
+                }
+                RecordProductionKind::One(key) | RecordProductionKind::Item(key) => {
+                    if children.len() != 1 {
+                        return Err(record_error("malformed generated record item"));
+                    }
+                    Ok(BTreeSet::from([BTreeMap::from([(
+                        key.clone(),
+                        children.pop().expect("length was one"),
+                    )])]))
+                }
+                RecordProductionKind::Repeat => {
+                    if children.len() != 2 {
+                        return Err(record_error("malformed generated record list"));
+                    }
+                    let item = children.pop().expect("length was two");
+                    let items = self.collect_record_items(item, original)?;
+                    let prefixes = self.collect_record_fields(
+                        children.pop().expect("one child remains"),
+                        original,
+                    )?;
+                    let mut fields = BTreeSet::new();
+                    for prefix in prefixes {
+                        for (key, value) in &items {
+                            let mut candidate = prefix.clone();
+                            insert_field(&mut candidate, key, value.clone())?;
+                            fields.insert(candidate);
+                        }
+                    }
+                    Ok(fields)
+                }
+            }
+        })
     }
 
     #[cfg(test)]
@@ -683,15 +705,18 @@ impl Grammar {
         term: ParsedTerm,
         original: usize,
     ) -> Result<BTreeSet<(String, ParsedTerm)>, ParseError> {
-        if let ParsedTerm::Ambiguity(alternatives) = term {
-            let mut items = BTreeSet::new();
-            for alternative in alternatives {
-                items.extend(self.collect_record_items(alternative, original)?);
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Ambiguity(alternatives) => {
+                let mut items = BTreeSet::new();
+                for alternative in alternatives {
+                    items.extend(self.collect_record_items(alternative, original)?);
+                }
+                Ok(items)
             }
-            Ok(items)
-        } else {
-            Ok(BTreeSet::from([self.record_item(term, original)?]))
-        }
+            term => Ok(BTreeSet::from([
+                self.record_item(ParsedTerm::from(term), original)?
+            ])),
+        })
     }
 
     #[cfg(test)]
@@ -700,11 +725,11 @@ impl Grammar {
         term: ParsedTerm,
         original: usize,
     ) -> Result<(String, ParsedTerm), ParseError> {
-        let ParsedTerm::Production {
+        let ParsedParts::Production {
             production,
             mut children,
             ..
-        } = term
+        } = term.into_parts()
         else {
             return Err(record_error("malformed generated record item"));
         };

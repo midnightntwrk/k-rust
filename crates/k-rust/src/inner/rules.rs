@@ -387,7 +387,7 @@ fn bubble_error(
 /// Readings that differ only in their instance stay distinct during disambiguation; the
 /// parameters are dropped only here, after one reading has been chosen.
 pub(super) fn erase_label_parameters(term: Term) -> Term {
-    match term.into_parts() {
+    crate::stack::guarded(|| match term.into_parts() {
         TermParts::Annotated { term, metadata } => Term::Annotated {
             term: Box::new(erase_label_parameters(*term)),
             metadata,
@@ -418,7 +418,7 @@ pub(super) fn erase_label_parameters(term: Term) -> Term {
             Term::Sequence(items.into_iter().map(erase_label_parameters).collect())
         }
         term @ (TermParts::Variable { .. } | TermParts::Token { .. }) => Term::from(term),
-    }
+    })
 }
 
 fn up_sentence(

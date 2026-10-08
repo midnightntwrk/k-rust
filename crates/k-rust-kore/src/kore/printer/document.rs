@@ -17,7 +17,7 @@
 //! id = "kore.printer.render"
 //! name = "width-aware streaming rendering of KORE documents"
 //! sites = ["render", "write_spaces"]
-//! variable = "N = document ops; o = output characters; k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width; indentation is written in 16 KiB chunks"
+//! variable = "N = document ops; o = output characters, at most the text's characters plus, per line, the line width of indentation (a line indented further starts at the width); k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width; indentation is written in 16 KiB chunks"
 //! counters = []
 //! no_counter = "document rendering has no dedicated counter"
 //! invariant = "every op taken from the source and not in the look-ahead queue has been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts; column is the number of characters since the last written newline"
@@ -32,6 +32,7 @@
 //! The renderer pulls ops from an iterator and writes each one to an `io::Write` as soon as its layout is decided, so neither the whole document nor the whole text has to be held in memory.
 //! A group opened in broken context is laid out flat exactly when its flat width fits in the rest of the line; `fits` decides that by reading ahead only until the answer is known, which bounds the ops held in memory by the line width rather than by the document.
 //! ASCII text uses its byte length as its character width; other text retains the Unicode scalar count used by layout.
+//! A line is indented by its nesting, but by no more than the line width: past the width no group fits and every group breaks, so the layout is decided with the nesting itself while the leading spaces written stop at the width, and the text of a term nested N levels deep is O(N) rather than O(N²) characters.
 //! No dedicated counter measures printing.
 //!
 
@@ -131,6 +132,11 @@ pub(super) enum RenderMode {
 /// `width - column` at its start. `fits` computes that condition from the ops that follow the
 /// group start; everything else depends only on ops already taken, so each op is written as
 /// soon as it reaches the front of the queue.
+///
+/// A line starts with `min(indentation, width)` spaces. Layout is decided with the column the
+/// full indentation gives, so the lines break where they would with full indentation; past
+/// the width no group fits anyway, so the indentation there carries no layout and writing it
+/// in full would make the text of a deep term quadratic in its depth.
 pub(super) fn render<W: io::Write + ?Sized>(
     ops: impl IntoIterator<Item = Op>,
     mode: RenderMode,
@@ -166,7 +172,7 @@ pub(super) fn render<W: io::Write + ?Sized>(
             }
             Op::Line(_) | Op::HardLine => {
                 output.write_all(b"\n")?;
-                write_spaces(output, indentation)?;
+                write_spaces(output, indentation.min(width))?;
                 column = indentation;
             }
             Op::NestStart(amount) => indentation += amount,
@@ -271,6 +277,19 @@ fn write_spaces<W: io::Write + ?Sized>(output: &mut W, count: usize) -> io::Resu
 /// test oracle for `render`, which must give the same bytes.
 #[cfg(test)]
 pub(super) fn whole_document_render(document: &Doc, mode: RenderMode, width: usize) -> String {
+    indented_whole_document_render(document, mode, width, width, ' ')
+}
+
+/// [`whole_document_render`] with each line's indentation written as `min(indentation, cap)`
+/// copies of `fill`, so a test can compare the layout with and without the width cap.
+#[cfg(test)]
+fn indented_whole_document_render(
+    document: &Doc,
+    mode: RenderMode,
+    width: usize,
+    cap: usize,
+    fill: char,
+) -> String {
     let flat_widths = whole_document_flat_widths(&document.ops);
     let mut output = String::new();
     let mut column = 0usize;
@@ -291,7 +310,7 @@ pub(super) fn whole_document_render(document: &Doc, mode: RenderMode, width: usi
             }
             Op::Line(_) | Op::HardLine => {
                 output.push('\n');
-                output.extend(std::iter::repeat_n(' ', indentation));
+                output.extend(std::iter::repeat_n(fill, indentation.min(cap)));
                 column = indentation;
             }
             Op::NestStart(amount) => indentation += amount,
@@ -350,7 +369,10 @@ mod tests {
 
     use proptest::prelude::*;
 
-    use super::{Doc, Op, RenderMode, render, whole_document_render, write_spaces};
+    use super::{
+        Doc, Op, RenderMode, indented_whole_document_render, render, whole_document_render,
+        write_spaces,
+    };
 
     #[test]
     fn indentation_is_exact_across_chunk_boundaries_and_partial_writes() {
@@ -446,7 +468,70 @@ mod tests {
         })
     }
 
+    /// A document nested `depth` levels deep, each level a broken group around `f(`, its child
+    /// and `)`, as the printer lays out an application chain too wide for one line.
+    fn chain(depth: usize) -> Doc {
+        (0..depth).fold(Doc::text("z"), |child, _| {
+            Doc::concat([
+                Doc::text("f("),
+                Doc::concat([Doc::line_break(), child]).nest(2),
+                Doc::line_break(),
+                Doc::text(")"),
+            ])
+            .group()
+        })
+    }
+
+    /// A line is indented by no more than the line width, so a chain nested 2,000 levels deep
+    /// renders in text linear in its depth: every line is at most the width plus its text, where
+    /// indenting each line by twice its depth wrote about 4,000,000 spaces.
+    #[test]
+    fn deep_nesting_is_indented_up_to_the_line_width() {
+        const DEPTH: usize = 2_000;
+        const WIDTH: usize = 100;
+        let text = streamed(&chain(DEPTH), RenderMode::Pretty, WIDTH, 4096);
+        assert_eq!(text.lines().count(), 2 * DEPTH + 1);
+        for line in text.lines() {
+            let indentation = line.len() - line.trim_start_matches(' ').len();
+            assert!(indentation <= WIDTH, "{indentation} spaces in {line:?}");
+        }
+        assert!(
+            text.len() <= 2 * DEPTH * (WIDTH + 3),
+            "{} bytes",
+            text.len()
+        );
+        // The lines nested less deeply than the width are indented in full.
+        assert!(text.lines().nth(49).unwrap().starts_with(&" ".repeat(98)));
+        assert!(text.lines().nth(50).unwrap().starts_with(&" ".repeat(100)));
+    }
+
     proptest! {
+        /// The cap changes only the leading spaces written: rendered with each line's
+        /// indentation marked, the capped and uncapped layouts have the same lines, the capped
+        /// line keeping `min(indentation, width)` of its marks.
+        #[test]
+        fn the_indentation_cap_keeps_the_layout(
+            document in document(),
+            width in prop_oneof![0usize..8, 8usize..120, Just(usize::MAX)],
+        ) {
+            for mode in [RenderMode::Pretty, RenderMode::Compact] {
+                let mark = '\u{1}';
+                let capped = indented_whole_document_render(&document, mode, width, width, mark);
+                let full =
+                    indented_whole_document_render(&document, mode, width, usize::MAX, mark);
+                let expected = full
+                    .split('\n')
+                    .map(|line| {
+                        let indentation = line.len() - line.trim_start_matches(mark).len();
+                        let kept = indentation.min(width);
+                        format!("{}{}", mark.to_string().repeat(kept), &line[indentation..])
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                prop_assert_eq!(capped, expected);
+            }
+        }
+
         #[test]
         fn streaming_render_matches_whole_document_render(
             document in document(),

@@ -163,6 +163,11 @@ impl SameSpanCycles {
     pub(super) fn contains(&self, production: usize) -> bool {
         self.flagged.get(production).copied().unwrap_or(false)
     }
+
+    /// Whether no production is flagged.
+    pub(super) fn is_empty(&self) -> bool {
+        !self.flagged.contains(&true)
+    }
 }
 
 /// Component ids of the directed graph on `0..vertices` with the given `(_, from, to)` edges;
@@ -373,7 +378,7 @@ fn cyclic_derivation(
 }
 
 fn packed_span_is_empty(term: &PackedTerm) -> bool {
-    match &term.node {
+    crate::stack::guarded(|| match &term.node {
         PackedNode::Production { metadata, .. }
         | PackedNode::InstantiatedProduction { metadata, .. } => {
             metadata.span.is_some_and(|span| span.start == span.end)
@@ -385,7 +390,7 @@ fn packed_span_is_empty(term: &PackedTerm) -> bool {
         PackedNode::Ambiguity(alternatives) => alternatives
             .first()
             .is_some_and(|alternative| packed_span_is_empty(alternative)),
-    }
+    })
 }
 
 #[cfg(test)]

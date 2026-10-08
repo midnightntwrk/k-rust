@@ -605,7 +605,7 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
 }
 
 fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
-    match &term.node {
+    crate::stack::guarded(|| match &term.node {
         PackedNode::Production { metadata, .. }
         | PackedNode::InstantiatedProduction { metadata, .. } => metadata.span,
         PackedNode::Term(term) => term.metadata().and_then(|metadata| metadata.span),
@@ -618,7 +618,7 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
                 .all(|candidate| candidate == Some(span))
                 .then_some(span)
         }
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -626,7 +626,9 @@ fn packed_term_span(term: &PackedTerm) -> Option<TermSpan> {
 ///
 /// Repeated requests reuse the same `Rc` allocations until a completed state or derivation for
 /// that boundary changes. The chart fixes `end` and the parse attempt fixes `provenance`, so neither
-/// belongs in the memo key.
+/// belongs in the memo key; nor does `cut_repetitions`, which one recognition passes alike to
+/// every request on its charts. With `cut_repetitions` a node that repeats itself over the span
+/// is left out and is not reported as a cycle (`Grammar::recognize` in a retry).
 pub(super) fn completed_nodes(
     chart: &Chart,
     grammar: &Grammar,
@@ -638,6 +640,8 @@ pub(super) fn completed_nodes(
     priority_memos: &RefCell<PackedPriorityMemos>,
     filter: PriorityFilter,
     cycles: &SameSpanCycles,
+    stand_in: Option<&Rc<PackedTerm>>,
+    cut_repetitions: bool,
 ) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
@@ -668,15 +672,20 @@ pub(super) fn completed_nodes(
             update_chart_work_counters(|counters| {
                 counters.helper_completion_candidates += 1;
             });
-            let term = build_packed_term(
-                state.production,
-                production,
-                children,
-                input,
-                state.origin,
-                end,
-                provenance,
-            );
+            // A recognition with a stand-in node decides which items exist without building a
+            // forest (`Grammar::recognize`).
+            let term = match stand_in {
+                Some(stand_in) => Rc::clone(stand_in),
+                None => build_packed_term(
+                    state.production,
+                    production,
+                    children,
+                    input,
+                    state.origin,
+                    end,
+                    provenance,
+                ),
+            };
             let filtered = match filter {
                 PriorityFilter::Enforced => {
                     grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos)
@@ -686,7 +695,7 @@ pub(super) fn completed_nodes(
             match filtered {
                 Ok(term) => {
                     if cycles.contains(state.production)
-                        && cycle.is_none()
+                        && (cut_repetitions || cycle.is_none())
                         && let Err(error) = check_same_span_repetition(
                             grammar,
                             chart,
@@ -697,6 +706,9 @@ pub(super) fn completed_nodes(
                             end,
                         )
                     {
+                        if cut_repetitions {
+                            continue;
+                        }
                         cycle = Some(error);
                     }
                     nodes.insert(term);
@@ -748,9 +760,9 @@ mod tests {
 
     fn derivation(term: ParsedTerm) -> Derivation {
         fn pack(term: ParsedTerm) -> Rc<PackedTerm> {
-            match term {
-                ParsedTerm::Term(term) => PackedTerm::leaf(term),
-                ParsedTerm::Production {
+            match term.into_parts() {
+                ParsedParts::Term(term) => PackedTerm::leaf(term),
+                ParsedParts::Production {
                     production,
                     children,
                     metadata,
@@ -759,10 +771,10 @@ mod tests {
                     children.into_iter().map(pack).collect(),
                     metadata,
                 ),
-                ParsedTerm::Ambiguity(alternatives) => {
+                ParsedParts::Ambiguity(alternatives) => {
                     PackedTerm::ambiguity(alternatives.into_iter().map(pack).collect())
                 }
-                ParsedTerm::InstantiatedProduction { .. } => {
+                ParsedParts::InstantiatedProduction { .. } => {
                     panic!("chart tests do not construct post-inference productions")
                 }
             }
@@ -920,6 +932,8 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
+            false,
         );
         let second = completed_nodes(
             &chart,
@@ -932,6 +946,8 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
+            false,
         );
         assert!(Rc::ptr_eq(&first, &second));
         let first = first
@@ -965,6 +981,8 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
+            false,
         );
         let after_other_boundary = after_other_boundary
             .nodes
@@ -987,6 +1005,8 @@ mod tests {
             &memos,
             PriorityFilter::Enforced,
             &cycles,
+            None,
+            false,
         );
         assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(

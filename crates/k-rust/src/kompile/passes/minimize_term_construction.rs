@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one rule"
-//! bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by whole subterms"
+//! bound = "O(N log N): each subterm is numbered once from its head and its children's numbers (equal numbers exactly for equal subterms), and the reused subterms are found by number"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -17,13 +17,13 @@
 //! Reuse LHS subterms that also occur on a rule RHS through `#as` aliases.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, LabelHead, ProductionCatalog, Sentence},
-    kast::{InternalLabel, Sort, Term},
+    kast::{InternalLabel, Label, Sort, Term},
     kompile::fresh_names::FreshNames,
     provenance::GeneratingPass,
 };
@@ -95,12 +95,17 @@ pub(crate) fn minimize_term_construction_pass(
                 unreachable!("copy-on-write keeps the sentence decided above");
             };
             let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
+            let mut identities = Identities::default();
+            for term in [&*body, &*requires, &*ensures] {
+                identities.number(term);
+            }
             let mut minimizer = Minimizer::new(
                 productions,
                 &converter,
                 main_productions,
                 &main_converter,
                 fresh,
+                identities,
             );
             minimizer.gather_terms(body, Position::Both, true, false)?;
             minimizer.gather_terms(requires, Position::Right, true, false)?;
@@ -108,9 +113,12 @@ pub(crate) fn minimize_term_construction_pass(
             minimizer.filter_rhs(body, Position::Both);
             minimizer.filter_rhs(requires, Position::Right);
             minimizer.filter_rhs(ensures, Position::Right);
-            *body = minimizer.transform(body, Position::Both, false);
-            *requires = minimizer.transform(requires, Position::Right, false);
-            *ensures = minimizer.transform(ensures, Position::Right, false);
+            let minimized = [
+                minimizer.transform(body, Position::Both, false),
+                minimizer.transform(requires, Position::Right, false),
+                minimizer.transform(ensures, Position::Right, false),
+            ];
+            [*body, *requires, *ensures] = minimized;
         }
     }
     Ok(output)
@@ -123,14 +131,90 @@ enum Position {
     Right,
 }
 
+/// The fields of one node that [`Term::cmp`] compares apart from its children: its kind and
+/// its label, token or variable with their sorts. Annotations are not among them.
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum Head {
+    InjectedLabel(Label),
+    Rewrite,
+    As,
+    Variable(String, Option<Sort>),
+    Sequence,
+    Apply(Label),
+    Token(String, Sort),
+}
+
+/// One number per distinct subterm of the terms of one rule, so that two subterms are equal
+/// under [`Term::cmp`] exactly when their numbers are equal: a node is numbered by its head and
+/// its children's numbers, and each such key is given one number.
+///
+/// By induction on terms, equal terms have equal heads and pairwise equal children, so equal
+/// keys and one number; and two terms with one number have one key, so equal heads and
+/// children with equal numbers, which are equal terms. A node's number is found by its
+/// address, so the subterms are read in place: deciding whether two subterms are equal costs no
+/// walk over them, and recording one costs no copy of it.
+#[derive(Default)]
+struct Identities {
+    /// The number of each node numbered, by the address of the node with its annotations
+    /// removed ([`Term::unannotated`]).
+    numbers: HashMap<*const Term, u32>,
+    /// The number of each key.
+    keys: BTreeMap<(Head, Vec<u32>), u32>,
+}
+
+impl Identities {
+    /// Number every subterm of `root`, children before their parents, without recursion.
+    fn number(&mut self, root: &Term) {
+        let mut pending = vec![(root.unannotated(), false)];
+        // Invariant: a node is pushed unexpanded, then expanded above its children; when it is
+        // popped expanded, every child has been numbered.
+        while let Some((term, expanded)) = pending.pop() {
+            let address = std::ptr::from_ref(term);
+            if self.numbers.contains_key(&address) {
+                continue;
+            }
+            if !expanded {
+                pending.push((term, true));
+                pending.extend(subterms(term).into_iter().map(|child| (child, false)));
+                continue;
+            }
+            let head = match term {
+                Term::InjectedLabel(label) => Head::InjectedLabel(label.clone()),
+                Term::Rewrite { .. } => Head::Rewrite,
+                Term::As { .. } => Head::As,
+                Term::Variable { name, sort } => Head::Variable(name.clone(), sort.clone()),
+                Term::Sequence(_) => Head::Sequence,
+                Term::Apply { label, .. } => Head::Apply(label.clone()),
+                Term::Token { token, sort } => Head::Token(token.clone(), sort.clone()),
+                Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+            };
+            let children = subterms(term)
+                .into_iter()
+                .map(|child| self.numbers[&std::ptr::from_ref(child)])
+                .collect();
+            let next = u32::try_from(self.keys.len()).expect("fewer than 2^32 distinct subterms");
+            let number = *self.keys.entry((head, children)).or_insert(next);
+            self.numbers.insert(address, number);
+        }
+    }
+
+    /// The number of `term`, a subterm of a numbered term.
+    fn of(&self, term: &Term) -> u32 {
+        self.numbers[&std::ptr::from_ref(term.unannotated())]
+    }
+}
+
 struct Minimizer<'use_, 'view, 'definition> {
     productions: &'use_ ProductionCatalog<'definition>,
     converter: &'use_ TermConverter<'view, 'definition>,
     main_productions: &'use_ ProductionCatalog<'definition>,
     main_converter: &'use_ TermConverter<'view, 'definition>,
     fresh: FreshNames,
-    cache: BTreeMap<Term, Term>,
-    used_on_rhs: BTreeSet<Term>,
+    identities: Identities,
+    /// The variable that names each left-position subterm gathered, by its number.
+    cache: HashMap<u32, Term>,
+    /// The numbers of the gathered subterms that also occur in a right position.
+    used_on_rhs: HashSet<u32>,
 }
 
 impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
@@ -140,6 +224,7 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         main_productions: &'use_ ProductionCatalog<'definition>,
         main_converter: &'use_ TermConverter<'view, 'definition>,
         fresh: FreshNames,
+        identities: Identities,
     ) -> Self {
         Self {
             productions,
@@ -147,8 +232,9 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
             main_productions,
             main_converter,
             fresh,
-            cache: BTreeMap::new(),
-            used_on_rhs: BTreeSet::new(),
+            identities,
+            cache: HashMap::new(),
+            used_on_rhs: HashSet::new(),
         }
     }
 
@@ -160,13 +246,25 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         root: bool,
         in_bad: bool,
     ) -> Result<(), TermConversionError> {
+        crate::stack::guarded(|| self.gather_level(term, position, root, in_bad))
+    }
+
+    /// One level of [`Self::gather_terms`], which runs it with stack for one more level.
+    fn gather_level(
+        &mut self,
+        term: &Term,
+        position: Position,
+        root: bool,
+        in_bad: bool,
+    ) -> Result<(), TermConversionError> {
         let term = term.unannotated();
+        let identity = self.identities.of(term);
         if position == Position::Left
             && !in_bad
             && !root
             && !matches!(term, Term::Variable { .. })
             && !is_true(term)
-            && !self.cache.contains_key(term)
+            && !self.cache.contains_key(&identity)
         {
             let sort = match self.converter.infer_sort(term) {
                 Ok(sort) => sort,
@@ -176,7 +274,7 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
                     .map_err(|_| local_error)?,
             };
             let variable = self.new_variable(sort);
-            self.cache.insert(term.clone(), variable);
+            self.cache.insert(identity, variable);
         }
         match term {
             Term::Rewrite { left, right } => {
@@ -215,9 +313,15 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
 
     // Invariant: `self.used_on_rhs` holds every right-position subterm visited so far that is a key of `self.cache`; the recursion stops at such a subterm and otherwise descends into the immediate subterms of `term`, so the finite `term` bounds the calls.
     fn filter_rhs(&mut self, term: &Term, position: Position) {
+        crate::stack::guarded(|| self.filter_level(term, position));
+    }
+
+    /// One level of [`Self::filter_rhs`], which runs it with stack for one more level.
+    fn filter_level(&mut self, term: &Term, position: Position) {
         let term = term.unannotated();
-        if position == Position::Right && self.cache.contains_key(term) {
-            self.used_on_rhs.insert(term.clone());
+        let identity = self.identities.of(term);
+        if position == Position::Right && self.cache.contains_key(&identity) {
+            self.used_on_rhs.insert(identity);
             return;
         }
         match term {
@@ -244,8 +348,14 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
 
     // Invariant: a right-position `term` that is a key of `self.cache` becomes its variable without descending; otherwise each call rebuilds `term` from its transformed immediate subterms, so the finite `term` bounds the recursion.
     fn transform(&self, term: &Term, position: Position, in_bad: bool) -> Term {
+        crate::stack::guarded(|| self.transform_level(term, position, in_bad))
+    }
+
+    /// One level of [`Self::transform`], which runs it with stack for one more level.
+    fn transform_level(&self, term: &Term, position: Position, in_bad: bool) -> Term {
+        let identity = self.identities.of(term);
         if position == Position::Right
-            && let Some(variable) = self.cache.get(term)
+            && let Some(variable) = self.cache.get(&identity)
         {
             return variable.clone();
         }
@@ -298,8 +408,8 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
         };
         if position == Position::Left
             && !in_bad
-            && self.used_on_rhs.contains(bare)
-            && let Some(variable) = self.cache.get(bare)
+            && self.used_on_rhs.contains(&identity)
+            && let Some(variable) = self.cache.get(&identity)
         {
             Term::As {
                 pattern: Box::new(transformed),
@@ -325,6 +435,23 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
                     .attributes_for(&LabelHead::from(label))
             })
             .and_then(|attributes| attributes.string(AttributeKey::Hook))
+    }
+}
+
+/// The children of `term`, each with its annotations removed ([`Term::unannotated`]).
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants have children"
+)]
+fn subterms(term: &Term) -> Vec<&Term> {
+    match term.unannotated() {
+        Term::Rewrite { left, right } => vec![left.unannotated(), right.unannotated()],
+        Term::As { pattern, alias } => vec![pattern.unannotated(), alias.unannotated()],
+        Term::Sequence(items)
+        | Term::Apply {
+            arguments: items, ..
+        } => items.iter().map(Term::unannotated).collect(),
+        _ => Vec::new(),
     }
 }
 

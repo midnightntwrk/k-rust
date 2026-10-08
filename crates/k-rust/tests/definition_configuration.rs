@@ -811,7 +811,7 @@ fn configuration_expansion_emits_origin_records() {
             module: "MAIN".into(),
             sentence: sentence_anchor,
             sentence_index: u32::try_from(initializer_index).unwrap(),
-            path: vec![0],
+            path: vec![0].into(),
         }),
     );
 }

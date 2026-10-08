@@ -74,7 +74,7 @@ Phases:
     - kompile.sort_injections.insert — O(N x (P + S)) +1 mode — at k-rust/kompile/sort_injections.rs `SortInjector::inject_sentence`
   - 50 remove units
   - 51 minimize term construction
-    - kompile.terms.minimize — O(N x h) subtree clones plus O(N log N)… — at k-rust/kompile/passes/minimize_term_construction.rs `minimize_term_construction`
+    - kompile.terms.minimize — O(N log N): each subterm is numbered once from… — at k-rust/kompile/passes/minimize_term_construction.rs `minimize_term_construction`
 - `EMISSION_PHASES` 52–62, table order:
   - 52 collect execution rewrite order · 53 resolve transformed definition · 54 singleton overload checks · 55 collect configuration variables · 56 hook namespace checks · 57 emit KORE · 58 print definition.kore · 59 print syntaxDefinition.kore · 60 print macros.kore · 61 generate bison parser · 62 write artifacts
 
@@ -87,7 +87,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
 - [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
-- [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
+- [2] parser.lower.term — O(N), each node built from its lowered children… — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
 - [3] definition.configuration.expand — O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
 - [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles] — at k-rust/inner/rules.rs `resolve_rule_bubbles`
 - [5] = definition.resolve.imports (phase 15)
@@ -186,12 +186,12 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
 - parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
-- parser.disambiguation.resolve_ambiguity — O(N x h) plus, per alternative, one clone of its… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
-- parser.disambiguation.resolve_applications — O(N x a x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
+- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) plus, per… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
+- parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
-- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
+- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
 - parser.forest.cycle_check — O(N) expected (hashed visited set and build table) — at k-rust/inner/parser/cycles.rs `check_same_span_repetition`
-- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +2 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
+- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +3 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
 - parser.grammar.build — O(S x I) plus declared relation and… — at k-rust/inner/parser/grammar.rs `Grammar::from_collected_sentences`
 - parser.grammar.lists — O(R + L x R) +1 mode — at k-rust/inner/parser/lists.rs `Grammar::initialize_user_lists`
 - parser.grammar.parametric — O(S x P + T) — at k-rust/inner/parser/parametric.rs `concretize_parametric_productions`
@@ -201,7 +201,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.grammar.unary_cycles — O(U x V x E) +1 mode — at k-rust/inner/parser/grammar.rs `Grammar::identify_productive_unary_cycles`
 - parser.location.span — O(B) — at k-rust/inner/location.rs `span_location`
 - parser.lower.regex — O(e) — at k-rust/inner/parser.rs `expand_regex_body`
-- parser.prediction.first_sets — O(S x L x R) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
+- parser.prediction.first_sets — O(S x L x R) plus O(I x L) for the FIRST sets and… — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
 - parser.prediction.nullability — O(I) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
 - parser.scanner.winner — O(B x (L + Y) x m) — at k-rust/inner/parser/scanner.rs `Scanner::winner`
 - rpc.json.decode — O(B + N) to frame and parse the JSON envelope and… — at k-rust/rpc.rs `read_json_message`

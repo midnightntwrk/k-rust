@@ -710,6 +710,23 @@ impl Backend {
                 .map_err(|error| BackendError(error.to_string()))
         })
     }
+
+    /// [`Self::load_patterns`] for a pattern already decoded: verify `syntax` as an executable
+    /// pattern of the definition of `module` and internalize its disjuncts.
+    ///
+    /// The internal patterns are as deep as `syntax`, and so are the passes that later execute
+    /// or drop them, so a caller runs this and everything it does with the result on the stack
+    /// `BackendDefinition::operation_depth` measures for `syntax`.
+    pub fn internalize_executable(
+        &mut self,
+        module: Option<&str>,
+        syntax: &KorePattern,
+    ) -> Result<Vec<Pattern>, BackendError> {
+        self.with_solver(module, |definition, _| {
+            internalize_executable(definition, syntax)
+                .map_err(|error| BackendError(error.to_string()))
+        })
+    }
 }
 
 fn run_backend_with_solver(
@@ -1419,8 +1436,15 @@ fn load_backend_patterns(
 ) -> Result<Vec<Pattern>, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
-    let admitted = definition.verify_standalone_pattern(&syntax, &[])?;
-    definition.validate_executable_pattern(&syntax)?;
+    internalize_executable(definition, &syntax)
+}
+
+fn internalize_executable(
+    definition: &BackendDefinition,
+    syntax: &KorePattern,
+) -> Result<Vec<Pattern>, Box<dyn Error>> {
+    let admitted = definition.verify_standalone_pattern(syntax, &[])?;
+    definition.validate_executable_pattern(syntax)?;
     admitted.internalize_disjunction().map_err(Into::into)
 }
 

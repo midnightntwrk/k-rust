@@ -656,7 +656,7 @@ impl ProvenanceEncoder {
                     module: destination.module.clone(),
                     sentence: destination.sentence.clone(),
                     sentence_index: destination.sentence_index,
-                    path: destination.path.clone(),
+                    path: destination.path.to_vec(),
                 }),
         })
     }
@@ -1030,7 +1030,7 @@ fn decode_destination(destination: JsonDestinationAnchor) -> DestinationAnchor {
         module: destination.module,
         sentence: destination.sentence,
         sentence_index: destination.sentence_index,
-        path: destination.path,
+        path: destination.path.into(),
     }
 }
 
@@ -1984,7 +1984,7 @@ mod tests {
                 module: "MAIN".into(),
                 sentence: format!("rule:{set}"),
                 sentence_index: u32::try_from(set).unwrap(),
-                path: vec![0, u32::try_from(pass).unwrap()],
+                path: vec![0, u32::try_from(pass).unwrap()].into(),
             }),
         }
     }

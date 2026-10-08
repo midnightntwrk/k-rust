@@ -2149,6 +2149,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         term: Term,
         replace_fragments: bool,
     ) -> Result<Term, String> {
+        crate::stack::guarded(|| self.sort_cells_level(term, replace_fragments))
+    }
+
+    /// One level of [`Self::sort_cells_with_fragments`], which runs it with stack for one more
+    /// level.
+    fn sort_cells_level(&mut self, term: Term, replace_fragments: bool) -> Result<Term, String> {
         let metadata = term.metadata().cloned();
         let rebuilt = match term.into_unannotated().into_parts() {
             TermParts::Apply { label, arguments } => {

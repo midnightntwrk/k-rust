@@ -5543,7 +5543,7 @@ symbol = "Minimizer::transform"
 
 [[node.cost]]
 mode = "one rule"
-bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by whole subterms"
+bound = "O(N log N): each subterm is numbered once from its head and its children's numbers (equal numbers exactly for equal subterms), and the reused subterms are found by number"
 
 [[node]]
 kind = "algorithm"
@@ -5869,7 +5869,7 @@ id = "kore.printer.render"
 provenance = "declared"
 area = "kore"
 name = "width-aware streaming rendering of KORE documents"
-variable = "N = document ops; o = output characters; k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width; indentation is written in 16 KiB chunks"
+variable = "N = document ops; o = output characters, at most the text's characters plus, per line, the line width of indentation (a line indented further starts at the width); k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width; indentation is written in 16 KiB chunks"
 invariant = "every op taken from the source and not in the look-ahead queue has been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts; column is the number of characters since the last written newline"
 no_counter = "document rendering has no dedicated counter"
 span = "per call"
@@ -6272,7 +6272,7 @@ symbol = "Grammar::collapse_packed_record_productions"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives"
+bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -6494,7 +6494,7 @@ id = "parser.disambiguation.resolve_ambiguity"
 provenance = "declared"
 area = "parser"
 name = "resolution and reporting of remaining ambiguity"
-variable = "N = owned nodes; A = ambiguity alternatives; h = lowered tree height"
+variable = "N = owned nodes; A = ambiguity alternatives"
 no_counter = "final ambiguity resolution has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -6522,7 +6522,7 @@ symbol = "Grammar::factor_ambiguities"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x h) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
 
 [[node]]
 kind = "algorithm"
@@ -6530,7 +6530,7 @@ id = "parser.disambiguation.resolve_applications"
 provenance = "declared"
 area = "parser"
 name = "resolution of application nodes against visible productions"
-variable = "N = application nodes; R = productions in the grammar; a = flattened argument lists of one application, the product of the alternatives of its KList nodes"
+variable = "N = application nodes; R = productions in the grammar; K = KList nodes below the applications; a = distinct argument vectors of one application no longer than its label's longest arity"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserDisambiguationResolveApplications"
@@ -6547,7 +6547,7 @@ symbol = "Grammar::resolve_packed_applications"
 
 [[node.cost]]
 mode = "one parse forest"
-bound = "O(N x a x R)"
+bound = "O(N x R) to find each label's arities, plus O(N x a x R) candidates, plus each KList node's bounded argument vectors and shortest length computed once (O(K) nodes, each combining its children's vectors), plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 
 [[node]]
 kind = "algorithm"
@@ -6586,7 +6586,7 @@ id = "parser.earley.recognize"
 provenance = "declared"
 area = "parser"
 name = "agenda-driven Earley recognition"
-variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts"
+variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserEarleyRecognize"
@@ -6626,9 +6626,44 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::parse_with_context_and_diagnostic_provenance"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::advanced_item_useful"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::completion_useful"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::node_reaches_root"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::priority_admits"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "RemainingTokens::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Reach::rest_follows"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "InstanceNodes::intern"
+
 [[node.cost]]
 mode = "recognition (the chart loop of recognize)"
-bound = "O(B x s) chart allocation plus O(p x d)"
+bound = "O(B x s) chart allocation plus O(p x d) plus the memoized usefulness searches, O(u) pairs each over the waiting items of one chart; a filtered recognition skips the completions no parse can contain, so p is linear in the input for right-recursive lists and associativity-disambiguated chains, also beside other operators of their sort and in a rule body, which complete every enclosing list or chain at every position (quadratic p) without it; a chain written directly as a side of a rewrite keeps every doomed reading that takes the rewrite as an operand (cubic) unless the input has only one token that can begin a rewrite, sequence or #let, where the first attempt skips them (DoomedEdges); the input's tokens from the first position a completion is judged at are read once, O(B) scanner reads; the instances of one parametric production completed over one span with the same children are one node (one hashed lookup each), so d does not grow with the depth of a nesting of them"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
@@ -6636,11 +6671,11 @@ bound = "recognition plus the post-recognition passes called at the end of parse
 
 [[node.cost]]
 mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-bound = "two recognitions, the second with the relations ignored, plus either one no-parse diagnostic or prepare_packed_forest over the complete derivations of the second"
+bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
 
 [[node.cost]]
-mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
-bound = "at most two parse attempts"
+mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
+bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
 
 [[node]]
 kind = "algorithm"
@@ -6695,6 +6730,11 @@ symbol = "packed_terms_in_structural_order"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "StructuralOrder::sorted"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "PackedTerm::cmp"
 
 [[node.cost]]
@@ -6707,7 +6747,11 @@ bound = "O(P x A log A)"
 
 [[node.cost]]
 mode = "packed_terms_in_structural_order"
-bound = "O(n log n) structural comparisons, each with a fresh pair memo"
+bound = "O(n log n) structural comparisons sharing one pair memo"
+
+[[node.cost]]
+mode = "StructuralOrder::sorted, the orderings of one pass"
+bound = "every distinct node pair the pass's orderings reach is compared once, O(A log A) per compared ambiguity pair, plus O(n log n) memo lookups per ordered set"
 
 [[node]]
 kind = "algorithm"
@@ -6992,7 +7036,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
+variable = "V = sort-bound vertices; E = bound edges; S = concrete sorts among the bounds; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
@@ -7037,7 +7081,7 @@ bound = "O(T x V x E) for the per-tree inferences plus O(T^2 x V) order checks f
 
 [[node.cost]]
 mode = "variable realization"
-bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
+bound = "O((V + E) x S) for the concrete bounds every variable reaches (one strongly-connected-component pass per direction), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 
 [[node]]
 kind = "algorithm"
@@ -7249,7 +7293,7 @@ id = "parser.lower.term"
 provenance = "declared"
 area = "parser"
 name = "lowering of parsed terms into KAST"
-variable = "N = parsed tree nodes; h = parsed tree height"
+variable = "N = parsed tree nodes"
 no_counter = "term lowering has no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
@@ -7267,7 +7311,7 @@ symbol = "lower_term"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x h), one subtree clone per lowered node"
+bound = "O(N), each node built from its lowered children, which it takes over without copying"
 
 [[node]]
 kind = "algorithm"
@@ -7275,7 +7319,7 @@ id = "parser.prediction.first_sets"
 provenance = "declared"
 area = "parser"
 name = "scanner-identity FIRST-set analysis by monotone propagation"
-variable = "S = sorts; L = lexemes; R = worklist re-enqueues"
+variable = "S = sorts; L = lexemes; R = worklist re-enqueues; I = total production items"
 table = "Algorithm::ALL"
 registry_name = "ParserPredictionFirstSets"
 
@@ -7291,7 +7335,7 @@ symbol = "PredictionAnalysis::new"
 
 [[node.cost]]
 mode = "one grammar"
-bound = "O(S x L x R)"
+bound = "O(S x L x R) plus O(I x L) for the FIRST sets and nullability of each production's item suffixes"
 
 [[node]]
 kind = "algorithm"
