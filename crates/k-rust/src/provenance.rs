@@ -804,7 +804,9 @@ impl AnchorPath {
     ///
     /// This hands one step of the chain to its caller, so it is counted like a step visited by
     /// [`AnchorPath::to_vec`]: a walk up a path through it shows in
-    /// `provenance.anchor_path_steps` wherever it is written.
+    /// `provenance.anchor_path_steps` wherever it is written, except under
+    /// `measure::without_counting`, where only debug and `kompile-invariant-checks`
+    /// validations run.
     pub(crate) fn split_last(&self) -> Option<(&AnchorPath, u32)> {
         let split = self.0.as_ref().map(|step| (&step.parent, step.step));
         if split.is_some() {
@@ -825,7 +827,8 @@ impl AnchorPath {
     /// through the comparisons and formatting built on this, and created only by
     /// [`AnchorPath::child`]; each counts the steps it creates, visits or hands out, so any work
     /// that reads or rebuilds paths step by step shows in `provenance.anchor_path_steps`
-    /// (design §14.3). `len`, `is_empty` and `address` read no step.
+    /// (design §14.3), unless it runs under `measure::without_counting`, as only debug and
+    /// `kompile-invariant-checks` validations do. `len`, `is_empty` and `address` read no step.
     pub fn to_vec(&self) -> Vec<u32> {
         measure::add(Counter::ProvenanceAnchorPathSteps, self.len() as u64);
         let mut steps = Vec::with_capacity(self.len());
@@ -987,15 +990,25 @@ impl OriginReceipt {
     }
 
     /// Compare receipts without rendering a structured receipt into JSON.
+    ///
+    /// A structured receipt compared with a stored value is turned into JSON for this comparison
+    /// only, by `OriginRecord::to_value`, which neither caches the form nor counts as a
+    /// rendering; the stored side is read as stored. Every other measure counts the comparison's
+    /// work like any other walk: the origin sets it flattens and the paths it compares.
     pub(crate) fn identical(&self, other: &Self) -> bool {
-        // Cross-representation comparison necessarily materializes one side, but this is a
-        // structural comparison rather than a wire emission; keep it out of the render counter.
-        measure::without_counting(|| match (&self.record, &other.record) {
+        match (&self.record, &other.record) {
             (Some(left), Some(right)) => left == right,
             (None, None) => self.value == other.value,
-            (Some(record), None) => record.to_value() == *other.value(),
-            (None, Some(record)) => *self.value() == record.to_value(),
-        })
+            (Some(record), None) => record.to_value() == *other.stored_value(),
+            (None, Some(record)) => *self.stored_value() == record.to_value(),
+        }
+    }
+
+    /// The JSON form of a receipt that holds no record, as it was stored.
+    fn stored_value(&self) -> &Value {
+        self.value
+            .get()
+            .expect("an origin receipt without a record holds its value")
     }
 
     /// The JSON form of the receipt, rendered at most once per shared receipt.
@@ -2338,6 +2351,48 @@ mod tests {
                 counter.name()
             );
         }
+    }
+
+    /// Comparing sentence receipts by value is work of the compile itself (incremental resolution
+    /// compares the attributes of every sentence it may reuse), so the set and path measures
+    /// count it like any other walk (design §14.3): two equal receipts in separate allocations,
+    /// whose set names another set, are compared structurally and against the stored JSON form
+    /// of one of them. Neither comparison renders a receipt, and neither caches a JSON form.
+    #[test]
+    fn sentence_receipt_comparisons_are_counted_and_render_nothing() {
+        let record = || OriginRecord {
+            pass: GeneratingPass::MacroExpansion,
+            origins: OriginSet::from_parts([
+                OriginPart::Link(spec_link(0)),
+                OriginPart::Set(OriginSet::from(vec![spec_link(1), spec_link(2)])),
+            ]),
+            destination: Some(DestinationAnchor {
+                module: "MAIN".into(),
+                sentence: "MAIN.rule".into(),
+                sentence_index: 0,
+                path: AnchorPath::new().child(0).child(1),
+            }),
+        };
+        let structured = OriginReceipt::from_record(record());
+        let other = OriginReceipt::from_record(record());
+        let stored = OriginReceipt::from_value(record().to_value());
+        let compared = |left: &OriginReceipt, right: &OriginReceipt| {
+            let start = measure::snapshot();
+            assert!(left.identical(right));
+            measure::snapshot().delta(&start)
+        };
+        let both = compared(&structured, &other);
+        assert_eq!(both.get(Counter::ProvenanceNonflatFlattens), 2);
+        assert!(both.get(Counter::ProvenanceLinksSteps) >= 2 * 4);
+        assert_eq!(both.get(Counter::ProvenanceAnchorPathSteps), 2 * 2);
+        for (left, right) in [(&structured, &stored), (&stored, &structured)] {
+            let mixed = compared(left, right);
+            assert_eq!(mixed.get(Counter::ProvenanceNonflatFlattens), 1);
+            assert!(mixed.get(Counter::ProvenanceLinksSteps) >= 4);
+            assert_eq!(mixed.get(Counter::ProvenanceAnchorPathSteps), 2);
+            assert_eq!(mixed.get(Counter::ProvenanceReceiptRenders), 0);
+        }
+        assert!(structured.value.get().is_none(), "no JSON form is cached");
     }
 
     /// A node rebuilt by three generating passes in turn carries the receipt of the last, whose

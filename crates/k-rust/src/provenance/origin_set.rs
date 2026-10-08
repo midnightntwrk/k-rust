@@ -148,6 +148,8 @@ impl OriginSet {
     /// counts a node it enters: one for the node and one per part. A walk over the DAG through it
     /// shows in `provenance.links_steps` wherever it is written (design §14.3); the walks of this
     /// module read nodes through `node_parts`, which counts nothing, and count their own steps.
+    /// The one exception is work run under `measure::without_counting`, which no counter sees:
+    /// only validations that debug and `kompile-invariant-checks` builds compile in run there.
     pub(crate) fn parts(&self) -> &[OriginPart] {
         let parts = self.node_parts();
         if !parts.is_empty() {

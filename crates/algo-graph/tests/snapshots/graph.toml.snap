@@ -842,6 +842,20 @@ symbol = "Counter::ProvenanceEncoderAnchorRoots"
 
 [[node]]
 kind = "observation"
+id = "ProvenanceEncoderPreorderSteps"
+provenance = "table"
+area = "provenance"
+name = "ProvenanceEncoderPreorderSteps"
+table = "Counter::ALL"
+registry_name = "provenance.encoder_preorder_steps"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ProvenanceEncoderPreorderSteps"
+
+[[node]]
+kind = "observation"
 id = "ProvenanceEncoderSetKeys"
 provenance = "table"
 area = "provenance"
@@ -9009,6 +9023,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "definition.json.encode"
 to = "ProvenanceEncoderAnchorRoots"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.json.encode"
+to = "ProvenanceEncoderPreorderSteps"
 provenance = "declared"
 
 [[edge]]
