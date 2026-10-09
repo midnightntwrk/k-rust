@@ -65,20 +65,23 @@ inputs = ["test.in"]
 [[case]]
 name = "locations"
 artifact = "executable"
-comparison = "exact"
+comparison = "locations"
 inputs = ["1.test"]
+reason = "test.k declares Exp [locations] and 1.test locates 5, 6 and their sum; the two toolchains number #location lines and columns differently (docs/compatibility.md#generated-parser-locations)."
 
 [[case]]
 name = "locations2"
 artifact = "executable"
-comparison = "exact"
+comparison = "locations"
 inputs = ["1.test"]
+reason = "test.k declares Exp [locations]; 1.test is empty, so both parsers print (1,1,1,1) today, but its positions follow the same differing conventions (docs/compatibility.md#generated-parser-locations)."
 
 [[case]]
 name = "locations3"
 artifact = "executable"
-comparison = "exact"
+comparison = "locations"
 inputs = ["1.test"]
+reason = "test.k declares Exps [locations] and 1.test locates foo; the two toolchains number #location lines and columns differently (docs/compatibility.md#generated-parser-locations)."
 
 [[case]]
 name = "parse-c"

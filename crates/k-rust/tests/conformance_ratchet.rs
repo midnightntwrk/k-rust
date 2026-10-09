@@ -782,9 +782,12 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
             assert_eq!(name, "parse-c", "ambiguity requires individual review");
         }
         if comparison == "locations" {
-            assert_eq!(
-                name, "bison-parser-library",
-                "location normalization requires individual review"
+            assert!(
+                matches!(
+                    name,
+                    "bison-parser-library" | "locations" | "locations2" | "locations3"
+                ),
+                "location normalization requires individual review: {name}"
             );
         }
     }
@@ -795,7 +798,7 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
         .collect::<String>();
     assert_eq!(
         matrix_digest,
-        "c29e111b2a05f071b8a7d3b4644a3373785e272ef2ff35744b5e87a03cf37018"
+        "9e238cbf92217dcd9cd09fdd95a9e863422086e2288e5b5991c15a6abfb5d223"
     );
 }
 
