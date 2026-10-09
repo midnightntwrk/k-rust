@@ -163,13 +163,14 @@ pub use transport::head_rule::{
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
     DescriptorClaimBinder, DescriptorConfigurationReference, DescriptorConfigurationRule,
-    DescriptorContextAlias, DescriptorFunctionContext, DescriptorRuleBinding, DescriptorRuleCells,
-    FunctionContext, HostClaim, HostClaimBinder, HostConfigurationReference, HostConfigurationRule,
-    HostContextAlias, HostRuleBinding, HostRuleCells, ProtocolContextAliasBinding,
-    ProtocolContextAliasBindingKind, ProtocolRuleBinding, ProtocolRuleBindingKind,
-    ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleKSequence,
-    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm,
+    DescriptorContextAlias, DescriptorEvaluationStep, DescriptorFunctionContext,
+    DescriptorRuleBinding, DescriptorRuleCells, EvaluationKind, EvaluationStep, FunctionContext,
+    HostClaim, HostClaimBinder, HostConfigurationReference, HostConfigurationRule,
+    HostContextAlias, HostEvaluationStep, HostRuleBinding, HostRuleCells,
+    ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolRuleBinding,
+    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame,
+    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
+    ProtocolRuleMapItem, ProtocolRuleStateTerm,
 };
 
 use serde::{Deserialize, Serialize};

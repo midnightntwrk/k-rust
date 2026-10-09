@@ -184,6 +184,7 @@ details! {
         NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
         EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
         SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
+        InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
     }
 }
 
@@ -278,6 +279,7 @@ details! {
         NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
         EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
         SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
+        InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
     }
 }
 

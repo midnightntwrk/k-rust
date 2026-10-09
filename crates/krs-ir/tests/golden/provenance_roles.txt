@@ -228,3 +228,7 @@ MlBinderSort=ml_binder_sort
 RuleLocalRewrite=rule_local_rewrite
 RuleLocalRewriteFrom=rule_local_rewrite_from
 RuleLocalRewriteTo=rule_local_rewrite_to
+RuleHeat=rule_heat
+RuleCool=rule_cool
+RuleHole=rule_hole
+RuleResultSort=rule_result_sort

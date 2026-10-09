@@ -528,6 +528,41 @@ fn unmark(k::term![ExpSyntax::Pair(k::rewrite!(ExpSyntax::Marked(v) => v), _)]: 
 ",
     ),
     (
+        "rules_heat",
+        r"
+k::rules! {
+    for Machine;
+    use Op::*;
+
+    #[k::rule(heat, hole = h)]
+    #[k::requires(k::is!(KResult, e))]
+    heat_add_rhs: { k: [Add(e, h), ..] } => { k: [h, Freezer::AddRhs(e), ..] };
+}
+",
+    ),
+    (
+        "rule_cool",
+        r#"
+#[k::rule(cool, hole = h, result = Value, label = "cool-add-rhs")]
+pub fn cool_add_rhs(
+    h: Exp,
+    e: Exp,
+    k::cells! { k: k::configuration::KCell(h, Freezer::AddRhs(e), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(Op::Add(e, h), ..tail), ..state }
+}
+"#,
+    ),
+    (
+        "rule_heat_term",
+        r"
+#[k::rule(heat, hole = h)]
+fn heat_wrap(k::term![ExpSyntax::Wrap(h)]: Term<Exp>) -> Term<Exp> {
+    h
+}
+",
+    ),
+    (
         "rule_let",
         r"
 #[k::equation]

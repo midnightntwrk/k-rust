@@ -17,7 +17,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
-use super::existentials::{ensures_condition, existential_binders, fresh_binders};
+use super::existentials::{ensures_condition, evaluation_step, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
@@ -419,6 +419,12 @@ fn expand_ordinary_rule(
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let (fresh, fresh_key_functions) =
         fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (evaluation, evaluation_key_function) = evaluation_step(
+        attribute,
+        rule.existentials(),
+        (&facade, nonce, &cfg),
+        &mut slots,
+    )?;
     let subject_sort = WireSortReference {
         key: wire_key(ProvenanceRole::RuleType, 0),
         target: WireTypeReference {
@@ -478,6 +484,7 @@ fn expand_ordinary_rule(
     let mut term_key_functions = term_builder.key_functions;
     term_key_functions.extend(existential_key_functions);
     term_key_functions.extend(fresh_key_functions);
+    term_key_functions.extend(evaluation_key_function);
     let priority = attribute
         .transition_priority()
         .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
@@ -534,6 +541,7 @@ fn expand_ordinary_rule(
             .map(unbound_variables),
         function_context,
         predicate,
+        evaluation,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -1020,12 +1028,13 @@ fn orphan_result_helper(
 }
 
 /// `#[k::fresh]` on a sentence other than a transition step: an equation,
-/// simplification, alias, claim, context alias, or anywhere rule (KF-022).
-fn misplaced_fresh(span: Span) -> ExpandError {
+/// simplification, alias, claim, context alias, anywhere rule (KF-022), or
+/// heat or cool rule (KF-014).
+pub(super) fn misplaced_fresh(span: Span) -> ExpandError {
     ExpandError::new(
         expand::FRESH_PLACEMENT,
         span,
-        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context alias, or anywhere rule",
+        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context alias, anywhere rule, or heat or cool rule",
     )
 }
 

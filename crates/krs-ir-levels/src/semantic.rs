@@ -1014,6 +1014,9 @@ pub type SemanticMlPredicate = crate::IrMlPredicate<crate::SemanticLevel>;
 /// One explicitly scoped claim binder declaration.
 pub type SemanticScopedBinder = crate::IrScopedBinder<crate::SemanticLevel>;
 
+/// The `heat` or `cool` key of a semantic transition (KF-014).
+pub type SemanticEvaluationStep = crate::IrEvaluationStep<crate::SemanticLevel>;
+
 /// Typed reachability metadata present only on claims.
 pub type SemanticClaim = crate::IrClaim<crate::SemanticLevel>;
 
@@ -1113,6 +1116,7 @@ pub struct SemanticRule {
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
     function_context: Option<crate::IrFunctionContext<crate::SemanticLevel>>,
+    evaluation: Option<SemanticEvaluationStep>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -1136,6 +1140,7 @@ impl Serialize for SemanticRule {
             restriction: self.restriction.as_ref().map(Cow::Borrowed),
             unbound_variables: self.unbound_variables.as_ref().map(Cow::Borrowed),
             function_context: self.function_context.as_ref().map(Cow::Borrowed),
+            evaluation: self.evaluation.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -1175,6 +1180,8 @@ struct SemanticRuleWire<'a, B> {
     unbound_variables: Option<Cow<'a, crate::IrUnboundVariables>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     function_context: Option<Cow<'a, crate::IrFunctionContext<crate::SemanticLevel>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    evaluation: Option<Cow<'a, SemanticEvaluationStep>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1221,6 +1228,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             restriction: value.restriction.map(Cow::into_owned),
             unbound_variables: value.unbound_variables.map(Cow::into_owned),
             function_context: value.function_context.map(Cow::into_owned),
+            evaluation: value.evaluation.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1270,6 +1278,7 @@ impl SemanticRule {
             function_context: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
+            evaluation: None,
         })
     }
 
@@ -1302,6 +1311,7 @@ impl SemanticRule {
             content: crate::ir_level::RuleContent::Predicate {
                 body: Box::new(body),
             },
+            evaluation: None,
         }
     }
 
@@ -1351,6 +1361,7 @@ impl SemanticRule {
             function_context: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
+            evaluation: None,
         })
     }
     /// Returns the authored sentence ID.
@@ -1417,6 +1428,19 @@ impl SemanticRule {
     #[must_use]
     pub const fn anywhere(&self) -> Option<&NodeOrigin> {
         self.anywhere.as_ref()
+    }
+    /// Attaches the `heat` or `cool` key of a transition (KF-014); IR
+    /// validation checks that it is a transition without priority, anywhere
+    /// marker, or fresh binders whose hole is a left-hand binder.
+    #[must_use]
+    pub fn with_evaluation(mut self, evaluation: Option<SemanticEvaluationStep>) -> Self {
+        self.evaluation = evaluation;
+        self
+    }
+    /// Returns the `heat` or `cool` key of a heating or cooling transition.
+    #[must_use]
+    pub const fn evaluation(&self) -> Option<&SemanticEvaluationStep> {
+        self.evaluation.as_ref()
     }
     /// Attaches typed simplification metadata.
     #[must_use]
@@ -1762,6 +1786,10 @@ pub enum SemanticValidationError {
     /// A function context occurred on a sentence other than an equation, or
     /// selects another configuration (KF-025).
     InvalidFunctionContext(Box<StableItemId>),
+    /// A heat or cool key occurred on a sentence other than a transition, beside a
+    /// priority, anywhere marker, or fresh binder, or with a hole that is not a
+    /// left-hand binder (KF-014).
+    InvalidEvaluationStep(Box<StableItemId>),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1998,6 +2026,11 @@ impl fmt::Display for SemanticValidationError {
             Self::InvalidRuleExistentials(id) => write!(
                 formatter,
                 "existential results and ensures are allowed only on claims and transition rules, not on `{}`",
+                id.item_name()
+            ),
+            Self::InvalidEvaluationStep(id) => write!(
+                formatter,
+                "heat and cool are allowed only on transition rules without priority, anywhere, or fresh binders whose hole is a left-hand binder, not on `{}`",
                 id.item_name()
             ),
             Self::InvalidRuleFresh(id) => write!(
@@ -2262,6 +2295,7 @@ mod tests {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
             },
+            evaluation: None,
         }
     }
 

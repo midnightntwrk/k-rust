@@ -2063,6 +2063,9 @@ stage_shape! {
         /// placeholders that semantic lowering ignores.
         #[serde(default, skip_serializing_if = "core::ops::Not::not")]
         pub predicate: bool => [keep],
+        /// The `heat` or `cool` key of a transition (KF-014).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub evaluation: Option<crate::transport::rule::EvaluationStep<S>> => [option nested],
     }
 }
 
@@ -2557,6 +2560,25 @@ impl StructuredRuleDescriptor {
             {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidAnywhereRule,
+                ));
+            }
+        }
+        if let Some(step) = &self.evaluation {
+            require_key(&step.key, provenance)?;
+            require_key(&step.hole_key, provenance)?;
+            if let Some(sort) = &step.result {
+                require_key(&sort.key, provenance)?;
+                sort.sort.validate()?;
+            }
+            if self.sentence_kind != SentenceKind::Transition
+                || self.priority.is_some()
+                || self.nondet.is_some()
+                || self.anywhere.is_some()
+                || !self.fresh.is_empty()
+                || !step.has_valid_roles(|sort| &sort.key)
+            {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidEvaluationStep,
                 ));
             }
         }
@@ -4042,6 +4064,22 @@ impl StructuredRuleDescriptor {
         canonical_key(ProvenanceRole::RuleDeclaration, 0)
     }
 
+    /// Registers the marker, hole, and result-sort keys of a heat or cool
+    /// rule (KF-014).
+    fn insert_evaluation_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+    ) -> Result<(), GrammarTransportError> {
+        if let Some(step) = &self.evaluation {
+            insert_exact(keys, &step.key, step.kind.role(), 0)?;
+            insert_exact(keys, &step.hole_key, ProvenanceRole::RuleHole, 0)?;
+            if let Some(sort) = &step.result {
+                insert_exact(keys, &sort.key, ProvenanceRole::RuleResultSort, 0)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn expected_provenance_keys(
         &self,
     ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
@@ -4075,6 +4113,7 @@ impl StructuredRuleDescriptor {
         if let Some(anywhere) = &self.anywhere {
             insert_exact(&mut keys, anywhere, ProvenanceRole::RuleAnywhere, 0)?;
         }
+        self.insert_evaluation_keys(&mut keys)?;
         if let Some(simplification) = &self.simplification {
             insert_exact(
                 &mut keys,
@@ -4728,6 +4767,7 @@ mod traversal_tests {
             unbound_variables: None,
             function_context: None,
             predicate: false,
+            evaluation: None,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

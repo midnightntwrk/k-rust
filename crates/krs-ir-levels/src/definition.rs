@@ -1107,6 +1107,7 @@ pub struct RuleSentence {
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
     function_context: Option<crate::IrFunctionContext<crate::DefinitionLevel>>,
+    evaluation: Option<DefinitionEvaluationStep>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1128,6 +1129,7 @@ impl Serialize for RuleSentence {
             restriction: self.restriction.as_ref().map(Cow::Borrowed),
             unbound_variables: self.unbound_variables.as_ref().map(Cow::Borrowed),
             function_context: self.function_context.as_ref().map(Cow::Borrowed),
+            evaluation: self.evaluation.as_ref().map(Cow::Borrowed),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1163,6 +1165,8 @@ struct RuleSentenceWire<'a, B> {
     unbound_variables: Option<Cow<'a, crate::IrUnboundVariables>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     function_context: Option<Cow<'a, crate::IrFunctionContext<crate::DefinitionLevel>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    evaluation: Option<Cow<'a, DefinitionEvaluationStep>>,
     body: B,
 }
 
@@ -1203,10 +1207,14 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             restriction: value.restriction.map(Cow::into_owned),
             unbound_variables: value.unbound_variables.map(Cow::into_owned),
             function_context: value.function_context.map(Cow::into_owned),
+            evaluation: value.evaluation.map(Cow::into_owned),
             content,
         })
     }
 }
+
+/// The `heat` or `cool` key of a definition transition (KF-014).
+pub type DefinitionEvaluationStep = crate::IrEvaluationStep<crate::DefinitionLevel>;
 
 /// Structured relational body of one ordinary labeled Definition rule.
 pub type DefinitionRuleBody = crate::IrRuleBody<crate::DefinitionLevel>;
@@ -1245,6 +1253,7 @@ impl RuleSentence {
             unbound_variables: None,
             function_context: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
+            evaluation: None,
         })
     }
     /// Creates a predicate simplification (KF-039).
@@ -1273,6 +1282,7 @@ impl RuleSentence {
             content: crate::ir_level::RuleContent::Predicate {
                 body: Box::new(body),
             },
+            evaluation: None,
         }
     }
     /// Creates an ordinary labeled simultaneous fixed-configuration rule.
@@ -1300,6 +1310,7 @@ impl RuleSentence {
             unbound_variables: None,
             function_context: None,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
+            evaluation: None,
         }
     }
     /// Returns sentence provenance.
@@ -1375,6 +1386,19 @@ impl RuleSentence {
     #[must_use]
     pub const fn anywhere(&self) -> Option<&NodeOrigin> {
         self.anywhere.as_ref()
+    }
+    /// Attaches the `heat` or `cool` key of a transition (KF-014); IR
+    /// validation checks that it is a transition without priority, anywhere
+    /// marker, or fresh binders whose hole is a left-hand binder.
+    #[must_use]
+    pub fn with_evaluation(mut self, evaluation: Option<DefinitionEvaluationStep>) -> Self {
+        self.evaluation = evaluation;
+        self
+    }
+    /// Returns the `heat` or `cool` key of a heating or cooling transition.
+    #[must_use]
+    pub const fn evaluation(&self) -> Option<&DefinitionEvaluationStep> {
+        self.evaluation.as_ref()
     }
     /// Attaches typed simplification metadata.
     #[must_use]
@@ -1723,6 +1747,10 @@ pub enum DefinitionValidationError {
     /// A function context occurred on a sentence other than an equation, or
     /// selects another configuration (KF-025).
     InvalidFunctionContext(LabelId),
+    /// A heat or cool key occurred on a sentence other than a transition, beside a
+    /// priority, anywhere marker, or fresh binder, or with a hole that is not a
+    /// left-hand binder (KF-014).
+    InvalidEvaluationStep(LabelId),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1952,6 +1980,10 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidRuleExistentials(id) => write!(
                 formatter,
                 "existential results and ensures are allowed only on claims and transition rules, not on {id}"
+            ),
+            Self::InvalidEvaluationStep(id) => write!(
+                formatter,
+                "heat and cool are allowed only on transition rules without priority, anywhere, or fresh binders whose hole is a left-hand binder, not on {id}"
             ),
             Self::InvalidRuleFresh(id) => write!(
                 formatter,
@@ -2328,6 +2360,7 @@ mod tests {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,
             },
+            evaluation: None,
         }
     }
 

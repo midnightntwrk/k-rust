@@ -347,7 +347,9 @@ fn materialize_enum_productions(
     }
     let declaration = krs_syntax::EnumConstructorDeclaration::from_attributed_item(item.clone())
         .map_err(ReferenceExpansionError::KrsSyntax)?;
-    if !declaration.is_open_family() {
+    // A family already written in the reference form, such as the KItem
+    // freezers of hand-written heating rules (KF-014), is its own expansion.
+    if !declaration.is_open_family() || declaration.is_reference_family() {
         return Ok(Vec::new());
     }
     materialize_reference_family_attribute(item, &declaration)?;
@@ -1351,8 +1353,26 @@ fn render_rule(
                 .map(|term| quote!(#[k::requires(#term)]))
         })
         .transpose()?;
-    let rule_attribute =
-        reference_rule_attribute(rule.priority.as_ref(), rule.nondet.as_ref(), &label);
+    let evaluation = semantic
+        .evaluation()
+        .map(|step| {
+            let marker = format_ident!("{}", step.kind().as_str());
+            let hole = rust_ident(step.hole().as_str());
+            let mut keys = vec![quote!(#marker), quote!(hole = #hole)];
+            if let Some(result) = step.result() {
+                let sort = render_result_sort(result.sort(), package)?;
+                keys.push(quote!(result = #sort));
+            }
+            Ok::<_, ReferenceExpansionError>(keys)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let rule_attribute = reference_rule_attribute(
+        rule.priority.as_ref(),
+        &evaluation,
+        rule.nondet.as_ref(),
+        &label,
+    );
     syn::parse2(quote! {
         #(#attrs)*
         #(#existential_helpers)*
@@ -1375,9 +1395,11 @@ fn render_rule(
 }
 
 /// Renders `#[k::rule(..)]` with its keys in the canonical order
-/// (`owise | priority = N`, then `nondet = g`, then `label`).
+/// (`owise | priority = N`, then `heat | cool, hole = x, result = S`, then
+/// `nondet = g`, then `label`).
 fn reference_rule_attribute(
     priority: Option<&krs_ir::DescriptorRulePriority>,
+    evaluation: &[TokenStream],
     nondet: Option<&krs_ir::DescriptorNondetGroup>,
     label: &syn::LitStr,
 ) -> TokenStream {
@@ -1390,6 +1412,7 @@ fn reference_rule_attribute(
             keys.push(quote!(priority = #value));
         }
     }
+    keys.extend(evaluation.iter().cloned());
     if let Some(nondet) = nondet {
         let group = rust_ident(&nondet.name);
         keys.push(quote!(nondet = #group));
@@ -1716,11 +1739,39 @@ fn render_descriptor_sort(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
-        krs_ir::DescriptorSortRef::Declared(id) | krs_ir::DescriptorSortRef::Cell(id) => {
-            render_declared_path(id, package)
-        }
+        krs_ir::DescriptorSortRef::Declared(id) => render_sort_path(id, package),
+        krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
         krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
         krs_ir::DescriptorSortRef::Parameter(name) => {
+            let name = format_ident!("{name}");
+            Ok(quote!(#name))
+        }
+    }
+}
+
+/// Renders a sort path as an island or key argument names it: a local sort
+/// by its `crate::` path, a framework sort as `k::KItem` or `k::KResult`.
+fn render_sort_path(
+    id: &StableItemId,
+    package: &PackageId,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    if id.package().k_namespace() == crate::partition::FRAMEWORK_NAMESPACE {
+        let name = rust_ident(id.item_name());
+        return Ok(quote!(k::#name));
+    }
+    render_declared_path(id, package)
+}
+
+/// Renders the `result = S` sort of a heat or cool rule (KF-014).
+fn render_result_sort(
+    sort: &SemanticSortRef,
+    package: &PackageId,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    match sort {
+        SemanticSortRef::Declared(id) => render_sort_path(id, package),
+        SemanticSortRef::Cell(id) => render_declared_path(id, package),
+        SemanticSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
+        SemanticSortRef::Parameter(name) => {
             let name = format_ident!("{name}");
             Ok(quote!(#name))
         }

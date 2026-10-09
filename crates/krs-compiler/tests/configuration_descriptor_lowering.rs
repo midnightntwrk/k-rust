@@ -416,6 +416,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 

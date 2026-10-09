@@ -350,6 +350,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             unbound_variables: None,
             function_context: None,
             predicate: false,
+            evaluation: None,
         })),
     );
     vec![grammar, rule]

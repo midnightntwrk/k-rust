@@ -4,6 +4,7 @@ mod catalog;
 mod configuration;
 mod configuration_rules;
 mod error;
+mod evaluation;
 mod fresh;
 mod grammar;
 mod infer;
@@ -168,6 +169,7 @@ pub fn lower_descriptor_bundle(
     lexicals::check_lexicals(&modules)?;
     lists::check_syntax_lists(&modules)?;
     fresh::check_fresh_generators(&modules)?;
+    evaluation::check_evaluation_steps(&modules)?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     restriction::check_smt_lemmas(&modules)?;

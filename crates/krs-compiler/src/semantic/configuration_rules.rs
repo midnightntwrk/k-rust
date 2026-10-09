@@ -383,7 +383,11 @@ pub(super) fn lower_configuration_rule_descriptor(
     )
     .with_existentials(existentials)
     .with_ensures(ensures)
-    .with_fresh(super::rules::lower_rule_fresh(descriptor, &rule.fresh)?))
+    .with_fresh(super::rules::lower_rule_fresh(descriptor, &rule.fresh)?)
+    .with_evaluation(super::rules::lower_rule_evaluation(
+        descriptor,
+        rule.evaluation.as_ref(),
+    )?))
 }
 
 /// Checks that the result selects only subject cells and that the remainder

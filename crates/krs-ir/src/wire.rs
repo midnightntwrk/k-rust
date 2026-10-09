@@ -136,6 +136,8 @@ pub type WireConfigurationRule = ConfigurationRule<WireStage>;
 pub type WireClaim = Claim<WireStage>;
 /// Static wire-stage claim binder.
 pub type WireClaimBinder = ClaimBinder<WireStage>;
+/// Static wire-stage heat or cool key (KF-014).
+pub type WireEvaluationStep = crate::EvaluationStep<WireStage>;
 /// Static wire-stage context alias.
 pub type WireContextAlias = ContextAlias<WireStage>;
 /// Equation function context before host type-slot resolution (KF-025).
@@ -434,6 +436,7 @@ mod tests {
                 unbound_variables: None,
                 function_context: None,
                 predicate: false,
+                evaluation: None,
             },
             "sort",
             4,
@@ -460,6 +463,7 @@ mod tests {
                 existentials: Vec::new(),
                 ensures: None,
                 fresh: Vec::new(),
+                evaluation: None,
             },
             "sort",
             3,
@@ -537,6 +541,7 @@ mod tests {
                 existentials: Vec::new(),
                 ensures: None,
                 fresh: Vec::new(),
+                evaluation: None,
             },
             "configuration",
             2,

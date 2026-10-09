@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), local rewrites (KF-011), nondet (KF-012), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), local rewrites (KF-011), nondet (KF-012), heating and cooling (KF-014), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -68,6 +68,15 @@ the outcomes must agree:
   `pair(k::rewrite!(marked(v) => v), _)` emits `rule pair ( (marked (
   Value:Exp ) => Value:Exp) , _ )` and unmarks `pair(marked(marked(3)),
   marked(4))` to `pair(3, marked(4))` on both routes;
+- `heat-cool`: K tutorial lesson 14-A, `+` and `&&` evaluated by
+  hand-written `#[k::rule(heat, hole = h)]` and `#[k::rule(cool, hole =
+  h)]` rules with KItem freezers (the `&&` rules with `result = Value`), and
+  `heat-cool-strict`, lesson 14-D, the same operators with `#[k::seqstrict]`.
+  Both run `1 + 2 + 3`, `1 + (2 + 3)`, `true && false`, both `&&`
+  bracketings, and the stuck `1 + true` to the same final configuration
+  natively and on Java LLVM; the emitted rules carry `HOLE`, `[heat]`,
+  `[cool]`, and `result(Value)`; and the native trace of every program has
+  the same heat, compute, cool shape in both definitions;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -79,7 +88,8 @@ the outcomes must agree:
   without a clause, `requires` on a desugar clause, and `recursive` on a
   desugar clause, and a nested `k::rewrite!`, a right-side name the left
   image does not bind, `k::rewrite!` outside a rule's subject or in a rule
-  with a result, and a single-body rule without a rewrite, each fail
+  with a result, and a single-body rule without a rewrite, and a heat rule
+  whose hole is not on its left side or is bound there twice, each fail
   `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
@@ -257,6 +267,17 @@ LOCAL_TERM_PROGRAMS = (
     Program("unmarked", "pair(1, 2)", "accepted", "pair(1, 2)"),
 )
 
+HEAT_COOL = Fixture(MANIFEST, "krs-rule-forms-heat-cool")
+HEAT_COOL_STRICT = Fixture(MANIFEST, "krs-rule-forms-heat-cool-strict")
+HEAT_COOL_PROGRAMS = (
+    Program("add-left", "1 + 2 + 3", "accepted", "6"),
+    Program("add-right", "1 + (2 + 3)", "accepted", "6"),
+    Program("and", "true && false", "accepted", "false"),
+    Program("and-left", "(true && false) && true", "accepted", "false"),
+    Program("and-right", "true && (false && true)", "accepted", "false"),
+    Program("stuck", "1 + true", "accepted", "1 + true"),
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -295,6 +316,8 @@ NEGATIVE = (
     "local-rewrite-outside",
     "local-rewrite-with-result",
     "local-rewrite-unchanged",
+    "heat-cool-hole-not-left",
+    "heat-cool-hole-twice",
 )
 
 
@@ -446,6 +469,67 @@ def verify_local_rewrite(harness: FixtureGate, pins: Ledger) -> None:
     harness.compare(term, LOCAL_TERM_PROGRAMS, sort="Exp")
 
 
+def step_shape(trace: list[dict]) -> list[str]:
+    """A trace's steps as `heat`, `cool`, or the label of the computing rule.
+
+    Hand-written rules are labelled `heat-..` and `cool-..`; the rules K
+    generates for strictness are labelled `..-heat` and `..-cool`.
+    """
+
+    shape = []
+    for step in trace:
+        label = step["label"].rsplit(".", 1)[-1]
+        if label.startswith("heat-") or label.endswith("-heat"):
+            shape.append("heat")
+        elif label.startswith("cool-") or label.endswith("-cool"):
+            shape.append("cool")
+        else:
+            shape.append(label)
+    return shape
+
+
+def native_shapes(harness: FixtureGate, emitted, programs: tuple[Program, ...]) -> dict[str, list[str]]:
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        return {
+            program.name: step_shape(session.exec_run(program=program.text, trace=True)["trace"])
+            for program in programs
+        }
+
+
+def verify_heat_cool(harness: FixtureGate, pins: Ledger) -> None:
+    """Hand-written heating and cooling run like the seqstrict definition, step for step."""
+
+    harness.check(HEAT_COOL)
+    harness.expand(HEAT_COOL)
+    emitted = harness.emit(HEAT_COOL)
+    emitted_attributes(emitted, (
+        "  rule [heat-add-rhs]:\n"
+        "    <k> E:Exp + HOLE:Exp => HOLE:Exp ~> freezer1 ( E:Exp ) ... </k>\n"
+        "    requires isKResult(E:Exp)\n"
+        "    [heat]\n",
+        "  rule [cool-add-rhs]:\n"
+        "    <k> HOLE:Exp ~> freezer1 ( E:Exp ) ~> Tail:K => E:Exp + HOLE:Exp ~> Tail:K </k>\n"
+        "    [cool]\n",
+        "    <k> HOLE:Exp && E:Exp => HOLE:Exp ~> freezer4 ( E:Exp ) ... </k>\n"
+        "    [heat, result(Value)]\n",
+        "[cool, result(Value)]",
+    ))
+    hand = harness.compare(emitted, HEAT_COOL_PROGRAMS, sort="Exp")
+    harness.check(HEAT_COOL_STRICT)
+    strict_emitted = harness.emit(HEAT_COOL_STRICT)
+    strict = harness.compare(strict_emitted, HEAT_COOL_PROGRAMS, sort="Exp")
+    if hand != strict:
+        raise GateError(f"hand-written heating and seqstrict differ: {hand} vs {strict}")
+    hand_shapes = native_shapes(harness, emitted, HEAT_COOL_PROGRAMS)
+    strict_shapes = native_shapes(harness, strict_emitted, HEAT_COOL_PROGRAMS)
+    if hand_shapes != strict_shapes:
+        raise GateError(f"native trace shapes differ: hand {hand_shapes}, seqstrict {strict_shapes}")
+    if hand_shapes["add-left"] != ["heat", "add", "cool", "add"]:
+        raise GateError(f"1 + 2 + 3 traced {hand_shapes['add-left']}, expected heat, add, cool, add")
+    pins.expect(("trace_shapes", "heat-cool"), hand_shapes)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -511,6 +595,9 @@ def main() -> int:
 
         verify_local_rewrite(harness, pins)
         print("PASS local-rewrite: single-body var and assign run the IMP corpus like the restating IMP natively and on Java LLVM; an undeclared assignment is stuck in the local form; a term-shaped single-body rule unmarks a pair")
+
+        verify_heat_cool(harness, pins)
+        print("PASS heat-cool: hand-written heat and cool rules with freezers run lesson 14 like seqstrict natively and on Java LLVM, step for step")
 
         verify_macros(harness)
         print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards, unboundVariables desugars match as patterns on both routes")

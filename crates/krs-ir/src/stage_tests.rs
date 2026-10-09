@@ -509,6 +509,7 @@ fn configuration_rule() -> DescriptorConfigurationRule {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 
@@ -673,6 +674,7 @@ fn head_rule() -> DescriptorHeadRule {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 
@@ -714,6 +716,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         unbound_variables: None,
         function_context: None,
         predicate: false,
+        evaluation: None,
     }
 }
 

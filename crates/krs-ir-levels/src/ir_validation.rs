@@ -48,6 +48,7 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub unbound_variables: Option<&'a crate::IrUnboundVariables>,
     pub function_context: Option<&'a crate::IrFunctionContext<L>>,
     pub anywhere: bool,
+    pub evaluation: Option<&'a crate::IrEvaluationStep<L>>,
 }
 
 #[derive(Clone, Copy)]
@@ -211,6 +212,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidMatchRestriction(L::RuleId),
     InvalidUnboundVariables(L::RuleId),
     InvalidFunctionContext(L::RuleId),
+    InvalidEvaluationStep(L::RuleId),
     FreshScopeViolation(SemanticId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
@@ -861,6 +863,9 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(unbound) = rule.unbound_variables {
         validate_unbound_variables::<L>(&rule, unbound, nodes)?;
     }
+    if let Some(step) = rule.evaluation {
+        validate_evaluation_step::<L>(&rule, step, &scope, declarations, nodes)?;
+    }
     if let Some(context) = rule.function_context {
         validate_function_context::<L>(
             &rule,
@@ -1151,6 +1156,48 @@ fn validate_unbound_variables<L: Validation>(
     }
     for origin in unbound.origins() {
         insert_node::<L>(nodes, origin.key())?;
+    }
+    Ok(())
+}
+
+/// Checks the `heat` or `cool` key of a transition (KF-014): the rule has no
+/// priority, anywhere marker, or fresh binders, and its hole is a declared
+/// variable of the left-hand side.
+fn validate_evaluation_step<L: Validation>(
+    rule: &RuleView<'_, L>,
+    step: &crate::IrEvaluationStep<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let invalid = || L::error(ValidationError::InvalidEvaluationStep(rule.id.clone()));
+    if rule.kind != SentenceKind::Transition
+        || rule.priority.is_some()
+        || rule.anywhere
+        || !rule.fresh.is_empty()
+        || !scope.contains_key(step.hole())
+    {
+        return Err(invalid());
+    }
+    let mut left = BTreeSet::new();
+    match rule.body {
+        RuleBodyRef::Term(body) => collect_term_variables::<L>(body.from(), &mut left),
+        RuleBodyRef::Configuration { body, .. } => {
+            for clause in body.clauses() {
+                collect_term_variables::<L>(clause.before(), &mut left);
+            }
+        }
+        // A predicate simplification (KF-039) is never a transition.
+        RuleBodyRef::Predicate(_) => return Err(invalid()),
+    }
+    if !left.contains(step.hole()) {
+        return Err(invalid());
+    }
+    insert_node::<L>(nodes, step.origin().key())?;
+    insert_node::<L>(nodes, step.hole_origin().key())?;
+    if let Some(result) = step.result() {
+        require_sort::<L>(declarations, result.sort())?;
+        insert_node::<L>(nodes, result.origin().key())?;
     }
     Ok(())
 }

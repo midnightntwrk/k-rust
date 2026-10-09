@@ -738,6 +738,17 @@ impl Adapter<'_> {
         if sentence.anywhere().is_some() {
             attributes.insert("anywhere", json!(""));
         }
+        // A heat or cool rule (KF-014): its hole is named `HOLE`, and
+        // k-rust's heat/cool pass adds the result-sort condition on it.
+        if let Some(step) = sentence.evaluation() {
+            attributes.insert(step.kind().as_str(), json!(""));
+            if let Some(result) = step.result() {
+                attributes.insert(
+                    "result",
+                    json!(self.sort(result.sort(), result.origin())?.name),
+                );
+            }
+        }
         if let Some(priority) = sentence.priority() {
             attributes.insert("priority", json!(priority.value().to_string()));
         }

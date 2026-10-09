@@ -314,6 +314,7 @@ fn configuration_claim(
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();

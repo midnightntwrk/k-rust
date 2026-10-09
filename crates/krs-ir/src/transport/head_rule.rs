@@ -167,8 +167,11 @@ stage_shape! {
         /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// The `heat` or `cool` key of a transition (KF-014).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub evaluation: Option<crate::transport::rule::EvaluationStep<S>> => [option nested],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -230,6 +233,9 @@ stage_shape! {
         /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// The `heat` or `cool` key of a transition (KF-014).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub evaluation: Option<crate::transport::rule::EvaluationStep<S>> => [option nested],
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
@@ -307,6 +313,31 @@ fn validate_existentials<S: crate::Stage>(
     Ok(())
 }
 
+/// A heat or cool key belongs to a transition without priority, nondet
+/// group, or fresh binders (KF-014); whether its hole is a subject binding
+/// is a semantic check with a source diagnostic.
+fn validate_evaluation<S: crate::Stage>(
+    kind: SentenceKind,
+    priority: Option<&DescriptorRulePriority>,
+    nondet: Option<&crate::DescriptorNondetGroup>,
+    fresh: &[crate::transport::rule::ClaimBinder<S>],
+    evaluation: Option<&crate::transport::rule::EvaluationStep<S>>,
+    result_key: impl Fn(&S::Sort) -> &ProvenanceKey,
+) -> Result<(), StateTransportError> {
+    if let Some(step) = evaluation
+        && (kind != SentenceKind::Transition
+            || priority.is_some()
+            || nondet.is_some()
+            || !fresh.is_empty()
+            || !step.has_valid_roles(result_key))
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidEvaluationStep,
+        ));
+    }
+    Ok(())
+}
+
 /// Fresh binders belong to transitions; each has the transition roles and a
 /// name distinct from every subject binding and existential.
 fn validate_fresh<S: crate::Stage>(
@@ -377,6 +408,10 @@ impl HostHeadRule {
     ///
     /// Returns [`StateTransportError`] for a wrong relational item kind,
     /// malformed structural key, undeclared binding, or duplicate extra cell.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The host head rule is checked in one ordered pass over its keys and binders."
+    )]
     pub fn validate(&self, item_kind: ItemKind) -> Result<(), StateTransportError> {
         let expected = self.sentence_kind.item_kind();
         if item_kind != expected {
@@ -435,6 +470,14 @@ impl HostHeadRule {
             &self.bindings,
             &self.existentials,
             &self.fresh,
+        )?;
+        validate_evaluation(
+            self.sentence_kind,
+            self.priority.as_ref(),
+            self.nondet.as_ref(),
+            &self.fresh,
+            self.evaluation.as_ref(),
+            |sort| &sort.key,
         )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
@@ -535,6 +578,14 @@ impl DescriptorHeadRule {
             &self.bindings,
             &self.existentials,
             &self.fresh,
+        )?;
+        validate_evaluation(
+            self.sentence_kind,
+            self.priority.as_ref(),
+            self.nondet.as_ref(),
+            &self.fresh,
+            self.evaluation.as_ref(),
+            |sort| &sort.key,
         )?;
         let mut cells = BTreeSet::new();
         for extra in &self.extras {
@@ -766,6 +817,7 @@ mod tests {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            evaluation: None,
         };
         let original = serde_json::to_value(&rule).unwrap();
         let mut map = CountingMap::default();
@@ -871,6 +923,7 @@ mod tests {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            evaluation: None,
         };
         let mut map = CountingMap::default();
         let mapped = rule.clone().try_map_refs(&mut map).unwrap();

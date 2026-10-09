@@ -992,6 +992,45 @@
       }
     ]
   },
+  "EvaluationKind": {
+    "ENUM": {
+      "0": {
+        "heat": "UNIT"
+      },
+      "1": {
+        "cool": "UNIT"
+      }
+    }
+  },
+  "EvaluationStep": {
+    "STRUCT": [
+      {
+        "kind": {
+          "TYPENAME": "EvaluationKind"
+        }
+      },
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "hole_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "hole": "STR"
+      },
+      {
+        "result": {
+          "OPTION": {
+            "TYPENAME": "WireSortReference"
+          }
+        }
+      }
+    ]
+  },
   "GroupAssociativity": {
     "ENUM": {
       "0": {

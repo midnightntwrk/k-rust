@@ -614,6 +614,7 @@ mod tests {
             unbound_variables: None,
             function_context: None,
             predicate: false,
+            evaluation: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         assert!(encoded.contains("\"slot\":0,\"authored_path\":\"u64\""));
@@ -644,6 +645,7 @@ mod tests {
                 unbound_variables: None,
                 function_context: None,
                 predicate: false,
+                evaluation: None,
             }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -670,6 +672,7 @@ mod tests {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            evaluation: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
@@ -695,6 +698,7 @@ mod tests {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            evaluation: None,
         }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -1120,6 +1124,7 @@ mod tests {
                     existentials: Vec::new(),
                     ensures: None,
                     fresh: Vec::new(),
+                    evaluation: None,
                 })),
                 cell_slots(),
             );
@@ -1141,6 +1146,7 @@ mod tests {
                     existentials: Vec::new(),
                     ensures: None,
                     fresh: Vec::new(),
+                    evaluation: None,
                 }));
             assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
             let HostDescriptorPayload::ConfigurationRule(rule) = actual else {

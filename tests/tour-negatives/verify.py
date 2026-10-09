@@ -34,7 +34,7 @@ PRIVATE_LEMMA_NOTES = (
 FRESH_PLACEMENT = (
     "fresh values are drawn from the generated counter only by a transition step of the "
     "configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, "
-    "context alias, or anywhere rule"
+    "context alias, anywhere rule, or heat or cool rule"
 )
 
 
@@ -232,6 +232,30 @@ def main() -> None:
         ("rule_fresh_equation", FRESH_PLACEMENT, "n"),
         ("rule_fresh_claim", FRESH_PLACEMENT, "fresh"),
         ("rule_fresh_anywhere", FRESH_PLACEMENT, "n"),
+        ("rule_fresh_heat", FRESH_PLACEMENT, "n"),
+        (
+            "rule_heat_without_hole",
+            "a heat or cool rule names the subterm it moves with `hole = x`, K's HOLE; bind `x` "
+            "on the left side",
+            "heat",
+        ),
+        (
+            "rule_heat_and_cool",
+            "a rule is a heating step or a cooling step, not both; write `heat` or `cool`",
+            "cool",
+        ),
+        (
+            "rule_hole_without_heat",
+            "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`",
+            "h",
+        ),
+        (
+            "rule_heat_with_priority",
+            "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` "
+            "to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, "
+            "`priority`, `nondet`, or `anywhere`",
+            "10",
+        ),
         (
             "desugar_clause_recursive",
             "recursion is a property of the production: write `recursive` on the production's "

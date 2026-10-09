@@ -283,9 +283,16 @@ fn expand_head_rule(
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let (fresh, fresh_key_functions) =
         fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (evaluation, evaluation_key_function) = super::existentials::evaluation_step(
+        clause.attribute(),
+        rule.existentials(),
+        (&facade, nonce, &cfg),
+        &mut slots,
+    )?;
     let mut key_functions = builder.key_functions;
     key_functions.extend(existential_key_functions);
     key_functions.extend(fresh_key_functions);
+    key_functions.extend(evaluation_key_function);
     let tooling_binding_references = builder.tooling_binding_references;
     for existential in rule.existentials().names() {
         binding_checks.push(quote! {
@@ -378,6 +385,7 @@ fn expand_head_rule(
         existentials,
         ensures,
         fresh,
+        evaluation,
     }));
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();

@@ -2860,6 +2860,42 @@ impl Sample for DefinitionClaim {
         )]
     }
 }
+impl Sample for DefinitionEvaluationStep {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<EvaluationKind>(),
+            sample::<NodeOrigin>(),
+            sample::<SemanticId>(),
+            Some(IrEvaluationResult::new(
+                sample::<NodeOrigin>(),
+                sample::<DefinitionSortRef>(),
+            )),
+        )]
+    }
+}
+impl Sample for IrEvaluationResult<SemanticLevel> {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<SemanticSortRef>(),
+        )]
+    }
+}
+impl Sample for SemanticEvaluationStep {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<EvaluationKind>(),
+            sample::<NodeOrigin>(),
+            sample::<SemanticId>(),
+            Some(IrEvaluationResult::new(
+                sample::<NodeOrigin>(),
+                sample::<SemanticSortRef>(),
+            )),
+        )]
+    }
+}
 impl Sample for DefinitionScopedBinder {
     fn samples() -> Vec<Self> {
         vec![Self::new(
@@ -2966,6 +3002,33 @@ impl Sample for DescriptorClaimBinder {
         }]
     }
 }
+impl Sample for EvaluationKind {
+    fn samples() -> Vec<Self> {
+        vec![Self::Heat]
+    }
+}
+impl Sample for DescriptorEvaluationStep {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            kind: sample::<EvaluationKind>(),
+            key: sample::<ProvenanceKey>(),
+            hole_key: sample::<ProvenanceKey>(),
+            hole: sample::<String>(),
+            result: sample::<Option<DescriptorSortReference>>(),
+        }]
+    }
+}
+impl Sample for WireEvaluationStep {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            kind: sample::<EvaluationKind>(),
+            key: sample::<ProvenanceKey>(),
+            hole_key: sample::<ProvenanceKey>(),
+            hole: sample::<String>(),
+            result: sample::<Option<WireSortReference>>(),
+        }]
+    }
+}
 impl Sample for DescriptorConfigurationRule {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -2985,6 +3048,7 @@ impl Sample for DescriptorConfigurationRule {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            evaluation: sample(),
         }]
     }
 }
@@ -3105,6 +3169,7 @@ impl Sample for DescriptorHeadRule {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            evaluation: sample(),
         }]
     }
 }
@@ -3477,6 +3542,7 @@ impl Sample for StructuredRuleDescriptor {
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
             function_context: sample(),
             predicate: false,
+            evaluation: sample(),
         }]
     }
 }
@@ -3522,6 +3588,7 @@ impl Sample for WireHeadRule {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            evaluation: sample(),
         }]
     }
 }
@@ -3608,6 +3675,7 @@ impl Sample for WireConfigurationRule {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            evaluation: sample(),
         }]
     }
 }
@@ -3672,6 +3740,7 @@ impl Sample for WireStructuredRule {
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
             function_context: sample(),
             predicate: false,
+            evaluation: sample(),
         }]
     }
 }
@@ -3775,6 +3844,7 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
     insert::<IrRestrictionVariable>(corpus, "IrRestrictionVariable");
     insert::<IrUnboundVariables>(corpus, "IrUnboundVariables");
     insert::<IrUnboundVariable>(corpus, "IrUnboundVariable");
+    insert::<IrEvaluationResult<SemanticLevel>>(corpus, "IrEvaluationResult");
     insert::<IrRewrite<SemanticLevel>>(corpus, "IrRewrite");
     insert::<TermMapOperation>(corpus, "TermMapOperation");
     insert::<DefinitionTerm>(corpus, "DefinitionTerm");
@@ -3802,6 +3872,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<ContextAliasSentence>(corpus, "ContextAliasSentence");
     insert::<DefinitionClaim>(corpus, "DefinitionClaim");
     insert::<DefinitionScopedBinder>(corpus, "DefinitionScopedBinder");
+    insert::<DefinitionEvaluationStep>(corpus, "DefinitionEvaluationStep");
     insert::<DefinitionModule>(corpus, "DefinitionModule");
     insert::<DefinitionRuleCondition>(corpus, "DefinitionRuleCondition");
     insert::<DefinitionRulePriority>(corpus, "DefinitionRulePriority");
@@ -3812,6 +3883,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorCellTermField>(corpus, "DescriptorCellTermField");
     insert::<DescriptorClaim>(corpus, "DescriptorClaim");
     insert::<DescriptorClaimBinder>(corpus, "DescriptorClaimBinder");
+    insert::<DescriptorEvaluationStep>(corpus, "DescriptorEvaluationStep");
     insert::<DescriptorConfigurationRule>(corpus, "DescriptorConfigurationRule");
     insert::<DescriptorContextAlias>(corpus, "DescriptorContextAlias");
     insert::<DescriptorFunctionContext>(corpus, "DescriptorFunctionContext");
@@ -3886,6 +3958,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<RuleSentence>(corpus, "RuleSentence");
     insert::<SemanticClaim>(corpus, "SemanticClaim");
     insert::<SemanticScopedBinder>(corpus, "SemanticScopedBinder");
+    insert::<SemanticEvaluationStep>(corpus, "SemanticEvaluationStep");
     insert::<SemanticContextAlias>(corpus, "SemanticContextAlias");
     insert::<SemanticFunctionContext>(corpus, "SemanticFunctionContext");
     insert::<DefinitionFunctionContext>(corpus, "DefinitionFunctionContext");

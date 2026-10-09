@@ -115,6 +115,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-rule-forms-heat-cool"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-rule-forms-heat-cool-strict"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-rule-forms-local-rewrite"
 version = "0.1.0"
 dependencies = [

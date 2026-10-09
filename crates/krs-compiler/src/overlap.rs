@@ -2,7 +2,8 @@
 //!
 //! Every transition is checked: readable tables, `#[k::rule]` term rules
 //! completed to the computation-cell head, and `cells!` rules. Equations,
-//! simplifications, aliases, claims, and anywhere rules are not. Rules at
+//! simplifications, aliases, claims, anywhere rules, and heat and cool rules
+//! (K orders those by the result-sort condition it adds) are not. Rules at
 //! different priorities never overlap; rules of one `nondet` group may, and
 //! the group is validated instead; and literal complementary guards separate
 //! two rules after unification. Members of one `overload` family are one
@@ -1018,13 +1019,17 @@ fn head_application(term: &SemanticTerm, completed: bool) -> Option<&SemanticApp
 
 /// Every transition the check covers: configuration rules, readable head rules,
 /// and term rules completed to the computation-cell head. Equations,
-/// simplifications, aliases, claims, and anywhere rules are outside its scope.
+/// simplifications, aliases, claims, anywhere rules, and heat and cool rules
+/// are outside its scope.
 fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
     let computation = computation_cell(modules);
     let contexts = FunctionContexts::from_rules(modules.iter().flat_map(SemanticModule::rules));
     let mut views = Vec::new();
     for rule in modules.iter().flat_map(SemanticModule::rules) {
-        if rule.kind() != krs_ir::SentenceKind::Transition || rule.anywhere().is_some() {
+        if rule.kind() != krs_ir::SentenceKind::Transition
+            || rule.anywhere().is_some()
+            || rule.evaluation().is_some()
+        {
             continue;
         }
         let (configuration, clauses) = match rule.relational_body() {

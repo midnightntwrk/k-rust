@@ -62,6 +62,85 @@ pub type DescriptorClaimBinder = ClaimBinder<DescriptorStage>;
 /// Build-local host-stage form of [`ClaimBinder`].
 pub type HostClaimBinder = ClaimBinder<HostStage>;
 
+/// Whether a transition is a heating or a cooling step (KF-014).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvaluationKind {
+    /// `#[k::rule(heat, hole = x)]`, K's `[heat]`: moves the hole to the front of `k`.
+    Heat,
+    /// `#[k::rule(cool, hole = x)]`, K's `[cool]`: plugs a finished hole back.
+    Cool,
+}
+
+impl EvaluationKind {
+    /// The provenance role of the `heat` or `cool` marker.
+    #[must_use]
+    pub const fn role(self) -> ProvenanceRole {
+        match self {
+            Self::Heat => ProvenanceRole::RuleHeat,
+            Self::Cool => ProvenanceRole::RuleCool,
+        }
+    }
+
+    /// K's attribute spelling, `heat` or `cool`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Heat => "heat",
+            Self::Cool => "cool",
+        }
+    }
+}
+
+stage_shape! {
+    /// The `heat` or `cool` key of a transition with its hole binder and
+    /// optional result sort (KF-014).
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "EvaluationStep",
+        bound(
+            serialize = "S::Sort: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>"
+        )
+    )]
+    pub struct EvaluationStep<S: Stage> {
+        /// Heating or cooling.
+        pub kind: EvaluationKind => [keep],
+        /// Provenance of the `heat` or `cool` marker.
+        pub key: ProvenanceKey => [keep],
+        /// Provenance of the binder named by `hole = x`.
+        pub hole_key: ProvenanceKey => [keep],
+        /// The authored hole binder name.
+        pub hole: String => [keep],
+        /// Optional `result = S`, K's `result(S)`; K's default is `KResult`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result: Option<S::Sort> => [option sort],
+    }
+}
+
+/// Stable descriptor-stage form of [`EvaluationStep`].
+pub type DescriptorEvaluationStep = EvaluationStep<DescriptorStage>;
+
+/// Build-local host-stage form of [`EvaluationStep`].
+pub type HostEvaluationStep = EvaluationStep<HostStage>;
+
+impl<S: crate::Stage> EvaluationStep<S> {
+    /// Checks the marker, hole, and result-sort roles; `result_key` reads
+    /// the result sort's provenance key.
+    pub(crate) fn has_valid_roles(&self, result_key: impl Fn(&S::Sort) -> &ProvenanceKey) -> bool {
+        self.key.role() == self.kind.role()
+            && self.key.ordinal() == 0
+            && self.hole_key.role() == ProvenanceRole::RuleHole
+            && self.hole_key.ordinal() == 0
+            && !self.hole.is_empty()
+            && self.result.as_ref().is_none_or(|sort| {
+                let key = result_key(sort);
+                key.role() == ProvenanceRole::RuleResultSort && key.ordinal() == 0
+            })
+    }
+}
+
 stage_shape! {
     /// Claim-only metadata attached to one configuration rewrite.
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1084,6 +1163,9 @@ stage_shape! {
         /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub fresh: Vec<ClaimBinder<S>> => [vec nested],
+        /// The `heat` or `cool` key of a transition (KF-014).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub evaluation: Option<EvaluationStep<S>> => [option nested],
     }
 }
 
@@ -1749,6 +1831,38 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         )?;
     }
     validate_rule_existentials::<S>(rule, &right_bindings, keys, &claim_counters)?;
+    if let Some(step) = &rule.evaluation {
+        validate_rule_evaluation::<S>(
+            step,
+            rule.sentence_kind == crate::ConfigurationSentenceKind::Transition
+                && rule.priority.is_none()
+                && rule.nondet.is_none()
+                && rule.fresh.is_empty(),
+            keys,
+        )?;
+    }
+    Ok(())
+}
+
+/// Checks the `heat` or `cool` key of a transition (KF-014): it is allowed
+/// only on a transition without priority, nondet group, or fresh binders.
+/// Whether the hole is a left-side binder is a semantic check.
+fn validate_rule_evaluation<S: RuleValidationStage>(
+    step: &EvaluationStep<S>,
+    allowed: bool,
+    keys: &mut BTreeSet<ProvenanceKey>,
+) -> Result<(), StateTransportError> {
+    if !allowed || !step.has_valid_roles(|sort| S::sort_key(sort)) {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidEvaluationStep,
+        ));
+    }
+    insert_rule_exact(keys, &step.key, step.kind.role(), 0)?;
+    insert_rule_exact(keys, &step.hole_key, ProvenanceRole::RuleHole, 0)?;
+    if let Some(sort) = &step.result {
+        S::validate_binding_sort(sort)?;
+        insert_rule_exact(keys, S::sort_key(sort), ProvenanceRole::RuleResultSort, 0)?;
+    }
     Ok(())
 }
 

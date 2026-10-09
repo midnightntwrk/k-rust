@@ -511,6 +511,14 @@ provenance_roles! {
     RuleLocalRewriteFrom => "rule_local_rewrite_from",
     /// The right side (`to`) of one `k::rewrite!`; `()` in a K sequence is `.K`.
     RuleLocalRewriteTo => "rule_local_rewrite_to",
+    /// Bare `heat` marker of a heating transition (KF-014).
+    RuleHeat => "rule_heat",
+    /// Bare `cool` marker of a cooling transition (KF-014).
+    RuleCool => "rule_cool",
+    /// Binder name of `hole = x` on a heat or cool rule, K's `HOLE`.
+    RuleHole => "rule_hole",
+    /// Sort path of `result = S` on a heat or cool rule, K's `result(S)`.
+    RuleResultSort => "rule_result_sort",
 }
 
 impl Serialize for ProvenanceRole {

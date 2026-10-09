@@ -21,6 +21,7 @@
 //!   generated wildcard is additionally `_`-prefixed; no authored-derived spelling begins with
 //!   `Krs_` or `_Krs_`, so this namespace is reserved for KRS;
 //! - a claim existential is prefixed with `?`.
+//! - the hole binder of a heat or cool rule is spelled `HOLE`, as K requires (KF-014).
 //!
 //! Binders are named in a stable order: generated binders first, then anonymous occurrences, then
 //! authored names, each ordered by semantic identity.
@@ -176,6 +177,11 @@ impl VariableNaming {
         }
         if let Some(condition) = sentence.ensures() {
             scope.condition(condition);
+        }
+        // A heat or cool rule's hole is K's `HOLE` (KF-014); `HOLE` is
+        // reserved, so no other binder takes it.
+        if let Some(step) = sentence.evaluation() {
+            scope.fixed.insert(step.hole().clone(), "HOLE".to_owned());
         }
         scope.name(&self.reserved)
     }

@@ -577,6 +577,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             unbound_variables: None,
             function_context: None,
             predicate: false,
+            evaluation: None,
         })),
     ));
 

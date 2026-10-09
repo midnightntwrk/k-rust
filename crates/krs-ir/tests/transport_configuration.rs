@@ -622,6 +622,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            evaluation: None,
         },
     )
 }
@@ -934,6 +935,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 
@@ -1052,6 +1054,7 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 

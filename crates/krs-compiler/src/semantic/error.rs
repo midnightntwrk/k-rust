@@ -334,6 +334,14 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending declaration.
         range: Option<Box<SourceRange>>,
     },
+    /// A heat or cool rule does not bind its hole exactly once on its left
+    /// side (KF-014).
+    InvalidEvaluationStep {
+        /// Stable reason naming the hole and the fix.
+        reason: String,
+        /// Sole exact authored range of the `hole = x` binder.
+        range: Option<Box<SourceRange>>,
+    },
     /// A fresh binder's sort has no usable generator, or a generator is
     /// malformed or repeated (KF-022).
     InvalidFresh {
@@ -527,6 +535,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::NativeInstance { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
+            | Self::InvalidEvaluationStep { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidMatchRestriction { reason, .. }
             | Self::InvalidStaticClause { reason, .. }
@@ -602,6 +611,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
                 FreshProblem::InvalidGenerator => codes::analysis::INVALID_FRESH_GENERATOR,
             },
+            Self::InvalidEvaluationStep { .. } => codes::analysis::INVALID_HEAT_COOL,
             Self::DuplicateSmtlib { .. } => codes::analysis::DUPLICATE_SMTLIB,
             Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
@@ -642,6 +652,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
+            | Self::InvalidEvaluationStep { range, .. }
             | Self::DuplicateSmtlib { range, .. }
             | Self::InvalidMatchRestriction { range, .. }
             | Self::InvalidStaticClause { range, .. }

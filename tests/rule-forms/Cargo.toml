@@ -3,6 +3,8 @@ members = [
     "packages/anywhere",
     "packages/casts",
     "packages/fresh",
+    "packages/heat-cool",
+    "packages/heat-cool-strict",
     "packages/local-rewrite",
     "packages/local-term",
     "packages/macros",

@@ -387,6 +387,7 @@ mod tests {
                 existentials: Vec::new(),
                 ensures: None,
                 fresh: Vec::new(),
+                evaluation: None,
             })),
         )
     }

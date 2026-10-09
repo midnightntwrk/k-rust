@@ -8,7 +8,8 @@
     "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
     "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
     "krs-rule-forms-local-rewrite": "9a662ec82271a9cf2020f8a89cd380e6a931d7d1766ace7f7be26fb6e701142b",
-    "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690"
+    "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690",
+    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -37,6 +38,12 @@
     },
     "krs-rule-forms-local-term": {
       "definition.k": "0073384173b989249120d644328e3b2f279fea3ed8ab0f2bda1970fbab92b6d3"
+    },
+    "krs-rule-forms-heat-cool": {
+      "definition.k": "83d2418a7ba5ef08b53beb8a4cbd66f9d3c7e45cf1d4da3a9fcb6b90ea4f043a"
+    },
+    "krs-rule-forms-heat-cool-strict": {
+      "definition.k": "886d36d213505e9a24149e46484f8a49aa3f445b05594049e4c16a8c4638a017"
     }
   },
   "reference_sha256": {
@@ -48,7 +55,9 @@
     "krs-rule-forms-macros": "5d046f98abd1d9d698845850df164ba22ca537c37c8e532242757705c7bca979",
     "krs-rule-forms-local-rewrite": "68758ed2ebe5cf015b74354fc444ef5189d9680c1b15d3deab3eaaadd65bef0c",
     "krs-rule-forms-restating-imp": "97f1597562a5a56008ace0607393e5dca16e1ac3bbfaa474e3b731eb9b486cc6",
-    "krs-rule-forms-local-term": "6d994189b28396badbbb9bc0251ca43157f562e6cce6253c6065343e9ad0c2ee"
+    "krs-rule-forms-local-term": "6d994189b28396badbbb9bc0251ca43157f562e6cce6253c6065343e9ad0c2ee",
+    "krs-rule-forms-heat-cool": "406f0db83692929c4621492ef19ef3bd5f6ce871b3a399477f3398eb636de28b",
+    "krs-rule-forms-heat-cool-strict": "d68989ac4fa0be529d2b4ffa21b44047e00b168752892048a943c448486b9345"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -640,6 +649,58 @@
         "parse": "accepted",
         "run": "pair(1, 2)"
       }
+    },
+    "krs-rule-forms-heat-cool": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
+    },
+    "krs-rule-forms-heat-cool-strict": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
     }
   },
   "diagnostics": {
@@ -729,6 +790,12 @@
     ],
     "local-rewrite-unchanged": [
       "error[krs::rust-expansion::uncoded-error]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result"
+    ],
+    "heat-cool-hole-not-left": [
+      "error[krs::analysis::invalid-heat-cool]: a heat rule must match its hole on the left side; K adds 'requires notBool isKResult(HOLE)', a condition on that subterm, and `x` does not occur there"
+    ],
+    "heat-cool-hole-twice": [
+      "error[krs::analysis::invalid-heat-cool]: the hole `h` of a heat rule names one subterm, but the left side binds it 2 times; bind the other occurrences with another name"
     ]
   },
   "known_divergences": {
@@ -800,6 +867,38 @@
           }
         }
       }
+    }
+  },
+  "trace_shapes": {
+    "heat-cool": {
+      "add-left": [
+        "heat",
+        "add",
+        "cool",
+        "add"
+      ],
+      "add-right": [
+        "heat",
+        "add",
+        "cool",
+        "add"
+      ],
+      "and": [
+        "and"
+      ],
+      "and-left": [
+        "heat",
+        "and",
+        "cool",
+        "and"
+      ],
+      "and-right": [
+        "heat",
+        "and",
+        "cool",
+        "and"
+      ],
+      "stuck": []
     }
   }
 }

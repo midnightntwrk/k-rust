@@ -640,6 +640,7 @@ fn empty_rule<S: RuleValidationStage>(
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        evaluation: None,
     }
 }
 

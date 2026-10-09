@@ -242,6 +242,90 @@ pub struct IrScopedBinder<L: IrLevel> {
     pub(crate) sort: L::Sort,
 }
 
+/// The `heat` or `cool` key of a transition (KF-014): the binder K names
+/// `HOLE` and the optional result sort of K's `result(S)`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, bound = "")]
+pub struct IrEvaluationStep<L: IrLevel> {
+    pub(crate) origin: NodeOrigin,
+    pub(crate) kind: krs_ir::EvaluationKind,
+    pub(crate) hole_origin: NodeOrigin,
+    pub(crate) hole: SemanticId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) result: Option<IrEvaluationResult<L>>,
+}
+
+/// The `result = S` sort of a heat or cool rule and its provenance.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, bound = "")]
+pub struct IrEvaluationResult<L: IrLevel> {
+    pub(crate) origin: NodeOrigin,
+    pub(crate) sort: L::Sort,
+}
+
+impl<L: IrLevel> IrEvaluationStep<L> {
+    /// Creates a heat or cool key.
+    #[must_use]
+    pub const fn new(
+        origin: NodeOrigin,
+        kind: krs_ir::EvaluationKind,
+        hole_origin: NodeOrigin,
+        hole: SemanticId,
+        result: Option<IrEvaluationResult<L>>,
+    ) -> Self {
+        Self {
+            origin,
+            kind,
+            hole_origin,
+            hole,
+            result,
+        }
+    }
+    /// Provenance of the `heat` or `cool` marker.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Heating or cooling.
+    #[must_use]
+    pub const fn kind(&self) -> krs_ir::EvaluationKind {
+        self.kind
+    }
+    /// Provenance of the binder named by `hole = x`.
+    #[must_use]
+    pub const fn hole_origin(&self) -> &NodeOrigin {
+        &self.hole_origin
+    }
+    /// The hole binder, which K names `HOLE`.
+    #[must_use]
+    pub const fn hole(&self) -> &SemanticId {
+        &self.hole
+    }
+    /// The `result = S` sort, when authored; K's default is `KResult`.
+    #[must_use]
+    pub const fn result(&self) -> Option<&IrEvaluationResult<L>> {
+        self.result.as_ref()
+    }
+}
+
+impl<L: IrLevel> IrEvaluationResult<L> {
+    /// Creates a provenance-bearing result sort.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, sort: L::Sort) -> Self {
+        Self { origin, sort }
+    }
+    /// Provenance of the sort path.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// The result sort.
+    #[must_use]
+    pub const fn sort(&self) -> &L::Sort {
+        &self.sort
+    }
+}
+
 /// Typed reachability metadata which is present only on claims.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound = "")]

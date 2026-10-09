@@ -1326,6 +1326,144 @@
       }
     }
   ],
+  "DefinitionEvaluationStep": [
+    {
+      "hole": "semantic",
+      "hole_origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "kind": "heat",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "result": {
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "sort": {
+          "sort": "symbol",
+          "sort_source": "declared"
+        }
+      }
+    }
+  ],
   "DefinitionFunctionContext": [
     {
       "cells": {
@@ -6416,6 +6554,41 @@
           "term_kind": "variable"
         }
       },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "sort_source": "declared"
+          }
+        }
+      },
       "existentials": [
         {
           "declaration_key": {
@@ -6809,6 +6982,43 @@
       },
       "visibility": {
         "visibility": "inherited"
+      }
+    }
+  ],
+  "DescriptorEvaluationStep": [
+    {
+      "hole": "sample",
+      "hole_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "kind": "heat",
+      "result": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "sort": {
+          "sort": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          },
+          "sort_source": "declared"
+        }
       }
     }
   ],
@@ -7285,6 +7495,41 @@
             "role": "sort_declaration"
           },
           "term_kind": "variable"
+        }
+      },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "sort_source": "declared"
+          }
         }
       },
       "existentials": [
@@ -7780,6 +8025,41 @@
                   "name": "sample"
                 }
               ]
+            }
+          }
+        },
+        "evaluation": {
+          "hole": "sample",
+          "hole_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "kind": "heat",
+          "result": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "sort": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "sort_source": "declared"
             }
           }
         },
@@ -8749,6 +9029,41 @@
             "term_kind": "variable"
           }
         },
+        "evaluation": {
+          "hole": "sample",
+          "hole_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "kind": "heat",
+          "result": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "sort": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "sort_source": "declared"
+            }
+          }
+        },
         "existentials": [
           {
             "declaration_key": {
@@ -9103,6 +9418,41 @@
               "role": "sort_declaration"
             },
             "term_kind": "variable"
+          }
+        },
+        "evaluation": {
+          "hole": "sample",
+          "hole_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "kind": "heat",
+          "result": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "sort": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "sort_source": "declared"
+            }
           }
         },
         "existentials": [
@@ -13196,6 +13546,69 @@
             "label": "transform"
           }
         ]
+      }
+    }
+  ],
+  "IrEvaluationResult": [
+    {
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "sort": {
+        "sort": {
+          "disambiguator": "",
+          "item_kind": "sort",
+          "item_name": "Value",
+          "module_path": [
+            "syntax"
+          ],
+          "package": {
+            "cargo_name": "schema",
+            "cargo_source": "workspace",
+            "cargo_version": "0.1.0",
+            "k_namespace": "ORG-EXAMPLE-SCHEMA"
+          }
+        },
+        "sort_source": "declared"
       }
     }
   ],
@@ -18338,7 +18751,11 @@
     "ml_binder_sort",
     "rule_local_rewrite",
     "rule_local_rewrite_from",
-    "rule_local_rewrite_to"
+    "rule_local_rewrite_to",
+    "rule_heat",
+    "rule_cool",
+    "rule_hole",
+    "rule_result_sort"
   ],
   "RawSentence": [
     {
@@ -19335,6 +19752,142 @@
           },
           "term_kind": "variable",
           "variable": "semantic"
+        }
+      },
+      "evaluation": {
+        "hole": "semantic",
+        "hole_origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "kind": "heat",
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "result": {
+          "origin": {
+            "key": "source-map",
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "end_byte": 3,
+                  "file": {
+                    "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                    "package": {
+                      "cargo_name": "schema",
+                      "cargo_source": "workspace",
+                      "cargo_version": "0.1.0",
+                      "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                    },
+                    "package_relative_path": "src/lib.rs"
+                  },
+                  "start_byte": 0
+                }
+              },
+              {
+                "frame_type": "transformation",
+                "item": {
+                  "disambiguator": "",
+                  "item_kind": "sort",
+                  "item_name": "Value",
+                  "module_path": [
+                    "syntax"
+                  ],
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  }
+                },
+                "kind": "semantic_ir",
+                "label": "transform"
+              }
+            ]
+          },
+          "sort": {
+            "sort": "symbol",
+            "sort_source": "declared"
+          }
         }
       },
       "existentials": [
@@ -20881,6 +21434,157 @@
       ]
     }
   ],
+  "SemanticEvaluationStep": [
+    {
+      "hole": "semantic",
+      "hole_origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "kind": "heat",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "result": {
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "sort": {
+          "sort": {
+            "disambiguator": "",
+            "item_kind": "sort",
+            "item_name": "Value",
+            "module_path": [
+              "syntax"
+            ],
+            "package": {
+              "cargo_name": "schema",
+              "cargo_source": "workspace",
+              "cargo_version": "0.1.0",
+              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            }
+          },
+          "sort_source": "declared"
+        }
+      }
+    }
+  ],
   "SemanticFunctionContext": [
     {
       "cells": {
@@ -22167,6 +22871,155 @@
           },
           "term_kind": "variable",
           "variable": "semantic"
+        }
+      },
+      "evaluation": {
+        "hole": "semantic",
+        "hole_origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "kind": "heat",
+        "origin": {
+          "key": "source-map",
+          "origin": [
+            {
+              "frame_type": "ranged",
+              "kind": "authored",
+              "range": {
+                "end_byte": 3,
+                "file": {
+                  "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  },
+                  "package_relative_path": "src/lib.rs"
+                },
+                "start_byte": 0
+              }
+            },
+            {
+              "frame_type": "transformation",
+              "item": {
+                "disambiguator": "",
+                "item_kind": "sort",
+                "item_name": "Value",
+                "module_path": [
+                  "syntax"
+                ],
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                }
+              },
+              "kind": "semantic_ir",
+              "label": "transform"
+            }
+          ]
+        },
+        "result": {
+          "origin": {
+            "key": "source-map",
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "end_byte": 3,
+                  "file": {
+                    "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                    "package": {
+                      "cargo_name": "schema",
+                      "cargo_source": "workspace",
+                      "cargo_version": "0.1.0",
+                      "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                    },
+                    "package_relative_path": "src/lib.rs"
+                  },
+                  "start_byte": 0
+                }
+              },
+              {
+                "frame_type": "transformation",
+                "item": {
+                  "disambiguator": "",
+                  "item_kind": "sort",
+                  "item_name": "Value",
+                  "module_path": [
+                    "syntax"
+                  ],
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  }
+                },
+                "kind": "semantic_ir",
+                "label": "transform"
+              }
+            ]
+          },
+          "sort": {
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "sort_source": "declared"
+          }
         }
       },
       "existentials": [
@@ -25746,6 +26599,41 @@
           }
         }
       },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "sort_source": "declared"
+          }
+        }
+      },
       "existentials": [
         {
           "declaration_key": {
@@ -26500,6 +27388,28 @@
             "role": "sort_declaration"
           },
           "term_kind": "variable"
+        }
+      },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "target": {
+            "authored_path": "sample",
+            "slot": 1
+          }
         }
       },
       "existentials": [
@@ -27368,6 +28278,28 @@
           "term_kind": "variable"
         }
       },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "target": {
+            "authored_path": "sample",
+            "slot": 1
+          }
+        }
+      },
       "existentials": [
         {
           "declaration_key": {
@@ -27670,6 +28602,28 @@
                   "name": "sample"
                 }
               ]
+            }
+          }
+        },
+        "evaluation": {
+          "hole": "sample",
+          "hole_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "kind": "heat",
+          "result": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "target": {
+              "authored_path": "sample",
+              "slot": 1
             }
           }
         },
@@ -28015,6 +28969,28 @@
               "role": "sort_declaration"
             },
             "term_kind": "variable"
+          }
+        },
+        "evaluation": {
+          "hole": "sample",
+          "hole_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "kind": "heat",
+          "result": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "target": {
+              "authored_path": "sample",
+              "slot": 1
+            }
           }
         },
         "existentials": [
@@ -28680,6 +29656,28 @@
                 "name": "sample"
               }
             ]
+          }
+        }
+      },
+      "evaluation": {
+        "hole": "sample",
+        "hole_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "kind": "heat",
+        "result": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "target": {
+            "authored_path": "sample",
+            "slot": 1
           }
         }
       },

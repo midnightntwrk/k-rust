@@ -128,12 +128,14 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "IrRestrictionVariable",
     "IrUnboundVariables",
     "IrUnboundVariable",
+    "IrEvaluationResult",
     "ConstructorDescriptor",
     "ConstructorFieldDescriptor",
     "ContextAliasSentence",
     "DefinitionClaim",
     "DefinitionFunctionContext",
     "DefinitionScopedBinder",
+    "DefinitionEvaluationStep",
     "DefinitionModule",
     "DefinitionRuleCondition",
     "DefinitionRulePriority",
@@ -144,6 +146,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorCellTermField",
     "DescriptorClaim",
     "DescriptorClaimBinder",
+    "DescriptorEvaluationStep",
     "DescriptorConfigurationRule",
     "DescriptorContextAlias",
     "DescriptorDeclaration",
@@ -189,6 +192,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "RuleSentence",
     "SemanticClaim",
     "SemanticScopedBinder",
+    "SemanticEvaluationStep",
     "SemanticContextAlias",
     "SemanticFunctionContext",
     "SemanticModule",
@@ -659,6 +663,7 @@ fn registry() -> Registry {
     trace!(CellStream: CellStream);
     trace!(CellWrapper: CellWrapper);
     trace!(ClaimModality: ClaimModality);
+    trace!(EvaluationKind: EvaluationKind);
     trace!(CollectorMeasureDocument: CollectorMeasureDocument);
     trace!(CollectorPathProbe: CollectorPathProbe);
     trace!(CollectorReadSet: CollectorReadSet);
@@ -838,6 +843,8 @@ fn registry() -> Registry {
     unsupported!(ContextAliasSentence: ContextAliasSentence);
     unsupported!(DefinitionClaim: DefinitionClaim);
     unsupported!(DefinitionScopedBinder: DefinitionScopedBinder);
+    unsupported!(DefinitionEvaluationStep: DefinitionEvaluationStep);
+    unsupported!(IrEvaluationResult: IrEvaluationResult<SemanticLevel>);
     unsupported!(DefinitionIr: DefinitionIr);
     unsupported!(DefinitionModule: DefinitionModule);
     unsupported!(DefinitionRuleBody: DefinitionRuleBody);
@@ -867,6 +874,7 @@ fn registry() -> Registry {
     unsupported!(DescriptorCellTermField: DescriptorCellTermField);
     unsupported!(DescriptorClaim: DescriptorClaim);
     unsupported!(DescriptorClaimBinder: DescriptorClaimBinder);
+    unsupported!(DescriptorEvaluationStep: DescriptorEvaluationStep);
     unsupported!(DescriptorConfigurationRoot: DescriptorConfigurationRoot);
     unsupported!(DescriptorConfigurationRule: DescriptorConfigurationRule);
     unsupported!(DescriptorContextAlias: DescriptorContextAlias);
@@ -909,6 +917,7 @@ fn registry() -> Registry {
     unsupported!(RustVisibility: RustVisibility);
     unsupported!(SemanticClaim: SemanticClaim);
     unsupported!(SemanticScopedBinder: SemanticScopedBinder);
+    unsupported!(SemanticEvaluationStep: SemanticEvaluationStep);
     unsupported!(SemanticContextAlias: SemanticContextAlias);
     unsupported!(SemanticFunctionContext: SemanticFunctionContext);
     unsupported!(SemanticModule: SemanticModule);
@@ -936,6 +945,7 @@ fn registry() -> Registry {
     unsupported!(WireGrammarDescriptor: WireGrammarDescriptor);
     unsupported!(WireClaim: WireClaim);
     trace!(WireClaimBinder: WireClaimBinder);
+    trace!(WireEvaluationStep: WireEvaluationStep);
     unsupported!(WireConfigurationRule: WireConfigurationRule);
     unsupported!(WireContextAlias: WireContextAlias);
     unsupported!(WireFunctionContext: WireFunctionContext);

@@ -777,7 +777,7 @@ fn emit_rule(
             }
             emit_requires(sentence, &names, context, writer)?;
             emit_ensures(sentence, &names, context, writer)?;
-            emit_rule_attributes(sentence, writer)?;
+            emit_rule_attributes(sentence, context, writer)?;
             record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
@@ -808,7 +808,7 @@ fn emit_rule(
             }
             emit_requires(sentence, &names, context, writer)?;
             emit_ensures(sentence, &names, context, writer)?;
-            emit_term_rule_attributes(sentence, &names, writer)?;
+            emit_term_rule_attributes(sentence, &names, context, writer)?;
             record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
@@ -825,7 +825,7 @@ fn emit_rule(
             )?);
             writer.append_rendered(rendered.finish(body.origin().key(), 0))?;
             emit_requires(sentence, &names, context, writer)?;
-            emit_term_rule_attributes(sentence, &names, writer)?;
+            emit_term_rule_attributes(sentence, &names, context, writer)?;
             Ok(())
         }
     }
@@ -834,6 +834,7 @@ fn emit_rule(
 fn emit_term_rule_attributes(
     sentence: &RuleSentence,
     names: &SentenceVariables,
+    context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     writer.push(" [");
@@ -856,6 +857,20 @@ fn emit_term_rule_attributes(
         writer.push(&priority.value().to_string());
         writer.push("), ");
         writer.record(priority.origin().key(), start, writer.source.len() - 2)?;
+    }
+    // `heat`/`cool` and `result(S)` (KF-014), in the source key order (X13).
+    if let Some(step) = sentence.evaluation() {
+        let start = writer.source.len();
+        writer.push(step.kind().as_str());
+        writer.record(step.origin().key(), start, writer.source.len())?;
+        writer.push(", ");
+        if let Some(result) = step.result() {
+            writer.push("result(");
+            let start = writer.source.len();
+            writer.push(&context.sort_name_ref(result.sort())?);
+            writer.record(result.origin().key(), start, writer.source.len())?;
+            writer.push("), ");
+        }
     }
     if let Some(anywhere) = sentence.anywhere() {
         let start = writer.source.len();
@@ -989,6 +1004,19 @@ fn record_claim_binders(
             writer.record(origin.key(), start, end)?;
         }
     }
+    // The `hole = x` binder maps to the first `HOLE` of a heat or cool rule (KF-014).
+    if let Some(step) = sentence.evaluation() {
+        let start = sentence_start
+            + first_variable_occurrence(&writer.source[sentence_start..], "HOLE").ok_or_else(
+                || {
+                    EmitError::InvalidReference(format!(
+                        "hole {:?} has no rendered occurrence",
+                        step.hole().as_str()
+                    ))
+                },
+            )?;
+        writer.record(step.hole_origin().key(), start, start + "HOLE".len())?;
+    }
     Ok(())
 }
 
@@ -1041,27 +1069,43 @@ fn emit_condition(
     Ok(())
 }
 
-fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<(), EmitError> {
+fn emit_rule_attributes(
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
     let mut attributes = Vec::<(
         &str,
-        Option<u32>,
+        Option<String>,
         Option<&krs_ir::NodeOrigin>,
         Option<&krs_ir::NodeOrigin>,
     )>::new();
     if let Some(priority) = sentence.priority() {
         attributes.push((
             "priority",
-            Some(priority.value()),
+            Some(priority.value().to_string()),
             Some(priority.origin()),
             None,
         ));
+    }
+    // `heat`/`cool` and `result(S)` (KF-014), in the source key order (X13).
+    if let Some(step) = sentence.evaluation() {
+        attributes.push((step.kind().as_str(), None, Some(step.origin()), None));
+        if let Some(result) = step.result() {
+            attributes.push((
+                "result",
+                Some(context.sort_name_ref(result.sort())?.into_owned()),
+                None,
+                Some(result.origin()),
+            ));
+        }
     }
     if let Some(simplification) = sentence.simplification() {
         attributes.push((
             "simplification",
             simplification
                 .priority()
-                .map(krs_ir_levels::DefinitionSimplificationPriority::value),
+                .map(|priority| priority.value().to_string()),
             Some(simplification.origin()),
             simplification
                 .priority()
@@ -1092,7 +1136,7 @@ fn emit_rule_attributes(sentence: &RuleSentence, writer: &mut Writer) -> Result<
         if let Some(value) = value {
             writer.push("(");
             let value_start = writer.source.len();
-            writer.push(&value.to_string());
+            writer.push(&value);
             if let Some(value_origin) = value_origin {
                 writer.record(value_origin.key(), value_start, writer.source.len())?;
             }

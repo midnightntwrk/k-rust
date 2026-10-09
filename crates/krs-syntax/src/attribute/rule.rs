@@ -8,8 +8,8 @@ use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, Toke
 
 use super::value::parse_rule_label_value;
 
-/// Typed metadata of
-/// `#[k::rule(owise | priority = N, anywhere, nondet = group, label = "...")]`.
+/// Typed metadata of `#[k::rule(owise | priority = N, heat | cool, hole = x,
+/// result = S, anywhere, nondet = group, label = "...")]`.
 #[derive(Clone, Debug, Default)]
 pub struct RuleAttribute {
     label: Option<LitStr>,
@@ -17,6 +17,9 @@ pub struct RuleAttribute {
     priority: Option<PriorityValue>,
     nondet: Option<Ident>,
     anywhere: Option<Ident>,
+    evaluation: Option<(krs_ir::EvaluationKind, Ident)>,
+    hole: Option<Ident>,
+    result: Option<Path>,
 }
 
 /// One authored `priority = N` integer and its parsed value.
@@ -41,6 +44,12 @@ pub(crate) const RESTRICTION_ON_RULE: &str = "restrictions apply to equations an
 pub(crate) const NONDET_ON_FUNCTION: &str =
     "functions are deterministic in K; overlapping equations make the function ill-defined";
 pub(crate) const ANYWHERE_WITH_ORDER: &str = "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`";
+pub(crate) const HEAT_WITH_COOL: &str =
+    "a rule is a heating step or a cooling step, not both; write `heat` or `cool`";
+pub(crate) const EVALUATION_WITHOUT_HOLE: &str = "a heat or cool rule names the subterm it moves with `hole = x`, K's HOLE; bind `x` on the left side";
+pub(crate) const HOLE_WITHOUT_EVALUATION: &str =
+    "`hole` and `result` are keys of a heat or cool rule; add `heat` or `cool`";
+pub(crate) const EVALUATION_WITH_ORDER: &str = "a heat or cool rule is ordered by its hole: K adds `requires notBool isKResult(HOLE)` to heating and `requires isKResult(HOLE)` to cooling; it takes no `owise`, `priority`, `nondet`, or `anywhere`";
 /// The diagnostic for `anywhere` on a readable clause or a `cells!` rule.
 pub const ANYWHERE_NOT_TERM_SHAPED: &str =
     "an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn";
@@ -264,6 +273,26 @@ impl RuleAttribute {
         self.anywhere.as_ref()
     }
 
+    /// Returns the `heat` or `cool` marker of an evaluation step (KF-014).
+    #[must_use]
+    pub fn evaluation(&self) -> Option<(krs_ir::EvaluationKind, &Ident)> {
+        self.evaluation
+            .as_ref()
+            .map(|(kind, marker)| (*kind, marker))
+    }
+
+    /// Returns the binder named by `hole = x` on a heat or cool rule.
+    #[must_use]
+    pub const fn hole(&self) -> Option<&Ident> {
+        self.hole.as_ref()
+    }
+
+    /// Returns the sort path of `result = S` on a heat or cool rule.
+    #[must_use]
+    pub const fn result_sort(&self) -> Option<&Path> {
+        self.result.as_ref()
+    }
+
     /// Returns the effective authored transition priority and the role that
     /// anchors it: `owise` is priority 200 under [`ProvenanceRole::RuleOwise`],
     /// and `priority = N` is N under [`ProvenanceRole::RulePriority`].
@@ -319,6 +348,27 @@ impl RuleAttribute {
                 TokenRange::for_tokens(anywhere)?,
             ));
         }
+        if let Some((kind, marker)) = &self.evaluation {
+            anchors.push(ProvenanceAnchor::new(
+                kind.role(),
+                0,
+                TokenRange::for_tokens(marker)?,
+            ));
+        }
+        if let Some(hole) = &self.hole {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleHole,
+                0,
+                TokenRange::for_tokens(hole)?,
+            ));
+        }
+        if let Some(result) = &self.result {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleResultSort,
+                0,
+                TokenRange::for_tokens(result)?,
+            ));
+        }
         Ok(anchors)
     }
 }
@@ -341,6 +391,38 @@ impl RuleAttribute {
             .or_else(|| self.nondet.as_ref().map(Ident::span));
         ordered.map_or(Ok(()), |span| {
             Err(rule_key_error(ANYWHERE_WITH_ORDER, span))
+        })
+    }
+
+    /// A heat or cool rule names its hole and is ordered by K's
+    /// result-sort condition on it, never by priority (KF-014).
+    fn check_evaluation(&self) -> Result<(), ParseError> {
+        let Some((_, marker)) = &self.evaluation else {
+            let stray = self
+                .hole
+                .as_ref()
+                .map(Ident::span)
+                .or_else(|| self.result.as_ref().map(Spanned::span));
+            return stray.map_or(Ok(()), |span| {
+                Err(rule_key_error(HOLE_WITHOUT_EVALUATION, span))
+            });
+        };
+        if self.hole.is_none() {
+            return Err(rule_key_error(EVALUATION_WITHOUT_HOLE, marker.span()));
+        }
+        let ordered = self
+            .owise
+            .as_ref()
+            .map(Ident::span)
+            .or_else(|| {
+                self.priority
+                    .as_ref()
+                    .map(|priority| priority.literal.span())
+            })
+            .or_else(|| self.nondet.as_ref().map(Ident::span))
+            .or_else(|| self.anywhere.as_ref().map(Ident::span));
+        ordered.map_or(Ok(()), |span| {
+            Err(rule_key_error(EVALUATION_WITH_ORDER, span))
         })
     }
 }
@@ -509,12 +591,19 @@ impl KrsSyntax for RuleAttribute {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each rule key keeps its duplicate and value checks beside its match arm."
+)]
 fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError> {
     let mut label = None;
     let mut owise = None;
     let mut priority: Option<PriorityValue> = None;
     let mut nondet = None;
     let mut anywhere: Option<Ident> = None;
+    let mut evaluation: Option<(krs_ir::EvaluationKind, Ident)> = None;
+    let mut hole: Option<Ident> = None;
+    let mut result: Option<Path> = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
@@ -564,6 +653,36 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                 .into());
             }
             "anywhere" => anywhere = Some(key),
+            "heat" | "cool" if evaluation.is_some() => {
+                return Err(rule_key_error(HEAT_WITH_COOL, key.span()));
+            }
+            "heat" => evaluation = Some((krs_ir::EvaluationKind::Heat, key)),
+            "cool" => evaluation = Some((krs_ir::EvaluationKind::Cool, key)),
+            "hole" if hole.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "hole" },
+                    key.span(),
+                )
+                .into());
+            }
+            "hole" => {
+                input.parse::<Token![=]>()?;
+                let value: Expr = input.parse()?;
+                hole = Some(super::value::parse_unqualified_identifier_value(
+                    "hole", value,
+                )?);
+            }
+            "result" if result.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "result" },
+                    key.span(),
+                )
+                .into());
+            }
+            "result" => {
+                input.parse::<Token![=]>()?;
+                result = Some(parse_result_sort(input.parse()?)?);
+            }
             "nondet" if nondet.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "nondet" },
@@ -606,7 +725,31 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
         priority,
         nondet,
         anywhere,
+        evaluation,
+        hole,
+        result,
     };
+    attribute.check_evaluation()?;
     attribute.reject_ordered_anywhere()?;
     Ok(attribute)
+}
+
+/// Parses the sort path of `result = S`: a plain Rust path, as in
+/// `#[k::strict(result = S)]`.
+fn parse_result_sort(value: Expr) -> Result<Path, ParseError> {
+    match value {
+        Expr::Path(syn::ExprPath {
+            attrs,
+            qself: None,
+            path,
+        }) if attrs.is_empty() => Ok(path),
+        value => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "result",
+                expected: "a sort path",
+            },
+            value.span(),
+        )
+        .into()),
+    }
 }

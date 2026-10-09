@@ -1,10 +1,11 @@
 //! Transition existentials, fresh binders, and ensures conditions:
 //! `#[k::exists]` and `#[k::ensures]` (KF-040) and `#[k::fresh]` (KF-022)
-//! after `#[k::rule]`.
+//! after `#[k::rule]`, and the `heat`/`cool` evaluation step of
+//! `#[k::rule]` (KF-014).
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
-use krs_ir::wire::{WireClaimBinder, WireRuleCondition};
+use krs_ir::wire::{WireClaimBinder, WireEvaluationStep, WireRuleCondition};
 use krs_syntax::{ClaimBinder, ProvenanceRole, RuleExistentials};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -33,6 +34,58 @@ pub(super) fn existential_binders(
         (facade, nonce, cfg),
         slots,
     )
+}
+
+/// The wire form of a rule's `heat` or `cool` key (KF-014) and the hidden
+/// sort-key function of its `result = S` sort. A heat or cool rule takes no
+/// `#[k::fresh]`: K's heating and cooling steps cannot allocate a fresh value.
+pub(super) fn evaluation_step(
+    attribute: &krs_syntax::RuleAttribute,
+    existentials: &RuleExistentials,
+    (facade, nonce, cfg): (&Path, u64, &[Attribute]),
+    slots: &mut WireSlots,
+) -> crate::Result<(Option<WireEvaluationStep>, Option<TokenStream>)> {
+    let Some((kind, _)) = attribute.evaluation() else {
+        return Ok((None, None));
+    };
+    if let Some(binder) = existentials.fresh().first() {
+        return Err(super::rules::misplaced_fresh(binder.name().span()));
+    }
+    let hole = attribute
+        .hole()
+        .expect("the rule attribute requires a hole on a heat or cool rule");
+    let (result, key_function) = match attribute.result_sort() {
+        Some(sort) => {
+            let path = call_site_path(sort)?;
+            let key_fn = format_ident!("__krs_rule_evaluation_result_{nonce:016x}");
+            (
+                Some(wire_sort_reference(
+                    slots,
+                    facade,
+                    ProvenanceRole::RuleResultSort,
+                    0,
+                    &key_fn,
+                    &spelling(sort),
+                )),
+                Some(quote! {
+                    #(#cfg)*
+                    #[doc(hidden)]
+                    fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() }
+                }),
+            )
+        }
+        None => (None, None),
+    };
+    Ok((
+        Some(WireEvaluationStep {
+            kind,
+            key: wire_key(kind.role(), 0),
+            hole_key: wire_key(ProvenanceRole::RuleHole, 0),
+            hole: hole.to_string(),
+            result,
+        }),
+        key_function,
+    ))
 }
 
 /// The wire binders of a transition's fresh binders (`#[k::fresh]`, KF-022)

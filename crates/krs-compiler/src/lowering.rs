@@ -1405,6 +1405,10 @@ fn state_shape_error(error: krs_ir::StateShapeError) -> LoweringError {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Every rule key is lowered in one ordered pass beside its origin."
+)]
 fn lower_rule_metadata(
     mut sentence: RuleSentence,
     rule: &krs_ir_levels::SemanticRule,
@@ -1508,8 +1512,39 @@ fn lower_rule_metadata(
             rule.function_context()
                 .map(|context| lower_function_context(context, rule.id(), names, origins))
                 .transpose()?,
+        )
+        .with_evaluation(
+            rule.evaluation()
+                .map(|step| lower_evaluation_step(step, rule.id(), names, origins))
+                .transpose()?,
         );
     Ok(sentence)
+}
+
+/// Lowers the `heat` or `cool` key of a transition (KF-014); the hole keeps
+/// its sentence-local variable identity.
+fn lower_evaluation_step(
+    step: &krs_ir_levels::SemanticEvaluationStep,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::DefinitionEvaluationStep, LoweringError> {
+    let result = step
+        .result()
+        .map(|result| -> Result<_, LoweringError> {
+            Ok(krs_ir_levels::IrEvaluationResult::new(
+                origins.lower(result.origin(), "rule-result-sort", Some(item), None)?,
+                lower_sort_ref(result.sort(), names)?,
+            ))
+        })
+        .transpose()?;
+    Ok(krs_ir_levels::DefinitionEvaluationStep::new(
+        origins.lower(step.origin(), "rule-evaluation", Some(item), None)?,
+        step.kind(),
+        origins.lower(step.hole_origin(), "rule-hole", Some(item), None)?,
+        step.hole().clone(),
+        result,
+    ))
 }
 
 /// Lowers `unbound_variables = [..]` of a desugar clause (KF-046); variable

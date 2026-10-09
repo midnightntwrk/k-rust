@@ -402,7 +402,36 @@ pub(super) fn lower_head_rule_descriptor(
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)
+    .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
     .with_requires(requires)?)
+}
+
+/// Lowers the `heat` or `cool` key of a transition (KF-014); the hole is
+/// the rule binder of that name.
+pub(super) fn lower_rule_evaluation(
+    descriptor: &Descriptor,
+    step: Option<&krs_ir::DescriptorEvaluationStep>,
+) -> Result<Option<krs_ir_levels::SemanticEvaluationStep>, DescriptorLoweringError> {
+    let Some(step) = step else {
+        return Ok(None);
+    };
+    let result = step
+        .result
+        .as_ref()
+        .map(|sort| {
+            Ok::<_, DescriptorLoweringError>(krs_ir_levels::IrEvaluationResult::new(
+                semantic_origin(descriptor, sort.key.clone(), "rule-result-sort")?,
+                semantic_sort_ref(&sort.sort),
+            ))
+        })
+        .transpose()?;
+    Ok(Some(krs_ir_levels::SemanticEvaluationStep::new(
+        semantic_origin(descriptor, step.key.clone(), "rule-evaluation")?,
+        step.kind,
+        semantic_origin(descriptor, step.hole_key.clone(), "rule-hole")?,
+        SemanticId::new(step.hole.clone())?,
+        result,
+    )))
 }
 
 /// Lowers a transition's fresh binders (`#[k::fresh]`, KF-022).
@@ -1321,6 +1350,7 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)
+    .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
     .with_requires(requires)?)
 }
 

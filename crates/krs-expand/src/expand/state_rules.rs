@@ -28,7 +28,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
 use super::configuration::cell_marker_function;
-use super::existentials::{ensures_condition, existential_binders, fresh_binders};
+use super::existentials::{ensures_condition, evaluation_step, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
@@ -295,6 +295,12 @@ pub(super) fn configuration_rule(
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let (fresh, fresh_key_functions) =
         fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (evaluation, evaluation_key_function) = evaluation_step(
+        attribute,
+        rule.existentials(),
+        (&facade, nonce, &cfg),
+        &mut slots,
+    )?;
     let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
     left.terms.set_rewrites(rule.result().is_none());
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
@@ -346,6 +352,7 @@ pub(super) fn configuration_rule(
     key_functions.extend(binding_key_functions);
     key_functions.extend(existential_key_functions);
     key_functions.extend(fresh_key_functions);
+    key_functions.extend(evaluation_key_function);
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -413,6 +420,7 @@ pub(super) fn configuration_rule(
         existentials,
         ensures,
         fresh,
+        evaluation,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
