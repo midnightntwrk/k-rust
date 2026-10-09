@@ -1042,6 +1042,24 @@ fn parse_remainder(
     context: StateMacroContext,
     macro_name: &'static str,
 ) -> Result<StateMacroRemainder, SyntaxError> {
+    let remainder = parse_remainder_tokens(input, context, macro_name)?;
+    if input.peek(Token![|]) {
+        // K's #Or combines terms; a remainder is a frame (KF-030).
+        return Err(SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternOr {
+                reason: crate::term::PATTERN_OR_REMAINDER.to_owned(),
+            },
+            input.span(),
+        ));
+    }
+    Ok(remainder)
+}
+
+fn parse_remainder_tokens(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+    macro_name: &'static str,
+) -> Result<StateMacroRemainder, SyntaxError> {
     if input.peek(Token![..]) {
         let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
         if input.peek(Ident) {

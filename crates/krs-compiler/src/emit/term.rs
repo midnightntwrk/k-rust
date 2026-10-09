@@ -273,6 +273,23 @@ fn render_term_with_binders(
             output.push(&context.sort_name_ref(term.sort())?);
             output.push(" )");
         }
+        // `A | B | C` is K's `( A #Or B #Or C )`, always parenthesised and
+        // left to right (X13).
+        DefinitionTermKind::Or { alternatives } => {
+            output.push("( ");
+            for (index, alternative) in alternatives.iter().enumerate() {
+                if index > 0 {
+                    output.push(" #Or ");
+                }
+                output.append(render_term_with_binders(
+                    alternative,
+                    context,
+                    false,
+                    names,
+                )?);
+            }
+            output.push(" )");
+        }
     }
     Ok(output.finish(term.origin().key(), start))
 }

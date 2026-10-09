@@ -1585,6 +1585,13 @@ fn render_term(
             let aliased = render_term(aliased, pattern, package, bundle)?;
             Ok(quote!(#name @ #aliased))
         }
+        DescriptorTerm::Or { alternatives, .. } => {
+            let alternatives = alternatives
+                .iter()
+                .map(|alternative| render_term(alternative, pattern, package, bundle))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(quote!((#(#alternatives)|*)))
+        }
         DescriptorTerm::OrBool { arguments, .. } => {
             let arguments = arguments
                 .iter()

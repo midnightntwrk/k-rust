@@ -2044,6 +2044,11 @@ fn lower_term(
             alias.clone(),
             lower_term(pattern, names, origins)?,
         )),
+        SemanticTermKind::Or { alternatives } => Ok(DefinitionTerm::pattern_or(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            alternatives.try_map_ref(|alternative| lower_term(alternative, names, origins))?,
+        )),
     }
 }
 

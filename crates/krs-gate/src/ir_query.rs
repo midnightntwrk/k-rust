@@ -332,6 +332,7 @@ impl<'a> Context<'a> {
                 fact["alias"] = json!(alias.as_str());
                 ("as", Some(vec![pattern.as_ref()]))
             }
+            DefinitionTermKind::Or { alternatives } => ("or", Some(alternatives.iter().collect())),
         };
         fact["kind"] = json!(kind);
         if let Some(arguments) = arguments {

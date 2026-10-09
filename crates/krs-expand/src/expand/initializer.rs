@@ -519,6 +519,10 @@ impl<'a> InitializerBuilder<'a> {
         Ok(ProtocolInitializerTerm { key, term })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One exhaustive match over the closed term-tree sum."
+    )]
     fn expand_term_tree(
         &mut self,
         tree: &TermTree,
@@ -621,6 +625,11 @@ impl<'a> InitializerBuilder<'a> {
                 expand::PATTERN_AS_OUTSIDE_LHS,
                 binding.span(),
                 "`name @ pattern` binds only on a left-hand side; initializers cannot contain it",
+            )),
+            TermTree::Or { range, .. } => Err(ExpandError::new(
+                expand::PATTERN_OR_OUTSIDE_LHS,
+                range.first(),
+                "`A | B` alternatives occur only on a left-hand side; initializers cannot contain them",
             )),
         }
     }

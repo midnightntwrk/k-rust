@@ -876,6 +876,11 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
             variable_sorts(to, output);
         }
         SemanticTermKind::As { pattern, .. } => variable_sorts(pattern, output),
+        SemanticTermKind::Or { alternatives } => {
+            for alternative in alternatives {
+                variable_sorts(alternative, output);
+            }
+        }
         SemanticTermKind::KSequence { items, .. } => {
             for item in items {
                 variable_sorts(item, output);

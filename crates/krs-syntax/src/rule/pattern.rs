@@ -58,7 +58,8 @@ pub(super) fn parse_pattern_with_signs(
     input: syn::parse::ParseStream<'_>,
 ) -> syn::Result<(Pat, NegativeLiteralSpans)> {
     let start = input.cursor();
-    let pattern = input.call(Pat::parse_single)?;
+    // `A | B` alternatives (K's #Or, KF-030) may join whole subjects.
+    let pattern = input.call(Pat::parse_multi)?;
     let end = input.cursor();
     let mut tokens = TokenStream::new();
     let mut cursor = start;
@@ -223,7 +224,8 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => continue,
+            | TermNode::As { .. }
+            | TermNode::Or(_) => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -282,7 +284,8 @@ impl RuleTermCounters {
                 | TermNode::OrBool(_)
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
-                | TermNode::As { .. } => {}
+                | TermNode::As { .. }
+                | TermNode::Or(_) => {}
             }
         }
         counters
@@ -330,7 +333,8 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => continue,
+            | TermNode::As { .. }
+            | TermNode::Or(_) => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -376,6 +380,14 @@ pub(super) fn parse_rule_pattern(
                         ),
                     },
                     binding.span(),
+                ));
+            }
+            if let TermTree::Or { range, .. } = term.tree() {
+                return Err(SyntaxError::new(
+                    crate::SyntaxErrorKind::InvalidPatternOr {
+                        reason: "`|` cannot join whole `k::term!` subjects: the root is the matched constructor or function; put the alternatives inside its arguments".to_owned(),
+                    },
+                    range.first(),
                 ));
             }
             let bindings = term_pattern_bindings(&term)?;
@@ -482,6 +494,28 @@ fn validate_native_pattern(
                     signs,
                 )
             })
+        }
+        // `A | B | ..` is K's #Or (KF-030). At the root each alternative is a
+        // whole subject, so a bare identifier names a unit constructor there.
+        Pat::Or(or) => {
+            let (tree, names) =
+                crate::term::validate_pattern_or(or, nodes, |alternative, nodes| {
+                    let mut alternative_bindings = Vec::new();
+                    let tree = validate_native_pattern(
+                        alternative,
+                        is_root,
+                        allow_record_rest,
+                        paths,
+                        &mut alternative_bindings,
+                        nodes,
+                        signs,
+                    )?;
+                    Ok((tree, alternative_bindings))
+                })?;
+            for name in names {
+                push_unique_binding(bindings, name);
+            }
+            Ok(tree)
         }
         Pat::Ident(identifier) if is_root => validate_root_identifier(identifier, paths, nodes),
         Pat::Ident(identifier) => validate_native_binding(identifier, paths, bindings, nodes),
@@ -831,7 +865,8 @@ pub(super) fn push_term_node_anchors(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => continue,
+            | TermNode::As { .. }
+            | TermNode::Or(_) => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -896,7 +931,8 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => continue,
+            | TermNode::As { .. }
+            | TermNode::Or(_) => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -919,9 +955,10 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
-            Ok(*range)
-        }
+        TermNode::OrBool(range)
+        | TermNode::SortTest { range, .. }
+        | TermNode::As { range, .. }
+        | TermNode::Or(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

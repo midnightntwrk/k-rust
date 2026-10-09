@@ -8,7 +8,10 @@
 //! two rules after unification. Members of one `overload` family are one
 //! head: K's overload axioms identify `expDot(inj(L), F)` with
 //! `inj(lValDot(L, F))`, so their applications unify when their arguments do
-//! (clause 7c).
+//! (clause 7c). An `A | B` or-pattern contributes the cross product of its
+//! alternatives (clause 7b), and in any sentence two of its alternatives
+//! that bind variables must not match one term with different bindings
+//! (clause 8, KF-030).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -89,6 +92,79 @@ struct VariableCatalog {
     /// Each `alias @ pattern` met so far: the alias denotes the term its
     /// pattern matches (clause 7b), so it is unified with that pattern.
     aliases: Vec<(VariableKey, SemanticSortRef, Pattern)>,
+    /// The alternative each `A | B` node of each side stands for in this
+    /// unification, keyed by the node's address (clause 7b).
+    choices: [Choice; 2],
+}
+
+/// The alternative chosen at each or-pattern node, keyed by its address.
+type Choice = BTreeMap<usize, usize>;
+
+fn node_address(term: &SemanticTerm) -> usize {
+    std::ptr::from_ref(term) as usize
+}
+
+/// The direct subterms of `term`.
+fn subterms(term: &SemanticTerm) -> Vec<&SemanticTerm> {
+    match term.kind() {
+        SemanticTermKind::Variable { .. } | SemanticTermKind::Token { .. } => Vec::new(),
+        SemanticTermKind::Application { arguments, .. } => arguments.iter().collect(),
+        SemanticTermKind::KSequence { items, .. } => items.iter().collect(),
+        SemanticTermKind::Map(operands) => operands.operands().collect(),
+        SemanticTermKind::List(operands) => operands.operands().collect(),
+        SemanticTermKind::Set(operands) => operands.operands().collect(),
+        SemanticTermKind::Cell { children, .. } => children.iter().collect(),
+        SemanticTermKind::Rewrite { from, to } => vec![from.as_ref(), to.as_ref()],
+        SemanticTermKind::As { pattern, .. } => vec![pattern.as_ref()],
+        SemanticTermKind::Or { alternatives } => alternatives.iter().collect(),
+    }
+}
+
+/// Every or-pattern node in `term`, in preorder, with its alternative count.
+fn or_nodes<'a>(term: &'a SemanticTerm, output: &mut Vec<(&'a SemanticTerm, usize)>) {
+    if let SemanticTermKind::Or { alternatives } = term.kind() {
+        output.push((term, alternatives.len()));
+    }
+    for child in subterms(term) {
+        or_nodes(child, output);
+    }
+}
+
+/// The cross product of the alternatives of `nodes`: one choice per
+/// combination. A choice at a node inside an unchosen alternative is unused,
+/// so some combinations repeat; the product is bounded by the authored size.
+fn choices(nodes: &[(&SemanticTerm, usize)]) -> Vec<Choice> {
+    let mut output = vec![Choice::new()];
+    for (node, count) in nodes {
+        output = output
+            .into_iter()
+            .flat_map(|choice| {
+                (0..*count).map(move |index| {
+                    let mut choice = choice.clone();
+                    choice.insert(node_address(node), index);
+                    choice
+                })
+            })
+            .collect();
+    }
+    output
+}
+
+/// Every occurrence of a named (authored) variable in `term`, counted.
+fn named_occurrences(term: &SemanticTerm, output: &mut BTreeMap<SemanticId, usize>) {
+    let named = |variable: &SemanticId| matches!(variable.kind(), krs_ir::SemanticIdKind::Named);
+    match term.kind() {
+        SemanticTermKind::Variable { variable } if named(variable) => {
+            *output.entry(variable.clone()).or_default() += 1;
+        }
+        SemanticTermKind::As { alias, .. } if named(alias) => {
+            *output.entry(alias.clone()).or_default() += 1;
+        }
+        _ => {}
+    }
+    for child in subterms(term) {
+        named_occurrences(child, output);
+    }
 }
 
 impl VariableCatalog {
@@ -618,6 +694,19 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
                 .push((key, term.sort().clone(), aliased.clone()));
             aliased
         }
+        // `A | B` stands for the alternative this unification chose (clause
+        // 7b, KF-030).
+        SemanticTermKind::Or { alternatives } => {
+            let index = catalog.choices[rule]
+                .get(&node_address(term))
+                .copied()
+                .unwrap_or(0);
+            let alternative = alternatives
+                .iter()
+                .nth(index)
+                .expect("a choice names one of the node's alternatives");
+            pattern(alternative, rule, catalog)
+        }
     }
 }
 
@@ -1074,7 +1163,45 @@ fn clauses_overlap(
     }) {
         return false;
     }
-    let mut catalog = VariableCatalog::default();
+    // An or-pattern contributes the cross product of its alternatives
+    // (clause 7b): the rules overlap when some combination unifies.
+    let mut left_nodes = Vec::new();
+    for clause in left {
+        or_nodes(clause.before, &mut left_nodes);
+    }
+    let mut right_nodes = Vec::new();
+    for clause in right {
+        or_nodes(clause.before, &mut right_nodes);
+    }
+    let right_choices = choices(&right_nodes);
+    choices(&left_nodes).into_iter().any(|left_choice| {
+        right_choices.iter().any(|right_choice| {
+            let catalog = VariableCatalog {
+                choices: [left_choice.clone(), right_choice.clone()],
+                ..VariableCatalog::default()
+            };
+            chosen_clauses_overlap(
+                left,
+                left_requires,
+                &right_cells,
+                right_requires,
+                graph,
+                catalog,
+            )
+        })
+    })
+}
+
+/// Whether one combination of the two sides' or-pattern alternatives
+/// unifies, completing [`clauses_overlap`].
+fn chosen_clauses_overlap(
+    left: &[ClauseView<'_>],
+    left_requires: Option<&SemanticTerm>,
+    right_cells: &BTreeMap<&SemanticId, &ClauseView<'_>>,
+    right_requires: Option<&SemanticTerm>,
+    graph: &SortGraph,
+    mut catalog: VariableCatalog,
+) -> bool {
     let mut unifier = Unifier::new(graph);
     let cells_unify = left.iter().all(|left_clause| {
         right_cells
@@ -1121,17 +1248,28 @@ pub(crate) enum OverlapViolation {
     },
     /// A rule of a nondet group overlaps no other rule of the group.
     StaleGroupMember { group: String, rule: StableItemId },
+    /// Two alternatives of one or-pattern can match the same term with
+    /// different bindings (clause 8, KF-030).
+    AmbiguousAlternatives {
+        rule: StableItemId,
+        first: String,
+        second: String,
+        range: Option<krs_ir::SourceRange>,
+    },
 }
 
 /// Returns the first deterministic violation of the overlap check over every
 /// transition: an overlapping pair at one priority outside one nondet group,
 /// then each group's validation.
 pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<OverlapViolation> {
+    let graph = SortGraph::from_modules(modules);
+    if let Some(violation) = first_ambiguous_alternatives(modules, &graph) {
+        return Some(violation);
+    }
     let rules = transitions(modules);
     if rules.is_empty() {
         return None;
     }
-    let graph = SortGraph::from_modules(modules);
     for (index, left) in rules.iter().enumerate() {
         for right in &rules[index + 1..] {
             if left.priority != right.priority {
@@ -1187,6 +1325,178 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
     None
 }
 
+/// The pre-patterns of a rule of any kind.
+fn pre_patterns(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    match rule.relational_body() {
+        RuleBodyRef::Term(body) => vec![body.from()],
+        RuleBodyRef::Configuration { body, .. } => body
+            .clauses()
+            .iter()
+            .map(krs_ir::FixedCellClause::before)
+            .collect(),
+    }
+}
+
+/// The intra-pattern check (clause 8, KF-030), over every sentence kind:
+/// two alternatives of one or-pattern that bind variables must not match
+/// one term with different bindings, because K's `#Or` is then ambiguous
+/// (LLVM takes one alternative, Haskell explores both). Alternatives that
+/// bind no variables may overlap freely, and a name also bound outside the
+/// or-pattern is one value in every alternative.
+fn first_ambiguous_alternatives(
+    modules: &[SemanticModule],
+    graph: &SortGraph,
+) -> Option<OverlapViolation> {
+    let mut rules = modules
+        .iter()
+        .flat_map(SemanticModule::rules)
+        .collect::<Vec<_>>();
+    rules.sort_by(|left, right| left.id().cmp(right.id()));
+    for rule in rules {
+        let patterns = pre_patterns(rule);
+        let mut everywhere = BTreeMap::new();
+        let mut nodes = Vec::new();
+        for term in &patterns {
+            named_occurrences(term, &mut everywhere);
+            or_nodes(term, &mut nodes);
+        }
+        for (node, _) in nodes {
+            let SemanticTermKind::Or { alternatives } = node.kind() else {
+                continue;
+            };
+            let mut inside = BTreeMap::new();
+            named_occurrences(node, &mut inside);
+            let outer = everywhere
+                .iter()
+                .filter(|(name, count)| inside.get(*name).is_none_or(|inner| inner < *count))
+                .map(|(name, _)| name.clone())
+                .collect::<BTreeSet<_>>();
+            let alternatives = alternatives.iter().collect::<Vec<_>>();
+            for (index, first) in alternatives.iter().enumerate() {
+                for second in &alternatives[index + 1..] {
+                    if alternatives_ambiguous(first, second, &outer, graph) {
+                        return Some(OverlapViolation::AmbiguousAlternatives {
+                            rule: rule.id().clone(),
+                            first: render_alternative(first),
+                            second: render_alternative(second),
+                            range: node.origin().origin().exact_authored_range(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Whether two alternatives of one or-pattern can match one term with
+/// different bindings of a name they bind.
+fn alternatives_ambiguous(
+    first: &SemanticTerm,
+    second: &SemanticTerm,
+    outer: &BTreeSet<SemanticId>,
+    graph: &SortGraph,
+) -> bool {
+    let mut bound = BTreeMap::new();
+    named_occurrences(first, &mut bound);
+    let bound = bound
+        .into_keys()
+        .filter(|name| !outer.contains(name))
+        .collect::<Vec<_>>();
+    if bound.is_empty() {
+        return false;
+    }
+    let mut first_nodes = Vec::new();
+    or_nodes(first, &mut first_nodes);
+    let mut second_nodes = Vec::new();
+    or_nodes(second, &mut second_nodes);
+    let second_choices = choices(&second_nodes);
+    choices(&first_nodes).into_iter().any(|first_choice| {
+        second_choices.iter().any(|second_choice| {
+            let mut catalog = VariableCatalog {
+                choices: [first_choice.clone(), second_choice.clone()],
+                ..VariableCatalog::default()
+            };
+            // A name bound outside the or-pattern is one value in both.
+            for name in outer {
+                let key = catalog.key(0, name);
+                catalog.by_rule[1].insert(name.clone(), key);
+            }
+            let mut unifier = Unifier::new(graph);
+            let left = pattern(first, 0, &mut catalog);
+            let right = pattern(second, 1, &mut catalog);
+            if !unifier.unify(left, right) {
+                return false;
+            }
+            for (key, sort, aliased) in std::mem::take(&mut catalog.aliases) {
+                if !unifier.unify(Pattern::Variable { key, sort }, aliased) {
+                    return false;
+                }
+            }
+            bound.iter().any(|name| {
+                let (Some(left), Some(right)) =
+                    (catalog.by_rule[0].get(name), catalog.by_rule[1].get(name))
+                else {
+                    return false;
+                };
+                let sort = SemanticSortRef::Builtin(BuiltinSort::KSequence);
+                !unifier.same(
+                    &Pattern::Variable {
+                        key: *left,
+                        sort: sort.clone(),
+                    },
+                    &Pattern::Variable { key: *right, sort },
+                )
+            })
+        })
+    })
+}
+
+/// A compact Rust-like rendering of one alternative for diagnostics.
+fn render_alternative(term: &SemanticTerm) -> String {
+    let list = |terms: Vec<&SemanticTerm>| {
+        terms
+            .into_iter()
+            .map(render_alternative)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => match variable.kind() {
+            krs_ir::SemanticIdKind::Named => variable.as_str().to_owned(),
+            _ => "_".to_owned(),
+        },
+        SemanticTermKind::Token { value } => value.clone(),
+        SemanticTermKind::Application {
+            application,
+            arguments,
+        } => {
+            let head = match application {
+                ApplicationRef::Declared(id) => id
+                    .item_name()
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or_else(|| id.item_name())
+                    .to_owned(),
+                _ => "..".to_owned(),
+            };
+            format!("{head}({})", list(arguments.iter().collect()))
+        }
+        SemanticTermKind::As { alias, pattern } => {
+            format!("{} @ {}", alias.as_str(), render_alternative(pattern))
+        }
+        SemanticTermKind::Or { alternatives } => format!(
+            "({})",
+            alternatives
+                .iter()
+                .map(render_alternative)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ),
+        _ => "..".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod rule_keys_tests;
 
@@ -1204,6 +1514,9 @@ mod overload_tests;
 
 #[cfg(test)]
 mod pattern_as_tests;
+
+#[cfg(test)]
+mod pattern_or_tests;
 
 #[cfg(test)]
 mod tests {

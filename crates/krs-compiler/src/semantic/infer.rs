@@ -17,6 +17,9 @@ use super::catalog::{
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 
+/// The reason given for `A | B` outside a left-hand side (KF-030).
+const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and occurs only on a left-hand side; for Bool disjunction use bool::or or k::or_bool!";
+
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
@@ -208,8 +211,125 @@ impl StructuredTermBuilder<'_> {
                 }
                 self.infer(pattern, expected_sort, subject)?;
             }
+            DescriptorTerm::Or { key, alternatives } => {
+                self.infer_pattern_or(key, alternatives, expected_sort, subject)?;
+            }
         }
         Ok(())
+    }
+
+    /// Infers `A | B | ..` (K's `#Or`, KF-030): every alternative sits at
+    /// the or-pattern's position, and a name every alternative binds must
+    /// have the same sort in each of them.
+    fn infer_pattern_or(
+        &mut self,
+        key: &ProvenanceKey,
+        alternatives: &krs_ir::AtLeastTwo<DescriptorTerm>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        if !subject {
+            return Err(self.invalid_pattern_or(key, PATTERN_OR_OUTSIDE_LHS.to_owned()));
+        }
+        let outer = std::mem::take(&mut self.binding_constraints);
+        let mut per_alternative = Vec::with_capacity(alternatives.len());
+        for alternative in alternatives {
+            let inferred = self.infer(alternative, expected_sort, subject);
+            per_alternative.push(std::mem::take(&mut self.binding_constraints));
+            if let Err(error) = inferred {
+                self.binding_constraints = outer;
+                return Err(error);
+            }
+        }
+        self.binding_constraints = outer;
+        for constraints in &per_alternative {
+            for (name, sorts) in constraints {
+                self.binding_constraints
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(sorts.iter().cloned());
+            }
+        }
+        let (first, rest) = per_alternative
+            .split_first()
+            .expect("an or-pattern has at least two alternatives");
+        for other in rest {
+            for (name, sorts) in first {
+                let Some(other_sorts) = other.get(name) else {
+                    continue;
+                };
+                let here = most_specific_common_descendants(sorts, self.sort_parents);
+                let there = most_specific_common_descendants(other_sorts, self.sort_parents);
+                if here != there {
+                    let show = |sorts: &[SemanticSortRef]| {
+                        sorts
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(" or ")
+                    };
+                    return Err(self.invalid_pattern_or(
+                        key,
+                        format!(
+                            "`{name}` has sort {} in one alternative and sort {} in another; every alternative must bind it at one sort",
+                            show(&here),
+                            show(&there)
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Lowers `A | B | ..` at the least common sort of its alternatives.
+    fn lower_pattern_or(
+        &mut self,
+        key: &ProvenanceKey,
+        alternatives: &krs_ir::AtLeastTwo<DescriptorTerm>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if !subject {
+            return Err(self.invalid_pattern_or(key, PATTERN_OR_OUTSIDE_LHS.to_owned()));
+        }
+        let lowered = alternatives
+            .try_map_ref(|alternative| self.lower(alternative, expected_sort, subject))?;
+        let sorts = lowered
+            .iter()
+            .map(|alternative| semantic_sort_closure(alternative.sort(), self.sort_parents))
+            .collect::<Vec<_>>();
+        let mut common = sorts[0].clone();
+        for closure in &sorts[1..] {
+            common.retain(|candidate| closure.contains(candidate));
+        }
+        let least = common
+            .iter()
+            .filter(|candidate| {
+                !common.iter().any(|other| {
+                    other != *candidate && semantic_is_subsort(other, candidate, self.sort_parents)
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let [sort] = least.as_slice() else {
+            return Err(self.invalid_pattern_or(
+                key,
+                format!(
+                    "the alternatives (of sorts {}) have no single least common sort",
+                    lowered
+                        .iter()
+                        .map(|alternative| alternative.sort().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        };
+        Ok(SemanticTerm::pattern_or(
+            semantic_origin(self.descriptor, key.clone(), "term-pattern-or")?,
+            sort.clone(),
+            lowered,
+        ))
     }
 
     /// The result sort of a declared constructor at the root of an aliased
@@ -229,6 +349,19 @@ impl StructuredTermBuilder<'_> {
                 .map(|signature| signature.result_sort.clone()),
             DescriptorTerm::As { pattern, .. } => self.pattern_head_sort(pattern),
             _ => None,
+        }
+    }
+
+    fn invalid_pattern_or(&self, key: &ProvenanceKey, reason: String) -> DescriptorLoweringError {
+        DescriptorLoweringError::InvalidPatternOr {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
         }
     }
 
@@ -728,6 +861,9 @@ impl StructuredTermBuilder<'_> {
                     SemanticId::new(name.clone())?,
                     pattern,
                 ))
+            }
+            DescriptorTerm::Or { key, alternatives } => {
+                self.lower_pattern_or(key, alternatives, expected_sort, subject)
             }
         }
     }

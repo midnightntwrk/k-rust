@@ -225,6 +225,17 @@ pub(super) fn parse_machine_clause(
         )
         .into());
     }
+    if input.peek(Token![|]) {
+        // K's #Or combines terms; a machine record is a configuration
+        // pattern, not a term (KF-030).
+        return Err(crate::SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternOr {
+                reason: "`|` cannot join whole machine records; write one rule per record, or put `|` inside a cell value".to_owned(),
+            },
+            input.span(),
+        )
+        .into());
+    }
     input.parse::<Token![=>]>()?;
     let result_record: TokenTree = input.fork().parse()?;
     let result_cells = parse_machine_result_record(input)?;

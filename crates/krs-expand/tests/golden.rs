@@ -471,6 +471,27 @@ fn rest_long(k::term![Rest(Cons(_, more @ Cons(_, _)))]: Term<Seq>) -> Term<Seq>
 ",
     ),
     (
+        "rules_pattern_or",
+        r"
+k::rules! {
+    for Exp;
+    use ExpSyntax::*;
+
+    rgb: Color(Red() | Green() | Blue()) => 1;
+    primary: Red() | Green() | Blue() => 1;
+}
+",
+    ),
+    (
+        "rule_pattern_or",
+        r"
+#[k::equation]
+fn code_rgb(k::term![ColorCode(Red() | Green() | Blue())]: Term<Int>) -> Term<Int> {
+    1
+}
+",
+    ),
+    (
         "rules_heads",
         r#"
 k::rules! {

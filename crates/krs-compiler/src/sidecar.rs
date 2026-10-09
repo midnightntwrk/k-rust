@@ -989,6 +989,11 @@ fn insert_term(
             insert_term(entries, to)?;
         }
         DefinitionTermKind::As { pattern, .. } => insert_term(entries, pattern)?,
+        DefinitionTermKind::Or { alternatives } => {
+            for alternative in alternatives {
+                insert_term(entries, alternative)?;
+            }
+        }
         DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
     }
     Ok(())

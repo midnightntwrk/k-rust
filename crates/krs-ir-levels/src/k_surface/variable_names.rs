@@ -315,6 +315,11 @@ impl Scope {
                 self.occur(alias, 1);
                 self.term(pattern);
             }
+            DefinitionTermKind::Or { alternatives } => {
+                for alternative in alternatives {
+                    self.term(alternative);
+                }
+            }
         }
     }
 

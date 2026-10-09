@@ -266,6 +266,7 @@ impl RuleClause {
                     | ProvenanceRole::SortTestSort
                     | ProvenanceRole::PatternAs
                     | ProvenanceRole::PatternAsBinding
+                    | ProvenanceRole::PatternOr
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -491,6 +492,10 @@ impl RuleClause {
         let mut ordinal = 0_usize;
         for nodes in &terms {
             crate::term::push_pattern_as_anchors(anchors, nodes, &mut ordinal)?;
+        }
+        let mut ordinal = 0_usize;
+        for nodes in &terms {
+            crate::term::push_pattern_or_anchors(anchors, nodes, &mut ordinal)?;
         }
         Ok(())
     }
@@ -742,10 +747,22 @@ impl RuleBlock {
                 RuleHeadResult::Replace(_) => result,
                 RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
             };
-            let item: ItemFn = syn::parse2(quote! {
+            // A parameter takes one pattern, so a top-level `A | B` is
+            // parenthesised to parse and then restored, keeping every range
+            // on the authored tokens.
+            let top_level_or = matches!(pattern, syn::Pat::Or(_));
+            let parameter = if top_level_or {
+                quote!((#pattern))
+            } else {
+                quote!(#pattern)
+            };
+            let mut item: ItemFn = syn::parse2(quote! {
                 #(#retained)*
-                pub fn #name(#pattern: #sort_type) -> #sort_type { #placeholder }
+                pub fn #name(#parameter: #sort_type) -> #sort_type { #placeholder }
             })?;
+            if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
+                *typed.pat = pattern.clone();
+            }
             let rule = RuleItem::from_readable_item(item, signs)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
             for extra in &extras {

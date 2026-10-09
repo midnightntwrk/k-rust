@@ -107,6 +107,7 @@ macro_rules! validation_error {
             ValidationError::RegexWithoutToken => $public::RegexWithoutToken,
             ValidationError::RewriteSortMismatch => $public::RewriteSortMismatch,
             ValidationError::InvalidPatternAs => $public::InvalidPatternAs,
+            ValidationError::InvalidPatternOr => $public::InvalidPatternOr,
             ValidationError::RuleConditionSortMismatch => $public::RuleConditionSortMismatch,
             ValidationError::SequenceItemSortMismatch => $public::SequenceItemSortMismatch,
             ValidationError::SequenceSortMismatch => $public::SequenceSortMismatch,

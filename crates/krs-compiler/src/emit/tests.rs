@@ -648,3 +648,46 @@ fn pattern_aliases_print_as_parenthesised_k_as() {
         "( X:Int #as P:Int )"
     );
 }
+
+/// `A | B | C` is K's `( A #Or B #Or C )`, always parenthesised and left to
+/// right (KF-030).
+#[test]
+fn or_patterns_print_as_parenthesised_k_or() {
+    let context = context();
+    let x = krs_ir::SemanticId::new("x".to_owned()).unwrap();
+    let alternative = |name: &str, value: &str| {
+        DefinitionTerm::token(node(name), DefinitionSortRef::int(), value.to_owned()).unwrap()
+    };
+    let from = DefinitionTerm::pattern_or(
+        node("or"),
+        DefinitionSortRef::int(),
+        krs_ir::AtLeastTwo::new(
+            alternative("or.0", "1"),
+            alternative("or.1", "2"),
+            vec![DefinitionTerm::variable(
+                node("or.2"),
+                DefinitionSortRef::int(),
+                x.clone(),
+            )],
+        ),
+    );
+    let to = DefinitionTerm::variable(node("or.use"), DefinitionSortRef::int(), x);
+    let rule = krs_ir_levels::RuleSentence::new(
+        node("or.rule"),
+        krs_ir_levels::LabelIdentity::new(
+            krs_ir_levels::LabelId::new("or.rule").unwrap(),
+            "or-rule",
+        )
+        .unwrap(),
+        krs_ir::SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(node("or.body"), DefinitionSortRef::int(), from.clone(), to)
+            .unwrap(),
+    )
+    .unwrap();
+    let names = context.naming.rule(&rule);
+    assert_eq!(
+        render_term(&from, &context, &names, false).unwrap().text,
+        "( 1 #Or 2 #Or X:Int )"
+    );
+}

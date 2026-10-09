@@ -709,6 +709,10 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
         DescriptorTerm::As { name, pattern, .. } => {
             usize::from(name == here) + count_here_in_term(pattern, here)
         }
+        DescriptorTerm::Or { alternatives, .. } => alternatives
+            .iter()
+            .map(|alternative| count_here_in_term(alternative, here))
+            .sum(),
     }
 }
 
@@ -855,6 +859,12 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
         } => {
             keys.extend([key.clone(), binding_key.clone()]);
             collect_term_keys(pattern, keys);
+        }
+        DescriptorTerm::Or { key, alternatives } => {
+            keys.insert(key.clone());
+            for alternative in alternatives.iter() {
+                collect_term_keys(alternative, keys);
+            }
         }
     }
 }
@@ -1050,6 +1060,7 @@ struct RuleCounters {
     lexeme: u32,
     sort_test: u32,
     pattern_as: u32,
+    pattern_or: u32,
 }
 
 fn builtin_token_role<'a>(
@@ -2247,6 +2258,22 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         )?;
         self.counters.pattern_as = rule_increment(self.counters.pattern_as)?;
         discover_binding(self.side, name, self.discovered);
+        Ok(())
+    }
+
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if !matches!(self.side, ValidationSide::Left) {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::PatternOrOutsideLeftHandSide,
+            ));
+        }
+        insert_rule_exact(
+            self.keys,
+            key,
+            ProvenanceRole::PatternOr,
+            self.counters.pattern_or,
+        )?;
+        self.counters.pattern_or = rule_increment(self.counters.pattern_or)?;
         Ok(())
     }
 

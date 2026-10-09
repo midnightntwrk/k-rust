@@ -9,7 +9,7 @@ use crate::{
     SemanticValidationError, SetOperands, SymbolId,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinSort, FixedConfigurationPattern, FixedConfigurationRewrite,
+    ApplicationRef, AtLeastTwo, BuiltinSort, FixedConfigurationPattern, FixedConfigurationRewrite,
     ListOperation, MapOperation, NodeOrigin, SemanticId, SetOperation, StableItemId,
 };
 
@@ -868,6 +868,20 @@ impl<L: IrLevel> IrTerm<L> {
             },
         }
     }
+    /// Creates `A | B | ..` (K's `#Or`) at the least common sort of its
+    /// alternatives.
+    #[must_use]
+    pub const fn pattern_or(
+        origin: NodeOrigin,
+        sort: L::Sort,
+        alternatives: AtLeastTwo<Self>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: IrTermKind::Or { alternatives },
+        }
+    }
     /// Creates one typed Map-theory operation with an explicit result sort.
     #[must_use]
     pub fn typed_map(origin: NodeOrigin, sort: L::Sort, operands: MapOperands<Self>) -> Self {
@@ -987,6 +1001,13 @@ pub enum IrTermKind<L: IrLevel> {
         /// The aliased subpattern.
         pattern: Box<IrTerm<L>>,
     },
+    /// `A | B | ..`: K's `( A #Or B #Or .. )`, admitted only in pre-patterns.
+    /// The term's sort is the least common sort of the alternatives, and
+    /// every alternative binds the same variables.
+    Or {
+        /// The alternatives, in source order.
+        alternatives: AtLeastTwo<IrTerm<L>>,
+    },
 }
 
 /// Owned decoding form of [`IrTermKind`]; collection operands arrive as one ordered list.
@@ -1036,6 +1057,9 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
         alias: SemanticId,
         pattern: Box<IrTerm<L>>,
     },
+    Or {
+        alternatives: AtLeastTwo<IrTerm<L>>,
+    },
 }
 
 /// Borrowed encoding form of [`IrTermKind`], field for field the shape of [`IrTermKindWire`].
@@ -1080,6 +1104,9 @@ enum IrTermKindRef<'a, L: IrLevel> {
         alias: &'a SemanticId,
         pattern: &'a IrTerm<L>,
     },
+    Or {
+        alternatives: Vec<&'a IrTerm<L>>,
+    },
 }
 
 impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
@@ -1112,6 +1139,7 @@ impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
             IrTermKindWire::Cell { cell, children } => Self::Cell { cell, children },
             IrTermKindWire::Rewrite { from, to } => Self::Rewrite { from, to },
             IrTermKindWire::As { alias, pattern } => Self::As { alias, pattern },
+            IrTermKindWire::Or { alternatives } => Self::Or { alternatives },
         })
     }
 }
@@ -1144,6 +1172,9 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
             Self::Cell { cell, children } => IrTermKindRef::Cell { cell, children },
             Self::Rewrite { from, to } => IrTermKindRef::Rewrite { from, to },
             Self::As { alias, pattern } => IrTermKindRef::As { alias, pattern },
+            Self::Or { alternatives } => IrTermKindRef::Or {
+                alternatives: alternatives.iter().collect(),
+            },
         }
         .serialize(serializer)
     }

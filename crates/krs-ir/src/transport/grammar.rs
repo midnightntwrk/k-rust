@@ -1351,6 +1351,15 @@ where
         .map_err(|_| serde::de::Error::custom("or_bool requires at least two operands"))
 }
 
+fn deserialize_or_alternatives<'de, D, T>(deserializer: D) -> Result<crate::AtLeastTwo<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    crate::AtLeastTwo::try_from(Vec::<T>::deserialize(deserializer)?)
+        .map_err(|_| serde::de::Error::custom("an or-pattern requires at least two alternatives"))
+}
+
 /// Host-stage form of [`CellTermField`].
 pub type HostCellTermField = CellTermField<HostStage>;
 
@@ -1468,6 +1477,14 @@ stage_shape! {
             name: String => [keep],
             /// The aliased subpattern.
             pattern: Box<Term<S>> => [box nested],
+        },
+        /// `A | B | ..` in a left-hand side: K's `( A #Or B #Or .. )`.
+        Or {
+            /// Complete or-pattern provenance.
+            key: ProvenanceKey => [keep],
+            /// Ordered alternatives, at least two.
+            #[serde(deserialize_with = "deserialize_or_alternatives")]
+            alternatives: crate::AtLeastTwo<Term<S>> => [at_least_two nested],
         },
     }
 }
@@ -4001,6 +4018,8 @@ struct TermKeyCounters {
     sort_test: u32,
     /// `name @ pattern` ordinals; the form occurs only in the subject.
     pattern_as: u32,
+    /// Or-pattern ordinals; the form occurs only in the subject.
+    pattern_or: u32,
 }
 
 impl DescriptorTerm {

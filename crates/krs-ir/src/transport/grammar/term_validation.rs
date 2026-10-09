@@ -162,6 +162,16 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         Ok(())
     }
 
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        if !self.allow_wildcards {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternOrOutsideLeftHandSide,
+            ));
+        }
+        Ok(())
+    }
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, crate::DescriptorStage>,
@@ -384,6 +394,22 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
             self.counters.pattern_as,
         )?;
         self.counters.pattern_as = increment(self.counters.pattern_as)?;
+        Ok(())
+    }
+
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if !matches!(self.side, TermSide::Left) {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternOrOutsideLeftHandSide,
+            ));
+        }
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::PatternOr,
+            self.counters.pattern_or,
+        )?;
+        self.counters.pattern_or = increment(self.counters.pattern_or)?;
         Ok(())
     }
 

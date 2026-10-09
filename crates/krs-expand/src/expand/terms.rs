@@ -224,6 +224,8 @@ pub(super) struct TermBuilder<'a> {
     /// `name @ pattern` ordinals, numbered once across a sentence's
     /// left-hand side (the only side that may alias).
     pub(super) pattern_as_ordinal: u32,
+    /// `A | B` ordinals, numbered once across a sentence's left-hand side.
+    pub(super) pattern_or_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -253,6 +255,7 @@ impl<'a> TermBuilder<'a> {
             lexeme_ordinal: 0,
             sort_test_ordinal: 0,
             pattern_as_ordinal: 0,
+            pattern_or_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -490,6 +493,24 @@ impl<'a> TermBuilder<'a> {
                     pattern: Box::new(self.expand_wire(pattern, side, slots)?),
                 })
             }
+            TermTree::Or {
+                range,
+                alternatives,
+            } => {
+                if !matches!(side, TermSide::Left) {
+                    return Err(ExpandError::new(
+                        expand::PATTERN_OR_OUTSIDE_LHS,
+                        range.first(),
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                    ));
+                }
+                let key = self.take_pattern_or(range.first())?;
+                Ok(WireTerm::Or {
+                    key,
+                    alternatives: alternatives
+                        .try_map_ref(|alternative| self.expand_wire(alternative, side, slots))?,
+                })
+            }
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(
@@ -554,6 +575,20 @@ impl<'a> TermBuilder<'a> {
             wire_key(ProvenanceRole::PatternAs, ordinal),
             wire_key(ProvenanceRole::PatternAsBinding, ordinal),
         ))
+    }
+
+    /// Numbers one `A | B` or-pattern (K's `#Or`) in left-hand-side preorder
+    /// and returns its shell key.
+    pub(super) fn take_pattern_or(&mut self, span: Span) -> crate::Result<ProvenanceKey> {
+        let ordinal = self.pattern_or_ordinal;
+        self.pattern_or_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                span,
+                "too many `A | B` or-patterns in one sentence",
+            )
+        })?;
+        Ok(wire_key(ProvenanceRole::PatternOr, ordinal))
     }
 
     /// Lowers `k::lexeme!(Sort, "text")` to a token term whose sort rustc

@@ -167,6 +167,9 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         name: &str,
     ) -> Result<(), Self::Error>;
 
+    /// `A | B | ..` (K's `#Or`), admitted only in left-hand sides.
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
@@ -245,6 +248,13 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
         } => {
             context.pattern_as(key, binding_key, name)?;
             validate_term(pattern, context)
+        }
+        Term::Or { key, alternatives } => {
+            context.pattern_or(key)?;
+            for alternative in alternatives.iter() {
+                validate_term(alternative, context)?;
+            }
+            Ok(())
         }
     }
 }

@@ -470,6 +470,8 @@ provenance_roles! {
     PatternAs => "pattern_as",
     /// The alias identifier of one `name @ pattern`.
     PatternAsBinding => "pattern_as_binding",
+    /// Complete `A | B | ..` or-pattern (K's `#Or`) in a left-hand side.
+    PatternOr => "pattern_or",
 }
 
 impl Serialize for ProvenanceRole {

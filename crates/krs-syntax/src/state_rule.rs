@@ -730,6 +730,10 @@ impl StateRuleItem {
         for term in claim_terms(self, None) {
             crate::term::push_pattern_as_anchors(&mut output, term.nodes(), &mut aliases)?;
         }
+        let mut alternatives = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_pattern_or_anchors(&mut output, term.nodes(), &mut alternatives)?;
+        }
         if let Some(ensures) = self.existentials.ensures() {
             push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
         }
@@ -1260,7 +1264,8 @@ fn append_term_provenance(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => continue,
+            | TermNode::As { .. }
+            | TermNode::Or(_) => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1411,7 +1416,8 @@ fn append_term_candidates(
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
-            | TermNode::As { .. } => {}
+            | TermNode::As { .. }
+            | TermNode::Or(_) => {}
         }
     }
     Ok(())
@@ -1439,9 +1445,10 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
-            Ok(*range)
-        }
+        TermNode::OrBool(range)
+        | TermNode::SortTest { range, .. }
+        | TermNode::As { range, .. }
+        | TermNode::Or(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1455,9 +1462,10 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
         TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
-            range.first()
-        }
+        TermNode::OrBool(range)
+        | TermNode::SortTest { range, .. }
+        | TermNode::As { range, .. }
+        | TermNode::Or(range) => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1631,7 +1639,8 @@ fn append_claim_special_anchors(
                 | TermNode::Literal(_)
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
-                | TermNode::As { .. } => {}
+                | TermNode::As { .. }
+                | TermNode::Or(_) => {}
             }
         }
     }

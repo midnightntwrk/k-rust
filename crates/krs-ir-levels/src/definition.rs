@@ -1570,6 +1570,9 @@ pub enum DefinitionValidationError {
     /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
     /// variable does not have or its pattern does not inject into.
     InvalidPatternAs,
+    /// `A | B` (#Or) outside a pre-pattern, at a sort an alternative does
+    /// not inject into, or with alternatives binding different variables.
+    InvalidPatternOr,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1765,6 +1768,9 @@ impl fmt::Display for DefinitionValidationError {
             }
             Self::InvalidPatternAs => formatter.write_str(
                 "`alias @ pattern` (#as) occurs only in pre-patterns, at its alias variable's sort, which its pattern's sort must inject into",
+            ),
+            Self::InvalidPatternOr => formatter.write_str(
+                "`A | B` (#Or) occurs only in pre-patterns, at a sort every alternative injects into, and every alternative binds the same variables",
             ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")

@@ -1701,3 +1701,54 @@ fn pattern_aliases_adapt_to_native_as_terms() {
     assert!(matches!(alias, Term::Variable { name, sort: Some(sort) }
         if name == "P" && sort.name == "Int"));
 }
+
+/// `A | B | C` adapts to the AST k-rust's parser builds for `A #Or B #Or C`:
+/// binary `#Or` nested to the left, with no label sort parameter (KF-030).
+#[test]
+fn or_patterns_adapt_to_left_nested_native_or() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let alternative = |name: &str| {
+        DefinitionTerm::variable(node(name), DefinitionSortRef::int(), semantic_id("x"))
+    };
+    let from = DefinitionTerm::pattern_or(
+        node("or"),
+        DefinitionSortRef::int(),
+        krs_ir::AtLeastTwo::new(
+            alternative("or.0"),
+            alternative("or.1"),
+            vec![alternative("or.2")],
+        ),
+    );
+    let to = DefinitionTerm::variable(node("or.use"), DefinitionSortRef::int(), semantic_id("x"));
+    let rule = RuleSentence::new(
+        node("or.rule"),
+        LabelIdentity::new(LabelId::new("or.rule").unwrap(), "or-rule").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(node("or.body"), DefinitionSortRef::int(), from, to).unwrap(),
+    )
+    .unwrap();
+    let Sentence::Rule { body, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    let mut ors = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term
+            && label.name == "#Or"
+        {
+            assert!(label.parameters.is_empty(), "{label:?}");
+            ors.push(arguments.clone());
+        }
+    });
+    let [outer, inner] = ors.as_slice() else {
+        panic!("two binary native #Or terms, found {ors:?}")
+    };
+    assert!(matches!(&outer[0], Term::Apply { label, .. } if label.name == "#Or"));
+    assert!(matches!(&outer[1], Term::Variable { name, .. } if name == "X"));
+    assert!(
+        inner
+            .iter()
+            .all(|term| matches!(term, Term::Variable { name, .. } if name == "X"))
+    );
+}

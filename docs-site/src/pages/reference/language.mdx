@@ -122,6 +122,18 @@ An alias may name any subterm of a `k::term![..]` subject, a `cells!` cell value
 It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
 `@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
 
+### Pattern alternatives
+
+`Red() | Green() | Blue()` in a left-hand side is the Rust or-pattern you know: it matches what any of its alternatives matches.
+K spells it `( red ( ) #Or green ( ) #Or blue ( ) )`, and KRS emits exactly that, always parenthesised and in source order.
+`rgb: Color(Red() | Green() | Blue()) => 1;` turns `color(green())` into `1` and leaves `color(3)` stuck, and the equation `fn code_rgb(k::term![ColorCode(Red() | Green() | Blue())]: Term<Int>) -> Term<Int> { 1 }` emits `rule code ( ( red ( ) #Or green ( ) #Or blue ( ) ) ) => 1`.
+In a readable clause the whole subject may be an or-pattern, `primary: Red() | Green() | Blue() => 1;`, which matches at the head of the computation cell; alternatives may also appear in any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, or a `map!` key or value.
+In Rust, `|` tries its alternatives left to right; in K, `#Or` means "any of these", and when two alternatives match one term with different bindings the backends disagree: on `pick(pair(1, 2))`, `pick(Pair(x, y) | Pair(y, x)) => x` gives `1` on the LLVM backend and `1 #Or 2` on the Haskell backend.
+KRS lets you write `|` only where the readings agree.
+Every alternative binds the same names (``variable `x` is not bound in all alternatives``, rustc's E0408), each at one sort, and two alternatives that bind names must not match one term with different bindings (`krs::analysis::ambiguous-or-pattern`): `Pick(Pair(x, Red()) | Pair(x, Green()))` is accepted, `Pick(Pair(x, y) | Pair(y, x))` is not, and alternatives that bind no names may overlap freely.
+The rule-overlap check treats an or-pattern as each of its alternatives.
+`|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `bool::or` or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

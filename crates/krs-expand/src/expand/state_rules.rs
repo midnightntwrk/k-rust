@@ -896,6 +896,24 @@ impl<'a> StateRuleBuilder<'a> {
                     pattern: Box::new(self.expand_term(pattern, slots)?),
                 })
             }
+            TermTree::Or {
+                range,
+                alternatives,
+            } => {
+                if matches!(self.side, RuleSide::Right) {
+                    return Err(ExpandError::new(
+                        expand::PATTERN_OR_OUTSIDE_LHS,
+                        range.first(),
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                    ));
+                }
+                let key = self.terms.take_pattern_or(range.first())?;
+                Ok(WireTerm::Or {
+                    key,
+                    alternatives: alternatives
+                        .try_map_ref(|alternative| self.expand_term(alternative, slots))?,
+                })
+            }
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,

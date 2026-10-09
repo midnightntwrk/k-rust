@@ -5,6 +5,10 @@ use krs_diagnostic::Severity;
 use super::*;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One literal list of every syntax error category."
+)]
 fn syntax_categories_have_distinct_registered_codes() {
     let example = || String::from("example");
     let kinds = [
@@ -84,6 +88,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidUnboundVariables { reason: example() },
         SyntaxErrorKind::InvalidSpecModule { reason: example() },
         SyntaxErrorKind::InvalidPatternAs {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::InvalidPatternOr {
             reason: String::from("example"),
         },
     ];

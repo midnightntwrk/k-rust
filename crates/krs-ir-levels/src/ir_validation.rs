@@ -173,6 +173,9 @@ pub(crate) enum ValidationError<L: Validation> {
     /// `alias @ pattern` outside a pre-pattern, or at a sort its alias or
     /// pattern does not have.
     InvalidPatternAs,
+    /// `A | B` outside a pre-pattern, at a sort an alternative does not
+    /// inject into, or with alternatives binding different variables.
+    InvalidPatternOr,
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -1116,6 +1119,12 @@ pub(crate) fn validate_term_cell_references<L: Validation>(
         IrTermKind::As { pattern, .. } => {
             return validate_term_cell_references::<L>(pattern, declarations, cell_ids);
         }
+        IrTermKind::Or { alternatives } => {
+            for alternative in alternatives {
+                validate_term_cell_references::<L>(alternative, declarations, cell_ids)?;
+            }
+            return Ok(());
+        }
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => return Ok(()),
     };
     for child in children {
@@ -1211,6 +1220,11 @@ pub(crate) fn collect_term_variables<L: Validation>(
         IrTermKind::As { alias, pattern } => {
             used.insert(alias.clone());
             collect_term_variables::<L>(pattern, used);
+        }
+        IrTermKind::Or { alternatives } => {
+            for alternative in alternatives {
+                collect_term_variables::<L>(alternative, used);
+            }
         }
         IrTermKind::Cell { children, .. } => {
             for child in children {
@@ -1479,6 +1493,35 @@ pub(crate) fn validate_term<L: Validation>(
                 nodes,
             )?;
         }
+        IrTermKind::Or { alternatives } => {
+            let mut expected = None;
+            for alternative in alternatives {
+                if !is_subsort::<L>(alternative.sort(), term.sort(), sort_parents) {
+                    return Err(L::error(ValidationError::InvalidPatternOr));
+                }
+                // Wildcards are distinct generated variables per occurrence;
+                // only named binders must agree across alternatives.
+                let mut bound = BTreeSet::new();
+                collect_term_variables::<L>(alternative, &mut bound);
+                bound.retain(|variable| matches!(variable.kind(), krs_ir::SemanticIdKind::Named));
+                match &expected {
+                    None => expected = Some(bound),
+                    Some(expected) if *expected != bound => {
+                        return Err(L::error(ValidationError::InvalidPatternOr));
+                    }
+                    Some(_) => {}
+                }
+                validate_term::<L>(
+                    alternative,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            }
+        }
     }
     Ok(())
 }
@@ -1488,6 +1531,7 @@ pub(crate) fn validate_term<L: Validation>(
 pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
     match term.kind() {
         IrTermKind::As { .. } => true,
+        IrTermKind::Or { alternatives } => alternatives.iter().any(contains_pattern_as),
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
         IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_as),
         IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_as),
@@ -1499,7 +1543,25 @@ pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
     }
 }
 
-/// Rejects `alias @ pattern` in a rule's post-terms and conditions.
+/// Whether `term` contains `A | B`, which is admitted only in pre-patterns
+/// (KF-030).
+pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    match term.kind() {
+        IrTermKind::Or { .. } => true,
+        IrTermKind::As { pattern, .. } => contains_pattern_or(pattern),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
+        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_or),
+        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_or),
+        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_or),
+        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_or),
+        IrTermKind::List(operands) => operands.operands().any(contains_pattern_or),
+        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_or),
+        IrTermKind::Rewrite { from, to } => contains_pattern_or(from) || contains_pattern_or(to),
+    }
+}
+
+/// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
+/// conditions.
 fn reject_pattern_as_outside_patterns<L: Validation>(
     rule: &RuleView<'_, L>,
 ) -> Result<(), L::Error> {
@@ -1516,8 +1578,11 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
     }
     post.extend(rule.requires.map(IrRuleCondition::term));
     post.extend(rule.ensures.map(IrRuleCondition::term));
-    if post.into_iter().any(contains_pattern_as) {
+    if post.iter().copied().any(contains_pattern_as) {
         return Err(L::error(ValidationError::InvalidPatternAs));
+    }
+    if post.into_iter().any(contains_pattern_or) {
+        return Err(L::error(ValidationError::InvalidPatternOr));
     }
     Ok(())
 }

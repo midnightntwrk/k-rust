@@ -171,6 +171,8 @@ details! {
         TrustedClaimWithCircularity => "a trusted claim cannot also be a circularity",
         PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
         InitializerPatternAs => "`name @ pattern` (#as) is not allowed in initializers",
+        PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
+        InitializerPatternOr => "`A | B` or-patterns (#Or) are not allowed in initializers",
     }
 }
 
@@ -255,6 +257,7 @@ details! {
         InvalidMatchRestriction => "concrete, symbolic, and smt_lemma keys are allowed only on equations and simplifications, once each, with distinct non-empty binder names",
         InvalidUnboundVariables => "unbound_variables is allowed only on desugar clauses, listing distinct names the subject does not bind and the result uses, or `_` for the result's wildcards",
         PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
+        PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
     }
 }
 

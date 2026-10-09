@@ -388,6 +388,11 @@ impl BuiltinRequirements {
                 }
             }
             DefinitionTermKind::As { pattern, .. } => self.term(pattern),
+            DefinitionTermKind::Or { alternatives } => {
+                for alternative in alternatives {
+                    self.term(alternative);
+                }
+            }
         }
     }
 

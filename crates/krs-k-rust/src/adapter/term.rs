@@ -178,6 +178,23 @@ impl Adapter<'_> {
                     alias: Box::new(self.native_variable(alias, sort, term.origin())?),
                 })
             }
+            // `A | B | C` is the AST k-rust's parser produces for
+            // `A #Or B #Or C`: binary `#Or` nested to the left, with no label
+            // sort parameter (X9.1). k-rust's `guard_or_patterns` pass then
+            // aliases each disjunction, as Java K does (KF-030).
+            DefinitionTermKind::Or { alternatives } => {
+                let mut native = alternatives.iter().enumerate().map(|(index, alternative)| {
+                    let mut child_path = path.clone();
+                    child_path.push(u32::try_from(index).unwrap_or(u32::MAX));
+                    self.term(alternative, module, sentence_index, child_path, context)
+                });
+                let first = native
+                    .next()
+                    .expect("an or-pattern has at least two alternatives")?;
+                native.try_fold(first, |left, right| {
+                    Ok(NativeTerm::apply("#Or", vec![left, right?]))
+                })
+            }
         }
     }
 

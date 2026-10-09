@@ -5,8 +5,8 @@ use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{
     Expr, ExprCall, ExprGroup, ExprLit, ExprMacro, ExprParen, ExprPath, ExprStruct, ExprUnary, Lit,
-    LitBool, LitByteStr, LitInt, LitStr, Member, Pat, PatIdent, PatStruct, PatTupleStruct, Path,
-    Token, UnOp,
+    LitBool, LitByteStr, LitInt, LitStr, Member, Pat, PatIdent, PatOr, PatStruct, PatTupleStruct,
+    Path, Token, UnOp,
 };
 
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -217,6 +217,9 @@ pub enum TermNode {
         /// Complete `name @ pattern` range.
         range: TokenRange,
     },
+    /// `A | B | ..` (K's `#Or`) shell in a pattern payload; it precedes the
+    /// nodes of its alternatives.
+    Or(TokenRange),
 }
 
 impl TermNode {
@@ -232,7 +235,8 @@ impl TermNode {
             | Self::OrBool(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or(_) => None,
         }
     }
 
@@ -249,7 +253,8 @@ impl TermNode {
             | Self::OrBool(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or(_) => None,
         }
     }
 
@@ -260,9 +265,10 @@ impl TermNode {
             Self::IdToken(literal) => TokenRange::for_tokens(literal),
             Self::BytesToken(literal) => TokenRange::for_tokens(literal),
             Self::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-            Self::OrBool(range) | Self::SortTest { range, .. } | Self::As { range, .. } => {
-                Ok(*range)
-            }
+            Self::OrBool(range)
+            | Self::SortTest { range, .. }
+            | Self::As { range, .. }
+            | Self::Or(range) => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -435,6 +441,13 @@ pub enum TermTree {
         /// The aliased subpattern.
         pattern: Box<TermTree>,
     },
+    /// `A | B | ..`: K's `( A #Or B #Or .. )`, only in patterns.
+    Or {
+        /// Complete or-pattern range.
+        range: TokenRange,
+        /// The alternatives, in source order.
+        alternatives: AtLeastTwo<TermTree>,
+    },
 }
 
 impl TermTree {
@@ -453,7 +466,8 @@ impl TermTree {
             | Self::Cell(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or { .. } => None,
         }
     }
 
@@ -472,7 +486,8 @@ impl TermTree {
             | Self::Cell(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or { .. } => None,
         }
     }
 
@@ -491,7 +506,8 @@ impl TermTree {
             | Self::Cell(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or { .. } => None,
         }
     }
 
@@ -510,7 +526,8 @@ impl TermTree {
             | Self::Cell(_)
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
-            | Self::As { .. } => None,
+            | Self::As { .. }
+            | Self::Or { .. } => None,
         }
     }
 
@@ -530,6 +547,12 @@ impl TermTree {
             }
             Self::As { pattern, .. } => {
                 pattern.record_field_names_preorder(output);
+                return;
+            }
+            Self::Or { alternatives, .. } => {
+                for alternative in alternatives {
+                    alternative.record_field_names_preorder(output);
+                }
                 return;
             }
             _ => return,
@@ -576,6 +599,11 @@ impl TermTree {
             }
             Self::SortTest { operand, .. } => operand.wildcard_ranges_preorder(output),
             Self::As { pattern, .. } => pattern.wildcard_ranges_preorder(output),
+            Self::Or { alternatives, .. } => {
+                for alternative in alternatives {
+                    alternative.wildcard_ranges_preorder(output);
+                }
+            }
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -664,6 +692,12 @@ impl TermExpression {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
+            Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
+                return Err(pattern_or_error(
+                    PATTERN_OR_OUTSIDE_LHS.to_owned(),
+                    binary.op.span(),
+                ));
+            }
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| {
                     SyntaxError::new(
@@ -852,7 +886,8 @@ impl TermExpression {
                 | TermNode::OrBool(_)
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
-                | TermNode::As { .. } => {
+                | TermNode::As { .. }
+                | TermNode::Or(_) => {
                     continue;
                 }
             };
@@ -1024,6 +1059,10 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
         Pat::Struct(_) => TermRootKind::Record,
         Pat::Lit(_) => TermRootKind::Literal,
         Pat::Wild(_) => TermRootKind::Wildcard,
+        Pat::Or(or) => match or.cases.first() {
+            Some(first) => return pattern_root_kind(first),
+            None => return Err(unsupported_pattern_form(pattern)),
+        },
         Pat::Macro(value) => special_macro_kind(&value.mac.path)
             .ok_or_else(|| {
                 SyntaxError::new(
@@ -1042,12 +1081,11 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
 
 fn unsupported_pattern_form(pattern: &Pat) -> SyntaxError {
     let reason = match pattern {
-        Pat::Or(_) => "`|` alternatives are not supported in term patterns",
         Pat::Rest(_) => {
             "a `..` remainder binds only inside a sequence, collection or cells! pattern"
         }
         _ => {
-            "expected paths, named calls/records, parentheses, `name @ pattern`, `_`, or literal arguments"
+            "expected paths, named calls/records, parentheses, `name @ pattern`, `A | B`, `_`, or literal arguments"
         }
     };
     SyntaxError::new(
@@ -1127,6 +1165,115 @@ pub(crate) fn validate_pattern_as(
     })
 }
 
+fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidPatternOr { reason }, span)
+}
+
+/// The reason given for `|` in a result or condition.
+pub(crate) const PATTERN_OR_OUTSIDE_LHS: &str =
+    "`|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!";
+
+/// The reason given for `|` next to a `..` remainder.
+pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
+
+/// The variables a term pattern's nodes bind: every bare single-identifier
+/// reference and every `name @ pattern` alias, in preorder.
+fn pattern_binders(nodes: &[TermNode]) -> Vec<syn::Ident> {
+    nodes
+        .iter()
+        .filter_map(|node| match node {
+            TermNode::Reference(path) if path.leading_colon.is_none() => path.get_ident().cloned(),
+            TermNode::As { binding, .. } => Some(binding.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Validates `A | B | ..` (K's `#Or`, KF-030): every alternative is a term,
+/// not a `..` remainder, and every alternative binds the same names (rustc's
+/// E0408). The shell node precedes the alternatives' nodes. `validate`
+/// checks one alternative and returns its tree and the names it binds; the
+/// result carries the names the whole pattern binds, in first-appearance
+/// order.
+///
+/// # Errors
+///
+/// Returns [`SyntaxErrorKind::InvalidPatternOr`] for a remainder alternative
+/// or a name not bound in every alternative, or the first error of an
+/// alternative.
+pub(crate) fn validate_pattern_or(
+    or: &PatOr,
+    nodes: &mut Vec<TermNode>,
+    mut validate: impl FnMut(
+        &Pat,
+        &mut Vec<TermNode>,
+    ) -> Result<(TermTree, Vec<syn::Ident>), SyntaxError>,
+) -> Result<(TermTree, Vec<syn::Ident>), SyntaxError> {
+    reject_attributes(&or.attrs, or.span())?;
+    let range = TokenRange::for_tokens(or)?;
+    nodes.push(TermNode::Or(range));
+    let mut trees = Vec::with_capacity(or.cases.len());
+    let mut bound = Vec::with_capacity(or.cases.len());
+    let mut names: Vec<syn::Ident> = Vec::new();
+    for case in &or.cases {
+        let remainder = match case {
+            Pat::Rest(_) => true,
+            Pat::Ident(PatIdent {
+                subpat: Some((_, subpattern)),
+                ..
+            }) => matches!(subpattern.as_ref(), Pat::Rest(_)),
+            _ => false,
+        };
+        if remainder {
+            return Err(pattern_or_error(
+                PATTERN_OR_REMAINDER.to_owned(),
+                case.span(),
+            ));
+        }
+        let (tree, case_names) = validate(case, nodes)?;
+        trees.push(tree);
+        let mut spellings = std::collections::BTreeSet::new();
+        for name in case_names {
+            let spelling = syn::ext::IdentExt::unraw(&name).to_string();
+            if !names
+                .iter()
+                .any(|known| syn::ext::IdentExt::unraw(known) == spelling)
+            {
+                names.push(name);
+            }
+            spellings.insert(spelling);
+        }
+        bound.push(spellings);
+    }
+    for name in &names {
+        let spelling = syn::ext::IdentExt::unraw(name).to_string();
+        if let Some((case, _)) = or
+            .cases
+            .iter()
+            .zip(&bound)
+            .find(|(_, spellings)| !spellings.contains(&spelling))
+        {
+            return Err(pattern_or_error(
+                format!("variable `{spelling}` is not bound in all alternatives"),
+                case.span(),
+            ));
+        }
+    }
+    let alternatives = AtLeastTwo::try_from(trees).map_err(|_| {
+        pattern_or_error(
+            "an or-pattern needs at least two alternatives".to_owned(),
+            or.span(),
+        )
+    })?;
+    Ok((
+        TermTree::Or {
+            range,
+            alternatives,
+        },
+        names,
+    ))
+}
+
 /// The pattern twin of [`validate_expression`] in pattern context.
 fn validate_pattern(
     pattern: &Pat,
@@ -1164,6 +1311,14 @@ fn validate_pattern(
         Pat::Paren(paren) => {
             reject_attributes(&paren.attrs, paren.span())?;
             validate_pattern(&paren.pat, signs, symbols, nodes)
+        }
+        Pat::Or(or) => {
+            let (tree, _) = validate_pattern_or(or, nodes, |alternative, nodes| {
+                let start = nodes.len();
+                let tree = validate_pattern(alternative, signs, symbols, nodes)?;
+                Ok((tree, pattern_binders(&nodes[start..])))
+            })?;
+            Ok(tree)
         }
         Pat::Lit(literal) => {
             let literal = crate::rule::validate_pattern_literal(literal, nodes, signs)?;
@@ -1307,6 +1462,12 @@ fn validate_expression(
             Ok(TermTree::Wildcard(TokenRange::for_tokens(infer)?))
         }
         Expr::Macro(value) => validate_special_macro(value, context, symbols, nodes),
+        // `A | B` is K's #Or only in a pattern; a result or condition has no
+        // alternatives (KF-030).
+        Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => Err(pattern_or_error(
+            PATTERN_OR_OUTSIDE_LHS.to_owned(),
+            binary.op.span(),
+        )),
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "expected paths, named calls/records, parentheses, or literal arguments",
@@ -1569,6 +1730,32 @@ pub(crate) fn push_pattern_as_anchors(
                 ProvenanceRole::PatternAsBinding,
                 current,
                 TokenRange::for_tokens(binding)?,
+            ));
+            *ordinal += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Appends the `pattern_or` anchor of every `A | B` node in `nodes`,
+/// numbering them from `*ordinal`. A sentence numbers its or-patterns once,
+/// in the order its left-hand side expands.
+///
+/// # Errors
+///
+/// Returns an occurrence-overflow error.
+pub(crate) fn push_pattern_or_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        if let TermNode::Or(range) = node {
+            let current = checked_ordinal(*ordinal, ProvenanceRole::PatternOr, range.first())?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::PatternOr,
+                current,
+                *range,
             ));
             *ordinal += 1;
         }

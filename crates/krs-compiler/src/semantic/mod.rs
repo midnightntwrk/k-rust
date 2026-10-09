@@ -205,6 +205,17 @@ pub fn lower_descriptor_bundle(
                 rule: Box::new(rule),
                 problem: NondetGroupProblem::MixedPriorities { group, priorities },
             },
+            OverlapViolation::AmbiguousAlternatives {
+                rule,
+                first,
+                second,
+                range,
+            } => DescriptorLoweringError::AmbiguousOrPattern {
+                rule: Box::new(rule),
+                first,
+                second,
+                range: range.map(Box::new),
+            },
             OverlapViolation::StaleGroupMember { group, rule } => {
                 DescriptorLoweringError::NondetGroup {
                     range: range(&rule),

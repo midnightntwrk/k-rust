@@ -1965,6 +1965,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    fn pattern_or(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerPatternOr,
+        ))
+    }
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

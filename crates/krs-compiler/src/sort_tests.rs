@@ -89,6 +89,7 @@ fn collect(
         DefinitionTermKind::Cell { children, .. } => children.iter().collect(),
         DefinitionTermKind::Rewrite { from, to } => vec![from.as_ref(), to.as_ref()],
         DefinitionTermKind::As { pattern, .. } => vec![pattern.as_ref()],
+        DefinitionTermKind::Or { alternatives } => alternatives.iter().collect(),
     };
     for child in children {
         collect(child, parents, names, warnings);

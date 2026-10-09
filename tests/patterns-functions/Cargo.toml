@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "packages/aliases",
+    "packages/alternatives",
 ]
 resolver = "3"
 

@@ -198,14 +198,3 @@ fn a_negated_float_constant_keeps_its_specific_reason() {
     let error = TermExpression::parse_pattern_tokens(tokens("F(-f64::INFINITY)")).unwrap_err();
     assert!(error.to_string().contains("f64::NEG_INFINITY"), "{error}");
 }
-
-#[test]
-fn or_patterns_wait_for_their_own_form() {
-    let error = TermExpression::parse_pattern_tokens(tokens("Foo(Red() | Blue())")).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("`|` alternatives are not supported"),
-        "{error}"
-    );
-}

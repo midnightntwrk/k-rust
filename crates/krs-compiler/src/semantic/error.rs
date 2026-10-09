@@ -81,6 +81,18 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the second rule's application head.
         second_head_range: Option<Box<SourceRange>>,
     },
+    /// Two alternatives of one `A | B` or-pattern can match the same term with
+    /// different bindings (F2 amendment clause 8, KF-030).
+    AmbiguousOrPattern {
+        /// The sentence with the or-pattern.
+        rule: Box<StableItemId>,
+        /// The first alternative, rendered.
+        first: String,
+        /// The second alternative, rendered.
+        second: String,
+        /// Sole exact authored range of the or-pattern.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `nondet = group` key is not a valid nondeterminism group.
     NondetGroup {
         /// The rule the diagnostic points at.
@@ -187,6 +199,16 @@ pub enum DescriptorLoweringError {
         /// Stable reason naming the alias.
         reason: String,
         /// Sole exact authored range of the `name @ pattern`.
+        range: Option<Box<SourceRange>>,
+    },
+    /// An `A | B` or-pattern (K's `#Or`) reaches a position that is not a
+    /// pattern, or its alternatives bind a name at different sorts (KF-030).
+    InvalidPatternOr {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the or-pattern.
         range: Option<Box<SourceRange>>,
     },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
@@ -336,6 +358,10 @@ impl fmt::Display for DescriptorLoweringError {
                 first.item_name(),
                 second.item_name()
             ),
+            Self::AmbiguousOrPattern { first, second, .. } => write!(
+                formatter,
+                "alternatives `{first}` and `{second}` of this or-pattern can match the same term with different bindings; K's #Or then is ambiguous (LLVM takes one, Haskell explores both). Make them disjoint or split the rule."
+            ),
             Self::NondetGroup { rule, problem, .. } => match problem {
                 NondetGroupProblem::SingleMember { group } => {
                     write!(formatter, "nondet group `{group}` has only one rule")
@@ -394,6 +420,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidSortTest { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
+            | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
@@ -430,6 +457,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
+            Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
@@ -442,6 +470,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
+            Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -469,6 +498,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .cloned()
                 .map_or(Location::None, Location::Source),
             Self::NondetGroup { range, .. }
+            | Self::AmbiguousOrPattern { range, .. }
             | Self::InvalidOverload { range, .. }
             | Self::PrivateProductionInSpec { range, .. }
             | Self::InvalidSpecModule { range, .. }
@@ -480,6 +510,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidSortTest { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }
+            | Self::InvalidPatternOr { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
@@ -498,7 +529,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::OverlappingRules { first, second, .. } => diagnostic
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
-            Self::NondetGroup { rule, .. } => diagnostic.with_note(format!("rule: {rule}")),
+            Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
+                diagnostic.with_note(format!("rule: {rule}"))
+            }
             Self::PrivateProductionInSpec {
                 sentence,
                 kind,

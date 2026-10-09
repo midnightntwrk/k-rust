@@ -214,6 +214,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction, naming the alias where known.
         reason: String,
     },
+    /// An `A | B` or-pattern (K's `#Or`) is malformed or outside a
+    /// left-hand side (KF-030).
+    InvalidPatternOr {
+        /// Specific restriction.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -352,6 +358,7 @@ impl SyntaxErrorKind {
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
             Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
+            Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -604,7 +611,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }
-            | SyntaxErrorKind::InvalidPatternAs { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidPatternAs { reason }
+            | SyntaxErrorKind::InvalidPatternOr { reason } => formatter.write_str(reason),
         }
     }
 }

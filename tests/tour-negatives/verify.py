@@ -287,6 +287,11 @@ def main() -> None:
             "spec modules do not nest: declare this spec module beside its parent and list the parent in its `imports`",
             "#",
         ),
+        (
+            "or_pattern_unequal_binders",
+            "variable `x` is not bound in all alternatives",
+            "Pair",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

@@ -25,3 +25,32 @@ module ALIASES-REFERENCE
   rule rest(cons(_, (cons(_, _) #as More))) => More
   rule rest(_) => nil [owise]
 endmodule
+
+// The alternatives fixture written by hand in K.
+module ALTERNATIVES-REFERENCE-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+
+  syntax Value ::= Int | Bool
+  syntax Exp ::= Value
+               | "color" "(" Exp ")"
+               | "pick" "(" Exp ")"
+               | "pair" "(" Exp "," Exp ")"
+               | "red" "(" ")"
+               | "green" "(" ")"
+               | "blue" "(" ")"
+  syntax Int ::= "code" "(" Exp ")" [function]
+endmodule
+
+module ALTERNATIVES-REFERENCE
+  imports ALTERNATIVES-REFERENCE-SYNTAX
+
+  syntax KResult ::= Value
+
+  configuration <k> $PGM:Exp </k>
+
+  rule code((red() #Or green() #Or blue())) => 1
+  rule <k> color((red() #Or green() #Or blue())) => 1 ... </k>
+  rule <k> (red() #Or green() #Or blue()) => 1 ... </k>
+  rule <k> pick((pair(X, red()) #Or pair(X, green()))) => X ... </k>
+endmodule

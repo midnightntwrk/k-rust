@@ -474,6 +474,12 @@ impl RuleItem {
             self.parameter.pattern.nodes(),
             &mut aliases,
         )?;
+        let mut alternatives = 0_usize;
+        crate::term::push_pattern_or_anchors(
+            &mut anchors,
+            self.parameter.pattern.nodes(),
+            &mut alternatives,
+        )?;
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
             &mut anchors,
@@ -544,7 +550,8 @@ impl RuleItem {
                         | TermNode::OrBool(_)
                         | TermNode::Lexeme { .. }
                         | TermNode::SortTest { .. }
-                        | TermNode::As { .. } => continue,
+                        | TermNode::As { .. }
+                        | TermNode::Or(_) => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
