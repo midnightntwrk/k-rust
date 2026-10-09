@@ -50,6 +50,48 @@ fn reports_the_packaged_version() {
     );
 }
 
+/// A diagnostic-work limit that cannot be read is refused before anything is parsed, rather than
+/// replaced by the default the user set the variable to change.
+#[test]
+fn refuses_an_unreadable_parse_diagnostic_work_limit() {
+    let (root, definition) = fixture();
+    for value in ["1e6", "-1"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .env("KRUST_PARSE_DIAGNOSTIC_WORK", value)
+            .args(["kcompile", definition.to_str().unwrap(), "-m", "MAIN", "-o"])
+            .arg(root.join(format!("refused-{value}")))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{value:?}");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!(
+                "error: KRUST_PARSE_DIAGNOSTIC_WORK must be `unlimited` or a number of chart \
+                 steps, not `{value}`\n"
+            ),
+            "{value:?}"
+        );
+        assert!(!root.join(format!("refused-{value}")).exists());
+    }
+    // An empty value reads as unset.
+    for value in ["unlimited", "1_000_000", ""] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .env("KRUST_PARSE_DIAGNOSTIC_WORK", value)
+            .args(["kcompile", definition.to_str().unwrap(), "-m", "MAIN", "-o"])
+            .arg(root.join("accepted"))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{value:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn fixture() -> (PathBuf, PathBuf) {
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
     let nonce = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);

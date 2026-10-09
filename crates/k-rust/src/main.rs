@@ -213,6 +213,7 @@ fn write_counters_if_requested() {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
+    k_rust::inner::DiagnosticWork::environment()?;
     match cli.command {
         Command::Kcompile(options) => kcompile(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Kast(options) => kast(options.into()).map(|()| ExitCode::SUCCESS),
