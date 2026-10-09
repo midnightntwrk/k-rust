@@ -449,7 +449,7 @@ A production is an alias or a desugar, not both.
 A desugar written in other rules' patterns may name variables that only the rule using it binds.
 `#[k::desugar(unbound_variables = [n, _])]` on a clause lists them and emits K's `unboundVariables(N, _)` with the sentence's variable names; `_` admits wildcards in the result.
 With `Twin() => Pair(n, Pair(n, rest))` under `unbound_variables = [n, rest]`, the rule `TestTwin(name, Shape::Twin()) => Assign(name, 1)` expands to a pattern that matches `pair(3, pair(3, 7))` and not `pair(3, pair(4, 7))`, and `AnyPair() => Pair(_, _)` under `unbound_variables = [_]` matches any pair; each use of the desugar gets fresh variables on both routes.
-A listed name must occur in the result and must not be bound by the clause's pattern, `_` needs a `_` in the result, and the key applies only to desugar clauses: an ordinary rule's unbound right-side name is an error, and `unbound_variables` on a rule, equation, simplification, alias clause, or production marker is rejected (`krs::syntax::invalid-unbound-variables`).
+A listed name must occur in the result and must not be bound by the clause's pattern, `_` needs a `_` in the result, and the key applies only to desugar clauses: an ordinary rule's unbound right-side name is an error, and `unbound_variables` on a rule, equation, simplification, claim, context, context alias, alias clause, or production marker is rejected (`krs::syntax::invalid-unbound-variables`).
 
 ### Console I/O and the exit cell
 

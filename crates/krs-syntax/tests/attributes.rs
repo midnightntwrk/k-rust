@@ -848,6 +848,15 @@ fn unbound_variables_is_rejected_outside_desugar_clauses() {
         krs_syntax::RuleAttribute::parse_source(source).unwrap_err(),
         krs_syntax::EquationAttribute::parse_source(source).unwrap_err(),
         krs_syntax::SimplificationAttribute::parse_source(source).unwrap_err(),
+        krs_syntax::ClaimAttribute::parse_source(source).unwrap_err(),
+        krs_syntax::ClaimAttribute::parse_source(
+            r#"all_paths, label = "c", unbound_variables = [x]"#,
+        )
+        .unwrap_err(),
+        krs_syntax::ContextAttribute::parse_source("hole = h, unbound_variables = [x]")
+            .unwrap_err(),
+        krs_syntax::ContextAliasAttribute::parse_source("name = n, unbound_variables = [x]")
+            .unwrap_err(),
     ] {
         assert_eq!(error.kind(), &expected);
     }

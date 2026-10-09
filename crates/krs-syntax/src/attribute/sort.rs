@@ -1240,6 +1240,7 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
                 .into());
             }
             "here" => "here",
+            "unbound_variables" => return Err(unbound_variables_outside_desugar(key.span()).into()),
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },

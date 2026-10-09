@@ -448,7 +448,8 @@ impl KrsSyntax for ClaimAttribute {
     /// Rejects missing, duplicate, unknown, or incompatible claim arguments and
     /// labels outside the portable K label subset.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        let parser = |input: ParseStream<'_>| -> syn::Result<ClaimAttribute> {
+        let error = |span, message| ParseError::from(syn::Error::new(span, message));
+        let parser = |input: ParseStream<'_>| -> Result<ClaimAttribute, ParseError> {
             let mut modality = None;
             let mut label = None;
             let mut circularity = None;
@@ -458,10 +459,7 @@ impl KrsSyntax for ClaimAttribute {
                 match key.to_string().as_str() {
                     "all_paths" | "one_path" => {
                         if modality.is_some() {
-                            return Err(syn::Error::new(
-                                key.span(),
-                                "a claim requires exactly one modality",
-                            ));
+                            return Err(error(key.span(), "a claim requires exactly one modality"));
                         }
                         let value = if key == "all_paths" {
                             ClaimModality::AllPaths
@@ -472,40 +470,41 @@ impl KrsSyntax for ClaimAttribute {
                     }
                     "label" => {
                         if label.is_some() {
-                            return Err(syn::Error::new(key.span(), "duplicate claim label"));
+                            return Err(error(key.span(), "duplicate claim label"));
                         }
                         input.parse::<Token![=]>()?;
                         let literal: LitStr = input.parse()?;
                         if !valid_claim_label(&literal.value()) {
-                            return Err(syn::Error::new(
-                                literal.span(),
-                                "invalid portable K claim label",
-                            ));
+                            return Err(error(literal.span(), "invalid portable K claim label"));
                         }
                         label = Some(literal);
                     }
                     "circularity" => {
                         if circularity.is_some() {
-                            return Err(syn::Error::new(
-                                key.span(),
-                                "duplicate circularity modifier",
-                            ));
+                            return Err(error(key.span(), "duplicate circularity modifier"));
                         }
                         circularity = Some(key);
                     }
                     "trusted" => {
                         if trusted.is_some() {
-                            return Err(syn::Error::new(key.span(), "duplicate trusted modifier"));
+                            return Err(error(key.span(), "duplicate trusted modifier"));
                         }
                         if input.peek(Token![=]) {
-                            return Err(syn::Error::new(
+                            return Err(error(
                                 key.span(),
                                 "`trusted` is a bare flag; write `trusted` without a value",
                             ));
                         }
                         trusted = Some(key);
                     }
-                    _ => return Err(syn::Error::new(key.span(), "unknown claim argument")),
+                    "unbound_variables" => {
+                        return Err(
+                            super::sort::unbound_variables_outside_desugar(key.span()).into()
+                        );
+                    }
+                    _ => {
+                        return Err(error(key.span(), "unknown claim argument"));
+                    }
                 }
                 if input.is_empty() {
                     break;
@@ -519,13 +518,13 @@ impl KrsSyntax for ClaimAttribute {
             if modality == ClaimModality::OnePath
                 && let Some(circularity) = &circularity
             {
-                return Err(syn::Error::new(
+                return Err(error(
                     circularity.span(),
                     "circularity is valid only on an all-path claim",
                 ));
             }
             if let (Some(trusted), Some(_)) = (&trusted, &circularity) {
-                return Err(syn::Error::new(
+                return Err(error(
                     trusted.span(),
                     "a trusted claim is assumed, not proved; circularity has no effect",
                 ));
@@ -538,7 +537,7 @@ impl KrsSyntax for ClaimAttribute {
                 trusted,
             })
         };
-        parser.parse2(tokens).map_err(SyntaxError::from)
+        structured(tokens, parser)
     }
 }
 
@@ -815,6 +814,9 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
             "hole" => hole.is_some().then_some("hole"),
             "result" => result.is_some().then_some("result"),
             "label" => label.is_some().then_some("label"),
+            "unbound_variables" => {
+                return Err(super::sort::unbound_variables_outside_desugar(key.span()).into());
+            }
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
