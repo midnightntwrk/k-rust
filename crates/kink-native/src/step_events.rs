@@ -377,6 +377,7 @@ impl<'a> ObservationDecider<'a> {
             state,
         )
     }
+    /// Classifies one declaration; the reference bridge deliberately runs both phases per leaf.
     pub fn classify_step(
         &self,
         spec: &StepEventSpec,
@@ -384,6 +385,17 @@ impl<'a> ObservationDecider<'a> {
         post: Option<&Pattern>,
         path: &PathInput,
     ) -> StepPresence {
+        let phase1 = self.classify_step_phase1(spec, pre, post);
+        self.classify_step_phase2(spec, &phase1, path)
+    }
+
+    /// The definition-dependent structural walk, independent of the leaf predicate.
+    pub(crate) fn classify_step_phase1(
+        &self,
+        spec: &StepEventSpec,
+        pre: &Pattern,
+        post: Option<&Pattern>,
+    ) -> StepPhase1 {
         if contains_non_strict_injection(self.definition, &spec.pre)
             || spec
                 .post
@@ -392,7 +404,7 @@ impl<'a> ObservationDecider<'a> {
             || contains_non_strict_injection(self.definition, pre)
             || post.is_some_and(|post| contains_non_strict_injection(self.definition, post))
         {
-            return StepPresence::Undecided;
+            return StepPhase1::Undecided;
         }
         let mut walk = Walk::default();
         walk.pair(self.definition, &spec.pre, pre);
@@ -404,11 +416,26 @@ impl<'a> ObservationDecider<'a> {
             }
         }
         if walk.absent {
-            return StepPresence::Absent;
+            return StepPhase1::Absent;
         }
         if walk.undecided {
-            return StepPresence::Undecided;
+            return StepPhase1::Undecided;
         }
+        StepPhase1::Matched(walk)
+    }
+
+    /// Decides the walk's deferred relations and feasibility under this leaf's predicate.
+    pub(crate) fn classify_step_phase2(
+        &self,
+        spec: &StepEventSpec,
+        phase1: &StepPhase1,
+        path: &PathInput,
+    ) -> StepPresence {
+        let walk = match phase1 {
+            StepPhase1::Absent => return StepPresence::Absent,
+            StepPhase1::Undecided => return StepPresence::Undecided,
+            StepPhase1::Matched(walk) => walk,
+        };
         let mut relations = Vec::new();
         for (left, right, deferred) in &walk.pairs {
             let left = if *deferred {
@@ -471,8 +498,15 @@ fn substitute_pattern(pattern: &Pattern, bindings: &BTreeMap<String, Pattern>) -
     }
 }
 
-#[derive(Default)]
-struct Walk {
+#[derive(Clone)]
+pub(crate) enum StepPhase1 {
+    Absent,
+    Undecided,
+    Matched(Walk),
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Walk {
     bindings: BTreeMap<String, Pattern>,
     pairs: Vec<(Pattern, Pattern, bool)>,
     absent: bool,

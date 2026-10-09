@@ -48,6 +48,8 @@
 //! and diagnosed (`docs/compatibility.md:792-815`), hence BackendLimit here.
 //! Unsat refutation also rests on the explicit definedness premise (T-UNSAT, TB-01).
 
+use std::collections::BTreeMap;
+
 use k_rust::backend::{Backend, SearchFailureOutput};
 use k_rust::kore::{
     ast::{Pattern, Sort, VariableKind},
@@ -58,7 +60,8 @@ use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::term::{FunctionType, Sort as BackendSort, SymbolType};
 use kink_pattern::{
     CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventPresence, ExecutionStop,
-    ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
+    ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, PathTree, SymbolSorts,
+    TermRelation,
 };
 
 use crate::execution::{AdaptedExecution, ExecutionAdapterFailure, HaltClass, SteppedExecution};
@@ -905,6 +908,265 @@ pub fn paths_from_steps(
         .then_some(EmptySearchDecision);
     Ok(BridgedPaths {
         paths,
+        collection: CollectionEvidence {
+            stop,
+            pending_work: u64::from(stop != CollectionStop::SearchExhausted),
+            empty_search_decision,
+        },
+    })
+}
+
+/// A stepped run's canonical paths on a tree built from branch identities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BridgedTree {
+    pub tree: PathTree,
+    pub collection: CollectionEvidence,
+    pub stats: StepTreeStats,
+}
+
+/// Work done by the structural classification memo, before duplicate leaf paths are merged.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StepTreeStats {
+    pub phase1_classifications: usize,
+    pub phase1_cache_hits: usize,
+}
+
+// All semantic path fields; canonical ordinals and keys are assigned only after de-duplication.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct StepPathKey {
+    events: Vec<Event>,
+    stop: PathStop,
+    terminal: Option<ExecutionTerminal>,
+    predicate: Pattern,
+    complete: bool,
+    execution_stop: ExecutionStop,
+    equivalences: Vec<TermRelation>,
+    inequalities: Vec<TermRelation>,
+}
+
+impl StepPathKey {
+    fn of(path: &PathInput) -> Self {
+        Self {
+            events: path.events.clone(),
+            stop: path.stop,
+            terminal: path.execution_terminal.clone(),
+            predicate: path.path_predicate.clone(),
+            complete: path.complete,
+            execution_stop: path.execution_stop,
+            equivalences: path.equivalences.clone(),
+            inequalities: path.inequalities.clone(),
+        }
+    }
+}
+
+/// Builds shared prefixes while retaining `paths_from_steps`' canonical inputs exactly.
+/// The structural phase is memoized by declaration and the exact pre/post terms; every
+/// deferred relation and feasibility decision still runs under its own raw leaf predicate.
+pub fn tree_from_steps(
+    context: &BridgeContext<'_>,
+    execution: &SteppedExecution,
+    observation: &StepObservation,
+    decider: &ObservationDecider<'_>,
+) -> Result<BridgedTree, BridgeFailure> {
+    if execution.adapted.timed_out {
+        return Ok(BridgedTree {
+            tree: PathTree::new(),
+            stats: StepTreeStats::default(),
+            collection: CollectionEvidence {
+                stop: CollectionStop::TimeLimit,
+                pending_work: 1,
+                empty_search_decision: None,
+            },
+        });
+    }
+    if execution.states.len() != execution.adapted.leaves.len() {
+        return Err(BridgeFailure::UndecodableState(format!(
+            "stepped state count {} differs from leaf count {}",
+            execution.states.len(),
+            execution.adapted.leaves.len()
+        )));
+    }
+    if execution.adapted.leaves.is_empty() {
+        return Err(BridgeFailure::NoLeaves);
+    }
+    let mut paths = Vec::new();
+    let mut tree = PathTree::new();
+    let mut phase1 = BTreeMap::new();
+    let mut term_cache = BTreeMap::<Pattern, Option<Pattern>>::new();
+    let mut nodes = BTreeMap::new();
+    let mut leaf_nodes = BTreeMap::new();
+    let mut stats = StepTreeStats::default();
+    for (leaf, states) in execution.adapted.leaves.iter().zip(&execution.states) {
+        halt_stop(leaf.halt)?;
+        let feasibility = decider.shared_leaf_feasibility(&leaf.branch.state);
+        if leaf.halt == HaltClass::Vacuous && !diagnosed(leaf) {
+            continue;
+        }
+        if matches!(
+            leaf.halt,
+            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound | HaltClass::BreadthBound
+        ) && feasibility == LeafFeasibility::Unsat
+            && !diagnosed(leaf)
+        {
+            continue;
+        }
+        let state = codec::from_value(&leaf.branch.state)
+            .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
+        let sort = context
+            .sorts
+            .sort_of(&state)
+            .ok_or(BridgeFailure::UndecidedStateSort)?;
+        let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
+        let split = SplitState {
+            sort: sort.clone(),
+            terms,
+            predicates,
+        };
+        let feasible = match feasibility {
+            LeafFeasibility::Syntactic => split.predicates.is_empty(),
+            LeafFeasibility::Solver => true,
+            LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
+        };
+        let complete_term = match split.terms.as_slice() {
+            [term] if feasible && decider.definition_independent(term) => Some(term.clone()),
+            _ => None,
+        };
+        let mapped = match leaf_path(
+            leaf.halt,
+            split.decided_term(&|term| decider.definition_independent(term)),
+            feasible,
+            complete_term,
+            context.classify,
+        )? {
+            _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
+            LeafPath::Incomplete(_) if leaf.halt == HaltClass::Indeterminate => {
+                LeafPath::Incomplete(indeterminate_stop(leaf.cause.as_ref()))
+            }
+            mapped => mapped,
+        };
+        let (complete, stop, execution_terminal) = match mapped {
+            LeafPath::Complete(terminal) => {
+                let stop = match terminal.kind {
+                    ExecutionTerminalKind::Normal | ExecutionTerminalKind::SemanticCrash => {
+                        PathStop::Terminal
+                    }
+                    ExecutionTerminalKind::Stuck => PathStop::Stuck,
+                    ExecutionTerminalKind::UndefinedStep => PathStop::UndefinedStep,
+                };
+                (true, stop, Some(terminal))
+            }
+            LeafPath::Incomplete(stop) => (false, stop, None),
+        };
+        let mut path = PathInput {
+            test_id: context.test_id.to_owned(),
+            path_ordinal: 0,
+            path_key: None,
+            complete,
+            stop,
+            execution_stop: execution_stop(stop),
+            execution_terminal,
+            events: Vec::new(),
+            path_predicate: split.path_predicate(),
+            equivalences: Vec::new(),
+            inequalities: Vec::new(),
+        };
+        let identities = leaf
+            .branch
+            .identity
+            .iter()
+            .filter(|id| !id.rule.starts_with("remainder:"))
+            .collect::<Vec<_>>();
+        if identities.len() != states.len().saturating_sub(1) {
+            return Err(BridgeFailure::UndecodableState(format!(
+                "stepped transition count {} differs from identity count {}",
+                states.len().saturating_sub(1),
+                identities.len()
+            )));
+        }
+        let mut node = PathTree::ROOT;
+        for (step, pair) in states.windows(2).enumerate() {
+            let before = term_cache
+                .entry(pair[0].clone())
+                .or_insert_with(|| term_conjunct(&pair[0], context.sorts))
+                .clone();
+            let after = term_cache
+                .entry(pair[1].clone())
+                .or_insert_with(|| term_conjunct(&pair[1], context.sorts))
+                .clone();
+            let first_event = path.events.len();
+            for (declaration, spec) in observation.specs().iter().enumerate() {
+                let presence = match (&before, &after) {
+                    (Some(before), Some(after)) => {
+                        let key = (declaration, before.clone(), after.clone());
+                        let structural = match phase1.entry(key) {
+                            std::collections::btree_map::Entry::Occupied(entry) => {
+                                stats.phase1_cache_hits += 1;
+                                entry.into_mut()
+                            }
+                            std::collections::btree_map::Entry::Vacant(entry) => {
+                                stats.phase1_classifications += 1;
+                                entry.insert(decider.classify_step_phase1(
+                                    spec,
+                                    before,
+                                    Some(after),
+                                ))
+                            }
+                        };
+                        decider.classify_step_phase2(spec, structural, &path)
+                    }
+                    _ => StepPresence::Undecided,
+                };
+                let (payload, presence) = match presence {
+                    StepPresence::Certain(payload) => (payload, EventPresence::Certain),
+                    StepPresence::Conditional(payload, relations) => {
+                        (payload, EventPresence::Conditional(relations))
+                    }
+                    StepPresence::Absent => continue,
+                    StepPresence::Undecided => (Vec::new(), EventPresence::Undecided),
+                };
+                path.events.push(Event {
+                    index: path.events.len(),
+                    constructor: spec.constructor.clone(),
+                    payload,
+                    presence,
+                    step: widen(step),
+                    emission_ordinal: widen(
+                        path.events
+                            .iter()
+                            .filter(|event| event.step == widen(step))
+                            .count(),
+                    ),
+                });
+            }
+            // Equal identities share a node only when their leaf-specific phase-2 events
+            // agree. Different predicates can turn the same structural walk into Absent.
+            let events = path.events[first_event..].to_vec();
+            let key = (node, identities[step].clone(), events.clone());
+            node = *nodes.entry(key).or_insert_with(|| {
+                tree.add_child(node, events)
+                    .expect("parent belongs to this tree")
+            });
+        }
+        leaf_nodes.entry(StepPathKey::of(&path)).or_insert(node);
+        paths.push(path);
+    }
+    canonicalize_step_paths(&mut paths);
+    let stop = paths
+        .iter()
+        .filter(|path| !path.complete)
+        .map(|path| path.stop)
+        .min()
+        .map_or(CollectionStop::SearchExhausted, collection_stop);
+    let empty_search_decision = (paths.is_empty() && stop == CollectionStop::SearchExhausted)
+        .then_some(EmptySearchDecision);
+    for path in paths {
+        let node = leaf_nodes[&StepPathKey::of(&path)];
+        tree.add_leaf(node, path)
+            .expect("node carries exactly this path's events");
+    }
+    Ok(BridgedTree {
+        tree,
+        stats,
         collection: CollectionEvidence {
             stop,
             pending_work: u64::from(stop != CollectionStop::SearchExhausted),

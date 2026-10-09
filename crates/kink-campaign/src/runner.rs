@@ -59,7 +59,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution, paths_from_steps,
+    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution, tree_from_steps,
     validate_test_initial_state,
 };
 use kink_native::coverage::{RuleAuthors, TestCoverage};
@@ -77,8 +77,8 @@ use kink_patch::{
 };
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, ExecutionTerminal,
-    ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome, PatternPlan, SearchPolicy,
-    SymbolSorts, evaluate_with,
+    ExecutionTerminalKind, MonitorOptions, PathStop, PatternFailure, PatternOutcome, PatternPlan,
+    SearchPolicy, SymbolSorts, TreeOptions, evaluate_tree,
 };
 
 use crate::campaign::check_manifest;
@@ -376,40 +376,42 @@ pub fn run_campaign(
                 format!("{failure:?}"),
             )
         })?;
-    let baseline_runs = campaign
-        .tests
-        .iter()
-        .map(|test| runtime.run(campaign, test))
-        .collect::<Vec<_>>();
-    let baseline_coverage = baseline_runs
-        .iter()
-        .map(|(evidence, cache)| {
-            cache
-                .coverage
-                .clone()
-                .unwrap_or_else(|| TestCoverage::failed(&evidence.test_id))
-        })
-        .collect::<Vec<_>>();
-    let mut baseline_evidence = baseline_runs
-        .iter()
-        .map(|(evidence, _)| evidence.clone())
-        .collect::<Vec<_>>();
-    {
-        let facts = runtime.facts();
-        for ((test, evidence), (_, cache)) in campaign
+    let (baseline_evidence, baseline_coverage) = {
+        let baseline_runs = campaign
             .tests
             .iter()
-            .zip(&mut baseline_evidence)
-            .zip(&baseline_runs)
+            .map(|test| runtime.run(campaign, test))
+            .collect::<Vec<_>>();
+        let baseline_coverage = baseline_runs
+            .iter()
+            .map(|(evidence, cache)| {
+                cache
+                    .coverage
+                    .clone()
+                    .unwrap_or_else(|| TestCoverage::failed(&evidence.test_id))
+            })
+            .collect::<Vec<_>>();
+        let mut baseline_evidence = baseline_runs
+            .iter()
+            .map(|(evidence, _)| evidence.clone())
+            .collect::<Vec<_>>();
         {
-            let patterns = facts
-                .as_ref()
-                .ok()
-                .map(|_| runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref()));
-            replace_patterns(test, evidence, patterns.as_deref());
+            let facts = runtime.facts();
+            for ((test, evidence), (_, cache)) in campaign
+                .tests
+                .iter()
+                .zip(&mut baseline_evidence)
+                .zip(&baseline_runs)
+            {
+                let patterns = facts.as_ref().ok().map(|_| {
+                    runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref())
+                });
+                replace_patterns(test, evidence, patterns.as_deref());
+            }
         }
-    }
-    validate_baseline(admit(campaign.tests, &baseline_evidence))?;
+        validate_baseline(admit(campaign.tests, &baseline_evidence))?;
+        (baseline_evidence, baseline_coverage)
+    };
     let mut observations = BaselineObservations {
         runtime: &mut runtime,
         observation,
@@ -889,7 +891,7 @@ impl Runtime {
                 );
                 let evaluate = |execution: Option<&SteppedExecution>| {
                     let bridged = execution.and_then(|execution| {
-                        paths_from_steps(
+                        tree_from_steps(
                             &BridgeContext {
                                 test_id: &test.id,
                                 classify: campaign.classify,
@@ -914,16 +916,21 @@ impl Runtime {
                             let Some(bridged) = &bridged else {
                                 return OracleSide::Unknown;
                             };
-                            let evaluation = evaluate_with(
+                            let evaluation = evaluate_tree(
                                 &context,
                                 plan,
-                                &bridged.paths,
+                                &bridged.tree,
                                 &bridged.collection,
                                 None,
-                                EvaluationOptions {
-                                    stable_path_keys: true,
-                                    search_policy: SearchPolicy::Exhaustive,
-                                    input_error: false,
+                                TreeOptions {
+                                    evaluation: EvaluationOptions {
+                                        stable_path_keys: true,
+                                        search_policy: SearchPolicy::Exhaustive,
+                                        input_error: false,
+                                    },
+                                    // T1 must preserve every exhaustive occurrence. A finite cap
+                                    // belongs to the recorded T2 monitor policy.
+                                    monitor: MonitorOptions { cap: usize::MAX },
                                 },
                                 &relations,
                             );
