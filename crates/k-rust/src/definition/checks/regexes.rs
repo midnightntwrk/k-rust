@@ -186,6 +186,7 @@ fn find_cycle(adjacency: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<Stri
     None
 }
 
+// stack-accepted(lexical-chain): one level per named lexical identifier that a regular expression refers to through others; such chains are a few names deep. See docs/backend-port.md#stack-bounds.
 // Invariant: `stack` is the current depth-first path and `on_stack` maps each of its names to its index; each call either returns at once or inserts a new name into `visited`, so the names in `adjacency` bound the calls.
 fn visit_cycle(
     name: &str,

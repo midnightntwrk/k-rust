@@ -48,7 +48,10 @@ use crate::{
         ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles_with_resolved,
     },
     kast::WellKnownModule,
-    kompile::{SortInjectionError, pipeline::load_phase},
+    kompile::{
+        SortInjectionError,
+        pipeline::{DeepestTerm, load_phase},
+    },
     provenance::{
         InputSpace, LogicalSourceId, SourceTable, input_sentence_kinds, stamp_input_addresses,
     },
@@ -1183,6 +1186,43 @@ fn finish_load(
     let definition = timings.time(load_phase::RESOLVE_CONFIGURATION_BUBBLES, || {
         resolve_configuration_bubbles(&definition).map_err(LoadError::Configuration)
     })?;
+    // Configuration expansion recurses once per level of a configuration's cells and
+    // initializers, and copies each initializer into a generated rule that the rest of the load
+    // walks, all before any compile stage has measured them. They run on a stack measured from
+    // the deepest term of the definition so far, which includes every configuration (rule bodies
+    // read from source are still unparsed bubbles here).
+    match DeepestTerm::of(&definition).run_located(|| {
+        finish_expanded_load(
+            definition,
+            files,
+            source_table,
+            &mut diagnostics,
+            options,
+            syntax_module,
+            timings,
+        )
+    }) {
+        Ok(loaded) => loaded,
+        Err(refused) => {
+            diagnostics.extend(refused.at);
+            Err(LoadError::SourceDiagnostics(
+                options.diagnostics.apply(diagnostics),
+            ))
+        }
+    }
+}
+
+/// [`finish_load`] from configuration expansion on: expand the configurations, check the sorts
+/// they declare, and parse the rule bubbles.
+fn finish_expanded_load(
+    definition: Definition,
+    files: Vec<SourceFile>,
+    source_table: SourceTable,
+    diagnostics: &mut Vec<Diagnostic>,
+    options: &LoadOptions,
+    syntax_module: Option<String>,
+    timings: &mut PhaseTimings,
+) -> Result<(LoadedDefinition, Option<String>), LoadError> {
     let (mut definition, configuration_diagnostics) =
         timings.time(load_phase::EXPAND_CONFIGURATIONS, || {
             crate::definition::expand_configurations_with_diagnostics(&definition)
@@ -1208,7 +1248,7 @@ fn finish_load(
     diagnostics.extend(expanded_diagnostics);
     if has_expanded_errors {
         return Err(LoadError::SourceDiagnostics(
-            options.diagnostics.apply(diagnostics),
+            options.diagnostics.apply(std::mem::take(diagnostics)),
         ));
     }
 
@@ -1217,7 +1257,7 @@ fn finish_load(
             resolve_rule_bubbles_with_resolved(&definition, &resolved, Some(nested))
                 .map_err(LoadError::RuleParsing)
         })?;
-    let diagnostics = options.diagnostics.apply(diagnostics);
+    let diagnostics = options.diagnostics.apply(std::mem::take(diagnostics));
     if diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -1448,6 +1488,7 @@ struct Loader<'a, R> {
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
+    // stack-accepted(import-chain): one level per file of a `requires` chain; real chains are tens deep, 4,000 modules pass on 8 MiB, and compile time is already about n^1.6. See docs/backend-port.md#stack-bounds.
     // Invariant: on entry `states` marks every source whose visit has started (`Visiting`) or finished (`Complete`), and `files` holds the parsed sources of finished visits in post-order; a source already in `states` returns at once, so each resolvable source is parsed once and each require edge makes at most one call.
     fn visit(&mut self, source: ResolvedSource) -> Result<(), LoadError> {
         match self.states.get(&source.source) {

@@ -2,7 +2,7 @@
 //! under ran out or failed (design CBC-04).
 //!
 //! There are four such causes: the request was cancelled, the deadline of the active rewrite or
-//! proof step passed, the thread came within the red zone of its native stack, or the solver's
+//! proof step passed, the simplifier's recursion exhausted its native stack, or the solver's
 //! prelude failed. Each resource belongs to an owner (the step, the request, the operation that
 //! uses the solver), so a site below that owner cannot know what the missing answer means for the
 //! owner's outcome, and must not substitute a value for it. A stop is therefore carried as a
@@ -34,7 +34,7 @@ use std::panic::Location;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     fmt,
     sync::{
         Arc, OnceLock,
@@ -52,7 +52,10 @@ pub enum StopCause {
     Cancelled,
     /// The deadline of the active rewrite or proof step passed; the mode is the one that armed it.
     Deadline(StepTimeoutMode),
-    /// Less than `STACK_RED_ZONE` bytes of this thread's native stack remained.
+    /// Less than `STACK_RED_ZONE` bytes of native stack remained to the simplifier, and the
+    /// segments its recursion holds on this thread reached their budget
+    /// (`nesting::SIMPLIFICATION_STACK_BUDGET`), or those of every thread reached the process's
+    /// (`nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`).
     StackExhausted,
     /// The solver's prelude is unsatisfiable or undecided, so none of its answers means anything.
     SolverPrelude(PreludeFailure),
@@ -80,8 +83,10 @@ impl fmt::Display for PreludeFailure {
 
 /// The fault texts the surfaces print for each cause: a cancelled request is `Request cancelled`,
 /// a failed prelude `could not initialize Z3: <failure>`, and an exhausted stack
-/// `simplification exhausted the native stack of the current thread`, the text of the
-/// simplifier's stack-exhaustion error.
+/// `simplification exhausted its native stack (the thread's and up to 1 GiB more by default): a
+/// recursion went too deep`, the text of the simplifier's stack-exhaustion error. The size named
+/// is [`SIMPLIFICATION_STACK_BUDGET`](crate::nesting::SIMPLIFICATION_STACK_BUDGET), which an
+/// embedder can change (`nesting::with_simplification_stack_budget`).
 impl fmt::Display for StopCause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -95,8 +100,19 @@ impl fmt::Display for StopCause {
                 },
                 mode.timeout()
             ),
-            Self::StackExhausted => formatter
-                .write_str("simplification exhausted the native stack of the current thread"),
+            Self::StackExhausted => {
+                let budget = crate::nesting::SIMPLIFICATION_STACK_BUDGET;
+                let (size, unit) = if budget.is_multiple_of(1 << 30) {
+                    (budget >> 30, "GiB")
+                } else {
+                    (budget >> 20, "MiB")
+                };
+                write!(
+                    formatter,
+                    "simplification exhausted its native stack (the thread's and up to {size} \
+                     {unit} more by default): a recursion went too deep"
+                )
+            }
             Self::SolverPrelude(failure) => write!(formatter, "could not initialize Z3: {failure}"),
         }
     }
@@ -126,7 +142,7 @@ impl StopCause {
 
 /// Evidence that a stop was observed.
 ///
-/// Minted only by [`check`], `check_stack`, [`operation`] and `Stop::solver_prelude`; consumed
+/// Minted only by [`check`], `with_stack_headroom`, [`operation`] and `Stop::solver_prelude`; consumed
 /// only by `?`, [`Stop::into_cause`], [`Stop::merge`] or [`Stop::forgo_refinement`]. In debug
 /// builds dropping it any other way panics, naming where it was minted: the drop is a fallback
 /// that decided an outcome from a missing answer.
@@ -317,9 +333,9 @@ pub fn check() -> Result<(), Stop> {
     }
 }
 
-/// Bytes of native stack that must remain when the simplifier enters a round of
-/// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
-/// checks the stack.
+/// Bytes of native stack that must remain when the simplifier enters a call of
+/// `simplify_with_budget` or `simplify_predicate_with_budget`, the points at which it checks the
+/// stack (`with_stack_headroom`); with less, the call runs on a new segment or stops.
 ///
 /// The zone must hold the deepest stretch of the same thread between two checks: the frames of
 /// one level of simplifier recursion (at most 3.0 KiB in a release build, 4.0 KiB at opt-level 1
@@ -379,14 +395,121 @@ fn stack_exhausted() -> bool {
     remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
 }
 
-/// The stack guard: a [`StopCause::StackExhausted`] stop when `stack_exhausted` holds.
+/// The native stack of each segment [`with_stack_headroom`] runs the simplifier's recursion on:
+/// a few thousand levels of it in a release build, so that the mapping is paid once per few
+/// thousand levels. It is far above `STACK_RED_ZONE`, which the work on a fresh segment needs.
+#[cfg(not(target_family = "wasm"))]
+const SIMPLIFICATION_SEGMENT: usize = 16 << 20;
+
+std::thread_local! {
+    /// The bytes of the segments [`with_stack_headroom`] holds on this thread, and the most it may
+    /// hold (`nesting::with_simplification_stack_budget`).
+    static SIMPLIFICATION_SEGMENTS: Cell<(usize, usize)> =
+        const { Cell::new((0, crate::nesting::SIMPLIFICATION_STACK_BUDGET)) };
+}
+
+/// The bytes of the segments [`with_stack_headroom`] holds on every thread of the process, which
+/// stay within `nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`.
+#[cfg(not(target_family = "wasm"))]
+static PROCESS_SEGMENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Count one more segment in `total` if the count stays within `budget`, and say whether it did.
+#[cfg(not(target_family = "wasm"))]
+fn reserve_segment(total: &std::sync::atomic::AtomicUsize, budget: usize) -> bool {
+    total
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+            held.checked_add(SIMPLIFICATION_SEGMENT)
+                .filter(|holding| *holding <= budget)
+        })
+        .is_ok()
+}
+
+/// The budget of the segments the simplifier's recursion may hold on this thread while `work`
+/// runs; see `nesting::with_simplification_stack_budget`.
+pub(crate) fn with_segment_budget<R>(budget: usize, work: impl FnOnce() -> R) -> R {
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((segments.get().0, self.0)));
+        }
+    }
+    let previous = SIMPLIFICATION_SEGMENTS.with(|segments| {
+        let (held, previous) = segments.get();
+        segments.set((held, budget));
+        previous
+    });
+    let _restore = Restore(previous);
+    work()
+}
+
+/// Run `work`, one level of the simplifier's recursion, with at least `STACK_RED_ZONE` bytes of
+/// native stack. On a thread with that much left it runs inline: the check the simplifier has
+/// always made at each level, and nothing more. Below it, `work` and the recursion under it run on
+/// a new segment of `SIMPLIFICATION_SEGMENT` bytes, while the segments held on this thread stay
+/// within the thread's budget and those held on every thread within the process's; past either,
+/// or when the system declines to map the segment, it stops with [`StopCause::StackExhausted`]
+/// without running.
+///
+/// So a recursion takes stack only as deep as it goes: an operation that stays within its
+/// thread's stack maps nothing, and one that recurses deeper pays one mapping per segment.
 #[inline]
 #[cfg_attr(debug_assertions, track_caller)]
-pub(crate) fn check_stack() -> Result<(), Stop> {
+pub(crate) fn with_stack_headroom<R, E: From<Stop>>(
+    work: impl FnOnce() -> Result<R, E>,
+) -> Result<R, E> {
     if stack_exhausted() {
-        Err(Stop::mint(StopCause::StackExhausted))
+        on_new_segment(work)
     } else {
-        Ok(())
+        work()
+    }
+}
+
+/// On wasm32 the remaining stack is unknown, so it is never exhausted and no segment is mapped.
+#[cfg(target_family = "wasm")]
+fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
+    work()
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[cold]
+#[cfg_attr(debug_assertions, track_caller)]
+fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
+    struct Release(usize);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((self.0, segments.get().1)));
+            PROCESS_SEGMENTS.fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
+        }
+    }
+    let (held, budget) = SIMPLIFICATION_SEGMENTS.with(Cell::get);
+    let Some(holding) = held
+        .checked_add(SIMPLIFICATION_SEGMENT)
+        .filter(|holding| *holding <= budget)
+    else {
+        return Err(Stop::mint(StopCause::StackExhausted).into());
+    };
+    if !reserve_segment(
+        &PROCESS_SEGMENTS,
+        crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET,
+    ) {
+        return Err(Stop::mint(StopCause::StackExhausted).into());
+    }
+    SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((holding, budget)));
+    let _release = Release(held);
+    // `stacker` maps the segment before it runs the work and panics when the mapping fails. A
+    // panic while the work is still here is that failure; a panic from the work itself continues
+    // to unwind as it would have on the thread's own stack.
+    let mut work = Some(work);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stacker::grow(SIMPLIFICATION_SEGMENT, || {
+            let work = work.take().expect("the segment runs the work once");
+            work()
+        })
+    }));
+    match outcome {
+        Ok(result) => result,
+        Err(_) if work.is_some() => Err(Stop::mint(StopCause::StackExhausted).into()),
+        Err(payload) => std::panic::resume_unwind(payload),
     }
 }
 
@@ -798,15 +921,83 @@ mod tests {
             assert_eq!(polled(), None);
         }
 
+        let headroom = || {
+            with_stack_headroom(|| Ok::<_, Stop>(()))
+                .err()
+                .map(Stop::into_cause)
+        };
         let exhausted = std::thread::Builder::new()
             .stack_size(64 * 1024)
-            .spawn(|| check_stack().err().map(Stop::into_cause))
+            .spawn(move || with_segment_budget(0, headroom))
             .unwrap()
             .join()
             .unwrap();
         assert_eq!(exhausted, Some(StopCause::StackExhausted));
-        assert_eq!(check_stack().err().map(Stop::into_cause), None);
+        assert_eq!(headroom(), None);
         assert!(registry_is_empty());
+    }
+
+    /// Below the red zone, the work runs on a new segment while the budget holds one, and the
+    /// segment is released afterwards, from the thread's count and the process's; nested past the
+    /// budget, it stops.
+    #[test]
+    fn a_recursion_below_the_red_zone_goes_on_on_segments_within_the_budget() {
+        fn descend(levels: usize) -> Result<usize, Stop> {
+            with_stack_headroom(|| {
+                let frame = std::hint::black_box([0_u8; 4096]);
+                Ok(if levels == 0 {
+                    0
+                } else {
+                    descend(levels - 1)? + usize::from(frame[0] == 0)
+                })
+            })
+        }
+        let held = || SIMPLIFICATION_SEGMENTS.with(Cell::get).0;
+        let outcome = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                // About 9,000 levels of 4 KiB: two segments beyond the thread.
+                let deep = with_segment_budget(3 * SIMPLIFICATION_SEGMENT, || descend(9_000));
+                let released = held();
+                let stopped = with_segment_budget(SIMPLIFICATION_SEGMENT, || descend(9_000))
+                    .err()
+                    .map(Stop::into_cause);
+                // One segment at a time, more segments in all than the process may hold at once:
+                // each is released from the process's count too.
+                let repeated = (0..=crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET
+                    / SIMPLIFICATION_SEGMENT)
+                    .all(|_| {
+                        with_segment_budget(SIMPLIFICATION_SEGMENT, || descend(200))
+                            .map_err(Stop::into_cause)
+                            .is_ok()
+                    });
+                (deep.ok(), released, stopped, held(), repeated)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(
+            outcome,
+            (Some(9_000), 0, Some(StopCause::StackExhausted), 0, true)
+        );
+    }
+
+    /// A segment is counted in a total while the total stays within its budget, and a released
+    /// one makes room for another.
+    #[test]
+    fn a_segment_is_reserved_only_within_the_total_budget() {
+        let total = std::sync::atomic::AtomicUsize::new(0);
+        let budget = 2 * SIMPLIFICATION_SEGMENT;
+        assert!(reserve_segment(&total, budget));
+        assert!(reserve_segment(&total, budget));
+        assert!(!reserve_segment(&total, budget));
+        assert_eq!(total.load(Ordering::Relaxed), budget);
+        total.fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
+        assert!(reserve_segment(&total, budget));
+        assert!(!reserve_segment(
+            &total,
+            budget + SIMPLIFICATION_SEGMENT - 1
+        ));
     }
 
     #[test]
@@ -1051,7 +1242,7 @@ mod tests {
             );
             let _deadline = passed_deadline(MANUAL);
             let wider = check().unwrap_err();
-            let narrower = check_stack().err().unwrap_or_else(|| check().unwrap_err());
+            let narrower = check().unwrap_err();
             assert_eq!(wider.merge(narrower).into_cause(), StopCause::Cancelled);
         });
         // A narrower later stop loses; a wider later stop wins.
@@ -1106,7 +1297,13 @@ mod tests {
     fn displays_reproduce_the_surface_texts() {
         assert_eq!(
             StopCause::StackExhausted.to_string(),
-            "simplification exhausted the native stack of the current thread"
+            if cfg!(target_pointer_width = "64") {
+                "simplification exhausted its native stack (the thread's and up to 1 GiB more \
+                 by default): a recursion went too deep"
+            } else {
+                "simplification exhausted its native stack (the thread's and up to 256 MiB more \
+                 by default): a recursion went too deep"
+            }
         );
         assert_eq!(
             PreludeFailure::Inconsistent.to_string(),

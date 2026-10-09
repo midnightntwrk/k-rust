@@ -102,6 +102,49 @@ pub const STACK_LIMIT: usize = 4 << 30;
 #[cfg(not(target_pointer_width = "64"))]
 pub const STACK_LIMIT: usize = 256 << 20;
 
+/// The most native stack, beyond the stack it starts on, that the simplifier's recursion takes on
+/// one thread: 1 GiB on 64-bit targets, [`STACK_LIMIT`] on narrower ones.
+///
+/// [`with_stack`] sizes an operation's stack from the depth of what it reads, but evaluation can
+/// recurse far deeper than its input: a recursive function over a list of n elements, or over a
+/// term the execution built step by step, descends n levels in the simplifier. Each level of that
+/// recursion checks the stack left (`stop::with_stack_headroom`); when less than the red zone
+/// remains, the recursion goes on on a new 16 MiB segment, until the segments it holds would
+/// exceed this budget, where it stops with `StackExhausted`. A recursion that stays within its
+/// thread's stack maps nothing, so the budget costs nothing until it is used.
+///
+/// 1 GiB holds about 200,000 levels of a recursive function in a release build (`size(c(T)) =
+/// 1 +Int size(T)`, about 5 KiB per level), where an 8 MiB thread alone held about 1,700. The
+/// segments are reserved address space whose pages are committed as the recursion touches them,
+/// so a runaway recursion commits up to the budget before it stops. 1 GiB is a quarter of
+/// [`STACK_LIMIT`], so it stays under the same reservation bounds.
+#[cfg(target_pointer_width = "64")]
+pub const SIMPLIFICATION_STACK_BUDGET: usize = 1 << 30;
+#[cfg(not(target_pointer_width = "64"))]
+pub const SIMPLIFICATION_STACK_BUDGET: usize = STACK_LIMIT;
+
+/// The most native stack that the simplifier's segments take on all threads of the process
+/// together: [`STACK_LIMIT`], 4 GiB on 64-bit targets, and [`SIMPLIFICATION_STACK_BUDGET`] on
+/// narrower ones.
+///
+/// [`SIMPLIFICATION_STACK_BUDGET`] bounds each thread, and a parallel embedder would otherwise
+/// commit it once per thread: a divergent function that 16 workers reach commits about 1.3 GB on
+/// each before any of them stops, about 21 GB in all. With this bound the process holds at most
+/// 4 GiB of segments, and a recursion that would take more stops with `StackExhausted`. Four
+/// threads at their full budget fit, so a thread stops below its own budget only when several
+/// threads recurse hundreds of thousands of levels at once. The count is one atomic update when a
+/// segment is granted and one when it is released, nothing on a recursion within its thread.
+pub const SIMPLIFICATION_STACK_PROCESS_BUDGET: usize = STACK_LIMIT;
+
+/// Run `work` with `bytes` as the budget of [`SIMPLIFICATION_STACK_BUDGET`] on this thread, and
+/// restore the previous budget afterwards. A smaller budget stops a deep recursion sooner and
+/// commits less memory before it does; 0 confines the simplifier to the stack it starts on. The
+/// segments of every thread together stay within [`SIMPLIFICATION_STACK_PROCESS_BUDGET`] whatever
+/// the budget of each.
+pub fn with_simplification_stack_budget<R>(bytes: usize, work: impl FnOnce() -> R) -> R {
+    crate::stop::with_segment_budget(bytes, work)
+}
+
 /// The deepest patterns and sorts, as counted by `height`, that [`with_stack`] provides the
 /// stack for: about a million levels in a release build, 700,000 in the `dev` profile, and
 /// 170,000 in an unoptimized build.

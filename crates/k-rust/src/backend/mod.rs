@@ -445,18 +445,18 @@ impl Default for ProveRequest {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofResultOutput {
+pub struct ProofResultOutput<K = Value> {
     pub claim: String,
     pub status: String,
     pub explored_states: u64,
     pub unexplored_states: u64,
-    pub leaves: Vec<ProofLeafOutput>,
+    pub leaves: Vec<ProofLeafOutput<K>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofLeafOutput {
-    pub state: Value,
+pub struct ProofLeafOutput<K = Value> {
+    pub state: K,
     pub depth: u64,
     pub outcome: String,
 }
@@ -500,6 +500,9 @@ fn serialize_wire(value: &impl Serialize) -> Result<String, BackendError> {
 pub struct Backend {
     session: BackendSession,
     options: BackendOptions,
+    /// The stack the simplifier's recursion may take beyond its thread's in each operation
+    /// (`nesting::with_simplification_stack_budget`).
+    simplification_stack_budget: usize,
     #[cfg(feature = "z3-inference")]
     solvers: std::collections::BTreeMap<String, Z3Solver>,
     #[cfg(feature = "z3-inference")]
@@ -588,6 +591,7 @@ impl Backend {
         let mut backend = Self {
             session,
             options,
+            simplification_stack_budget: k_rust_backend::nesting::SIMPLIFICATION_STACK_BUDGET,
             #[cfg(feature = "z3-inference")]
             solvers: Default::default(),
             #[cfg(feature = "z3-inference")]
@@ -595,6 +599,17 @@ impl Backend {
         };
         backend.with_solver(None, |_, _| Ok::<_, BackendError>(()))?;
         Ok(backend)
+    }
+
+    /// Set the native stack, in bytes, that the simplifier's recursion may take in each later
+    /// operation beyond the stack the operation runs on; the default is
+    /// [`k_rust_backend::nesting::SIMPLIFICATION_STACK_BUDGET`]. A function recursion deeper than
+    /// that stops with [`StopCause::StackExhausted`]. A smaller budget stops a runaway recursion
+    /// sooner and commits less memory before it does; 0 confines the simplifier to the stack the
+    /// operation runs on. The budget is per thread; the segments of every thread of the process
+    /// together stay within [`k_rust_backend::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`].
+    pub fn set_simplification_stack_budget(&mut self, bytes: usize) {
+        self.simplification_stack_budget = bytes;
     }
 
     pub fn capabilities(&self) -> BackendCapabilities {
@@ -704,6 +719,8 @@ impl Backend {
     /// right-hand-side definedness obligation fails, even when a sibling candidate continues.
     /// A step's `trivial` leaves precede the leaves of its successors.
     /// Strategy `any` makes no coverage claim.
+    ///
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }
@@ -712,6 +729,8 @@ impl Backend {
     /// For the same request, leaves match `execute` after clearing `branch` and `observations`.
     /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
     /// every identity and no observation events.
+    ///
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
@@ -777,10 +796,12 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
         self.search_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -824,6 +845,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_paths(
         &mut self,
         request: SearchRequest,
@@ -831,6 +853,7 @@ impl Backend {
         self.search_paths_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_paths_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -874,6 +897,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern(
         &mut self,
         request: SearchPatternRequest,
@@ -881,6 +905,7 @@ impl Backend {
         self.search_pattern_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -933,6 +958,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_paths(
         &mut self,
         request: SearchPatternRequest,
@@ -940,6 +966,7 @@ impl Backend {
         self.search_pattern_paths_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_paths_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -1074,6 +1101,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::simplify_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         self.simplify_with(request, |pattern| encode_pattern(&pattern))
     }
@@ -1100,6 +1128,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::implies_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn implies(
         &mut self,
         request: ImplicationRequest,
@@ -1145,6 +1174,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::get_model_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn get_model(
         &mut self,
         request: PatternRequest,
@@ -1209,7 +1239,21 @@ impl Backend {
         }
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
+        self.prove_using(request)
+    }
+
+    /// [`Self::prove`] as JSON text: each leaf's KORE is written as text inside the operation,
+    /// on the stack it runs on.
+    pub fn prove_json(&mut self, request: ProveRequest) -> Result<String, BackendError> {
+        serialize_wire(&self.prove_using::<Box<RawValue>>(request)?)
+    }
+
+    fn prove_using<K: wire::WireKore>(
+        &mut self,
+        request: ProveRequest,
+    ) -> Result<ProofResultOutput<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
@@ -1277,7 +1321,7 @@ impl Backend {
                     .into_iter()
                     .map(|leaf| {
                         Ok(ProofLeafOutput {
-                            state: encode_pattern(&externalize::constrained_pattern(
+                            state: K::from_source(&externalize::constrained_pattern(
                                 &leaf.pattern,
                             ))?,
                             depth: leaf.depth,
@@ -1316,8 +1360,10 @@ impl Backend {
     /// that holds the backend's recursive passes over `patterns` with their aliases unfolded,
     /// over the definition, and over the internal terms built from them
     /// (`BackendDefinition::with_stack_for`), so it must return only external results and drop
-    /// its internal terms itself. Patterns too deep for the largest stack the backend provides
-    /// are refused with `InsufficientStack` before the operation runs.
+    /// its internal terms itself. Evaluation that recurses deeper than that stack goes on on
+    /// segments up to the operation's simplification stack budget
+    /// ([`Self::set_simplification_stack_budget`]). Patterns too deep for the largest stack the
+    /// backend provides are refused with `InsufficientStack` before the operation runs.
     pub fn with_solver_over<T, E>(
         &mut self,
         module: Option<&str>,
@@ -1333,9 +1379,14 @@ impl Backend {
             .map_err(error("could not select backend module"))
             .map_err(E::from)?;
         let depth = definition.operation_depth(patterns);
-        k_rust_backend::nesting::with_stack(depth, || self.run_with_solver(definition, operation))
-            .map_err(error("the request is too deep for the backend"))
-            .map_err(E::from)?
+        let budget = self.simplification_stack_budget;
+        k_rust_backend::nesting::with_stack(depth, || {
+            k_rust_backend::nesting::with_simplification_stack_budget(budget, || {
+                self.run_with_solver(definition, operation)
+            })
+        })
+        .map_err(error("the request is too deep for the backend"))
+        .map_err(E::from)?
     }
 
     #[cfg(feature = "z3-inference")]
@@ -3771,6 +3822,73 @@ endmodule
         });
     }
 
+    /// `DEEP_DEFINITION` with the claim `deep`, that `go` over `levels` applications of `wrap`
+    /// over `a` always reaches `a`.
+    fn deep_claim_definition(levels: usize) -> String {
+        let chain = format!(
+            "go{{}}({}a{{}}(){})",
+            "wrap{}(".repeat(levels),
+            ")".repeat(levels)
+        );
+        DEEP_DEFINITION.replace(
+            "endmodule []",
+            &format!(
+                r#"alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}({chain}, \top{{SortS{{}}}}()),
+                    weakAlwaysFinally{{SortS{{}}}}(a{{}}())
+                ) [label{{}}("deep")]
+            endmodule []"#
+            ),
+        )
+    }
+
+    /// A caller's stack on which a proof result held as `serde_json::Value` (`prove`) overflows
+    /// when it is serialized there from about 800 levels of its leaf (the `dev` profile,
+    /// opt-level 1), while `prove` itself completes on it at 2,000.
+    const SMALL_STACK: usize = 256 << 10;
+
+    /// Levels of a proof's leaf beyond what `SMALL_STACK` holds for the leaf as a value.
+    const DEEP_PROOF_LEVELS: usize = 2_000;
+
+    /// A proof whose leaf is 2,000 levels deep is written as text by `prove_json` on a 256 KiB
+    /// thread: the operation writes the leaf's KORE inside the stack it provides, and the
+    /// caller receives text it can drop on any thread. The test takes well under a second.
+    #[test]
+    fn a_deep_proof_result_is_written_inside_the_operation() {
+        let definition = deep_claim_definition(DEEP_PROOF_LEVELS);
+        let response = on_thread(SMALL_STACK, move || {
+            let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            backend
+                .prove_json(ProveRequest {
+                    max_depth: Some(1),
+                    ..ProveRequest::default()
+                })
+                .unwrap()
+        });
+        let [leaf] = leaf_states(&response).try_into().unwrap();
+        assert!(same_kore(&leaf, &wrap_json(DEEP_PROOF_LEVELS + 1, true)));
+    }
+
+    /// `prove_json` writes the result `prove` returns.
+    #[test]
+    fn prove_json_writes_the_proof_result() {
+        let mut backend =
+            Backend::new(&deep_claim_definition(3), "MAIN", BackendOptions::default()).unwrap();
+        let request = ProveRequest {
+            max_depth: Some(1),
+            ..ProveRequest::default()
+        };
+        let text = backend.prove_json(request.clone()).unwrap();
+        let value = backend.prove(request).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&text).unwrap(),
+            serde_json::to_value(&value).unwrap()
+        );
+        assert_eq!(value.leaves.len(), 1, "{value:#?}");
+    }
+
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary
     /// conjunctions, so a wide request is deep inside the backend: 50,000 conjuncts execute on
     /// Node's main thread, and 200,000 execute as well where the backend provides the stack
@@ -3856,6 +3974,8 @@ endmodule
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
                 Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::default()).unwrap();
+            // Confined to the stack sized from the input, the bound under test.
+            backend.set_simplification_stack_budget(0);
             let envelope = |term: &str| format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
             let levels = 5_000;
             let a = nested(1, "a", "", "", "");
@@ -3921,6 +4041,8 @@ endmodule
                 endmodule []"#,
             );
             let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            // Confined to the stack sized from the input, the bound under test.
+            backend.set_simplification_stack_budget(0);
             let levels = BEYOND_THE_THREAD;
             let a = nested(1, "a", "", "", "");
             let nil = nested(1, "nil", "", "", "");

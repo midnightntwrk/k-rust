@@ -1831,7 +1831,33 @@ fn decompose_free_application(
     })
 }
 
+/// [`simplify_predicate_on_stack`] with at least the red zone of native stack: the simplifier's
+/// recursion passes through here and [`simplify_with_budget`] at each level, so a recursion deeper
+/// than the thread's stack goes on on new segments, up to the thread's budget
+/// (`stop::with_stack_headroom`).
 fn simplify_predicate_with_budget(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    stop::with_stack_headroom(|| {
+        simplify_predicate_on_stack(
+            definition,
+            predicate,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        )
+    })
+}
+
+fn simplify_predicate_on_stack(
     definition: &BackendDefinition,
     predicate: &Predicate,
     assumptions: &PredicateAssumptions<'_>,
@@ -1842,7 +1868,6 @@ fn simplify_predicate_with_budget(
 ) -> SimplifyResult<Predicate> {
     let _apart = crate::rule::ApartScope::enter();
     stop::check()?;
-    stop::check_stack()?;
     match assumptions.truth(predicate) {
         Some(true) => return Ok(Predicate::True),
         Some(false) => return Ok(Predicate::False),
@@ -3473,8 +3498,35 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     }
 }
 
+/// [`simplify_on_stack`] with at least the red zone of native stack, as
+/// [`simplify_predicate_with_budget`] provides it.
 #[allow(clippy::too_many_arguments)]
 fn simplify_with_budget(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<Simplification> {
+    stop::with_stack_headroom(|| {
+        simplify_on_stack(
+            definition,
+            term,
+            assumptions,
+            options,
+            remaining,
+            active_conditions,
+            solver,
+            execution,
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simplify_on_stack(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &TermAssumptions<'_>,
@@ -3509,7 +3561,6 @@ fn simplify_with_budget(
             // iteration budget, which counts rewrites of one lineage rather than time, so every
             // round polls.
             stop::check()?;
-            stop::check_stack()?;
             // A retried application is the subject of the step that failed: its children were
             // simplified in that round, and only its root is tried again.
             let retried = retry.take();

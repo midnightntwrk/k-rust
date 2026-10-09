@@ -310,6 +310,7 @@ fn encode_generated_identity(identity: GeneratedVariableIdentity) -> KoreVariabl
 }
 
 fn variable_identities(pattern: &Pattern) -> BTreeSet<KoreVariableIdentity> {
+    // stack-accepted(search-pattern-variables): one level per level of the search pattern a user writes on the command line, which is shallow. See docs/backend-port.md#stack-bounds.
     // Invariant: each call visits one node of `pattern` and recurses only into its direct subpatterns, so the finite `pattern` bounds the calls; `output` holds every free or bound variable identity met so far.
     fn collect(pattern: &Pattern, output: &mut BTreeSet<KoreVariableIdentity>) {
         match pattern {

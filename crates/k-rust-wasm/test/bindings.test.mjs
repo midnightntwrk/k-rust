@@ -418,6 +418,37 @@ test('searches and observes the persistent portable backend graph', () => {
   backend.free()
 })
 
+// Rust's default 1 MiB wasm32 stack traps on this program from about 920 levels when it is
+// parsed in the dev module CI tests (960 in a release one); the module's 8 MiB stack holds the
+// depth below, which stays under the engine's own call-stack limit at Node's default (about
+// 1,800 levels). Simplification is not tested here: in the dev module the engine's call stack
+// binds it at about 390 nested calls whatever the linear stack. docs/backend-port.md, "Stack
+// bounds".
+test('parses a program deeper than a 1 MiB stack holds', () => {
+  const definition = `
+    module TICKS
+      syntax Pgm ::= "tick" Pgm [function, symbol(tick)] | "done" [symbol(done)]
+      rule tick P => P
+    endmodule
+  `
+  const statements = 1400
+  const parsed = parseProgram({
+    definition,
+    moduleName: 'TICKS',
+    sort: 'Pgm',
+    program: `${'tick '.repeat(statements)}done`,
+    includePrelude: false,
+  })
+  let term = parsed.kast.term
+  let ticks = 0
+  while (term.label.name === 'tick') {
+    ticks += 1
+    term = term.args[0]
+  }
+  assert.equal(ticks, statements)
+  assert.equal(term.label.name, 'done')
+})
+
 test('compileBackend compiles and creates a portable session', () => {
   const backend = compileBackend({
     definition: `module MAIN

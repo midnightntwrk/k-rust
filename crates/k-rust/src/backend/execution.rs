@@ -1155,20 +1155,7 @@ fn run_backend_with_solver(
             | HaltReason::BreadthBound => false,
         })
     {
-        let result_sort = leaf.pattern.term.sort();
-        let reason = match &leaf.halt_reason {
-            HaltReason::Simplification(error) => describe_simplification_error(error, &result_sort),
-            HaltReason::Indeterminate(reason) => describe_indeterminate(reason, &result_sort),
-            reason @ HaltReason::Stopped(_)
-            | reason @ HaltReason::Stuck
-            | reason @ HaltReason::Trivial { .. }
-            | reason @ HaltReason::Vacuous { .. }
-            | reason @ HaltReason::Branch { .. }
-            | reason @ HaltReason::CutPointRule { .. }
-            | reason @ HaltReason::TerminalRule { .. }
-            | reason @ HaltReason::DepthBound
-            | reason @ HaltReason::BreadthBound => format!("{reason:?}"),
-        };
+        let reason = describe_failed_halt(&leaf.halt_reason, &leaf.pattern.term.sort());
         return Err(io::Error::other(format!(
             "in-process backend halted at depth {}: {reason}",
             leaf.depth
@@ -1432,6 +1419,25 @@ fn describe_incomplete_search(incomplete: &IncompleteSearch) -> String {
         state.depth,
         KorePrinter::pretty(100).print_pattern(&externalize::constrained_pattern(&state.pattern))
     )
+}
+
+/// The text `krun` prints for a leaf whose halt fails the run, after `in-process backend halted
+/// at depth <n>: `: a stop's own text (`StopCause`'s `Display`), and a simplification error or an
+/// indeterminate outcome with the term it concerns.
+fn describe_failed_halt(reason: &HaltReason, result_sort: &Sort) -> String {
+    match reason {
+        HaltReason::Simplification(error) => describe_simplification_error(error, result_sort),
+        HaltReason::Indeterminate(reason) => describe_indeterminate(reason, result_sort),
+        HaltReason::Stopped(cause) => cause.to_string(),
+        reason @ HaltReason::Stuck
+        | reason @ HaltReason::Trivial { .. }
+        | reason @ HaltReason::Vacuous { .. }
+        | reason @ HaltReason::Branch { .. }
+        | reason @ HaltReason::CutPointRule { .. }
+        | reason @ HaltReason::TerminalRule { .. }
+        | reason @ HaltReason::DepthBound
+        | reason @ HaltReason::BreadthBound => format!("{reason:?}"),
+    }
 }
 
 /// A simplification failure with the term or predicate it names printed in KORE; a predicate is
@@ -2143,5 +2149,24 @@ mod value_claim_finding_tests {
             value_claim_warning(&read),
             value_claim_warnings(&definition)[0]
         );
+    }
+}
+
+#[cfg(test)]
+mod failed_halt_tests {
+    use k_rust_backend::{rewrite::HaltReason, stop::StopCause, term::Sort};
+
+    use super::describe_failed_halt;
+
+    /// A stopped leaf is reported with its cause's text, which names the stack the simplifier
+    /// exhausted, not with the variant's `Debug` form (`Stopped(StackExhausted)`).
+    #[test]
+    fn a_stopped_leaf_is_reported_with_its_cause_text() {
+        for cause in [StopCause::StackExhausted, StopCause::Cancelled] {
+            assert_eq!(
+                describe_failed_halt(&HaltReason::Stopped(cause.clone()), &Sort::simple("SortK")),
+                cause.to_string()
+            );
+        }
     }
 }

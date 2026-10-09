@@ -75,7 +75,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     hash::{Hash, Hasher},
-    sync::{Arc, OnceLock},
+    sync::{Arc, LazyLock, OnceLock},
 };
 
 use k_rust_kore::kore::ast::KoreString;
@@ -799,6 +799,169 @@ impl fmt::Debug for TermData {
 
 #[derive(Clone, Debug)]
 pub struct Term(Arc<TermData>);
+
+/// Frees a term one node at a time, with the same stack whatever its depth.
+///
+/// The drop glue of a node drops its subterms, whose glue drops theirs: one group of frames per
+/// level, so dropping a term deeper than the stack aborts the process. A term is deeper than the
+/// stack it is dropped on when execution built it level by level (each step wrapping the state
+/// once more), or when an operation stopped for want of stack while holding it.
+///
+/// Here, when this is the node's last handle and some subterm is the last handle of a node with
+/// subterms of its own, the node is moved into a work list. Each node taken from the list is
+/// freed after the nodes of its own such subterms were moved to the list, so every free goes one
+/// level down: a subterm left behind is a shared node, which is only released, or a node without
+/// subterms. Every other drop is left to the glue, which by the same argument goes at most one
+/// level down. The handle counts read here are hints: a node another thread releases at the same
+/// moment may be left to the glue, which then frees it through this same `Drop` one level down.
+///
+/// Cost: a drop of a shared handle reads its count once more; a drop of a last handle also reads
+/// the count and kind of each of its subterms. Measured on function-heavy `krun` workloads (30,000
+/// rewrite steps; 300 recursive functions over 300 levels each), that is about 3% more
+/// instructions and 2-4% more time in a release build, and about 2% on a workload that wraps its
+/// state each step; a stack check before the subterm scan, or a drop of `TermData` alone, removes
+/// little of it. It is the price of a process that does not abort on a term execution made deeper
+/// than its stack.
+impl Drop for Term {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.0) != 1 || !self.0.kind.owns_deep_subterm() {
+            return;
+        }
+        let leaf = DETACHED
+            .try_with(|leaf| Arc::clone(&leaf.0))
+            .unwrap_or_else(|_| Arc::clone(&DETACHED_AT_EXIT.0));
+        let mut work = Detached {
+            next: Some(self.take_node(&leaf)),
+            rest: Vec::new(),
+            leaf,
+        };
+        while let Some(node) = work.next.take().or_else(|| work.rest.pop()) {
+            if let Some(TermData { kind, .. }) = Arc::into_inner(node) {
+                kind.into_deep_subterms(&mut work);
+            }
+        }
+    }
+}
+
+/// The nodes [`Term`]'s `Drop` has taken out and not yet freed: the next one, and the rest. A
+/// node with one such subterm, the usual case, passes it on through `next` without allocating.
+/// `leaf` is this thread's [`DETACHED`], read once per drop.
+struct Detached {
+    next: Option<Arc<TermData>>,
+    rest: Vec<Arc<TermData>>,
+    leaf: Arc<TermData>,
+}
+
+std::thread_local! {
+    /// The node [`Term::take_node`] leaves in a handle it takes the node out of: a leaf, which the
+    /// handle's drop then releases without descending. Each thread has its own, so that every
+    /// node a drop frees through its work list counts a reference on a node of its own thread:
+    /// with one leaf for the process, concurrent deep drops contended on its count and ran 4-5
+    /// times slower at 16 threads. A drop reads it once and clones it for each node it takes.
+    static DETACHED: Term = detached_leaf();
+}
+
+/// The leaf a thread whose [`DETACHED`] is already destroyed uses: a term dropped by another
+/// thread-local's destructor at the thread's exit.
+static DETACHED_AT_EXIT: LazyLock<Term> = LazyLock::new(detached_leaf);
+
+fn detached_leaf() -> Term {
+    Term::domain_value(Sort::Variable(Name::from("")), "")
+}
+
+impl Term {
+    /// Whether this is the last handle of a node with subterms (a hint, as in [`Term`]'s `Drop`).
+    fn is_last_deep_handle(&self) -> bool {
+        Arc::strong_count(&self.0) == 1 && self.0.kind.has_subterms()
+    }
+
+    /// This handle's node, the handle left on `leaf`.
+    fn take_node(&mut self, leaf: &Arc<TermData>) -> Arc<TermData> {
+        std::mem::replace(&mut self.0, Arc::clone(leaf))
+    }
+}
+
+impl TermKind {
+    /// Whether the node holds subterms.
+    fn has_subterms(&self) -> bool {
+        match self {
+            Self::And(..) | Self::Injection { .. } => true,
+            Self::Application { arguments, .. } => !arguments.is_empty(),
+            Self::Map { entries, rest, .. } => !entries.is_empty() || rest.is_some(),
+            Self::List { heads, rest, .. } => !heads.is_empty() || rest.is_some(),
+            Self::Set { elements, rest, .. } => !elements.is_empty() || rest.is_some(),
+            Self::DomainValue { .. } | Self::Variable(_) => false,
+        }
+    }
+
+    /// Whether some subterm is the last handle of a node with subterms: the only case in which
+    /// the glue, dropping this node's subterms, would go on to drop a node below them.
+    fn owns_deep_subterm(&self) -> bool {
+        let deep = Term::is_last_deep_handle;
+        match self {
+            Self::And(left, right) => deep(left) || deep(right),
+            Self::Injection { term, .. } => deep(term),
+            Self::Application { arguments, .. } => arguments.iter().any(deep),
+            Self::Map { entries, rest, .. } => {
+                entries.iter().any(|(key, value)| deep(key) || deep(value))
+                    || rest.as_ref().is_some_and(deep)
+            }
+            Self::List { heads, rest, .. } => {
+                heads.iter().any(deep)
+                    || rest
+                        .as_ref()
+                        .is_some_and(|(middle, tails)| deep(middle) || tails.iter().any(deep))
+            }
+            Self::Set { elements, rest, .. } => {
+                elements.iter().any(deep) || rest.as_ref().is_some_and(deep)
+            }
+            Self::DomainValue { .. } | Self::Variable(_) => false,
+        }
+    }
+
+    /// Take the node's subterms apart: the node of each subterm that is the last handle of a
+    /// node with subterms is moved to `work`, and every other subterm is dropped here, which
+    /// releases a shared node or frees a node without subterms.
+    fn into_deep_subterms(self, work: &mut Detached) {
+        let mut take = |mut term: Term| {
+            if term.is_last_deep_handle() {
+                let node = term.take_node(&work.leaf);
+                if work.next.is_none() {
+                    work.next = Some(node);
+                } else {
+                    work.rest.push(node);
+                }
+            }
+        };
+        match self {
+            Self::And(left, right) => {
+                take(left);
+                take(right);
+            }
+            Self::Injection { term, .. } => take(term),
+            Self::Application { arguments, .. } => arguments.into_iter().for_each(&mut take),
+            Self::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    take(key);
+                    take(value);
+                }
+                rest.into_iter().for_each(&mut take);
+            }
+            Self::List { heads, rest, .. } => {
+                heads.into_iter().for_each(&mut take);
+                if let Some((middle, tails)) = rest {
+                    take(middle);
+                    tails.into_iter().for_each(&mut take);
+                }
+            }
+            Self::Set { elements, rest, .. } => {
+                elements.into_iter().for_each(&mut take);
+                rest.into_iter().for_each(&mut take);
+            }
+            Self::DomainValue { .. } | Self::Variable(_) => {}
+        }
+    }
+}
 
 /// The most items of a run that [`order_collection`] places by binary search rather than by a
 /// general sort: few enough that the rotations stay a small multiple of one pass over the items,

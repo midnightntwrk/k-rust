@@ -6575,6 +6575,14 @@ endmodule
     }
 
     fn divergent_recursion_service() -> RpcService {
+        let mut service = divergent_recursion_session();
+        // The recursion never ends, so it takes the simplifier's whole stack budget before it
+        // stops; 16 MiB beyond the connection thread keeps that cheap.
+        service.backend.set_simplification_stack_budget(16 << 20);
+        service
+    }
+
+    fn divergent_recursion_session() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(
                 r#"[]

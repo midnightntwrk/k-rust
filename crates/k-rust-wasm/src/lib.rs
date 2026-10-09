@@ -240,7 +240,7 @@ impl WasmBackend {
 
     pub fn prove(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ProveRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.prove(request).map_err(js_error)?).map_err(js_error)
+        self.inner.prove_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = addModule)]
