@@ -21,11 +21,13 @@
 
 mod apply;
 mod candidate;
+mod catalogue;
 mod claims;
 mod codec;
 mod digest;
 mod failure;
 mod fingerprint;
+mod operator;
 mod semantic_input;
 mod sort;
 mod universe;
@@ -36,6 +38,7 @@ pub use candidate::{
     CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,
     SelectionPolicy, Site, SiteSelector, derive_sites, derive_sites_in, select,
 };
+pub use catalogue::catalogue_v1;
 pub use claims::{Claim, ClaimSupport, Withdrawal};
 pub use codec::CodecError;
 pub use digest::{
@@ -46,6 +49,9 @@ pub use digest::{
 pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{
     FINGERPRINT_DOMAIN, FingerprintError, POSITION_KEYS, SentenceFingerprint, fingerprint_payload,
+};
+pub use operator::{
+    Action, BUILTIN_CELL_SYNTAX_SORTS, Clause, OPERATOR_DOMAIN, OperatorSpec, generate,
 };
 pub use semantic_input::{SemanticInput, SemanticInputError};
 pub use universe::{ExclusionReason, ResolvedUniverse, Universe, resolve_universe};
