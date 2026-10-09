@@ -99,10 +99,7 @@ pub struct IntBinOp {
 fn chop_i32(k::term![Chop(IntegerType::I32, value)]: k::Term<Val>) -> k::Term<Val> {
     k::term![Value::Integer(
         IntegerType::I32,
-        int::sub(
-            value,
-            int::mul(int::div(value, 4_294_967_296), 4_294_967_296)
-        ),
+        int::rem_euclid(value, 4_294_967_296),
     )]
 }
 
@@ -110,13 +107,7 @@ fn chop_i32(k::term![Chop(IntegerType::I32, value)]: k::Term<Val>) -> k::Term<Va
 fn chop_i64(k::term![Chop(IntegerType::I64, value)]: k::Term<Val>) -> k::Term<Val> {
     k::term![Value::Integer(
         IntegerType::I64,
-        int::sub(
-            value,
-            int::mul(
-                int::div(value, 18_446_744_073_709_551_616),
-                18_446_744_073_709_551_616,
-            ),
-        ),
+        int::rem_euclid(value, 18_446_744_073_709_551_616),
     )]
 }
 

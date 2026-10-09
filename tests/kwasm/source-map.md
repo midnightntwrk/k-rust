@@ -83,7 +83,7 @@ The second slice ports KWasm's unsigned integer division partition and its `unde
 
 This slice deliberately does not port KWasm's global `owise` fallback for all unsupported integer binary operators.
 The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, so adding an `owise` surface would have no evidence-backed use here.
-Remainder remains deferred because KRS does not expose `%Int` and unsigned division does not require it.
+Remainder (`rem_u`, `rem_s`) remains deferred: unsigned division does not require it.
 Full trap bubbling through label, frame, instruction, and definition continuations remains outside this slice together with those omitted constructs.
 
 The behavior corpus covers exact division, truncation toward zero, operand order, and divide-by-zero traps for both widths.
@@ -105,24 +105,20 @@ The KWasm fixture uses the real recursive value stack; it does not encode the va
 The first use also demonstrates that repeated symbolic equality is not part of the readable pattern surface.
 The width-preserving operand rule is therefore split into explicit `i32` and `i64` cases instead of weakening the KWasm same-type invariant.
 
-### W2 — wraparound does not require a new builtin
+### W2 — wraparound uses K's Euclidean modulus
 
-KRS exposes K integer addition, subtraction, multiplication, and truncating
-division, but not `_modInt_`. The selected KWasm invariant keeps values in
-`0 <=Int I <Int 2^N`; additions and products are nonnegative, and subtraction
-can be shifted by one modulus before reduction. On that domain,
-`X -Int ((X /Int M) *Int M)` is exactly `X modInt M`.
+KWasm defines `#chop(< ITYPE > N) => < ITYPE > (N modInt #pow(ITYPE))`.
+The port's total wrap function `#kwasmChop` applies `int::rem_euclid`, which
+emits `_modInt_`, with the literal modulus `2^32` or `2^64` for each width.
 
-Define one total, Rust-checked wrap function with the existing function and
-equation surface, and feed subtraction a nonnegative shifted value. This is an
-exact implementation for the selected rules and avoids expanding the builtin
-protocol without evidence that it is needed. A later operation that genuinely
-requires K's modulo identity may reopen the builtin question.
-KRS has since exposed `_modInt_` as `int::rem_euclid` (and `_%Int_` as
-`int::rem`); the KWasm port keeps its wrap function, whose emitted K is unchanged.
+The slice originally had no modulo builtin and spelled the reduction as
+`X -Int ((X /Int M) *Int M)`, which equals `X modInt M` only for nonnegative
+`X`; the subtraction and constant rules therefore shift their argument by one
+modulus before reduction. With `modInt` the shift is redundant but harmless,
+since `(X +Int M) modInt M` is `X modInt M`; the rules keep it, so their
+emitted K is unchanged.
 
-The implemented constant rules also shift accepted signed literals by one modulus before applying the same reduction.
-This matches KWasm's accepted i32/i64 literal ranges, including `-1`, without adding a modulo builtin.
+The constant rules accept KWasm's i32/i64 literal ranges, including `-1`.
 
 ### W3 — guarded division and traps require no authoring extension
 
