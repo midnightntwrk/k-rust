@@ -238,18 +238,51 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
     )
 }
 
-/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`): what to tell
-/// the author, and the equation it is located at, if any.
-#[derive(Clone, Debug)]
+/// What kind of finding of the load-time critical-pair check a [`ValueClaimFinding`] is, named
+/// as the diagnostic `kompile` reports it under.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub enum ValueClaimFindingCode {
+    /// A row of the constructor and overload preconditions the definition violates.
+    ValueClaimPrecondition,
+    /// A pair of executable equations that is not shown to join, or an equation the check does
+    /// not pair, which withdraws value claims.
+    UnjoinedCriticalPair,
+}
+
+impl ValueClaimFindingCode {
+    fn diagnostic(self) -> crate::diagnostic::DiagnosticCode {
+        match self {
+            Self::ValueClaimPrecondition => {
+                crate::diagnostic::DiagnosticCode::ValueClaimPrecondition
+            }
+            Self::UnjoinedCriticalPair => crate::diagnostic::DiagnosticCode::UnjoinedCriticalPair,
+        }
+    }
+}
+
+/// One finding of the load-time critical-pair check (`k_rust_backend::confluence`), as data
+/// independent of the loaded definition's terms: the equations by unique id, why the check
+/// reports them, the equation heads they withdraw, and the text the author is told, rendered
+/// once from the verdict. The warning of `krun`, `kprove` and the RPC server
+/// ([`value_claim_warnings`]) and the located diagnostic of `kompile`
+/// ([`value_claim_diagnostics`]) are both made from it, so a verdict stored or reported as these
+/// findings is shown as a computed one is.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ValueClaimFinding {
+    pub code: ValueClaimFindingCode,
+    /// The unique id of the equation the finding is located at: the pair's first equation, or
+    /// the equation of a precondition row (none for a row about two overloads).
+    pub first: Option<String>,
+    /// The unique id of the pair's second equation (the first again for an equation paired with
+    /// itself or not paired); none for a precondition row.
+    pub second: Option<String>,
+    /// Why the pair does not join, or which precondition the row violates, as the check states
+    /// it.
+    pub reason: String,
+    /// The equation heads the pair withdraws, by KORE name, sorted; empty for a row.
+    pub withdrawn: Vec<String>,
     /// The text, without a severity prefix.
     pub message: String,
-    /// Whether the finding is a precondition row (`Violation`) rather than a pair.
-    pub precondition: bool,
-    /// The written position of the equation the finding is about (the pair's first equation).
-    pub origin: Option<RuleOrigin>,
-    /// That equation's unique id, which the compiler's sentence provenance is keyed by.
-    pub unique_id: Option<String>,
 }
 
 /// The findings of the load-time critical-pair check of `definition`: one per row of the
@@ -275,14 +308,7 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             None => name,
         }
     };
-    let located = |rule: &k_rust_backend::rule::RewriteRule, message: String, precondition| {
-        ValueClaimFinding {
-            message,
-            precondition,
-            origin: rule.attributes.origins.first().cloned(),
-            unique_id: Some(rule.attributes.unique_id.clone()),
-        }
-    };
+    let unique_id = |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.unique_id.clone();
     let mut findings = claims
         .violations()
         .iter()
@@ -292,77 +318,78 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             } else {
                 "value claims rest on it"
             };
-            (violation, consequence)
-        })
-        .map(|(violation, consequence)| match &violation.rule {
-            Some(rule) => located(
-                rule,
-                format!("{} ({}); {consequence}", violation.kind, equation(rule)),
-                true,
-            ),
-            None => ValueClaimFinding {
-                message: format!("{}; {consequence}", violation.kind),
-                precondition: true,
-                origin: None,
-                unique_id: None,
-            },
+            let message = match &violation.rule {
+                Some(rule) => format!("{} ({}); {consequence}", violation.kind, equation(rule)),
+                None => format!("{}; {consequence}", violation.kind),
+            };
+            ValueClaimFinding {
+                code: ValueClaimFindingCode::ValueClaimPrecondition,
+                first: violation.rule.as_deref().map(unique_id),
+                second: None,
+                reason: violation.kind.to_string(),
+                withdrawn: Vec::new(),
+                message,
+            }
         })
         .collect::<Vec<_>>();
     for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
         let alone = std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none();
-        if alone && pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches) {
+        let message = if alone
+            && pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)
+        {
             // The equation was checked: two matchings of its left-hand side against one subject
             // are two steps from one term, and that self pair is what does not join.
-            findings.push(located(
-                &pair.first,
-                format!(
-                    "the equation {} paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for {}",
-                    equation(&pair.first),
-                    withdrawn_heads(&pair.withdrawn)
-                ),
-                false,
-            ));
-            continue;
-        }
-        if alone {
-            findings.push(located(
-                &pair.first,
-                format!(
-                    "the equation {} is not checked ({}); no value claims are made for {}",
-                    equation(&pair.first),
-                    pair.reason,
-                    withdrawn_heads(&pair.withdrawn)
-                ),
-                false,
-            ));
-            continue;
-        }
-        let equations = format!(
-            "the equations {} and {}",
-            equation(&pair.first),
-            equation(&pair.second)
-        );
-        let overlap = pair
-            .overlap
-            .as_ref()
-            .map(|overlap| {
-                let mut text = KorePrinter::compact().print_pattern(&externalize::term(overlap));
-                if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
-                    text.truncate(cut);
-                    text.push_str("...");
-                }
-                format!(" overlap at {text} and")
-            })
-            .unwrap_or_default();
-        findings.push(located(
-            &pair.first,
+            format!(
+                "the equation {} paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for {}",
+                equation(&pair.first),
+                withdrawn_heads(&pair.withdrawn)
+            )
+        } else if alone {
+            format!(
+                "the equation {} is not checked ({}); no value claims are made for {}",
+                equation(&pair.first),
+                pair.reason,
+                withdrawn_heads(&pair.withdrawn)
+            )
+        } else {
+            let equations = format!(
+                "the equations {} and {}",
+                equation(&pair.first),
+                equation(&pair.second)
+            );
+            let overlap = pair
+                .overlap
+                .as_ref()
+                .map(|overlap| {
+                    let mut text =
+                        KorePrinter::compact().print_pattern(&externalize::term(overlap));
+                    if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
+                        text.truncate(cut);
+                        text.push_str("...");
+                    }
+                    format!(" overlap at {text} and")
+                })
+                .unwrap_or_default();
             format!(
                 "{equations}{overlap} are not shown to join ({}); no value claims are made for {}",
                 pair.reason,
                 withdrawn_heads(&pair.withdrawn)
-            ),
-            false,
-        ));
+            )
+        };
+        let mut withdrawn = pair
+            .withdrawn
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        withdrawn.sort();
+        findings.push(ValueClaimFinding {
+            code: ValueClaimFindingCode::UnjoinedCriticalPair,
+            first: Some(unique_id(&pair.first)),
+            second: Some(unique_id(&pair.second)),
+            reason: pair.reason.to_string(),
+            withdrawn,
+            message,
+        });
     }
     findings
 }
@@ -371,45 +398,71 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
 /// critical-pair check ([`value_claim_findings`]).
 pub fn value_claim_warnings(definition: &BackendDefinition) -> Vec<String> {
     value_claim_findings(definition)
-        .into_iter()
-        .map(|finding| format!("warning: {}", finding.message))
+        .iter()
+        .map(value_claim_warning)
         .collect()
 }
 
+/// The warning printed for one finding.
+pub fn value_claim_warning(finding: &ValueClaimFinding) -> String {
+    format!("warning: {}", finding.message)
+}
+
 /// The located diagnostics `kompile` reports for the findings of the load-time critical-pair
-/// check ([`value_claim_findings`]): each at its equation's written position, with the input
-/// addresses the compiler recorded for that equation in `provenance`.
+/// check ([`value_claim_findings`]): each at the written position of its first equation in
+/// `definition`, with the input addresses the compiler recorded for that equation in
+/// `provenance`.
 pub fn value_claim_diagnostics(
     definition: &BackendDefinition,
     provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
 ) -> Vec<crate::diagnostic::Diagnostic> {
-    use crate::diagnostic::{Diagnostic, DiagnosticCode, Severity};
-    value_claim_findings(definition)
-        .into_iter()
-        .map(|finding| {
-            let (source, location) = finding
-                .origin
-                .as_ref()
-                .map_or((None, None), written_location);
-            Diagnostic {
-                severity: Severity::Warning,
-                code: if finding.precondition {
-                    DiagnosticCode::ValueClaimPrecondition
-                } else {
-                    DiagnosticCode::UnjoinedCriticalPair
-                },
-                message: finding.message,
-                source,
-                location,
-                input_addresses: finding
-                    .unique_id
-                    .as_ref()
-                    .and_then(|id| provenance.get(id))
-                    .map(|entry| entry.input_addresses.clone())
-                    .unwrap_or_default(),
-            }
+    let findings = value_claim_findings(definition);
+    if findings.is_empty() {
+        return Vec::new();
+    }
+    // The written positions of the executable equations, which are the equations findings name.
+    let origins = definition
+        .function_theory()
+        .values()
+        .flat_map(|priorities| priorities.values().flatten())
+        .filter_map(|rule| {
+            rule.attributes
+                .origins
+                .first()
+                .map(|origin| (rule.attributes.unique_id.as_str(), origin))
         })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    findings
+        .iter()
+        .map(|finding| value_claim_diagnostic(finding, &origins, provenance))
         .collect()
+}
+
+/// The diagnostic for one finding, located through `origins` (unique id to written position).
+fn value_claim_diagnostic(
+    finding: &ValueClaimFinding,
+    origins: &std::collections::BTreeMap<&str, &RuleOrigin>,
+    provenance: &std::collections::BTreeMap<String, crate::kompile::EmittedSentenceProvenance>,
+) -> crate::diagnostic::Diagnostic {
+    use crate::diagnostic::{Diagnostic, Severity};
+    let (source, location) = finding
+        .first
+        .as_deref()
+        .and_then(|id| origins.get(id))
+        .map_or((None, None), |origin| written_location(origin));
+    Diagnostic {
+        severity: Severity::Warning,
+        code: finding.code.diagnostic(),
+        message: finding.message.clone(),
+        source,
+        location,
+        input_addresses: finding
+            .first
+            .as_ref()
+            .and_then(|id| provenance.get(id))
+            .map(|entry| entry.input_addresses.clone())
+            .unwrap_or_default(),
+    }
 }
 
 /// The source path and the location a rule's `Source` and `Location` attributes write.
@@ -1993,5 +2046,102 @@ mod captured_stdout_tests {
             HaltReason::Stuck,
         );
         assert_eq!(captured_stdout_buffer(&[&latin]).unwrap(), [0xe9]);
+    }
+}
+
+#[cfg(test)]
+mod value_claim_finding_tests {
+    /// An equation head `w` with two equations at `w(z)` whose results differ.
+    const NON_JOINING: &str = r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol w{}(SortNat{}) : SortS{} [anywhere{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, z{}()), \top{R}())),
+            \equals{SortS{}, R}(w{}(X0:SortNat{}), \and{SortS{}}(m{}(z{}()), \top{SortS{}}()))
+        ) [anywhere{}(), UNIQUE'Unds'ID{}("w-one-id"), label{}("W.one"),
+           org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/w.k)"),
+           org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,20)")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, z{}()), \top{R}())),
+            \equals{SortS{}, R}(w{}(X0:SortNat{}), \and{SortS{}}(m{}(s{}(z{}())), \top{SortS{}}()))
+        ) [anywhere{}(), UNIQUE'Unds'ID{}("w-two-id"), label{}("W.two"),
+           org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/w.k)"),
+           org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
+    endmodule []"#;
+
+    /// A finding of the critical-pair check is data: its equations by unique id, its reason and
+    /// withdrawn heads, and its message. The warning and the diagnostic are both rendered from it,
+    /// and it reads back from its serialized form (the fields a stored or reported verdict holds)
+    /// as the same finding.
+    #[test]
+    fn a_value_claim_finding_renders_the_warning_and_the_diagnostic_and_reads_back() {
+        use super::{
+            ValueClaimFinding, ValueClaimFindingCode, value_claim_diagnostics,
+            value_claim_findings, value_claim_warning, value_claim_warnings,
+        };
+        let syntax = k_rust_kore::kore::parser::parse_definition(NON_JOINING)
+            .expect("the definition parses");
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("the definition internalizes");
+        let findings = value_claim_findings(&definition);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let finding = &findings[0];
+        assert_eq!(finding.code, ValueClaimFindingCode::UnjoinedCriticalPair);
+        let ids = [finding.first.as_deref(), finding.second.as_deref()];
+        assert!(
+            ids == [Some("w-one-id"), Some("w-two-id")]
+                || ids == [Some("w-two-id"), Some("w-one-id")],
+            "{finding:?}"
+        );
+        assert_eq!(finding.withdrawn, ["w"]);
+        assert!(finding.message.contains(&finding.reason), "{finding:?}");
+        assert_eq!(
+            value_claim_warnings(&definition),
+            [format!("warning: {}", finding.message)]
+        );
+
+        let diagnostics = value_claim_diagnostics(&definition, &std::collections::BTreeMap::new());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].code,
+            crate::diagnostic::DiagnosticCode::UnjoinedCriticalPair
+        );
+        assert_eq!(diagnostics[0].message, finding.message);
+        assert_eq!(diagnostics[0].source.as_deref(), Some("/w.k"));
+        let line = if finding.first.as_deref() == Some("w-one-id") {
+            6
+        } else {
+            7
+        };
+        assert_eq!(
+            diagnostics[0].location.map(|location| location.start_line),
+            Some(line)
+        );
+
+        let json = serde_json::to_value(finding).expect("a finding serializes");
+        let mut keys = json
+            .as_object()
+            .expect("a finding is an object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.sort();
+        assert_eq!(
+            keys,
+            ["code", "first", "message", "reason", "second", "withdrawn"]
+        );
+        assert_eq!(json["code"], "UnjoinedCriticalPair");
+        let read: ValueClaimFinding = serde_json::from_value(json).expect("a finding reads back");
+        assert_eq!(&read, finding);
+        assert_eq!(
+            value_claim_warning(&read),
+            value_claim_warnings(&definition)[0]
+        );
     }
 }
