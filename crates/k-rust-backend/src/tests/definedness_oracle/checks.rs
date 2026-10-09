@@ -38,6 +38,27 @@ pub(super) const FORCED: &str = "V6 (d)";
 /// The tag of V9's failures: the load's scope and the full check differ on a claim or a warning.
 pub(super) const SCOPES: &str = "V9";
 
+/// The tag of the memo's failures: the full check with and without its memo of condition
+/// simplifications differ in a verdict or a count other than the memo's hits.
+pub(super) const MEMO: &str = "memo";
+
+/// Where the counts of `on`, a verdict computed with the memo of condition simplifications, and
+/// `off`, the same check's without it, differ beyond the memo's own hits, if anywhere.
+pub(super) fn memo_count_difference(
+    on: &crate::confluence::ValueClaims,
+    off: &crate::confluence::ValueClaims,
+) -> Option<String> {
+    let mut expected = on.counts();
+    expected.condition_memo_hits = 0;
+    (expected != off.counts()).then(|| {
+        format!(
+            "counts with the memo {:?} against without {:?}",
+            on.counts(),
+            off.counts()
+        )
+    })
+}
+
 const VALUES_PER_SORT: usize = 8;
 const VALUATIONS_PER_EQUATION: usize = 4;
 
@@ -110,6 +131,9 @@ pub(super) struct Tally {
     pub(super) classes: BTreeMap<Class, usize>,
     /// The reasons of the non-joined pairs, counted.
     pub(super) reasons: BTreeMap<String, usize>,
+    /// The conditions the full check simplified, and those of them the memo answered.
+    pub(super) memo_conditions: usize,
+    pub(super) memo_hits: usize,
     pub(super) failures: Vec<String>,
 }
 
@@ -132,6 +156,8 @@ impl Tally {
         self.divergent += other.divergent;
         self.forced_undefined += other.forced_undefined;
         self.without_model += other.without_model;
+        self.memo_conditions += other.memo_conditions;
+        self.memo_hits += other.memo_hits;
         if self.divergences.len() < 5 {
             self.divergences.extend(other.divergences);
             self.divergences.truncate(5);
@@ -167,7 +193,10 @@ impl Tally {
             self.without_model,
             self.classes,
             self.failures.len()
-        ) + &format!("; non-joined pairs by reason {:?}", self.reasons)
+        ) + &format!(
+            "; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo",
+            self.reasons, self.memo_hits, self.memo_conditions
+        )
     }
 }
 
@@ -981,6 +1010,23 @@ pub(super) fn check_definition(
             describe()
         ));
     }
+    // The memo of condition simplifications changes no verdict and no count but its hits.
+    let unmemoized = backend.value_claims_checked(
+        crate::confluence::CheckScope::All,
+        crate::confluence::ConditionMemo::Off,
+    );
+    for difference in full
+        .verdict_differences(&unmemoized)
+        .into_iter()
+        .chain(memo_count_difference(&full, &unmemoized))
+    {
+        tally.failures.push(format!(
+            "{label}: {MEMO}: the full check with and without the memo differ: {difference}\n{}",
+            describe()
+        ));
+    }
+    tally.memo_hits += full.counts().condition_memo_hits;
+    tally.memo_conditions += full.counts().simplifier_calls;
     let value_claims = &full;
     let has_head = definition.symbols.iter().any(|symbol| symbol.is_head());
     // Without an equation head the check stops after the precondition rows: it accepts nothing.

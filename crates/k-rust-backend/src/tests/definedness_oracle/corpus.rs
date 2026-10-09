@@ -330,6 +330,50 @@ fn relevance_is_the_closure_of_each_equation_alone_meeting_the_gate() {
     );
 }
 
+/// The memo of condition simplifications (`ConditionMemo`) changes no verdict and no count but
+/// its own hits, in both scopes, on the FUN list fixture and every template of the oracle; the
+/// whole-definition form of this test is the corpus gate's (`tests/value_contract_corpus.rs`).
+#[test]
+fn the_condition_memo_changes_no_verdict_and_no_count() {
+    use crate::confluence::{CheckScope, ConditionMemo};
+    let mut definitions = vec![(
+        "fun lists".to_owned(),
+        load(FUN_LISTS, "OVERLOADED-LIST-OWISE"),
+    )];
+    for (name, definition, _) in super::generator::templates() {
+        let syntax = parse_definition(&definition.kore()).expect("the template parses");
+        definitions.push((
+            name,
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the template internalizes"),
+        ));
+    }
+    let mut failures = Vec::new();
+    let (mut calls, mut hits) = (0, 0);
+    for (name, definition) in &definitions {
+        for scope in [CheckScope::Gate, CheckScope::All] {
+            let on = definition.value_claims_checked(scope, ConditionMemo::On);
+            let off = definition.value_claims_checked(scope, ConditionMemo::Off);
+            failures.extend(
+                on.verdict_differences(&off)
+                    .into_iter()
+                    .map(|difference| format!("{name} ({scope:?}): {difference}")),
+            );
+            failures.extend(
+                super::checks::memo_count_difference(&on, &off)
+                    .map(|difference| format!("{name} ({scope:?}): {difference}")),
+            );
+            calls += on.counts().simplifier_calls;
+            hits += on.counts().condition_memo_hits;
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // The memo answers some conditions here, so the comparison is not vacuous.
+    assert!(
+        hits > 0,
+        "{hits} of {calls} conditions answered from the memo"
+    );
+}
+
 /// The measure ratchet of the design's section 7: the check's four work counters on the FUN
 /// list-family fixture and the oracle's feature templates, each pinned within 10 % (FUN's prelude
 /// fixture declares no equation head, so the check stops at its precondition rows there). A change

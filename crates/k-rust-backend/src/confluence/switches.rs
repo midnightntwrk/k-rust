@@ -83,6 +83,9 @@ pub(crate) struct Switches {
     /// Relevance (`CheckScope::Gate`): ignore T-obs, so that an equation is relevant only through
     /// the symbols it mentions.
     pub(crate) relevance_ignores_tobs: bool,
+    /// Simplify every condition of the check, reusing no answer (`ConditionMemo::Off` at every
+    /// load, so that the oracle runs on definitions loaded without the memo).
+    pub(crate) no_condition_memo: bool,
 }
 
 #[cfg(test)]
@@ -119,6 +122,7 @@ thread_local! {
             self_pair_ignores_ensures: false,
             self_pair_reads_opaque_rhs_as_nothing: false,
             relevance_ignores_tobs: false,
+            no_condition_memo: false,
         })
     };
 }

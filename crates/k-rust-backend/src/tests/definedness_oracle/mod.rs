@@ -34,6 +34,9 @@
 //!   claims at every gate site and warn about the same pairs. The expectations above (acceptance,
 //!   V4's one normal form, the tainted set of V6) are read from the full check, the claims from
 //!   the loaded definition.
+//! - **Memo.** On every definition, the full check with and without its memo of condition
+//!   simplifications (`ConditionMemo`) reaches the same verdict and the same counts but the
+//!   memo's hits; a second default run loads every definition without the memo.
 //!
 //! Preconditions are measured, never assumed away: a query whose evaluation does not end within
 //! the bounds is outside P0 and counted (ceiling 10 % of queries), a definition that reaches a
@@ -252,6 +255,28 @@ fn random_definitions_keep_the_value_contract() {
         }
         let mut failures = total.failures.clone();
         assert_bounds(&total, cases, &mut failures);
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
+/// The default random run with the check's memo of condition simplifications off at every load
+/// (`switches::no_condition_memo`): the claims made without it keep the contract too. The default
+/// run above loads with the memo and compares each full check with one without it.
+#[test]
+fn random_definitions_keep_the_value_contract_without_the_condition_memo() {
+    use crate::confluence::switches::{self, Switches};
+    on_large_stack(|| {
+        let off = Switches {
+            no_condition_memo: true,
+            ..Switches::default()
+        };
+        let total = switches::with(off, || run_random(0, DEFAULT_CASES, DEFAULT_SEED));
+        eprintln!(
+            "{}",
+            total.summary("definedness oracle without the condition memo")
+        );
+        let mut failures = total.failures.clone();
+        assert_bounds(&total, DEFAULT_CASES, &mut failures);
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     });
 }

@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, simplified only when no earlier condition of the check renamed to it; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -71,6 +71,7 @@
 mod closure;
 mod conditions;
 mod join;
+mod memo;
 pub(crate) mod switches;
 pub(crate) mod symbols;
 #[cfg(test)]
@@ -193,6 +194,16 @@ pub enum CheckScope {
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
     All,
+}
+
+/// Whether the check reuses the simplification of a condition for every later condition that is
+/// the same predicate up to a renaming of its free variables (`memo.rs`). The verdict is the same
+/// either way; only the work differs. Every load runs [`Self::On`]; [`Self::Off`] is for the tests
+/// that show the two agree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConditionMemo {
+    On,
+    Off,
 }
 
 /// Evidence that an index may carry value claims: minted only by [`ValueClaims::admit`].
@@ -379,6 +390,86 @@ impl ValueClaims {
         }
         differences
     }
+
+    /// Where this verdict and `other`, two verdicts of one definition in one scope, differ: the
+    /// tainted symbols and indexes, the precondition rows (equation and kind), and every
+    /// non-joined pair (equations by unique id, position, reason, withdrawn heads, and whether it
+    /// withdraws a claim). The overlapped terms are not compared: they are spelled with the
+    /// renamed-apart variables of the check that found them. Empty when they agree; the counts
+    /// are compared by the caller ([`Self::counts`]).
+    #[must_use]
+    pub fn verdict_differences(&self, other: &ValueClaims) -> Vec<String> {
+        let (Verdict::Checked(left), Verdict::Checked(right)) = (&*self.0, &*other.0) else {
+            return vec!["a verdict is withheld".into()];
+        };
+        let mut differences = Vec::new();
+        if left.tainted_symbols != right.tainted_symbols {
+            differences.push(format!(
+                "tainted symbols: {:?} against {:?}",
+                left.tainted_symbols, right.tainted_symbols
+            ));
+        }
+        let indexes = |checked: &Checked| {
+            checked
+                .tainted_indexes
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        if indexes(left) != indexes(right) {
+            differences.push(format!(
+                "tainted indexes: {:?} against {:?}",
+                indexes(left),
+                indexes(right)
+            ));
+        }
+        let unique_id = |rule: &RewriteRule| rule.attributes.unique_id.clone();
+        let rows = |checked: &Checked| {
+            checked
+                .violations
+                .iter()
+                .map(|violation| {
+                    (
+                        violation.rule.as_deref().map(unique_id),
+                        violation.kind.to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        if rows(left) != rows(right) {
+            differences.push(format!(
+                "precondition rows: {:?} against {:?}",
+                rows(left),
+                rows(right)
+            ));
+        }
+        let pairs = |checked: &Checked| {
+            let mut pairs = checked
+                .unjoined
+                .iter()
+                .map(|pair| {
+                    (
+                        unique_id(&pair.first),
+                        unique_id(&pair.second),
+                        pair.position.clone(),
+                        pair.reason.to_string(),
+                        pair.withdrawn.clone(),
+                        pair.relevant(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            pairs.sort();
+            pairs
+        };
+        if pairs(left) != pairs(right) {
+            differences.push(format!(
+                "non-joined pairs: {:?} against {:?}",
+                pairs(left),
+                pairs(right)
+            ));
+        }
+        differences
+    }
 }
 
 /// What the check counted.
@@ -402,8 +493,13 @@ pub struct CheckCounts {
     pub unifier_branches: usize,
     /// Steps the join took.
     pub join_steps: usize,
-    /// Calls of the predicate simplifier (conditions refuted or decided).
+    /// Conditions given to the predicate simplifier (to be refuted or decided), including those
+    /// the memo answered.
     pub simplifier_calls: usize,
+    /// Of those, the conditions answered from the memo of condition simplifications
+    /// ([`ConditionMemo`]), with no simplification; zero with the memo off, every other count
+    /// being the same either way.
+    pub condition_memo_hits: usize,
     /// Equations whose left-hand side may match one subject in several ways (a map or set
     /// pattern with an entry the rest of the left-hand side does not fix): each is a root pair
     /// with itself, counted among the overlaps and as joined or not joined.
@@ -872,6 +968,9 @@ pub(crate) struct Context<'d> {
     /// its first use as a pair's second equation and shared by all its pairs (keyed by the
     /// equation's address; the equations live in `groups` for the whole check).
     renamed: FxHashMap<*const RewriteRule, Arc<RewriteRule>>,
+    /// The simplified conditions, keyed up to a renaming of their free variables; `None` with
+    /// [`ConditionMemo::Off`].
+    memo: Option<memo::Memo>,
     fresh: u64,
     counts: CheckCounts,
 }
@@ -985,6 +1084,30 @@ impl<'d> Context<'d> {
         Conditions::Open(conditions::equalities(&conjuncts))
     }
 
+    /// The predicate simplified with no assumption and no solver, `None` on a failure or stop:
+    /// from the memo when a predicate that renames to the same key was simplified before
+    /// (`memo.rs`), else by [`Self::simplify_now`].
+    fn simplify(&mut self, predicate: Predicate) -> Option<Predicate> {
+        self.counts.simplifier_calls += 1;
+        measure::bump(Counter::ConfluenceSimplifierCalls);
+        let Some(memo) = &self.memo else {
+            return self.simplify_now(predicate);
+        };
+        let canonical = match memo.lookup(&predicate) {
+            memo::Lookup::Hit(answer) => {
+                self.counts.condition_memo_hits += 1;
+                return answer;
+            }
+            memo::Lookup::Miss(canonical) => canonical,
+        };
+        let answer = self.simplify_now(canonical.key.clone());
+        let memo = self.memo.as_mut().expect("the memo is on");
+        match memo.store(canonical, answer) {
+            Ok(answer) => answer,
+            Err(()) => self.simplify_now(predicate),
+        }
+    }
+
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop.
     ///
     /// A condition of a definition whose evaluation does not end (outside precondition P0) can
@@ -995,9 +1118,7 @@ impl<'d> Context<'d> {
     /// far deeper than any in the corpus, are the only stops it can meet; both lose precision
     /// only. `wasm32` has no clock: there a condition outside P0 keeps the load from ending, as
     /// an evaluation of it would.
-    fn simplify(&mut self, predicate: Predicate) -> Option<Predicate> {
-        self.counts.simplifier_calls += 1;
-        measure::bump(Counter::ConfluenceSimplifierCalls);
+    fn simplify_now(&mut self, predicate: Predicate) -> Option<Predicate> {
         #[cfg(not(target_arch = "wasm32"))]
         let _deadline = {
             let limit = std::time::Duration::from_secs(CONDITION_SECONDS);
@@ -1415,11 +1536,15 @@ fn flatten(predicate: Predicate, into: &mut BTreeSet<Predicate>) {
 
 /// Run the check on `definition`, which must hold [`ValueClaims::withheld`], classifying the
 /// stage-2 pairs `scope` names.
-pub(crate) fn check(definition: &BackendDefinition, scope: CheckScope) -> ValueClaims {
+pub(crate) fn check(
+    definition: &BackendDefinition,
+    scope: CheckScope,
+    memo: ConditionMemo,
+) -> ValueClaims {
     // The verdict is cached with the definition, so it must not depend on the request that loads
     // it: the check reads no request cancellation and no outer step deadline, only the deadline
     // it arms for each condition (R1.6).
-    crate::stop::detached(|| check_detached(definition, scope))
+    crate::stop::detached(|| check_detached(definition, scope, memo))
 }
 
 /// The executable equations the check reads (every equation of the function theory but the
@@ -1453,7 +1578,11 @@ fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation
     clippy::too_many_lines,
     reason = "the check's stages in their order, each a short loop"
 )]
-fn check_detached(definition: &BackendDefinition, scope: CheckScope) -> ValueClaims {
+fn check_detached(
+    definition: &BackendDefinition,
+    scope: CheckScope,
+    memo: ConditionMemo,
+) -> ValueClaims {
     let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
     let _apart = ApartScope::enter();
     let mut checked = Checked::default();
@@ -1506,6 +1635,8 @@ fn check_detached(definition: &BackendDefinition, scope: CheckScope) -> ValueCla
         sorts: symbols::Sorts::of(definition),
         groups,
         renamed: FxHashMap::default(),
+        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
+            .then(memo::Memo::default),
         fresh: 0,
         counts: CheckCounts::default(),
     };
