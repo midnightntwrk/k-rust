@@ -6012,7 +6012,11 @@ endmodule
                 remainder: Vec::new(),
             });
         let logs = execute_failed_rewrite_logs(&reason);
-        assert_eq!(logs.len(), 2, "Booster retries uncertain matches once");
+        assert_eq!(
+            logs.len(),
+            2,
+            "an undecided match logs the attempt as received and the retry after simplification"
+        );
         let log = &logs[0];
 
         assert_eq!(log["result"]["tag"], "failure");

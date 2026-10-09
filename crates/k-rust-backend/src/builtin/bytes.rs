@@ -1,4 +1,4 @@
-//! Deterministic `BYTES` hooks implemented by Kore's fallback evaluator.
+//! Deterministic `BYTES` hooks: per-call operations on byte strings.
 
 use num_bigint::{BigInt, Sign};
 use num_traits::{ToPrimitive, Zero};

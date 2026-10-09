@@ -1,8 +1,8 @@
 //! Binary KORE encoding and decoding.
 //!
 //! Binary KORE is a postfix stack encoding used by K backends. Versions 1.0,
-//! 1.1, and 1.2 are accepted, matching the pinned Haskell backend. Version 1.2
-//! adds an eight-byte payload length to the header.
+//! 1.1, and 1.2 of the format are accepted. Version 1.2 adds an eight-byte
+//! payload length to the header.
 
 use std::{collections::BTreeMap, error::Error, fmt};
 
@@ -558,8 +558,8 @@ fn application(
         .collect::<Result<Vec<_>, _>>()?;
     let sorts = &symbol.sort_parameters;
 
-    // Booster's constrained-pattern encoding uses an unparameterized
-    // `\equals(predicate, true)` wrapper. It is not a well-sorted standalone
+    // The constrained-pattern encoding wraps each predicate in an unparameterized
+    // `\equals(predicate, true)`. It is not a well-sorted standalone
     // KORE pattern, so preserve it as an application for the backend adapter.
     if name == "\\equals" && sorts.is_empty() {
         return Ok(Pattern::Application { symbol, arguments });

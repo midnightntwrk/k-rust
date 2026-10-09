@@ -433,7 +433,8 @@ krust kprove --compiled-definition spec-kompiled --main-module SPEC --load-only
 krust kprove --compiled-definition spec-kompiled --main-module SPEC --timings proof-timings.json
 ```
 
-Bare claims default to all-path semantics, matching the reference Haskell backend. Use
+`kprove` and `kompile --for-proving` read bare claims, with neither `all-path` nor `one-path` on the
+claim or its module, as all-path claims; no option chooses one-path instead. Use
 `--definition-module` (or `--def-module`) when the configuration belongs to an imported semantics
 module rather than the specification module. `kprove` handles one-path and all-path claims,
 trusted claims, guarded claim circularities,

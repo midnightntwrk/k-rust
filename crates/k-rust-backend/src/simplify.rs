@@ -51,7 +51,7 @@
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
-//! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
+//! builtin hooks, and evaluated-attribute memoisation: cost O(rounds x
 //! |term| x candidates per node), rounds that are not determined ground function-theory steps
 //! <= `max_iterations` per lineage (`RootStep`);
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,

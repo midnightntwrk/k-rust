@@ -11485,7 +11485,8 @@ endmodule
 
     // The Rust backend implements KRYPTO natively, so it is admitted without a flag.
     assert!(hooked(&kompile("rust", &[])));
-    // Other backends match a default Java kompile: plugin hooks need --hook-namespaces.
+    // Other backends implement only the builtin hook namespaces themselves, so a plugin
+    // namespace is hooked only when --hook-namespaces says its implementation is supplied.
     assert!(!hooked(&kompile("llvm", &["--backend", "llvm"])));
     assert!(hooked(&kompile(
         "llvm-admitted",

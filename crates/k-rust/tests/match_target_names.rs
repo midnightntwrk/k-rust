@@ -9,8 +9,8 @@
 //! their spelling either.
 //!
 //! A search without a target pattern matches a target the facade makes itself, one variable
-//! spelled like the reference's `VarResult`. That variable is part of the request, so it is
-//! named apart from every variable of the initial states.
+//! named `VarResult`. That variable is part of the request, so it is named apart from every
+//! variable of the initial states.
 
 use std::collections::BTreeSet;
 
@@ -229,7 +229,7 @@ fn default_target_answers(
 #[test]
 fn a_default_search_target_is_named_apart_from_the_request() {
     for search_type in [SearchType::Star, SearchType::Final] {
-        // The target keeps the reference's spelling when no request variable has it.
+        // The target is `VarResult` when no request variable has that name.
         let (control_targets, other_sort_control) =
             default_target_answers("start{}(Q:SortS{})", search_type);
         assert_eq!(

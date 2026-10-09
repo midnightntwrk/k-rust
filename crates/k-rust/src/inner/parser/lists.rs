@@ -29,7 +29,8 @@
 //! bound = "O(N x C), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 //! ```
 //!
-//! Scala-compatible implicit user-list constructors, terminators, and reconstruction.
+//! The constructors and terminators a user-list declaration (`List{S, ","}`) implies, and the
+//! reconstruction of list terms from their parses.
 //!
 //! Grammar insertion is O(productions + list declarations * productions); tree reconstruction
 //! is O(nodes * candidate instantiations) and recursively preserves declared child sorts.

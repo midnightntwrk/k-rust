@@ -19,7 +19,7 @@
 //! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
 //! ```
 //!
-//! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one
+//! Reachability-logic proof search: per explored state one
 //! simplification, one subsumption check (`Counter::ProofImplicationChecks`), circularity
 //! application at depth > 0, one rewrite step (one-path: tracking whether it may drop a
 //! successor, until one may have been dropped); breadth- or depth-first by option, no state

@@ -175,11 +175,11 @@ fn reference_rewrite_list_singleton_rule_ids_match() {
     // reference: k/result/bin/kompile --backend haskell --main-module REWRITE-LIST-SINGLETON
     //   --syntax-module REWRITE-LIST-SINGLETON test.k
     //
-    // The issue-1573 regression: NumberSentences
-    // hashes the rule as the parser completed it, so the UNIQUE_ID of `<v> 1 => foo(1) </v>`
-    // (line 24) records whether AddEmptyLists instantiated the `#KRewrite` at lub(Int, Int)
-    // and wrapped the whole rewrite in one IntList singleton, as the reference does, or
-    // wrapped each side separately. Lines 21 and 27 are the variable and list-side controls.
+    // The issue-1573 regression: the UNIQUE_ID digest hashes the rule as the parser completed
+    // it, so the UNIQUE_ID of `<v> 1 => foo(1) </v>` (line 24) records whether empty-list
+    // insertion instantiated the `#KRewrite` at lub(Int, Int) and wrapped the whole rewrite in one
+    // IntList singleton (the recorded identifier) or wrapped each side separately. Lines 21 and
+    // 27 are the variable and list-side controls.
     let oracle: ParametricIdOracle = toml::from_str(include_str!(
         "fixtures/reference/kompile/rewrite-list-singleton/reference.toml"
     ))
@@ -9006,7 +9006,7 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
 
 #[test]
 fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
-    // KoreBackend applies `new AddCoolLikeAtt(d.mainModule())` to every module's sentences, so
+    // Every rule runs in the main module's configuration, which alone fixes the `maincell`, so
     // the `maincell` lookup goes through the main module's productions even for a rule declared
     // in an imported module that does not see the configuration itself (regression-new
     // equals-pattern: `rule I:Int => ...` in TEST-SYNTAX, the configuration generated in TEST).
