@@ -445,18 +445,18 @@ impl Default for ProveRequest {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofResultOutput {
+pub struct ProofResultOutput<K = Value> {
     pub claim: String,
     pub status: String,
     pub explored_states: u64,
     pub unexplored_states: u64,
-    pub leaves: Vec<ProofLeafOutput>,
+    pub leaves: Vec<ProofLeafOutput<K>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofLeafOutput {
-    pub state: Value,
+pub struct ProofLeafOutput<K = Value> {
+    pub state: K,
     pub depth: u64,
     pub outcome: String,
 }
@@ -1238,8 +1238,21 @@ impl Backend {
         }
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; the result has no text form yet. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
+        self.prove_using(request)
+    }
+
+    /// [`Self::prove`] as JSON text: each leaf's KORE is written as text inside the operation,
+    /// on the stack it runs on.
+    pub fn prove_json(&mut self, request: ProveRequest) -> Result<String, BackendError> {
+        serialize_wire(&self.prove_using::<Box<RawValue>>(request)?)
+    }
+
+    fn prove_using<K: wire::WireKore>(
+        &mut self,
+        request: ProveRequest,
+    ) -> Result<ProofResultOutput<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
@@ -1307,7 +1320,7 @@ impl Backend {
                     .into_iter()
                     .map(|leaf| {
                         Ok(ProofLeafOutput {
-                            state: encode_pattern(&externalize::constrained_pattern(
+                            state: K::from_source(&externalize::constrained_pattern(
                                 &leaf.pattern,
                             ))?,
                             depth: leaf.depth,
@@ -3806,6 +3819,73 @@ endmodule
                 state = leaf;
             }
         });
+    }
+
+    /// `DEEP_DEFINITION` with the claim `deep`, that `go` over `levels` applications of `wrap`
+    /// over `a` always reaches `a`.
+    fn deep_claim_definition(levels: usize) -> String {
+        let chain = format!(
+            "go{{}}({}a{{}}(){})",
+            "wrap{}(".repeat(levels),
+            ")".repeat(levels)
+        );
+        DEEP_DEFINITION.replace(
+            "endmodule []",
+            &format!(
+                r#"alias weakAlwaysFinally{{S}}(S) : S
+                    where weakAlwaysFinally{{S}}(@X:S) := @X:S []
+                claim{{}} \implies{{SortS{{}}}}(
+                    \and{{SortS{{}}}}({chain}, \top{{SortS{{}}}}()),
+                    weakAlwaysFinally{{SortS{{}}}}(a{{}}())
+                ) [label{{}}("deep")]
+            endmodule []"#
+            ),
+        )
+    }
+
+    /// A caller's stack on which a proof result held as `serde_json::Value` (`prove`) overflows
+    /// when it is serialized there from about 800 levels of its leaf (the `dev` profile,
+    /// opt-level 1), while `prove` itself completes on it at 2,000.
+    const SMALL_STACK: usize = 256 << 10;
+
+    /// Levels of a proof's leaf beyond what `SMALL_STACK` holds for the leaf as a value.
+    const DEEP_PROOF_LEVELS: usize = 2_000;
+
+    /// A proof whose leaf is 2,000 levels deep is written as text by `prove_json` on a 256 KiB
+    /// thread: the operation writes the leaf's KORE inside the stack it provides, and the
+    /// caller receives text it can drop on any thread. The test takes well under a second.
+    #[test]
+    fn a_deep_proof_result_is_written_inside_the_operation() {
+        let definition = deep_claim_definition(DEEP_PROOF_LEVELS);
+        let response = on_thread(SMALL_STACK, move || {
+            let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            backend
+                .prove_json(ProveRequest {
+                    max_depth: Some(1),
+                    ..ProveRequest::default()
+                })
+                .unwrap()
+        });
+        let [leaf] = leaf_states(&response).try_into().unwrap();
+        assert!(same_kore(&leaf, &wrap_json(DEEP_PROOF_LEVELS + 1, true)));
+    }
+
+    /// `prove_json` writes the result `prove` returns.
+    #[test]
+    fn prove_json_writes_the_proof_result() {
+        let mut backend =
+            Backend::new(&deep_claim_definition(3), "MAIN", BackendOptions::default()).unwrap();
+        let request = ProveRequest {
+            max_depth: Some(1),
+            ..ProveRequest::default()
+        };
+        let text = backend.prove_json(request.clone()).unwrap();
+        let value = backend.prove(request).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&text).unwrap(),
+            serde_json::to_value(&value).unwrap()
+        );
+        assert_eq!(value.leaves.len(), 1, "{value:#?}");
     }
 
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary

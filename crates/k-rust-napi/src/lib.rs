@@ -230,7 +230,7 @@ impl NativeBackend {
     #[napi]
     pub fn prove(&self, options: String) -> Result<String> {
         let request = read_request::<ProveRequest>(&options)?;
-        serialize_native(&self.lock()?.prove(request).map_err(napi_error)?)
+        self.lock()?.prove_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "addModule")]
