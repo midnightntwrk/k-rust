@@ -263,6 +263,12 @@ A K argument can narrow to an item only when it is a canonical singleton with a 
 Dynamic argument sorts select a finite set of witnessed branches, so generated C cannot invent an injection pair at runtime.
 These corrections change previously malformed parser output such as `inj{KItem,K}` and reflexive result injections; ordinary constructor and token encodings retain their existing representation.
 
+## Generated parser locations
+
+A generated parser locates tokens as krust's in-process parser locates rules and diagnostics, in the `#location` wrappers of `[locations]` sorts and in its syntax errors: lines and columns count from 1 on every line, a column is a Unicode scalar value, the end column is the one after the last character, and `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029 each end one line.
+The pinned K's generated parsers number columns from 0 on the first line and from 1 on later lines and end a location at its last character: its `locations` regression test expects the program `5 +\n6` to locate `5` at line 1, columns 0 to 0, and `6` at line 2, columns 1 to 1, where krust gives columns 1 to 2 for both.
+A numbering that changes after the first line puts every rule that prints or compares columns off by one on that line only, and one convention for every location krust produces lets a program's locations be compared with a rule's `Location` attribute.
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.

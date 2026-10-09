@@ -10564,6 +10564,98 @@ endmodule
     assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
 }
 
+/// Write `definition_source` and generate its Flex/Bison parser for `module` and start sort `Pgm`
+/// (`kast --gen-parser`) with `environment` added to `kast`'s, which reaches the C compiler it
+/// runs; returns the fixture root and the parser.
+#[cfg(unix)]
+fn generate_parser(
+    definition_source: &str,
+    module: &str,
+    environment: &[(&str, &std::ffi::OsStr)],
+) -> (PathBuf, PathBuf) {
+    let (root, definition) = fixture();
+    fs::write(&definition, definition_source).unwrap();
+    let parser = root.join("generated-parser");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            module,
+            "--sort",
+            "Pgm",
+            "--gen-parser",
+        ])
+        .arg(&parser)
+        .envs(environment.iter().copied());
+    let generated = command.output().unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    (root, parser)
+}
+
+/// Generated parsers locate tokens as the in-process parser does (`inner::location`): lines and
+/// columns from 1 on every line, a column per Unicode scalar value, the end column after the last
+/// character, and `\n`, `\r`, `\r\n` and U+2028 each ending one line, also when two tokens split a
+/// `\r\n`.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_locations_number_lines_and_columns_as_the_in_process_parser() {
+    let definition = r#"
+module LOC-SYNTAX
+  syntax Bar [locations]
+  syntax Bar ::= r"[a-z]+" [token] | r"<[^>]*>" [token]
+  syntax Pgm ::= Bar ";" Bar ";" Bar ";" Bar ";" Bar
+endmodule
+"#;
+    let (root, parser) = generate_parser(definition, "LOC-SYNTAX", &[]);
+    let input = root.join("input.pgm");
+    fs::write(&input, "a;\r\n<\u{e9}>;\rbb;<x\ny>;<p\u{2028}q>").unwrap();
+    let parsed = Command::new(&parser).arg(&input).output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    let output = String::from_utf8(parsed.stdout).unwrap();
+    let int = r#"\\dv\{SortInt\{\}\}\("([0-9]+)"\)"#;
+    let locations = Regex::new(&format!(r"{int}, {int}, {int}, {int}\)"))
+        .unwrap()
+        .captures_iter(&output)
+        .map(|captures| {
+            (1..=4)
+                .map(|group| captures[group].parse::<u32>().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        locations,
+        [
+            [1, 1, 1, 2],
+            [2, 1, 2, 4],
+            [3, 1, 3, 3],
+            [3, 4, 4, 3],
+            [4, 4, 5, 3],
+        ],
+        "{output}"
+    );
+
+    let error = root.join("error.pgm");
+    fs::write(&error, "a;\n  b c").unwrap();
+    let rejected = Command::new(&parser).arg(&error).output().unwrap();
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains(":2:5:2:6:syntax error"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_keeps_byte_string_tokens() {

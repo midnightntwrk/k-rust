@@ -205,8 +205,9 @@ impl Scanner {
 
     /// Render the Flex scanner.
     ///
-    /// Every action starts with `KRUST_LOCATE`, which counts the newlines of the matched text
-    /// and sets the token's location; the default rule's `ECHO` runs it as well. The location is
+    /// Every action starts with `KRUST_LOCATE`, which sets the token's location and moves the
+    /// line and column past the matched text (see [`LOCATE`]); the default rule's `ECHO` runs it
+    /// as well. The location is
     /// set in the action rather than by `YY_USER_ACTION` and `%option yylineno`, which Flex runs
     /// before the action, because a `$`-anchored rule's action may still reject its match, and a
     /// rejected match must not move the line or column.
@@ -245,14 +246,8 @@ impl Scanner {
 #include \"node.h\"\n\
 #include \"parser.tab.h\"\n\
 char *filename;\n\
-#define KRUST_LOCATE do { \\\n\
-  for (int krust_index = 0; krust_index < yyleng; ++krust_index) \\\n\
-    if (yytext[krust_index] == '\\n') { yylineno++; yycolumn = 0; } \\\n\
-  yylloc->first_line = yylloc->last_line = yylineno; \\\n\
-  yylloc->first_column = yycolumn; yylloc->last_column = yycolumn + yyleng - 1; \\\n\
-  yycolumn += yyleng; \\\n\
-  yylloc->filename = filename; \\\n\
-} while (0)\n\
+static void krust_locate(yyscan_t yyscanner, YYLTYPE *location);\n\
+#define KRUST_LOCATE krust_locate(yyscanner, yylloc)\n\
 #define KRUST_AT_LINE_END (yyg->yy_hold_char == '\\n')\n\
 #define ECHO do {\\\n\
   KRUST_LOCATE;\\\n\
@@ -273,7 +268,8 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
             "%}\n\n\
 %option reentrant bison-bridge\n\
 %option bison-locations\n\
-%option noyywrap\n",
+%option noyywrap\n\
+%option extra-type=\"int\"\n",
         );
         for (name, regex) in &self.lexical {
             writeln!(
@@ -302,12 +298,57 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
                 ),
             );
         }
+        output.push_str("%%\n\n");
+        output.push_str(LOCATE);
         if uses_reject {
             output.push_str(SCAN_WHOLE_INPUT);
         }
         Ok(output)
     }
 }
+
+/// The user-code function behind `KRUST_LOCATE` (see [`Scanner::render`]): set the location of
+/// the matched text and move the line and column past it.
+///
+/// A location numbers lines and columns from 1, counts a column per Unicode scalar value (per
+/// UTF-8 byte that does not continue a sequence), and ends at the column after the last character,
+/// so an empty span starts where it ends and a one-line token's width is its end column minus its
+/// start column; these are the locations the in-process parser gives (`inner::location`), on every
+/// line alike. `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029 each end a
+/// line. `yycolumn` holds the number of columns already on the line, which is where Flex starts it
+/// for a new buffer (0), and `yyextra` records that the last character located was `\r`, so the
+/// `\n` of a `\r\n` that two tokens split (the default layout matches one character at a time)
+/// does not end a second line.
+const LOCATE: &str = "static void krust_locate(yyscan_t yyscanner, YYLTYPE *location) {\n\
+  struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
+  const unsigned char *text = (const unsigned char *)yytext;\n\
+  location->first_line = yylineno;\n\
+  location->first_column = yycolumn + 1;\n\
+  for (int index = 0; index < yyleng; ++index) {\n\
+    unsigned char byte = text[index];\n\
+    if (byte == '\\n' && yyextra) {\n\
+      yyextra = 0;\n\
+      continue;\n\
+    }\n\
+    yyextra = byte == '\\r';\n\
+    int extra = 0;\n\
+    if (byte == 0xC2 && index + 1 < yyleng && text[index + 1] == 0x85)\n\
+      extra = 1;\n\
+    else if (byte == 0xE2 && index + 2 < yyleng && text[index + 1] == 0x80 &&\n\
+             (text[index + 2] == 0xA8 || text[index + 2] == 0xA9))\n\
+      extra = 2;\n\
+    if (extra || byte == '\\n' || byte == '\\r' || byte == '\\v' || byte == '\\f') {\n\
+      yylineno++;\n\
+      yycolumn = 0;\n\
+      index += extra;\n\
+    } else if ((byte & 0xC0) != 0x80) {\n\
+      yycolumn++;\n\
+    }\n\
+  }\n\
+  location->last_line = yylineno;\n\
+  location->last_column = yycolumn + 1;\n\
+  location->filename = filename;\n\
+}\n";
 
 /// The user-code section of a scanner that uses `REJECT` (see [`Scanner::render`]): read all of
 /// `yyin` into one buffer that ends with Flex's two end-of-buffer characters, scan that buffer,
@@ -318,7 +359,7 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
 /// `YY_BUF_SIZE + 2` states. A buffer from `yy_scan_buffer` is never refilled, so Flex never has
 /// to enlarge it; the buffer is marked as Flex's own so that `yylex_destroy` frees it, and the
 /// line and column start where `yy_create_buffer` would start them.
-const SCAN_WHOLE_INPUT: &str = "%%\n\n\
+const SCAN_WHOLE_INPUT: &str = "\n\
 static void krust_scan_whole_input(yyscan_t yyscanner) {\n\
   struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
   FILE *input = yyin ? yyin : stdin;\n\
