@@ -220,6 +220,7 @@ impl MapPatternBindings {
             .flat_map(TermExpression::nodes)
             .filter_map(|node| match node {
                 TermNode::Reference(path) => unqualified_path_ident(path).cloned(),
+                TermNode::As { binding, .. } => Some(binding.clone()),
                 _ => None,
             })
             .collect();
@@ -583,6 +584,9 @@ fn parse_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<KSequence, SyntaxError> {
+    if context == StateMacroContext::Expression {
+        crate::term::reject_pattern_alias(&tokens)?;
+    }
     let original = tokens.clone();
     structured_with(
         tokens,
@@ -637,10 +641,7 @@ fn parse_k_sequence(
                     tail = parse_remainder(input, context, "k")?;
                     break;
                 }
-                let expression = input
-                    .call(Expr::parse_without_eager_brace)
-                    .map_err(SyntaxError::from)?;
-                items.push(state_term_expression(expression, context)?);
+                items.push(parse_state_item(input, context)?);
                 if input.is_empty() {
                     break;
                 }
@@ -713,6 +714,9 @@ fn parse_map(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<MapExpression, SyntaxError> {
+    if context == StateMacroContext::Expression {
+        crate::term::reject_pattern_alias(&tokens)?;
+    }
     if let Some((base, bracket)) = split_bracket_update(&tokens) {
         if context == StateMacroContext::Pattern {
             return Err(state_error(
@@ -783,12 +787,10 @@ fn parse_map(
 
             let first = parse_map_item_key(input)?;
             parse_map_item_arrow(input)?;
-            let value = input
-                .call(Expr::parse_without_eager_brace)
-                .map_err(SyntaxError::from)?;
+            let value = parse_state_item(input, context)?;
             let mut items = vec![MapItem {
-                key: state_term_expression(first, context)?,
-                value: state_term_expression(value, context)?,
+                key: state_term_tokens(first, context)?,
+                value,
             }];
             let mut remainder = StateMacroRemainder::Exact;
             while !input.is_empty() {
@@ -802,12 +804,10 @@ fn parse_map(
                 }
                 let key = parse_map_item_key(input)?;
                 parse_map_item_arrow(input)?;
-                let value = input
-                    .call(Expr::parse_without_eager_brace)
-                    .map_err(SyntaxError::from)?;
+                let value = parse_state_item(input, context)?;
                 items.push(MapItem {
-                    key: state_term_expression(key, context)?,
-                    value: state_term_expression(value, context)?,
+                    key: state_term_tokens(key, context)?,
+                    value,
                 });
             }
             if !input.is_empty() {
@@ -842,7 +842,7 @@ fn parse_map_item_arrow(input: ParseStream<'_>) -> Result<(), SyntaxError> {
         .map_err(|_| state_error("map", "expected `->` after a map-item key", input.span()))
 }
 
-fn parse_map_item_key(input: ParseStream<'_>) -> Result<Expr, SyntaxError> {
+fn parse_map_item_key(input: ParseStream<'_>) -> Result<TokenStream, SyntaxError> {
     let mut tokens = TokenStream::new();
     while !input.is_empty() && !input.peek(Token![->]) && !input.peek(Token![=>]) {
         tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
@@ -850,7 +850,7 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<Expr, SyntaxError> {
     if tokens.is_empty() {
         return Err(state_error("map", "expected a map-item key", input.span()));
     }
-    syn::parse2(tokens).map_err(SyntaxError::from)
+    Ok(tokens)
 }
 
 #[expect(
@@ -861,6 +861,9 @@ fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<CellsExpression, SyntaxError> {
+    if context == StateMacroContext::Expression {
+        crate::term::reject_pattern_alias(&tokens)?;
+    }
     let original = tokens.clone();
     structured_with(
         tokens,
@@ -1005,8 +1008,7 @@ fn parse_group_entry(
         return Err(invalid(input.span()));
     }
     let span = tokens.span();
-    let expression = syn::parse2::<Expr>(tokens).map_err(|_| invalid(span))?;
-    let term = state_term_expression(expression, context).map_err(|_| invalid(span))?;
+    let term = state_term_tokens(tokens, context).map_err(|_| invalid(span))?;
     match term.tree() {
         TermTree::Reference(path) if path.get_ident().is_some() => Ok(StateTerm::Group(term)),
         TermTree::Wildcard(_) if context == StateMacroContext::Pattern => {
@@ -1032,18 +1034,7 @@ fn parse_state_term(
             )),
         };
     }
-    let expression = syn::parse2::<Expr>(tokens)?;
-    Ok(StateTerm::Term(state_term_expression(expression, context)?))
-}
-
-fn state_term_expression(
-    expression: Expr,
-    context: StateMacroContext,
-) -> Result<TermExpression, SyntaxError> {
-    match context {
-        StateMacroContext::Pattern => TermExpression::from_pattern_expression(expression),
-        StateMacroContext::Expression => TermExpression::from_expression(expression),
-    }
+    Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
 }
 
 fn parse_remainder(
@@ -1094,8 +1085,65 @@ fn parse_remainder(
     })
 }
 
+/// Whether the next tokens are a remainder: `..`, `name @ ..`, or (in
+/// expression position) `..name`. `name @ pattern` with any other pattern is
+/// an alias item (KF-029).
 fn starts_remainder(input: ParseStream<'_>) -> bool {
-    input.peek(Token![..]) || (input.peek(Ident) && input.peek2(Token![@]))
+    if input.peek(Token![..]) {
+        return true;
+    }
+    if !(input.peek(Ident) && input.peek2(Token![@])) {
+        return false;
+    }
+    let fork = input.fork();
+    fork.parse::<Ident>().is_ok() && fork.parse::<Token![@]>().is_ok() && fork.peek(Token![..])
+}
+
+/// Parses one state-island item: a pattern payload (PAT-1) in pattern
+/// position, an expression otherwise.
+fn parse_state_item(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Result<TermExpression, SyntaxError> {
+    match context {
+        StateMacroContext::Pattern => {
+            let start = input.cursor();
+            let pattern = input
+                .call(syn::Pat::parse_multi)
+                .map_err(SyntaxError::from)?;
+            let mut tokens = TokenStream::new();
+            let mut cursor = start;
+            while cursor != input.cursor() {
+                let Some((token, next)) = cursor.token_tree() else {
+                    break;
+                };
+                tokens.extend([token]);
+                cursor = next;
+            }
+            let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
+            TermExpression::from_pattern(pattern, tokens, signs)
+        }
+        StateMacroContext::Expression => {
+            let expression = input
+                .call(Expr::parse_without_eager_brace)
+                .map_err(SyntaxError::from)?;
+            TermExpression::from_expression(expression)
+        }
+    }
+}
+
+/// Parses one complete state-island payload as a term in `context`.
+fn state_term_tokens(
+    tokens: TokenStream,
+    context: StateMacroContext,
+) -> Result<TermExpression, SyntaxError> {
+    match context {
+        StateMacroContext::Pattern => TermExpression::parse_pattern_tokens(tokens),
+        StateMacroContext::Expression => {
+            crate::term::reject_pattern_alias(&tokens)?;
+            TermExpression::from_expression(syn::parse2::<Expr>(tokens)?)
+        }
+    }
 }
 
 fn parse_dot_unit(

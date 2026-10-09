@@ -112,6 +112,16 @@ Narrowing one binder therefore means declaring all of them, each other one at it
 A partial or misordered list, a binder declared twice, and a declared binder the subject never binds are syntax errors.
 KRS has no strict cast `::S` or `{T}<:S`: rule bodies are resolved Rust paths, never parsed by K, so there is nothing to disambiguate; `k::project!` is the cast a rule computes with.
 
+### Pattern aliases
+
+`p @ Pair(a, b)` in a left-hand side is the Rust pattern you know: it matches what `Pair(a, b)` matches and also binds `p` to the whole matched term.
+K writes the name last, `( pair ( A:Exp , B:Exp ) #as P:Exp )`, and KRS emits exactly that, always parenthesised.
+Like `tail @ ..`, `name @ pattern` binds what its pattern matched; unlike Rust's `@`, which copies or moves a value, K's alias is the matched term itself (a conjunction of patterns), so a result can reuse it without rebuilding it.
+`dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));` turns `dup(pair(1, 2))` into `pair(pair(1, 2), pair(2, 1))`.
+An alias may name any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, a `map!` key or value, or a readable clause pattern, but not a whole rule subject, whose root is the matched constructor or function.
+It counts as a binder before the binders inside its pattern, so `fn wrap_pair(p: Exp, a: Exp, k::cells! { k: KCell(Wrap(p @ Pair(a, _)), tail @ ..), state @ .. }: Machine)` declares `p` first.
+`@` in a result, a requires or ensures condition, or an initializer is a syntax error (K's `#as` is left-hand-side only), as are `ref` or `mut` on the alias, an alias inside its own pattern (rustc's E0416), and `name @ ..` outside a sequence, collection, or `cells!` pattern.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

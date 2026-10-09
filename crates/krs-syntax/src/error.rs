@@ -208,6 +208,12 @@ pub enum SyntaxErrorKind {
         /// Specific expression restriction.
         reason: &'static str,
     },
+    /// A `name @ pattern` (K's `#as`) is malformed or outside a left-hand
+    /// side (KF-029).
+    InvalidPatternAs {
+        /// Specific restriction, naming the alias where known.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -345,6 +351,7 @@ impl SyntaxErrorKind {
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
+            Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -596,7 +603,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
-            | SyntaxErrorKind::InvalidSpecModule { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidSpecModule { reason }
+            | SyntaxErrorKind::InvalidPatternAs { reason } => formatter.write_str(reason),
         }
     }
 }

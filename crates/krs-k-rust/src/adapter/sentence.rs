@@ -1244,6 +1244,9 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
         DefinitionTermKind::Rewrite { from, to } => {
             term_contains_variable(from, variable) || term_contains_variable(to, variable)
         }
+        DefinitionTermKind::As { alias, pattern } => {
+            alias == variable || term_contains_variable(pattern, variable)
+        }
         DefinitionTermKind::Token { .. } => false,
     }
 }

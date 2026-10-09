@@ -224,6 +224,7 @@ impl TermUse {
                     self.term(child);
                 }
             }
+            DefinitionTermKind::As { pattern, .. } => self.term(pattern),
         }
     }
 

@@ -1567,6 +1567,9 @@ pub enum DefinitionValidationError {
     GeneratedApplicationSignature,
     /// Rewrite endpoint sorts differ.
     RewriteSortMismatch,
+    /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
+    /// variable does not have or its pattern does not inject into.
+    InvalidPatternAs,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1760,6 +1763,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::RewriteSortMismatch => {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")
             }
+            Self::InvalidPatternAs => formatter.write_str(
+                "`alias @ pattern` (#as) occurs only in pre-patterns, at its alias variable's sort, which its pattern's sort must inject into",
+            ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")
             }

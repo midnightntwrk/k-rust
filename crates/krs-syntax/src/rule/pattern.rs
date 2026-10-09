@@ -2,7 +2,7 @@ use krs_ir::ProvenanceKey;
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::spanned::Spanned;
-use syn::{Expr, Ident, Member, Pat, PatIdent, PatMacro, Path};
+use syn::{Ident, Member, Pat, PatIdent, PatMacro, Path};
 
 use crate::parse::{checked_ordinal, unsupported_rule_pattern as unsupported_pattern};
 use crate::path::is_plain_path;
@@ -222,7 +222,8 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => continue,
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -280,7 +281,8 @@ impl RuleTermCounters {
                 | TermNode::Anonymous { .. }
                 | TermNode::OrBool(_)
                 | TermNode::Lexeme { .. }
-                | TermNode::SortTest { .. } => {}
+                | TermNode::SortTest { .. }
+                | TermNode::As { .. } => {}
             }
         }
         counters
@@ -327,7 +329,8 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => continue,
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -364,9 +367,17 @@ pub(super) fn parse_rule_pattern(
             if !is_term_macro(&macro_pattern.mac.path) {
                 return Err(unexpected_macro(&macro_pattern.mac.path));
             }
-            let term = TermExpression::from_pattern_expression(syn::parse2::<Expr>(
-                macro_pattern.mac.tokens.clone(),
-            )?)?;
+            let term = TermExpression::parse_pattern_tokens(macro_pattern.mac.tokens.clone())?;
+            if let TermTree::As { binding, .. } = term.tree() {
+                return Err(SyntaxError::new(
+                    crate::SyntaxErrorKind::InvalidPatternAs {
+                        reason: format!(
+                            "`{binding} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
+                        ),
+                    },
+                    binding.span(),
+                ));
+            }
             let bindings = term_pattern_bindings(&term)?;
             let tree = term.tree().clone();
             Ok((
@@ -435,6 +446,43 @@ fn validate_native_pattern(
     signs: &mut NegativeLiteralSpans,
 ) -> Result<TermTree, SyntaxError> {
     match pattern {
+        Pat::Ident(PatIdent {
+            ident,
+            subpat: Some(_),
+            ..
+        }) if is_root => Err(SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternAs {
+                reason: format!(
+                    "`{ident} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
+                ),
+            },
+            ident.span(),
+        )),
+        Pat::Ident(
+            identifier @ PatIdent {
+                subpat: Some((_, subpattern)),
+                ..
+            },
+        ) => {
+            if identifier.by_ref.is_none() && identifier.mutability.is_none() {
+                crate::parse::validate_authored_binder(
+                    &identifier.ident.to_string(),
+                    identifier.ident.span(),
+                )?;
+                push_unique_binding(bindings, identifier.ident.clone());
+            }
+            crate::term::validate_pattern_as(identifier, subpattern, nodes, |subpattern, nodes| {
+                validate_native_pattern(
+                    subpattern,
+                    false,
+                    allow_record_rest,
+                    paths,
+                    bindings,
+                    nodes,
+                    signs,
+                )
+            })
+        }
         Pat::Ident(identifier) if is_root => validate_root_identifier(identifier, paths, nodes),
         Pat::Ident(identifier) => validate_native_binding(identifier, paths, bindings, nodes),
         Pat::Path(path) => {
@@ -618,7 +666,7 @@ fn validate_native_binding(
     Ok(TermTree::Reference(path))
 }
 
-fn validate_pattern_literal(
+pub(crate) fn validate_pattern_literal(
     literal: &syn::ExprLit,
     nodes: &mut Vec<TermNode>,
     signs: &mut NegativeLiteralSpans,
@@ -709,13 +757,15 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
 
 fn term_pattern_bindings(term: &TermExpression) -> Result<Vec<Ident>, SyntaxError> {
     let mut bindings = Vec::new();
-    for binding in term
-        .symbols()
-        .iter()
-        .skip(1)
-        .filter(|symbol| symbol.kind() == crate::TermSymbolKind::Reference)
-        .filter_map(|symbol| bare_path_ident(symbol.path()).cloned())
-    {
+    // The root path names the matched constructor or function; every later
+    // bare reference and every `name @ pattern` alias binds, in preorder.
+    let mut root = true;
+    for binding in term.nodes().iter().filter_map(|node| match node {
+        TermNode::ApplicationHead(_) | TermNode::Reference(_) if std::mem::take(&mut root) => None,
+        TermNode::Reference(path) => bare_path_ident(path).cloned(),
+        TermNode::As { binding, .. } => Some(binding.clone()),
+        _ => None,
+    }) {
         crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
         push_unique_binding(&mut bindings, binding);
     }
@@ -780,7 +830,8 @@ pub(super) fn push_term_node_anchors(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => continue,
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -844,7 +895,8 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => continue,
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -867,7 +919,9 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => Ok(*range),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
+            Ok(*range)
+        }
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

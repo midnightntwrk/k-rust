@@ -1458,6 +1458,17 @@ stage_shape! {
             /// The tested or projected term.
             operand: Box<Term<S>> => [box nested],
         },
+        /// `name @ pattern` in a left-hand side: K's `( PATTERN #as Name:Sort )`.
+        As {
+            /// Complete `name @ pattern` provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact alias-identifier provenance.
+            binding_key: ProvenanceKey => [keep],
+            /// The alias, a rule binding.
+            name: String => [keep],
+            /// The aliased subpattern.
+            pattern: Box<Term<S>> => [box nested],
+        },
     }
 }
 
@@ -3988,6 +3999,8 @@ struct TermKeyCounters {
     lexeme: u32,
     /// Sort-test ordinals are side-neutral like lexeme ordinals.
     sort_test: u32,
+    /// `name @ pattern` ordinals; the form occurs only in the subject.
+    pattern_as: u32,
 }
 
 impl DescriptorTerm {

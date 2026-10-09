@@ -210,3 +210,5 @@ RuleRightWildcard=rule_right_wildcard
 SpecModuleDeclaration=spec_module_declaration
 SpecModuleName=spec_module_name
 SpecModuleImport=spec_module_import
+PatternAs=pattern_as
+PatternAsBinding=pattern_as_binding

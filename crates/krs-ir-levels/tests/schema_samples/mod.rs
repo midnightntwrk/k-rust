@@ -1053,8 +1053,12 @@ impl Sample for DefinitionTermKind {
                     from: sample::<Box<DefinitionTerm>>(),
                     to: sample::<Box<DefinitionTerm>>(),
                 },
+                Self::As {
+                    alias: sample::<SemanticId>(),
+                    pattern: sample::<Box<DefinitionTerm>>(),
+                },
             ],
-            9,
+            10,
             "DefinitionTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1066,6 +1070,7 @@ impl Sample for DefinitionTermKind {
                 Self::Set(_) => 6,
                 Self::Cell { .. } => 7,
                 Self::Rewrite { .. } => 8,
+                Self::As { .. } => 9,
             },
         )
     }
@@ -1433,8 +1438,14 @@ impl Sample for DescriptorTerm {
                     sort: sample::<DescriptorSortReference>(),
                     operand: Box::new(sample::<DescriptorTerm>()),
                 },
+                Self::As {
+                    key: sample::<ProvenanceKey>(),
+                    binding_key: sample::<ProvenanceKey>(),
+                    name: sample::<String>(),
+                    pattern: Box::new(sample::<DescriptorTerm>()),
+                },
             ],
-            10,
+            11,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1447,6 +1458,7 @@ impl Sample for DescriptorTerm {
                 Self::Cell { .. } => 7,
                 Self::Lexeme { .. } => 8,
                 Self::SortTest { .. } => 9,
+                Self::As { .. } => 10,
             },
         )
     }
@@ -2196,8 +2208,12 @@ impl Sample for SemanticTermKind {
                     from: sample::<Box<SemanticTerm>>(),
                     to: sample::<Box<SemanticTerm>>(),
                 },
+                Self::As {
+                    alias: sample::<SemanticId>(),
+                    pattern: sample::<Box<SemanticTerm>>(),
+                },
             ],
-            9,
+            10,
             "SemanticTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2209,6 +2225,7 @@ impl Sample for SemanticTermKind {
                 Self::Set(_) => 6,
                 Self::Cell { .. } => 7,
                 Self::Rewrite { .. } => 8,
+                Self::As { .. } => 9,
             },
         )
     }
@@ -2523,8 +2540,14 @@ impl Sample for WireTerm {
                     sort: sample::<WireSortReference>(),
                     operand: Box::new(sample::<WireTerm>()),
                 },
+                Self::As {
+                    key: sample::<ProvenanceKey>(),
+                    binding_key: sample::<ProvenanceKey>(),
+                    name: sample::<String>(),
+                    pattern: Box::new(sample::<WireTerm>()),
+                },
             ],
-            10,
+            11,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2537,6 +2560,7 @@ impl Sample for WireTerm {
                 Self::Cell { .. } => 7,
                 Self::Lexeme { .. } => 8,
                 Self::SortTest { .. } => 9,
+                Self::As { .. } => 10,
             },
         )
     }

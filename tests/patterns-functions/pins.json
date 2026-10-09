@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "expand": {
+    "krs-patterns-functions-aliases": "0d0e304a40e0387e3db4a4b9e5e9fefdad67209a28c5a76c17293921f5ef589b"
+  },
+  "emitted": {
+    "krs-patterns-functions-aliases": {
+      "definition.k": "9a71924fb2dface26f20ac60d80ca276763a121d28a6048a609d7685c4214bc4"
+    }
+  },
+  "reference_sha256": {
+    "krs-patterns-functions-aliases": "5d80bc1131a85c59014927eb1a3c0b24fc060d96926414388e7c9acfee728dfc",
+    "krs-patterns-functions-aliases-reference": "627f81c315f53ab314150428d557aefbf137025e785f37c87ba1adbdd083fa9b"
+  },
+  "outcomes": {
+    "krs-patterns-functions-aliases": {
+      "dup": {
+        "parse": "accepted",
+        "run": "pair(pair(1, 2), pair(2, 1))"
+      },
+      "wrap": {
+        "parse": "accepted",
+        "run": "pair(1, pair(1, 2))"
+      },
+      "rest-long": {
+        "parse": "accepted",
+        "run": "cons(2, nil)"
+      },
+      "rest-short": {
+        "parse": "accepted",
+        "run": "nil"
+      }
+    }
+  },
+  "diagnostics": {
+    "alias-ref": [
+      "error[krs::rust-expansion::uncoded-error]: `ref p @ pattern`: K's #as binds the matched term itself; remove `ref`"
+    ],
+    "alias-inside-itself": [
+      "error[krs::rust-expansion::uncoded-error]: identifier `p` is bound more than once in the same pattern: an alias cannot occur inside its own subpattern (E0416)"
+    ],
+    "alias-remainder": [
+      "error[krs::rust-expansion::uncoded-error]: `p @ ..`: a `..` remainder binds only inside a sequence, collection or cells! pattern"
+    ],
+    "alias-in-result": [
+      "error[krs::rust-expansion::uncoded-error]: `name @ pattern` binds only on a left-hand side (K's #as is LHS-only); refer to the name without `@` here"
+    ],
+    "alias-whole-subject": [
+      "error[krs::rust-expansion::uncoded-error]: `p @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
+    ]
+  }
+}

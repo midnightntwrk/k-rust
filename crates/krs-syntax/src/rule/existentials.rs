@@ -375,11 +375,14 @@ impl RuleExistentials {
 
 /// Whether `term` references the bare name `name`.
 pub(super) fn references(term: &TermExpression, name: &Ident) -> bool {
-    term.nodes().iter().any(|node| {
-        matches!(node, crate::TermNode::Reference(path)
-            if path.leading_colon.is_none()
+    term.nodes().iter().any(|node| match node {
+        crate::TermNode::Reference(path) => {
+            path.leading_colon.is_none()
                 && path.segments.len() == 1
                 && path.segments[0].arguments.is_none()
-                && path.segments[0].ident.unraw() == name.unraw())
+                && path.segments[0].ident.unraw() == name.unraw()
+        }
+        crate::TermNode::As { binding, .. } => binding.unraw() == name.unraw(),
+        _ => false,
     })
 }

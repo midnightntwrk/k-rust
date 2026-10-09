@@ -257,6 +257,22 @@ fn render_term_with_binders(
         DefinitionTermKind::Rewrite { from, to } => {
             output.append(render_rewrite(from, to, context, root_rewrite, names)?);
         }
+        // `name @ pattern` is K's `( PATTERN #as Name:Sort )`, always
+        // parenthesised (X13).
+        DefinitionTermKind::As { alias, pattern } => {
+            output.push("( ");
+            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.push(" #as ");
+            output.push(names.name(alias).ok_or_else(|| {
+                EmitError::InvalidReference(format!(
+                    "alias {:?} is not named in its sentence",
+                    alias.as_str()
+                ))
+            })?);
+            output.push(":");
+            output.push(&context.sort_name_ref(term.sort())?);
+            output.push(" )");
+        }
     }
     Ok(output.finish(term.origin().key(), start))
 }

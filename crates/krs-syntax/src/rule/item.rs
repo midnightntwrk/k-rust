@@ -468,6 +468,12 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
         }
+        let mut aliases = 0_usize;
+        crate::term::push_pattern_as_anchors(
+            &mut anchors,
+            self.parameter.pattern.nodes(),
+            &mut aliases,
+        )?;
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
             &mut anchors,
@@ -537,7 +543,8 @@ impl RuleItem {
                         | TermNode::Anonymous { .. }
                         | TermNode::OrBool(_)
                         | TermNode::Lexeme { .. }
-                        | TermNode::SortTest { .. } => continue,
+                        | TermNode::SortTest { .. }
+                        | TermNode::As { .. } => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
@@ -621,6 +628,7 @@ impl RuleItem {
 impl KrsSyntax for RuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
         Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs)
     }
 }
@@ -821,6 +829,7 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
+            crate::term::reject_pattern_alias(&expression_macro.mac.tokens)?;
             term(syn::parse2::<Expr>(expression_macro.mac.tokens.clone())?)
         }
         expression => term(expression.clone()),

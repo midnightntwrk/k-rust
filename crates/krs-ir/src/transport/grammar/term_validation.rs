@@ -142,6 +142,26 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         sort.sort.validate()
     }
 
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        require_key(binding_key, self.provenance)?;
+        if !self.allow_wildcards {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternAsOutsideLeftHandSide,
+            ));
+        }
+        if name.trim().is_empty() || !self.bindings.contains(name) {
+            return Err(GrammarTransportError::InvalidBinding(name.to_owned()));
+        }
+        self.seen_variables.insert(name.to_owned());
+        Ok(())
+    }
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, crate::DescriptorStage>,
@@ -337,6 +357,33 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
             self.counters.sort_test,
         )?;
         self.counters.sort_test = increment(self.counters.sort_test)?;
+        Ok(())
+    }
+
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), Self::Error> {
+        if !matches!(self.side, TermSide::Left) {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternAsOutsideLeftHandSide,
+            ));
+        }
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::PatternAs,
+            self.counters.pattern_as,
+        )?;
+        insert_exact(
+            self.keys,
+            binding_key,
+            ProvenanceRole::PatternAsBinding,
+            self.counters.pattern_as,
+        )?;
+        self.counters.pattern_as = increment(self.counters.pattern_as)?;
         Ok(())
     }
 

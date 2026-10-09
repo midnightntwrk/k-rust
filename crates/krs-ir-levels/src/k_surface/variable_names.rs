@@ -311,6 +311,10 @@ impl Scope {
                     self.term(child);
                 }
             }
+            DefinitionTermKind::As { alias, pattern } => {
+                self.occur(alias, 1);
+                self.term(pattern);
+            }
         }
     }
 

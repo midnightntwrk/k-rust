@@ -177,8 +177,72 @@ impl StructuredTermBuilder<'_> {
                 let operand_sort = self.sort_test_operand_sort(operand);
                 self.infer(operand, operand_sort.as_ref(), subject)?;
             }
+            DescriptorTerm::As {
+                key, name, pattern, ..
+            } => {
+                if !subject {
+                    return Err(self.invalid_pattern_as(
+                        key,
+                        format!(
+                            "`{name} @ ..` binds only on a left-hand side (K's #as is LHS-only); refer to `{name}` here without `@`"
+                        ),
+                    ));
+                }
+                if !self.binding_names.contains(name) {
+                    return Err(self.invalid_term(format!("unbound variable {name:?}")));
+                }
+                if let Some(expected) = expected_sort {
+                    self.check_declared_binder(name, expected)?;
+                    self.binding_constraints
+                        .entry(name.clone())
+                        .or_default()
+                        .insert(expected.clone());
+                }
+                // The alias names the term the pattern matched, so it is
+                // bounded by the pattern's own sort as well as the position's.
+                if let Some(sort) = self.pattern_head_sort(pattern) {
+                    self.binding_constraints
+                        .entry(name.clone())
+                        .or_default()
+                        .insert(sort);
+                }
+                self.infer(pattern, expected_sort, subject)?;
+            }
         }
         Ok(())
+    }
+
+    /// The result sort of a declared constructor at the root of an aliased
+    /// pattern, which bounds the alias's sort.
+    fn pattern_head_sort(&self, pattern: &DescriptorTerm) -> Option<SemanticSortRef> {
+        match pattern {
+            DescriptorTerm::Application {
+                reference:
+                    DescriptorApplicationReference {
+                        application: DescriptorApplicationRef::Declared(id),
+                        ..
+                    },
+                ..
+            } => self
+                .catalog
+                .get(id)
+                .map(|signature| signature.result_sort.clone()),
+            DescriptorTerm::As { pattern, .. } => self.pattern_head_sort(pattern),
+            _ => None,
+        }
+    }
+
+    fn invalid_pattern_as(&self, key: &ProvenanceKey, reason: String) -> DescriptorLoweringError {
+        DescriptorLoweringError::InvalidPatternAs {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        }
     }
 
     fn infer_application(
@@ -632,6 +696,37 @@ impl StructuredTermBuilder<'_> {
                     result,
                     ApplicationRef::Generated(operation),
                     vec![operand],
+                ))
+            }
+            DescriptorTerm::As {
+                key, name, pattern, ..
+            } => {
+                if !subject {
+                    return Err(self.invalid_pattern_as(
+                        key,
+                        format!(
+                            "`{name} @ ..` binds only on a left-hand side (K's #as is LHS-only)"
+                        ),
+                    ));
+                }
+                let sort = self.binding_sorts.get(name).cloned().ok_or_else(|| {
+                    self.invalid_term(format!("variable {name:?} has no inferred sort"))
+                })?;
+                let pattern = self.lower(pattern, Some(&sort), subject)?;
+                if !semantic_is_subsort(pattern.sort(), &sort, self.sort_parents) {
+                    return Err(self.invalid_pattern_as(
+                        key,
+                        format!(
+                            "alias `{name}` has sort {sort}, but its pattern has sort {}; an alias must name a term of its own sort",
+                            pattern.sort()
+                        ),
+                    ));
+                }
+                Ok(SemanticTerm::pattern_as(
+                    semantic_origin(self.descriptor, key.clone(), "term-pattern-as")?,
+                    sort,
+                    SemanticId::new(name.clone())?,
+                    pattern,
                 ))
             }
         }

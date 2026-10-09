@@ -726,6 +726,10 @@ impl StateRuleItem {
         for term in claim_terms(self, None) {
             push_sort_test_anchors(&mut output, term.nodes(), &mut sort_tests)?;
         }
+        let mut aliases = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_pattern_as_anchors(&mut output, term.nodes(), &mut aliases)?;
+        }
         if let Some(ensures) = self.existentials.ensures() {
             push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
         }
@@ -971,9 +975,11 @@ fn count_term_binding_occurrences_in_state(state: &StateTerm, binding: &Ident) -
 fn count_term_binding_occurrences(term: &TermExpression, binding: &Ident) -> usize {
     term.nodes()
         .iter()
-        .filter(
-            |node| matches!(node, TermNode::Reference(path) if bare_ident(path) == Some(binding)),
-        )
+        .filter(|node| match node {
+            TermNode::Reference(path) => bare_ident(path) == Some(binding),
+            TermNode::As { binding: alias, .. } => alias == binding,
+            _ => false,
+        })
         .count()
 }
 
@@ -1012,9 +1018,12 @@ fn collect_term_bindings(
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
     for node in term.nodes() {
-        if let TermNode::Reference(path) = node
-            && let Some(binding) = bare_ident(path)
-        {
+        let binding = match node {
+            TermNode::Reference(path) => bare_ident(path),
+            TermNode::As { binding, .. } => Some(binding),
+            _ => None,
+        };
+        if let Some(binding) = binding {
             push_binding(binding, StateRuleBindingKind::Term, output)?;
         }
     }
@@ -1250,7 +1259,8 @@ fn append_term_provenance(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => continue,
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1400,7 +1410,8 @@ fn append_term_candidates(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_)
             | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. } => {}
+            | TermNode::SortTest { .. }
+            | TermNode::As { .. } => {}
         }
     }
     Ok(())
@@ -1428,7 +1439,9 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         }
         TermNode::BytesToken(value) => TokenRange::for_tokens(value),
         TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => Ok(*range),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
+            Ok(*range)
+        }
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1442,7 +1455,9 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
         TermNode::BytesToken(value) => value.span(),
         TermNode::Anonymous { spelling, .. } => spelling.span(),
-        TermNode::OrBool(range) | TermNode::SortTest { range, .. } => range.first(),
+        TermNode::OrBool(range) | TermNode::SortTest { range, .. } | TermNode::As { range, .. } => {
+            range.first()
+        }
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1509,7 +1524,9 @@ fn take_ensures_helper(
                     attribute.span(),
                 ));
             }
-            let expression: Expr = syn::parse2(helper_payload(&attribute, "ensures")?)?;
+            let payload = helper_payload(&attribute, "ensures")?;
+            crate::term::reject_pattern_alias(&payload)?;
+            let expression: Expr = syn::parse2(payload)?;
             found = Some(ClaimEnsures {
                 term: TermExpression::from_expression(expression)?,
             });
@@ -1613,7 +1630,8 @@ fn append_claim_special_anchors(
                 | TermNode::Reference(_)
                 | TermNode::Literal(_)
                 | TermNode::Lexeme { .. }
-                | TermNode::SortTest { .. } => {}
+                | TermNode::SortTest { .. }
+                | TermNode::As { .. } => {}
             }
         }
     }

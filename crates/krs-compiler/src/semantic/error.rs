@@ -179,6 +179,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the binder's declared type.
         range: Option<Box<SourceRange>>,
     },
+    /// A `name @ pattern` (K's `#as`) reaches a position that is not a
+    /// pattern, or its alias needs a sort its pattern does not have (KF-029).
+    InvalidPatternAs {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the alias.
+        reason: String,
+        /// Sole exact authored range of the `name @ pattern`.
+        range: Option<Box<SourceRange>>,
+    },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
     InvalidTokenSort {
         /// Item the diagnostic is about.
@@ -383,6 +393,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidTokenSort { reason, .. }
             | Self::InvalidSortTest { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
+            | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
@@ -430,6 +441,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
+            Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -467,6 +479,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidTokenSort { range, .. }
             | Self::InvalidSortTest { range, .. }
             | Self::IncompatibleBinder { range, .. }
+            | Self::InvalidPatternAs { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }

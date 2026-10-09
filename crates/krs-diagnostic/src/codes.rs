@@ -203,6 +203,7 @@ register_codes! {
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
         INCOMPATIBLE_BINDER: "krs::analysis::incompatible-binder" => "A typed binder's declared sort is not a subsort of the sort one of its occurrences needs.",
         INVALID_SPEC_MODULE: "krs::analysis::invalid-spec-module" => "An author spec module breaks a K proof-module rule: it holds something other than claims, simplification lemmas, and terminal tokens for existing sorts, holds a regex token or an `smt_lemma` lemma, nests, has an import cycle or an import that resolves to no module, does not import the definition, reuses a module name, or names an `Id` its grammar cannot lex.",
+        INVALID_PATTERN_AS: "krs::analysis::invalid-pattern-as" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side, or its alias needs a sort its pattern does not have.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -261,6 +262,7 @@ register_codes! {
         UNSUPPORTED_RULE_BODY: "krs::syntax::unsupported-rule-body" => "A rule body was not exactly one unterminated term expression.",
         UNEXPECTED_MACRO: "krs::syntax::unexpected-macro" => "A macro in a rule subject or result was not the reserved `term!` form.",
         UNSUPPORTED_TERM_EXPRESSION: "krs::syntax::unsupported-term-expression" => "A Rust expression is outside the closed named-term grammar.",
+        INVALID_PATTERN_AS: "krs::syntax::invalid-pattern-as" => "A `name @ pattern` (K's `#as`) is malformed or occurs outside a left-hand side.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",
@@ -324,6 +326,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         EMPTY_BRACKET: "krs::expand::empty-bracket" => "A bracket template contains no descriptor-bearing tokens.",
         ENUM_VARIANT_COLLISION: "krs::expand::enum-variant-collision" => "Two enum variants have the same readable rule resolution name.",
         RULE_RESULT_WILDCARD: "krs::expand::rule-result-wildcard" => "A rule result contains a wildcard.",
+        PATTERN_AS_OUTSIDE_LHS: "krs::expand::pattern-as-outside-lhs" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side.",
         CLAIM_SUBJECT_ONLY_TERM: "krs::expand::claim-subject-only-term" => "An anonymous term occurrence appears outside a claim subject.",
         CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
         FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",

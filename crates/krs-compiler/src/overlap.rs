@@ -86,6 +86,9 @@ impl Pattern {
 #[derive(Default)]
 struct VariableCatalog {
     by_rule: [BTreeMap<SemanticId, VariableKey>; 2],
+    /// Each `alias @ pattern` met so far: the alias denotes the term its
+    /// pattern matches (clause 7b), so it is unified with that pattern.
+    aliases: Vec<(VariableKey, SemanticSortRef, Pattern)>,
 }
 
 impl VariableCatalog {
@@ -602,6 +605,19 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
         SemanticTermKind::Rewrite { .. } => {
             unreachable!("configuration clause pre-patterns are never rewrites")
         }
+        // `alias @ pattern` unifies as its pattern, with the alias bound to
+        // the pattern (clause 7b, KF-029).
+        SemanticTermKind::As {
+            alias,
+            pattern: aliased,
+        } => {
+            let key = catalog.key(rule, alias);
+            let aliased = pattern(aliased, rule, catalog);
+            catalog
+                .aliases
+                .push((key, term.sort().clone(), aliased.clone()));
+            aliased
+        }
     }
 }
 
@@ -1077,6 +1093,11 @@ fn clauses_overlap(
     if !cells_unify {
         return false;
     }
+    for (key, sort, aliased) in std::mem::take(&mut catalog.aliases) {
+        if !unifier.unify(Pattern::Variable { key, sort }, aliased) {
+            return false;
+        }
+    }
     let left_guard = left_requires.map(|term| pattern(term, 0, &mut catalog));
     let right_guard = right_requires.map(|term| pattern(term, 1, &mut catalog));
     !unifier.guards_complementary(left_guard.as_ref(), right_guard.as_ref())
@@ -1180,6 +1201,9 @@ mod lexeme_tests;
 
 #[cfg(test)]
 mod overload_tests;
+
+#[cfg(test)]
+mod pattern_as_tests;
 
 #[cfg(test)]
 mod tests {

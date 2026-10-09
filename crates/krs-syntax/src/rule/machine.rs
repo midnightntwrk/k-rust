@@ -380,7 +380,11 @@ pub(super) fn parse_machine_clause(
             },
         };
         let placeholder: Expr = match &head_result {
-            RuleHeadResult::Replace(term) => term.expression().clone(),
+            RuleHeadResult::Replace(term) => term
+                .expression()
+                .as_expression()
+                .cloned()
+                .expect("readable results are expressions"),
             RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
         };
         let item: ItemFn = syn::parse2(quote! {

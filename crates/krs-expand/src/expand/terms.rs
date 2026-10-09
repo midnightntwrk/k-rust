@@ -221,6 +221,9 @@ pub(super) struct TermBuilder<'a> {
     /// Side-neutral like [`Self::lexeme_ordinal`]: `k::is!` and
     /// `k::project!` terms are numbered once across a whole sentence.
     pub(super) sort_test_ordinal: u32,
+    /// `name @ pattern` ordinals, numbered once across a sentence's
+    /// left-hand side (the only side that may alias).
+    pub(super) pattern_as_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -249,6 +252,7 @@ impl<'a> TermBuilder<'a> {
             or_bool_ordinal: 0,
             lexeme_ordinal: 0,
             sort_test_ordinal: 0,
+            pattern_as_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -468,6 +472,24 @@ impl<'a> TermBuilder<'a> {
                     operand: Box::new(self.expand_wire(operand, side, slots)?),
                 })
             }
+            TermTree::As { binding, pattern } => {
+                if !matches!(side, TermSide::Left) {
+                    return Err(ExpandError::new(
+                        expand::PATTERN_AS_OUTSIDE_LHS,
+                        binding.span(),
+                        format!(
+                            "`{binding} @ pattern` binds only on a left-hand side (K's #as is LHS-only)"
+                        ),
+                    ));
+                }
+                let (key, binding_key) = self.take_pattern_as(binding)?;
+                Ok(WireTerm::As {
+                    key,
+                    binding_key,
+                    name: binding.to_string(),
+                    pattern: Box::new(self.expand_wire(pattern, side, slots)?),
+                })
+            }
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(
@@ -508,6 +530,30 @@ impl<'a> TermBuilder<'a> {
                 })
             }
         }
+    }
+
+    /// Numbers one `name @ pattern` (K's `#as`) in left-hand-side preorder
+    /// and returns its shell and alias keys.
+    pub(super) fn take_pattern_as(
+        &mut self,
+        binding: &Ident,
+    ) -> crate::Result<(ProvenanceKey, ProvenanceKey)> {
+        let ordinal = self.pattern_as_ordinal;
+        self.pattern_as_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                binding.span(),
+                "too many `name @ pattern` aliases in one sentence",
+            )
+        })?;
+        if self.bindings.contains(binding) {
+            self.tooling_binding_references
+                .push(Path::from(binding.clone()));
+        }
+        Ok((
+            wire_key(ProvenanceRole::PatternAs, ordinal),
+            wire_key(ProvenanceRole::PatternAsBinding, ordinal),
+        ))
     }
 
     /// Lowers `k::lexeme!(Sort, "text")` to a token term whose sort rustc

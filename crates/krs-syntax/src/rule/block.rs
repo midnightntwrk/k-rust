@@ -264,6 +264,8 @@ impl RuleClause {
                     | ProvenanceRole::LexemeText
                     | ProvenanceRole::SortTest
                     | ProvenanceRole::SortTestSort
+                    | ProvenanceRole::PatternAs
+                    | ProvenanceRole::PatternAsBinding
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -486,6 +488,10 @@ impl RuleClause {
         for nodes in &terms {
             push_sort_test_anchors(anchors, nodes, &mut ordinal)?;
         }
+        let mut ordinal = 0_usize;
+        for nodes in &terms {
+            crate::term::push_pattern_as_anchors(anchors, nodes, &mut ordinal)?;
+        }
         Ok(())
     }
 
@@ -662,7 +668,18 @@ impl RuleBlock {
             }
             let (pattern, signs) = parse_pattern_with_signs(input)?;
             input.parse::<Token![=>]>()?;
-            let result: Expr = input.parse()?;
+            let result_tokens = input.fork();
+            let result = input.parse::<Expr>();
+            if result.is_err() || input.peek(Token![@]) {
+                // `name @ pattern` binds only on a left-hand side; syn would
+                // report it as an unexpected token.
+                let mut tokens = proc_macro2::TokenStream::new();
+                while !result_tokens.is_empty() && !result_tokens.peek(Token![;]) {
+                    tokens.extend([result_tokens.parse::<proc_macro2::TokenTree>()?]);
+                }
+                crate::term::reject_pattern_alias(&tokens)?;
+            }
+            let result: Expr = result?;
             let head_result = parse_head_result(result.clone())?;
             let mut layout = RuleClauseLayout {
                 label: TokenRange::for_tokens(&name)?,

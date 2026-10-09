@@ -2038,6 +2038,12 @@ fn lower_term(
                 .map(|child| lower_term(child, names, origins))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        SemanticTermKind::As { alias, pattern } => Ok(DefinitionTerm::pattern_as(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            alias.clone(),
+            lower_term(pattern, names, origins)?,
+        )),
     }
 }
 

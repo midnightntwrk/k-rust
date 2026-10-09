@@ -328,6 +328,10 @@ impl<'a> Context<'a> {
                 fact["to"] = self.term(to);
                 ("rewrite", None)
             }
+            DefinitionTermKind::As { alias, pattern } => {
+                fact["alias"] = json!(alias.as_str());
+                ("as", Some(vec![pattern.as_ref()]))
+            }
         };
         fact["kind"] = json!(kind);
         if let Some(arguments) = arguments {

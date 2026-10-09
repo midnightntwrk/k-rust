@@ -332,6 +332,7 @@ fn first_untranslatable(
         IrTermKind::KSequence { items, .. } => (None, items.iter().collect()),
         IrTermKind::Cell { children, .. } => (None, children.iter().collect()),
         IrTermKind::Rewrite { from, to } => (None, vec![from.as_ref(), to.as_ref()]),
+        IrTermKind::As { pattern, .. } => (None, vec![pattern.as_ref()]),
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => (None, Vec::new()),
     };
     unseen.or_else(|| {

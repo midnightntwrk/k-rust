@@ -166,6 +166,18 @@ impl Adapter<'_> {
             DefinitionTermKind::Rewrite { from, to } => {
                 self.rewrite(from, to, module, sentence_index, path, context)
             }
+            // `alias @ pattern` is the AST k-rust's parser produces for
+            // `PATTERN #as Alias:Sort` (KF-029).
+            DefinitionTermKind::As { alias, pattern } => {
+                let mut child_path = path;
+                child_path.push(0);
+                let pattern = self.term(pattern, module, sentence_index, child_path, context)?;
+                let sort = self.sort(term.sort(), term.origin())?;
+                Ok(NativeTerm::As {
+                    pattern: Box::new(pattern),
+                    alias: Box::new(self.native_variable(alias, sort, term.origin())?),
+                })
+            }
         }
     }
 

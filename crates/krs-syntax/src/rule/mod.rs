@@ -14,3 +14,4 @@ pub use condition::{RuleCondition, RuleExtra, RuleMapUpdate};
 pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;
+pub(crate) use pattern::{NegativeLiteralSpans, validate_pattern_literal};

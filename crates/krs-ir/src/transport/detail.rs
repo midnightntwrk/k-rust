@@ -169,6 +169,8 @@ details! {
         WildcardsAreNotAllowedInInitializers => "wildcards are not allowed in initializers",
         AliasPrimaryProvenanceMismatch => "wrong context-alias primary provenance",
         TrustedClaimWithCircularity => "a trusted claim cannot also be a circularity",
+        PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
+        InitializerPatternAs => "`name @ pattern` (#as) is not allowed in initializers",
     }
 }
 
@@ -252,6 +254,7 @@ details! {
         EmptyLexemeText => "lexeme text must not be empty",
         InvalidMatchRestriction => "concrete, symbolic, and smt_lemma keys are allowed only on equations and simplifications, once each, with distinct non-empty binder names",
         InvalidUnboundVariables => "unbound_variables is allowed only on desugar clauses, listing distinct names the subject does not bind and the result uses, or `_` for the result's wildcards",
+        PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
     }
 }
 

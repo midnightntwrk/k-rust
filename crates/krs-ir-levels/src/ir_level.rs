@@ -855,6 +855,19 @@ impl<L: IrLevel> IrTerm<L> {
             },
         })
     }
+    /// Creates `alias @ pattern` (K's `#as`) at the alias variable's sort,
+    /// of which the pattern's sort must be a subsort.
+    #[must_use]
+    pub fn pattern_as(origin: NodeOrigin, sort: L::Sort, alias: SemanticId, pattern: Self) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: IrTermKind::As {
+                alias,
+                pattern: Box::new(pattern),
+            },
+        }
+    }
     /// Creates one typed Map-theory operation with an explicit result sort.
     #[must_use]
     pub fn typed_map(origin: NodeOrigin, sort: L::Sort, operands: MapOperands<Self>) -> Self {
@@ -964,6 +977,16 @@ pub enum IrTermKind<L: IrLevel> {
         /// Post-term.
         to: Box<IrTerm<L>>,
     },
+    /// `alias @ pattern`: K's `( PATTERN #as Alias:Sort )`, admitted only in
+    /// pre-patterns. The term's sort is the alias variable's sort, of which
+    /// the pattern's sort is a subsort; the alias is a rule variable bound
+    /// to the whole matched term.
+    As {
+        /// The alias variable, declared in the sentence's variables.
+        alias: SemanticId,
+        /// The aliased subpattern.
+        pattern: Box<IrTerm<L>>,
+    },
 }
 
 /// Owned decoding form of [`IrTermKind`]; collection operands arrive as one ordered list.
@@ -1009,6 +1032,10 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
         from: Box<IrTerm<L>>,
         to: Box<IrTerm<L>>,
     },
+    As {
+        alias: SemanticId,
+        pattern: Box<IrTerm<L>>,
+    },
 }
 
 /// Borrowed encoding form of [`IrTermKind`], field for field the shape of [`IrTermKindWire`].
@@ -1049,6 +1076,10 @@ enum IrTermKindRef<'a, L: IrLevel> {
         from: &'a IrTerm<L>,
         to: &'a IrTerm<L>,
     },
+    As {
+        alias: &'a SemanticId,
+        pattern: &'a IrTerm<L>,
+    },
 }
 
 impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
@@ -1080,6 +1111,7 @@ impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
             } => Self::Set(Box::new(SetOperands::from_operands(operation, arguments)?)),
             IrTermKindWire::Cell { cell, children } => Self::Cell { cell, children },
             IrTermKindWire::Rewrite { from, to } => Self::Rewrite { from, to },
+            IrTermKindWire::As { alias, pattern } => Self::As { alias, pattern },
         })
     }
 }
@@ -1111,6 +1143,7 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
             },
             Self::Cell { cell, children } => IrTermKindRef::Cell { cell, children },
             Self::Rewrite { from, to } => IrTermKindRef::Rewrite { from, to },
+            Self::As { alias, pattern } => IrTermKindRef::As { alias, pattern },
         }
         .serialize(serializer)
     }

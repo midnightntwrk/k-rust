@@ -617,6 +617,11 @@ impl<'a> InitializerBuilder<'a> {
                 range.first(),
                 "is! and project! are rule and claim terms; initializers cannot contain them",
             )),
+            TermTree::As { binding, .. } => Err(ExpandError::new(
+                expand::PATTERN_AS_OUTSIDE_LHS,
+                binding.span(),
+                "`name @ pattern` binds only on a left-hand side; initializers cannot contain it",
+            )),
         }
     }
 }

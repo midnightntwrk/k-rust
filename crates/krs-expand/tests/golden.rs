@@ -451,6 +451,26 @@ k::rules! {
 ",
     ),
     (
+        "rules_pattern_as",
+        r"
+k::rules! {
+    for Exp;
+    use ExpSyntax::*;
+
+    dup_pair: Dup(p @ Pair(a, b)) => Pair(p, Pair(b, a));
+}
+",
+    ),
+    (
+        "rule_pattern_as",
+        r"
+#[k::equation]
+fn rest_long(k::term![Rest(Cons(_, more @ Cons(_, _)))]: Term<Seq>) -> Term<Seq> {
+    more
+}
+",
+    ),
+    (
         "rules_heads",
         r#"
 k::rules! {

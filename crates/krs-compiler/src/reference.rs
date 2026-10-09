@@ -1576,6 +1576,15 @@ fn render_term(
                 krs_ir::SortTestKind::Projection => quote!(k::project!(#sort, #operand)),
             })
         }
+        DescriptorTerm::As {
+            name,
+            pattern: aliased,
+            ..
+        } => {
+            let name = rust_ident(name);
+            let aliased = render_term(aliased, pattern, package, bundle)?;
+            Ok(quote!(#name @ #aliased))
+        }
         DescriptorTerm::OrBool { arguments, .. } => {
             let arguments = arguments
                 .iter()

@@ -170,6 +170,9 @@ pub(crate) enum ValidationError<L: Validation> {
     PrecedenceCycle(ProductionGroupId),
     RegexWithoutToken,
     RewriteSortMismatch,
+    /// `alias @ pattern` outside a pre-pattern, or at a sort its alias or
+    /// pattern does not have.
+    InvalidPatternAs,
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -811,6 +814,7 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(claim) = claim {
         validate_claim::<L>(sentence, claim, &scope, declarations, nodes)?;
     }
+    reject_pattern_as_outside_patterns::<L>(&rule)?;
     validate_existentials::<L>(
         sentence,
         &scope,
@@ -1109,6 +1113,9 @@ pub(crate) fn validate_term_cell_references<L: Validation>(
             validate_term_cell_references::<L>(from, declarations, cell_ids)?;
             return validate_term_cell_references::<L>(to, declarations, cell_ids);
         }
+        IrTermKind::As { pattern, .. } => {
+            return validate_term_cell_references::<L>(pattern, declarations, cell_ids);
+        }
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => return Ok(()),
     };
     for child in children {
@@ -1200,6 +1207,10 @@ pub(crate) fn collect_term_variables<L: Validation>(
         IrTermKind::Rewrite { from, to } => {
             collect_term_variables::<L>(from, used);
             collect_term_variables::<L>(to, used);
+        }
+        IrTermKind::As { alias, pattern } => {
+            used.insert(alias.clone());
+            collect_term_variables::<L>(pattern, used);
         }
         IrTermKind::Cell { children, .. } => {
             for child in children {
@@ -1452,6 +1463,61 @@ pub(crate) fn validate_term<L: Validation>(
                 return Err(L::error(ValidationError::RewriteSortMismatch));
             }
         }
+        IrTermKind::As { alias, pattern } => {
+            if scope.get(alias) != Some(term.sort())
+                || !is_subsort::<L>(pattern.sort(), term.sort(), sort_parents)
+            {
+                return Err(L::error(ValidationError::InvalidPatternAs));
+            }
+            validate_term::<L>(
+                pattern,
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `term` contains `alias @ pattern`, which is admitted only in
+/// pre-patterns (KF-029).
+pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    match term.kind() {
+        IrTermKind::As { .. } => true,
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
+        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_as),
+        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_as),
+        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_as),
+        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_as),
+        IrTermKind::List(operands) => operands.operands().any(contains_pattern_as),
+        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_as),
+        IrTermKind::Rewrite { from, to } => contains_pattern_as(from) || contains_pattern_as(to),
+    }
+}
+
+/// Rejects `alias @ pattern` in a rule's post-terms and conditions.
+fn reject_pattern_as_outside_patterns<L: Validation>(
+    rule: &RuleView<'_, L>,
+) -> Result<(), L::Error> {
+    let mut post = Vec::new();
+    match rule.body {
+        RuleBodyRef::Term(body) => post.push(body.to()),
+        RuleBodyRef::Configuration { body, .. } => {
+            for clause in body.clauses() {
+                if let CellPost::Replace { term } = clause.after() {
+                    post.push(term);
+                }
+            }
+        }
+    }
+    post.extend(rule.requires.map(IrRuleCondition::term));
+    post.extend(rule.ensures.map(IrRuleCondition::term));
+    if post.into_iter().any(contains_pattern_as) {
+        return Err(L::error(ValidationError::InvalidPatternAs));
     }
     Ok(())
 }

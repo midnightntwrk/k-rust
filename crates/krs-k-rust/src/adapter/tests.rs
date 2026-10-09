@@ -1657,3 +1657,47 @@ fn match_restrictions_map_to_native_attributes_with_sentence_names() {
         assert!(attributes.get(key).is_none(), "{key}");
     }
 }
+
+/// `name @ pattern` adapts to the AST k-rust's parser builds for
+/// `PATTERN #as Alias:Sort` (KF-029).
+#[test]
+fn pattern_aliases_adapt_to_native_as_terms() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let alias = semantic_id("p");
+    let from = DefinitionTerm::pattern_as(
+        node("as"),
+        DefinitionSortRef::int(),
+        alias.clone(),
+        DefinitionTerm::variable(
+            node("as.pattern"),
+            DefinitionSortRef::int(),
+            semantic_id("x"),
+        ),
+    );
+    let to = DefinitionTerm::variable(node("as.use"), DefinitionSortRef::int(), alias);
+    let rule = RuleSentence::new(
+        node("as.rule"),
+        LabelIdentity::new(LabelId::new("as.rule").unwrap(), "as-rule").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(node("as.body"), DefinitionSortRef::int(), from, to).unwrap(),
+    )
+    .unwrap();
+    let Sentence::Rule { body, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    let mut aliases = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::As { pattern, alias } = term {
+            aliases.push((pattern.as_ref().clone(), alias.as_ref().clone()));
+        }
+    });
+    let [(pattern, alias)] = aliases.as_slice() else {
+        panic!("one native #as term, found {aliases:?}")
+    };
+    assert!(matches!(pattern, Term::Variable { name, sort: Some(sort) }
+        if name == "X" && sort.name == "Int"));
+    assert!(matches!(alias, Term::Variable { name, sort: Some(sort) }
+        if name == "P" && sort.name == "Int"));
+}

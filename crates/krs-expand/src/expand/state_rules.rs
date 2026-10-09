@@ -878,6 +878,24 @@ impl<'a> StateRuleBuilder<'a> {
                     operand: Box::new(self.expand_term(operand, slots)?),
                 })
             }
+            TermTree::As { binding, pattern } => {
+                if matches!(self.side, RuleSide::Right) {
+                    return Err(ExpandError::new(
+                        expand::PATTERN_AS_OUTSIDE_LHS,
+                        binding.span(),
+                        format!(
+                            "`{binding} @ pattern` binds only on a left-hand side (K's #as is LHS-only)"
+                        ),
+                    ));
+                }
+                let (key, binding_key) = self.terms.take_pattern_as(binding)?;
+                Ok(WireTerm::As {
+                    key,
+                    binding_key,
+                    name: binding.to_string(),
+                    pattern: Box::new(self.expand_term(pattern, slots)?),
+                })
+            }
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,

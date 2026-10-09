@@ -159,6 +159,14 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         sort: &S::Sort,
     ) -> Result<(), Self::Error>;
 
+    /// `name @ pattern` (K's `#as`), admitted only in left-hand sides.
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error>;
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
@@ -228,6 +236,15 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
         } => {
             context.sort_test(key, *kind, sort)?;
             validate_term(operand, context)
+        }
+        Term::As {
+            key,
+            binding_key,
+            name,
+            pattern,
+        } => {
+            context.pattern_as(key, binding_key, name)?;
+            validate_term(pattern, context)
         }
     }
 }

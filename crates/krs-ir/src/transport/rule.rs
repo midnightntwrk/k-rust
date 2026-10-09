@@ -706,6 +706,9 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .map(|field| count_here_in_term(&field.value, here))
             .sum(),
         DescriptorTerm::SortTest { operand, .. } => count_here_in_term(operand, here),
+        DescriptorTerm::As { name, pattern, .. } => {
+            usize::from(name == here) + count_here_in_term(pattern, here)
+        }
     }
 }
 
@@ -843,6 +846,15 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
         } => {
             keys.extend([key.clone(), sort.key.clone()]);
             collect_term_keys(operand, keys);
+        }
+        DescriptorTerm::As {
+            key,
+            binding_key,
+            pattern,
+            ..
+        } => {
+            keys.extend([key.clone(), binding_key.clone()]);
+            collect_term_keys(pattern, keys);
         }
     }
 }
@@ -1037,6 +1049,7 @@ struct RuleCounters {
     anonymous: u32,
     lexeme: u32,
     sort_test: u32,
+    pattern_as: u32,
 }
 
 fn builtin_token_role<'a>(
@@ -2201,6 +2214,39 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.lexeme,
         )?;
         self.counters.lexeme = rule_increment(self.counters.lexeme)?;
+        Ok(())
+    }
+
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error> {
+        if !matches!(self.side, ValidationSide::Left) {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::PatternAsOutsideLeftHandSide,
+            ));
+        }
+        if !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::RuleVariableBindingIsNotATerm,
+            ));
+        }
+        insert_rule_exact(
+            self.keys,
+            key,
+            ProvenanceRole::PatternAs,
+            self.counters.pattern_as,
+        )?;
+        insert_rule_exact(
+            self.keys,
+            binding_key,
+            ProvenanceRole::PatternAsBinding,
+            self.counters.pattern_as,
+        )?;
+        self.counters.pattern_as = rule_increment(self.counters.pattern_as)?;
+        discover_binding(self.side, name, self.discovered);
         Ok(())
     }
 

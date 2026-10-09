@@ -5,7 +5,8 @@ use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{
     Expr, ExprCall, ExprGroup, ExprLit, ExprMacro, ExprParen, ExprPath, ExprStruct, ExprUnary, Lit,
-    LitBool, LitByteStr, LitInt, LitStr, Member, Path, Token, UnOp,
+    LitBool, LitByteStr, LitInt, LitStr, Member, Pat, PatIdent, PatStruct, PatTupleStruct, Path,
+    Token, UnOp,
 };
 
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -208,6 +209,14 @@ pub enum TermNode {
         /// Authored sort path.
         sort: Path,
     },
+    /// `name @ pattern` (K's `#as`) shell in a pattern payload; it precedes
+    /// the nodes of its subpattern.
+    As {
+        /// The alias identifier.
+        binding: syn::Ident,
+        /// Complete `name @ pattern` range.
+        range: TokenRange,
+    },
 }
 
 impl TermNode {
@@ -222,7 +231,8 @@ impl TermNode {
             | Self::Anonymous { .. }
             | Self::OrBool(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -238,7 +248,8 @@ impl TermNode {
             | Self::Anonymous { .. }
             | Self::OrBool(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -249,7 +260,9 @@ impl TermNode {
             Self::IdToken(literal) => TokenRange::for_tokens(literal),
             Self::BytesToken(literal) => TokenRange::for_tokens(literal),
             Self::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-            Self::OrBool(range) | Self::SortTest { range, .. } => Ok(*range),
+            Self::OrBool(range) | Self::SortTest { range, .. } | Self::As { range, .. } => {
+                Ok(*range)
+            }
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -415,6 +428,13 @@ pub enum TermTree {
         /// The tested or projected term.
         operand: Box<TermTree>,
     },
+    /// `name @ pattern`: K's `( PATTERN #as Name:Sort )`, only in patterns.
+    As {
+        /// The alias identifier.
+        binding: syn::Ident,
+        /// The aliased subpattern.
+        pattern: Box<TermTree>,
+    },
 }
 
 impl TermTree {
@@ -432,7 +452,8 @@ impl TermTree {
             | Self::OrBool { .. }
             | Self::Cell(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -450,7 +471,8 @@ impl TermTree {
             | Self::OrBool { .. }
             | Self::Cell(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -468,7 +490,8 @@ impl TermTree {
             | Self::OrBool { .. }
             | Self::Cell(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -486,7 +509,8 @@ impl TermTree {
             | Self::OrBool { .. }
             | Self::Cell(_)
             | Self::Lexeme { .. }
-            | Self::SortTest { .. } => None,
+            | Self::SortTest { .. }
+            | Self::As { .. } => None,
         }
     }
 
@@ -502,6 +526,10 @@ impl TermTree {
             }
             Self::SortTest { operand, .. } => {
                 operand.record_field_names_preorder(output);
+                return;
+            }
+            Self::As { pattern, .. } => {
+                pattern.record_field_names_preorder(output);
                 return;
             }
             _ => return,
@@ -547,6 +575,7 @@ impl TermTree {
                 }
             }
             Self::SortTest { operand, .. } => operand.wildcard_ranges_preorder(output),
+            Self::As { pattern, .. } => pattern.wildcard_ranges_preorder(output),
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -595,7 +624,7 @@ impl TermSymbol {
 /// block expression is silently retained.
 #[derive(Clone, Debug)]
 pub struct TermExpression {
-    expression: Expr,
+    expression: TermSource,
     root_kind: TermRootKind,
     symbols: Vec<TermSymbol>,
     nodes: Vec<TermNode>,
@@ -658,7 +687,7 @@ impl TermExpression {
         let mut nodes = Vec::new();
         let tree = validate_expression(&expression, context, &mut symbols, &mut nodes)?;
         Ok(Self {
-            expression,
+            expression: TermSource::Expression(expression),
             root_kind,
             symbols,
             nodes,
@@ -666,9 +695,64 @@ impl TermExpression {
         })
     }
 
-    /// Returns the original span-preserving Rust expression.
+    /// Parses and validates a pattern payload (PAT-1): the tokens are a Rust
+    /// pattern (`syn::Pat::parse_multi`), which admits `name @ pattern`
+    /// (K's `#as`) at any depth below the root. Every term form accepted in
+    /// an expression payload has a pattern twin with the same tree, symbols,
+    /// nodes, and provenance ranges.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured error at the first pattern outside the closed
+    /// named-term subset.
+    pub fn parse_pattern_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
+        let source = tokens.clone();
+        let pattern = match Pat::parse_multi.parse2(tokens.clone()) {
+            Ok(pattern) => pattern,
+            // A form that is no Rust pattern but a term expression the
+            // grammar rejects (such as `-f64::INFINITY`) keeps the
+            // expression grammar's specific reason.
+            Err(error) => {
+                if let Ok(expression) = syn::parse2::<Expr>(tokens)
+                    && let Err(specific) = Self::from_expression(expression)
+                {
+                    return Err(specific);
+                }
+                return Err(error.into());
+            }
+        };
+        Self::from_pattern(pattern, source, signs)
+    }
+
+    /// Validates a previously parsed Rust pattern as a term pattern; `signs`
+    /// holds the `-` and digit spans of its negative literals in token order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured error at the first pattern outside the closed
+    /// named-term subset.
+    pub(crate) fn from_pattern(
+        pattern: Pat,
+        tokens: TokenStream,
+        mut signs: crate::rule::NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        let root_kind = pattern_root_kind(&pattern)?;
+        let mut symbols = Vec::new();
+        let mut nodes = Vec::new();
+        let tree = validate_pattern(&pattern, &mut signs, &mut symbols, &mut nodes)?;
+        Ok(Self {
+            expression: TermSource::Pattern { pattern, tokens },
+            root_kind,
+            symbols,
+            nodes,
+            tree,
+        })
+    }
+
+    /// Returns the original span-preserving Rust expression or pattern.
     #[must_use]
-    pub const fn expression(&self) -> &Expr {
+    pub const fn expression(&self) -> &TermSource {
         &self.expression
     }
 
@@ -767,7 +851,8 @@ impl TermExpression {
                 | TermNode::Anonymous { .. }
                 | TermNode::OrBool(_)
                 | TermNode::Lexeme { .. }
-                | TermNode::SortTest { .. } => {
+                | TermNode::SortTest { .. }
+                | TermNode::As { .. } => {
                     continue;
                 }
             };
@@ -805,6 +890,45 @@ impl TermExpression {
     }
 }
 
+/// The authored Rust syntax of a term payload: an expression in results and
+/// conditions, a pattern in pattern payloads (PAT-1).
+#[derive(Clone, Debug)]
+pub enum TermSource {
+    /// A result, condition, or initializer expression.
+    Expression(Expr),
+    /// A pattern payload, with its authored tokens: syn folds a negative
+    /// literal pattern into one token, while ranges and spelling keep the
+    /// authored `-` and digits.
+    Pattern {
+        /// The parsed pattern.
+        pattern: Pat,
+        /// The authored tokens.
+        tokens: TokenStream,
+    },
+}
+
+impl TermSource {
+    /// Returns the expression, or `None` for a pattern payload.
+    #[must_use]
+    pub const fn as_expression(&self) -> Option<&Expr> {
+        match self {
+            Self::Expression(expression) => Some(expression),
+            Self::Pattern { .. } => None,
+        }
+    }
+}
+
+impl ToTokens for TermSource {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            Self::Expression(expression) => expression.to_tokens(tokens),
+            Self::Pattern {
+                tokens: authored, ..
+            } => authored.to_tokens(tokens),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum TermExpressionContext {
     Pattern,
@@ -813,9 +937,346 @@ enum TermExpressionContext {
 
 impl KrsSyntax for TermExpression {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        reject_pattern_alias(&tokens)?;
         let expression = syn::parse2::<Expr>(tokens)?;
         Self::from_expression(expression)
     }
+}
+
+/// The reason given for `name @ pattern` outside a left-hand side.
+pub(crate) const PATTERN_AS_OUTSIDE_LHS: &str = "`name @ pattern` binds only on a left-hand side (K's #as is LHS-only); refer to the name without `@` here";
+
+/// Rejects `name @ pattern` in tokens that are parsed as an expression (a
+/// result, condition, or initializer), which syn would otherwise report as
+/// an unexpected token. Tokens inside nested macro invocations are skipped:
+/// a nested `term!` or `cells!` checks its own payload.
+///
+/// # Errors
+///
+/// Returns [`SyntaxErrorKind::InvalidPatternAs`] at the first `@`.
+pub(crate) fn reject_pattern_alias(tokens: &TokenStream) -> Result<(), SyntaxError> {
+    match find_pattern_alias(tokens) {
+        Some(span) => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidPatternAs {
+                reason: PATTERN_AS_OUTSIDE_LHS.to_owned(),
+            },
+            span,
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Rejects `name @ pattern` in the body (the result) of the `fn` item in
+/// `tokens`, before syn reports it as an unexpected token.
+///
+/// # Errors
+///
+/// Returns [`SyntaxErrorKind::InvalidPatternAs`] at the first `@`.
+pub(crate) fn reject_pattern_alias_in_fn_body(tokens: &TokenStream) -> Result<(), SyntaxError> {
+    let body = tokens.clone().into_iter().last();
+    match body {
+        Some(proc_macro2::TokenTree::Group(group))
+            if group.delimiter() == proc_macro2::Delimiter::Brace =>
+        {
+            reject_pattern_alias(&group.stream())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn find_pattern_alias(tokens: &TokenStream) -> Option<Span> {
+    let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            // `name @ ..` is a remainder, which its own parser reports.
+            proc_macro2::TokenTree::Punct(punct)
+                if punct.as_char() == '@'
+                    && !matches!(
+                        tokens.get(index + 1),
+                        Some(proc_macro2::TokenTree::Punct(dot)) if dot.as_char() == '.'
+                    ) =>
+            {
+                return Some(punct.span());
+            }
+            proc_macro2::TokenTree::Group(group) => {
+                let after_macro = index > 0
+                    && matches!(&tokens[index - 1], proc_macro2::TokenTree::Punct(bang) if bang.as_char() == '!');
+                if !after_macro && let Some(span) = find_pattern_alias(&group.stream()) {
+                    return Some(span);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
+    Ok(match pattern {
+        Pat::Paren(paren) => return pattern_root_kind(&paren.pat),
+        Pat::Ident(PatIdent {
+            subpat: Some((_, subpattern)),
+            ..
+        }) => return pattern_root_kind(subpattern),
+        Pat::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,
+        Pat::Path(_) | Pat::Ident(_) => TermRootKind::Named,
+        Pat::TupleStruct(_) => TermRootKind::Call,
+        Pat::Struct(_) => TermRootKind::Record,
+        Pat::Lit(_) => TermRootKind::Literal,
+        Pat::Wild(_) => TermRootKind::Wildcard,
+        Pat::Macro(value) => special_macro_kind(&value.mac.path)
+            .ok_or_else(|| {
+                SyntaxError::new(
+                    SyntaxErrorKind::UnsupportedTermExpression {
+                        reason: "the root must be a named path/call/record or an Int/Bool literal",
+                    },
+                    value.span(),
+                )
+            })?
+            .root_kind(),
+        other => {
+            return Err(unsupported_pattern_form(other));
+        }
+    })
+}
+
+fn unsupported_pattern_form(pattern: &Pat) -> SyntaxError {
+    let reason = match pattern {
+        Pat::Or(_) => "`|` alternatives are not supported in term patterns",
+        Pat::Rest(_) => {
+            "a `..` remainder binds only inside a sequence, collection or cells! pattern"
+        }
+        _ => {
+            "expected paths, named calls/records, parentheses, `name @ pattern`, `_`, or literal arguments"
+        }
+    };
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression { reason },
+        pattern.span(),
+    )
+}
+
+fn pattern_as_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidPatternAs { reason }, span)
+}
+
+/// Validates `name @ subpattern` (K's `#as`, KF-029): the alias is an
+/// unadorned binder that does not occur inside its own subpattern, and the
+/// subpattern is a term, not a `..` remainder. The alias node precedes the
+/// subpattern's nodes, so it counts first in binder order.
+pub(crate) fn validate_pattern_as(
+    identifier: &PatIdent,
+    subpattern: &Pat,
+    nodes: &mut Vec<TermNode>,
+    validate: impl FnOnce(&Pat, &mut Vec<TermNode>) -> Result<TermTree, SyntaxError>,
+) -> Result<TermTree, SyntaxError> {
+    let name = &identifier.ident;
+    if let Some(by_ref) = &identifier.by_ref {
+        return Err(pattern_as_error(
+            format!("`ref {name} @ pattern`: K's #as binds the matched term itself; remove `ref`"),
+            by_ref.span(),
+        ));
+    }
+    if let Some(mutability) = &identifier.mutability {
+        return Err(pattern_as_error(
+            format!("`mut {name} @ pattern`: K binders are immutable; remove `mut`"),
+            mutability.span(),
+        ));
+    }
+    if !identifier.attrs.is_empty() {
+        return Err(pattern_as_error(
+            "pattern attributes are not supported on `name @ pattern`".to_owned(),
+            identifier.span(),
+        ));
+    }
+    if matches!(subpattern, Pat::Rest(_)) {
+        return Err(pattern_as_error(
+            format!(
+                "`{name} @ ..`: a `..` remainder binds only inside a sequence, collection or cells! pattern"
+            ),
+            identifier.span(),
+        ));
+    }
+    crate::parse::validate_authored_binder(&name.to_string(), name.span())?;
+    let index = nodes.len();
+    nodes.push(TermNode::As {
+        binding: name.clone(),
+        range: TokenRange::for_tokens(identifier)?,
+    });
+    let pattern = validate(subpattern, nodes)?;
+    for node in &nodes[index + 1..] {
+        let inner = match node {
+            TermNode::Reference(path) => path.get_ident(),
+            TermNode::As { binding, .. } => Some(binding),
+            _ => None,
+        };
+        if let Some(inner) = inner
+            && inner == name
+        {
+            return Err(pattern_as_error(
+                format!(
+                    "identifier `{name}` is bound more than once in the same pattern: an alias cannot occur inside its own subpattern (E0416)"
+                ),
+                inner.span(),
+            ));
+        }
+    }
+    Ok(TermTree::As {
+        binding: name.clone(),
+        pattern: Box::new(pattern),
+    })
+}
+
+/// The pattern twin of [`validate_expression`] in pattern context.
+fn validate_pattern(
+    pattern: &Pat,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    match pattern {
+        Pat::Ident(identifier) => {
+            if let Some((_, subpattern)) = &identifier.subpat {
+                return validate_pattern_as(identifier, subpattern, nodes, |subpattern, nodes| {
+                    validate_pattern(subpattern, signs, symbols, nodes)
+                });
+            }
+            reject_attributes(&identifier.attrs, identifier.span())?;
+            if identifier.by_ref.is_some() || identifier.mutability.is_some() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::UnsupportedTermExpression {
+                        reason: "`ref` and `mut` bindings are not term patterns",
+                    },
+                    identifier.span(),
+                ));
+            }
+            let path = Path::from(identifier.ident.clone());
+            symbols.push(TermSymbol {
+                path: path.clone(),
+                kind: TermSymbolKind::Reference,
+            });
+            nodes.push(TermNode::Reference(path.clone()));
+            Ok(TermTree::Reference(path))
+        }
+        Pat::Path(path) => validate_path_expression(path, symbols, nodes),
+        Pat::TupleStruct(tuple) => validate_tuple_struct_pattern(tuple, signs, symbols, nodes),
+        Pat::Struct(record) => validate_struct_pattern(record, signs, symbols, nodes),
+        Pat::Paren(paren) => {
+            reject_attributes(&paren.attrs, paren.span())?;
+            validate_pattern(&paren.pat, signs, symbols, nodes)
+        }
+        Pat::Lit(literal) => {
+            let literal = crate::rule::validate_pattern_literal(literal, nodes, signs)?;
+            Ok(TermTree::Literal(literal))
+        }
+        Pat::Wild(wildcard) => {
+            reject_attributes(&wildcard.attrs, wildcard.span())?;
+            Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
+        }
+        Pat::Macro(value)
+            if matches!(
+                special_macro_kind(&value.mac.path),
+                Some(TermMacroKind::Fragment)
+            ) =>
+        {
+            validate_cell_pattern(value, signs, symbols, nodes)
+        }
+        Pat::Macro(value) => {
+            validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
+        }
+        other => Err(unsupported_pattern_form(other)),
+    }
+}
+
+fn validate_tuple_struct_pattern(
+    tuple: &PatTupleStruct,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    reject_attributes(&tuple.attrs, tuple.span())?;
+    if tuple.qself.is_some() || !is_plain_path(&tuple.path) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            tuple.path.span(),
+        ));
+    }
+    symbols.push(TermSymbol {
+        path: tuple.path.clone(),
+        kind: TermSymbolKind::ApplicationHead,
+    });
+    nodes.push(TermNode::ApplicationHead(tuple.path.clone()));
+    let mut arguments = Vec::with_capacity(tuple.elems.len());
+    for element in &tuple.elems {
+        arguments.push(validate_pattern(element, signs, symbols, nodes)?);
+    }
+    Ok(TermTree::Application(TermApplication {
+        head: tuple.path.clone(),
+        arguments: TermArguments::Positional(arguments),
+    }))
+}
+
+fn validate_struct_pattern(
+    record: &PatStruct,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    reject_attributes(&record.attrs, record.span())?;
+    if record.qself.is_some() || !is_plain_path(&record.path) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            record.path.span(),
+        ));
+    }
+    if let Some(rest) = &record.rest {
+        reject_attributes(&rest.attrs, rest.span())?;
+    }
+    symbols.push(TermSymbol {
+        path: record.path.clone(),
+        kind: TermSymbolKind::ApplicationHead,
+    });
+    nodes.push(TermNode::ApplicationHead(record.path.clone()));
+    let arguments = validate_field_patterns(
+        record,
+        "record terms require unadorned named fields",
+        signs,
+        symbols,
+        nodes,
+    )?;
+    Ok(TermTree::Application(TermApplication {
+        head: record.path.clone(),
+        arguments: TermArguments::Named(arguments),
+    }))
+}
+
+fn validate_field_patterns(
+    record: &PatStruct,
+    reason: &'static str,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<Vec<TermNamedArgument>, SyntaxError> {
+    let mut arguments = Vec::with_capacity(record.fields.len());
+    for field in &record.fields {
+        let Member::Named(name) = &field.member else {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnsupportedTermExpression { reason },
+                field.span(),
+            ));
+        };
+        if !field.attrs.is_empty() {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnsupportedTermExpression { reason },
+                field.span(),
+            ));
+        }
+        arguments.push(TermNamedArgument {
+            name: name.clone(),
+            value: validate_pattern(&field.pat, signs, symbols, nodes)?,
+        });
+    }
+    Ok(arguments)
 }
 
 fn validate_expression(
@@ -1083,6 +1544,38 @@ pub(crate) fn push_sort_test_anchors(
     Ok(())
 }
 
+/// Appends the `pattern_as` and `pattern_as_binding` anchors of every
+/// `name @ pattern` node in `nodes`, numbering them from `*ordinal`. A
+/// sentence numbers its aliases once, in the order its left-hand side
+/// expands.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_pattern_as_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        if let TermNode::As { binding, range } = node {
+            let current = checked_ordinal(*ordinal, ProvenanceRole::PatternAs, range.first())?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::PatternAs,
+                current,
+                *range,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::PatternAsBinding,
+                current,
+                TokenRange::for_tokens(binding)?,
+            ));
+            *ordinal += 1;
+        }
+    }
+    Ok(())
+}
+
 /// Parses the arguments of `k::is!(Sort, t)` or `k::project!(Sort, t)`.
 ///
 /// # Errors
@@ -1211,6 +1704,65 @@ fn validate_cell_term(
             value: validate_expression(&field.expr, context, symbols, nodes)?,
         });
     }
+    if fields.is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "complete cell terms require at least one child field",
+            },
+            record.span(),
+        ));
+    }
+    Ok(TermTree::Cell(CellTerm {
+        range: TokenRange::for_tokens(value)?,
+        owner: record.path,
+        fields,
+    }))
+}
+
+/// The pattern twin of [`validate_cell_term`]: `k::fragment![..]` in a
+/// pattern payload, whose field values are patterns (PAT-1).
+fn validate_cell_pattern(
+    value: &ExprMacro,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    reject_attributes(&value.attrs, value.span())?;
+    let Pat::Struct(record) = Pat::parse_multi.parse2(value.mac.tokens.clone())? else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "fragment! requires one nominal cell record",
+            },
+            value.mac.tokens.span(),
+        ));
+    };
+    reject_attributes(&record.attrs, record.span())?;
+    if record.qself.is_some() || !is_plain_path(&record.path) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            record.path.span(),
+        ));
+    }
+    if let Some(rest) = &record.rest {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: "complete cell terms do not admit record update/rest syntax",
+            },
+            rest.span(),
+        ));
+    }
+    symbols.push(TermSymbol {
+        path: record.path.clone(),
+        kind: TermSymbolKind::ApplicationHead,
+    });
+    nodes.push(TermNode::ApplicationHead(record.path.clone()));
+    let fields = validate_field_patterns(
+        &record,
+        "complete cell terms require unadorned named fields",
+        signs,
+        symbols,
+        nodes,
+    )?;
     if fields.is_empty() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {

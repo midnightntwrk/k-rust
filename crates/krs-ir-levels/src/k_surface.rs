@@ -387,6 +387,7 @@ impl BuiltinRequirements {
                     self.term(child);
                 }
             }
+            DefinitionTermKind::As { pattern, .. } => self.term(pattern),
         }
     }
 

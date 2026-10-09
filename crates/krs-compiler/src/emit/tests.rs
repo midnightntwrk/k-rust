@@ -614,3 +614,37 @@ fn generated_sort_operations_print_k_predicates_and_one_cast() {
     );
     assert_eq!(render(&projected, &context), "{.List [ 0 ]}:>Int");
 }
+
+/// `name @ pattern` is K's `( PATTERN #as Name:Sort )`, always parenthesised
+/// and with the alias last (KF-029).
+#[test]
+fn pattern_aliases_print_as_parenthesised_k_as() {
+    let context = context();
+    let alias = krs_ir::SemanticId::new("p".to_owned()).unwrap();
+    let inner = krs_ir::SemanticId::new("x".to_owned()).unwrap();
+    let from = DefinitionTerm::pattern_as(
+        node("as"),
+        DefinitionSortRef::int(),
+        alias.clone(),
+        DefinitionTerm::variable(node("as.pattern"), DefinitionSortRef::int(), inner),
+    );
+    let to = DefinitionTerm::variable(node("as.use"), DefinitionSortRef::int(), alias);
+    let rule = krs_ir_levels::RuleSentence::new(
+        node("as.rule"),
+        krs_ir_levels::LabelIdentity::new(
+            krs_ir_levels::LabelId::new("as.rule").unwrap(),
+            "as-rule",
+        )
+        .unwrap(),
+        krs_ir::SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(node("as.body"), DefinitionSortRef::int(), from.clone(), to)
+            .unwrap(),
+    )
+    .unwrap();
+    let names = context.naming.rule(&rule);
+    assert_eq!(
+        render_term(&from, &context, &names, false).unwrap().text,
+        "( X:Int #as P:Int )"
+    );
+}

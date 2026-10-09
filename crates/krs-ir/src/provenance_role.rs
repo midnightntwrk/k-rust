@@ -466,6 +466,10 @@ provenance_roles! {
     SpecModuleName => "spec_module_name",
     /// One path of a `#[k::spec_module]`'s `imports = [..]`.
     SpecModuleImport => "spec_module_import",
+    /// Complete `name @ pattern` (K's `#as`) shell in a left-hand side.
+    PatternAs => "pattern_as",
+    /// The alias identifier of one `name @ pattern`.
+    PatternAsBinding => "pattern_as_binding",
 }
 
 impl Serialize for ProvenanceRole {
