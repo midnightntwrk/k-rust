@@ -88,7 +88,7 @@ pub(super) enum TheoryScan<K> {
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
 /// role = "part"
-/// sites = ["scan_term_theory", "scan_group"]
+/// sites = ["scan_term_theory", "scan_group", "scan_instances"]
 /// ```
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(super) fn scan_term_theory<K: TermTheory>(
@@ -250,5 +250,76 @@ pub(super) fn scan_group<R, T, N>(
         GroupScan::NotCacheable
     } else {
         GroupScan::NotApplicable
+    })
+}
+
+/// Try the instances of one equation, one per matching of its left-hand side against the
+/// subject, in the matcher's order, until one applies.
+///
+/// A left-hand side with a map or set pattern can match one subject in several ways, binding
+/// `σ1, ..., σn`. Each instance `f(t) = rhs σi requires R σi` is by itself a consequence of the
+/// equation, so the equation applies to `t` as soon as one instance does, and is passed over
+/// only when every instance is. The instances therefore combine exactly as the equations of one
+/// priority group do in [`scan_group`]: the first instance that applies gives the result (when
+/// several would apply with different results, the definition equates those results, and the
+/// load-time check pairs the equation with itself unless its right-hand side and `ensures` read
+/// only variables every matching binds alike); otherwise an undecided instance leaves the
+/// equation undecided, so that a lower-priority group does not fire where this equation may
+/// apply; otherwise the equation is context dependent or unused if one instance is, and not
+/// applicable when every instance is.
+///
+/// Diagnostics follow the outcome they explain, as in [`scan_group`]: an applied instance's are
+/// committed to the enclosing collector, an undecided one's are committed only if the equation
+/// ends undecided, and the others' are dropped. A single instance is attempted directly.
+#[deny(clippy::wildcard_enum_match_arm)]
+pub(super) fn scan_instances<S, T, N>(
+    mut instances: Vec<S>,
+    mut attempt: impl FnMut(S) -> SimplifyResult<EquationAttempt<T, N>>,
+) -> SimplifyResult<EquationAttempt<T, N>> {
+    if instances.len() == 1 {
+        return attempt(instances.pop().expect("one instance"));
+    }
+    let mut undecided: Option<EquationAttempt<T, N>> = None;
+    let mut held = Vec::new();
+    let mut context_dependent = false;
+    let mut unused = false;
+    let mut not_applicable = None;
+    for instance in instances {
+        let (outcome, diagnostics) = diagnostic::buffer(|| attempt(instance));
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(unwind) => {
+                diagnostics.commit();
+                return Err(unwind);
+            }
+        };
+        match outcome {
+            EquationAttempt::Applied(result) => {
+                diagnostics.commit();
+                return Ok(EquationAttempt::Applied(result));
+            }
+            outcome @ (EquationAttempt::Indeterminate(_) | EquationAttempt::Recurred) => {
+                held.push(diagnostics);
+                undecided.get_or_insert(outcome);
+            }
+            EquationAttempt::ContextDependent => context_dependent = true,
+            EquationAttempt::Unused => unused = true,
+            EquationAttempt::NotApplicable(evidence) => not_applicable = Some(evidence),
+        }
+    }
+    if let Some(undecided) = undecided {
+        for diagnostics in held {
+            diagnostics.commit();
+        }
+        return Ok(undecided);
+    }
+    Ok(if context_dependent {
+        EquationAttempt::ContextDependent
+    } else if unused {
+        EquationAttempt::Unused
+    } else {
+        EquationAttempt::NotApplicable(
+            not_applicable.expect("an equation has at least one instance"),
+        )
     })
 }

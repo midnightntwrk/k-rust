@@ -2864,6 +2864,11 @@ symbol = "scan_group"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify/scan.rs"
+symbol = "scan_instances"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_with_optional_execution"
 
@@ -2923,7 +2928,7 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 
 [[node.cost]]
 mode = "rule condition"
-bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active; an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
 
 [[node.cost]]
 mode = "Unspecified application (UnspecifiedEvaluation)"

@@ -13,7 +13,7 @@
 //!
 //! [[cost]]
 //! mode = "rule condition"
-//! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active"
+//! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active; an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
@@ -116,7 +116,7 @@ use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
     EquationAttempt, FunctionTheory, GroupScan, IndeterminateAttempts, SimplificationTheory,
-    TermTheory, TheoryScan, scan_group, scan_term_theory,
+    TermTheory, TheoryScan, scan_group, scan_instances, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -2619,10 +2619,22 @@ fn apply_ceil_equation(
                 substitution,
                 &remainder,
             ) {
-                CollectionMatches::Solutions(solutions) => solutions
-                    .into_iter()
-                    .next()
-                    .expect("collection solutions are never empty"),
+                // Each matching is an instance of the equation, which applies when one of them
+                // does (`scan_instances`).
+                CollectionMatches::Solutions(solutions) => {
+                    return scan_instances(solutions, |substitution| {
+                        apply_ceil_equation_instance(
+                            definition,
+                            rule,
+                            term,
+                            substitution,
+                            known_predicates,
+                            options,
+                            active_conditions,
+                            solver,
+                        )
+                    });
+                }
                 CollectionMatches::NoSolution(_) => return Ok(EquationAttempt::NotApplicable(())),
                 CollectionMatches::Undecided => {
                     return Ok(EquationAttempt::Indeterminate(
@@ -2632,6 +2644,31 @@ fn apply_ceil_equation(
             },
             MatchResult::Success(substitution) => substitution,
         };
+    apply_ceil_equation_instance(
+        definition,
+        rule,
+        term,
+        substitution,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+/// Apply the instance of the ceil equation `rule` under `substitution`, one matching of its
+/// left-hand side against `term`.
+#[allow(clippy::too_many_arguments)]
+fn apply_ceil_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     if substitution
         .keys()
         .any(|variable| !rule.lhs.attributes().variables.contains(variable))
@@ -5811,24 +5848,49 @@ fn apply_equation(
                     ));
                 }
             };
-            // Matching modulo the map and set axioms can decompose one subject in several ways.
-            // The load-time check (`confluence::undetermined_variables`) pairs such an equation
-            // with itself, and withdraws the value claims it involves unless every decomposition
-            // gives the same right-hand side and `ensures`; the first substitution of the
-            // helper's stable sorted order is then as good as any for the result. The
-            // `requires` is decided on this substitution only, so an equation whose `requires`
-            // reads a variable the decomposition chooses may be refuted here although another
-            // decomposition satisfies it, and evaluation falls through to a lower priority group:
-            // a result that can be false in every model of the definition (an open issue; see
-            // `docs/compatibility.md`, "Anywhere rules"). No value claim is made from it: a
-            // refuted `requires` is context dependent and sets no certificate.
-            solutions
-                .into_iter()
-                .next()
-                .expect("collection solutions are never empty")
+            // Matching modulo the map and set axioms can decompose one subject in several ways;
+            // each decomposition is an instance of the equation, and the equation applies when
+            // one of them does (`scan_instances`).
+            return scan_instances(solutions, |substitution| {
+                apply_equation_instance(
+                    definition,
+                    rule,
+                    term,
+                    substitution,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )
+            });
         }
         MatchResult::Success(substitution) => substitution,
     };
+    apply_equation_instance(
+        definition,
+        rule,
+        term,
+        substitution,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+/// Apply the instance of `rule` under `substitution`, one matching of its left-hand side against
+/// `term`.
+#[allow(clippy::too_many_arguments)]
+fn apply_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     // The left-hand side matched. The two checks below decide whether the evaluator uses the
     // equation here, not whether it holds, so a rejection is `Unused`, never `NotApplicable`.
     if substitution
