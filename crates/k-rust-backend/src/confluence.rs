@@ -1821,8 +1821,15 @@ fn check_detached(
     let mut closure = closure::Closure::new(definition, &context.sorts, &equations);
     let relevant = closure.relevant(&|symbol| gate_symbol(definition, symbol));
     context.counts.relevant_equations = relevant.iter().filter(|relevant| **relevant).count();
+    let needs_both = switches::active().relevance_needs_both;
     let classified = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
-        scope == CheckScope::All || relevant[closure.id(first)] || relevant[closure.id(second)]
+        let (first, second) = (relevant[closure.id(first)], relevant[closure.id(second)]);
+        scope == CheckScope::All
+            || if needs_both {
+                first && second
+            } else {
+                first || second
+            }
     };
     for (family, rules) in &root_groups {
         if family.is_some() {
