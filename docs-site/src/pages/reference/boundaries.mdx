@@ -29,7 +29,7 @@ If an expression is ordinary Rust, rustc executes or type-checks it as host code
 
 | Surface | Status | Exact boundary |
 | --- | --- | --- |
-| repeated cells | qualified | `multiplicity = "*"` parses with Bag/List/Map/Set; only Map has language-scale end-to-end evidence |
+| optional cells and cell collections | qualified | `multiplicity = "?"` is an `Option<T>` field, and `multiplicity = "*"` a Set, Map, or List collection that is its parent's only child; both agree natively and in Java K on the configuration-cells fixtures, and only KEVM's Map has language-scale evidence; a List rule changes either its front or its back and never reorders matched instances; cell bags are refused |
 | program syntax | qualified | each package emits `<NS>-SYNTAX` and `<NS>`; a production over `Map`, `List`, or `Set` is never program syntax, because K has no `-SYNTAX` module for them |
 | token sorts | qualified | `#[k::token]` adds regex or terminal token productions to a closed struct sort, another token sort, or builtin `Id`, and `k::lexeme!` writes a token in rules and claims, not in initializers; KRS does not check a lexeme's text against the regex, and does not detect a token regex that shadows K's own rule-level tokens |
 | syntactic lists | qualified | `#[k::syntax_list]` declares `List{}` and `NeList{}` of one element sort, with a closed sort and symbols derived from the enum name; there is no slice-pattern sugar, and a list sort has no other constructors |
@@ -79,7 +79,7 @@ An implementation or example that depends on one of these must surface the decis
 
 ## Unsupported surface
 
-Optional cells and multiplicities other than the qualified star shape are unsupported.
+Cell bags (`cell_type = "Bag"`), a collection that shares its parent with other cells, and List rules that change both ends or move instances are unsupported.
 Matching logic beyond the `k::ml` connectives, strict casts (`::S` and `{T}<:S`), and arbitrary raw grammar are not current public features; a typed binder or `where x: S` narrows what a rule matches, `k::project!` is K's projection cast, and fresh values are [`#[k::fresh]`](/reference/language#fresh-values).
 
 Method-call term sugar is deferred, and there is no `% ` format escape: a plain space in a format prints as written.

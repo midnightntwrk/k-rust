@@ -95,8 +95,43 @@ The group clause is written bare, never inside `<frame>...</frame>`, and a group
 A nested entry is a group binder, `_` (patterns only), or a complete `k::fragment![Frame { .. }]`; in the reference spelling `krs expand` writes, it has no `Cell(..)` wrapper, because it mirrors the expanded struct, and the binder is typed by the nested `#[k::cell]` struct (`f: crate::Frame`).
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
 A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
-A repeated (`*`) cell is a collection, not one nested cell, and cannot be named as a whole.
+A repeated (`*`) cell is a collection, not one nested cell: its entry is an instance list, described in [optional cells and cell collections](#optional-cells-and-cell-collections).
 The overlap check counts a group clause as sharing every cell inside the group.
+
+### Optional cells and cell collections
+
+K has two cell multiplicities besides "exactly once": `?`, a cell that may be absent, and `*`, a collection of cell instances.
+KRS spells `?` as Rust's `Option`: `#[k::cell(multiplicity = "?")] pub counter: Option<Int>` is K's `<counter multiplicity="?">`, and `Option<Mark>` with `nested` is an optional group.
+The initializer still writes a template, `counter: Some(0)`, because K needs one to know what a created cell looks like; the cell starts absent unless the field says `initial` (K's `initial=""`).
+`None` in an initializer is a syntax error, and so are an `Option` field without `multiplicity = "?"` and a `?` field that is not an `Option`.
+In a rule, `counter: None` matches or writes an absent cell and `counter: Some(p)` a present one, so `enable: { k: [Enable(), ..], counter: None } => { k: [..], counter: Some(0) }` creates the counter, emitted `(.Bag => <counter> 0 </counter>)`, `counter: Some(n) => counter: Some(int::add(n, 1))` updates it in place, and `Some(_)` to `None` deletes it, `(<counter> _ </counter> => .Bag)`.
+A result that leaves the cell out leaves it as it was, as for every omitted cell; the reference spelling wraps the content, `counter: Some(k::configuration::Cell(n))`.
+
+A collection is a `multiplicity = "*"` field of a `#[k::cell]` struct type with `nested` and a `cell_type`: `"Set"`, `"Map"` (keyed by the instance's first child), or `"List"`.
+K requires the collection to be its parent's only child, so the field gets a parent struct of its own (`krs::analysis::collection-siblings`), and the initializer's value is the template of one instance; with `initial`, that instance exists at start, as K's first thread does in lesson 1.17-B.
+Cell bags are refused, because K's LLVM and Haskell backends do not support them.
+A rule names instances by record, in braces for a Set or Map and in brackets for a List, with `..` for the instances it does not name:
+
+```rust
+spawn: {
+    thread: { me @ Thread { k: [Spawn(body), ..], .. }, .. },
+    next_id: n,
+} => {
+    thread: { Thread { k: [n, ..], .. me }, Thread { id: n, k: [body], .. }, .. },
+    next_id: int::add(n, 1),
+};
+```
+
+A pattern record matches one instance (`..` inside it leaves its other children untouched), and `me @` labels it.
+In the result, a record ending in `..me` updates the labelled instance in place, a record without a label's rest creates an instance (its `..` takes the template defaults, K's right-hand `...`), and a pattern instance the result does not mention is removed; `..ghost` naming no labelled instance is rejected (`krs::analysis::unknown-instance-label`).
+A created Map instance states its key, the first child (`krs::analysis::map-collection-key`), and every child a created instance omits needs a template default.
+An entry without `..`, such as `obj: { o @ Obj { oid: n, .. } }`, names every instance: it applies only when exactly one exists, and KRS writes it inside the parent cell.
+A List is positional: `job: [Job { payload: p, .. }, ..]` matches the front instance, `[.., Job { payload: p, .. }]` the back one, and `[.., Job { payload: v, .. }]` in a result appends at the back, which KRS emits after a leading `_Instances1:Bag` because K closes a cell on the right.
+A List rule changes either the front or the back, not both, and does not reorder matched instances (`krs::analysis::collection-entry`).
+In a bracketed subject value, KRS reads the list as a collection when it starts with `..`, has an item after `..`, or holds a record that ends in `..`; otherwise it is the computation cell's `[head, ..]`, so a front record that names every child is written `k::fragment![Job { .. }]`.
+The reference spelling `krs expand` prints writes the entry with the collection path, `Threads::thread: { me @ k::fragment![crate::Thread { .. }], instances0 @ .. }`, and the result `..instances0`.
+A `?` or `*` template that reads a configuration variable without `initial` warns (`krs::analysis::collection-config-var-without-initial`), because K then starts the cell present.
+Optional and collection entries are not allowed in a context alias or an equation's function context, which read fixed cells only (`krs::expand::cell-collection-placement`).
 
 ### Typed binders
 
@@ -347,7 +382,7 @@ Ensures conditions are object-language Bool terms.
 This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.
 Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
 `#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way, and a claim's `requires` and `ensures` may also be [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates).
-Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
+Cell-field helpers carry names, colors, nesting, multiplicity (`?` or `*`), `initial`, and cell collection type (`Set`, `Map`, or `List`) only in the shapes described in [optional cells and cell collections](#optional-cells-and-cell-collections) and [current boundaries](/reference/boundaries).
 
 ### Fresh values
 

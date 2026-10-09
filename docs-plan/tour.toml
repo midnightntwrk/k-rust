@@ -580,13 +580,20 @@ note = "The nested marker declares a nominal child-cell group; multiplicity and 
 
 [[concept]]
 id = "repeated-cells"
-title = "Repeated nested cells"
+title = "Optional cells and cell collections"
 status = "qualified"
 coverage = "advanced"
 chapter = "scale"
 prerequisites = ["nested-cells"]
-evidence = ["crates/krs-syntax/src/attribute/state.rs", "semantics/kevm/src/lib.rs"]
-note = "The parser accepts multiplicity star with Bag, List, Map, or Set cell types; only Map currently has language-scale end-to-end evidence. Optional cells and broader multiplicities are unsupported."
+evidence = [
+    "crates/krs-syntax/src/attribute/state.rs",
+    "semantics/kevm/src/lib.rs",
+    "tests/configuration-cells/packages/optional/src/lib.rs",
+    "tests/configuration-cells/packages/threads/src/lib.rs",
+    "tests/configuration-cells/packages/objects/src/lib.rs",
+    "tests/configuration-cells/packages/queue/src/lib.rs",
+]
+note = "Optional cells are Option fields with multiplicity ?, and multiplicity * declares a Set, Map, or List collection that is its parent's only child; all agree natively and in Java K on the configuration-cells fixtures, and only Map has language-scale evidence. A List rule changes either its front or its back."
 
 [[concept]]
 id = "requires"
@@ -868,12 +875,13 @@ evidence = ["crates/krs-macros/src/lib.rs"]
 
 [[concept]]
 id = "unsupported-cells"
-title = "Optional cells and unsupported multiplicities"
+title = "Cell bags and unsupported collection shapes"
 status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["repeated-cells"]
-evidence = ["crates/krs-syntax/src/attribute/state.rs", "docs-plan/authoring-spec/open-questions.md"]
+evidence = ["crates/krs-syntax/src/attribute/state.rs", "tests/configuration-cells/verify.py"]
+note = "Cell bags, a collection that shares its parent with other cells, and List rules that change both ends or reorder instances are refused with a diagnostic."
 
 [[concept]]
 id = "restricted-rust"
