@@ -992,24 +992,36 @@ impl DeepestTerm {
         stage: &'static str,
         work: impl FnOnce() -> T,
     ) -> Result<T, CompileError> {
+        self.run_located(work).map_err(|refused| CompileError {
+            stage,
+            message: refused.message,
+            diagnostics: refused.at.into_iter().collect(),
+        })
+    }
+
+    /// [`Self::run`], refused with the message and the `TermTooDeep` diagnostic located at the
+    /// deepest term's sentence, for a caller that reports diagnostics rather than a stage error.
+    pub(crate) fn run_located<T>(&self, work: impl FnOnce() -> T) -> Result<T, TooDeepAt> {
         crate::stack::with_depth(self.depth.saturating_mul(2), work).map_err(|mut too_deep| {
             too_deep.depth = self.depth;
             let message = format!("cannot compile a term this deep: {too_deep}");
-            CompileError {
-                stage,
-                message: message.clone(),
-                diagnostics: self
-                    .at
-                    .clone()
-                    .map(|mut diagnostic| {
-                        diagnostic.message = message;
-                        diagnostic
-                    })
-                    .into_iter()
-                    .collect(),
+            TooDeepAt {
+                at: self.at.clone().map(|mut diagnostic| {
+                    diagnostic.message.clone_from(&message);
+                    diagnostic
+                }),
+                message,
             }
         })
     }
+}
+
+/// Work refused by [`DeepestTerm::run_located`].
+pub(crate) struct TooDeepAt {
+    /// Why: the depth, the stack it needs and the largest this build maps.
+    pub(crate) message: String,
+    /// The `TermTooDeep` error at the sentence that holds the deepest term, with `message`.
+    pub(crate) at: Option<Diagnostic>,
 }
 
 /// Run one stage on `current`, recording the origins of what it generated.

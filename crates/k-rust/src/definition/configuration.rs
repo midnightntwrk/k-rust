@@ -104,11 +104,15 @@ impl std::error::Error for ConfigurationError {}
 ///
 /// The generated cells from imported modules are therefore visible while
 /// resolving external-cell declarations in importing modules.
+///
+/// stack-accepted(configuration-expansion-api): expansion recurses once per level of a configuration's cells and initializers on the caller's stack; the loader runs it on a stack measured from the configurations, and a library caller that calls it directly provides its own. See docs/backend-port.md#stack-bounds.
 pub fn expand_configurations(definition: &Definition) -> Result<Definition, ConfigurationError> {
     expand_configurations_with_diagnostics(definition).map(|(expanded, _)| expanded)
 }
 
 /// [`expand_configurations`] with the warnings expansion reports.
+///
+/// stack-accepted(configuration-expansion-api): expansion recurses once per level of a configuration's cells and initializers on the caller's stack; the loader runs it on a stack measured from the configurations, and a library caller that calls it directly provides its own. See docs/backend-port.md#stack-bounds.
 ///
 /// Rejects a configuration whose label carries a written sort parameter
 /// ([`ConfigurationError::LabelParameters`]) before expanding anything: expansion identifies
@@ -552,7 +556,6 @@ impl Generator<'_, '_> {
         })
     }
 
-    // stack-accepted(nested-cells): one level per nested cell declaration; configurations nest a handful of levels, and 4,000 pass on 8 MiB in about 3.5 minutes. See docs/backend-port.md#stack-bounds.
     fn generate_cell(
         &mut self,
         arguments: &[Term],
@@ -1158,7 +1161,6 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
     }
 }
 
-// stack-accepted(nested-cells): one level per nested `Cells` group of a configuration declaration; configurations nest a handful of levels, and 4,000 pass on 8 MiB. See docs/backend-port.md#stack-bounds.
 // Invariant: `output` holds, in order, the non-`Cells` terms of every entry of `terms` already consumed, and each recursive call receives the `arguments` of a nested `Cells` application, so the size of `terms` bounds the calls.
 #[expect(
     clippy::wildcard_enum_match_arm,
