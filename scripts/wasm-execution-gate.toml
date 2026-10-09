@@ -1,0 +1,276 @@
+# The WASM execution gate (scripts/wasm-execution-gate.sh): the expected result of `krust krun`
+# on each program of wasm-semantics/tests/simple and of `krust kprove` on each spec of
+# wasm-semantics/tests/proofs, at the pinned wasm-semantics revision. Every key but `name`,
+# `module` and `definition_module` is compared exactly; regenerate with --update and explain the
+# change. A program's `stdout` is `success` when it equals wasm-execution-gate.success.kore, the
+# final configuration upstream's passing tests reach (stacks, maps and stores empty, `<k>` and
+# `<instrs>` `.K`), and otherwise the output's SHA-256 and size. A proof's `verdict` is its claim
+# statuses with their state counts and, for a failed claim, where it stopped.
+
+[[program]]
+name = "simple/address-c"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/arithmetic"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/bitwise"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/branching"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/comments"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/comparison"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/constants"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/control-flow"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/conversion"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/data"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/desugaring"
+exit = 0
+stderr = ""
+stdout = "sha256:54a757c397f951e7b0ee29131e23cec9bd1049dac27186c117331590b5de8d05 (98349 bytes)"
+
+[[program]]
+name = "simple/f64-cs"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/f64_bitwise-cs"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/f64_cmp-cs"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/fconversions-c"
+exit = 0
+stderr = """
+warning: hook FLOAT.float2int was left unevaluated at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
+"""
+stdout = "sha256:5959fd36f2892d5ac6be12deafcbd8c44240201d937ba4ddf7b3980cdc411093 (646651 bytes)"
+
+[[program]]
+name = "simple/functions_call"
+exit = 0
+stderr = ""
+stdout = "sha256:fdd21ae687e1b8754f3fa8cc89c3d30b41d73801d27a700ad7e3bb0b6aaf0889 (520904 bytes)"
+
+[[program]]
+name = "simple/i64"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/identifiers"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/imports"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/integers"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/memory"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/modules"
+exit = 0
+stderr = ""
+stdout = "sha256:6569722de93e6c8e2d6baf7e2b3513cf2c1a698582819554951c22fe36e1ecc0 (18881 bytes)"
+
+[[program]]
+name = "simple/polymorphic"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/start"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/table"
+exit = 0
+stderr = ""
+stdout = "sha256:29bfea20f9714b37f64c5fa5fab44378be338d7562156439a92f117a2e455045 (228223 bytes)"
+
+[[program]]
+name = "simple/text2abstract"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/unicode"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[program]]
+name = "simple/variables"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[proof]]
+name = "proofs/functions"
+module = "FUNCTIONS-SPEC"
+definition_module = "KWASM-LEMMAS"
+exit = 0
+stderr = ""
+verdict = """
+claim #1: proven (2 states, 0 unexplored)
+claim #2: proven (2 states, 0 unexplored)
+claim #3: proven (2 states, 0 unexplored)
+claim #4: proven (2 states, 0 unexplored)
+claim #5: proven (2 states, 0 unexplored)
+claim #6: proven (2 states, 0 unexplored)
+claim #7: proven (2 states, 0 unexplored)
+claim #8: proven (2 states, 0 unexplored)
+claim #9: proven (2 states, 0 unexplored)
+claim #10: proven (2 states, 0 unexplored)
+claim #11: proven (2 states, 0 unexplored)
+claim #12: proven (2 states, 0 unexplored)
+claim #13: proven (2 states, 0 unexplored)
+claim #14: proven (2 states, 0 unexplored)
+claim #15: proven (2 states, 0 unexplored)
+claim #16: proven (2 states, 0 unexplored)
+claim #17: proven (2 states, 0 unexplored)
+claim #18: proven (2 states, 0 unexplored)
+claim #19: proven (2 states, 0 unexplored)
+claim #20: proven (2 states, 0 unexplored)
+claim #21: proven (2 states, 0 unexplored)
+claim #22: proven (2 states, 0 unexplored)
+claim #23: proven (2 states, 0 unexplored)
+claim #24: proven (2 states, 0 unexplored)
+claim #25: proven (2 states, 0 unexplored)
+claim #26: proven (2 states, 0 unexplored)
+claim #27: proven (2 states, 0 unexplored)
+claim #28: proven (2 states, 0 unexplored)
+"""
+
+[[proof]]
+name = "proofs/locals"
+module = "LOCALS-SPEC"
+definition_module = "KWASM-LEMMAS"
+exit = 0
+stderr = ""
+verdict = """
+claim #1: proven (3 states, 0 unexplored)
+claim #2: proven (3 states, 0 unexplored)
+claim #3: proven (3 states, 0 unexplored)
+"""
+
+[[proof]]
+name = "proofs/loops"
+module = "LOOPS-SPEC"
+definition_module = "KWASM-LEMMAS"
+exit = 0
+stderr = ""
+verdict = """
+claim #1: proven (22 states, 0 unexplored)
+claim #2: proven (22 states, 0 unexplored)
+"""
+
+[[proof]]
+name = "proofs/memory"
+module = "MEMORY-SPEC"
+definition_module = "KWASM-LEMMAS"
+exit = 0
+stderr = ""
+verdict = """
+claim #1: proven (15 states, 0 unexplored)
+claim #2: proven (15 states, 0 unexplored)
+"""
+
+[[proof]]
+name = "proofs/simple-arithmetic"
+module = "SIMPLE-ARITHMETIC-SPEC"
+definition_module = "KWASM-LEMMAS"
+exit = 0
+stderr = ""
+verdict = """
+claim #1: proven (3 states, 0 unexplored)
+claim #2: proven (3 states, 0 unexplored)
+claim #3: proven (6 states, 0 unexplored)
+claim #4: proven (3 states, 0 unexplored)
+claim #5: proven (3 states, 0 unexplored)
+"""
+
+[[proof]]
+name = "proofs/wrc20"
+module = "WRC20-SPEC"
+definition_module = "WRC20-LEMMAS"
+exit = 1
+stderr = """
+error: one or more reachability claims were not proven
+"""
+verdict = """
+claim #1: failed (4 states, 1 unexplored)
+  Stuck at depth 1
+"""

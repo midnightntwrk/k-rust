@@ -366,9 +366,17 @@ done
 
 mkdir -p "$out"
 if [[ "$workload" == imp-prove ]]; then
-  # Prepared artifacts are reused across runs like benchmark.sh's work root;
-  # use a fresh PROFILE_WORK_ROOT after a compiler or option change.
+  # Prepared artifacts are reused across runs like benchmark.sh's work root: only by
+  # the binary that prepared them (its SHA-256 in krust-binary.sha256). Use a fresh
+  # PROFILE_WORK_ROOT after a source or option change.
   mkdir -p "$work"
+  krust_binary_digest=$(sha256sum <"$KRUST_BIN")
+  krust_binary_digest=${krust_binary_digest%% *}
+  if [[ ! -f "$work/krust-binary.sha256" || "$(<"$work/krust-binary.sha256")" != "$krust_binary_digest" ]]; then
+    reset_output "$work/krust-definition"
+    reset_output "$work/krust-specification"
+    printf '%s\n' "$krust_binary_digest" >"$work/krust-binary.sha256"
+  fi
   if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ]]; then
     echo "[$workload] preparing proof-ready krust definition"
     prepare_definition_args
