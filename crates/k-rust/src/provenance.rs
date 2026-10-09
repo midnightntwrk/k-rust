@@ -823,7 +823,7 @@ impl AnchorPath {
 
     /// The steps of the path, from the field down.
     ///
-    /// The path's steps are reached only through here, through [`AnchorPath::split_last`] and
+    /// The path's steps are reached only through here, through `AnchorPath::split_last` and
     /// through the comparisons and formatting built on this, and created only by
     /// [`AnchorPath::child`]; each counts the steps it creates, visits or hands out, so any work
     /// that reads or rebuilds paths step by step shows in `provenance.anchor_path_steps`

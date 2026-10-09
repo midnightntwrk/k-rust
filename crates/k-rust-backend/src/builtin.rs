@@ -767,7 +767,7 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 }
 
 /// The floor of the size bound on the `Int` results of `^Int` and `<<Int`, in bits (see
-/// [`result_size_limit`]): 2^24 bits, 5,050,446 decimal digits. A result above its bound is
+/// `result_size_limit`): 2^24 bits, 5,050,446 decimal digits. A result above its bound is
 /// reported as too large (`ResultTooLarge`) instead of computed, and the application stays
 /// unevaluated.
 ///
@@ -780,7 +780,7 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The floor of the size bound on a `Bytes` result whose length is set by the value of an
-/// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see [`result_size_limit`]):
+/// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see `result_size_limit`):
 /// 2^32 bytes, 4 GiB.
 ///
 /// A `Bytes` value costs time linear in its length to build and to use (padding to 4 GiB takes
@@ -791,13 +791,13 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// address space holds, so on a 64-bit host a semantics that models such a memory (a
 /// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
 /// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
-/// cannot hold 4 GiB of value at all, so the bound is also at most [`TARGET_BYTES_RESULT_LEN`].
+/// cannot hold 4 GiB of value at all, so the bound is also at most `TARGET_BYTES_RESULT_LEN`.
 pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
 
 /// The floor of the size bound on the length of a `makeList` result, in elements (see
-/// [`result_size_limit`]): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
+/// `result_size_limit`): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
 /// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason, and at most
-/// [`TARGET_RESULT_BYTES`] of references.
+/// `TARGET_RESULT_BYTES` of references.
 pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
 
 /// The most memory, in bytes, that one `List` result whose length an argument's value sets may
