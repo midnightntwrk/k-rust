@@ -80,9 +80,8 @@ Rules match the variants: `Ints::Cons(i, is)` and `Ints::Nil()`, which the emitt
 The KMIR port declares its call and aggregate `Operands` this way, as upstream's `List{Operand, ""}`: its corpus writes arguments one after another, `copy(..) move(..)`, and a call without arguments leaves the position empty.
 
 The enum is the whole definition of a closed sort: exactly one cons variant with two fields, the second of the list's own sort, and one terminator `Nil()`.
-No other constructor or subsort joins a list sort; membership in open sorts still goes through `k::sorts!` `impl` lines.
+No other constructor joins a list sort, and the only sort that may be its subsort is a strict list's value list (below); membership in open sorts still goes through `k::sorts!` `impl` lines.
 The symbols derive from the enum name, `intsCons` and `intsNil`, so two lists in one package never collide, and `krs check` names the list when another production takes one of its symbols.
-A strict list puts `#[k::strict]` on the cons variant and the result sort on the attribute, `#[k::syntax_list(separator = ",", result = KResult)]`; `krs expand` writes it as `#[k::strict(sequence = [head, tail], result = k::KResult)]` with `k::Term<..>` field types.
 
 This is a syntactic list, an AST that K parses: not K's semantic `List`, and not a `Vec`.
 `sum` is a function, so K's lesson writes it with `#[k::function]` and `#[k::equation]`s.
@@ -90,6 +89,24 @@ The grammar-lexing gate's `lists` fixture, where `sum(1, 2, 3)` is `6` on both r
 
 ```rust [tests/grammar-lexing/packages/lists/src/lib.rs]
 // [!include ~/snippets/lists.rs]
+```
+
+### Strict lists and value lists
+
+A strict list puts `#[k::strict]` or `#[k::seqstrict]` on the cons variant and the result sort on the attribute, `#[k::syntax_list(separator = ",", result = KResult)]`; `krs expand` writes it as `#[k::seqstrict(sequence = [head, tail], result = k::KResult)]` with `k::Term<..>` field types.
+Strictness alone only heats the elements: once they are values, the list `1, 2` is still an `Exps` built by `expsCons`, which is not a result, so a construct that is strict in an `Exps` argument heats it again and never finishes.
+
+K's answer is the value list, and KRS spells it as K does.
+`Vals` is a second `#[k::syntax_list]` whose elements are values; `impl Exps for Vals;` makes it the one subsort the strict list admits, and `impl KResult for Vals;` makes it a result.
+KRS then gives both lists K's `overload` key, `overload(expsCons)` on each `List{..}` sentence, so K's overload axioms rewrite `1, 2` built by `expsCons` to the same list built by `valsCons`, a `Vals`.
+A program whose arguments are already values parses as a `Vals` directly.
+
+`krs check` accepts the subsort only for this shape: the value list is not strict, has the strict list's separator and `non_empty` flag, has elements that are a subsort of the strict list's elements, and it and its elements are subsorts of the strict list's result sort; a strict list has one value list, and any other subsort of a list sort is an error.
+
+The grammar-lexing gate's `strict-lists` fixture evaluates call arguments left to right: `tick` returns a counter and increments it, so `f(tick, tick, tick)` is `123` natively and with Java `krun`, and `f(1, 2)` parses as `valsCons` on both routes.
+
+```rust [tests/grammar-lexing/packages/strict-lists/src/lib.rs]
+// [!include ~/snippets/strict-lists.rs]
 ```
 
 Beyond IMP's `Int`, `Bool`, `Map`, and `Id`, the facade exports:

@@ -19,7 +19,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::constructor]`, `#[k::constructors]` | standalone or enum-family constructors | [Concrete grammar](/imp/concrete-grammar) |
 | `#[k::token]`, `#[k::bracket]` | lexical tokens (one `regex` or `terminal` per attribute, stacked; on a struct a closed token sort, on a type alias more tokens for an existing sort) and grouping-only productions | [Language scale](/advanced/language-scale) |
 | `k::lexical!`, `k::layout!` | named regex fragments (`{Name}` in token, layout, and lexical regexes) and the layout the scanner discards, which replaces K's default | [Language scale](/advanced/language-scale#layout-and-named-lexicals) |
-| `#[k::syntax_list]` | a syntactic list, K's `List{Elem, "sep"}` or, with `non_empty`, `NeList`: a closed enum sort with a cons and a `Nil()` variant, whose symbols derive from the enum name | [Language scale](/advanced/language-scale#syntactic-lists) |
+| `#[k::syntax_list]` | a syntactic list, K's `List{Elem, "sep"}` or, with `non_empty`, `NeList`: a closed enum sort with a cons and a `Nil()` variant, whose symbols derive from the enum name; a strict list may have one value list, `impl Exps for Vals` | [Language scale](/advanced/language-scale#strict-lists-and-value-lists) |
 | `#[k::configuration]`, `#[k::cell]`, `#[k::init]` | configuration schema, cells, and declarative initialization | [Configuration and state](/imp/configuration-and-state) |
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |

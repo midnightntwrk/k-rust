@@ -102,6 +102,12 @@ const snippets = [
     end: '#[k::function(partial, sort = Int, syntax = "count',
   },
   {
+    source: '../tests/grammar-lexing/packages/strict-lists/src/lib.rs',
+    mirror: 'src/snippets/strict-lists.rs',
+    start: 'k::sorts! {',
+    end: '/// Reads a list of digits',
+  },
+  {
     source: '../semantics/kevm/src/lib.rs',
     mirror: 'src/snippets/kevm-accounts.rs',
     start: '#[k::cell]\npub struct Account {',

@@ -109,6 +109,24 @@ bug — report it, don't guess.
   like token structs, declare a closed sort: the enum is the sort's
   definition, not a contribution to an open sort. Membership in open sorts
   still goes through `k::sorts!` `impl` lines.
+  *Note (2026-10, strict lists, KF-020):* exactly one sort may join a list
+  sort: the value list of a strict list, K's idiom
+  `syntax Vals ::= List{Val, ","}`, `syntax Exps ::= Vals`,
+  `syntax KResult ::= Vals` for `syntax Exps ::= List{Exp, ","} [strict]`.
+  KRS writes it as K does, `impl Exps for Vals;` and `impl KResult for Vals;`
+  in `k::sorts!`, with no new key. The value list is a non-strict
+  `#[k::syntax_list]` with the strict list's separator and `non_empty` flag;
+  its elements are a subsort of the strict list's elements; it and its
+  elements are subsorts of the strict list's strictness result; a strict
+  list has one value list and a value list serves one strict list. KRS
+  derives K's `overload` key (the strict list's cons symbol) on both
+  productions of both lists, so an evaluated list is a value list, hence a
+  result, and the strictness of whatever contains it stops heating it.
+  Without a value list a strict list only heats its elements: the list
+  itself never becomes a result. Rejected: a `values = Vals` key on
+  `#[k::syntax_list]` (a second spelling of a subsort that `k::sorts!`
+  already states); deriving `KResult ::= Vals` (K states it, and an
+  explicit line keeps the result sort visible).
 - **C3 — Syntax-first attribute.** `#[k::syntax("template", …)]` is always
   the production's first attribute, so a grammar section scans as a column
   of templates in K's own reading order. On structs it is the proc-macro
