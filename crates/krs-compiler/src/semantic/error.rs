@@ -108,13 +108,19 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
-    /// A claim names a private production, which its proof module cannot see.
+    /// A claim, or any sentence of a spec module, names a private production,
+    /// which its proof module cannot see.
     PrivateProductionInSpec {
         /// The private production.
         production: Box<StableItemId>,
-        /// The claim that names it.
-        claim: Box<StableItemId>,
-        /// Sole exact authored range of the claim.
+        /// The claim or spec-module sentence that names it.
+        sentence: Box<StableItemId>,
+        /// How the note names the sentence (`claim`, `simplification lemma`).
+        kind: &'static str,
+        /// The author spec module holding the sentence; `None` for a claim in
+        /// the generated `<MAIN>-SPEC`.
+        module: Option<Box<str>>,
+        /// Sole exact authored range of the sentence.
         range: Option<Box<SourceRange>>,
     },
     /// A readable rule without the computation cell changes no cell (KF-015).
@@ -480,8 +486,17 @@ impl ToDiagnostic for DescriptorLoweringError {
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
             Self::NondetGroup { rule, .. } => diagnostic.with_note(format!("rule: {rule}")),
-            Self::PrivateProductionInSpec { claim, .. } => {
-                diagnostic.with_note(format!("claim: {claim}"))
+            Self::PrivateProductionInSpec {
+                sentence,
+                kind,
+                module,
+                ..
+            } => {
+                let diagnostic = diagnostic.with_note(format!("{kind}: {sentence}"));
+                match module {
+                    Some(module) => diagnostic.with_note(format!("spec module: {module}")),
+                    None => diagnostic,
+                }
             }
             _ => diagnostic,
         }

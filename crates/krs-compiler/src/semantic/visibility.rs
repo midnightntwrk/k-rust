@@ -1,19 +1,23 @@
 //! Private productions in proof modules (KF-045).
 //!
 //! A production whose Rust item is not `pub` is K `private`: only its own
-//! module sees it. Claims are emitted into the generated `<MAIN>-SPEC`, which
-//! imports the main module, so a claim cannot name a private production of
-//! any package; K would reject the claim when it parses it.
+//! module sees it. Every proof module imports the definition, so none can
+//! name a private production of any package: K parses a proof module's
+//! sentences with that module's grammar, which leaves imported private
+//! syntax out. The proof modules are the generated `<MAIN>-SPEC`, which holds
+//! the claims outside every spec module, and the author spec modules
+//! (KF-041), whose claims and simplification lemmas are both checked.
 
 use krs_ir::StableItemId;
-use krs_ir_levels::SemanticModule;
+use krs_ir_levels::{SemanticModule, SemanticRule};
 
 use super::error::DescriptorLoweringError;
 use crate::partition::{is_private, production_display_name};
 
-/// Rejects the first claim, in stable module and rule order, that names a
-/// private production.
-pub(super) fn check_claim_visibility(
+/// Rejects the first proof-module sentence, in stable module and rule order,
+/// that names a private production: any claim, and any sentence of an
+/// author spec module.
+pub(super) fn check_proof_visibility(
     modules: &[SemanticModule],
 ) -> Result<(), DescriptorLoweringError> {
     let private = modules
@@ -26,27 +30,43 @@ pub(super) fn check_claim_visibility(
     if private.is_empty() {
         return Ok(());
     }
-    for rule in modules
-        .iter()
-        .flat_map(SemanticModule::rules)
-        .filter(|rule| rule.claim().is_some())
-    {
-        // The claim's serialized form holds every declaration it names, in
-        // terms, conditions, and binders, so the search covers every shape.
-        let claim = serde_json::to_value(rule).map_err(json_error)?;
+    for (module, rule) in modules.iter().flat_map(|module| {
+        module
+            .rules()
+            .iter()
+            .filter(|rule| module.is_spec() || rule.claim().is_some())
+            .map(move |rule| (module, rule))
+    }) {
+        // The sentence's serialized form holds every declaration it names,
+        // in terms, conditions, and binders, so the search covers every
+        // shape.
+        let sentence = serde_json::to_value(rule).map_err(json_error)?;
         if let Some(production) = private
             .iter()
-            .find(|(id, _)| contains(&claim, id))
+            .find(|(id, _)| contains(&sentence, id))
             .map(|(_, production)| *production)
         {
             return Err(DescriptorLoweringError::PrivateProductionInSpec {
                 production: Box::new(production.clone()),
-                claim: Box::new(rule.id().clone()),
+                sentence: Box::new(rule.id().clone()),
+                kind: sentence_kind(rule),
+                module: module.is_spec().then(|| module.id().as_str().into()),
                 range: rule.origin().origin().exact_authored_range().map(Box::new),
             });
         }
     }
     Ok(())
+}
+
+/// How the diagnostic's note names the offending sentence.
+fn sentence_kind(rule: &SemanticRule) -> &'static str {
+    if rule.claim().is_some() {
+        "claim"
+    } else if rule.simplification().is_some() {
+        "simplification lemma"
+    } else {
+        "rule"
+    }
 }
 
 /// The message of [`DescriptorLoweringError::PrivateProductionInSpec`].
@@ -75,7 +95,7 @@ fn contains(value: &serde_json::Value, needle: &serde_json::Value) -> bool {
 )]
 fn json_error(error: serde_json::Error) -> DescriptorLoweringError {
     DescriptorLoweringError::UnsupportedShape {
-        node: "claim",
-        detail: format!("cannot inspect a claim's references: {error}"),
+        node: "proof sentence",
+        detail: format!("cannot inspect a proof sentence's references: {error}"),
     }
 }

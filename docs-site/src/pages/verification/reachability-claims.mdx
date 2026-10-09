@@ -153,6 +153,10 @@ That is why the definition adds the `$`-identifier token: the claim can write `$
 KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, a regex token there (declare it in the definition, as upstream does), an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
 Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
 
+A spec module sees only the definition's public syntax.
+A production whose Rust item is not `pub` is K `private`, and K hides private syntax from every importing module, proof modules included.
+Rust lets a spec module inside the crate name such an item, so KRS checks it instead: a claim, here or in `<MAIN>-SPEC`, or a simplification lemma that names a private production is rejected with `krs::analysis::private-production-in-spec`; make the production `pub` and mark it `internal`.
+
 ## Capability boundary
 
 `krs emit-k` writes claims to `spec.k`, in their spec modules or in a generated `<MAIN>-SPEC` module, beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.

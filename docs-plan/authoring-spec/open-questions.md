@@ -118,6 +118,7 @@ what they block.
     `krs prove --spec-module NAME` proves it natively, as `kprove --spec-module NAME` does.
     The `$`-prefixed `Id` token is authored as upstream does, in the definition: `#[k::token(regex = r"\$[a-zA-Z0-9_]+")] pub type DollarId = k::builtin::Id;`, and a spec-module claim then prints `k::id!("$n")` bare as `$n`, so C2-002's `#token("$n","Id")` spelling is no longer needed there.
     Regex tokens stay out of spec modules on recorded backend evidence (kore-exec once failed to terminate with one in a proof module), and an identifier in a spec-module claim that no visible token production lexes is an error.
+    A spec module sees only the definition's public syntax: K hides `private` productions from every importing module, so a claim or simplification lemma in a spec module that names a non-`pub` production is an error (`krs::analysis::private-production-in-spec`, KF-045), as a claim in `<MAIN>-SPEC` already was.
     The four `[simplification]` lemmas remain in the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
     Rejected: Cargo-metadata spec facets, one package per spec module, a general `#[k::module]`, spec-only constructors or functions (K forbids them), and regex token aliases in spec modules.
 15. ~~**Exact-parity `% ` format escape**~~ — **RESOLVED for printing**: there is no `% ` escape.

@@ -176,6 +176,9 @@
     ],
     "spec-module-no-definition": [
       "error[krs::analysis::invalid-spec-module]: spec module `LONELY-SPEC` does not import the definition: its imports never reach `KRS-SPEC-MODULE-NO-DEFINITION`. Add `imports = [crate]` (or a spec module that imports it)"
+    ],
+    "spec-module-private-lemma": [
+      "error[krs::analysis::private-production-in-spec]: `H` is private to KRS-SPEC-MODULE-PRIVATE-LEMMA; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
     ]
   },
   "trusted_proofs": {

@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -19,6 +21,16 @@ from support.tools import checkout_scratch, executable, z3_environment  # noqa: 
 
 HERE = Path(__file__).resolve().parent
 MACRO_NEGATIVES = ROOT / "crates" / "krs-macros" / "tests" / "fixtures" / "negative"
+SPEC_MODULE_FIXTURES = ROOT / "tests" / "verification-surface" / "fixtures"
+PRIVATE_LEMMA = "spec-module-private-lemma"
+PRIVATE_LEMMA_MESSAGE = (
+    "`H` is private to KRS-SPEC-MODULE-PRIVATE-LEMMA; K's private syntax is invisible to proof "
+    "modules. Make it `pub` and mark it `internal`"
+)
+PRIVATE_LEMMA_NOTES = (
+    "simplification lemma: KRS-SPEC-MODULE-PRIVATE-LEMMA::proofs::h_lemma (simplification)",
+    "spec module: KRS-SPEC-MODULE-PRIVATE-LEMMA-PROOFS",
+)
 FRESH_PLACEMENT = (
     "fresh values are drawn from the generated counter only by a transition step of the "
     "configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, "
@@ -109,6 +121,44 @@ def check_overlap(binary: Path) -> None:
         raise GateError("default overlap diagnostic lacks the authored Foo snippet line")
 
 
+def check_private_lemma(binary: Path, environment: dict[str, str], scratch: Path) -> None:
+    """A spec-module lemma that names a private production is rejected at the lemma."""
+
+    package = scratch / PRIVATE_LEMMA
+    if package.exists():
+        shutil.rmtree(package)
+    shutil.copytree(SPEC_MODULE_FIXTURES / PRIVATE_LEMMA, package)
+    facade = json.dumps(os.fspath((ROOT / "crates" / "krs").resolve()))
+    template = package / "Cargo.toml.in"
+    manifest = package / "Cargo.toml"
+    manifest.write_text(
+        template.read_text(encoding="utf-8").replace("@KRS_CRATE_PATH@", facade), encoding="utf-8"
+    )
+    template.unlink()
+    result = run(
+        Invocation(binary, manifest, f"krs-verification-surface-{PRIVATE_LEMMA}", "main").argv(
+            "check", "--message-format=json"
+        ),
+        environment=environment,
+        check=False,
+    )
+    if result.returncode == 0:
+        raise GateError(f"{PRIVATE_LEMMA}: krs check accepted a lemma naming a private production")
+    typed = krs_diagnostics(result.stderr)
+    if len(typed) != 1:
+        raise GateError(f"{PRIVATE_LEMMA}: expected one KRS diagnostic, got {len(typed)}")
+    diagnostic = typed[0]
+    if diagnostic.code != "krs::analysis::private-production-in-spec":
+        raise GateError(f"{PRIVATE_LEMMA}: code changed: {diagnostic.code!r}")
+    if diagnostic.message != PRIVATE_LEMMA_MESSAGE:
+        raise GateError(f"{PRIVATE_LEMMA}: message changed: {diagnostic.message!r}")
+    if diagnostic.notes != PRIVATE_LEMMA_NOTES:
+        raise GateError(f"{PRIVATE_LEMMA}: notes changed: {diagnostic.notes!r}")
+    selected = diagnostic.selected_bytes(package).decode()
+    if selected != "h_lemma":
+        raise GateError(f"{PRIVATE_LEMMA}: expected the lemma's name, got {selected!r}")
+
+
 def main() -> None:
     target = checkout_scratch() / "tour-negatives-root-target"
     environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
@@ -116,6 +166,8 @@ def main() -> None:
     check_packages("tour-negatives", krs=binary, env=environment, target_dir=target)
     check_overlap(binary)
     print("PASS overlap: structured analysis code, exact second Foo head, and default human snippet")
+    check_private_lemma(binary, environment, checkout_scratch() / "tour-negatives-fixtures")
+    print(f"PASS {PRIVATE_LEMMA}: private production in a spec-module lemma, at the lemma's name")
     cases = (
         (
             "readable_missing_cell",

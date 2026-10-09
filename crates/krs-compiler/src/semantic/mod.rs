@@ -171,7 +171,7 @@ pub fn lower_descriptor_bundle(
     restriction::check_equation_restrictions(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
-    visibility::check_claim_visibility(&modules)?;
+    visibility::check_proof_visibility(&modules)?;
     spec_modules::check_spec_lemmas(&modules)?;
     spec_modules::check_spec_identifiers(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {

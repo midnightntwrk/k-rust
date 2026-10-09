@@ -94,8 +94,10 @@ proof definition), and Java `kprove --spec-module IMP-SUM-SPEC` of the
 emitted files gives `#Top`. An unknown spec module and a spec module without
 claims are refused. Negative fixtures pin a sort in a spec module, an import
 cycle, a regex token in a spec module, an identifier no visible token lexes,
-an `smt_lemma` lemma in a spec module, and a spec module that never imports
-the definition.
+an `smt_lemma` lemma in a spec module, a spec module that never imports the
+definition, and a spec-module simplification lemma that names a private
+(non-`pub`) production, which K's private syntax hides from every proof
+module.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -280,6 +282,7 @@ NEGATIVE = (
     "spec-module-undeclared-id",
     "spec-module-smt-lemma",
     "spec-module-no-definition",
+    "spec-module-private-lemma",
 )
 
 
