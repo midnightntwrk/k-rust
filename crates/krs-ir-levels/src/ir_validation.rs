@@ -585,6 +585,10 @@ pub(crate) fn validate_context_alias<L: Validation>(
             insert_node::<L>(nodes, origin.key())?;
         }
     }
+    if let Some(result) = alias.result() {
+        require_sort::<L>(declarations, result.sort())?;
+        insert_node::<L>(nodes, result.origin().key())?;
+    }
     Ok(())
 }
 
@@ -707,6 +711,14 @@ pub(crate) fn validate_rule<L: Validation>(
         }
     }
     L::rule_label_origin(sentence, nodes)?;
+    if rule.kind == SentenceKind::Context
+        && (rule.evaluation.is_none()
+            || matches!(rule.body, RuleBodyRef::Term(body) if body.local_term().is_none()))
+    {
+        return Err(L::error(ValidationError::InvalidEvaluationStep(
+            rule.id.clone(),
+        )));
+    }
     let scope = variable_scope::<L>(rule.variables, declarations)?;
     match rule.body {
         RuleBodyRef::Term(body) => {
@@ -714,7 +726,9 @@ pub(crate) fn validate_rule<L: Validation>(
             if let Some(local) = body.local_term() {
                 // A single-body rule (KF-011): one transition whose
                 // rewrites sit below the root, validated once as authored.
-                if rule.kind != SentenceKind::Transition
+                // A context (KF-021) is its pattern, with at most one
+                // rewrite, of its hole.
+                if !matches!(rule.kind, SentenceKind::Transition | SentenceKind::Context)
                     || matches!(local.kind(), IrTermKind::Rewrite { .. })
                     || !local_rewrites_valid(local, false)
                 {
@@ -1171,7 +1185,14 @@ fn validate_evaluation_step<L: Validation>(
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let invalid = || L::error(ValidationError::InvalidEvaluationStep(rule.id.clone()));
-    if rule.kind != SentenceKind::Transition
+    // A context's step (KF-021) belongs to a context, a heat or cool key to
+    // a transition.
+    let kind_matches = if step.kind() == krs_ir::EvaluationKind::Context {
+        rule.kind == SentenceKind::Context
+    } else {
+        rule.kind == SentenceKind::Transition
+    };
+    if !kind_matches
         || rule.priority.is_some()
         || rule.anywhere
         || !rule.fresh.is_empty()

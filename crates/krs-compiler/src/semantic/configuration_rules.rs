@@ -297,6 +297,26 @@ pub(super) fn lower_configuration_rule_descriptor(
     };
     let clauses =
         lower_configuration_rule_clauses(&mut terms, rule, &subject_sorts, &result_sorts)?;
+    // A context's hole lies in the computation cell (KF-021).
+    if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
+        && let Some(step) = &rule.evaluation
+    {
+        let hole = SemanticId::new(step.hole.clone())?;
+        for (cell, clause) in rule.subject.cells.iter().zip(&clauses) {
+            if cell.wrapper != Some(krs_ir::CellWrapper::KCell)
+                && super::evaluation::mentions(clause.before(), &hole)
+            {
+                return Err(super::evaluation::outside_computation_cell(
+                    "the context's hole",
+                    &step.hole,
+                    &cell.field.cell.field,
+                    semantic_origin(descriptor, cell.field.key.clone(), "rule-cell")?
+                        .origin()
+                        .exact_authored_range(),
+                ));
+            }
+        }
+    }
     // A claim keeps its stream cells as ordinary List cells: `prove` performs no console I/O.
     if rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Claim {
         let stdin = stdin_cells(&configuration.declaration, declarations)?;
@@ -438,7 +458,9 @@ fn lower_configuration_rule_clauses(
             lower_configuration_rule_clause(terms, subject, result, subject_sorts, result_sorts)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // A context (KF-021) need not rewrite anything.
     if rule.result.is_none()
+        && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
         && !clauses
             .iter()
             .any(|clause| matches!(clause.after(), CellPost::Local))
@@ -757,6 +779,7 @@ pub(super) fn lower_context_alias_descriptor(
         .iter()
         .map(|pattern| lower_context_alias_cell(&mut terms, pattern, &binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
+    check_here_in_computation_cell(descriptor, alias, &cells)?;
     let selected = alias
         .pattern
         .cells
@@ -789,7 +812,44 @@ pub(super) fn lower_context_alias_descriptor(
         SemanticId::new(alias.here.clone())?,
         terms.variables,
         body,
+    )
+    .with_result(
+        alias
+            .result
+            .as_ref()
+            .map(|sort| -> Result<_, DescriptorLoweringError> {
+                Ok(krs_ir_levels::IrEvaluationResult::new(
+                    semantic_origin(descriptor, sort.key.clone(), "context-alias-result")?,
+                    semantic_sort_ref(&sort.sort),
+                ))
+            })
+            .transpose()?,
     ))
+}
+
+/// Checks that a context alias's HERE lies in the computation cell
+/// (KF-021): heating moves it to the front of `k`.
+fn check_here_in_computation_cell(
+    descriptor: &Descriptor,
+    alias: &krs_ir::DescriptorContextAlias,
+    cells: &[FixedCellPattern<SemanticId, SemanticTerm>],
+) -> Result<(), DescriptorLoweringError> {
+    let here = SemanticId::new(alias.here.clone())?;
+    for (pattern, cell) in alias.pattern.cells.iter().zip(cells) {
+        if pattern.wrapper != Some(krs_ir::CellWrapper::KCell)
+            && super::evaluation::mentions(cell.pattern(), &here)
+        {
+            return Err(super::evaluation::outside_computation_cell(
+                "the context alias's HERE",
+                &alias.here,
+                &pattern.field.cell.field,
+                semantic_origin(descriptor, pattern.field.key.clone(), "context-alias-cell")?
+                    .origin()
+                    .exact_authored_range(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Lowers an equation's function context (KF-025): its leaf cells as a

@@ -1257,8 +1257,7 @@ impl SemanticRule {
         variables: Vec<SemanticVariable>,
         body: SemanticTerm,
     ) -> Result<Self, SemanticValidationError> {
-        let body = body
-            .try_into()
+        let body = crate::ir_level::rule_body(kind, body)
             .map_err(|_| SemanticValidationError::RuleBodyNotRewrite(Box::new(id.clone())))?;
         Ok(Self {
             origin,

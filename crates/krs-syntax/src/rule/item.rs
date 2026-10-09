@@ -93,6 +93,9 @@ enum ClauseForm {
     Equation,
     /// A `#[k::rule]` fn, which may be a single-body rule (KF-011).
     Transition,
+    /// A `#[k::context]` fn (KF-021): unit-returning, with at most one
+    /// `k::rewrite!`, of its hole.
+    Context,
 }
 
 impl RuleItem {
@@ -131,6 +134,28 @@ impl RuleItem {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
         crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
         Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, ClauseForm::Equation)
+    }
+
+    /// Parses a term-shaped `#[k::context]` fn (KF-021): it returns `()`,
+    /// has an empty body, and its subject holds at most one `k::rewrite!`.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::from_item`], a result, a body, more than one
+    /// rewrite, and `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`.
+    pub fn parse_context_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, ClauseForm::Context)
+    }
+
+    /// Validates a previously parsed Rust function as a term-shaped
+    /// `#[k::context]` fn (KF-021).
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::parse_context_tokens`].
+    pub fn from_context_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), ClauseForm::Context)
     }
 
     /// Parses an equation's source text, which may end with a function context.
@@ -274,13 +299,28 @@ impl RuleItem {
             .nodes()
             .iter()
             .find(|node| matches!(node, TermNode::Rewrite { .. }));
+        let returns_unit = match &item.sig.output {
+            ReturnType::Default => true,
+            ReturnType::Type(_, ty) => crate::state_rule::is_unit_type(ty),
+        };
+        if form == ClauseForm::Context {
+            crate::state_rule::check_context_shape(
+                item,
+                returns_unit,
+                pattern
+                    .nodes()
+                    .iter()
+                    .filter(|node| matches!(node, TermNode::Rewrite { .. }))
+                    .map(|node| Ok(node.range()?.first()))
+                    .collect::<Result<Vec<_>, SyntaxError>>()?
+                    .as_slice(),
+            )?;
+        }
         // A fn with statements and no rewrite meant to return a result.
         let single_body = form == ClauseForm::Transition
-            && match &item.sig.output {
-                ReturnType::Default => true,
-                ReturnType::Type(_, ty) => crate::state_rule::is_unit_type(ty),
-            }
+            && returns_unit
             && (item.block.stmts.is_empty() || rewrite.is_some());
+        let single_body = single_body || form == ClauseForm::Context;
         match (single_body, rewrite) {
             (false, Some(rewrite)) => {
                 return Err(crate::term::local_rewrite_error(
@@ -288,6 +328,7 @@ impl RuleItem {
                     rewrite.range()?.first(),
                 ));
             }
+            (true, None) if form == ClauseForm::Context => {}
             (true, None) => {
                 return Err(crate::term::local_rewrite_error(
                     crate::state_rule::SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
@@ -339,7 +380,12 @@ impl RuleItem {
         let existentials = RuleExistentials::take(&mut item.attrs)?;
         if single_body && let Some(helper) = existentials.attributes().first() {
             return Err(crate::term::local_rewrite_error(
-                crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
+                if form == ClauseForm::Context {
+                    crate::state_rule::CONTEXT_BINDERS
+                } else {
+                    crate::state_rule::SINGLE_BODY_BINDERS
+                }
+                .to_owned(),
                 helper.path().span(),
             ));
         }

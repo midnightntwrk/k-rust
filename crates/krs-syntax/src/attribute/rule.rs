@@ -313,9 +313,15 @@ impl RuleAttribute {
     /// Returns an endpoint error only if the parsed literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = Vec::with_capacity(2);
+        // A context (KF-021) anchors its keys under the context roles.
+        let kind = self.evaluation.as_ref().map(|(kind, _)| *kind);
         if let Some(label) = &self.label {
             anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLabel,
+                if kind == Some(krs_ir::EvaluationKind::Context) {
+                    ProvenanceRole::ContextLabel
+                } else {
+                    ProvenanceRole::RuleLabel
+                },
                 0,
                 TokenRange::for_tokens(label)?,
             ));
@@ -355,16 +361,17 @@ impl RuleAttribute {
                 TokenRange::for_tokens(marker)?,
             ));
         }
+        let kind = kind.unwrap_or(krs_ir::EvaluationKind::Heat);
         if let Some(hole) = &self.hole {
             anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleHole,
+                kind.hole_role(),
                 0,
                 TokenRange::for_tokens(hole)?,
             ));
         }
         if let Some(result) = &self.result {
             anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleResultSort,
+                kind.result_role(),
                 0,
                 TokenRange::for_tokens(result)?,
             ));
@@ -734,9 +741,124 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
     Ok(attribute)
 }
 
+/// Typed metadata of `#[k::context(hole = x, result = S, label = "...")]`
+/// (KF-021): K's `context`, which says where evaluation may happen.
+#[derive(Clone, Debug)]
+pub struct ContextAttribute {
+    hole: Ident,
+    result: Option<Path>,
+    label: Option<LitStr>,
+}
+
+impl ContextAttribute {
+    /// Returns the binder named by `hole = x`, K's `HOLE`.
+    #[must_use]
+    pub const fn hole(&self) -> &Ident {
+        &self.hole
+    }
+
+    /// Returns the sort path of `result = S`, K's `result(S)`.
+    #[must_use]
+    pub const fn result_sort(&self) -> Option<&Path> {
+        self.result.as_ref()
+    }
+
+    /// Returns the explicit `label = "..."`.
+    #[must_use]
+    pub const fn label(&self) -> Option<&LitStr> {
+        self.label.as_ref()
+    }
+
+    /// The rule-attribute view of this context, whose evaluation step is
+    /// marked by the context fn's name: the expansion of a context shares
+    /// the rule expansion, under the context roles.
+    #[must_use]
+    pub fn rule_attribute(&self, name: &Ident) -> RuleAttribute {
+        RuleAttribute {
+            label: self.label.clone(),
+            evaluation: Some((krs_ir::EvaluationKind::Context, name.clone())),
+            hole: Some(self.hole.clone()),
+            result: self.result.clone(),
+            ..RuleAttribute::default()
+        }
+    }
+}
+
+impl Parse for ContextAttribute {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        parse_context_stream(input).map_err(syn::Error::from)
+    }
+}
+
+impl KrsSyntax for ContextAttribute {
+    /// Parses `hole = x`, an optional `result = S`, and an optional
+    /// `label = "..."`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown or repeated keys, a malformed value, and a missing
+    /// `hole`.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_context_stream)
+    }
+}
+
+fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, ParseError> {
+    let missing_span = input.span();
+    let mut hole: Option<Ident> = None;
+    let mut result: Option<Path> = None;
+    let mut label: Option<LitStr> = None;
+    while !input.is_empty() {
+        let key: Ident = input.parse()?;
+        let key_name = key.to_string();
+        let duplicate = match key_name.as_str() {
+            "hole" => hole.is_some().then_some("hole"),
+            "result" => result.is_some().then_some("result"),
+            "label" => label.is_some().then_some("label"),
+            _ => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::UnknownArgument { name: key_name },
+                    key.span(),
+                )
+                .into());
+            }
+        };
+        if let Some(name) = duplicate {
+            return Err(
+                SyntaxError::new(SyntaxErrorKind::DuplicateArgument { name }, key.span()).into(),
+            );
+        }
+        input.parse::<Token![=]>()?;
+        let value: Expr = input.parse()?;
+        match key_name.as_str() {
+            "hole" => {
+                hole = Some(super::value::parse_unqualified_identifier_value(
+                    "hole", value,
+                )?);
+            }
+            "result" => result = Some(parse_result_sort(value)?),
+            _ => label = Some(parse_rule_label_value(value)?),
+        }
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(ContextAttribute {
+        hole: hole.ok_or_else(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::MissingArgument { name: "hole" },
+                missing_span,
+            )
+        })?,
+        result,
+        label,
+    })
+}
+
 /// Parses the sort path of `result = S`: a plain Rust path, as in
 /// `#[k::strict(result = S)]`.
-fn parse_result_sort(value: Expr) -> Result<Path, ParseError> {
+pub(super) fn parse_result_sort(value: Expr) -> Result<Path, ParseError> {
     match value {
         Expr::Path(syn::ExprPath {
             attrs,

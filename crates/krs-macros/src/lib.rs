@@ -228,7 +228,8 @@ pub fn alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Alias, attributes, item)
 }
 
-/// Declares one reusable one-sided fixed-configuration context template.
+/// Declares one reusable one-sided fixed-configuration context template;
+/// `result = S` is K's `result(S)`.
 #[proc_macro_attribute]
 pub fn context_alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::ContextAlias, attributes, item)
@@ -449,11 +450,25 @@ pub fn matches(input: TokenStream) -> TokenStream {
 }
 
 /// K's local rewrite: `k::rewrite!(from => to)` marks what changes inside
-/// the subject of a single-body `#[k::rule]` fn, one that returns `()`; the
-/// rest of the subject is the frame, as in K's `<k> (X = V ; => .K) ... </k>`.
+/// the subject of a single-body `#[k::rule]` fn, one that returns `()`, or
+/// rewrites the hole of a `#[k::context]` fn; the rest of the subject is the
+/// frame, as in K's `<k> (X = V ; => .K) ... </k>`.
 /// `()` on the right is K's `.K` and removes a whole K-sequence item. Used
 /// anywhere else it is a compile error.
 #[proc_macro]
 pub fn rewrite(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Rewrite, input)
+}
+
+/// Declares an evaluation context, K's `context`: where evaluation may
+/// happen. `#[k::context(hole = h)] fn add_rhs(k::term![Op::Add(e, h)]: Term<Expr>) {}`
+/// is K's `context E + HOLE`; K turns it into a heat rule and a cool rule
+/// with the labels `<label>-heat` and `<label>-cool`. The subject is a
+/// `k::term!` (K completes it to the computation cell) or a `k::cells!`
+/// pattern that may constrain other cells; `k::rewrite!(h => f(h))` rewrites
+/// the hole once (an lvalue context). `result = S` is K's `result(S)` and
+/// `label` defaults to the fn name with `_` written `-`.
+#[proc_macro_attribute]
+pub fn context(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Context, attributes, item)
 }

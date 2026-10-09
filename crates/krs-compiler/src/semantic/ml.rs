@@ -60,7 +60,8 @@ pub(super) fn check_condition_placement(
         SentenceKind::Transition
         | SentenceKind::Equation
         | SentenceKind::Alias
-        | SentenceKind::Desugar => false,
+        | SentenceKind::Desugar
+        | SentenceKind::Context => false,
     };
     if allowed || !is_predicate_condition(condition) {
         return Ok(());
@@ -69,6 +70,7 @@ pub(super) fn check_condition_placement(
         SentenceKind::Transition => "a transition",
         SentenceKind::Equation => "an equation",
         SentenceKind::Simplification => "a simplification's ensures",
+        SentenceKind::Context => "a context",
         _ => "this sentence",
     };
     Err(DescriptorLoweringError::MlPlacement {

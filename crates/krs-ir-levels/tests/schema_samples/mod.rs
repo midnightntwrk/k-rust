@@ -2838,16 +2838,22 @@ impl Sample for ConstructorFieldDescriptor {
 }
 impl Sample for ContextAliasSentence {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<StableItemId>(),
-            sample::<NodeOrigin>(),
-            sample::<String>(),
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<Vec<DefinitionVariable>>(),
-            sample::<FixedConfigurationPattern<SymbolId, DefinitionTerm>>(),
-        )]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<StableItemId>(),
+                sample::<NodeOrigin>(),
+                sample::<String>(),
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<Vec<DefinitionVariable>>(),
+                sample::<FixedConfigurationPattern<SymbolId, DefinitionTerm>>(),
+            )
+            .with_result(Some(IrEvaluationResult::new(
+                sample::<NodeOrigin>(),
+                sample::<DefinitionSortRef>(),
+            ))),
+        ]
     }
 }
 impl Sample for DefinitionClaim {
@@ -3064,6 +3070,7 @@ impl Sample for DescriptorContextAlias {
             configuration: sample::<DescriptorConfigurationReference>(),
             bindings: sample::<Vec<ProtocolContextAliasBinding<DescriptorSortReference>>>(),
             pattern: sample::<DescriptorRuleCells>(),
+            result: sample::<Option<DescriptorSortReference>>(),
         }]
     }
 }
@@ -3460,16 +3467,19 @@ impl Sample for SemanticScopedBinder {
 }
 impl Sample for SemanticContextAlias {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<StableItemId>(),
-            sample::<NodeOrigin>(),
-            sample::<String>(),
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<Vec<SemanticVariable>>(),
-            sample::<FixedConfigurationPattern<SemanticId, SemanticTerm>>(),
-        )]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<StableItemId>(),
+                sample::<NodeOrigin>(),
+                sample::<String>(),
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<Vec<SemanticVariable>>(),
+                sample::<FixedConfigurationPattern<SemanticId, SemanticTerm>>(),
+            )
+            .with_result(Some(sample::<IrEvaluationResult<SemanticLevel>>())),
+        ]
     }
 }
 impl Sample for SemanticRuleCondition {
@@ -3691,6 +3701,7 @@ impl Sample for WireContextAlias {
             configuration: sample::<WireConfigurationReference>(),
             bindings: sample::<Vec<ProtocolContextAliasBinding<WireSortReference>>>(),
             pattern: sample::<WireRuleCells>(),
+            result: sample::<Option<WireSortReference>>(),
         }]
     }
 }

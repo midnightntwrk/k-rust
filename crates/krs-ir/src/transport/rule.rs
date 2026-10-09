@@ -62,7 +62,8 @@ pub type DescriptorClaimBinder = ClaimBinder<DescriptorStage>;
 /// Build-local host-stage form of [`ClaimBinder`].
 pub type HostClaimBinder = ClaimBinder<HostStage>;
 
-/// Whether a transition is a heating or a cooling step (KF-014).
+/// Whether a transition is a heating or a cooling step (KF-014), or the
+/// sentence is an evaluation context that K turns into both (KF-021).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationKind {
@@ -70,24 +71,48 @@ pub enum EvaluationKind {
     Heat,
     /// `#[k::rule(cool, hole = x)]`, K's `[cool]`: plugs a finished hole back.
     Cool,
+    /// `#[k::context(hole = x)]`, K's `context`: where evaluation may happen.
+    Context,
 }
 
 impl EvaluationKind {
-    /// The provenance role of the `heat` or `cool` marker.
+    /// The provenance role of the `heat` or `cool` marker, or of a context's
+    /// fn name.
     #[must_use]
     pub const fn role(self) -> ProvenanceRole {
         match self {
             Self::Heat => ProvenanceRole::RuleHeat,
             Self::Cool => ProvenanceRole::RuleCool,
+            Self::Context => ProvenanceRole::ContextDeclaration,
         }
     }
 
-    /// K's attribute spelling, `heat` or `cool`.
+    /// The provenance role of the binder named by `hole = x`.
+    #[must_use]
+    pub const fn hole_role(self) -> ProvenanceRole {
+        match self {
+            Self::Heat | Self::Cool => ProvenanceRole::RuleHole,
+            Self::Context => ProvenanceRole::ContextHole,
+        }
+    }
+
+    /// The provenance role of the sort path of `result = S`.
+    #[must_use]
+    pub const fn result_role(self) -> ProvenanceRole {
+        match self {
+            Self::Heat | Self::Cool => ProvenanceRole::RuleResultSort,
+            Self::Context => ProvenanceRole::ContextResult,
+        }
+    }
+
+    /// K's attribute spelling, `heat` or `cool`; a context is a sentence
+    /// keyword, `context`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Heat => "heat",
             Self::Cool => "cool",
+            Self::Context => "context",
         }
     }
 }
@@ -131,12 +156,12 @@ impl<S: crate::Stage> EvaluationStep<S> {
     pub(crate) fn has_valid_roles(&self, result_key: impl Fn(&S::Sort) -> &ProvenanceKey) -> bool {
         self.key.role() == self.kind.role()
             && self.key.ordinal() == 0
-            && self.hole_key.role() == ProvenanceRole::RuleHole
+            && self.hole_key.role() == self.kind.hole_role()
             && self.hole_key.ordinal() == 0
             && !self.hole.is_empty()
             && self.result.as_ref().is_none_or(|sort| {
                 let key = result_key(sort);
-                key.role() == ProvenanceRole::RuleResultSort && key.ordinal() == 0
+                key.role() == self.kind.result_role() && key.ordinal() == 0
             })
     }
 }
@@ -496,6 +521,9 @@ stage_shape! {
         pub bindings: Vec<ProtocolContextAliasBinding<S::Sort>> => [vec protocol sort],
         /// Complete one-sided cells pattern.
         pub pattern: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+        /// Optional `result = S`, K's `result(S)` (KF-021).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result: Option<S::Sort> => [option sort],
     }
 }
 
@@ -607,6 +635,9 @@ impl DescriptorContextAlias {
                 keys.insert(sort.key.clone());
             }
         }
+        if let Some(result) = &self.result {
+            keys.insert(result.key.clone());
+        }
         collect_cells_keys(&self.pattern, &mut keys);
         keys
     }
@@ -682,6 +713,15 @@ fn validate_context_alias<S: RuleValidationStage>(
     }
     S::validate_alias_here(&alias.pattern, &alias.here)?;
     validate_context_alias_frames(&alias.pattern, &alias.bindings)?;
+    if let Some(result) = &alias.result {
+        S::validate_binding_sort(result)?;
+        let key = S::sort_key(result);
+        if key.role() != ProvenanceRole::ContextAliasResult || key.ordinal() != 0 {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InvalidEvaluationStep,
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1663,10 +1703,10 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ));
     }
     if let Some(label) = &rule.label {
-        let label_role = if rule.sentence_kind == crate::ConfigurationSentenceKind::Claim {
-            ProvenanceRole::ClaimLabel
-        } else {
-            ProvenanceRole::RuleLabel
+        let label_role = match rule.sentence_kind {
+            crate::ConfigurationSentenceKind::Claim => ProvenanceRole::ClaimLabel,
+            crate::ConfigurationSentenceKind::Context => ProvenanceRole::ContextLabel,
+            _ => ProvenanceRole::RuleLabel,
         };
         S::insert_rule_label(keys, &label.key, label_role)?;
         if !valid_rule_label_name(&label.name) {
@@ -1716,9 +1756,20 @@ fn validate_configuration_rule<S: RuleValidationStage>(
                 StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
             ));
         }
-    } else if rule.sentence_kind != crate::ConfigurationSentenceKind::Transition {
+    } else if !matches!(
+        rule.sentence_kind,
+        crate::ConfigurationSentenceKind::Transition | crate::ConfigurationSentenceKind::Context
+    ) {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::RewriteOutsideSingleBodyRule,
+        ));
+    }
+    // A context (KF-021) has no post-state and is not a single-body rule:
+    // it may rewrite its hole once, or not at all.
+    let context = rule.sentence_kind == crate::ConfigurationSentenceKind::Context;
+    if context && (result.is_some() || rule.evaluation.is_none()) {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidEvaluationStep,
         ));
     }
     insert_rule_exact(keys, &rule.pattern_key, ProvenanceRole::RulePattern, 0)?;
@@ -1759,9 +1810,14 @@ fn validate_configuration_rule<S: RuleValidationStage>(
             StateTermReason::BindingCatalogOrder,
         ));
     }
-    if result.is_none() && left_counters.rewrite == 0 {
+    if result.is_none() && left_counters.rewrite == 0 && !context {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::SingleBodyRuleWithoutRewrite,
+        ));
+    }
+    if context && left_counters.rewrite > 1 {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidEvaluationStep,
         ));
     }
     let mut ignored = Vec::new();
@@ -1834,10 +1890,15 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     if let Some(step) = &rule.evaluation {
         validate_rule_evaluation::<S>(
             step,
-            rule.sentence_kind == crate::ConfigurationSentenceKind::Transition
-                && rule.priority.is_none()
-                && rule.nondet.is_none()
-                && rule.fresh.is_empty(),
+            if context {
+                step.kind == EvaluationKind::Context
+            } else {
+                rule.sentence_kind == crate::ConfigurationSentenceKind::Transition
+                    && step.kind != EvaluationKind::Context
+                    && rule.priority.is_none()
+                    && rule.nondet.is_none()
+                    && rule.fresh.is_empty()
+            },
             keys,
         )?;
     }
@@ -1858,10 +1919,10 @@ fn validate_rule_evaluation<S: RuleValidationStage>(
         ));
     }
     insert_rule_exact(keys, &step.key, step.kind.role(), 0)?;
-    insert_rule_exact(keys, &step.hole_key, ProvenanceRole::RuleHole, 0)?;
+    insert_rule_exact(keys, &step.hole_key, step.kind.hole_role(), 0)?;
     if let Some(sort) = &step.result {
         S::validate_binding_sort(sort)?;
-        insert_rule_exact(keys, S::sort_key(sort), ProvenanceRole::RuleResultSort, 0)?;
+        insert_rule_exact(keys, S::sort_key(sort), step.kind.result_role(), 0)?;
     }
     Ok(())
 }
@@ -3095,6 +3156,7 @@ fn validate_sentence_kind(
                 crate::ConfigurationSentenceKind::Transition => TransportItemKind::Rule,
                 crate::ConfigurationSentenceKind::Equation => TransportItemKind::Equation,
                 crate::ConfigurationSentenceKind::Claim => TransportItemKind::Claim,
+                crate::ConfigurationSentenceKind::Context => TransportItemKind::Context,
             },
             actual,
         })

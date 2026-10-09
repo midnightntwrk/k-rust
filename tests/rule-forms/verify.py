@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), local rewrites (KF-011), nondet (KF-012), heating and cooling (KF-014), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), local rewrites (KF-011), nondet (KF-012), heating and cooling (KF-014), contexts (KF-021), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -77,6 +77,17 @@ the outcomes must agree:
   natively and on Java LLVM; the emitted rules carry `HOLE`, `[heat]`,
   `[cool]`, and `result(Value)`; and the native trace of every program has
   the same heat, compute, cool shape in both definitions;
+- `contexts`: lesson 14-B, the same operators with term-shaped
+  `#[k::context(hole = h)]` fns, K's `context HOLE + _` and
+  `context E + HOLE requires isKResult(E)`, runs those programs like
+  `heat-cool-strict` natively and on Java LLVM, and its native traces apply
+  the `<label>-heat` and `<label>-cool` rules K generates from each context;
+  `contexts-lvalue`'s `context ++(HOLE => lvalue(HOLE))` increments a
+  variable's location in the store alike on both routes; and
+  `contexts-evaluate`'s two context aliases named `translate`, one with
+  `<evaluate> false </evaluate>` and one with `<evaluate> true </evaluate>`
+  and `result(ExecResult)`, and its `cells!` context on the target of `=`,
+  evaluate by the `evaluate` cell's value alike on both routes;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -89,7 +100,9 @@ the outcomes must agree:
   desugar clause, and a nested `k::rewrite!`, a right-side name the left
   image does not bind, `k::rewrite!` outside a rule's subject or in a rule
   with a result, and a single-body rule without a rewrite, and a heat rule
-  whose hole is not on its left side or is bound there twice, each fail
+  whose hole is not on its left side or is bound there twice, and a context
+  whose hole lies outside `k`, whose rewrite does not keep its hole, or
+  whose pattern does not bind its hole, each fail
   `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
@@ -278,6 +291,34 @@ HEAT_COOL_PROGRAMS = (
     Program("stuck", "1 + true", "accepted", "1 + true"),
 )
 
+CONTEXTS = Fixture(MANIFEST, "krs-rule-forms-contexts")
+CONTEXTS_LVALUE = Fixture(MANIFEST, "krs-rule-forms-contexts-lvalue")
+CONTEXTS_LVALUE_PROGRAMS = (
+    Program(
+        "increment", "++ x", "accepted", "2",
+        variables=(("STORE", "x |-> 1"),), cells=(("store", "x |-> 2"),),
+    ),
+    Program(
+        "increment-other", "++ y", "accepted", "6",
+        variables=(("STORE", "x |-> 1 y |-> 5"),), cells=(("store", "x |-> 1 y |-> 6"),),
+    ),
+)
+CONTEXTS_EVALUATE = Fixture(MANIFEST, "krs-rule-forms-contexts-evaluate")
+CONTEXTS_EVALUATE_PROGRAMS = tuple(
+    Program(
+        f"{name}-{'translate' if evaluate == 'true' else 'run'}", text, "accepted", run,
+        variables=(("EVALUATE", evaluate), ("ENV", "x |-> 2")),
+    )
+    for name, text, evaluate, run in (
+        ("twice-name", "twice(x)", "false", "4"),
+        ("twice-name", "twice(x)", "true", "x + x"),
+        ("twice-sum", "twice(1 + 2)", "false", "6"),
+        ("twice-sum", "twice(1 + 2)", "true", "6"),
+        ("assign", "(1 + 2) = x", "false", "1 + 2 = x"),
+        ("assign", "(1 + 2) = x", "true", "3 = x"),
+    )
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -318,6 +359,9 @@ NEGATIVE = (
     "local-rewrite-unchanged",
     "heat-cool-hole-not-left",
     "heat-cool-hole-twice",
+    "context-hole-outside-k",
+    "context-bad-rewrite",
+    "context-hole-absent",
 )
 
 
@@ -530,6 +574,60 @@ def verify_heat_cool(harness: FixtureGate, pins: Ledger) -> None:
     pins.expect(("trace_shapes", "heat-cool"), hand_shapes)
 
 
+def native_labels(harness: FixtureGate, emitted, program: Program) -> list[str]:
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        trace = session.exec_run(program=program.text, trace=True)["trace"]
+        return [step["label"] for step in trace]
+
+
+def verify_contexts(harness: FixtureGate, pins: Ledger) -> None:
+    """Contexts run lesson 14 like seqstrict, rewrite a hole to an lvalue, and follow another cell."""
+
+    harness.check(CONTEXTS)
+    harness.expand(CONTEXTS)
+    emitted = harness.emit(CONTEXTS)
+    emitted_attributes(emitted, (
+        "  context [add-lhs]: HOLE:Exp + _\n",
+        "  context [add-rhs]: E:Exp + HOLE:Exp\n    requires isKResult(E:Exp)\n",
+        "  context [and-rhs]: E:Exp && HOLE:Exp\n    requires isValue(E:Exp)\n    [result(Value)]\n",
+    ))
+    contexts = harness.compare(emitted, HEAT_COOL_PROGRAMS, sort="Exp")
+    strict_emitted = harness.emit(HEAT_COOL_STRICT)
+    strict = harness.compare(strict_emitted, HEAT_COOL_PROGRAMS, sort="Exp")
+    if contexts != strict:
+        raise GateError(f"contexts and seqstrict differ: {contexts} vs {strict}")
+    shapes = native_shapes(harness, emitted, HEAT_COOL_PROGRAMS)
+    strict_shapes = native_shapes(harness, strict_emitted, HEAT_COOL_PROGRAMS)
+    if shapes != strict_shapes:
+        raise GateError(f"native trace shapes differ: contexts {shapes}, seqstrict {strict_shapes}")
+    labels = native_labels(harness, emitted, HEAT_COOL_PROGRAMS[0])
+    generated = [label.rsplit(".", 1)[-1] for label in labels if label.endswith(("-heat", "-cool"))]
+    if generated != ["add-lhs-heat", "add-lhs-cool"]:
+        raise GateError(f"1 + 2 + 3 applied {labels}, expected the generated add-lhs heat and cool rules")
+    pins.expect(("trace_labels", "contexts", "add-left"), labels)
+
+    harness.check(CONTEXTS_LVALUE)
+    harness.expand(CONTEXTS_LVALUE)
+    lvalue = harness.emit(CONTEXTS_LVALUE)
+    emitted_attributes(lvalue, (
+        "  context [increment-target]: ++ (HOLE:Exp => lvalue ( HOLE:Exp ))\n",
+    ))
+    harness.compare(lvalue, CONTEXTS_LVALUE_PROGRAMS, sort="Exp")
+
+    harness.check(CONTEXTS_EVALUATE)
+    harness.expand(CONTEXTS_EVALUATE)
+    evaluate = harness.emit(CONTEXTS_EVALUATE)
+    emitted_attributes(evaluate, (
+        "  context alias [translate]:\n    <k> HERE ~> Tail:K </k>\n    <evaluate> false </evaluate>\n",
+        "  context alias [translate]:\n    <k> HERE ~> Tail:K </k>\n    <evaluate> true </evaluate>\n"
+        "    [result(ExecResult)]\n",
+        "  context [assign-target]:\n    <k> HOLE:Exp = _ ... </k>\n    <evaluate> true </evaluate>\n"
+        "    [result(ExecResult)]\n",
+    ))
+    harness.compare(evaluate, CONTEXTS_EVALUATE_PROGRAMS, sort="Exp")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -598,6 +696,9 @@ def main() -> int:
 
         verify_heat_cool(harness, pins)
         print("PASS heat-cool: hand-written heat and cool rules with freezers run lesson 14 like seqstrict natively and on Java LLVM, step for step")
+
+        verify_contexts(harness, pins)
+        print("PASS contexts: term-shaped contexts run lesson 14 like seqstrict natively and on Java LLVM through the generated heat and cool rules; an lvalue context increments the store; two translate aliases and a cells! context follow the evaluate cell")
 
         verify_macros(harness)
         print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards, unboundVariables desugars match as patterns on both routes")

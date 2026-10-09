@@ -494,7 +494,8 @@ fn primary_key(kind: ItemKind) -> Result<ProvenanceKey, CollectionError> {
         | ItemKind::Equation
         | ItemKind::Simplification
         | ItemKind::Alias
-        | ItemKind::Desugar => ProvenanceRole::RuleDeclaration,
+        | ItemKind::Desugar
+        | ItemKind::Context => ProvenanceRole::RuleDeclaration,
         ItemKind::Claim => ProvenanceRole::ClaimDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
         ItemKind::Grammar => {
@@ -519,6 +520,7 @@ fn descriptor_label(kind: ItemKind) -> &'static str {
         ItemKind::Alias => "alias",
         ItemKind::Desugar => "desugar",
         ItemKind::ContextAlias => "context alias",
+        ItemKind::Context => "context",
         ItemKind::Claim => "claim",
         ItemKind::Grammar => "grammar",
     }

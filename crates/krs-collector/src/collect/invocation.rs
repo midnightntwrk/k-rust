@@ -769,6 +769,7 @@ fn collect_fn_invocations(
         )?);
     }
     collect_fn_rules(item_fn, resolver, output)?;
+    collect_fn_contexts(item_fn, resolver, output)?;
     Ok(())
 }
 
@@ -887,6 +888,52 @@ fn collect_fn_rules(
             continue;
         }
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
+        let bindings = rule
+            .parameter()
+            .pattern
+            .bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
+        anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+        output.push(parsed_invocation(
+            ProvenanceRole::RuleDeclaration,
+            item_fn.sig.ident.to_string(),
+            anchors,
+            ParsedInvocationPayload::Rule { bindings },
+        )?);
+    }
+    Ok(())
+}
+
+/// A context (KF-021) is expanded as a rule whose keys carry the context
+/// roles.
+fn collect_fn_contexts(
+    item_fn: &syn::ItemFn,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    for attribute in item_fn
+        .attrs
+        .iter()
+        .filter(|attr| resolver.invokes(attr, AttributeMacro::Context))
+    {
+        let context = krs_syntax::ContextAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
+        let rule_attribute = context.rule_attribute(&item_fn.sig.ident);
+        if let Ok(rule) = StateRuleItem::from_context_item(item_fn.clone()) {
+            let mut anchors = rule.provenance().map_err(source_syntax)?;
+            anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+            output.push(parsed_invocation(
+                ProvenanceRole::RuleDeclaration,
+                item_fn.sig.ident.to_string(),
+                anchors,
+                ParsedInvocationPayload::Declaration,
+            )?);
+            continue;
+        }
+        let rule = RuleItem::from_context_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
             .pattern

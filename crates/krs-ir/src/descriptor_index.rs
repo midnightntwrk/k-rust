@@ -89,7 +89,8 @@ macro_rules! sentence_accessor {
                 | ItemKind::Simplification
                 | ItemKind::Alias
                 | ItemKind::Claim
-                | ItemKind::Desugar) => kind,
+                | ItemKind::Desugar
+                | ItemKind::Context) => kind,
                 _ => ItemKind::Rule,
             };
             let descriptor = self.require_kind(id, expected)?;

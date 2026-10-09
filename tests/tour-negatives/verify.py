@@ -34,7 +34,7 @@ PRIVATE_LEMMA_NOTES = (
 FRESH_PLACEMENT = (
     "fresh values are drawn from the generated counter only by a transition step of the "
     "configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, "
-    "context alias, anywhere rule, or heat or cool rule"
+    "context, context alias, anywhere rule, or heat or cool rule"
 )
 
 
@@ -256,6 +256,31 @@ def main() -> None:
             "`priority`, `nondet`, or `anywhere`",
             "10",
         ),
+        (
+            "context_missing_hole",
+            "missing required argument `hole = ...`",
+            "label",
+        ),
+        (
+            "context_binder_misordered",
+            "unsupported rule signature: typed term parameters must declare every term binder of "
+            "the subject and function context, in first-occurrence order (hole binders included; "
+            "`_`, remainders, HERE, instance labels and local binders excluded)",
+            "h",
+        ),
+        (
+            "context_with_result",
+            "unsupported rule signature: a context returns `()`: it says where evaluation may "
+            "happen and has no after-state; K turns it into a heat rule and a cool rule",
+            "Term",
+        ),
+        (
+            "context_two_rewrites",
+            "a context rewrites at most its hole, once: `k::rewrite!(h => f(h))`, K's "
+            "`HOLE => f(HOLE)`",
+            "k",
+        ),
+        ("context_fresh", FRESH_PLACEMENT, "fresh"),
         (
             "desugar_clause_recursive",
             "recursion is a property of the production: write `recursive` on the production's "

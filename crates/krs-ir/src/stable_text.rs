@@ -25,6 +25,7 @@ impl StableText for ItemKind {
             Self::ContextAlias => "ContextAlias",
             Self::Claim => "Claim",
             Self::Desugar => "Desugar",
+            Self::Context => "Context",
         })
     }
 }
@@ -70,7 +71,7 @@ impl StableText for SourceMapKey {
 mod tests {
     use super::*;
 
-    const ITEM_KINDS: [ItemKind; 12] = [
+    const ITEM_KINDS: [ItemKind; 13] = [
         ItemKind::Sort,
         ItemKind::Constructor,
         ItemKind::Grammar,
@@ -83,6 +84,7 @@ mod tests {
         ItemKind::ContextAlias,
         ItemKind::Claim,
         ItemKind::Desugar,
+        ItemKind::Context,
     ];
 
     /// Pins one spelling per variant; a new variant fails to compile here.
@@ -100,6 +102,7 @@ mod tests {
             ItemKind::ContextAlias => "ContextAlias",
             ItemKind::Claim => "Claim",
             ItemKind::Desugar => "Desugar",
+            ItemKind::Context => "Context",
         }
     }
 
@@ -149,6 +152,7 @@ mod tests {
                 "Claim",
                 "Configuration",
                 "Constructor",
+                "Context",
                 "ContextAlias",
                 "Desugar",
                 "Equation",

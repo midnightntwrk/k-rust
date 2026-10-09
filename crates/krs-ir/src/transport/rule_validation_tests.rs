@@ -503,6 +503,7 @@ fn alias<S: ValidationStage>(configuration: S::Configuration) -> ContextAlias<S>
             cells: Vec::new(),
             remainder: ProtocolRuleFrame::Exact,
         },
+        result: None,
     }
 }
 

@@ -211,6 +211,9 @@ fn input_kind(sentence: &DefinitionSentence) -> InputSentenceKind {
         DefinitionSentence::Configuration(_) => InputSentenceKind::Configuration,
         DefinitionSentence::ContextAlias(_) => InputSentenceKind::ContextAlias,
         DefinitionSentence::Rule(rule) if rule.claim().is_some() => InputSentenceKind::Claim,
+        DefinitionSentence::Rule(rule) if rule.kind() == krs_ir::SentenceKind::Context => {
+            InputSentenceKind::Context
+        }
         DefinitionSentence::Rule(_) => InputSentenceKind::Rule,
         DefinitionSentence::Raw(_) => InputSentenceKind::Bubble,
     }

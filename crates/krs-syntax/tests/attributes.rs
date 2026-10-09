@@ -268,9 +268,9 @@ fn context_alias_rejects_missing_duplicate_unknown_and_qualified_values() {
             SyntaxErrorKind::DuplicateArgument { name: "name" },
         ),
         (
-            "name = execute, here = site, result = Value",
+            "name = execute, here = site, label = \"l\"",
             SyntaxErrorKind::UnknownArgument {
-                name: "result".into(),
+                name: "label".into(),
             },
         ),
         (

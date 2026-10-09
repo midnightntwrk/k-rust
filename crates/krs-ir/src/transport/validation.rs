@@ -484,6 +484,16 @@ pub(crate) fn contains_rewrite<S: Stage>(term: &Term<S>) -> bool {
     matches!(term, Term::Rewrite { .. }) || term_children(term).into_iter().any(contains_rewrite)
 }
 
+/// The number of `k::rewrite!` nodes at or below `term` (a context allows
+/// at most one, KF-021).
+pub(crate) fn count_rewrites<S: Stage>(term: &Term<S>) -> usize {
+    usize::from(matches!(term, Term::Rewrite { .. }))
+        + term_children(term)
+            .into_iter()
+            .map(count_rewrites)
+            .sum::<usize>()
+}
+
 /// Whether a `k::rewrite!` whose right side is `()` (`.K`) occurs anywhere
 /// but at the root of `term` (a whole K-sequence item when `root_allowed`).
 pub(crate) fn misplaced_empty_rewrite<S: Stage>(term: &Term<S>, root_allowed: bool) -> bool {

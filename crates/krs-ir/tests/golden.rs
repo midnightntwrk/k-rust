@@ -30,7 +30,8 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         | ItemKind::Simplification
         | ItemKind::Claim
         | ItemKind::Alias
-        | ItemKind::Desugar => ProvenanceRole::RuleDeclaration,
+        | ItemKind::Desugar
+        | ItemKind::Context => ProvenanceRole::RuleDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
     };
     let primary_key = ProvenanceKey::new(role, 0);

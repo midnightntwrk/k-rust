@@ -2141,7 +2141,7 @@ fn validate_matches(
 }
 
 /// The reason given for `k::rewrite!` outside a single-body rule's subject.
-pub(crate) const REWRITE_OUTSIDE_SUBJECT: &str = "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`); it cannot appear in a result, a condition, or another sentence";
+pub(crate) const REWRITE_OUTSIDE_SUBJECT: &str = "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`), or rewrites the hole of a `#[k::context]` fn; it cannot appear in a result, a condition, or another sentence";
 
 /// The reason given for `k::rewrite!` in a readable clause.
 pub(crate) const REWRITE_IN_READABLE: &str = "`k::rewrite!` is reference-only: a readable clause restates the before and after of each cell; write a single-body `#[k::rule]` fn that returns `()` instead";

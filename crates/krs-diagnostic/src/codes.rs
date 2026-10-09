@@ -216,6 +216,7 @@ register_codes! {
         INVALID_ML_PREDICATE: "krs::analysis::invalid-ml-predicate" => "A matching-logic predicate (`k::ml`) is an operand of an object function, a Bool term stands where a predicate is expected, `ml::equals` operands share no sort, a predicate simplification's left side is not rooted at `ml::equals` or `ml::ceil`, a connective has the wrong arity, or an `ml::exists` binder shadows a rule binder.",
         INVALID_LOCAL_REWRITE: "krs::analysis::invalid-local-rewrite" => "A single-body rule (`k::rewrite!`) changes no cell, or a rewrite side has no sort both images admit.",
         INVALID_HEAT_COOL: "krs::analysis::invalid-heat-cool" => "A heat or cool rule's `hole = x` binder does not occur on its left side, or occurs there more than once.",
+        INVALID_CONTEXT: "krs::analysis::invalid-context" => "A context's `hole = x` binder is absent, bound twice, or outside the computation cell, or its rewrite is not `HOLE => term-containing-HOLE`; or a context alias's HERE is outside the computation cell.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -360,7 +361,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         FACADE_DEPENDENCY: "krs::expand::facade-dependency" => "The invoking crate has no direct dependency on the KRS facade package.",
         PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
         EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
-        FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context alias, anywhere rule, or heat or cool rule; fresh values are drawn only by a transition step of the configuration.",
+        FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule; fresh values are drawn only by a transition step of the configuration.",
         TURBOFISH_PLACEMENT: "krs::expand::turbofish-placement" => "A turbofish instance (`Choose::<k::builtin::Int> { .. }`) occurs in an initializer, which builds a concrete value.",
         ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer or a `cells!` cell value.",
         UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",

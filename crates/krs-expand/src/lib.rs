@@ -71,6 +71,7 @@ pub fn expand_attribute(
         AttributeMacro::SyntaxList => expand::syntax_list(env, attributes, item),
         AttributeMacro::Desugar => expand::desugar(env, attributes, item),
         AttributeMacro::SpecModule => expand::spec_module(env, attributes, item),
+        AttributeMacro::Context => expand::context(env, attributes, item),
     }
 }
 

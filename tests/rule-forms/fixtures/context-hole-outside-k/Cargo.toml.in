@@ -1,0 +1,16 @@
+[package]
+name = "krs-rule-forms-context-hole-outside-k"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = @KRS_CRATE_PATH@ }
+
+[package.metadata.krs]
+k-namespace = "KRS-CONTEXT-HOLE-OUTSIDE-K"
+
+[package.metadata.krs.definitions.main]
+
+[workspace]
+resolver = "3"

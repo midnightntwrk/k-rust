@@ -154,7 +154,7 @@ impl StateClaimItem {
     pub fn from_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
         let exists = take_exists_helper(&mut item.attrs)?;
         let ensures = take_ensures_helper(&mut item.attrs)?;
-        let rule = StateRuleItem::from_item_with(item, false)?;
+        let rule = StateRuleItem::from_item_with(item, StateRuleForm::Claim)?;
         let universal = rule
             .bindings
             .iter()
@@ -539,16 +539,40 @@ impl StateRuleItem {
     /// subject/result shell other than `cells!`, and result frame reuses that
     /// were not introduced in the complete subject pattern.
     pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with(item, true)
+        Self::from_item_with(item, StateRuleForm::Rule)
+    }
+
+    /// Parses a `cells!`-shaped `#[k::context]` fn (KF-021): it returns
+    /// `()`, has an empty body, and its subject holds at most one
+    /// `k::rewrite!`.
+    ///
+    /// # Errors
+    ///
+    /// The shape errors of [`Self::from_item`], a result, a body, more than
+    /// one rewrite, and `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`.
+    pub fn parse_context_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_context_item(syn::parse2(tokens)?)
+    }
+
+    /// Validates a previously parsed Rust function as a `cells!`-shaped
+    /// `#[k::context]` fn (KF-021).
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::parse_context_tokens`].
+    pub fn from_context_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with(item, StateRuleForm::Context)
     }
 
     /// Parses a configuration rule; a unit-returning fn is a single-body
-    /// rule (KF-011) only when `single_body` admits one.
+    /// rule (KF-011) only for a `#[k::rule]` fn, and a context for a
+    /// `#[k::context]` fn.
     #[expect(
         clippy::too_many_lines,
         reason = "The signature, subject, result or single body, bindings, and helpers are validated in one ordered pass."
     )]
-    fn from_item_with(mut item: ItemFn, single_body: bool) -> Result<Self, SyntaxError> {
+    fn from_item_with(mut item: ItemFn, form: StateRuleForm) -> Result<Self, SyntaxError> {
+        let single_body = form != StateRuleForm::Claim;
         validate_signature(&item)?;
         let Some(argument) = item.sig.inputs.last() else {
             return Err(signature_error(
@@ -578,6 +602,16 @@ impl StateRuleItem {
         validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
         let subject = parse_cells_pattern(subject_macro.mac.tokens.clone())?;
         let subject_type = parse_configuration_type(&argument.ty)?;
+        if form == StateRuleForm::Context {
+            check_context_shape(
+                &item,
+                match &item.sig.output {
+                    ReturnType::Default => true,
+                    ReturnType::Type(_, ty) => is_unit_type(ty),
+                },
+                &cells_rewrite_spans(&subject),
+            )?;
+        }
 
         // A unit-returning rule is a single-body rule (KF-011): its
         // subject's `k::rewrite!` islands mark what changes.
@@ -614,6 +648,7 @@ impl StateRuleItem {
         };
         let rewrites = cells_rewrite_spans(&subject);
         match (&result, rewrites.first()) {
+            (None, None) if form == StateRuleForm::Context => {}
             (None, None) => {
                 return Err(local_rewrite_error(
                     SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
@@ -640,7 +675,12 @@ impl StateRuleItem {
             && let Some(helper) = existentials.attributes().first()
         {
             return Err(local_rewrite_error(
-                SINGLE_BODY_BINDERS.to_owned(),
+                if form == StateRuleForm::Context {
+                    CONTEXT_BINDERS
+                } else {
+                    SINGLE_BODY_BINDERS
+                }
+                .to_owned(),
                 helper.path().span(),
             ));
         }
@@ -1199,6 +1239,55 @@ pub fn parse_state_context_alias_item(
     here: &Ident,
 ) -> Result<StateContextAliasItem, SyntaxError> {
     StateContextAliasItem::from_item(syn::parse2(tokens)?, here)
+}
+
+/// Which fn sentence a `cells!` rule item is parsed as.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StateRuleForm {
+    /// A claim, which always has a result.
+    Claim,
+    /// A `#[k::rule]` fn, which may be a single-body rule (KF-011).
+    Rule,
+    /// A `#[k::context]` fn (KF-021).
+    Context,
+}
+
+/// The reason given for a context with a result.
+pub(crate) const CONTEXT_RESULT: &str = "a context returns `()`: it says where evaluation may happen and has no after-state; K turns it into a heat rule and a cool rule";
+
+/// The reason given for a context with statements in its body.
+pub(crate) const CONTEXT_BODY: &str =
+    "a context has an empty body `{}`; its subject is the whole context";
+
+/// The reason given for more than one rewrite in a context.
+pub(crate) const CONTEXT_REWRITES: &str =
+    "a context rewrites at most its hole, once: `k::rewrite!(h => f(h))`, K's `HOLE => f(HOLE)`";
+
+/// The reason given for result binders on a context.
+pub(crate) const CONTEXT_BINDERS: &str =
+    "a context takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: it has no after-state";
+
+/// Checks the shape of a `#[k::context]` fn (KF-021): a unit return, an
+/// empty body, and at most one `k::rewrite!` (at `rewrites`).
+pub(crate) fn check_context_shape(
+    item: &ItemFn,
+    returns_unit: bool,
+    rewrites: &[proc_macro2::Span],
+) -> Result<(), SyntaxError> {
+    if !returns_unit {
+        let span = match &item.sig.output {
+            ReturnType::Type(_, ty) => ty.span(),
+            ReturnType::Default => item.sig.span(),
+        };
+        return Err(signature_error(CONTEXT_RESULT, span));
+    }
+    if !item.block.stmts.is_empty() {
+        return Err(signature_error(CONTEXT_BODY, item.block.span()));
+    }
+    if let Some(span) = rewrites.get(1) {
+        return Err(local_rewrite_error(CONTEXT_REWRITES.to_owned(), *span));
+    }
+    Ok(())
 }
 
 /// The reason given for a single-body rule with statements in its body.

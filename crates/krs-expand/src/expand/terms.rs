@@ -344,7 +344,7 @@ impl<'a> TermBuilder<'a> {
             return Err(ExpandError::new(
                 expand::LOCAL_REWRITE_OUTSIDE_SUBJECT,
                 range.first(),
-                "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`); it cannot appear in a result, a condition, a pattern island, another rewrite, or another sentence",
+                "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`), or rewrites the hole of a `#[k::context]` fn; it cannot appear in a result, a condition, a pattern island, another rewrite, or another sentence",
             ));
         }
         let ordinal = self.rewrite_ordinal;

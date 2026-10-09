@@ -519,6 +519,17 @@ provenance_roles! {
     RuleHole => "rule_hole",
     /// Sort path of `result = S` on a heat or cool rule, K's `result(S)`.
     RuleResultSort => "rule_result_sort",
+    /// Name of a `#[k::context]` fn (KF-021), the marker of its evaluation
+    /// step.
+    ContextDeclaration => "context_declaration",
+    /// Binder name of `hole = x` on a `#[k::context]`, K's `HOLE`.
+    ContextHole => "context_hole",
+    /// Sort path of `result = S` on a `#[k::context]`, K's `result(S)`.
+    ContextResult => "context_result",
+    /// `label = "..."` value of a `#[k::context]`.
+    ContextLabel => "context_label",
+    /// Sort path of `result = S` on a `#[k::context_alias]`, K's `result(S)`.
+    ContextAliasResult => "context_alias_result",
 }
 
 impl Serialize for ProvenanceRole {

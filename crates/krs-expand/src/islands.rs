@@ -80,7 +80,7 @@ pub(crate) fn matches(input: TokenStream) -> crate::Result<TokenStream> {
 /// rustc it is misplaced.
 pub(crate) fn rewrite() -> TokenStream {
     quote!(::core::compile_error!(
-        "`k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`)"
+        "`k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
     ))
 }
 

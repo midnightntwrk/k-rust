@@ -11,8 +11,8 @@ pub use constructor::{
     FunctionTotality, PlacementFlag, VariantSyntaxAttribute,
 };
 pub use rule::{
-    ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ExistsAttribute,
-    RuleAttribute,
+    ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ContextAttribute,
+    ExistsAttribute, RuleAttribute,
 };
 pub use sort::{
     AliasAttribute, ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,

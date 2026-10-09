@@ -62,7 +62,7 @@ pub(super) fn evaluation_step(
                 Some(wire_sort_reference(
                     slots,
                     facade,
-                    ProvenanceRole::RuleResultSort,
+                    kind.result_role(),
                     0,
                     &key_fn,
                     &spelling(sort),
@@ -80,7 +80,7 @@ pub(super) fn evaluation_step(
         Some(WireEvaluationStep {
             kind,
             key: wire_key(kind.role(), 0),
-            hole_key: wire_key(ProvenanceRole::RuleHole, 0),
+            hole_key: wire_key(kind.hole_role(), 0),
             hole: hole.to_string(),
             result,
         }),

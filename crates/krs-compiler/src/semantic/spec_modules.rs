@@ -170,6 +170,7 @@ fn check_member(
         ItemKind::Alias => "an alias clause",
         ItemKind::Desugar => "a desugar clause",
         ItemKind::ContextAlias => "a context alias",
+        ItemKind::Context => "a context",
         ItemKind::Grammar => match descriptor.payload() {
             DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
                 GrammarDescriptor::Tokens { productions } => {

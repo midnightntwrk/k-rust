@@ -1179,6 +1179,7 @@ mod tests {
                     kind: krs_ir::ProtocolContextAliasBindingKind::Term { sort: wire_sort() },
                 }],
                 pattern: wire_cells(),
+                result: None,
             })),
             cell_slots(),
         );
@@ -1195,6 +1196,7 @@ mod tests {
                 kind: krs_ir::ProtocolContextAliasBindingKind::Term { sort: host_sort() },
             }],
             pattern: host_cells(),
+            result: None,
         }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         let HostDescriptorPayload::ContextAlias(alias) = actual else {

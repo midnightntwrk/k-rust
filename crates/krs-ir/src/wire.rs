@@ -558,6 +558,7 @@ mod tests {
                 configuration: configuration(),
                 bindings: vec![],
                 pattern: cells(),
+                result: None,
             },
             "configuration",
             1,

@@ -87,6 +87,9 @@ pub(super) fn emit_sentence(
         DefinitionSentence::ContextAlias(sentence) => {
             emit_context_alias(sentence, context, writer)?;
         }
+        DefinitionSentence::Rule(sentence) if sentence.kind() == SentenceKind::Context => {
+            emit_context(sentence, context, writer)?;
+        }
         DefinitionSentence::Rule(sentence) => emit_rule(sentence, context, writer)?,
         DefinitionSentence::Lexical(sentence) => {
             writer.push("syntax lexical ");
@@ -752,29 +755,7 @@ fn emit_rule(
             }
             emit_label(sentence.label(), writer);
             writer.push("]:");
-            let mut emitted_repeated = BTreeSet::new();
-            for clause in body.clauses() {
-                let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
-                    writer.push("\n");
-                    emit_cell_clause(clause, &names, context, 4, writer)?;
-                    continue;
-                };
-                if !emitted_repeated.insert(ancestor.clone()) {
-                    continue;
-                }
-                writer.push("\n    <");
-                writer.push(context.cell_name(ancestor)?);
-                writer.push(">");
-                for nested in body.clauses().iter().filter(|candidate| {
-                    context.repeated_ancestor(candidate.cell()) == Some(ancestor)
-                }) {
-                    writer.push("\n");
-                    emit_cell_clause(nested, &names, context, 8, writer)?;
-                }
-                writer.push("\n        ...\n    </");
-                writer.push(context.cell_name(ancestor)?);
-                writer.push(">");
-            }
+            emit_configuration_clauses(body, &names, context, writer)?;
             emit_requires(sentence, &names, context, writer)?;
             emit_ensures(sentence, &names, context, writer)?;
             emit_rule_attributes(sentence, context, writer)?;
@@ -829,6 +810,87 @@ fn emit_rule(
             Ok(())
         }
     }
+}
+
+/// Emits the cell clauses of a configuration rule or context, grouping the
+/// cells of a repeated ancestor inside it.
+fn emit_configuration_clauses(
+    body: &krs_ir::FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let mut emitted_repeated = BTreeSet::new();
+    for clause in body.clauses() {
+        let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
+            writer.push("\n");
+            emit_cell_clause(clause, names, context, 4, writer)?;
+            continue;
+        };
+        if !emitted_repeated.insert(ancestor.clone()) {
+            continue;
+        }
+        writer.push("\n    <");
+        writer.push(context.cell_name(ancestor)?);
+        writer.push(">");
+        for nested in body
+            .clauses()
+            .iter()
+            .filter(|candidate| context.repeated_ancestor(candidate.cell()) == Some(ancestor))
+        {
+            writer.push("\n");
+            emit_cell_clause(nested, names, context, 8, writer)?;
+        }
+        writer.push("\n        ...\n    </");
+        writer.push(context.cell_name(ancestor)?);
+        writer.push(">");
+    }
+    Ok(())
+}
+
+/// Emits a context (KF-021): `context [label]: <pattern> requires <cond>
+/// [result(S)]`. The pattern is term-shaped (K completes it to the
+/// computation cell) or a configuration pattern, and holds the hole `HOLE`
+/// and at most one rewrite of it.
+fn emit_context(
+    sentence: &RuleSentence,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let names = context.naming.rule(sentence);
+    let start = writer.source.len();
+    writer.push("context");
+    if let Some(step) = sentence.evaluation() {
+        writer.record(step.origin().key(), start, writer.source.len())?;
+    }
+    writer.push(" [");
+    emit_label(sentence.label(), writer);
+    writer.push("]:");
+    match sentence.relational_body() {
+        RuleBodyRef::Configuration { body, .. } => {
+            emit_configuration_clauses(body, &names, context, writer)?;
+        }
+        RuleBodyRef::Term(body) => {
+            writer.push(" ");
+            let local = body.local_term().unwrap_or_else(|| body.from());
+            writer.append_rendered(render_term(local, context, &names, false)?)?;
+        }
+        RuleBodyRef::Predicate(_) => {
+            return Err(EmitError::UnsupportedShape {
+                node: "context",
+                detail: "a context's body is a term or a configuration pattern".to_owned(),
+            });
+        }
+    }
+    emit_requires(sentence, &names, context, writer)?;
+    if let Some(result) = sentence.evaluation().and_then(|step| step.result()) {
+        writer.push("\n    [result(");
+        let start = writer.source.len();
+        writer.push(&context.sort_name_ref(result.sort())?);
+        writer.record(result.origin().key(), start, writer.source.len())?;
+        writer.push(")]");
+    }
+    Ok(())
 }
 
 fn emit_term_rule_attributes(
@@ -1335,6 +1397,14 @@ fn emit_context_alias(
     for cell in sentence.body().cells() {
         writer.push("\n");
         emit_context_alias_cell(cell, sentence, &names, context, writer)?;
+    }
+    // `result = S`, K's `result(S)` (KF-021).
+    if let Some(result) = sentence.result() {
+        writer.push("\n    [result(");
+        let start = writer.source.len();
+        writer.push(&context.sort_name_ref(result.sort())?);
+        writer.record(result.origin().key(), start, writer.source.len())?;
+        writer.push(")]");
     }
     Ok(())
 }

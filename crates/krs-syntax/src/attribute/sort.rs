@@ -708,11 +708,13 @@ impl StaticProductionAttribute {
     }
 }
 
-/// Checked payload of `#[k::context_alias(name = alias, here = binding)]`.
+/// Checked payload of
+/// `#[k::context_alias(name = alias, here = binding, result = S)]`.
 #[derive(Clone, Debug)]
 pub struct ContextAliasAttribute {
     name: Ident,
     here: Ident,
+    result: Option<syn::Path>,
 }
 
 impl ContextAliasAttribute {
@@ -728,13 +730,19 @@ impl ContextAliasAttribute {
         &self.here
     }
 
+    /// Returns the sort path of `result = S`, K's `result(S)` (KF-021).
+    #[must_use]
+    pub const fn result_sort(&self) -> Option<&syn::Path> {
+        self.result.as_ref()
+    }
+
     /// Returns exact anchors for the authored alias name and `HERE` binding.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if a parsed identifier emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![
+        let mut anchors = vec![
             ProvenanceAnchor::new(
                 ProvenanceRole::ContextAliasName,
                 0,
@@ -745,7 +753,15 @@ impl ContextAliasAttribute {
                 0,
                 TokenRange::for_tokens(&self.here)?,
             ),
-        ])
+        ];
+        if let Some(result) = &self.result {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ContextAliasResult,
+                0,
+                TokenRange::for_tokens(result)?,
+            ));
+        }
+        Ok(anchors)
     }
 }
 
@@ -1187,10 +1203,27 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
     let missing_span = input.span();
     let mut name = None;
     let mut here = None;
+    let mut result = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
         let argument = match key_name.as_str() {
+            "result" if result.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "result" },
+                    key.span(),
+                )
+                .into());
+            }
+            "result" => {
+                input.parse::<Token![=]>()?;
+                result = Some(super::rule::parse_result_sort(input.parse()?)?);
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>()?;
+                continue;
+            }
             "name" if name.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "name" },
@@ -1244,5 +1277,6 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
                 missing_span,
             )
         })?,
+        result,
     })
 }

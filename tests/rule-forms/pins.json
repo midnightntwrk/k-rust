@@ -9,7 +9,10 @@
     "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
     "krs-rule-forms-local-rewrite": "9a662ec82271a9cf2020f8a89cd380e6a931d7d1766ace7f7be26fb6e701142b",
     "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690",
-    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf"
+    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf",
+    "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
+    "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
+    "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -44,6 +47,15 @@
     },
     "krs-rule-forms-heat-cool-strict": {
       "definition.k": "886d36d213505e9a24149e46484f8a49aa3f445b05594049e4c16a8c4638a017"
+    },
+    "krs-rule-forms-contexts": {
+      "definition.k": "c41a76d044639f2c3915470240fdc641cc864b90e46117a631b1e64337f5f3f1"
+    },
+    "krs-rule-forms-contexts-lvalue": {
+      "definition.k": "f4a5f9826441dfe99e6b2023e1c82100852acc89c98e15909e87a8a57318d272"
+    },
+    "krs-rule-forms-contexts-evaluate": {
+      "definition.k": "ff97369b241de1a13d5cc2157d493da4fbd42844230443f2f9303277897344cd"
     }
   },
   "reference_sha256": {
@@ -57,7 +69,10 @@
     "krs-rule-forms-restating-imp": "97f1597562a5a56008ace0607393e5dca16e1ac3bbfaa474e3b731eb9b486cc6",
     "krs-rule-forms-local-term": "6d994189b28396badbbb9bc0251ca43157f562e6cce6253c6065343e9ad0c2ee",
     "krs-rule-forms-heat-cool": "406f0db83692929c4621492ef19ef3bd5f6ce871b3a399477f3398eb636de28b",
-    "krs-rule-forms-heat-cool-strict": "d68989ac4fa0be529d2b4ffa21b44047e00b168752892048a943c448486b9345"
+    "krs-rule-forms-heat-cool-strict": "d68989ac4fa0be529d2b4ffa21b44047e00b168752892048a943c448486b9345",
+    "krs-rule-forms-contexts": "7c40b35aba35d6259eafe8413c1d5f4f849cb50bd7f4a4c96eb325a59a679f30",
+    "krs-rule-forms-contexts-lvalue": "bf4b1b44099e47523e2a660caa79dc55cd7632844e5a1f13809f1b7b9fe62285",
+    "krs-rule-forms-contexts-evaluate": "c25dd19fa75fea71e4b94b4d5e42b54863161bba2ab58ad9b5dd5e2e6300e8a8"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -701,6 +716,74 @@
         "parse": "accepted",
         "run": "1 + true"
       }
+    },
+    "krs-rule-forms-contexts": {
+      "add-left": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "add-right": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "and": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-left": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "and-right": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "1 + true"
+      }
+    },
+    "krs-rule-forms-contexts-lvalue": {
+      "increment": {
+        "parse": "accepted",
+        "run": "2",
+        "cells": {
+          "store": "x |-> 2"
+        }
+      },
+      "increment-other": {
+        "parse": "accepted",
+        "run": "6",
+        "cells": {
+          "store": "x |-> 1 y |-> 6"
+        }
+      }
+    },
+    "krs-rule-forms-contexts-evaluate": {
+      "twice-name-run": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "twice-name-translate": {
+        "parse": "accepted",
+        "run": "x + x"
+      },
+      "twice-sum-run": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "twice-sum-translate": {
+        "parse": "accepted",
+        "run": "6"
+      },
+      "assign-run": {
+        "parse": "accepted",
+        "run": "1 + 2 = x"
+      },
+      "assign-translate": {
+        "parse": "accepted",
+        "run": "3 = x"
+      }
     }
   },
   "diagnostics": {
@@ -783,7 +866,7 @@
       "error[krs::rust-expansion::uncoded-error]: `other` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
     ],
     "local-rewrite-outside": [
-      "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`)"
+      "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
     ],
     "local-rewrite-with-result": [
       "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state"
@@ -796,6 +879,15 @@
     ],
     "heat-cool-hole-twice": [
       "error[krs::analysis::invalid-heat-cool]: the hole `h` of a heat rule names one subterm, but the left side binds it 2 times; bind the other occurrences with another name"
+    ],
+    "context-hole-outside-k": [
+      "error[krs::analysis::invalid-context]: the context's hole `h` lies in the `focus` cell, but heating moves the hole to the front of k; constrain other cells, but put the hole in k"
+    ],
+    "context-bad-rewrite": [
+      "error[krs::analysis::invalid-context]: a context may rewrite only its hole, to a term that contains it: K requires HOLE => term-containing-HOLE, here `k::rewrite!(h => f(h))`"
+    ],
+    "context-hole-absent": [
+      "error[krs::analysis::invalid-context]: a context names the subterm K evaluates with `hole = x`, but `x` does not occur in its pattern; K requires exactly one HOLE"
     ]
   },
   "known_divergences": {
@@ -899,6 +991,16 @@
         "and"
       ],
       "stuck": []
+    }
+  },
+  "trace_labels": {
+    "contexts": {
+      "add-left": [
+        "KRS-CONTEXTS.add-lhs-heat",
+        "KRS-CONTEXTS.add",
+        "KRS-CONTEXTS.add-lhs-cool",
+        "KRS-CONTEXTS.add"
+      ]
     }
   }
 }

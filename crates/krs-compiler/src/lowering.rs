@@ -553,8 +553,15 @@ impl NamingPass {
                     &mut emitted,
                 )?;
             }
+            // Context aliases that share a name are one evaluation
+            // strategy (K instantiates every alias with the strict label),
+            // so the name is claimed once, by the first of them.
+            let mut alias_names = BTreeSet::new();
             for alias in module.context_aliases() {
                 validate_label_name("context alias", alias.name())?;
+                if !alias_names.insert(alias.name().to_owned()) {
+                    continue;
+                }
                 claim(
                     &mut labels,
                     alias.name().to_owned(),
@@ -568,6 +575,12 @@ impl NamingPass {
                 let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
                     || match rule.relational_body() {
+                        // A context's label (KF-021) defaults to its fn
+                        // name with `_` written `-`; K derives the labels of
+                        // its heat and cool rules from it.
+                        _ if rule.kind() == SentenceKind::Context => {
+                            rule.id().item_name().replace('_', "-")
+                        }
                         RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => {
                             LabelIdentity::fallback_name(&short_hash(&owner))
                         }
@@ -928,26 +941,44 @@ fn lower_module(
     }
 
     for alias in module.context_aliases() {
-        sentences.push(DefinitionSentence::ContextAlias(ContextAliasSentence::new(
-            origins.lower(alias.origin(), "context-alias", Some(alias.id()), None)?,
-            alias.id().clone(),
-            origins.lower(
-                alias.name_origin(),
-                "context-alias-name",
-                Some(alias.id()),
-                None,
-            )?,
-            alias.name().to_owned(),
-            origins.lower(
-                alias.here_origin(),
-                "context-alias-here",
-                Some(alias.id()),
-                None,
-            )?,
-            alias.here().clone(),
-            lower_variables(alias.variables(), names)?,
-            lower_configuration_pattern(alias.body(), names, origins)?,
-        )));
+        sentences.push(DefinitionSentence::ContextAlias(
+            ContextAliasSentence::new(
+                origins.lower(alias.origin(), "context-alias", Some(alias.id()), None)?,
+                alias.id().clone(),
+                origins.lower(
+                    alias.name_origin(),
+                    "context-alias-name",
+                    Some(alias.id()),
+                    None,
+                )?,
+                alias.name().to_owned(),
+                origins.lower(
+                    alias.here_origin(),
+                    "context-alias-here",
+                    Some(alias.id()),
+                    None,
+                )?,
+                alias.here().clone(),
+                lower_variables(alias.variables(), names)?,
+                lower_configuration_pattern(alias.body(), names, origins)?,
+            )
+            .with_result(
+                alias
+                    .result()
+                    .map(|result| -> Result<_, LoweringError> {
+                        Ok(krs_ir_levels::IrEvaluationResult::new(
+                            origins.lower(
+                                result.origin(),
+                                "context-alias-result",
+                                Some(alias.id()),
+                                None,
+                            )?,
+                            lower_sort_ref(result.sort(), names)?,
+                        ))
+                    })
+                    .transpose()?,
+            ),
+        ));
     }
 
     for rule in module.rules() {

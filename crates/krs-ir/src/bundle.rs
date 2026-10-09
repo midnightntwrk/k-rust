@@ -1126,6 +1126,9 @@ pub enum SentenceKind {
     Claim,
     /// One-way compile-time desugar clause (K's `macro`).
     Desugar,
+    /// Evaluation context (K's `context`, KF-021): where evaluation may
+    /// happen; K turns it into a heat and a cool rule.
+    Context,
 }
 
 impl SentenceKind {
@@ -1139,6 +1142,7 @@ impl SentenceKind {
             Self::Alias => ItemKind::Alias,
             Self::Claim => ItemKind::Claim,
             Self::Desugar => ItemKind::Desugar,
+            Self::Context => ItemKind::Context,
         }
     }
 }
@@ -1153,6 +1157,8 @@ pub enum ConfigurationSentenceKind {
     Equation,
     /// Reachability claim.
     Claim,
+    /// A `cells!` evaluation context (KF-021).
+    Context,
 }
 
 impl ConfigurationSentenceKind {
@@ -1163,6 +1169,7 @@ impl ConfigurationSentenceKind {
             Self::Transition => SentenceKind::Transition,
             Self::Equation => SentenceKind::Equation,
             Self::Claim => SentenceKind::Claim,
+            Self::Context => SentenceKind::Context,
         }
     }
 
@@ -1173,6 +1180,7 @@ impl ConfigurationSentenceKind {
             Self::Transition => ItemKind::Rule,
             Self::Equation => ItemKind::Equation,
             Self::Claim => ItemKind::Claim,
+            Self::Context => ItemKind::Context,
         }
     }
 }
@@ -1185,6 +1193,7 @@ impl TryFrom<SentenceKind> for ConfigurationSentenceKind {
             SentenceKind::Transition => Ok(Self::Transition),
             SentenceKind::Equation => Ok(Self::Equation),
             SentenceKind::Claim => Ok(Self::Claim),
+            SentenceKind::Context => Ok(Self::Context),
             SentenceKind::Alias | SentenceKind::Desugar => Err(StateTransportError::InvalidTerm(
                 StateTermReason::ConfigurationStaticAlias,
             )),

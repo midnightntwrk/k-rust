@@ -1102,6 +1102,20 @@ pub(crate) enum RuleContent<L: IrLevel> {
     Predicate { body: Box<IrPredicateRewrite<L>> },
 }
 
+/// The rule body of a sentence of `kind` with the authored `term`: a
+/// context's body (KF-021) is its pattern, whose one rewrite of the hole, if
+/// any, sits below the root; every other body is a rewrite.
+pub(crate) fn rule_body<L: IrLevel>(
+    kind: krs_ir::SentenceKind,
+    term: IrTerm<L>,
+) -> Result<IrRewrite<L>, &'static str> {
+    if kind == krs_ir::SentenceKind::Context {
+        Ok(IrRewrite::local(term))
+    } else {
+        term.try_into()
+    }
+}
+
 impl<L: IrLevel> RuleContent<L> {
     pub(crate) const fn kind(&self) -> krs_ir::SentenceKind {
         match self {
@@ -1135,8 +1149,7 @@ impl<L: IrLevel> RuleBodyWire<L> {
         match self {
             Self::Term(term) => Ok(RuleContent::Term {
                 kind,
-                body: L::into_rule_term(term)
-                    .try_into()
+                body: rule_body(kind, L::into_rule_term(term))
                     .map_err(|_| RuleBodyRefinementError::NotRewrite)?,
             }),
             Self::Configuration(body) => Ok(RuleContent::Configuration {
@@ -1999,6 +2012,9 @@ pub struct IrContextAlias<L: IrLevel> {
     pub(crate) here: SemanticId,
     pub(crate) variables: Vec<IrVariable<L>>,
     pub(crate) body: FixedConfigurationPattern<L::Cell, IrTerm<L>>,
+    /// `result = S`, K's `result(S)` (KF-021).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) result: Option<IrEvaluationResult<L>>,
 }
 
 impl<L: IrLevel> IrContextAlias<L> {
@@ -2027,7 +2043,19 @@ impl<L: IrLevel> IrContextAlias<L> {
             here,
             variables,
             body,
+            result: None,
         }
+    }
+    /// Sets `result = S`, K's `result(S)` (KF-021).
+    #[must_use]
+    pub fn with_result(mut self, result: Option<IrEvaluationResult<L>>) -> Self {
+        self.result = result;
+        self
+    }
+    /// Returns `result = S`, K's `result(S)` (KF-021).
+    #[must_use]
+    pub const fn result(&self) -> Option<&IrEvaluationResult<L>> {
+        self.result.as_ref()
     }
     /// Returns declaration provenance.
     #[must_use]

@@ -36,21 +36,7 @@ pub(crate) fn rule(
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
-    let is_cells_rule = parsed.sig.inputs.last().is_some_and(|argument| {
-        let FnArg::Typed(argument) = argument else {
-            return false;
-        };
-        let Pat::Macro(pattern) = &*argument.pat else {
-            return false;
-        };
-        pattern
-            .mac
-            .path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "cells")
-    });
-    if is_cells_rule {
+    if has_cells_subject(&parsed) {
         // A term subject followed by `cells!` is an equation's function
         // context (KF-025), which K rejects on a transition.
         let inputs = parsed.sig.inputs.iter().collect::<Vec<_>>();
@@ -74,7 +60,12 @@ pub(crate) fn rule(
             )
             .into());
         }
-        return configuration_rule(env, item, &attribute);
+        return configuration_rule(
+            env,
+            item,
+            &attribute,
+            krs_ir::ConfigurationSentenceKind::Transition,
+        );
     }
     ordinary_rule(
         env,
@@ -84,6 +75,56 @@ pub(crate) fn rule(
         None,
         None,
     )
+}
+
+/// `#[k::context(hole = h, result = S, label = "l")]` (KF-021): a context
+/// is expanded as a rule without a result, whose evaluation step names the
+/// hole and whose keys carry the context roles.
+pub(crate) fn context(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let context = krs_syntax::ContextAttribute::parse_tokens(attributes)?;
+    reject_fresh_helper(&item)?;
+    let parsed: ItemFn = syn::parse2(item.clone())?;
+    let attribute = context.rule_attribute(&parsed.sig.ident);
+    if has_cells_subject(&parsed) {
+        return configuration_rule(
+            env,
+            item,
+            &attribute,
+            krs_ir::ConfigurationSentenceKind::Context,
+        );
+    }
+    let rule = krs_syntax::RuleItem::parse_context_tokens(item)?;
+    expand_ordinary_rule(
+        env,
+        &rule,
+        &attribute,
+        krs_ir::SentenceKind::Context,
+        OrdinaryRuleKeys::default(),
+        None,
+        &[],
+    )
+}
+
+/// Whether the fn's last parameter is a `cells!` subject.
+fn has_cells_subject(item: &ItemFn) -> bool {
+    item.sig.inputs.last().is_some_and(|argument| {
+        let FnArg::Typed(argument) = argument else {
+            return false;
+        };
+        let Pat::Macro(pattern) = &*argument.pat else {
+            return false;
+        };
+        pattern
+            .mac
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "cells")
+    })
 }
 
 pub(crate) fn equation(
@@ -262,6 +303,7 @@ fn expand_ordinary_rule(
     // A single-body rule (KF-011) is a transition that is not an anywhere
     // rule: its subject's `k::rewrite!` islands say what changes.
     if rule.result().is_none()
+        && sentence_kind != krs_ir::SentenceKind::Context
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
         return Err(krs_syntax::SyntaxError::new(
@@ -328,6 +370,7 @@ fn expand_ordinary_rule(
         krs_ir::SentenceKind::Simplification => "simplification",
         krs_ir::SentenceKind::Alias => "alias",
         krs_ir::SentenceKind::Desugar => "desugar",
+        krs_ir::SentenceKind::Context => "context",
         krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
     };
     let nonce = expansion_nonce(env, sentence_name, &rule.item().sig.ident, fallback);
@@ -381,7 +424,14 @@ fn expand_ordinary_rule(
     let result_type = rule.result_sort().map(krs_syntax::TermSort::ty);
     let name = name_ident.unraw().to_string();
     let label = attribute.label().map(|label| DescriptorRuleLabel {
-        key: wire_key(ProvenanceRole::RuleLabel, 0),
+        key: wire_key(
+            if sentence_kind == krs_ir::SentenceKind::Context {
+                ProvenanceRole::ContextLabel
+            } else {
+                ProvenanceRole::RuleLabel
+            },
+            0,
+        ),
         name: label.value().clone(),
     });
     let parameter_sort_spelling = rule.parameter().term_sort.sort_token_text();
@@ -1028,13 +1078,13 @@ fn orphan_result_helper(
 }
 
 /// `#[k::fresh]` on a sentence other than a transition step: an equation,
-/// simplification, alias, claim, context alias, anywhere rule (KF-022), or
+/// simplification, alias, claim, context, context alias, anywhere rule (KF-022), or
 /// heat or cool rule (KF-014).
 pub(super) fn misplaced_fresh(span: Span) -> ExpandError {
     ExpandError::new(
         expand::FRESH_PLACEMENT,
         span,
-        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context alias, anywhere rule, or heat or cool rule",
+        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule",
     )
 }
 

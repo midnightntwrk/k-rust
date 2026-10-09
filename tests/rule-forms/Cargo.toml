@@ -2,6 +2,9 @@
 members = [
     "packages/anywhere",
     "packages/casts",
+    "packages/contexts",
+    "packages/contexts-evaluate",
+    "packages/contexts-lvalue",
     "packages/fresh",
     "packages/heat-cool",
     "packages/heat-cool-strict",

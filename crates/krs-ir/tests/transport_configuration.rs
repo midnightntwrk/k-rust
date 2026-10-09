@@ -438,6 +438,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
                 binding: "state".into(),
             },
         },
+        result: None,
     }
 }
 

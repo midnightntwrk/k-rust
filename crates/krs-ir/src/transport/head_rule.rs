@@ -326,6 +326,7 @@ fn validate_evaluation<S: crate::Stage>(
 ) -> Result<(), StateTransportError> {
     if let Some(step) = evaluation
         && (kind != SentenceKind::Transition
+            || step.kind == crate::EvaluationKind::Context
             || priority.is_some()
             || nondet.is_some()
             || !fresh.is_empty()

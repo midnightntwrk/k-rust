@@ -138,6 +138,8 @@ entry_points! {
         Desugar = "desugar",
         /// `#[k::spec_module]` on an inline `mod` (KF-041).
         SpecModule = "spec_module",
+        /// `#[k::context]` (KF-021).
+        Context = "context",
     }
 }
 

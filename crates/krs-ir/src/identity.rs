@@ -268,6 +268,8 @@ pub enum ItemKind {
     Claim,
     /// A one-way compile-time desugar clause (K's `macro`).
     Desugar,
+    /// An evaluation context (K's `context`, KF-021).
+    Context,
 }
 
 /// A stable declaration identity, independent of linker and collection order.

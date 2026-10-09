@@ -31,13 +31,13 @@ pub mod trivia;
 pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
     ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
-    ContextAliasAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute,
-    FunctionHook, FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
-    PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
-    RuleAttribute, SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem,
-    StaticMode, StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
-    UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
-    VariantSyntaxAttribute, validate_spec_module_name,
+    ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute,
+    FunctionAttribute, FunctionHook, FunctionSmt, FunctionTotality, InitAttribute,
+    MatchRestriction, PlacementFlag, PriorityAttribute, RECURSIVE_ON_CLAUSE,
+    REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SimplificationAttribute,
+    SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode, StaticProductionAttribute,
+    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
+    UnboundVariables, VariantSyntaxAttribute, validate_spec_module_name,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,

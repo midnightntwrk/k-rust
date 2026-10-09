@@ -150,6 +150,27 @@ pub(crate) fn context_alias(
     let rust_name = name_ident.to_string();
     let alias_name = attribute.name().to_string();
     let here_name = attribute.here().to_string();
+    // `result = S`, K's `result(S)` (KF-021).
+    let result = match attribute.result_sort() {
+        Some(sort) => {
+            let path = call_site_path(sort)?;
+            let key_fn = format_ident!("__krs_context_alias_result_{nonce:016x}");
+            key_functions.push(quote! {
+                #(#cfg)*
+                #[doc(hidden)]
+                fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() }
+            });
+            Some(wire_sort_reference(
+                &mut slots,
+                &facade,
+                ProvenanceRole::ContextAliasResult,
+                0,
+                &key_fn,
+                &spelling(sort),
+            ))
+        }
+        None => None,
+    };
 
     let wire = WirePayload::ContextAlias(Box::new(WireContextAlias {
         declaration_key: wire_key(ProvenanceRole::ContextAliasDeclaration, 0),
@@ -167,6 +188,7 @@ pub(crate) fn context_alias(
         },
         bindings,
         pattern,
+        result,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -215,8 +237,15 @@ pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
+    sentence_kind: krs_ir::ConfigurationSentenceKind,
 ) -> crate::Result<TokenStream> {
-    let rule = krs_syntax::StateRuleItem::parse_tokens(item)?;
+    // A `cells!` context (KF-021) shares the rule expansion.
+    let context = sentence_kind == krs_ir::ConfigurationSentenceKind::Context;
+    let rule = if context {
+        krs_syntax::StateRuleItem::parse_context_tokens(item)?
+    } else {
+        krs_syntax::StateRuleItem::parse_tokens(item)?
+    };
     let facade = env.facade_path()?;
     let mut anchors = rule.provenance()?;
     anchors.extend(attribute.provenance()?);
@@ -365,7 +394,14 @@ pub(super) fn configuration_rule(
         .take(original.sig.inputs.len() - 1);
     let name = name_ident.to_string();
     let label = attribute.label().map(|label| DescriptorRuleLabel {
-        key: wire_key(ProvenanceRole::RuleLabel, 0),
+        key: wire_key(
+            if context {
+                ProvenanceRole::ContextLabel
+            } else {
+                ProvenanceRole::RuleLabel
+            },
+            0,
+        ),
         name: label.value(),
     });
     let priority = attribute
@@ -390,7 +426,7 @@ pub(super) fn configuration_rule(
             name: syn::ext::IdentExt::unraw(group).to_string(),
         });
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
-        sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
+        sentence_kind,
         label,
         priority,
         nondet,
@@ -429,7 +465,11 @@ pub(super) fn configuration_rule(
         facade: &facade,
         factory: &factory,
         name: quote!(#name),
-        item_kind: quote!(#facade::ItemKind::Rule),
+        item_kind: if context {
+            quote!(#facade::ItemKind::Context)
+        } else {
+            quote!(#facade::ItemKind::Rule)
+        },
         disambiguator: quote!(""),
         identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote!(::core::option::Option::None),

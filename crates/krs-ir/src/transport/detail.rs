@@ -70,6 +70,7 @@ details! {
         Configuration => "Configuration",
         ConfigurationOrCell => "Configuration or Cell",
         ContextAlias => "ContextAlias",
+        Context => "Context",
         Equation => "Equation",
         Rule => "Rule",
         Sort => "Sort",

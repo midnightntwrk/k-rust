@@ -23,6 +23,7 @@ impl fmt::Display for ItemKind {
             Self::ContextAlias => "context alias",
             Self::Claim => "claim",
             Self::Desugar => "desugar",
+            Self::Context => "context",
         })
     }
 }

@@ -2476,6 +2476,21 @@ impl StructuredRuleDescriptor {
             {
                 Ok(true)
             }
+            // A context (KF-021) has no post-state; it may rewrite its hole
+            // once, or not at all.
+            (None, None, None)
+                if self.sentence_kind == SentenceKind::Context
+                    && self.evaluation.is_some()
+                    && self.anywhere.is_none()
+                    && self.existentials.is_empty()
+                    && self.ensures.is_none()
+                    && self.fresh.is_empty()
+                    && self.unbound_variables.is_none()
+                    && self.function_context.is_none()
+                    && super::validation::count_rewrites(&self.subject) <= 1 =>
+            {
+                Ok(true)
+            }
             _ => Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::SingleBodyRuleWithoutRewrite,
             )),
@@ -2570,13 +2585,17 @@ impl StructuredRuleDescriptor {
                 require_key(&sort.key, provenance)?;
                 sort.sort.validate()?;
             }
-            if self.sentence_kind != SentenceKind::Transition
-                || self.priority.is_some()
-                || self.nondet.is_some()
-                || self.anywhere.is_some()
-                || !self.fresh.is_empty()
-                || !step.has_valid_roles(|sort| &sort.key)
-            {
+            let allowed = if self.sentence_kind == SentenceKind::Context {
+                step.kind == crate::EvaluationKind::Context
+            } else {
+                self.sentence_kind == SentenceKind::Transition
+                    && step.kind != crate::EvaluationKind::Context
+                    && self.priority.is_none()
+                    && self.nondet.is_none()
+                    && self.anywhere.is_none()
+                    && self.fresh.is_empty()
+            };
+            if !allowed || !step.has_valid_roles(|sort| &sort.key) {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidEvaluationStep,
                 ));
@@ -4064,6 +4083,16 @@ impl StructuredRuleDescriptor {
         canonical_key(ProvenanceRole::RuleDeclaration, 0)
     }
 
+    /// The provenance role of the `label` key: a context's (KF-021) or a
+    /// rule's.
+    fn label_role(&self) -> ProvenanceRole {
+        if self.sentence_kind == SentenceKind::Context {
+            ProvenanceRole::ContextLabel
+        } else {
+            ProvenanceRole::RuleLabel
+        }
+    }
+
     /// Registers the marker, hole, and result-sort keys of a heat or cool
     /// rule (KF-014).
     fn insert_evaluation_keys(
@@ -4072,9 +4101,9 @@ impl StructuredRuleDescriptor {
     ) -> Result<(), GrammarTransportError> {
         if let Some(step) = &self.evaluation {
             insert_exact(keys, &step.key, step.kind.role(), 0)?;
-            insert_exact(keys, &step.hole_key, ProvenanceRole::RuleHole, 0)?;
+            insert_exact(keys, &step.hole_key, step.kind.hole_role(), 0)?;
             if let Some(sort) = &step.result {
-                insert_exact(keys, &sort.key, ProvenanceRole::RuleResultSort, 0)?;
+                insert_exact(keys, &sort.key, step.kind.result_role(), 0)?;
             }
         }
         Ok(())
@@ -4092,7 +4121,7 @@ impl StructuredRuleDescriptor {
             insert_canonical(&mut keys, ProvenanceRole::DesugarClause, 0);
         }
         if let Some(label) = &self.label {
-            insert_exact(&mut keys, &label.key, ProvenanceRole::RuleLabel, 0)?;
+            insert_exact(&mut keys, &label.key, self.label_role(), 0)?;
         }
         if let Some(requires) = &self.requires {
             insert_exact(&mut keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;

@@ -1234,8 +1234,7 @@ impl RuleSentence {
         variables: Vec<DefinitionVariable>,
         body: DefinitionTerm,
     ) -> Result<Self, DefinitionValidationError> {
-        let body = body
-            .try_into()
+        let body = crate::ir_level::rule_body(kind, body)
             .map_err(|_| DefinitionValidationError::RuleBodyNotRewrite(label.id.clone()))?;
         Ok(Self {
             origin,

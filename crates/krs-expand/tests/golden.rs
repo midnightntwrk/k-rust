@@ -1177,6 +1177,37 @@ mod lemmas {
 }
 "#,
     ),
+    (
+        "context_term",
+        r"
+#[k::context(hole = h)]
+#[k::requires(k::is!(KResult, e))]
+fn add_rhs(k::term![Op::Add(e, h)]: Term<Exp>) {}
+",
+    ),
+    (
+        "context_cells",
+        r#"
+#[k::context(hole = h, result = Value, label = "assign-rhs")]
+fn assign_rhs(
+    h: Exp,
+    k::cells! { k: k::configuration::KCell(StmtSyntax::Inc(k::rewrite!(h => LValue(h))), tail @ ..), state @ .. }: Machine,
+) {}
+"#,
+    ),
+    (
+        "context_alias_result",
+        r"
+#[k::context_alias(name = translate, here = site, result = Value)]
+fn translate_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: Machine,
+) {
+}
+",
+    ),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.

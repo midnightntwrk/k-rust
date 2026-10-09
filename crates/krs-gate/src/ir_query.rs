@@ -498,6 +498,7 @@ fn sentence_kind(sentence: &DefinitionSentence) -> &'static str {
         DefinitionSentence::Configuration(_) => "configuration",
         DefinitionSentence::ContextAlias(_) => "context_alias",
         DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim => "claim",
+        DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Context => "context",
         DefinitionSentence::Rule(_) => "rule",
         DefinitionSentence::Lexical(_) => "lexical",
         DefinitionSentence::Layout(_) => "layout",

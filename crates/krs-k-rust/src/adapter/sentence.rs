@@ -92,6 +92,9 @@ impl Adapter<'_> {
             DefinitionSentence::ContextAlias(sentence) => {
                 self.context_alias(sentence, module, sentence_index)
             }
+            DefinitionSentence::Rule(sentence) if sentence.kind() == SentenceKind::Context => {
+                self.context(sentence, module, sentence_index)
+            }
             DefinitionSentence::Rule(sentence) => self.rule(sentence, module, sentence_index),
             // K's outer syntax desugars `syntax lexical` and `#Layout`
             // privately; these are the flat sentences k-rust's outer lowering
@@ -636,12 +639,73 @@ impl Adapter<'_> {
         self.context_here = None;
         let mut attributes = attributes_for_origin(sentence.origin());
         attributes.insert("label", json!(sentence.name()));
+        // `result = S`, K's `result(S)` (KF-021).
+        if let Some(result) = sentence.result() {
+            attributes.insert(
+                "result",
+                json!(self.sort(result.sort(), result.origin())?.name),
+            );
+        }
         // K's source frontend carries this internal marker from a named
         // computation-cell context alias into its generated cool rule.
         attributes.insert("cool-like", json!(""));
         Ok(NativeSentence::ContextAlias {
             body,
             requires: truth(),
+            attributes,
+        })
+    }
+
+    /// Adapts a context (KF-021): its pattern, hole named `HOLE` and at most
+    /// one rewrite of it in place, becomes k-rust's `context`, which k-rust
+    /// turns into a freezer and `<label>-heat` and `<label>-cool` rules.
+    pub(super) fn context(
+        &mut self,
+        sentence: &RuleSentence,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeSentence, AdapterError> {
+        self.variable_names = self.naming.rule(sentence);
+        let body = match sentence.relational_body() {
+            RuleBodyRef::Term(term) => {
+                let local = term.local_term().unwrap_or_else(|| term.from());
+                self.term(
+                    local,
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::Normal,
+                )?
+            }
+            RuleBodyRef::Configuration { body, .. } => {
+                self.configuration_rewrite(body, module, sentence_index, sentence)?
+            }
+            RuleBodyRef::Predicate(_) => {
+                unreachable!("validated Definition IR gives a context a term or configuration body")
+            }
+        };
+        let requires = sentence.requires().map_or_else(
+            || Ok(truth()),
+            |condition| {
+                self.condition(
+                    condition,
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Requires,
+                )
+            },
+        )?;
+        let mut attributes = attributes_for_origin(sentence.origin());
+        attributes.insert("label", json!(native_rule_label(module, sentence.label())));
+        if let Some(result) = sentence.evaluation().and_then(|step| step.result()) {
+            attributes.insert(
+                "result",
+                json!(self.sort(result.sort(), result.origin())?.name),
+            );
+        }
+        Ok(NativeSentence::Context {
+            body,
+            requires,
             attributes,
         })
     }

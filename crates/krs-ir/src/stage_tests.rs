@@ -482,6 +482,7 @@ fn context_alias() -> DescriptorContextAlias {
             },
         ],
         pattern: rule_cells(),
+        result: None,
     }
 }
 
