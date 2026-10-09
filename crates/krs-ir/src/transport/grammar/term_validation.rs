@@ -245,6 +245,23 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         self.in_let_pattern = inside;
     }
 
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &DescriptorSortReference,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        require_key(binder_key, self.provenance)?;
+        require_key(&sort.key, self.provenance)?;
+        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::ClosureInPattern,
+            ));
+        }
+        sort.sort.validate()
+    }
+
     fn let_body(&mut self, names: Option<&BTreeSet<String>>) {
         match names {
             Some(names) => self.let_scopes.push(names.clone()),
@@ -586,6 +603,28 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
 
     fn let_pattern(&mut self, inside: bool) {
         self.counters.in_let_pattern = inside;
+    }
+
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &DescriptorSortReference,
+    ) -> Result<(), Self::Error> {
+        if matches!(self.side, TermSide::Left)
+            || self.counters.in_matches_pattern
+            || self.counters.in_let_pattern
+        {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::ClosureInPattern,
+            ));
+        }
+        let ordinal = self.counters.ml_binder;
+        insert_exact(self.keys, key, ProvenanceRole::MlConnective, ordinal)?;
+        insert_exact(self.keys, binder_key, ProvenanceRole::MlBinder, ordinal)?;
+        insert_exact(self.keys, &sort.key, ProvenanceRole::MlBinderSort, ordinal)?;
+        self.counters.ml_binder = increment(ordinal)?;
+        Ok(())
     }
 
     fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}

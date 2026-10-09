@@ -689,41 +689,36 @@ impl Adapter<'_> {
             RuleBodyRef::Configuration { body: rewrite, .. } => {
                 self.configuration_rewrite(rewrite, module, sentence_index, sentence)?
             }
+            // A predicate simplification (KF-039): `P => Q` between
+            // predicates, whose sort k-rust leaves a sort variable.
+            RuleBodyRef::Predicate(rewrite) => {
+                self.map_sentence_origin(
+                    rewrite.origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Term(Vec::new()),
+                );
+                NativeTerm::Rewrite {
+                    left: Box::new(self.predicate(rewrite.lhs(), module, sentence_index, &[0])?),
+                    right: Box::new(self.predicate(rewrite.rhs(), module, sentence_index, &[1])?),
+                }
+            }
         };
         let requires = sentence.requires().map_or_else(
             || Ok(truth()),
             |condition| {
-                self.map_sentence_origin(
-                    condition.origin(),
+                self.condition(
+                    condition,
                     module,
                     sentence_index,
                     SentenceNodeRole::Requires,
-                );
-                self.term(
-                    condition.term(),
-                    module,
-                    sentence_index,
-                    Vec::new(),
-                    TermContext::Normal,
                 )
             },
         )?;
         let ensures = sentence.ensures().map_or_else(
             || Ok(truth()),
             |condition| {
-                self.map_sentence_origin(
-                    condition.origin(),
-                    module,
-                    sentence_index,
-                    SentenceNodeRole::Ensures,
-                );
-                self.term(
-                    condition.term(),
-                    module,
-                    sentence_index,
-                    Vec::new(),
-                    TermContext::Normal,
-                )
+                self.condition(condition, module, sentence_index, SentenceNodeRole::Ensures)
             },
         )?;
         let mut attributes = attributes_for_origin(sentence.origin());
@@ -802,6 +797,32 @@ impl Adapter<'_> {
                 ensures,
                 attributes,
             })
+        }
+    }
+
+    /// Adapts one `requires` or `ensures` condition: an object Bool term,
+    /// or a matching-logic predicate (KF-039).
+    fn condition(
+        &mut self,
+        condition: &krs_ir_levels::DefinitionCondition,
+        module: &str,
+        sentence_index: usize,
+        role: SentenceNodeRole,
+    ) -> Result<NativeTerm, AdapterError> {
+        match condition {
+            krs_ir_levels::IrCondition::Bool(condition) => {
+                self.map_sentence_origin(condition.origin(), module, sentence_index, role);
+                self.term(
+                    condition.term(),
+                    module,
+                    sentence_index,
+                    Vec::new(),
+                    TermContext::Normal,
+                )
+            }
+            krs_ir_levels::IrCondition::Predicate(predicate) => {
+                self.predicate(predicate, module, sentence_index, &[])
+            }
         }
     }
 

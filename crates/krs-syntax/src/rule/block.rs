@@ -273,6 +273,9 @@ impl RuleClause {
                     | ProvenanceRole::Let
                     | ProvenanceRole::LetSort
                     | ProvenanceRole::LetWildcard
+                    | ProvenanceRole::MlConnective
+                    | ProvenanceRole::MlBinder
+                    | ProvenanceRole::MlBinderSort
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -514,6 +517,10 @@ impl RuleClause {
         let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
         for nodes in &terms {
             crate::term::push_let_anchors(anchors, nodes, &mut lets, &mut let_wildcards)?;
+        }
+        let mut closures = 0_usize;
+        for nodes in &terms {
+            crate::term::push_ml_binder_anchors(anchors, nodes, &mut closures)?;
         }
         Ok(())
     }

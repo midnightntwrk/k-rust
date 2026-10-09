@@ -648,6 +648,11 @@ impl<'a> InitializerBuilder<'a> {
                 range.first(),
                 "`let` blocks (K's #let) are rule terms; initializers cannot contain them",
             )),
+            TermTree::Closure { range, .. } => Err(ExpandError::new(
+                expand::ML_PLACEMENT,
+                range.first(),
+                "an `ml::exists` closure is a predicate; initializers cannot contain it",
+            )),
         }
     }
 }

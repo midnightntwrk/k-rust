@@ -801,6 +801,7 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
                 + count_here_in_term(value, here)
                 + count_here_in_term(body, here)
         }
+        DescriptorTerm::Closure { body, .. } => count_here_in_term(body, here),
     }
 }
 
@@ -976,6 +977,16 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
             }
             collect_term_keys(pattern, keys);
             collect_term_keys(value, keys);
+            collect_term_keys(body, keys);
+        }
+        DescriptorTerm::Closure {
+            key,
+            binder_key,
+            sort,
+            body,
+            ..
+        } => {
+            keys.extend([key.clone(), binder_key.clone(), sort.key.clone()]);
             collect_term_keys(body, keys);
         }
     }
@@ -1182,6 +1193,8 @@ struct RuleCounters {
     let_wildcard: u32,
     /// Whether the validator is inside a `let` pattern.
     in_let_pattern: bool,
+    /// `ml::exists` closure ordinals, side-neutral (KF-039).
+    ml_binder: u32,
 }
 
 impl RuleCounters {
@@ -1201,6 +1214,7 @@ impl RuleCounters {
             matches_wildcard: self.matches_wildcard,
             let_binding: self.let_binding,
             let_wildcard: self.let_wildcard,
+            ml_binder: self.ml_binder,
             ..Self::default()
         }
     }
@@ -2469,6 +2483,35 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
 
     fn let_pattern(&mut self, inside: bool) {
         self.counters.in_let_pattern = inside;
+    }
+
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error> {
+        if matches!(self.side, ValidationSide::Left)
+            || self.counters.in_matches_pattern
+            || self.counters.in_let_pattern
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::ClosureInPattern,
+            ));
+        }
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort))?;
+        let ordinal = self.counters.ml_binder;
+        insert_rule_exact(self.keys, key, ProvenanceRole::MlConnective, ordinal)?;
+        insert_rule_exact(self.keys, binder_key, ProvenanceRole::MlBinder, ordinal)?;
+        insert_rule_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::MlBinderSort,
+            ordinal,
+        )?;
+        self.counters.ml_binder = rule_increment(ordinal)?;
+        Ok(())
     }
 
     fn let_body(&mut self, names: Option<&BTreeSet<String>>) {

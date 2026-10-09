@@ -129,6 +129,7 @@ crate::__framework_sorts! {
 }
 
 pub mod builtin;
+pub mod ml;
 
 // Rust-side membership required by the framework sort hierarchy generated
 // above. Object-language builtin membership remains owned by the compiler's
@@ -238,6 +239,22 @@ macro_rules! set_operation_registry {
 
 krs_ir::__krs_set_operation_catalog!(set_operation_registry);
 
+macro_rules! ml_connective_registry {
+    (
+        rust_module: $module:ident;
+        $(
+            $(#[$meta:meta])*
+            $variant:ident { rust_name: $name:ident, $($fact:tt)* }
+        )*
+    ) => {
+        fn ml_connective_registry() -> [HostTypeKey; krs_ir::MlConnective::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<$module::$name>)),*]
+        }
+    };
+}
+
+krs_ir::__krs_ml_connective_catalog!(ml_connective_registry);
+
 /// Constructs the complete process-local registry of builtin Rust markers.
 ///
 /// The registry joins rustc-resolved [`TypeId`] values to closed semantic
@@ -247,7 +264,8 @@ krs_ir::__krs_set_operation_catalog!(set_operation_registry);
 ///
 /// The returned registry has one entry for every [`BuiltinSort::ALL`],
 /// [`BuiltinOperation::ALL`], [`TermMapOperation::ALL`], [`ListOperation::ALL`],
-/// and [`SetOperation::ALL`] member and passes [`HostBuiltinRegistry::validate`].
+/// [`SetOperation::ALL`], and [`krs_ir::MlConnective::ALL`] member and passes
+/// [`HostBuiltinRegistry::validate`].
 #[must_use]
 pub fn builtin_registry() -> HostBuiltinRegistry {
     HostBuiltinRegistry {
@@ -256,6 +274,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         map_operations: map_operation_registry(),
         list_operations: list_operation_registry(),
         set_operations: set_operation_registry(),
+        ml_connectives: ml_connective_registry(),
     }
 }
 

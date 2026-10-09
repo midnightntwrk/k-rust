@@ -547,6 +547,11 @@ impl Sample for SentenceKind {
         vec![Self::Transition]
     }
 }
+impl Sample for MlConnective {
+    fn samples() -> Vec<Self> {
+        vec![Self::Equals]
+    }
+}
 impl Sample for SetOperation {
     fn samples() -> Vec<Self> {
         vec![Self::Empty]
@@ -1110,8 +1115,9 @@ impl Sample for DescriptorApplicationRef {
                 Self::Map(TermMapOperation::Update),
                 Self::List(sample::<ListOperation>()),
                 Self::Set(sample::<SetOperation>()),
+                Self::Ml(sample::<MlConnective>()),
             ],
-            5,
+            6,
             "DescriptorApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
@@ -1119,6 +1125,7 @@ impl Sample for DescriptorApplicationRef {
                 Self::Map(..) => 2,
                 Self::List(..) => 3,
                 Self::Set(..) => 4,
+                Self::Ml(..) => 5,
             },
         )
     }
@@ -1504,8 +1511,15 @@ impl Sample for DescriptorTerm {
                     value: Box::new(sample::<DescriptorTerm>()),
                     body: Box::new(sample::<DescriptorTerm>()),
                 },
+                Self::Closure {
+                    key: sample::<ProvenanceKey>(),
+                    binder_key: sample::<ProvenanceKey>(),
+                    name: sample::<String>(),
+                    sort: sample::<DescriptorSortReference>(),
+                    body: Box::new(sample::<DescriptorTerm>()),
+                },
             ],
-            14,
+            15,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1522,6 +1536,7 @@ impl Sample for DescriptorTerm {
                 Self::Or { .. } => 11,
                 Self::Matches { .. } => 12,
                 Self::Let { .. } => 13,
+                Self::Closure { .. } => 14,
             },
         )
     }
@@ -2666,8 +2681,15 @@ impl Sample for WireTerm {
                     value: Box::new(sample::<WireTerm>()),
                     body: Box::new(sample::<WireTerm>()),
                 },
+                Self::Closure {
+                    key: sample::<ProvenanceKey>(),
+                    binder_key: sample::<ProvenanceKey>(),
+                    name: sample::<String>(),
+                    sort: sample::<WireSortReference>(),
+                    body: Box::new(sample::<WireTerm>()),
+                },
             ],
-            14,
+            15,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2684,6 +2706,7 @@ impl Sample for WireTerm {
                 Self::Or { .. } => 11,
                 Self::Matches { .. } => 12,
                 Self::Let { .. } => 13,
+                Self::Closure { .. } => 14,
             },
         )
     }
@@ -3421,6 +3444,7 @@ impl Sample for StructuredRuleDescriptor {
             equation: sample::<Option<DescriptorEquationAttributes>>(),
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
             function_context: sample(),
+            predicate: false,
         }]
     }
 }
@@ -3615,6 +3639,7 @@ impl Sample for WireStructuredRule {
             equation: sample::<Option<DescriptorEquationAttributes>>(),
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
             function_context: sample(),
+            predicate: false,
         }]
     }
 }
@@ -3726,6 +3751,12 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
     insert::<SemanticTerm>(corpus, "SemanticTerm");
     insert::<DefinitionRuleBody>(corpus, "DefinitionRuleBody");
     insert::<SemanticRuleBody>(corpus, "SemanticRuleBody");
+    insert::<IrMlKind<SemanticLevel>>(corpus, "IrMlKind");
+    insert::<DefinitionMlPredicate>(corpus, "DefinitionMlPredicate");
+    insert::<SemanticMlPredicate>(corpus, "SemanticMlPredicate");
+    insert::<DefinitionCondition>(corpus, "DefinitionCondition");
+    insert::<SemanticCondition>(corpus, "SemanticCondition");
+    insert::<IrPredicateRewrite<SemanticLevel>>(corpus, "IrPredicateRewrite");
     insert::<DefinitionIr>(corpus, "DefinitionIr");
     insert::<DescriptorBundle>(corpus, "DescriptorBundle");
     insert::<DescriptorProvenance>(corpus, "DescriptorProvenance");
@@ -3866,6 +3897,105 @@ pub(super) fn corpus() -> BTreeMap<&'static str, Vec<serde_json::Value>> {
     corpus
 }
 
+impl<L: IrLevel> Sample for IrMlKind<L>
+where
+    IrTerm<L>: Sample,
+    IrScopedBinder<L>: Sample,
+    L::Sort: Sample,
+{
+    fn samples() -> Vec<Self> {
+        let leaf = || Box::new(IrMlPredicate::new(sample::<NodeOrigin>(), Self::Top));
+        checked_samples(
+            vec![
+                Self::Top,
+                Self::Bottom,
+                Self::Not { operand: leaf() },
+                Self::And {
+                    left: leaf(),
+                    right: leaf(),
+                },
+                Self::Or {
+                    left: leaf(),
+                    right: leaf(),
+                },
+                Self::Implies {
+                    left: leaf(),
+                    right: leaf(),
+                },
+                Self::Equals {
+                    operand_sort: sample::<L::Sort>(),
+                    left: Box::new(sample::<IrTerm<L>>()),
+                    right: Box::new(sample::<IrTerm<L>>()),
+                },
+                Self::Ceil {
+                    operand_sort: sample::<L::Sort>(),
+                    term: Box::new(sample::<IrTerm<L>>()),
+                },
+                Self::Exists {
+                    binder: sample::<IrScopedBinder<L>>(),
+                    body: leaf(),
+                },
+            ],
+            9,
+            "IrMlKind",
+            |value| match value {
+                Self::Top => 0,
+                Self::Bottom => 1,
+                Self::Not { .. } => 2,
+                Self::And { .. } => 3,
+                Self::Or { .. } => 4,
+                Self::Implies { .. } => 5,
+                Self::Equals { .. } => 6,
+                Self::Ceil { .. } => 7,
+                Self::Exists { .. } => 8,
+            },
+        )
+    }
+}
+impl<L: IrLevel> Sample for IrMlPredicate<L>
+where
+    IrMlKind<L>: Sample,
+{
+    fn samples() -> Vec<Self> {
+        sample::<Vec<IrMlKind<L>>>()
+            .into_iter()
+            .map(|kind| Self::new(sample::<NodeOrigin>(), kind))
+            .collect()
+    }
+}
+impl<L: IrLevel> Sample for IrPredicateRewrite<L>
+where
+    IrMlPredicate<L>: Sample,
+{
+    fn samples() -> Vec<Self> {
+        let predicate = sample::<IrMlPredicate<L>>();
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            predicate.clone(),
+            predicate,
+        )]
+    }
+}
+impl<L: IrLevel> Sample for IrCondition<L>
+where
+    IrRuleCondition<L>: Sample,
+    IrMlPredicate<L>: Sample,
+{
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::Bool(sample::<IrRuleCondition<L>>()),
+                Self::Predicate(sample::<IrMlPredicate<L>>()),
+            ],
+            2,
+            "IrCondition",
+            |value| match value {
+                Self::Bool(..) => 0,
+                Self::Predicate(..) => 1,
+            },
+        )
+    }
+}
 impl<L: IrLevel> Sample for IrRewrite<L>
 where
     IrTerm<L>: Sample,

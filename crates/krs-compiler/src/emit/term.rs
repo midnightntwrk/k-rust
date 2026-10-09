@@ -4,8 +4,8 @@ use krs_ir::{
     ProductionAttribute, ProductionGroupId, SemanticId, SemanticIdKind, SetOperation, SourceMapKey,
 };
 use krs_ir_levels::{
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapOperands, ProductionSentence,
-    k_surface::SentenceVariables,
+    DefinitionMlPredicate, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, IrMlKind,
+    MapOperands, ProductionSentence, k_surface::SentenceVariables,
 };
 
 use super::{EmitContext, EmitError};
@@ -53,11 +53,11 @@ pub(super) struct Rendered {
 }
 
 impl Rendered {
-    fn push(&mut self, text: &str) {
+    pub(super) fn push(&mut self, text: &str) {
         self.text.push_str(text);
     }
 
-    fn append(&mut self, child: Self) {
+    pub(super) fn append(&mut self, child: Self) {
         let base = self.text.len();
         self.text.push_str(&child.text);
         self.ranges.extend(
@@ -347,6 +347,88 @@ fn render_term_with_binders(
         }
     }
     Ok(output.finish(term.origin().key(), start))
+}
+
+/// Renders a matching-logic predicate (KF-039, X13): `{ A #Equals B }` is
+/// always braced, a binary connective nested in another connective or in
+/// an `#Exists` body is parenthesized, `#Not` and `#Ceil` parenthesize
+/// their operand, and no connective carries a sort parameter.
+pub(super) fn render_predicate(
+    predicate: &DefinitionMlPredicate,
+    context: &EmitContext<'_>,
+    names: &SentenceVariables,
+    nested: bool,
+) -> Result<Rendered, EmitError> {
+    let mut output = Rendered::default();
+    let binary = |label: &str,
+                  left: &DefinitionMlPredicate,
+                  right: &DefinitionMlPredicate,
+                  output: &mut Rendered|
+     -> Result<(), EmitError> {
+        if nested {
+            output.push("( ");
+        }
+        output.append(render_predicate(left, context, names, true)?);
+        output.push(" ");
+        output.push(label);
+        output.push(" ");
+        output.append(render_predicate(right, context, names, true)?);
+        if nested {
+            output.push(" )");
+        }
+        Ok(())
+    };
+    match predicate.kind() {
+        IrMlKind::Top => output.push("#Top"),
+        IrMlKind::Bottom => output.push("#Bottom"),
+        IrMlKind::Not { operand } => {
+            output.push("#Not ( ");
+            output.append(render_predicate(operand, context, names, false)?);
+            output.push(" )");
+        }
+        IrMlKind::And { left, right } => binary("#And", left, right, &mut output)?,
+        IrMlKind::Or { left, right } => binary("#Or", left, right, &mut output)?,
+        IrMlKind::Implies { left, right } => binary("#Implies", left, right, &mut output)?,
+        IrMlKind::Equals { left, right, .. } => {
+            output.push("{ ");
+            output.append(render_term_with_binders(left, context, false, names)?);
+            output.push(" #Equals ");
+            output.append(render_term_with_binders(right, context, false, names)?);
+            output.push(" }");
+        }
+        IrMlKind::Ceil { term, .. } => {
+            output.push("#Ceil ( ");
+            output.append(render_term_with_binders(term, context, false, names)?);
+            output.push(" )");
+        }
+        IrMlKind::Exists { binder, body } => {
+            output.push("#Exists ");
+            let start = output.text.len();
+            output.push(names.name(binder.id()).ok_or_else(|| {
+                EmitError::InvalidReference(format!(
+                    "ml::exists binder {:?} is not named in its sentence",
+                    binder.id().as_str()
+                ))
+            })?);
+            let name_end = output.text.len();
+            output.push(":");
+            let sort_start = output.text.len();
+            output.push(&context.sort_name_ref(binder.sort())?);
+            let end = output.text.len();
+            output
+                .ranges
+                .push((binder.name_origin().key().clone(), start, name_end));
+            output
+                .ranges
+                .push((binder.sort_origin().key().clone(), sort_start, end));
+            output
+                .ranges
+                .push((binder.origin().key().clone(), start, end));
+            output.push(" . ");
+            output.append(render_predicate(body, context, names, true)?);
+        }
+    }
+    Ok(output.finish(predicate.origin().key(), 0))
 }
 
 fn is_wildcard(term: &DefinitionTerm) -> bool {

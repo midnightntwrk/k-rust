@@ -808,6 +808,22 @@ fn emit_rule(
             record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
+        // A predicate simplification (KF-039): `rule P => Q [simplification]`.
+        RuleBodyRef::Predicate(body) => {
+            writer.push("rule ");
+            let mut rendered = super::term::render_predicate(body.lhs(), context, &names, false)?;
+            rendered.push(" => ");
+            rendered.append(super::term::render_predicate(
+                body.rhs(),
+                context,
+                &names,
+                false,
+            )?);
+            writer.append_rendered(rendered.finish(body.origin().key(), 0))?;
+            emit_requires(sentence, &names, context, writer)?;
+            emit_term_rule_attributes(sentence, &names, writer)?;
+            Ok(())
+        }
     }
 }
 
@@ -995,9 +1011,29 @@ fn emit_ensures(
         return Ok(());
     };
     writer.push("\n    ensures ");
+    emit_condition(ensures, names, context, writer)
+}
+
+/// Writes one `requires` or `ensures` condition: an object Bool term, or a
+/// matching-logic predicate (KF-039).
+fn emit_condition(
+    condition: &krs_ir_levels::DefinitionCondition,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
     let start = writer.source.len();
-    writer.append_rendered(render_term(ensures.term(), context, names, false)?)?;
-    writer.record(ensures.origin().key(), start, writer.source.len())?;
+    match condition {
+        krs_ir_levels::IrCondition::Bool(condition) => {
+            writer.append_rendered(render_term(condition.term(), context, names, false)?)?;
+            writer.record(condition.origin().key(), start, writer.source.len())?;
+        }
+        krs_ir_levels::IrCondition::Predicate(predicate) => {
+            writer.append_rendered(super::term::render_predicate(
+                predicate, context, names, false,
+            )?)?;
+        }
+    }
     Ok(())
 }
 
@@ -1074,9 +1110,7 @@ fn emit_requires(
 ) -> Result<(), EmitError> {
     if let Some(condition) = sentence.requires() {
         writer.push("\n    requires ");
-        let start = writer.source.len();
-        writer.append_rendered(render_term(condition.term(), context, names, false)?)?;
-        writer.record(condition.origin().key(), start, writer.source.len())?;
+        emit_condition(condition, names, context, writer)?;
     }
     Ok(())
 }

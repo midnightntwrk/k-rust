@@ -497,6 +497,13 @@ provenance_roles! {
     /// One turbofish type argument of a parametric application head
     /// (`Choose::<Int> { .. }`), numbered once across a sentence (KF-027).
     ApplicationInstance => "application_instance",
+    /// The closure `|x: S| p` of one `ml::exists` (KF-039), K's `#Exists`
+    /// quantifier shell, numbered once across a sentence.
+    MlConnective => "ml_connective",
+    /// The binder identifier of one `ml::exists` closure.
+    MlBinder => "ml_binder",
+    /// The sort type of one `ml::exists` closure's binder.
+    MlBinderSort => "ml_binder_sort",
 }
 
 impl Serialize for ProvenanceRole {

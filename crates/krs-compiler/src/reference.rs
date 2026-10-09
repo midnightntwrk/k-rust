@@ -1475,6 +1475,10 @@ fn render_term(
                 DescriptorApplicationRef::Set(operation) => {
                     render_facade_marker(operation.facade_marker())
                 }
+                DescriptorApplicationRef::Ml(connective) => {
+                    let name = format_ident!("{}", connective.facade_marker().name);
+                    quote!(k::ml::#name)
+                }
             };
             if arguments.is_empty()
                 && matches!(
@@ -1649,6 +1653,14 @@ fn render_term(
             }
             let result = render_term(current, pattern, package, bundle)?;
             Ok(quote!({ #(#statements)* #result }))
+        }
+        DescriptorTerm::Closure {
+            name, sort, body, ..
+        } => {
+            let name = rust_ident(name);
+            let sort = render_descriptor_sort(&sort.sort, package)?;
+            let body = render_term(body, pattern, package, bundle)?;
+            Ok(quote!(|#name: #sort| #body))
         }
         DescriptorTerm::Cell {
             declaration,

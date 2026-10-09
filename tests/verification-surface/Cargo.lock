@@ -169,6 +169,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-verification-surface-l22"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-verification-surface-l22-verification"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-verification-surface-l22",
+]
+
+[[package]]
 name = "krs-verification-surface-trusted"
 version = "0.1.0"
 dependencies = [

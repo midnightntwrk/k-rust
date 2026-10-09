@@ -638,6 +638,223 @@ impl<L: IrLevel> IrRuleCondition<L> {
     }
 }
 
+/// A `requires` or `ensures` condition (KF-039): an object-language Bool
+/// term, or a matching-logic predicate. The Bool arm serializes untagged as
+/// before, so conditions without predicates keep their serialized form.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(untagged, bound = "")]
+pub enum IrCondition<L: IrLevel> {
+    /// An object-language Bool term.
+    Bool(IrRuleCondition<L>),
+    /// A matching-logic predicate.
+    Predicate(IrMlPredicate<L>),
+}
+
+impl<L: IrLevel> IrCondition<L> {
+    /// Returns complete condition-payload provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        match self {
+            Self::Bool(condition) => condition.origin(),
+            Self::Predicate(predicate) => predicate.origin(),
+        }
+    }
+    /// Returns the object-language Bool condition, when it is one.
+    #[must_use]
+    pub const fn as_bool(&self) -> Option<&IrRuleCondition<L>> {
+        match self {
+            Self::Bool(condition) => Some(condition),
+            Self::Predicate(_) => None,
+        }
+    }
+    /// Returns the matching-logic predicate, when it is one.
+    #[must_use]
+    pub const fn as_predicate(&self) -> Option<&IrMlPredicate<L>> {
+        match self {
+            Self::Bool(_) => None,
+            Self::Predicate(predicate) => Some(predicate),
+        }
+    }
+    /// Every object term of the condition, in order: the Bool term, or the
+    /// operands of the predicate's `#Equals` and `#Ceil` nodes.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&IrTerm<L>> {
+        match self {
+            Self::Bool(condition) => vec![condition.term()],
+            Self::Predicate(predicate) => predicate.terms(),
+        }
+    }
+}
+
+impl<L: IrLevel> From<IrRuleCondition<L>> for IrCondition<L> {
+    fn from(condition: IrRuleCondition<L>) -> Self {
+        Self::Bool(condition)
+    }
+}
+
+/// One provenance-bearing matching-logic predicate (KF-039).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct IrMlPredicate<L: IrLevel> {
+    pub(crate) origin: NodeOrigin,
+    #[serde(flatten)]
+    pub(crate) kind: IrMlKind<L>,
+}
+
+/// The connective of one matching-logic predicate (KF-039). Every node is
+/// written in K without sort parameters; the backends solve its instance.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "ml_kind", rename_all = "snake_case", bound = "")]
+pub enum IrMlKind<L: IrLevel> {
+    /// `#Top`.
+    Top,
+    /// `#Bottom`.
+    Bottom,
+    /// `#Not ( P )`.
+    Not {
+        /// The complemented predicate.
+        operand: Box<IrMlPredicate<L>>,
+    },
+    /// `P #And Q`.
+    And {
+        /// The left conjunct.
+        left: Box<IrMlPredicate<L>>,
+        /// The right conjunct.
+        right: Box<IrMlPredicate<L>>,
+    },
+    /// `P #Or Q`.
+    Or {
+        /// The left disjunct.
+        left: Box<IrMlPredicate<L>>,
+        /// The right disjunct.
+        right: Box<IrMlPredicate<L>>,
+    },
+    /// `P #Implies Q`.
+    Implies {
+        /// The premise.
+        left: Box<IrMlPredicate<L>>,
+        /// The conclusion.
+        right: Box<IrMlPredicate<L>>,
+    },
+    /// `{ T #Equals U }`: both operands at `operand_sort`.
+    Equals {
+        /// The sort both operands share.
+        operand_sort: L::Sort,
+        /// The left operand.
+        left: Box<IrTerm<L>>,
+        /// The right operand.
+        right: Box<IrTerm<L>>,
+    },
+    /// `#Ceil ( T )`: `term` is defined.
+    Ceil {
+        /// The operand's sort.
+        operand_sort: L::Sort,
+        /// The operand.
+        term: Box<IrTerm<L>>,
+    },
+    /// `#Exists X:S . P`: the binder is a local variable of the sentence
+    /// (BIND-1), referenced only in `body`.
+    Exists {
+        /// The quantified binder.
+        binder: IrScopedBinder<L>,
+        /// The quantified predicate.
+        body: Box<IrMlPredicate<L>>,
+    },
+}
+
+impl<L: IrLevel> IrMlPredicate<L> {
+    /// Creates one predicate node.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, kind: IrMlKind<L>) -> Self {
+        Self { origin, kind }
+    }
+    /// Returns the connective's provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the connective and its operands.
+    #[must_use]
+    pub const fn kind(&self) -> &IrMlKind<L> {
+        &self.kind
+    }
+    /// Every object term below this predicate, in preorder.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&IrTerm<L>> {
+        let mut terms = Vec::new();
+        self.visit(&mut |predicate| match predicate.kind() {
+            IrMlKind::Equals { left, right, .. } => terms.extend([&**left, &**right]),
+            IrMlKind::Ceil { term, .. } => terms.push(&**term),
+            _ => {}
+        });
+        terms
+    }
+    /// The binders of every `#Exists` below this predicate, in preorder.
+    #[must_use]
+    pub fn binders(&self) -> Vec<&IrScopedBinder<L>> {
+        let mut binders = Vec::new();
+        self.visit(&mut |predicate| {
+            if let IrMlKind::Exists { binder, .. } = predicate.kind() {
+                binders.push(binder);
+            }
+        });
+        binders
+    }
+    /// Calls `visit` on this predicate and every predicate below it, in preorder.
+    pub fn visit<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
+        visit(self);
+        match &self.kind {
+            IrMlKind::Top | IrMlKind::Bottom | IrMlKind::Equals { .. } | IrMlKind::Ceil { .. } => {}
+            IrMlKind::Not { operand } => operand.visit(visit),
+            IrMlKind::And { left, right }
+            | IrMlKind::Or { left, right }
+            | IrMlKind::Implies { left, right } => {
+                left.visit(visit);
+                right.visit(visit);
+            }
+            IrMlKind::Exists { body, .. } => body.visit(visit),
+        }
+    }
+}
+
+/// A predicate simplification's body (KF-039): one matching-logic predicate
+/// rewritten to another, valid only on a simplification. Its sort is left
+/// to the backend, which solves it as a sort variable.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, bound = "")]
+pub struct IrPredicateRewrite<L: IrLevel> {
+    pub(crate) origin: NodeOrigin,
+    pub(crate) predicate_lhs: IrMlPredicate<L>,
+    pub(crate) predicate_rhs: IrMlPredicate<L>,
+}
+
+impl<L: IrLevel> IrPredicateRewrite<L> {
+    /// Creates a predicate rewrite.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, lhs: IrMlPredicate<L>, rhs: IrMlPredicate<L>) -> Self {
+        Self {
+            origin,
+            predicate_lhs: lhs,
+            predicate_rhs: rhs,
+        }
+    }
+    /// Returns the rewrite's provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the left side, rooted at `#Equals` or `#Ceil`.
+    #[must_use]
+    pub const fn lhs(&self) -> &IrMlPredicate<L> {
+        &self.predicate_lhs
+    }
+    /// Returns the right side.
+    #[must_use]
+    pub const fn rhs(&self) -> &IrMlPredicate<L> {
+        &self.predicate_rhs
+    }
+}
+
 /// Structured relational body of an ordinary labeled rule at one IR level.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(untagged, bound = "")]
@@ -724,6 +941,7 @@ impl<L: IrLevel> From<IrRewrite<L>> for IrTerm<L> {
 pub(crate) enum RuleBodyWire<L: IrLevel> {
     Term(L::RuleTerm),
     Configuration(FixedConfigurationRewrite<L::Cell, IrTerm<L>>),
+    Predicate(Box<IrPredicateRewrite<L>>),
 }
 
 /// A borrowed rule body with the sentence kind refined for configuration rewrites.
@@ -738,6 +956,8 @@ pub enum RuleBodyRef<'a, L: IrLevel> {
         /// The simultaneous configuration rewrite.
         body: &'a FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
     },
+    /// One predicate simplification (KF-039).
+    Predicate(&'a IrPredicateRewrite<L>),
 }
 
 impl<L: IrLevel> Copy for RuleBodyRef<'_, L> {}
@@ -747,6 +967,7 @@ impl<L: IrLevel> Serialize for RuleBodyRef<'_, L> {
         match self {
             Self::Term(body) => body.serialize(serializer),
             Self::Configuration { body, .. } => body.serialize(serializer),
+            Self::Predicate(body) => body.serialize(serializer),
         }
     }
 }
@@ -761,6 +982,9 @@ pub(crate) enum RuleContent<L: IrLevel> {
         kind: krs_ir::ConfigurationSentenceKind,
         body: FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
     },
+    /// A predicate simplification (KF-039), valid only for
+    /// [`krs_ir::SentenceKind::Simplification`].
+    Predicate { body: Box<IrPredicateRewrite<L>> },
 }
 
 impl<L: IrLevel> RuleContent<L> {
@@ -768,6 +992,7 @@ impl<L: IrLevel> RuleContent<L> {
         match self {
             Self::Term { kind, .. } => *kind,
             Self::Configuration { kind, .. } => kind.sentence_kind(),
+            Self::Predicate { .. } => krs_ir::SentenceKind::Simplification,
         }
     }
 
@@ -775,6 +1000,7 @@ impl<L: IrLevel> RuleContent<L> {
         match self {
             Self::Term { body, .. } => RuleBodyRef::Term(body),
             Self::Configuration { kind, body } => RuleBodyRef::Configuration { kind: *kind, body },
+            Self::Predicate { body } => RuleBodyRef::Predicate(body),
         }
     }
 }
@@ -782,6 +1008,8 @@ impl<L: IrLevel> RuleContent<L> {
 pub(crate) enum RuleBodyRefinementError {
     NotRewrite,
     InvalidConfigurationKind,
+    /// A predicate rewrite on a sentence other than a simplification.
+    InvalidPredicateKind,
 }
 
 impl<L: IrLevel> RuleBodyWire<L> {
@@ -802,6 +1030,13 @@ impl<L: IrLevel> RuleBodyWire<L> {
                     .map_err(|_| RuleBodyRefinementError::InvalidConfigurationKind)?,
                 body,
             }),
+            Self::Predicate(body) => {
+                if kind == krs_ir::SentenceKind::Simplification {
+                    Ok(RuleContent::Predicate { body })
+                } else {
+                    Err(RuleBodyRefinementError::InvalidPredicateKind)
+                }
+            }
         }
     }
 }

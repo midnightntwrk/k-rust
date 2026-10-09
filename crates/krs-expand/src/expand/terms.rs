@@ -249,8 +249,11 @@ pub(super) struct TermBuilder<'a> {
     /// The local binders of the `let` pattern being expanded, or `None`
     /// outside one.
     let_pattern_binders: Option<Vec<Ident>>,
-    /// The local binders of the enclosing `let` statements, innermost last.
+    /// The local binders of the enclosing `let` statements and `ml::exists`
+    /// closures, innermost last.
     let_scopes: Vec<Vec<Ident>>,
+    /// `ml::exists` closure ordinals, side-neutral (KF-039).
+    pub(super) ml_binder_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -290,6 +293,7 @@ impl<'a> TermBuilder<'a> {
             let_wildcard_ordinal: 0,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
+            ml_binder_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -363,6 +367,7 @@ impl<'a> TermBuilder<'a> {
         self.matches_wildcard_ordinal = previous.matches_wildcard_ordinal;
         self.let_ordinal = previous.let_ordinal;
         self.let_wildcard_ordinal = previous.let_wildcard_ordinal;
+        self.ml_binder_ordinal = previous.ml_binder_ordinal;
     }
 
     /// Whether `path` is a local binder of the `k::matches!` or `let`
@@ -422,7 +427,7 @@ impl<'a> TermBuilder<'a> {
             )
         })?;
         let sort = sort
-            .map(|sort| self.let_sort_reference(ordinal, sort, slots))
+            .map(|sort| self.local_sort_reference(ProvenanceRole::LetSort, ordinal, sort, slots))
             .transpose()?;
         self.let_pattern_binders = Some(binders.to_vec());
         let pattern = self.expand_wire(pattern, side, slots);
@@ -441,9 +446,11 @@ impl<'a> TermBuilder<'a> {
         })
     }
 
-    /// The rustc-resolved sort of `let name: Sort = value;`.
-    fn let_sort_reference(
+    /// The rustc-resolved sort of `let name: Sort = value;` or of the binder
+    /// of `ml::exists(|name: Sort| ..)`, keyed `role`.
+    fn local_sort_reference(
         &mut self,
+        role: ProvenanceRole,
         ordinal: u32,
         sort: &Path,
         slots: &mut WireSlots,
@@ -466,11 +473,50 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok(krs_ir::wire::WireSortReference {
-            key: wire_key(ProvenanceRole::LetSort, ordinal),
+            key: wire_key(role, ordinal),
             target: krs_ir::wire::WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                 authored_path: spelling(sort),
             },
+        })
+    }
+
+    /// Expands the closure `|binder: Sort| body` of an `ml::exists`
+    /// (KF-039): its binder is local to the body, like a `let` binder.
+    fn expand_closure(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        binder: &Ident,
+        sort: &Path,
+        body: &TermTree,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
+            return Err(ExpandError::new(
+                expand::ML_PLACEMENT,
+                range.first(),
+                "an `ml::exists` closure is a predicate (K's #Exists); it cannot appear on a left-hand side or inside a pattern",
+            ));
+        }
+        let ordinal = self.ml_binder_ordinal;
+        self.ml_binder_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                range.first(),
+                "too many `ml::exists` closures in one sentence",
+            )
+        })?;
+        let sort = self.local_sort_reference(ProvenanceRole::MlBinderSort, ordinal, sort, slots)?;
+        self.let_scopes.push(vec![binder.clone()]);
+        let body = self.expand_wire(body, side, slots);
+        self.let_scopes.pop();
+        Ok(WireTerm::Closure {
+            key: wire_key(ProvenanceRole::MlConnective, ordinal),
+            binder_key: wire_key(ProvenanceRole::MlBinder, ordinal),
+            name: binder.to_string(),
+            sort,
+            body: Box::new(body?),
         })
     }
 
@@ -808,6 +854,12 @@ impl<'a> TermBuilder<'a> {
                 side,
                 slots,
             ),
+            TermTree::Closure {
+                range,
+                binder,
+                sort,
+                body,
+            } => self.expand_closure(*range, binder, sort, body, side, slots),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(
@@ -1012,6 +1064,7 @@ impl<'a> TermBuilder<'a> {
         authored: &Path,
         slots: &mut WireSlots,
     ) -> crate::Result<TargetSlot> {
+        check_ml_item(authored)?;
         let (owner, variant) = if authored.leading_colon.is_none()
             && authored.segments.len() == 1
             && let Some(imported_owner) = self.enum_glob
@@ -1207,4 +1260,60 @@ fn turbofish_path(application: &krs_syntax::TermApplication) -> Path {
         last.arguments = syn::PathArguments::AngleBracketed(syn::parse_quote!(::<#(#types),*>));
     }
     path
+}
+
+/// The `k::ml` connectives (KF-039), the closed set an `ml::` path names.
+const ML_CONNECTIVES: [&str; 9] = [
+    "top", "bottom", "not", "and", "or", "implies", "equals", "ceil", "exists",
+];
+
+/// Rejects a term head `ml::name` outside the closed set of matching-logic
+/// connectives, suggesting the closest one. Only a lowercase last segment
+/// after a `ml` segment is checked: object constructors are types, and the
+/// connectives are the only lowercase `ml` items.
+fn check_ml_item(path: &Path) -> crate::Result<()> {
+    let mut segments = path.segments.iter().rev();
+    let (Some(last), Some(module)) = (segments.next(), segments.next()) else {
+        return Ok(());
+    };
+    let name = last.ident.to_string();
+    if module.ident != "ml"
+        || !name.starts_with(|first: char| first.is_ascii_lowercase())
+        || ML_CONNECTIVES.contains(&name.as_str())
+    {
+        return Ok(());
+    }
+    let closest = ML_CONNECTIVES
+        .iter()
+        .min_by_key(|candidate| edit_distance(&name, candidate))
+        .filter(|candidate| edit_distance(&name, candidate) <= name.len().max(2) / 2)
+        .map(|candidate| format!(" Did you mean `ml::{candidate}`?"))
+        .unwrap_or_default();
+    Err(ExpandError::new(
+        expand::UNKNOWN_ML_ITEM,
+        last.ident.span(),
+        format!(
+            "`ml::{name}` is not a matching-logic connective.{closest} The connectives are ml::{}.",
+            ML_CONNECTIVES.join(", ml::")
+        ),
+    ))
+}
+
+/// The Levenshtein distance between two ASCII identifiers.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.as_bytes();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left_byte) in left.bytes().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right_byte) in right.iter().enumerate() {
+            let substitution = previous[column] + usize::from(left_byte != *right_byte);
+            current.push(
+                substitution
+                    .min(previous[column + 1] + 1)
+                    .min(current[column] + 1),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }

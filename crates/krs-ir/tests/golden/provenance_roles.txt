@@ -222,3 +222,6 @@ FunctionContext=function_context
 FunctionContextType=function_context_type
 SortParameter=sort_parameter
 ApplicationInstance=application_instance
+MlConnective=ml_connective
+MlBinder=ml_binder
+MlBinderSort=ml_binder_sort

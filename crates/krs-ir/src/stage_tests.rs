@@ -713,6 +713,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         equation: None,
         unbound_variables: None,
         function_context: None,
+        predicate: false,
     }
 }
 

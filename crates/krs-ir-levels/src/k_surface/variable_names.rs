@@ -123,6 +123,10 @@ impl VariableNaming {
                 scope.term(rewrite.from());
                 scope.term(rewrite.to());
             }
+            RuleBodyRef::Predicate(rewrite) => {
+                scope.predicate(rewrite.lhs());
+                scope.predicate(rewrite.rhs());
+            }
             RuleBodyRef::Configuration { body, .. } => {
                 for clause in body.clauses() {
                     scope.term(clause.before());
@@ -146,7 +150,7 @@ impl VariableNaming {
             }
         }
         if let Some(condition) = sentence.requires() {
-            scope.term(condition.term());
+            scope.condition(condition);
         }
         if let Some(claim) = sentence.claim() {
             for binder in claim.universals() {
@@ -164,7 +168,7 @@ impl VariableNaming {
             scope.fresh.insert(binder.id().clone());
         }
         if let Some(condition) = sentence.ensures() {
-            scope.term(condition.term());
+            scope.condition(condition);
         }
         scope.name(&self.reserved)
     }
@@ -268,6 +272,23 @@ impl Scope {
         } = frame
         {
             self.occur(binding, count);
+        }
+    }
+
+    fn condition(&mut self, condition: &crate::DefinitionCondition) {
+        match condition {
+            crate::IrCondition::Bool(condition) => self.term(condition.term()),
+            crate::IrCondition::Predicate(predicate) => self.predicate(predicate),
+        }
+    }
+
+    /// An `#Exists` binder occurs once where it is quantified (KF-039).
+    fn predicate(&mut self, predicate: &crate::DefinitionMlPredicate) {
+        for binder in predicate.binders() {
+            self.occur(binder.id(), 1);
+        }
+        for term in predicate.terms() {
+            self.term(term);
         }
     }
 

@@ -61,7 +61,7 @@ pub use catalog::{
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
     CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
-    OperationSort, RawKProfile,
+    MlConnective, MlOperand, OperationSort, RawKProfile,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -192,7 +192,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(52);
+    pub const CURRENT: Self = Self(53);
 }
 
 impl Default for SchemaVersion {

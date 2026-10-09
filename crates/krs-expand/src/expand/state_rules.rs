@@ -972,6 +972,11 @@ impl<'a> StateRuleBuilder<'a> {
                 range.first(),
                 "`let` blocks (K's #let) are supported in requires and ensures conditions and in term results; in a cell value, compute the value with a function",
             )),
+            TermTree::Closure { range, .. } => Err(ExpandError::new(
+                expand::ML_PLACEMENT,
+                range.first(),
+                "an `ml::exists` closure is a predicate (K's #Exists); it belongs in a claim's requires or ensures condition, not in a cell value",
+            )),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(

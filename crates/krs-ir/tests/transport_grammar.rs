@@ -349,6 +349,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             equation: None,
             unbound_variables: None,
             function_context: None,
+            predicate: false,
         })),
     );
     vec![grammar, rule]
@@ -1386,6 +1387,9 @@ fn registry() -> HostBuiltinRegistry {
         map_operations,
         list_operations,
         set_operations: filler(list_offset + ListOperation::ALL.len()),
+        ml_connectives: filler(
+            list_offset + ListOperation::ALL.len() + krs_ir::SetOperation::ALL.len(),
+        ),
     }
 }
 

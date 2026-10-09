@@ -232,6 +232,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction.
         reason: String,
     },
+    /// An `ml::exists` closure is not `|x: Sort| predicate`, or a closure
+    /// occurs anywhere else (KF-039).
+    InvalidMlExists {
+        /// Specific restriction.
+        reason: String,
+    },
     /// An equation's function context (`k::cells! { .., .. }: Machine`,
     /// K's `[[ .. ]]`) is malformed or placed on another sentence (KF-025).
     InvalidFunctionContext {
@@ -390,6 +396,7 @@ impl SyntaxErrorKind {
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::syntax::INVALID_LET,
+            Self::InvalidMlExists { .. } => codes::syntax::INVALID_ML_EXISTS,
             Self::InvalidFunctionContext { .. } => codes::syntax::INVALID_FUNCTION_CONTEXT,
             Self::InvalidSortParameter { .. } => codes::syntax::INVALID_SORT_PARAMETER,
             Self::InvalidTurbofish { .. } => codes::syntax::INVALID_TURBOFISH,
@@ -649,6 +656,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidPatternOr { reason }
             | SyntaxErrorKind::InvalidMatches { reason }
             | SyntaxErrorKind::InvalidLet { reason }
+            | SyntaxErrorKind::InvalidMlExists { reason }
             | SyntaxErrorKind::InvalidFunctionContext { reason }
             | SyntaxErrorKind::InvalidSortParameter { reason }
             | SyntaxErrorKind::InvalidTurbofish { reason } => formatter.write_str(reason),

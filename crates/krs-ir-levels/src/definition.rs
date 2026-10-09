@@ -1064,6 +1064,13 @@ pub type DefinitionVariable = crate::IrVariable<crate::DefinitionLevel>;
 /// One provenance-bearing object-language Boolean rule condition.
 pub type DefinitionRuleCondition = crate::IrRuleCondition<crate::DefinitionLevel>;
 
+/// One `requires` or `ensures` condition: an object-language Bool term or a
+/// matching-logic predicate (KF-039).
+pub type DefinitionCondition = crate::IrCondition<crate::DefinitionLevel>;
+
+/// One matching-logic predicate (KF-039).
+pub type DefinitionMlPredicate = crate::IrMlPredicate<crate::DefinitionLevel>;
+
 /// One explicitly scoped claim binder declaration.
 pub type DefinitionScopedBinder = crate::IrScopedBinder<crate::DefinitionLevel>;
 
@@ -1089,13 +1096,13 @@ pub struct RuleSentence {
     origin: NodeOrigin,
     label: LabelIdentity,
     variables: Vec<DefinitionVariable>,
-    requires: Option<DefinitionRuleCondition>,
+    requires: Option<DefinitionCondition>,
     priority: Option<DefinitionRulePriority>,
     simplification: Option<DefinitionSimplification>,
     claim: Option<DefinitionClaim>,
     anywhere: Option<NodeOrigin>,
     existentials: Vec<DefinitionScopedBinder>,
-    ensures: Option<DefinitionRuleCondition>,
+    ensures: Option<DefinitionCondition>,
     fresh: Vec<DefinitionScopedBinder>,
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
@@ -1135,7 +1142,7 @@ struct RuleSentenceWire<'a, B> {
     kind: SentenceKind,
     variables: Cow<'a, [DefinitionVariable]>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    requires: Option<Cow<'a, DefinitionRuleCondition>>,
+    requires: Option<Cow<'a, DefinitionCondition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<Cow<'a, DefinitionRulePriority>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1147,7 +1154,7 @@ struct RuleSentenceWire<'a, B> {
     #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
     existentials: Cow<'a, [DefinitionScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ensures: Option<Cow<'a, DefinitionRuleCondition>>,
+    ensures: Option<Cow<'a, DefinitionCondition>>,
     #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
     fresh: Cow<'a, [DefinitionScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1169,6 +1176,9 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
         let content = value.body.refine(value.kind).map_err(|error| match error {
             crate::ir_level::RuleBodyRefinementError::NotRewrite => {
                 DefinitionValidationError::RuleBodyNotRewrite(value.label.id.clone())
+            }
+            crate::ir_level::RuleBodyRefinementError::InvalidPredicateKind => {
+                DefinitionValidationError::InvalidSimplificationRoot(value.label.id.clone())
             }
             crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
                 if matches!(value.kind, SentenceKind::Alias | SentenceKind::Desugar) {
@@ -1236,6 +1246,34 @@ impl RuleSentence {
             function_context: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
+    }
+    /// Creates a predicate simplification (KF-039).
+    #[must_use]
+    pub fn new_predicate(
+        origin: NodeOrigin,
+        label: LabelIdentity,
+        variables: Vec<DefinitionVariable>,
+        body: crate::IrPredicateRewrite<DefinitionLevel>,
+    ) -> Self {
+        Self {
+            origin,
+            label,
+            variables,
+            requires: None,
+            priority: None,
+            simplification: None,
+            claim: None,
+            anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
+            fresh: Vec::new(),
+            restriction: None,
+            unbound_variables: None,
+            function_context: None,
+            content: crate::ir_level::RuleContent::Predicate {
+                body: Box::new(body),
+            },
+        }
     }
     /// Creates an ordinary labeled simultaneous fixed-configuration rule.
     #[must_use]
@@ -1428,15 +1466,16 @@ impl RuleSentence {
     ) -> Option<&crate::IrFunctionContext<crate::DefinitionLevel>> {
         self.function_context.as_ref()
     }
-    /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
+    /// Attaches the postcondition (`#[k::ensures]`) of a transition or claim:
+    /// an object Bool, or a matching-logic predicate on a claim (KF-039).
     #[must_use]
-    pub fn with_ensures(mut self, ensures: Option<DefinitionRuleCondition>) -> Self {
+    pub fn with_ensures(mut self, ensures: Option<DefinitionCondition>) -> Self {
         self.ensures = ensures;
         self
     }
-    /// Returns the object-Bool postcondition.
+    /// Returns the postcondition.
     #[must_use]
-    pub const fn ensures(&self) -> Option<&DefinitionRuleCondition> {
+    pub const fn ensures(&self) -> Option<&DefinitionCondition> {
         self.ensures.as_ref()
     }
     /// Attaches typed claim-only metadata.
@@ -1455,27 +1494,32 @@ impl RuleSentence {
     pub fn variables(&self) -> &[DefinitionVariable] {
         &self.variables
     }
-    /// Attaches an object-language Boolean applicability condition.
+    /// Attaches an applicability condition: an object-language Boolean, or a
+    /// matching-logic predicate on a claim or simplification (KF-039).
     ///
     /// # Errors
     ///
-    /// Returns [`DefinitionValidationError::RuleConditionSortMismatch`] unless
-    /// the condition has exactly the builtin `Bool` sort.
+    /// Returns [`DefinitionValidationError::RuleConditionSortMismatch`] when
+    /// a Boolean condition does not have exactly the builtin `Bool` sort.
     pub fn with_requires(
         mut self,
-        requires: Option<DefinitionRuleCondition>,
+        requires: Option<DefinitionCondition>,
     ) -> Result<Self, DefinitionValidationError> {
-        if requires.as_ref().is_some_and(|condition| {
-            condition.term().sort() != &DefinitionSortRef::Builtin(BuiltinSort::Bool)
-        }) {
+        if requires
+            .as_ref()
+            .and_then(crate::IrCondition::as_bool)
+            .is_some_and(|condition| {
+                condition.term().sort() != &DefinitionSortRef::Builtin(BuiltinSort::Bool)
+            })
+        {
             return Err(DefinitionValidationError::RuleConditionSortMismatch);
         }
         self.requires = requires;
         Ok(self)
     }
-    /// Returns the object-language Boolean applicability condition.
+    /// Returns the applicability condition.
     #[must_use]
-    pub const fn requires(&self) -> Option<&DefinitionRuleCondition> {
+    pub const fn requires(&self) -> Option<&DefinitionCondition> {
         self.requires.as_ref()
     }
     /// Borrows the term rewrite body, when present.
@@ -1483,7 +1527,8 @@ impl RuleSentence {
     pub fn body(&self) -> Option<&crate::IrRewrite<crate::DefinitionLevel>> {
         match &self.content {
             crate::ir_level::RuleContent::Term { body, .. } => Some(body),
-            crate::ir_level::RuleContent::Configuration { .. } => None,
+            crate::ir_level::RuleContent::Configuration { .. }
+            | crate::ir_level::RuleContent::Predicate { .. } => None,
         }
     }
     /// Returns the typed relational body.
@@ -1629,6 +1674,13 @@ pub enum DefinitionValidationError {
     /// its body's, or with local binders that are not exactly its pattern's
     /// named variables or that occur outside its pattern and body.
     InvalidLet,
+    /// A matching-logic predicate (KF-039) is misplaced (in the condition
+    /// of a transition or equation, or the ensures of a simplification), a
+    /// predicate rewrite is not a simplification rooted at `#Equals` or
+    /// `#Ceil`, an operand is not at its node's operand sort, or an
+    /// `#Exists` binder is not a sentence variable of its sort used only in
+    /// its body.
+    InvalidMlPredicate,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1836,6 +1888,9 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
+            ),
+            Self::InvalidMlPredicate => formatter.write_str(
+                "a matching-logic predicate occurs only in claim conditions, simplification requires conditions, and predicate simplifications rooted at #Equals or #Ceil, with operands at their node's operand sort and #Exists binders used only in their body",
             ),
             Self::InvalidLet => formatter.write_str(
                 "`let` (#let) occurs only in post-terms and conditions, at its body's sort, its pattern neither aliases nor has alternatives, and its local binders are exactly its pattern's named variables, used only in its pattern and body",
@@ -2368,10 +2423,8 @@ mod tests {
     #[test]
     fn definition_claim_rejects_non_bool_ensures() {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
-        sentence.ensures = Some(DefinitionRuleCondition::new(
-            node("ensures"),
-            int_token("post"),
-        ));
+        sentence.ensures =
+            Some(DefinitionRuleCondition::new(node("ensures"), int_token("post")).into());
         assert_eq!(
             validate_claim_only(&sentence),
             Err(DefinitionValidationError::RuleConditionSortMismatch)

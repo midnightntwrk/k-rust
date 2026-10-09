@@ -271,8 +271,46 @@ impl StructuredTermBuilder<'_> {
                 expected_sort,
                 subject,
             )?,
+            // A closure is only the operand of `ml::exists`, which
+            // `infer_predicate` reads (KF-039).
+            DescriptorTerm::Closure { key, .. } => {
+                return Err(self.invalid_ml(
+                    key,
+                    "closures introduce quantified binders only inside ml::exists".to_owned(),
+                ));
+            }
         }
         Ok(())
+    }
+
+    /// Whether an enclosing `let` or `ml::exists` binds `name`, while
+    /// inferring or lowering.
+    pub(super) fn is_let_local_name(&self, name: &str) -> bool {
+        self.is_let_local(name) || self.let_local(name).is_some()
+    }
+
+    /// Enters the scope of local binder names while inferring: a `let`
+    /// body's, or an `ml::exists` closure's (KF-039).
+    pub(super) fn push_let_names(&mut self, names: BTreeSet<String>) {
+        self.locals.let_names.push(names);
+    }
+
+    /// Leaves the innermost scope [`Self::push_let_names`] entered.
+    pub(super) fn pop_let_names(&mut self) {
+        self.locals.let_names.pop();
+    }
+
+    /// Enters the scope of local binders while lowering.
+    pub(super) fn push_let_scope(
+        &mut self,
+        scope: BTreeMap<String, (SemanticId, SemanticSortRef)>,
+    ) {
+        self.locals.let_scopes.push(scope);
+    }
+
+    /// Leaves the innermost scope [`Self::push_let_scope`] entered.
+    pub(super) fn pop_let_scope(&mut self) {
+        self.locals.let_scopes.pop();
     }
 
     /// Whether an enclosing `let` statement binds `name` (KF-032).
@@ -806,6 +844,9 @@ impl StructuredTermBuilder<'_> {
                 self.infer_collection_operation(*operation, arguments, expected_sort, subject)?;
                 return Ok(());
             }
+            DescriptorApplicationRef::Ml(connective) => {
+                return Err(self.ml_in_object_term(&reference.key, *connective));
+            }
         };
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
@@ -1120,7 +1161,7 @@ impl StructuredTermBuilder<'_> {
                     return Err(self.invalid_let(
                         key,
                         format!(
-                            "`{name}` is bound by a `let` at sort `{}`, which is not admissible at sort `{}`",
+                            "`{name}` is bound by a `let` or `ml::exists` at sort `{}`, which is not admissible at sort `{}`",
                             super::overload::sort_name(&sort),
                             super::overload::sort_name(expected)
                         ),
@@ -1325,6 +1366,10 @@ impl StructuredTermBuilder<'_> {
                 value,
                 body,
             } => self.lower_let(key, pattern, sort.as_ref(), value, body, expected_sort),
+            DescriptorTerm::Closure { key, .. } => Err(self.invalid_ml(
+                key,
+                "closures introduce quantified binders only inside ml::exists".to_owned(),
+            )),
         }
     }
 
@@ -1390,7 +1435,9 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Map(operation) => operation.spec().is_projected(),
             DescriptorApplicationRef::List(operation) => operation.spec().is_projected(),
             DescriptorApplicationRef::Set(operation) => operation.spec().is_projected(),
-            DescriptorApplicationRef::Declared(_) | DescriptorApplicationRef::Builtin(_) => false,
+            DescriptorApplicationRef::Declared(_)
+            | DescriptorApplicationRef::Builtin(_)
+            | DescriptorApplicationRef::Ml(_) => false,
         };
         projected.then(|| {
             self.k_item_sort
@@ -1483,6 +1530,9 @@ impl StructuredTermBuilder<'_> {
                     result_sort,
                     operands,
                 ));
+            }
+            DescriptorApplicationRef::Ml(connective) => {
+                return Err(self.ml_in_object_term(&reference.key, *connective));
             }
         };
         let ordered = order_structured_arguments(arguments, &signature.fields, subject)
@@ -2155,7 +2205,7 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
-    fn authored_range(&self, key: &ProvenanceKey) -> Option<Box<krs_ir::SourceRange>> {
+    pub(super) fn authored_range(&self, key: &ProvenanceKey) -> Option<Box<krs_ir::SourceRange>> {
         self.descriptor
             .provenance()
             .origin_for(key)
@@ -2232,6 +2282,7 @@ fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)
         DescriptorTerm::SortTest { operand, .. } => pattern_names(operand, output),
         DescriptorTerm::Matches { subject, .. } => pattern_names(subject, output),
         DescriptorTerm::Let { .. }
+        | DescriptorTerm::Closure { .. }
         | DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
         | DescriptorTerm::BuiltinToken { .. }

@@ -820,27 +820,30 @@ fn all_paths_claim() -> SemanticRule {
         origin("imp.claim.branching.binder.sort"),
         SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
     )])
-    .with_ensures(Some(SemanticRuleCondition::new(
-        origin("imp.claim.branching.ensures"),
-        SemanticTerm::application(
-            origin("imp.claim.branching.ensures.equals"),
-            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
-            ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntEqual),
-            vec![
-                variable(
-                    "imp.claim.branching.exists.ensures",
-                    existential.as_str(),
-                    SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
-                ),
-                SemanticTerm::token(
-                    origin("imp.claim.branching.five"),
-                    SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
-                    "5",
-                )
-                .unwrap(),
-            ],
-        ),
-    )))
+    .with_ensures(Some(
+        SemanticRuleCondition::new(
+            origin("imp.claim.branching.ensures"),
+            SemanticTerm::application(
+                origin("imp.claim.branching.ensures.equals"),
+                SemanticSortRef::Builtin(krs_ir::BuiltinSort::Bool),
+                ApplicationRef::Builtin(krs_ir::BuiltinOperation::IntEqual),
+                vec![
+                    variable(
+                        "imp.claim.branching.exists.ensures",
+                        existential.as_str(),
+                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                    ),
+                    SemanticTerm::token(
+                        origin("imp.claim.branching.five"),
+                        SemanticSortRef::Builtin(krs_ir::BuiltinSort::Int),
+                        "5",
+                    )
+                    .unwrap(),
+                ],
+            ),
+        )
+        .into(),
+    ))
 }
 
 fn one_path_claim() -> SemanticRule {

@@ -99,6 +99,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidLet {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidMlExists {
+            reason: String::from("example"),
+        },
         SyntaxErrorKind::InvalidFunctionContext {
             reason: String::from("example"),
         },

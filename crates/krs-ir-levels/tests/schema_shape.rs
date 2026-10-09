@@ -79,10 +79,13 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "WireProductionOwner",
     "WireTerm",
     "WireTermArgument",
+    "IrMlKind",
 ];
 
 // Flattened fields must remain outside reflection.
 const UNSUPPORTED_FLATTENED: &[&str] = &[
+    "DefinitionMlPredicate",
+    "SemanticMlPredicate",
     "DefinitionTerm",
     "Descriptor",
     "GrammarProductionItem",
@@ -90,7 +93,12 @@ const UNSUPPORTED_FLATTENED: &[&str] = &[
 ];
 
 // Untagged variants must remain outside reflection.
-const UNSUPPORTED_UNTAGGED: &[&str] = &["DefinitionRuleBody", "SemanticRuleBody"];
+const UNSUPPORTED_UNTAGGED: &[&str] = &[
+    "DefinitionRuleBody",
+    "SemanticRuleBody",
+    "DefinitionCondition",
+    "SemanticCondition",
+];
 
 // Refined types reject the tracer's default values, so they must remain outside reflection.
 const UNSUPPORTED_REFINED: &[&str] = &[
@@ -114,6 +122,7 @@ const UNSUPPORTED_VALIDATED: &[&str] = &[
 
 // Containers that reach an unsupported descendant must remain outside reflection.
 const UNSUPPORTED_TRANSITIVE: &[&str] = &[
+    "IrPredicateRewrite",
     "IrMatchRestriction",
     "IrRestriction",
     "IrRestrictionVariable",
@@ -707,6 +716,7 @@ fn registry() -> Registry {
     trace!(LabelId: LabelId);
     trace!(LabelIdentity: LabelIdentity);
     trace!(ListOperation: ListOperation);
+    trace!(MlConnective: MlConnective);
     trace!(MapOperation: MapOperation);
     trace!(ModuleId: ModuleId);
     trace!(PackageId: PackageId);
@@ -831,6 +841,12 @@ fn registry() -> Registry {
     unsupported!(DefinitionIr: DefinitionIr);
     unsupported!(DefinitionModule: DefinitionModule);
     unsupported!(DefinitionRuleBody: DefinitionRuleBody);
+    unsupported!(DefinitionCondition: DefinitionCondition);
+    unsupported!(SemanticCondition: SemanticCondition);
+    unsupported!(DefinitionMlPredicate: DefinitionMlPredicate);
+    unsupported!(SemanticMlPredicate: SemanticMlPredicate);
+    unsupported!(IrMlKind: IrMlKind<SemanticLevel>);
+    unsupported!(IrPredicateRewrite: IrPredicateRewrite<SemanticLevel>);
     unsupported!(DefinitionRuleCondition: DefinitionRuleCondition);
     unsupported!(DefinitionRulePriority: DefinitionRulePriority);
     unsupported!(DefinitionSimplification: DefinitionSimplification);

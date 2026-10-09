@@ -5,12 +5,15 @@ use syn::{GenericArgument, Path, PathArguments, TraitBoundModifier, Type, TypePa
 use crate::path::is_plain_path;
 use crate::{SyntaxError, SyntaxErrorKind};
 
-/// A validated `Term<SortPath>` or `Term<dyn SortPath>` type reference.
+/// A validated `Term<SortPath>` or `Term<dyn SortPath>` type reference, or
+/// the `ml::Predicate` subject and result type of a predicate simplification
+/// (KF-039).
 #[derive(Clone, Debug)]
 pub struct TermSort {
     ty: Type,
     sort: Path,
     dynamic: bool,
+    predicate: bool,
 }
 
 impl TermSort {
@@ -30,6 +33,13 @@ impl TermSort {
     #[must_use]
     pub const fn is_dynamic(&self) -> bool {
         self.dynamic
+    }
+
+    /// Returns whether the type is `ml::Predicate` (KF-039): [`Self::sort`]
+    /// is then the authored path of `Predicate` itself, not a sort.
+    #[must_use]
+    pub const fn is_predicate(&self) -> bool {
+        self.predicate
     }
 
     /// Returns the token-stream text of the sort path, such as `model :: Expr`,
@@ -118,7 +128,35 @@ pub(crate) fn parse_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
             ));
         }
     };
-    Ok(TermSort { ty, sort, dynamic })
+    Ok(TermSort {
+        ty,
+        sort,
+        dynamic,
+        predicate: false,
+    })
+}
+
+/// Parses the subject or result type of a term-shaped rule fn: a `Term<..>`
+/// type, or `ml::Predicate` for a predicate simplification (KF-039), a plain
+/// path ending in `Predicate` whose rustc identity the expansion checks.
+pub(crate) fn parse_rule_term_sort(ty: Type) -> Result<TermSort, SyntaxError> {
+    if let Type::Path(path) = &ty
+        && path.qself.is_none()
+        && is_plain_path(&path.path)
+        && path
+            .path
+            .segments
+            .last()
+            .is_some_and(|last| last.ident == "Predicate")
+    {
+        return Ok(TermSort {
+            sort: path.path.clone(),
+            ty,
+            dynamic: false,
+            predicate: true,
+        });
+    }
+    parse_term_sort(ty)
 }
 
 pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
@@ -138,6 +176,7 @@ pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         sort: path.path.clone(),
         ty,
         dynamic: false,
+        predicate: false,
     })
 }
 
@@ -151,6 +190,7 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
             ty: ty.clone(),
             sort: sort.path.clone(),
             dynamic: false,
+            predicate: false,
         }),
         Type::TraitObject(object) if object.dyn_token.is_some() && object.bounds.len() == 1 => {
             let Some(TypeParamBound::Trait(bound)) = object.bounds.first() else {
@@ -164,6 +204,7 @@ pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
                 ty: ty.clone(),
                 sort: bound.path.clone(),
                 dynamic: true,
+                predicate: false,
             })
         }
         Type::Group(group) => parse_instance_sort(&group.elem),

@@ -1994,6 +1994,17 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn let_pattern(&mut self, _: bool) {}
 
+    fn closure(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &ProvenanceKey,
+        _: &S::Sort,
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerClosure,
+        ))
+    }
+
     fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
 
     fn or_bool(

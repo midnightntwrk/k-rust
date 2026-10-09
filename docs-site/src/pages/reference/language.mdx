@@ -239,7 +239,7 @@ An existential occurs only in the result and the ensures condition: one in the s
 Ensures conditions are object-language Bool terms.
 This is symbolic execution, unlike Rust's `rand()`, which produces a concrete value: the Haskell backend and k-rust run such rules, and `krs search` reports one final state per path with its constraints.
 Concrete (LLVM) execution cannot, so `krs build --backend llvm` refuses a definition with an existential rule (`krs::capability::unavailable`), `krs emit-k` marks the rule with a `// krs-capability: RuleExistential <label>` comment, and an LLVM build of a rule with `ensures` alone warns that the condition is ignored (`krs::capability::ignored-ensures`).
-`#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way.
+`#[k::exists(...)]` and `#[k::ensures]` bind and constrain claim results in the same way, and a claim's `requires` and `ensures` may also be [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates).
 Cell-field helpers carry names, colors, nesting, multiplicity, and cell collection type only in the supported shapes described by [current boundaries](/reference/boundaries).
 
 ### Fresh values
@@ -424,6 +424,7 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 | --- | --- |
 | `builtin::int` | `add`, `sub`, `mul`, `div`, `rem`, `div_euclid`, `rem_euclid`, `pow`, `pow_mod`, `log2`, `shift_right`, `shift_left`, `bit_and`, `bit_xor`, `bit_or`, `bit_not`, `min`, `max`, `abs`, `divides`, `bit_range`, `sign_extend_bit_range`, `ge`, `gt`, `le`, `lt`, `eq`, `ne` |
 | `builtin::bool` | `not`, `eq`, `ne`, `or`, `and`, `xor`, `implies`, `and_then`, `or_else` |
+| `ml` (`k::ml`, not `builtin`) | `top`, `bottom`, `not`, `and`, `or`, `implies`, `equals`, `ceil`, `exists`: [matching-logic predicates](/verification/reachability-claims#matching-logic-predicates), of type `ml::Predicate`, only in claim and simplification conditions and predicate simplifications |
 | `builtin::map` | `update`, `get`, `get_or_default`, `in_keys`, `remove`, `remove_all`, `keys`, `keys_list`, `values`, `size`, `update_all` |
 | `builtin::list` | `empty`, `item`, `concat`, `get`, `update`, `size`, `make`, `range`, `update_all`, `contains` |
 | `builtin::set` | `empty`, `item`, `concat`, `union`, `difference`, `intersect`, `is_subset`, `size`, `contains`, `to_list`, `from_list` |

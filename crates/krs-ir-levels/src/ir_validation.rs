@@ -1,8 +1,8 @@
 //! Shared shape validation with level-specific identity and context checks.
 
 use crate::ir_level::{
-    IrClaim, IrLevel, IrRuleCondition, IrRulePriority, IrSimplification, IrTerm, IrTermKind,
-    IrVariable, RuleBodyRef,
+    IrClaim, IrCondition, IrLevel, IrMlKind, IrMlPredicate, IrPredicateRewrite, IrRulePriority,
+    IrSimplification, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellContentFrame, CellPost,
@@ -37,12 +37,12 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub id: L::RuleId,
     pub variables: &'a [IrVariable<L>],
     pub body: RuleBodyRef<'a, L>,
-    pub requires: Option<&'a IrRuleCondition<L>>,
+    pub requires: Option<&'a IrCondition<L>>,
     pub priority: Option<&'a IrRulePriority>,
     pub simplification: Option<&'a IrSimplification>,
     pub claim: Option<&'a IrClaim<L>>,
     pub existentials: &'a [crate::IrScopedBinder<L>],
-    pub ensures: Option<&'a IrRuleCondition<L>>,
+    pub ensures: Option<&'a IrCondition<L>>,
     pub fresh: &'a [crate::IrScopedBinder<L>],
     pub restriction: Option<&'a crate::IrMatchRestriction>,
     pub unbound_variables: Option<&'a crate::IrUnboundVariables>,
@@ -195,6 +195,8 @@ pub(crate) enum ValidationError<L: Validation> {
     /// its body's, or with local binders that are not exactly its pattern's
     /// named variables or that occur outside its pattern and body.
     InvalidLet,
+    /// A misplaced or malformed matching-logic predicate (KF-039).
+    InvalidMlPredicate,
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -764,6 +766,18 @@ pub(crate) fn validate_rule<L: Validation>(
                 }
             }
         }
+        RuleBodyRef::Predicate(body) => {
+            validate_predicate_rewrite::<L>(
+                &rule,
+                body,
+                &scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
+        }
         RuleBodyRef::Configuration { body, .. } => {
             let configuration = configuration.ok_or_else(|| {
                 L::error(ValidationError::ConfigurationRuleWithoutFixedConfiguration(
@@ -833,9 +847,17 @@ pub(crate) fn validate_rule<L: Validation>(
         if matches!(rule.kind, SentenceKind::Alias | SentenceKind::Desugar) {
             return Err(L::error(ValidationError::AliasCondition));
         }
-        insert_node::<L>(nodes, condition.origin().key())?;
-        validate_term::<L>(
-            condition.term(),
+        // A predicate condition is a claim's or a simplification's (KF-039).
+        if matches!(condition, IrCondition::Predicate(_))
+            && !matches!(
+                rule.kind,
+                SentenceKind::Claim | SentenceKind::Simplification
+            )
+        {
+            return Err(L::error(ValidationError::InvalidMlPredicate));
+        }
+        validate_condition::<L>(
+            condition,
             &scope,
             declarations,
             signatures,
@@ -843,9 +865,6 @@ pub(crate) fn validate_rule<L: Validation>(
             cell_ids,
             nodes,
         )?;
-        if condition.term().sort() != &L::builtin_sort(BuiltinSort::Bool) {
-            return Err(L::error(ValidationError::RuleConditionSortMismatch));
-        }
     }
     if let Some(claim) = claim {
         validate_claim::<L>(sentence, claim, &scope, declarations, nodes)?;
@@ -866,6 +885,10 @@ pub(crate) fn validate_rule<L: Validation>(
             collect_term_variables::<L>(body.from(), &mut used);
             collect_term_variables::<L>(body.to(), &mut used);
         }
+        RuleBodyRef::Predicate(body) => {
+            collect_predicate_variables::<L>(body.lhs(), &mut used);
+            collect_predicate_variables::<L>(body.rhs(), &mut used);
+        }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
                 collect_term_variables::<L>(clause.before(), &mut used);
@@ -885,10 +908,10 @@ pub(crate) fn validate_rule<L: Validation>(
         }
     }
     if let Some(condition) = rule.requires {
-        collect_term_variables::<L>(condition.term(), &mut used);
+        collect_condition_variables::<L>(condition, &mut used);
     }
     if let Some(ensures) = rule.ensures {
-        collect_term_variables::<L>(ensures.term(), &mut used);
+        collect_condition_variables::<L>(ensures, &mut used);
     }
     if let Some(context) = rule.function_context {
         for cell in context.cells().cells() {
@@ -1141,6 +1164,10 @@ pub(crate) fn validate_existentials<L: Validation>(
             collect_term_variables::<L>(body.from(), &mut left_uses);
             collect_term_variables::<L>(body.to(), &mut right_uses);
         }
+        RuleBodyRef::Predicate(body) => {
+            collect_predicate_variables::<L>(body.lhs(), &mut left_uses);
+            collect_predicate_variables::<L>(body.rhs(), &mut right_uses);
+        }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
                 collect_term_variables::<L>(clause.before(), &mut left_uses);
@@ -1160,12 +1187,15 @@ pub(crate) fn validate_existentials<L: Validation>(
         }
     }
     if let Some(requires) = rule.requires {
-        collect_term_variables::<L>(requires.term(), &mut left_uses);
+        collect_condition_variables::<L>(requires, &mut left_uses);
     }
     if let Some(ensures) = rule.ensures {
-        insert_node::<L>(nodes, ensures.origin().key())?;
-        validate_term::<L>(
-            ensures.term(),
+        // A predicate postcondition is a claim's (KF-039).
+        if matches!(ensures, IrCondition::Predicate(_)) && rule.kind != SentenceKind::Claim {
+            return Err(L::error(ValidationError::InvalidMlPredicate));
+        }
+        validate_condition::<L>(
+            ensures,
             scope,
             declarations,
             signatures,
@@ -1173,10 +1203,7 @@ pub(crate) fn validate_existentials<L: Validation>(
             cell_ids,
             nodes,
         )?;
-        if ensures.term().sort() != &L::builtin_sort(BuiltinSort::Bool) {
-            return Err(L::error(ValidationError::RuleConditionSortMismatch));
-        }
-        collect_term_variables::<L>(ensures.term(), &mut right_uses);
+        collect_condition_variables::<L>(ensures, &mut right_uses);
     }
     for binder in rule.existentials {
         if left_uses.contains(binder.id()) {
@@ -1297,6 +1324,11 @@ pub(crate) fn validate_rule_cell_references<L: Validation>(
             validate_term_cell_references::<L>(body.from(), declarations, cell_ids)?;
             validate_term_cell_references::<L>(body.to(), declarations, cell_ids)?;
         }
+        RuleBodyRef::Predicate(body) => {
+            for term in body.lhs().terms().into_iter().chain(body.rhs().terms()) {
+                validate_term_cell_references::<L>(term, declarations, cell_ids)?;
+            }
+        }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
                 validate_term_cell_references::<L>(clause.before(), declarations, cell_ids)?;
@@ -1306,11 +1338,10 @@ pub(crate) fn validate_rule_cell_references<L: Validation>(
             }
         }
     }
-    if let Some(condition) = rule.requires {
-        validate_term_cell_references::<L>(condition.term(), declarations, cell_ids)?;
-    }
-    if let Some(ensures) = rule.ensures {
-        validate_term_cell_references::<L>(ensures.term(), declarations, cell_ids)?;
+    for condition in rule.requires.into_iter().chain(rule.ensures) {
+        for term in condition.terms() {
+            validate_term_cell_references::<L>(term, declarations, cell_ids)?;
+        }
     }
     Ok(())
 }
@@ -1826,6 +1857,262 @@ pub(crate) fn contains_matches<L: IrLevel>(term: &IrTerm<L>) -> bool {
     }
 }
 
+/// Collects the binder of every `#Exists` in `predicate` and the local
+/// binders of its terms into `binds`, and every variable its terms use
+/// outside an `#Exists` that binds it into `outside` (KF-039).
+fn collect_exists_binders<L: IrLevel>(
+    predicate: &IrMlPredicate<L>,
+    binds: &mut Vec<SemanticId>,
+    outside: &mut BTreeSet<SemanticId>,
+) {
+    match predicate.kind() {
+        IrMlKind::Top | IrMlKind::Bottom => {}
+        IrMlKind::Not { operand } => collect_exists_binders(operand, binds, outside),
+        IrMlKind::And { left, right }
+        | IrMlKind::Or { left, right }
+        | IrMlKind::Implies { left, right } => {
+            collect_exists_binders(left, binds, outside);
+            collect_exists_binders(right, binds, outside);
+        }
+        IrMlKind::Equals { left, right, .. } => {
+            collect_local_binders(left, binds, outside);
+            collect_local_binders(right, binds, outside);
+        }
+        IrMlKind::Ceil { term, .. } => collect_local_binders(term, binds, outside),
+        IrMlKind::Exists { binder, body } => {
+            binds.push(binder.id().clone());
+            let mut inside = BTreeSet::new();
+            collect_exists_binders(body, binds, &mut inside);
+            outside.extend(
+                inside
+                    .into_iter()
+                    .filter(|variable| variable != binder.id()),
+            );
+        }
+    }
+}
+
+/// The terms of a rule's predicates (KF-039): its predicate rewrite's and
+/// its predicate conditions'.
+fn predicate_terms<'a, L: Validation>(rule: &RuleView<'a, L>) -> Vec<&'a IrTerm<L>> {
+    let mut terms = match rule.body {
+        RuleBodyRef::Predicate(body) => {
+            let mut terms = body.lhs().terms();
+            terms.extend(body.rhs().terms());
+            terms
+        }
+        RuleBodyRef::Term(_) | RuleBodyRef::Configuration { .. } => Vec::new(),
+    };
+    for predicate in rule
+        .requires
+        .into_iter()
+        .chain(rule.ensures)
+        .filter_map(IrCondition::as_predicate)
+    {
+        terms.extend(predicate.terms());
+    }
+    terms
+}
+
+/// Collects every variable of `condition`: its terms' variables and its
+/// `#Exists` binders (KF-039).
+pub(crate) fn collect_condition_variables<L: Validation>(
+    condition: &IrCondition<L>,
+    used: &mut BTreeSet<SemanticId>,
+) {
+    match condition {
+        IrCondition::Bool(condition) => collect_term_variables::<L>(condition.term(), used),
+        IrCondition::Predicate(predicate) => collect_predicate_variables::<L>(predicate, used),
+    }
+}
+
+/// Collects every variable of `predicate`: its terms' variables and its
+/// `#Exists` binders (KF-039).
+pub(crate) fn collect_predicate_variables<L: Validation>(
+    predicate: &IrMlPredicate<L>,
+    used: &mut BTreeSet<SemanticId>,
+) {
+    for term in predicate.terms() {
+        collect_term_variables::<L>(term, used);
+    }
+    for binder in predicate.binders() {
+        used.insert(binder.id().clone());
+    }
+}
+
+/// Validates one condition (KF-039): a Bool term of sort Bool, or a
+/// matching-logic predicate.
+fn validate_condition<L: Validation>(
+    condition: &IrCondition<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    match condition {
+        IrCondition::Bool(condition) => {
+            insert_node::<L>(nodes, condition.origin().key())?;
+            validate_term::<L>(
+                condition.term(),
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
+            if condition.term().sort() != &L::builtin_sort(BuiltinSort::Bool) {
+                return Err(L::error(ValidationError::RuleConditionSortMismatch));
+            }
+            Ok(())
+        }
+        IrCondition::Predicate(predicate) => validate_predicate::<L>(
+            predicate,
+            scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        ),
+    }
+}
+
+/// Validates a predicate simplification's body (KF-039): a simplification
+/// whose left side is rooted at `#Equals` or `#Ceil`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The rewrite is validated against the same tables as any rule body."
+)]
+fn validate_predicate_rewrite<L: Validation>(
+    rule: &RuleView<'_, L>,
+    body: &IrPredicateRewrite<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    if rule.kind != SentenceKind::Simplification
+        || !matches!(
+            body.lhs().kind(),
+            IrMlKind::Equals { .. } | IrMlKind::Ceil { .. }
+        )
+    {
+        return Err(L::error(ValidationError::InvalidMlPredicate));
+    }
+    insert_node::<L>(nodes, body.origin().key())?;
+    for predicate in [body.lhs(), body.rhs()] {
+        validate_predicate::<L>(
+            predicate,
+            scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+    }
+    Ok(())
+}
+
+/// Validates one matching-logic predicate (KF-039): every node's origin,
+/// every operand at its node's operand sort, and every `#Exists` binder a
+/// sentence variable of its declared sort.
+fn validate_predicate<L: Validation>(
+    predicate: &IrMlPredicate<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    insert_node::<L>(nodes, predicate.origin().key())?;
+    let operand = |term: &IrTerm<L>,
+                   operand_sort: &L::Sort,
+                   nodes: &mut BTreeSet<SourceMapKey>|
+     -> Result<(), L::Error> {
+        validate_term::<L>(
+            term,
+            scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+        if !is_subsort::<L>(term.sort(), operand_sort, sort_parents) {
+            return Err(L::error(ValidationError::InvalidMlPredicate));
+        }
+        Ok(())
+    };
+    match predicate.kind() {
+        IrMlKind::Top | IrMlKind::Bottom => Ok(()),
+        IrMlKind::Not { operand: inner } => validate_predicate::<L>(
+            inner,
+            scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        ),
+        IrMlKind::And { left, right }
+        | IrMlKind::Or { left, right }
+        | IrMlKind::Implies { left, right } => {
+            for inner in [left, right] {
+                validate_predicate::<L>(
+                    inner,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            }
+            Ok(())
+        }
+        IrMlKind::Equals {
+            operand_sort,
+            left,
+            right,
+        } => {
+            require_sort::<L>(declarations, operand_sort)?;
+            operand(left, operand_sort, nodes)?;
+            operand(right, operand_sort, nodes)
+        }
+        IrMlKind::Ceil { operand_sort, term } => {
+            require_sort::<L>(declarations, operand_sort)?;
+            operand(term, operand_sort, nodes)
+        }
+        IrMlKind::Exists { binder, body } => {
+            if scope.get(binder.id()) != Some(binder.sort()) {
+                return Err(L::error(ValidationError::InvalidClaimBinder(
+                    binder.id().clone(),
+                )));
+            }
+            require_sort::<L>(declarations, binder.sort())?;
+            insert_node::<L>(nodes, binder.origin().key())?;
+            insert_node::<L>(nodes, binder.name_origin().key())?;
+            insert_node::<L>(nodes, binder.sort_origin().key())?;
+            validate_predicate::<L>(
+                body,
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )
+        }
+    }
+}
+
 /// Collects the local binders of every `k::matches!` in `term` into `binds`
 /// and every variable used outside a `k::matches!` pattern into `outside`.
 fn collect_local_binders<L: IrLevel>(
@@ -1953,6 +2240,10 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
             pre.push(body.from());
             post.push(body.to());
         }
+        RuleBodyRef::Predicate(body) => {
+            pre.extend(body.lhs().terms());
+            post.extend(body.rhs().terms());
+        }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
                 pre.push(clause.before());
@@ -1962,8 +2253,8 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
             }
         }
     }
-    post.extend(rule.requires.map(IrRuleCondition::term));
-    post.extend(rule.ensures.map(IrRuleCondition::term));
+    post.extend(rule.requires.into_iter().flat_map(IrCondition::terms));
+    post.extend(rule.ensures.into_iter().flat_map(IrCondition::terms));
     if post.iter().copied().any(contains_pattern_as) {
         return Err(L::error(ValidationError::InvalidPatternAs));
     }
@@ -1978,8 +2269,28 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
     }
     let mut binds = Vec::new();
     let mut outside = BTreeSet::new();
+    // A predicate's terms are collected with its `#Exists` binders below.
+    let predicate_terms = predicate_terms(rule);
     for term in pre.into_iter().chain(post) {
-        collect_local_binders(term, &mut binds, &mut outside);
+        if !predicate_terms
+            .iter()
+            .any(|candidate| std::ptr::eq(*candidate, term))
+        {
+            collect_local_binders(term, &mut binds, &mut outside);
+        }
+    }
+    // An `#Exists` binder (KF-039) is a local binder of its body.
+    let predicates = match rule.body {
+        RuleBodyRef::Predicate(body) => vec![body.lhs(), body.rhs()],
+        RuleBodyRef::Term(_) | RuleBodyRef::Configuration { .. } => Vec::new(),
+    };
+    let conditions = rule
+        .requires
+        .into_iter()
+        .chain(rule.ensures)
+        .filter_map(IrCondition::as_predicate);
+    for predicate in predicates.into_iter().chain(conditions) {
+        collect_exists_binders(predicate, &mut binds, &mut outside);
     }
     if let RuleBodyRef::Configuration { body, .. } = rule.body {
         for clause in body.clauses() {

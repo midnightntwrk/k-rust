@@ -212,6 +212,8 @@ register_codes! {
         INVALID_PARAMETRIC_PRODUCTION: "krs::analysis::invalid-parametric-production" => "A parametric production (K's `syntax {S}`) names a parameter like a sort, carries strictness, an alias, a hook, a token, or a bracket, or is a constructor whose result parameter would be instantiated at a sort with domain values.",
         PARAMETRIC_INSTANCE: "krs::analysis::parametric-instance" => "A parametric production's instance is missing, disagrees with the head's declared sort or its arguments, or cannot be determined from the arguments and position.",
         NATIVE_INSTANCE: "krs::analysis::native-instance" => "The least instance K and k-rust solve from an equation or rule head's argument sorts differs from its turbofish, so the head would not be the equation the author wrote.",
+        ML_PLACEMENT: "krs::analysis::ml-placement" => "A matching-logic predicate (`k::ml`) occurs in the condition of a transition or equation; predicates are allowed on claims and simplifications.",
+        INVALID_ML_PREDICATE: "krs::analysis::invalid-ml-predicate" => "A matching-logic predicate (`k::ml`) is an operand of an object function, a Bool term stands where a predicate is expected, `ml::equals` operands share no sort, a predicate simplification's left side is not rooted at `ml::equals` or `ml::ceil`, a connective has the wrong arity, or an `ml::exists` binder shadows a rule binder.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -289,6 +291,7 @@ register_codes! {
         INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
         INVALID_SORT_PARAMETER: "krs::syntax::invalid-sort-parameter" => "A production struct's generic parameter is not a K sort parameter `S: ?Sized` used by a field: a lifetime, const, default, other bound, or where clause.",
         INVALID_TURBOFISH: "krs::syntax::invalid-turbofish" => "A turbofish on a term head is not a list of sort markers (`Choose::<k::builtin::Int>`, `Choose::<dyn ExpSort>`): it has lifetimes, consts, or other types, or sits on a path segment other than the last.",
+        INVALID_ML_EXISTS: "krs::syntax::invalid-ml-exists" => "An `ml::exists` closure does not take exactly one typed parameter (`|x: Sort| predicate`), or a closure occurs anywhere but as the one argument of `ml::exists`.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {
@@ -355,6 +358,8 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
         FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context alias, or anywhere rule; fresh values are drawn only by a transition step of the configuration.",
         TURBOFISH_PLACEMENT: "krs::expand::turbofish-placement" => "A turbofish instance (`Choose::<k::builtin::Int> { .. }`) occurs in an initializer, which builds a concrete value.",
+        ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer or a `cells!` cell value.",
+        UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

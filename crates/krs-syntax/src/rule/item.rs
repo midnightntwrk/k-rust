@@ -18,7 +18,7 @@ use crate::term::{
     is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
     unexpected_macro,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
     TermExpression, TermNode, TermSymbolKind, TermTree, TokenRange,
@@ -132,7 +132,7 @@ impl RuleItem {
     ) -> Result<Self, SyntaxError> {
         Self::from_item_with_sort_parser(
             &mut item,
-            parse_term_sort,
+            parse_rule_term_sort,
             false,
             false,
             signs,
@@ -609,6 +609,10 @@ impl RuleItem {
         for nodes in &sides {
             crate::term::push_let_anchors(&mut anchors, nodes, &mut lets, &mut let_wildcards)?;
         }
+        let mut closures = 0_usize;
+        for nodes in &sides {
+            crate::term::push_ml_binder_anchors(&mut anchors, nodes, &mut closures)?;
+        }
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
             &mut anchors,
@@ -696,6 +700,7 @@ impl RuleItem {
                         | TermNode::Matches(_)
                         | TermNode::MatchesWildcard(_)
                         | TermNode::Let { .. }
+                        | TermNode::Closure { .. }
                         | TermNode::LetWildcard(_) => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;

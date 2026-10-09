@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042), SMT translations (KF-044), concrete, symbolic, and smt_lemma (KF-043).
+"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042), SMT translations (KF-044), concrete, symbolic, and smt_lemma (KF-043), author spec modules (KF-041), and matching-logic predicates (KF-039).
 
 The fixture packages are K tutorial lesson 1.21 in both layers:
 
@@ -98,6 +98,27 @@ an `smt_lemma` lemma in a spec module, a spec module that never imports the
 definition, and a spec-module simplification lemma that names a private
 (non-`pub`) production, which K's private syntax hides from every proof
 module.
+
+Matching-logic predicates (KF-039): `l22` is K tutorial lesson 1.22's
+language (assignments to a store, sequencing, a strict `if` and `<`, a `div`
+that steps only for a nonzero divisor, and the partial function `pf`), and
+`l22-verification` adds the `$`-identifier token and three spec modules.
+`KRS-L22-LEMMAS` holds two predicate simplifications, emitted as
+`rule { M:Map [ Key:KItem <- V:KItem ] #Equals M:Map [ Key:KItem <- W:KItem ] }
+=> { V:KItem #Equals W:KItem }` and `rule #Ceil ( pf ( X:Int ) ) => { true
+#Equals X:Int >Int 0 }`. `KRS-L22-CLAIMS` imports them and holds the lesson's
+`branch` claim (an `ensures { true #Equals .. }` on an existential), `div-eq`
+(`requires #Not ( { B:Int #Equals 0 } )`, `ensures { ?R:Int #Equals A:Int
+/Int B:Int }`), and `div-small`, whose postcondition is `#Exists Q:Int . ( ..
+)`. Every claim is proved natively (`krs prove --spec-module`) and by Java
+`kprove --claims` on the emitted files. `KRS-L22-ABLATION` states `branch`
+without the lemmas, and both routes fail to prove it. Negative fixtures pin
+each KF-039 diagnostic: a predicate on a transition or equation condition, a
+predicate as an object operand, a Bool where a predicate is expected,
+`ml::equals` operands without a common sort, a shadowing or untyped
+`ml::exists` binder, a closure elsewhere, an unknown `ml::` item, a predicate
+simplification not rooted at `ml::equals` or `ml::ceil`, one whose types
+disagree, and a predicate subject on a transition.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -283,6 +304,18 @@ NEGATIVE = (
     "spec-module-smt-lemma",
     "spec-module-no-definition",
     "spec-module-private-lemma",
+    "ml-transition-requires",
+    "ml-equation-requires",
+    "ml-object-operand",
+    "ml-bool-predicate",
+    "ml-equals-sorts",
+    "ml-exists-shadows",
+    "ml-exists-untyped",
+    "ml-closure-elsewhere",
+    "ml-unknown-item",
+    "ml-simplification-root",
+    "ml-simplification-types",
+    "ml-predicate-rule",
 )
 
 
@@ -723,6 +756,30 @@ def verify_ignored_ensures(harness: FixtureGate) -> None:
     harness.pins.expect(("warnings", "ensures-llvm"), warnings)
     print(f"PASS ensures-llvm: {warnings[0]}")
 
+L22 = Fixture(
+    MANIFEST, "krs-verification-surface-l22-verification",
+    dependencies=("krs-verification-surface-l22:main",),
+)
+L22_MODULES = ["KRS-L22-ABLATION", "KRS-L22-LEMMAS", "KRS-L22-CLAIMS"]
+# spec module: (claim labels, native statuses and Java kprove outcomes)
+L22_EXPECTED = {
+    "KRS-L22-CLAIMS": {"branch": "proven", "div-eq": "proven", "div-small": "proven"},
+    "KRS-L22-ABLATION": {"branch-ablation": "failed"},
+}
+L22_FRAGMENTS = (
+    "  imports ML-SYNTAX\n",
+    "  rule { M:Map [ Key:KItem <- V:KItem ] #Equals M:Map [ Key:KItem <- W:KItem ] }"
+    " => { V:KItem #Equals W:KItem } [simplification,",
+    "  rule #Ceil ( pf ( X:Int ) ) => { true #Equals X:Int >Int 0 } [simplification,",
+    "    ensures { true #Equals (?C:Int ==Int A:Int) orBool (?C:Int ==Int B:Int) }\n",
+    "  claim [div-eq]:\n"
+    "    <k> div ( A:Int , B:Int ) ~> Tail:K => ?R:Int ~> Tail:K </k>\n"
+    "    requires #Not ( { B:Int #Equals 0 } )\n"
+    "    ensures { ?R:Int #Equals A:Int /Int B:Int }\n",
+    "    requires { true #Equals 0 <=Int A:Int } #And { true #Equals A:Int <Int 10 }\n"
+    "    ensures #Exists Q:Int . ( { ?R:Int #Equals Q:Int } #And { true #Equals Q:Int <Int 5 } )\n",
+)
+
 
 def native_trusted_proof(
     harness: FixtureGate, fixture: Fixture, spec_module: str = TRUSTED_SPEC_MODULE, *extra: str
@@ -879,6 +936,81 @@ def java_claim_proofs(harness: FixtureGate, emitted: Emitted, spec_module: str, 
     return proofs
 
 
+def java_module_proofs(
+    harness: FixtureGate, emitted: Emitted, modules: dict[str, tuple[str, ...]],
+) -> dict[str, dict[str, bool]]:
+    """Kompile the emitted definition for Haskell and `kprove` each claim of each spec module alone."""
+
+    package = emitted.fixture.package
+    inputs = {
+        f"emitted/{package}/definition.k": emitted.source,
+        f"emitted/{package}/spec.k": emitted.directory / "spec.k",
+    }
+    k = Snapshot(
+        f"verification-surface/{package}",
+        Key(tools=JAVA_TOOLS, inputs=inputs),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, package),
+    )
+    kompiled = harness.workspace / "kompiled" / package / "haskell"
+    process = k.run(
+        "kompile/haskell", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module, "--syntax-module", emitted.syntax_module,
+            "--backend", "haskell", "--output-definition", kompiled,
+        ],
+        timeout=900,
+    )
+    if process.returncode != 0:
+        raise GateError(f"{package}: kompile --backend haskell failed:\n{process.stderr}")
+    proofs: dict[str, dict[str, bool]] = {}
+    for module, labels in modules.items():
+        proofs[module] = {}
+        for label in labels:
+            proved = k.run(
+                f"kprove/{module}/{label}", "kprove",
+                [
+                    emitted.directory / "spec.k", "--definition", kompiled, "--spec-module", module,
+                    "--claims", f"{module}.{label}",
+                ],
+                timeout=600,
+            )
+            proofs[module][label] = proved.returncode == 0 and proved.stdout.strip() == "#Top"
+    print(f"PASS verification-surface {package} reference snapshot: {k.finish()}")
+    return proofs
+
+
+def verify_ml_predicates(harness: FixtureGate, fixture: Fixture) -> None:
+    """Matching-logic claim conditions and predicate simplifications (KF-039), on both routes."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    modules = re.findall(r"^module (\S+)$", spec, re.MULTILINE)
+    if modules[: len(L22_MODULES)] != L22_MODULES:
+        raise GateError(f"{fixture.package}: spec.k modules {modules}, expected {L22_MODULES} first")
+    for fragment in L22_FRAGMENTS:
+        if fragment not in spec:
+            raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
+    native = {}
+    for module, expected in L22_EXPECTED.items():
+        proof = native_trusted_proof(harness, fixture, module, "--spec-module", module)
+        if proof["statuses"] != expected or proof["warnings"]:
+            raise GateError(f"{fixture.package}: krs prove --spec-module {module} reported {json.dumps(proof)}")
+        if proof["exit"] != (0 if all(status == "proven" for status in expected.values()) else 1):
+            raise GateError(f"{fixture.package}: krs prove --spec-module {module} exited {proof['exit']}")
+        native[module] = proof
+    harness.pins.expect(("ml_proofs", fixture.package), native)
+    java = java_module_proofs(harness, emitted, {module: tuple(labels) for module, labels in L22_EXPECTED.items()})
+    for module, expected in L22_EXPECTED.items():
+        agreed = {label: status == "proven" for label, status in expected.items()}
+        if java[module] != agreed:
+            raise GateError(f"{fixture.package}: kprove {module} reported {json.dumps(java[module])}, native {json.dumps(expected)}")
+    harness.pins.expect(("ml_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: KRS-L22-CLAIMS proven and KRS-L22-ABLATION failed, natively and by kprove")
+
+
 def verify_conc(harness: FixtureGate, fixture: Fixture) -> None:
     """`concrete(x)` keeps a simplification off symbolic arguments; `smt_lemma` hands it to Z3."""
 
@@ -984,6 +1116,7 @@ def main() -> int:
         verify_conc(harness, CONC_UNRESTRICTED)
         verify_conc(harness, CONC_SMT_LEMMA)
         verify_spec_modules(harness, IMP_SUM)
+        verify_ml_predicates(harness, L22)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

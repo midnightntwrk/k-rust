@@ -1004,6 +1004,13 @@ pub struct SemanticRuleLabel {
 /// One provenance-bearing object-language Boolean rule condition.
 pub type SemanticRuleCondition = crate::IrRuleCondition<crate::SemanticLevel>;
 
+/// One `requires` or `ensures` condition: an object-language Bool term or a
+/// matching-logic predicate (KF-039).
+pub type SemanticCondition = crate::IrCondition<crate::SemanticLevel>;
+
+/// One matching-logic predicate (KF-039).
+pub type SemanticMlPredicate = crate::IrMlPredicate<crate::SemanticLevel>;
+
 /// One explicitly scoped claim binder declaration.
 pub type SemanticScopedBinder = crate::IrScopedBinder<crate::SemanticLevel>;
 
@@ -1094,14 +1101,14 @@ pub struct SemanticRule {
     origin: NodeOrigin,
     id: StableItemId,
     label: Option<SemanticRuleLabel>,
-    requires: Option<SemanticRuleCondition>,
+    requires: Option<SemanticCondition>,
     priority: Option<SemanticRulePriority>,
     simplification: Option<SemanticSimplification>,
     claim: Option<SemanticClaim>,
     nondet_group: Option<SemanticNondetGroup>,
     anywhere: Option<NodeOrigin>,
     existentials: Vec<SemanticScopedBinder>,
-    ensures: Option<SemanticRuleCondition>,
+    ensures: Option<SemanticCondition>,
     fresh: Vec<SemanticScopedBinder>,
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
@@ -1145,7 +1152,7 @@ struct SemanticRuleWire<'a, B> {
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<Cow<'a, SemanticRuleLabel>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    requires: Option<Cow<'a, SemanticRuleCondition>>,
+    requires: Option<Cow<'a, SemanticCondition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<Cow<'a, SemanticRulePriority>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1159,7 +1166,7 @@ struct SemanticRuleWire<'a, B> {
     #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
     existentials: Cow<'a, [SemanticScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ensures: Option<Cow<'a, SemanticRuleCondition>>,
+    ensures: Option<Cow<'a, SemanticCondition>>,
     #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
     fresh: Cow<'a, [SemanticScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1182,6 +1189,11 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
         let content = value.body.refine(value.kind).map_err(|error| match error {
             crate::ir_level::RuleBodyRefinementError::NotRewrite => {
                 SemanticValidationError::RuleBodyNotRewrite(Box::new(value.id.as_ref().clone()))
+            }
+            crate::ir_level::RuleBodyRefinementError::InvalidPredicateKind => {
+                SemanticValidationError::InvalidSimplificationRoot(Box::new(
+                    value.id.as_ref().clone(),
+                ))
             }
             crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
                 if matches!(value.kind, SentenceKind::Alias | SentenceKind::Desugar) {
@@ -1259,6 +1271,38 @@ impl SemanticRule {
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
+    }
+
+    /// Creates a predicate simplification (KF-039): one matching-logic
+    /// predicate rewritten to another.
+    #[must_use]
+    pub fn new_predicate(
+        origin: NodeOrigin,
+        id: StableItemId,
+        variables: Vec<SemanticVariable>,
+        body: crate::IrPredicateRewrite<SemanticLevel>,
+    ) -> Self {
+        Self {
+            origin,
+            id,
+            label: None,
+            requires: None,
+            priority: None,
+            simplification: None,
+            claim: None,
+            nondet_group: None,
+            anywhere: None,
+            existentials: Vec::new(),
+            ensures: None,
+            fresh: Vec::new(),
+            restriction: None,
+            unbound_variables: None,
+            function_context: None,
+            variables,
+            content: crate::ir_level::RuleContent::Predicate {
+                body: Box::new(body),
+            },
+        }
     }
 
     /// Creates one labeled simultaneous fixed-configuration rewrite.
@@ -1450,15 +1494,16 @@ impl SemanticRule {
     ) -> Option<&crate::IrFunctionContext<crate::SemanticLevel>> {
         self.function_context.as_ref()
     }
-    /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
+    /// Attaches the postcondition (`#[k::ensures]`) of a transition or claim:
+    /// an object Bool, or a matching-logic predicate on a claim (KF-039).
     #[must_use]
-    pub fn with_ensures(mut self, ensures: Option<SemanticRuleCondition>) -> Self {
+    pub fn with_ensures(mut self, ensures: Option<SemanticCondition>) -> Self {
         self.ensures = ensures;
         self
     }
-    /// Returns the object-Bool postcondition.
+    /// Returns the postcondition.
     #[must_use]
-    pub const fn ensures(&self) -> Option<&SemanticRuleCondition> {
+    pub const fn ensures(&self) -> Option<&SemanticCondition> {
         self.ensures.as_ref()
     }
     /// Attaches typed claim-only metadata.
@@ -1483,27 +1528,32 @@ impl SemanticRule {
     pub const fn label(&self) -> Option<&SemanticRuleLabel> {
         self.label.as_ref()
     }
-    /// Attaches an object-language Boolean applicability condition.
+    /// Attaches an applicability condition: an object-language Boolean, or a
+    /// matching-logic predicate on a claim or simplification (KF-039).
     ///
     /// # Errors
     ///
-    /// Returns [`SemanticValidationError::RuleConditionSortMismatch`] unless
-    /// the condition has exactly the builtin `Bool` sort.
+    /// Returns [`SemanticValidationError::RuleConditionSortMismatch`] when
+    /// a Boolean condition does not have exactly the builtin `Bool` sort.
     pub fn with_requires(
         mut self,
-        requires: Option<SemanticRuleCondition>,
+        requires: Option<SemanticCondition>,
     ) -> Result<Self, SemanticValidationError> {
-        if requires.as_ref().is_some_and(|condition| {
-            condition.term().sort() != &SemanticSortRef::Builtin(BuiltinSort::Bool)
-        }) {
+        if requires
+            .as_ref()
+            .and_then(crate::IrCondition::as_bool)
+            .is_some_and(|condition| {
+                condition.term().sort() != &SemanticSortRef::Builtin(BuiltinSort::Bool)
+            })
+        {
             return Err(SemanticValidationError::RuleConditionSortMismatch);
         }
         self.requires = requires;
         Ok(self)
     }
-    /// Returns the object-language Boolean applicability condition.
+    /// Returns the applicability condition.
     #[must_use]
-    pub const fn requires(&self) -> Option<&SemanticRuleCondition> {
+    pub const fn requires(&self) -> Option<&SemanticCondition> {
         self.requires.as_ref()
     }
     /// Returns variables in binder order.
@@ -1516,7 +1566,8 @@ impl SemanticRule {
     pub fn body(&self) -> Option<&crate::IrRewrite<crate::SemanticLevel>> {
         match &self.content {
             crate::ir_level::RuleContent::Term { body, .. } => Some(body),
-            crate::ir_level::RuleContent::Configuration { .. } => None,
+            crate::ir_level::RuleContent::Configuration { .. }
+            | crate::ir_level::RuleContent::Predicate { .. } => None,
         }
     }
 
@@ -1660,6 +1711,13 @@ pub enum SemanticValidationError {
     /// its body's, or with local binders that are not exactly its pattern's
     /// named variables or that occur outside its pattern and body.
     InvalidLet,
+    /// A matching-logic predicate (KF-039) is misplaced (in the condition
+    /// of a transition or equation, or the ensures of a simplification), a
+    /// predicate rewrite is not a simplification rooted at `#Equals` or
+    /// `#Ceil`, an operand is not at its node's operand sort, or an
+    /// `#Exists` binder is not a sentence variable of its sort used only in
+    /// its body.
+    InvalidMlPredicate,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1866,6 +1924,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
+            ),
+            Self::InvalidMlPredicate => formatter.write_str(
+                "a matching-logic predicate occurs only in claim conditions, simplification requires conditions, and predicate simplifications rooted at #Equals or #Ceil, with operands at their node's operand sort and #Exists binders used only in their body",
             ),
             Self::InvalidLet => formatter.write_str(
                 "`let` (#let) occurs only in post-terms and conditions, at its body's sort, its pattern neither aliases nor has alternatives, and its local binders are exactly its pattern's named variables, used only in its pattern and body",
@@ -2303,14 +2364,17 @@ mod tests {
     #[test]
     fn semantic_claim_rejects_existential_in_requires() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.requires = Some(SemanticRuleCondition::new(
-            node("requires"),
-            int_equals(
-                "requires-eq",
-                int_variable("requires-var", "exists"),
-                int_token("requires-zero"),
-            ),
-        ));
+        rule.requires = Some(
+            SemanticRuleCondition::new(
+                node("requires"),
+                int_equals(
+                    "requires-eq",
+                    int_variable("requires-var", "exists"),
+                    int_token("requires-zero"),
+                ),
+            )
+            .into(),
+        );
         assert_eq!(
             validate_claim_only(&rule),
             Err(SemanticValidationError::ExistentialScopeViolation(sid(
@@ -2341,10 +2405,7 @@ mod tests {
     #[test]
     fn semantic_claim_rejects_non_bool_ensures() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.ensures = Some(SemanticRuleCondition::new(
-            node("ensures"),
-            int_token("post"),
-        ));
+        rule.ensures = Some(SemanticRuleCondition::new(node("ensures"), int_token("post")).into());
         assert_eq!(
             validate_claim_only(&rule),
             Err(SemanticValidationError::RuleConditionSortMismatch)

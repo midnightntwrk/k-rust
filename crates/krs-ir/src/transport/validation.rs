@@ -196,6 +196,16 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     /// where wildcards and local binders are admitted.
     fn let_pattern(&mut self, inside: bool);
 
+    /// The closure `|name: sort| body` of an `ml::exists` (KF-039), admitted
+    /// only outside left-hand sides and patterns. Its body is validated
+    /// next, inside a [`Self::let_body`] scope that binds `name`.
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &S::Sort,
+    ) -> Result<(), Self::Error>;
+
     /// Enters (`Some`) or leaves (`None`) the body of a `let` statement, in
     /// which the pattern's names are local binders.
     fn let_body(&mut self, names: Option<&BTreeSet<String>>);
@@ -213,6 +223,10 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     ) -> Result<(), Self::Error>;
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One exhaustive match validates every transport term variant."
+)]
 pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
     term: &Term<S>,
     context: &mut C,
@@ -309,6 +323,19 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             value,
             body,
         } => validate_let(key, pattern, sort.as_ref(), value, body, context),
+        Term::Closure {
+            key,
+            binder_key,
+            name,
+            sort,
+            body,
+        } => {
+            context.closure(key, binder_key, sort)?;
+            context.let_body(Some(&BTreeSet::from([name.clone()])));
+            let validated = validate_term(body, context);
+            context.let_body(None);
+            validated
+        }
     }
 }
 
@@ -371,6 +398,7 @@ pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut 
         Term::SortTest { operand, .. } => let_pattern_names(operand, names),
         Term::Matches { .. }
         | Term::Let { .. }
+        | Term::Closure { .. }
         | Term::Literal { .. }
         | Term::Wildcard { .. }
         | Term::BuiltinToken { .. }

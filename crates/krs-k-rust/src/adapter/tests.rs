@@ -15,9 +15,10 @@ use krs_ir::{
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionClaim, DefinitionIr, DefinitionModule,
     DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionScopedBinder,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, LabelId, LabelIdentity, ListOperands,
-    MapEntry, MapOperands, ProductionGroupIdentity, ProductionItem as IrProductionItem,
-    ProductionSentence, RuleSentence, SetOperands, SymbolId, SymbolKind,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, IrCondition, IrMlKind, IrMlPredicate,
+    LabelId, LabelIdentity, ListOperands, MapEntry, MapOperands, ProductionGroupIdentity,
+    ProductionItem as IrProductionItem, ProductionSentence, RuleSentence, SetOperands, SymbolId,
+    SymbolKind,
     k_surface::{ImportPolicy, builtin_imports},
 };
 
@@ -514,10 +515,9 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         rewrite,
     )
     .unwrap()
-    .with_requires(Some(DefinitionRuleCondition::new(
-        node("schema9.rule.map.requires"),
-        condition,
-    )))
+    .with_requires(Some(
+        DefinitionRuleCondition::new(node("schema9.rule.map.requires"), condition).into(),
+    ))
     .unwrap();
     let module = DefinitionModule::new(
         node("schema9.module.builtins"),
@@ -1236,6 +1236,122 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
 #[test]
 #[expect(
     clippy::too_many_lines,
+    reason = "Builds one claim with an ML precondition and a quantified postcondition."
+)]
+fn ml_predicates_are_plain_labels_without_sort_parameters() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let existential = semantic_id("r");
+    let quantified = semantic_id("q");
+    let body = DefinitionTerm::rewrite(
+        node("kf039.claim.body"),
+        DefinitionSortRef::int(),
+        DefinitionTerm::token(node("kf039.claim.zero"), DefinitionSortRef::int(), "0").unwrap(),
+        DefinitionTerm::variable(
+            node("kf039.claim.r"),
+            DefinitionSortRef::int(),
+            existential.clone(),
+        ),
+    )
+    .unwrap();
+    let equals = |name: &str, left: DefinitionTerm, right: DefinitionTerm| {
+        IrMlPredicate::new(
+            node(name),
+            IrMlKind::Equals {
+                operand_sort: DefinitionSortRef::int(),
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        )
+    };
+    let zero =
+        |name: &str| DefinitionTerm::token(node(name), DefinitionSortRef::int(), "0").unwrap();
+    // requires #Not ( { 0 #Equals 0 } )
+    let requires = IrMlPredicate::new(
+        node("kf039.requires"),
+        IrMlKind::Not {
+            operand: Box::new(equals(
+                "kf039.requires.eq",
+                zero("kf039.z1"),
+                zero("kf039.z2"),
+            )),
+        },
+    );
+    // ensures #Exists Q:Int . { ?R #Equals Q }
+    let ensures = IrMlPredicate::new(
+        node("kf039.ensures"),
+        IrMlKind::Exists {
+            binder: DefinitionScopedBinder::new(
+                node("kf039.ensures.binder"),
+                node("kf039.ensures.binder.name"),
+                quantified.clone(),
+                node("kf039.ensures.binder.sort"),
+                DefinitionSortRef::int(),
+            ),
+            body: Box::new(equals(
+                "kf039.ensures.eq",
+                DefinitionTerm::variable(
+                    node("kf039.ensures.r"),
+                    DefinitionSortRef::int(),
+                    existential.clone(),
+                ),
+                DefinitionTerm::variable(
+                    node("kf039.ensures.q"),
+                    DefinitionSortRef::int(),
+                    quantified,
+                ),
+            )),
+        },
+    );
+    let rule = RuleSentence::new(
+        node("kf039.claim"),
+        LabelIdentity::new(LabelId::new("kf039.claim").unwrap(), "kf039-claim").unwrap(),
+        SentenceKind::Claim,
+        Vec::new(),
+        body,
+    )
+    .unwrap()
+    .with_claim(Some(DefinitionClaim::new(
+        node("kf039.claim.modality"),
+        ClaimModality::AllPaths,
+        None,
+        Vec::new(),
+    )))
+    .with_existentials(vec![DefinitionScopedBinder::new(
+        node("kf039.claim.existential"),
+        node("kf039.claim.existential.name"),
+        existential,
+        node("kf039.claim.existential.sort"),
+        DefinitionSortRef::int(),
+    )])
+    .with_requires(Some(IrCondition::Predicate(requires)))
+    .unwrap()
+    .with_ensures(Some(IrCondition::Predicate(ensures)));
+    let Sentence::Claim {
+        requires, ensures, ..
+    } = adapter.rule(&rule, MODULE, 0).unwrap()
+    else {
+        panic!("claims must not be downgraded to rules")
+    };
+    let mut labels = Vec::new();
+    for condition in [&requires, &ensures] {
+        condition.visit_preorder(&mut |term| {
+            if let Term::Apply { label, .. } = term {
+                assert!(
+                    label.parameters.is_empty(),
+                    "{} carries sort parameters",
+                    label.name
+                );
+                labels.push(label.name.clone());
+            }
+        });
+    }
+    assert_eq!(labels, ["#Not", "#Equals", "#Exists", "#Equals"]);
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
     reason = "Checks related native claim and context forms with shared provenance fixtures."
 )]
 fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
@@ -1291,7 +1407,7 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     .unwrap()
     .with_claim(Some(claim))
     .with_existentials(existentials)
-    .with_ensures(ensures);
+    .with_ensures(ensures.map(Into::into));
     let native_claim = adapter.rule(&rule, MODULE, 0).unwrap();
     let Sentence::Claim {
         body,

@@ -433,6 +433,7 @@ mod tests {
                 equation: None,
                 unbound_variables: None,
                 function_context: None,
+                predicate: false,
             },
             "sort",
             4,

@@ -3,7 +3,10 @@ use krs_ir::{
     ApplicationRef, CollectionOperationSpec, GeneratedOperation, MapOperation, NodeOrigin,
     NonEmpty, SemanticId,
 };
-use krs_ir_levels::{DefinitionSortRef, DefinitionTerm, DefinitionTermKind, MapEntry, MapOperands};
+use krs_ir_levels::{
+    DefinitionMlPredicate, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, IrMlKind,
+    MapEntry, MapOperands,
+};
 
 use super::{Adapter, AdapterError, SentenceNodeRole};
 
@@ -254,6 +257,76 @@ impl Adapter<'_> {
             left: Box::new(self.term(from, module, sentence_index, left_path, context)?),
             right: Box::new(self.term(to, module, sentence_index, right_path, context)?),
         })
+    }
+
+    /// Adapts a matching-logic predicate (KF-039). Its connectives are K's
+    /// plain labels without sort parameters (X9.1): k-rust's solver assigns
+    /// their instances from the operands and the position, and leaves a
+    /// predicate simplification's result sort a sort variable.
+    pub(super) fn predicate(
+        &mut self,
+        predicate: &DefinitionMlPredicate,
+        module: &str,
+        sentence_index: usize,
+        path: &[u32],
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_sentence_origin(
+            predicate.origin(),
+            module,
+            sentence_index,
+            SentenceNodeRole::Term(path.to_vec()),
+        );
+        let child = |index: u32| {
+            let mut child = path.to_vec();
+            child.push(index);
+            child
+        };
+        let label = match predicate.kind() {
+            IrMlKind::Top => "#Top",
+            IrMlKind::Bottom => "#Bottom",
+            IrMlKind::Not { .. } => "#Not",
+            IrMlKind::And { .. } => "#And",
+            IrMlKind::Or { .. } => "#Or",
+            IrMlKind::Implies { .. } => "#Implies",
+            IrMlKind::Equals { .. } => "#Equals",
+            IrMlKind::Ceil { .. } => "#Ceil",
+            IrMlKind::Exists { .. } => "#Exists",
+        };
+        let arguments = match predicate.kind() {
+            IrMlKind::Top | IrMlKind::Bottom => Vec::new(),
+            IrMlKind::Not { operand } => {
+                vec![self.predicate(operand, module, sentence_index, &child(0))?]
+            }
+            IrMlKind::And { left, right }
+            | IrMlKind::Or { left, right }
+            | IrMlKind::Implies { left, right } => vec![
+                self.predicate(left, module, sentence_index, &child(0))?,
+                self.predicate(right, module, sentence_index, &child(1))?,
+            ],
+            IrMlKind::Equals { left, right, .. } => vec![
+                self.term(left, module, sentence_index, child(0), TermContext::Normal)?,
+                self.term(right, module, sentence_index, child(1), TermContext::Normal)?,
+            ],
+            IrMlKind::Ceil { term, .. } => {
+                vec![self.term(term, module, sentence_index, child(0), TermContext::Normal)?]
+            }
+            IrMlKind::Exists { binder, body } => {
+                for origin in [binder.origin(), binder.name_origin(), binder.sort_origin()] {
+                    self.map_sentence_origin(
+                        origin,
+                        module,
+                        sentence_index,
+                        SentenceNodeRole::Term(child(0)),
+                    );
+                }
+                let sort = self.sort(binder.sort(), binder.sort_origin())?;
+                vec![
+                    self.native_variable(binder.id(), sort, binder.origin())?,
+                    self.predicate(body, module, sentence_index, &child(1))?,
+                ]
+            }
+        };
+        Ok(NativeTerm::apply(label, arguments))
     }
 
     /// Spells a variable with the name the shared naming function gave it in this sentence.

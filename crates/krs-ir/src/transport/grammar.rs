@@ -22,9 +22,9 @@ use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
-    ListOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole,
-    RawSentenceKind, SentenceKind, SetOperation, SmtFragment, StableItemId, StrictnessKind,
-    TermMapOperation,
+    ListOperation, MlConnective, ProductionFieldId, ProductionGroupId, ProvenanceKey,
+    ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation, SmtFragment, StableItemId,
+    StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -107,6 +107,9 @@ pub enum DescriptorApplicationRef {
     List(ListOperation),
     /// A compiler-provided Set-theory term operation.
     Set(SetOperation),
+    /// A matching-logic connective of `k::ml` (KF-039): a predicate, never an
+    /// object term.
+    Ml(MlConnective),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -364,6 +367,8 @@ pub struct HostBuiltinRegistry {
     pub list_operations: [HostTypeKey; ListOperation::ALL.len()],
     /// Registered Set operation markers in [`SetOperation::ALL`] order.
     pub set_operations: [HostTypeKey; SetOperation::ALL.len()],
+    /// Registered `k::ml` connective markers in [`MlConnective::ALL`] order (KF-039).
+    pub ml_connectives: [HostTypeKey; MlConnective::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
@@ -382,6 +387,7 @@ impl HostBuiltinRegistry {
             .chain(&self.map_operations)
             .chain(&self.list_operations)
             .chain(&self.set_operations)
+            .chain(&self.ml_connectives)
         {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
@@ -438,6 +444,16 @@ impl HostBuiltinRegistry {
             .zip(&self.set_operations)
             .find(|(_, key)| key.resolve() == target)
             .map(|(operation, _)| operation)
+    }
+
+    /// Resolves one build-local type as a `k::ml` connective (KF-039).
+    #[must_use]
+    pub fn resolve_ml_connective(&self, target: TypeId) -> Option<MlConnective> {
+        MlConnective::ALL
+            .into_iter()
+            .zip(&self.ml_connectives)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(connective, _)| connective)
     }
 }
 
@@ -1527,6 +1543,20 @@ stage_shape! {
             /// The rest of the block: the next `let`, or the result term.
             body: Box<Term<S>> => [box nested],
         },
+        /// `|x: S| p`, the one argument of `ml::exists` (KF-039): K's
+        /// `#Exists X:S . P`. The binder is local to the body (BIND-1).
+        Closure {
+            /// Complete closure provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact binder-identifier provenance.
+            binder_key: ProvenanceKey => [keep],
+            /// The quantified binder.
+            name: String => [keep],
+            /// The binder's exact authored sort.
+            sort: S::Sort => [sort],
+            /// The quantified predicate.
+            body: Box<Term<S>> => [box nested],
+        },
     }
 }
 
@@ -2004,6 +2034,12 @@ stage_shape! {
         /// `[[ .. ]]` cells.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub function_context: Option<crate::transport::rule::FunctionContext<S>> => [option nested],
+        /// Whether the subject and result types are `ml::Predicate`: a
+        /// predicate simplification between matching-logic predicates
+        /// (KF-039), whose `subject_sort` and `result_sort` are Bool
+        /// placeholders that semantic lowering ignores.
+        #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+        pub predicate: bool => [keep],
     }
 }
 
@@ -2214,7 +2250,11 @@ fn validate_collection_application_shape(
             GrammarApplicationReason::SetOperationHasInvalidArity,
             GrammarApplicationReason::SetOperationsAcceptPositionalArgumentsOnly,
         ),
-        DescriptorApplicationRef::Declared(_) | DescriptorApplicationRef::Builtin(_) => {
+        // A connective's operands are checked by semantic lowering, which
+        // reports the connective's arity (KF-039).
+        DescriptorApplicationRef::Declared(_)
+        | DescriptorApplicationRef::Builtin(_)
+        | DescriptorApplicationRef::Ml(_) => {
             return Ok(());
         }
     };
@@ -2476,6 +2516,10 @@ impl StructuredRuleDescriptor {
     ///
     /// Returns [`GrammarTransportError`] for wrong ownership, typed references,
     /// bindings, terms, literals, or missing provenance.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One validator checks every rule field against one provenance table."
+    )]
     pub fn validate(
         &self,
         descriptor_kind: ItemKind,
@@ -2532,6 +2576,11 @@ impl StructuredRuleDescriptor {
         } else if self.sentence_kind == SentenceKind::Simplification {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MissingSimplificationMetadata,
+            ));
+        }
+        if self.predicate && self.sentence_kind != SentenceKind::Simplification {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::InvalidPredicateRule,
             ));
         }
         require_key(&self.subject_sort.key, provenance)?;
@@ -4192,6 +4241,8 @@ struct TermKeyCounters {
     let_wildcard: u32,
     /// Whether the validator is inside a `let` pattern.
     in_let_pattern: bool,
+    /// `ml::exists` closure ordinals, side-neutral (KF-039).
+    ml_binder: u32,
 }
 
 impl TermKeyCounters {
@@ -4216,6 +4267,7 @@ impl TermKeyCounters {
             let_binding: self.let_binding,
             let_wildcard: self.let_wildcard,
             in_let_pattern: false,
+            ml_binder: self.ml_binder,
         }
     }
 }
@@ -4567,6 +4619,7 @@ mod traversal_tests {
             equation: None,
             unbound_variables: None,
             function_context: None,
+            predicate: false,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

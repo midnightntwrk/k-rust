@@ -238,6 +238,16 @@ pub enum TermNode {
     /// One `_` of a `let` pattern; these follow the pattern's other nodes,
     /// in pattern preorder.
     LetWildcard(TokenRange),
+    /// The closure `|binder: Sort| body` of an `ml::exists` (KF-039); it
+    /// follows the `ml::exists` head and precedes the nodes of its body.
+    Closure {
+        /// The complete closure range.
+        range: TokenRange,
+        /// The quantified binder.
+        binder: syn::Ident,
+        /// The binder's authored sort path.
+        sort: Path,
+    },
 }
 
 impl TermNode {
@@ -258,6 +268,7 @@ impl TermNode {
             | Self::Matches(_)
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
+            | Self::Closure { .. }
             | Self::LetWildcard(_) => None,
         }
     }
@@ -280,6 +291,7 @@ impl TermNode {
             | Self::Matches(_)
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
+            | Self::Closure { .. }
             | Self::LetWildcard(_) => None,
         }
     }
@@ -298,6 +310,7 @@ impl TermNode {
             | Self::Matches(range)
             | Self::MatchesWildcard(range)
             | Self::Let { range, .. }
+            | Self::Closure { range, .. }
             | Self::LetWildcard(range) => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
@@ -594,6 +607,19 @@ pub enum TermTree {
         /// every unqualified single-identifier reference, the root included.
         binders: Vec<syn::Ident>,
     },
+    /// `|binder: Sort| body`, the one argument of `ml::exists` (KF-039): K's
+    /// `#Exists BINDER:Sort . BODY`. The binder is a local binder (BIND-1)
+    /// visible only in the body.
+    Closure {
+        /// The complete closure range.
+        range: TokenRange,
+        /// The quantified binder.
+        binder: syn::Ident,
+        /// The binder's authored sort path.
+        sort: Path,
+        /// The quantified predicate.
+        body: Box<TermTree>,
+    },
 }
 
 impl TermTree {
@@ -615,7 +641,8 @@ impl TermTree {
             | Self::As { .. }
             | Self::Or { .. }
             | Self::Matches { .. }
-            | Self::Let { .. } => None,
+            | Self::Let { .. }
+            | Self::Closure { .. } => None,
         }
     }
 
@@ -637,7 +664,8 @@ impl TermTree {
             | Self::As { .. }
             | Self::Or { .. }
             | Self::Matches { .. }
-            | Self::Let { .. } => None,
+            | Self::Let { .. }
+            | Self::Closure { .. } => None,
         }
     }
 
@@ -659,7 +687,8 @@ impl TermTree {
             | Self::As { .. }
             | Self::Or { .. }
             | Self::Matches { .. }
-            | Self::Let { .. } => None,
+            | Self::Let { .. }
+            | Self::Closure { .. } => None,
         }
     }
 
@@ -681,7 +710,8 @@ impl TermTree {
             | Self::As { .. }
             | Self::Or { .. }
             | Self::Matches { .. }
-            | Self::Let { .. } => None,
+            | Self::Let { .. }
+            | Self::Closure { .. } => None,
         }
     }
 
@@ -724,6 +754,10 @@ impl TermTree {
             } => {
                 pattern.record_field_names_preorder(output);
                 value.record_field_names_preorder(output);
+                body.record_field_names_preorder(output);
+                return;
+            }
+            Self::Closure { body, .. } => {
                 body.record_field_names_preorder(output);
                 return;
             }
@@ -784,6 +818,7 @@ impl TermTree {
                 value.wildcard_ranges_preorder(output);
                 body.wildcard_ranges_preorder(output);
             }
+            Self::Closure { body, .. } => body.wildcard_ranges_preorder(output),
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -1075,6 +1110,7 @@ impl TermExpression {
                 | TermNode::Matches(_)
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
+                | TermNode::Closure { .. }
                 | TermNode::LetWildcard(_) => {
                     continue;
                 }
@@ -1671,6 +1707,12 @@ fn validate_expression(
             validate_let_block(block, symbols, nodes)
         }
         Expr::Block(block) => Err(let_error(LET_IN_PATTERN.to_owned(), block.span())),
+        // A closure is only the one argument of `ml::exists` (KF-039),
+        // which `validate_call` admits.
+        Expr::Closure(closure) => Err(ml_exists_error(
+            CLOSURE_OUTSIDE_EXISTS.to_owned(),
+            closure.span(),
+        )),
         // `A | B` is K's #Or only in a pattern; a result or condition has no
         // alternatives (KF-030).
         Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => Err(pattern_or_error(
@@ -1979,6 +2021,7 @@ fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Iden
             }
             TermTree::Matches { subject, .. } => walk(subject, false, output),
             TermTree::Let { .. }
+            | TermTree::Closure { .. }
             | TermTree::Reference(_)
             | TermTree::Literal(_)
             | TermTree::Wildcard(_)
@@ -2220,7 +2263,8 @@ fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
         | TermTree::Anonymous { .. }
         | TermTree::Lexeme { .. }
         | TermTree::Matches { .. }
-        | TermTree::Let { .. } => Ok(()),
+        | TermTree::Let { .. }
+        | TermTree::Closure { .. } => Ok(()),
     }
 }
 
@@ -2262,6 +2306,47 @@ pub(crate) fn push_let_anchors(
                 *wildcards += 1;
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Appends the `ml_connective`, `ml_binder`, and `ml_binder_sort` anchors of
+/// every `ml::exists` closure (KF-039), numbering them from `*ordinal`. Like
+/// `let` roles, they are side-neutral.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_ml_binder_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        if let TermNode::Closure {
+            range,
+            binder,
+            sort,
+        } = node
+        {
+            let current = checked_ordinal(*ordinal, ProvenanceRole::MlConnective, range.first())?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::MlBinderSort,
+                current,
+                TokenRange::for_tokens(sort)?,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::MlBinder,
+                current,
+                TokenRange::for_tokens(binder)?,
+            ));
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::MlConnective,
+                current,
+                *range,
+            ));
+            *ordinal += 1;
         }
     }
     Ok(())
@@ -2747,6 +2832,15 @@ fn validate_call(
     nodes.push(TermNode::ApplicationHead(head.path.clone()));
     let mut arguments = Vec::with_capacity(call.args.len());
     for argument in &call.args {
+        // `ml::exists(|x: S| p)` (KF-039): the closure is the call's one
+        // argument. Semantic lowering checks that the head is `ml::exists`.
+        if let Expr::Closure(closure) = argument
+            && call.args.len() == 1
+            && context == TermExpressionContext::Expression
+        {
+            arguments.push(validate_closure(closure, symbols, nodes)?);
+            continue;
+        }
         arguments.push(validate_expression(argument, context, symbols, nodes)?);
     }
     Ok(TermTree::Application(TermApplication {
@@ -2754,6 +2848,82 @@ fn validate_call(
         arguments: TermArguments::Positional(arguments),
         instance,
     }))
+}
+
+/// The reason given for a closure outside `ml::exists` (KF-039).
+pub(crate) const CLOSURE_OUTSIDE_EXISTS: &str = "closures introduce quantified binders only inside ml::exists: write `ml::exists(|x: Sort| predicate)`; a closure is never a K function";
+
+/// The shape every `ml::exists` closure takes (KF-039).
+const ML_EXISTS_SHAPE: &str = "ml::exists takes exactly one closure with one typed parameter: `ml::exists(|x: Sort| predicate)`";
+
+fn ml_exists_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidMlExists { reason }, span)
+}
+
+/// Validates the closure `|binder: Sort| body` of an `ml::exists`
+/// (KF-039): its shell node precedes the nodes of its body.
+fn validate_closure(
+    closure: &syn::ExprClosure,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let shape = |span: Span| ml_exists_error(ML_EXISTS_SHAPE.to_owned(), span);
+    if !closure.attrs.is_empty()
+        || closure.lifetimes.is_some()
+        || closure.constness.is_some()
+        || closure.movability.is_some()
+        || closure.asyncness.is_some()
+        || closure.capture.is_some()
+    {
+        return Err(shape(closure.span()));
+    }
+    if let syn::ReturnType::Type(_, ty) = &closure.output {
+        return Err(shape(ty.span()));
+    }
+    let mut inputs = closure.inputs.iter();
+    let (Some(input), None) = (inputs.next(), inputs.next()) else {
+        return Err(shape(closure.or1_token.span()));
+    };
+    let Pat::Type(typed) = input else {
+        return Err(ml_exists_error(
+            "the ml::exists binder needs a sort: write `|x: Sort| predicate`".to_owned(),
+            input.span(),
+        ));
+    };
+    let Pat::Ident(identifier) = typed.pat.as_ref() else {
+        return Err(shape(typed.pat.span()));
+    };
+    if identifier.by_ref.is_some()
+        || identifier.mutability.is_some()
+        || identifier.subpat.is_some()
+        || !identifier.attrs.is_empty()
+        || !typed.attrs.is_empty()
+    {
+        return Err(shape(typed.span()));
+    }
+    let syn::Type::Path(sort) = typed.ty.as_ref() else {
+        return Err(shape(typed.ty.span()));
+    };
+    if sort.qself.is_some() || !is_plain_path(&sort.path) {
+        return Err(shape(typed.ty.span()));
+    }
+    nodes.push(TermNode::Closure {
+        range: TokenRange::for_tokens(closure)?,
+        binder: identifier.ident.clone(),
+        sort: sort.path.clone(),
+    });
+    let body = validate_expression(
+        &closure.body,
+        TermExpressionContext::Expression,
+        symbols,
+        nodes,
+    )?;
+    Ok(TermTree::Closure {
+        range: TokenRange::for_tokens(closure)?,
+        binder: identifier.ident.clone(),
+        sort: sort.path.clone(),
+        body: Box::new(body),
+    })
 }
 
 fn validate_record(

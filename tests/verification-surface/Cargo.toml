@@ -10,6 +10,8 @@ members = [
     "packages/conc-unrestricted",
     "packages/conc-smt-lemma",
     "packages/imp-sum",
+    "packages/l22",
+    "packages/l22-verification",
 ]
 resolver = "3"
 

@@ -157,6 +157,80 @@ A spec module sees only the definition's public syntax.
 A production whose Rust item is not `pub` is K `private`, and K hides private syntax from every importing module, proof modules included.
 Rust lets a spec module inside the crate name such an item, so KRS checks it instead: a claim, here or in `<MAIN>-SPEC`, or a simplification lemma that names a private production is rejected with `krs::analysis::private-production-in-spec`; make the production `pub` and mark it `internal`.
 
+## Matching-logic predicates
+
+K has two kinds of truth.
+`int::eq(a, b)` is an object-language Bool: a value a rule computes, stores, and branches on.
+`ml::equals(a, b)` is a statement about what two patterns denote, K's `{ A #Equals B }`, which only the prover reads.
+The connectives live in `k::ml` and are function shaped, like the builtin operations, with no operator or method sugar:
+
+| Rust | K | Meaning |
+| --- | --- | --- |
+| `ml::top()`, `ml::bottom()` | `#Top`, `#Bottom` | always and never |
+| `ml::not(p)` | `#Not ( P )` | set complement, not `bool::not` |
+| `ml::and(p, q)`, `ml::or(p, q)`, `ml::implies(p, q)` | `P #And Q`, `P #Or Q`, `P #Implies Q` | predicate connectives |
+| `ml::equals(t, u)` | `{ T #Equals U }` | two terms of one sort denote the same value |
+| `ml::ceil(t)` | `#Ceil ( T )` | `t` denotes something: it is defined |
+| `ml::exists(\|q: Int\| p)` | `#Exists Q:Int . P` | a quantifier, not a callback |
+
+An object Bool enters matching logic only as `ml::equals(true, b)`, K's `{ true #Equals B }`.
+Predicates are written in claim `requires` and `ensures`, in a simplification's `requires`, and on both sides of a predicate simplification, whose subject and result have type `ml::Predicate`:
+
+```rust
+#[k::spec_module(name = "KRS-L22-LEMMAS", imports = [crate])]
+pub mod lemmas {
+    use super::*;
+    /// Lesson 1.22's lemma: one map updated at one key to two values is equal only if the values are.
+    #[k::simplification]
+    fn update_injective(
+        m: Term<Map>, key: Term<KItem>, v: Term<KItem>, w: Term<KItem>,
+        k::term![ml::equals(map::update(m, key, v), map::update(m, key, w))]: Predicate,
+    ) -> Predicate {
+        ml::equals(v, w)
+    }
+    /// Definedness: `pf(x)` denotes a value exactly when `x` is positive.
+    #[k::simplification]
+    fn pf_defined(k::term![ml::ceil(Pf(x))]: Predicate) -> Predicate {
+        ml::equals(true, int::gt(x, 0))
+    }
+}
+
+#[k::spec_module(name = "KRS-L22-CLAIMS", imports = [lemmas])]
+mod spec {
+    use super::*;
+    #[k::claim(all_paths, label = "div-eq")]
+    #[k::exists(r: Int)]
+    #[k::requires(ml::not(ml::equals(b, 0)))]
+    #[k::ensures(ml::equals(r, int::div(a, b)))]
+    fn div_eq(a: Term<Int>, b: Term<Int>,
+        k::cells! { k: k::configuration::KCell(Op::Div(a, b), tail @ ..), state @ .. }: Machine) -> Machine {
+        k::cells! { k: k::configuration::KCell(r, ..tail), ..state }
+    }
+}
+```
+
+```text
+  rule { M:Map [ Key:KItem <- V:KItem ] #Equals M:Map [ Key:KItem <- W:KItem ] } => { V:KItem #Equals W:KItem } [simplification, ..]
+  rule #Ceil ( pf ( X:Int ) ) => { true #Equals X:Int >Int 0 } [simplification, ..]
+  claim [div-eq]:
+    <k> div ( A:Int , B:Int ) ~> Tail:K => ?R:Int ~> Tail:K </k>
+    requires #Not ( { B:Int #Equals 0 } )
+    ensures { ?R:Int #Equals A:Int /Int B:Int }
+```
+
+A quantified postcondition is `#[k::ensures(ml::exists(|q: Int| ml::and(ml::equals(r, q), ml::equals(true, int::lt(q, 5)))))]`, emitted `ensures #Exists Q:Int . ( { ?R:Int #Equals Q:Int } #And { true #Equals Q:Int <Int 5 } )`.
+The closure's parameter is a local binder visible only in its body; a closure is never a K function, and it is valid nowhere but as the one argument of `ml::exists`.
+
+A predicate simplification is an unchecked axiom, not a match arm: the prover trusts it, so a wrong lemma proves wrong claims.
+Its left side is rooted at `ml::equals` or `ml::ceil`, because K's simplifier rewrites an equality or a definedness condition.
+Lesson 1.22's `branch` claim needs `update_injective`: without it the prover cannot see that two stores are equal only when the value stored last is, and the claim fails on both routes.
+
+Prover residuals use the same vocabulary, so read them back through it: `#Not ( { true #Equals A <Int B } )` is `ml::not(ml::equals(true, int::lt(a, b)))`.
+
+KRS rejects a predicate in a transition or equation condition (`krs::analysis::ml-placement`; rule conditions stay object Bool), and, with `krs::analysis::invalid-ml-predicate`, a predicate as an operand of an object function, a Bool term where a predicate is expected (write `ml::equals(true, <term>)`), `ml::equals` operands without a common sort, a predicate simplification whose left side is not rooted at `ml::equals` or `ml::ceil`, and an `ml::exists` binder that reuses a sentence binder's name.
+An `ml::exists` closure without exactly one typed parameter, a closure anywhere else, an `ml::` item outside the connectives above, and an `ml::Predicate` subject or result on anything but a simplification are expansion errors.
+`#Floor`, `#In`, and set variables are not part of `k::ml`.
+
 ## Capability boundary
 
 `krs emit-k` writes claims to `spec.k`, in their spec modules or in a generated `<MAIN>-SPEC` module, beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
@@ -173,6 +247,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 | Trusted all-path | Current; the verification-surface fixture emits `[trusted]`. | Current; `krs prove` reports the trusted claim `trusted` and proves the claim that applies it, and Java `kprove` proves the same spec; without the trusted claim both routes fail. |
 | One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. |
 | In an author spec module | Current; the verification-surface fixture emits two spec modules in import order before the generated module. | Current; `krs prove --spec-module IMP-SUM-SPEC` and Java `kprove --spec-module IMP-SUM-SPEC` both prove the circular sum claim over `$`-identifiers. |
+| With matching-logic `requires`, `ensures`, or predicate-simplification lemmas | Current; the verification-surface fixture emits K tutorial lesson 1.22's lemmas and claims with `#Equals`, `#Not`, `#And`, `#Ceil`, and `#Exists`. | Current; `krs prove` and Java `kprove` both prove `branch`, `div-eq`, and the `#Exists` postcondition, and both fail `branch` without the lemma module. |
 
 “Current” does not mean every true-looking claim closes within every bound.
 A proved result, an incomplete frontier, a false claim, and exhausted resources are distinct observations.

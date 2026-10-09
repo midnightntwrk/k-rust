@@ -178,6 +178,8 @@ details! {
         LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
         InitializerLet => "a `let` block (#let) is not allowed in initializers",
         InitializerApplicationInstance => "a turbofish instance (`Choose::<Int> { .. }`) is not allowed in initializers",
+        ClosureInPattern => "an `ml::exists` closure (#Exists) is a predicate, allowed only in conditions and predicate simplifications",
+        InitializerClosure => "an `ml::exists` closure (#Exists) is not allowed in initializers",
     }
 }
 
@@ -266,6 +268,8 @@ details! {
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
         LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
         InvalidFunctionContext => "a function context is allowed only on an equation that declares every binder, framed by an anonymous configuration remainder, with distinct context binders",
+        ClosureInPattern => "an `ml::exists` closure (#Exists) is a predicate, allowed only in conditions and predicate simplifications",
+        InvalidPredicateRule => "a predicate rule (`ml::Predicate` subject and result) is allowed only on a simplification",
     }
 }
 

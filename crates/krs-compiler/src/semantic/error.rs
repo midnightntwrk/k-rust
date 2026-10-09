@@ -232,6 +232,29 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending statement or name.
         range: Option<Box<SourceRange>>,
     },
+    /// A matching-logic predicate (KF-039) is in the condition of a
+    /// transition or equation.
+    MlPlacement {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the offending predicate.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A matching-logic predicate (KF-039) is malformed: a connective as an
+    /// object operand, a Bool where a predicate is expected, `ml::equals`
+    /// operands without a common sort, a predicate simplification rooted
+    /// elsewhere than `ml::equals` or `ml::ceil`, a wrong arity, or an
+    /// `ml::exists` binder that shadows a rule binder.
+    InvalidMlPredicate {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the offending node.
+        range: Option<Box<SourceRange>>,
+    },
     /// An equation's function context names a cell shape it cannot read, or
     /// declares a binder at a sort its cell does not have (KF-025).
     InvalidFunctionContext {
@@ -485,6 +508,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidMatches { reason, .. }
             | Self::InvalidLet { reason, .. }
+            | Self::MlPlacement { reason, .. }
+            | Self::InvalidMlPredicate { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
             | Self::InvalidParametricProduction { reason, .. }
             | Self::ParametricInstance { reason, .. }
@@ -545,6 +570,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
+            Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
+            Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,
             Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,
             Self::InvalidParametricProduction { .. } => {
                 codes::analysis::INVALID_PARAMETRIC_PRODUCTION
@@ -593,6 +620,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidPatternOr { range, .. }
             | Self::InvalidMatches { range, .. }
             | Self::InvalidLet { range, .. }
+            | Self::MlPlacement { range, .. }
+            | Self::InvalidMlPredicate { range, .. }
             | Self::InvalidFunctionContext { range, .. }
             | Self::InvalidParametricProduction { range, .. }
             | Self::ParametricInstance { range, .. }

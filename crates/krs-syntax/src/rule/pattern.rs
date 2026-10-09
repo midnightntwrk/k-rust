@@ -229,6 +229,7 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => continue,
         };
         let range = node.range()?;
@@ -293,6 +294,7 @@ impl RuleTermCounters {
                 | TermNode::Matches(_)
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
+                | TermNode::Closure { .. }
                 | TermNode::LetWildcard(_) => {}
             }
         }
@@ -346,6 +348,7 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => continue,
         };
         let span = node.range()?;
@@ -895,6 +898,7 @@ pub(super) fn push_term_node_anchors(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => continue,
         };
         let range = term_node_range(node)?;
@@ -965,6 +969,7 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
@@ -995,6 +1000,7 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::Matches(range)
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
+        | TermNode::Closure { range, .. }
         | TermNode::LetWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }

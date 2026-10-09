@@ -64,7 +64,8 @@ pub(super) fn declared_type_table(
                 || registry.resolve_operation(type_id).is_some()
                 || registry.resolve_map_operation(type_id).is_some()
                 || registry.resolve_list_operation(type_id).is_some()
-                || registry.resolve_set_operation(type_id).is_some())
+                || registry.resolve_set_operation(type_id).is_some()
+                || registry.resolve_ml_connective(type_id).is_some())
         {
             return Err(CollectionError::new(
                 CollectionErrorKind::DeclarationBuiltinCollision,
@@ -851,6 +852,10 @@ fn resolve_application_reference(
             builtins.and_then(|registry| registry.resolve_set_operation(type_id))
         {
             DescriptorApplicationRef::Set(operation)
+        } else if let Some(connective) =
+            builtins.and_then(|registry| registry.resolve_ml_connective(type_id))
+        {
+            DescriptorApplicationRef::Ml(connective)
         } else {
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedTypeReference,
@@ -921,7 +926,8 @@ mod tests {
     const MAP_OFFSET: usize = OPERATION_OFFSET + krs_ir::BuiltinOperation::ALL.len();
     const LIST_OFFSET: usize = MAP_OFFSET + TermMapOperation::ALL.len();
     const SET_OFFSET: usize = LIST_OFFSET + ListOperation::ALL.len();
-    const _: () = assert!(SET_OFFSET + krs_ir::SetOperation::ALL.len() <= MARKER_COUNT);
+    const ML_OFFSET: usize = SET_OFFSET + krs_ir::SetOperation::ALL.len();
+    const _: () = assert!(ML_OFFSET + krs_ir::MlConnective::ALL.len() <= MARKER_COUNT);
 
     fn keys<const N: usize>(offset: usize) -> [HostTypeKey; N] {
         let table = marker_table();
@@ -959,6 +965,7 @@ mod tests {
             map_operations: keys(MAP_OFFSET),
             list_operations: keys(LIST_OFFSET),
             set_operations: keys(SET_OFFSET),
+            ml_connectives: keys(ML_OFFSET),
         }
     }
 

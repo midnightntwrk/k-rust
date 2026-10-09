@@ -314,8 +314,156 @@ fn normalize_module(module: &mut Module, policy: &ComparePolicy) -> Result<(), C
         normalize_attributes(sentence_attributes_mut(sentence));
         normalize_labels(sentence_attributes_mut(sentence), policy)?;
         alpha_normalize_sentence(sentence);
+        normalize_sort_variables(sentence);
     }
     Ok(())
+}
+
+/// Renames the sort variables an axiom or claim quantifies, in order of first
+/// occurrence in its pattern, and sorts its parameter list.
+///
+/// A predicate simplification (KF-039) leaves the sort of its predicates to
+/// the backend: Java's frontend names that sort variable `Q0`, k-rust names it
+/// after its own `#SortParam` convention, and the two axioms are otherwise
+/// equal. The names are bound by the sentence, so renaming them is
+/// alpha-equivalence; declared sorts and sentence-free sort variables are
+/// never touched.
+fn normalize_sort_variables(sentence: &mut Sentence) {
+    let (Sentence::Axiom {
+        parameters,
+        pattern,
+        ..
+    }
+    | Sentence::Claim {
+        parameters,
+        pattern,
+        ..
+    }) = sentence
+    else {
+        return;
+    };
+    let bound: BTreeSet<String> = parameters.iter().cloned().collect();
+    let mut names = BTreeMap::<String, String>::new();
+    visit_pattern_sorts(pattern, &mut |sort| {
+        rename_sort_variables(sort, &bound, &mut names);
+    });
+    for parameter in parameters.iter_mut() {
+        let next = names.len();
+        let canonical = names
+            .entry(parameter.clone())
+            .or_insert_with(|| format!("#SortVariable{next}"));
+        parameter.clone_from(canonical);
+    }
+    parameters.sort();
+}
+
+fn rename_sort_variables(
+    sort: &mut Sort,
+    bound: &BTreeSet<String>,
+    names: &mut BTreeMap<String, String>,
+) {
+    match sort {
+        Sort::Variable(name) => {
+            if bound.contains(name.as_str()) {
+                let next = names.len();
+                let canonical = names
+                    .entry(name.clone())
+                    .or_insert_with(|| format!("#SortVariable{next}"));
+                name.clone_from(canonical);
+            }
+        }
+        Sort::Application { arguments, .. } => {
+            for argument in arguments {
+                rename_sort_variables(argument, bound, names);
+            }
+        }
+    }
+}
+
+/// Calls `visit` on every sort written in `pattern`, in preorder.
+fn visit_pattern_sorts(pattern: &mut Pattern, visit: &mut impl FnMut(&mut Sort)) {
+    match pattern {
+        Pattern::String(_) => {}
+        Pattern::Variable(variable) => visit(&mut variable.sort),
+        Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } => {
+            symbol.sort_parameters.iter_mut().for_each(&mut *visit);
+            for argument in arguments {
+                visit_pattern_sorts(argument, visit);
+            }
+        }
+        Pattern::Top { sort } | Pattern::Bottom { sort } | Pattern::DomainValue { sort, .. } => {
+            visit(sort);
+        }
+        Pattern::And { sort, arguments } | Pattern::Or { sort, arguments } => {
+            visit(sort);
+            for argument in arguments {
+                visit_pattern_sorts(argument, visit);
+            }
+        }
+        Pattern::Not { sort, argument } | Pattern::Next { sort, argument } => {
+            visit(sort);
+            visit_pattern_sorts(argument, visit);
+        }
+        Pattern::Implies { sort, left, right }
+        | Pattern::Iff { sort, left, right }
+        | Pattern::Rewrites { sort, left, right } => {
+            visit(sort);
+            visit_pattern_sorts(left, visit);
+            visit_pattern_sorts(right, visit);
+        }
+        Pattern::Exists {
+            sort,
+            variable,
+            body,
+        }
+        | Pattern::Forall {
+            sort,
+            variable,
+            body,
+        } => {
+            visit(sort);
+            visit(&mut variable.sort);
+            visit_pattern_sorts(body, visit);
+        }
+        Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
+            visit(&mut variable.sort);
+            visit_pattern_sorts(body, visit);
+        }
+        Pattern::Ceil {
+            operand_sort,
+            result_sort,
+            argument,
+        }
+        | Pattern::Floor {
+            operand_sort,
+            result_sort,
+            argument,
+        } => {
+            visit(operand_sort);
+            visit(result_sort);
+            visit_pattern_sorts(argument, visit);
+        }
+        Pattern::Equals {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        }
+        | Pattern::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => {
+            visit(operand_sort);
+            visit(result_sort);
+            visit_pattern_sorts(left, visit);
+            visit_pattern_sorts(right, visit);
+        }
+    }
 }
 
 fn normalize_attributes(attributes: &mut Attributes) {
@@ -1040,6 +1188,21 @@ fn format_difference(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn predicate_simplification_sort_variables_are_alpha_normalized() {
+        let java = "[] module M axiom{R, Q0} \\implies{R}(\\top{R}(), \\equals{Q0, R}(\\ceil{SortInt{}, Q0}(VarX : SortInt{}), \\top{Q0}())) [simplification{}()] endmodule []";
+        let native = "[] module M axiom{QSortParam, R} \\implies{R}(\\top{R}(), \\equals{QSortParam, R}(\\ceil{SortInt{}, QSortParam}(VarX : SortInt{}), \\top{QSortParam}())) [simplification{}()] endmodule []";
+        let normalized = |source: &str| {
+            let mut definition = parse_definition(source).unwrap();
+            let mut module = definition.modules.remove(0);
+            normalize_module(&mut module, &ComparePolicy::default()).unwrap();
+            module
+        };
+        assert_eq!(normalized(java), normalized(native));
+        let other = "[] module M axiom{R, Q0} \\implies{R}(\\top{R}(), \\equals{R, Q0}(\\ceil{SortInt{}, R}(VarX : SortInt{}), \\top{R}())) [simplification{}()] endmodule []";
+        assert_ne!(normalized(java), normalized(other));
+    }
 
     #[cfg(unix)]
     #[test]

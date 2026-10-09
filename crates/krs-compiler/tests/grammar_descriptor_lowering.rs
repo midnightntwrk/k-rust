@@ -572,6 +572,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             equation: None,
             unbound_variables: None,
             function_context: None,
+            predicate: false,
         })),
     ));
 
@@ -1464,7 +1465,10 @@ fn structured_rule_bindings_infer_unique_common_descendant_from_all_occurrences(
     let mut occurrences = Vec::new();
     variable_sorts(rule.body().unwrap().from(), &mut occurrences);
     variable_sorts(rule.body().unwrap().to(), &mut occurrences);
-    variable_sorts(rule.requires().unwrap().term(), &mut occurrences);
+    variable_sorts(
+        rule.requires().unwrap().as_bool().unwrap().term(),
+        &mut occurrences,
+    );
     assert_eq!(
         occurrences,
         vec![expected.clone(), expected],

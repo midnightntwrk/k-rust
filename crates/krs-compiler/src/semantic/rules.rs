@@ -9,7 +9,7 @@ use krs_ir::{
     ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
-    MapOperands, SemanticNondetGroup, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
+    MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
     SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef,
     SemanticTerm, SemanticVariable,
 };
@@ -209,21 +209,34 @@ pub(super) fn lower_nondet_group(
         .transpose()
 }
 
-/// Lowers an optional Boolean `requires` condition through an inferred builder.
+/// Lowers an optional `requires` condition through an inferred builder: an
+/// object Bool, or a matching-logic predicate (KF-039).
 fn lower_rule_requires(
     builder: &mut StructuredTermBuilder<'_>,
     requires: Option<&DescriptorRuleCondition>,
-) -> Result<Option<SemanticRuleCondition>, DescriptorLoweringError> {
-    let descriptor = builder.descriptor;
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+) -> Result<Option<SemanticCondition>, DescriptorLoweringError> {
     requires
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
-                builder.lower(&condition.term, Some(&bool_sort), false)?,
-            ))
-        })
+        .map(|condition| super::ml::lower_condition(builder, condition, "rule-requires"))
         .transpose()
+}
+
+/// Infers a sentence's `requires` and `ensures` conditions, rejecting a
+/// matching-logic predicate where the sentence kind admits none (KF-039).
+pub(super) fn infer_rule_conditions(
+    builder: &mut StructuredTermBuilder<'_>,
+    kind: krs_ir::SentenceKind,
+    requires: Option<&DescriptorRuleCondition>,
+    ensures: Option<&DescriptorRuleCondition>,
+) -> Result<(), DescriptorLoweringError> {
+    if let Some(requires) = requires {
+        super::ml::check_condition_placement(builder, kind, requires, false)?;
+        super::ml::infer_condition(builder, requires)?;
+    }
+    if let Some(ensures) = ensures {
+        super::ml::check_condition_placement(builder, kind, ensures, true)?;
+        super::ml::infer_condition(builder, ensures)?;
+    }
+    Ok(())
 }
 
 /// Binding names and the sorts known before head-rule inference: authored
@@ -423,19 +436,13 @@ fn lower_rule_existentials(
 ) -> Result<
     (
         Vec<krs_ir_levels::SemanticScopedBinder>,
-        Option<SemanticRuleCondition>,
+        Option<SemanticCondition>,
     ),
     DescriptorLoweringError,
 > {
     let descriptor = builder.descriptor;
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
     let ensures = ensures
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "rule-ensures")?,
-                builder.lower(&condition.term, Some(&bool_sort), false)?,
-            ))
-        })
+        .map(|condition| super::ml::lower_condition(builder, condition, "rule-ensures"))
         .transpose()?;
     let existentials = existentials
         .iter()
@@ -766,13 +773,12 @@ fn infer_head_rule(
             }
         }
     }
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-    if let Some(requires) = &rule.requires {
-        builder.infer(&requires.term, Some(&bool_sort), false)?;
-    }
-    if let Some(ensures) = &rule.ensures {
-        builder.infer(&ensures.term, Some(&bool_sort), false)?;
-    }
+    infer_rule_conditions(
+        builder,
+        rule.sentence_kind,
+        rule.requires.as_ref(),
+        rule.ensures.as_ref(),
+    )?;
     builder.resolve_binding_sorts()?;
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
@@ -1187,17 +1193,25 @@ pub(super) fn lower_structured_rule_descriptor(
         head_pending: false,
         declared_binders,
     };
+    if rule.predicate {
+        return lower_predicate_rule(descriptor, rule, builder, &binding_names_in_order(rule));
+    }
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
     let result_sort = semantic_sort_ref(&rule.result_sort.sort);
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
     builder.infer(&rule.subject, Some(&subject_sort), true)?;
-    if let Some(requires) = &rule.requires {
-        builder.infer(&requires.term, Some(&bool_sort), false)?;
-    }
+    infer_rule_conditions(
+        &mut builder,
+        rule.sentence_kind,
+        rule.requires.as_ref(),
+        None,
+    )?;
     builder.infer(&rule.result, Some(&result_sort), false)?;
-    if let Some(ensures) = &rule.ensures {
-        builder.infer(&ensures.term, Some(&bool_sort), false)?;
-    }
+    infer_rule_conditions(
+        &mut builder,
+        rule.sentence_kind,
+        None,
+        rule.ensures.as_ref(),
+    )?;
     builder.resolve_binding_sorts()?;
     // The subject's root is the sentence's head, whose parametric instance
     // its turbofish fixes (KF-027).
@@ -1290,6 +1304,86 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)
+    .with_requires(requires)?)
+}
+
+/// The subject's bindings in first-occurrence order, which a predicate
+/// simplification declares as its variables (KF-039).
+fn binding_names_in_order(rule: &StructuredRuleDescriptor) -> Vec<String> {
+    rule.bindings.clone()
+}
+
+/// Lowers a predicate simplification (KF-039): one matching-logic
+/// predicate, rooted at `ml::equals` or `ml::ceil`, rewritten to another.
+/// Its sort is the backend's to solve, so the descriptor's Bool sorts are
+/// placeholders and are ignored.
+fn lower_predicate_rule(
+    descriptor: &Descriptor,
+    rule: &StructuredRuleDescriptor,
+    mut builder: StructuredTermBuilder<'_>,
+    bindings: &[String],
+) -> Result<SemanticRule, DescriptorLoweringError> {
+    let lhs_connective = super::ml::root_connective(&rule.subject);
+    if !matches!(
+        lhs_connective,
+        Some(krs_ir::MlConnective::Equals | krs_ir::MlConnective::Ceil)
+    ) {
+        let reason = match lhs_connective {
+            Some(_) => {
+                "the left side of a predicate simplification must be rooted at ml::equals or ml::ceil: K's simplifier rewrites an equality or a definedness condition, nothing else"
+            }
+            None => {
+                "the left side of a predicate simplification must be a predicate rooted at ml::equals or ml::ceil; this is an object term (an object Bool enters matching logic only as `ml::equals(true, <term>)`)"
+            }
+        };
+        return Err(builder.invalid_ml(&rule.pattern_key, reason.to_owned()));
+    }
+    builder.infer_predicate(&rule.subject, true)?;
+    infer_rule_conditions(
+        &mut builder,
+        rule.sentence_kind,
+        rule.requires.as_ref(),
+        None,
+    )?;
+    builder.infer_predicate(&rule.result, false)?;
+    builder.resolve_binding_sorts()?;
+    let lhs = builder.lower_predicate(&rule.subject, true)?;
+    let rhs = builder.lower_predicate(&rule.result, false)?;
+    let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
+    let restriction = super::restriction::lower_rule_restriction(descriptor, rule)?;
+    let mut variables = Vec::new();
+    for binding in bindings {
+        let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
+            DescriptorLoweringError::InvalidTerm {
+                id: Box::new(descriptor.id().clone()),
+                detail: format!("binding {binding:?} has no inferred subject sort"),
+            }
+        })?;
+        variables.push(SemanticVariable::new(
+            SemanticId::new(binding.clone())?,
+            sort,
+        ));
+    }
+    variables.extend(builder.wildcards);
+    let body = krs_ir_levels::IrPredicateRewrite::new(
+        semantic_origin_from_primary(descriptor, "rule-predicate-rewrite")?,
+        lhs,
+        rhs,
+    );
+    Ok(SemanticRule::new_predicate(
+        semantic_origin(
+            descriptor,
+            role_key(ProvenanceRole::RuleDeclaration, 0),
+            "rule",
+        )?,
+        descriptor.id().clone(),
+        variables,
+        body,
+    )
+    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+    .with_simplification(simplification)
+    .with_restriction(restriction)
     .with_requires(requires)?)
 }
 

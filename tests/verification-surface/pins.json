@@ -3,7 +3,8 @@
   "expand": {
     "krs-verification-surface-l21": "f99fbc44b01b693669d76dd08bb8a8c49e3669060d50664ea87f925a9f708e06",
     "krs-verification-surface-l21-readable": "26b82f1383e66bae6e401c1a64fff5d70474c7d9a8141ffdf6c97759d27dae64",
-    "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7"
+    "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
+    "krs-verification-surface-l22-verification": "ce49d8cc10acace996e8e70b05c80df99cb9fc61d4daf94edff38dc3170c84b8"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -44,6 +45,10 @@
     "krs-verification-surface-imp-sum": {
       "definition.k": "662a994a80043027f66a0f29d196e8909aee9c398f13108d7d6d96bbff31d900",
       "spec.k": "be388bad9696ce082bd89ca4af1b07fbbe40a4a6040f14faa9b81a3602f5e180"
+    },
+    "krs-verification-surface-l22-verification": {
+      "definition.k": "303c2db277bb36448086e7b0e645d036471e1b4328f86fe5a4a7ebcf88a4c627",
+      "spec.k": "b6ca1e74f8ca2ededa902e2315d3b16db2320860394fafbbaa2789fbca9e674a"
     }
   },
   "capability_refusals": {
@@ -60,7 +65,8 @@
     "krs-verification-surface-conc": "1f6252df8f13b3e26796b6b2a6cad31411bd3167f490f207e6a60fece12da1bb",
     "krs-verification-surface-conc-unrestricted": "aac7e016ebe43eb3c0978008126176e3194c7873af6104ad48e4342389e44c76",
     "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
-    "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3"
+    "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3",
+    "krs-verification-surface-l22-verification": "4fcccbd35b7af98551d169c1a767824e0102027fe1b0ee5ae6d3f2cebdb67db1"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -179,6 +185,42 @@
     ],
     "spec-module-private-lemma": [
       "error[krs::analysis::private-production-in-spec]: `H` is private to KRS-SPEC-MODULE-PRIVATE-LEMMA; K's private syntax is invisible to proof modules. Make it `pub` and mark it `internal`"
+    ],
+    "ml-transition-requires": [
+      "error[krs::analysis::ml-placement]: matching-logic conditions are allowed on claims and simplifications, not on a transition: a rule's condition is an object Bool (write `int::eq`, `bool::not`, ..., not `ml::equals`, `ml::not`)"
+    ],
+    "ml-equation-requires": [
+      "error[krs::analysis::ml-placement]: matching-logic conditions are allowed on claims and simplifications, not on an equation: a rule's condition is an object Bool (write `int::eq`, `bool::not`, ..., not `ml::equals`, `ml::not`)"
+    ],
+    "ml-object-operand": [
+      "error[krs::analysis::invalid-ml-predicate]: `ml::top` is a matching-logic predicate, not an object term: it cannot be an operand of an object function or stand where a value is expected; predicates combine only with ml::not, ml::and, ml::or, ml::implies, and ml::exists"
+    ],
+    "ml-bool-predicate": [
+      "error[krs::analysis::invalid-ml-predicate]: a predicate is expected here, but this is an object term; an object Bool enters matching logic only as `ml::equals(true, <term>)` (K's `{ true #Equals B }`)"
+    ],
+    "ml-equals-sorts": [
+      "error[krs::analysis::invalid-ml-predicate]: the operands of ml::equals have sorts `Int` and `Bool`, which share no least common sort; both sides of an equality denote values of one sort"
+    ],
+    "ml-exists-shadows": [
+      "error[krs::analysis::invalid-ml-predicate]: the ml::exists binder `a` shadows a binder of the sentence; quantify a fresh name (K would silently shadow `a`)"
+    ],
+    "ml-exists-untyped": [
+      "error[krs::rust-expansion::uncoded-error]: the ml::exists binder needs a sort: write `|x: Sort| predicate`"
+    ],
+    "ml-closure-elsewhere": [
+      "error[krs::rust-expansion::uncoded-error]: closures introduce quantified binders only inside ml::exists: write `ml::exists(|x: Sort| predicate)`; a closure is never a K function"
+    ],
+    "ml-unknown-item": [
+      "error[krs::rust-expansion::uncoded-error]: `ml::floor` is not a matching-logic connective. The connectives are ml::top, ml::bottom, ml::not, ml::and, ml::or, ml::implies, ml::equals, ml::ceil, ml::exists."
+    ],
+    "ml-simplification-root": [
+      "error[krs::analysis::invalid-ml-predicate]: the left side of a predicate simplification must be rooted at ml::equals or ml::ceil: K's simplifier rewrites an equality or a definedness condition, nothing else"
+    ],
+    "ml-simplification-types": [
+      "error[krs::rust-expansion::uncoded-error]: a predicate simplification's parameter and result types disagree: the subject is `ml::Predicate`, so this type must be `ml::Predicate` too; a simplification of object terms uses `Term<S>` on both sides"
+    ],
+    "ml-predicate-rule": [
+      "error[krs::rust-expansion::uncoded-error]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
     ]
   },
   "trusted_proofs": {
@@ -326,6 +368,44 @@
     "krs-verification-surface-imp-sum": {
       "proven": true,
       "top": true
+    }
+  },
+  "ml_proofs": {
+    "krs-verification-surface-l22-verification": {
+      "KRS-L22-CLAIMS": {
+        "statuses": {
+          "branch": "proven",
+          "div-eq": "proven",
+          "div-small": "proven"
+        },
+        "exit": 0,
+        "summary": [
+          "krs prove: 3 of 3 claims proven"
+        ],
+        "warnings": []
+      },
+      "KRS-L22-ABLATION": {
+        "statuses": {
+          "branch-ablation": "failed"
+        },
+        "exit": 1,
+        "summary": [
+          "krs prove: 0 of 1 claim proven"
+        ],
+        "warnings": []
+      }
+    }
+  },
+  "ml_kprove": {
+    "krs-verification-surface-l22-verification": {
+      "KRS-L22-CLAIMS": {
+        "branch": true,
+        "div-eq": true,
+        "div-small": true
+      },
+      "KRS-L22-ABLATION": {
+        "branch-ablation": false
+      }
     }
   }
 }

@@ -783,6 +783,14 @@ impl StateRuleItem {
                 &mut let_wildcards,
             )?;
         }
+        // `ml::exists` closures (KF-039), likewise.
+        let mut closures = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_ml_binder_anchors(&mut output, term.nodes(), &mut closures)?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_ml_binder_anchors(&mut output, ensures.nodes(), &mut closures)?;
+        }
         Ok(output)
     }
 
@@ -1573,6 +1581,7 @@ fn append_term_provenance(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => continue,
         };
         output.push(ProvenanceAnchor::new(
@@ -1729,6 +1738,7 @@ fn append_term_candidates(
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
+            | TermNode::Closure { .. }
             | TermNode::LetWildcard(_) => {}
         }
     }
@@ -1764,6 +1774,7 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::Matches(range)
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
+        | TermNode::Closure { range, .. }
         | TermNode::LetWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
@@ -1785,6 +1796,7 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         | TermNode::Matches(range)
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
+        | TermNode::Closure { range, .. }
         | TermNode::LetWildcard(range) => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
@@ -1897,6 +1909,8 @@ fn push_claim_ensures_anchors(
     let mut lets = count(|node| matches!(node, TermNode::Let { .. }));
     let mut let_wildcards = count(|node| matches!(node, TermNode::LetWildcard(_)));
     crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)?;
+    let mut closures = count(|node| matches!(node, TermNode::Closure { .. }));
+    crate::term::push_ml_binder_anchors(output, nodes, &mut closures)?;
     let mut instances = claim_terms(rule, None)
         .iter()
         .flat_map(|term| term.nodes())
@@ -2016,6 +2030,7 @@ fn append_claim_special_anchors(
                 | TermNode::Matches(_)
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
+                | TermNode::Closure { .. }
                 | TermNode::LetWildcard(_) => {}
             }
         }

@@ -3001,3 +3001,102 @@ const _: () = {
         index += 1;
     }
 };
+
+/// The closed set of matching-logic connectives of `k::ml` (KF-039), in
+/// stable semantic order, passed to `$callback`. Each row names its facade
+/// marker (`rust_name`), its K connective (`k_label`), and its operands:
+/// `Predicate` operands are predicates, `Term` operands object terms, and
+/// `Binder` the one closure of `ml::exists`.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_ml_connective_catalog {
+    ($callback:path) => {
+        $callback! {
+            rust_module: ml;
+            /// `ml::top()`: K's `#Top`, the predicate that always holds.
+            Top { rust_name: top, k_label: "#Top", operands: [] }
+            /// `ml::bottom()`: K's `#Bottom`, the predicate that never holds.
+            Bottom { rust_name: bottom, k_label: "#Bottom", operands: [] }
+            /// `ml::not(p)`: K's `#Not ( P )`, set complement (not `notBool`).
+            Not { rust_name: not, k_label: "#Not", operands: [Predicate] }
+            /// `ml::and(p, q)`: K's `P #And Q`.
+            And { rust_name: and, k_label: "#And", operands: [Predicate, Predicate] }
+            /// `ml::or(p, q)`: K's `P #Or Q`.
+            Or { rust_name: or, k_label: "#Or", operands: [Predicate, Predicate] }
+            /// `ml::implies(p, q)`: K's `P #Implies Q`.
+            Implies { rust_name: implies, k_label: "#Implies", operands: [Predicate, Predicate] }
+            /// `ml::equals(t, u)`: K's `{ T #Equals U }`, a statement that two
+            /// patterns denote the same value.
+            Equals { rust_name: equals, k_label: "#Equals", operands: [Term, Term] }
+            /// `ml::ceil(t)`: K's `#Ceil ( T )`, the statement that `t` is defined.
+            Ceil { rust_name: ceil, k_label: "#Ceil", operands: [Term] }
+            /// `ml::exists(|x: S| p)`: K's `#Exists X:S . P`, a quantifier.
+            Exists { rust_name: exists, k_label: "#Exists", operands: [Binder] }
+        }
+    };
+}
+
+/// One operand position of a matching-logic connective (KF-039).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MlOperand {
+    /// A nested predicate.
+    Predicate,
+    /// An object term of any sort.
+    Term,
+    /// The one closure `|x: S| p` of `ml::exists`.
+    Binder,
+}
+
+macro_rules! define_ml_connectives {
+    (
+        rust_module: $module:ident;
+        $(
+            $(#[$meta:meta])*
+            $variant:ident { rust_name: $name:ident, k_label: $label:literal, operands: [$($operand:ident),*] }
+        )*
+    ) => {
+        /// A matching-logic connective of `k::ml` (KF-039). Its applications
+        /// are predicates, never object terms: they occur only in claim
+        /// conditions, simplification conditions, and predicate simplifications.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum MlConnective {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl MlConnective {
+            /// Every connective, in stable semantic order.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// The K connective, which both K and k-rust write without sort
+            /// parameters (X9.1).
+            #[must_use]
+            pub const fn k_label(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $label,)*
+                }
+            }
+
+            /// The operand positions, in order.
+            #[must_use]
+            pub const fn operands(self) -> &'static [MlOperand] {
+                match self {
+                    $(Self::$variant => &[$(MlOperand::$operand),*],)*
+                }
+            }
+
+            /// The Rust facade marker path (`ml::equals`).
+            #[must_use]
+            pub const fn facade_marker(self) -> FacadeMarker {
+                match self {
+                    $(Self::$variant => FacadeMarker {
+                        module: stringify!($module),
+                        name: stringify!($name),
+                    },)*
+                }
+            }
+        }
+    };
+}
+
+__krs_ml_connective_catalog!(define_ml_connectives);

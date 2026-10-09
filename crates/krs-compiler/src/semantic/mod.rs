@@ -9,6 +9,7 @@ mod grammar;
 mod infer;
 mod lexicals;
 mod lists;
+mod ml;
 mod open_sorts;
 mod origin;
 mod overload;

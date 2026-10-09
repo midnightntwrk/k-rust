@@ -549,6 +549,21 @@ fn rule_body(
                 .collect::<Vec<_>>();
             json!({"kind": "configuration_rewrite", "clauses": clauses})
         }
+        // A predicate simplification (KF-039): the operand terms of each side.
+        RuleBodyRef::Predicate(body) => {
+            let terms = |predicate: &krs_ir_levels::DefinitionMlPredicate| {
+                predicate
+                    .terms()
+                    .into_iter()
+                    .map(|term| context.term(term))
+                    .collect::<Vec<_>>()
+            };
+            json!({
+                "kind": "predicate_rewrite",
+                "from": terms(body.lhs()),
+                "to": terms(body.rhs()),
+            })
+        }
     }
 }
 /// The cells an equation's function context reads (KF-025).
@@ -656,6 +671,18 @@ fn operations(
                 let name = module.id().as_str();
                 let label = rule.label().emitted_name();
                 match rule.relational_body() {
+                    RuleBodyRef::Predicate(body) => {
+                        for term in body.lhs().terms().into_iter().chain(body.rhs().terms()) {
+                            context.operation_rows(
+                                term,
+                                &mut rows,
+                                name,
+                                label,
+                                filter,
+                                include_arguments,
+                            );
+                        }
+                    }
                     RuleBodyRef::Term(t) => {
                         for endpoint in [t.from(), t.to()] {
                             context.operation_rows(
@@ -704,25 +731,17 @@ fn operations(
                         include_arguments,
                     );
                 }
-                if let Some(condition) = rule.requires() {
-                    context.operation_rows(
-                        condition.term(),
-                        &mut rows,
-                        name,
-                        label,
-                        filter,
-                        include_arguments,
-                    );
-                }
-                if let Some(condition) = rule.ensures() {
-                    context.operation_rows(
-                        condition.term(),
-                        &mut rows,
-                        name,
-                        label,
-                        filter,
-                        include_arguments,
-                    );
+                for condition in rule.requires().into_iter().chain(rule.ensures()) {
+                    for term in condition.terms() {
+                        context.operation_rows(
+                            term,
+                            &mut rows,
+                            name,
+                            label,
+                            filter,
+                            include_arguments,
+                        );
+                    }
                 }
             }
         }

@@ -301,6 +301,10 @@ pub enum SourceMapNodeKind {
     MatchRestriction,
     /// The `[[ .. ]]` configuration context of an equation (KF-025).
     FunctionContext,
+    /// One matching-logic connective of a predicate (KF-039).
+    MlPredicate,
+    /// One `ml::exists` binder component (KF-039).
+    MlBinder,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -592,12 +596,11 @@ impl SourceMap {
                             }
                         }
                         if let Some(condition) = sentence.requires() {
-                            insert_origin(
+                            insert_condition(
                                 &mut entries,
-                                condition.origin(),
+                                condition,
                                 SourceMapNodeKind::RuleCondition,
                             )?;
-                            insert_term(&mut entries, condition.term())?;
                         }
                         if let Some(claim) = sentence.claim() {
                             insert_origin(
@@ -662,8 +665,7 @@ impl SourceMap {
                             }
                         }
                         if let Some(ensures) = sentence.ensures() {
-                            insert_origin(&mut entries, ensures.origin(), ensures_kind)?;
-                            insert_term(&mut entries, ensures.term())?;
+                            insert_condition(&mut entries, ensures, ensures_kind)?;
                         }
                     }
                     DefinitionSentence::ContextAlias(sentence) => {
@@ -925,11 +927,53 @@ fn insert_fixed_configuration(
     initializer(entries, configuration.initializer())
 }
 
+/// Records one condition: a Bool condition under `kind` with its term, or
+/// a predicate's connectives, binders, and terms (KF-039).
+fn insert_condition(
+    entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
+    condition: &krs_ir_levels::DefinitionCondition,
+    kind: SourceMapNodeKind,
+) -> Result<(), SidecarError> {
+    match condition {
+        krs_ir_levels::IrCondition::Bool(condition) => {
+            insert_origin(entries, condition.origin(), kind)?;
+            insert_term(entries, condition.term())
+        }
+        krs_ir_levels::IrCondition::Predicate(predicate) => insert_predicate(entries, predicate),
+    }
+}
+
+/// Records a predicate's connectives, `ml::exists` binders, and terms.
+fn insert_predicate(
+    entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
+    predicate: &krs_ir_levels::DefinitionMlPredicate,
+) -> Result<(), SidecarError> {
+    let mut nodes = Vec::new();
+    predicate.visit(&mut |node| nodes.push(node));
+    for node in nodes {
+        insert_origin(entries, node.origin(), SourceMapNodeKind::MlPredicate)?;
+        if let krs_ir_levels::IrMlKind::Exists { binder, .. } = node.kind() {
+            for origin in [binder.origin(), binder.name_origin(), binder.sort_origin()] {
+                insert_origin(entries, origin, SourceMapNodeKind::MlBinder)?;
+            }
+        }
+    }
+    for term in predicate.terms() {
+        insert_term(entries, term)?;
+    }
+    Ok(())
+}
+
 fn insert_rule_body(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     body: RuleBodyRef<'_, krs_ir_levels::DefinitionLevel>,
 ) -> Result<(), SidecarError> {
     match body {
+        RuleBodyRef::Predicate(body) => {
+            insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
+            insert_predicate(entries, body.lhs())?;
+            insert_predicate(entries, body.rhs())
+        }
         RuleBodyRef::Term(body) => {
             insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
             insert_term(entries, body.from())?;

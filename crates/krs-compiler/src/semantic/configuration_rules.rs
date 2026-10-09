@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellReference, DescriptorClaim,
+    CellContentFrame, CellPost, Descriptor, DescriptorCellReference, DescriptorClaim,
     DescriptorClaimBinder, DescriptorIndex, DescriptorTerm, FixedCellClause, FixedCellPattern,
     FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, ProtocolCellContent,
     ProtocolContextAliasBindingKind, ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame,
     ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticId, StableItemId,
 };
 use krs_ir_levels::{
-    MapEntry, MapOperands, SemanticContextAlias, SemanticRule, SemanticRuleCondition,
-    SemanticSortRef, SemanticTerm, SemanticVariable,
+    MapEntry, MapOperands, SemanticCondition, SemanticContextAlias, SemanticRule, SemanticSortRef,
+    SemanticTerm, SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -68,6 +68,44 @@ impl StateRuleTerms<'_> {
         builder.infer(term, expected_sort, subject)?;
         builder.resolve_binding_sorts()?;
         let lowered = builder.lower(term, expected_sort, subject)?;
+        self.wildcard_ordinal += builder.wildcards.len();
+        self.variables.append(&mut builder.wildcards);
+        Ok(lowered)
+    }
+
+    /// Infers and lowers one `requires` or `ensures` condition: an object
+    /// Bool, or a matching-logic predicate where `kind` admits one (KF-039).
+    /// Its local binders join `variables`.
+    fn condition(
+        &mut self,
+        kind: krs_ir::SentenceKind,
+        condition: &krs_ir::DescriptorRuleCondition,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        role: &str,
+        ensures: bool,
+    ) -> Result<SemanticCondition, DescriptorLoweringError> {
+        let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
+        let mut builder = StructuredTermBuilder {
+            descriptor: self.descriptor,
+            catalog: self.catalog,
+            declarations: Some(self.declarations),
+            k_item_sort: Some(framework_k_item_sort(self.declarations)?),
+            sort_parents: self.sort_parents,
+            binding_names: &binding_names,
+            pattern_key: None,
+            binding_sorts: BTreeMap::new(),
+            binding_constraints: initial_binding_constraints(binding_sorts),
+            wildcard_offset: self.wildcard_ordinal,
+            wildcards: Vec::new(),
+            result_wildcards: false,
+            locals: super::infer::LocalBinders::default(),
+            head_pending: false,
+            declared_binders: BTreeMap::new(),
+        };
+        super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
+        super::ml::infer_condition(&mut builder, condition)?;
+        builder.resolve_binding_sorts()?;
+        let lowered = super::ml::lower_condition(&mut builder, condition, role)?;
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
         Ok(lowered)
@@ -300,15 +338,17 @@ pub(super) fn lower_configuration_rule_descriptor(
         clauses,
         omitted_siblings,
     )?;
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
     let requires = rule
         .requires
         .as_ref()
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
-                terms.term(&condition.term, Some(&bool_sort), &subject_sorts, false)?,
-            ))
+        .map(|condition| {
+            terms.condition(
+                rule.sentence_kind.into(),
+                condition,
+                &subject_sorts,
+                "rule-requires",
+                false,
+            )
         })
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
@@ -546,7 +586,7 @@ fn lower_existentials(
 ) -> Result<
     (
         Vec<krs_ir_levels::SemanticScopedBinder>,
-        Option<SemanticRuleCondition>,
+        Option<SemanticCondition>,
     ),
     DescriptorLoweringError,
 > {
@@ -569,13 +609,15 @@ fn lower_existentials(
         .iter()
         .map(|binder| lower_claim_binder(descriptor, binder, binder_role))
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
     let ensures = ensures
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), ensures_role)?,
-                terms.term(&condition.term, Some(&bool_sort), result_sorts, false)?,
-            ))
+        .map(|condition| {
+            terms.condition(
+                rule.sentence_kind.into(),
+                condition,
+                result_sorts,
+                ensures_role,
+                true,
+            )
         })
         .transpose()?;
     Ok((existentials, ensures))

@@ -849,13 +849,13 @@ evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "unsupported-logic"
-title = "General matching logic and strict casts"
+title = "Matching logic beyond k::ml, and strict casts"
 status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["claims"]
 evidence = ["crates/krs-macros/src/lib.rs"]
-note = "These are design-checklist concepts, not current public syntax."
+note = "These are design-checklist concepts, not current public syntax; k::ml covers #Top, #Bottom, #Not, #And, #Or, #Implies, #Equals, #Ceil, and #Exists, not #Floor, #In, or set variables."
 
 [[concept]]
 id = "unsupported-grammar"

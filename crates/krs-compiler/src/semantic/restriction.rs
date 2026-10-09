@@ -240,7 +240,11 @@ pub(super) fn check_smt_lemmas(modules: &[SemanticModule]) -> Result<(), Descrip
             continue;
         };
         let mut terms = vec![body.from(), body.to()];
-        terms.extend(rule.requires().map(krs_ir_levels::IrRuleCondition::term));
+        terms.extend(
+            rule.requires()
+                .into_iter()
+                .flat_map(krs_ir_levels::IrCondition::terms),
+        );
         for term in terms {
             if let Some(unseen) = first_untranslatable(term, &productions) {
                 return Err(DescriptorLoweringError::SmtLemmaUntranslatable {

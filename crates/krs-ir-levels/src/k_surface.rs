@@ -189,6 +189,10 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
             .filter_map(|sort| int_literals.program_syntax_module(sort))
             .collect();
     }
+    // A module with matching-logic predicates imports K's ML-SYNTAX and,
+    // when it uses maps, MAP-SYMBOLIC: the Haskell prover reasons about a
+    // symbolic map only with its lemmas (KF-039).
+    let map_symbolic = requirements.ml && requirements.sorts.contains(&BuiltinSort::Map);
     let mut imports = requirements
         .sorts
         .into_iter()
@@ -201,8 +205,34 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
         })
         .collect::<BTreeSet<_>>();
     imports.extend(requirements.modules);
+    if requirements.ml {
+        imports.insert(ML_SYNTAX_MODULE);
+    }
+    if map_symbolic {
+        imports.insert(MAP_SYMBOLIC_MODULE);
+    }
     imports
 }
+
+/// Whether `sentence` is a rule or claim with a matching-logic predicate in
+/// its body or conditions (KF-039).
+#[must_use]
+pub fn has_predicate(sentence: &crate::RuleSentence) -> bool {
+    matches!(sentence.relational_body(), RuleBodyRef::Predicate(_))
+        || sentence
+            .requires()
+            .into_iter()
+            .chain(sentence.ensures())
+            .any(|condition| condition.as_predicate().is_some())
+}
+
+/// K's module of the matching-logic connectives (`kast.md`), imported by a
+/// module with predicates (KF-039).
+pub const ML_SYNTAX_MODULE: &str = "ML-SYNTAX";
+
+/// K's symbolic map lemmas (`domains.md`), imported by a module with
+/// predicates that uses maps (KF-039).
+pub const MAP_SYMBOLIC_MODULE: &str = "MAP-SYMBOLIC";
 
 /// Every builtin sort `module` mentions, whether or not it uses one of its
 /// operations.
@@ -216,6 +246,10 @@ pub fn builtin_sorts(module: &DefinitionModule) -> BTreeSet<BuiltinSort> {
         .collect()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One walk records the builtin modules every sentence form requires."
+)]
 fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> BuiltinRequirements {
     let mut requirements = BuiltinRequirements::default();
     for sentence in module.sentences() {
@@ -267,6 +301,7 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                 }
             }
             DefinitionSentence::Rule(sentence) => {
+                let ml_before = requirements.ml;
                 for variable in sentence.variables() {
                     requirements.sort(variable.sort());
                 }
@@ -284,9 +319,13 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                             }
                         }
                     }
+                    RuleBodyRef::Predicate(rewrite) => {
+                        requirements.predicate(rewrite.lhs());
+                        requirements.predicate(rewrite.rhs());
+                    }
                 }
                 if let Some(condition) = sentence.requires() {
-                    requirements.term(condition.term());
+                    requirements.condition(condition);
                 }
                 // A fresh binder of a builtin sort draws from K's own generator
                 // (`freshInt`, `freshId`), declared in the sort's full module.
@@ -301,7 +340,24 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                     || policy == ImportPolicy::NativeFrontend)
                     && let Some(condition) = sentence.ensures()
                 {
-                    requirements.term(condition.term());
+                    requirements.condition(condition);
+                }
+                // A claim's predicate postcondition still makes the module
+                // one with predicates (KF-039).
+                if sentence
+                    .ensures()
+                    .is_some_and(|condition| condition.as_predicate().is_some())
+                {
+                    requirements.ml = true;
+                }
+                // The source printer moves a definition module's claims to
+                // the generated spec module, which imports what their
+                // predicates need itself.
+                if sentence.kind() == krs_ir::SentenceKind::Claim
+                    && policy == ImportPolicy::SourceText
+                    && !module.is_spec()
+                {
+                    requirements.ml = ml_before;
                 }
             }
         }
@@ -317,9 +373,31 @@ struct BuiltinRequirements {
     operations: BTreeSet<BuiltinSort>,
     /// The catalog `k_module` of every used operation.
     modules: BTreeSet<&'static str>,
+    /// Whether the module has a matching-logic predicate (KF-039).
+    ml: bool,
 }
 
 impl BuiltinRequirements {
+    fn condition(&mut self, condition: &crate::DefinitionCondition) {
+        match condition {
+            crate::IrCondition::Bool(condition) => self.term(condition.term()),
+            crate::IrCondition::Predicate(predicate) => self.predicate(predicate),
+        }
+    }
+
+    fn predicate(&mut self, predicate: &crate::DefinitionMlPredicate) {
+        self.ml = true;
+        for term in predicate.terms() {
+            self.term(term);
+        }
+        predicate.visit(&mut |node| match node.kind() {
+            crate::IrMlKind::Equals { operand_sort, .. }
+            | crate::IrMlKind::Ceil { operand_sort, .. } => self.sort(operand_sort),
+            crate::IrMlKind::Exists { binder, .. } => self.sort(binder.sort()),
+            _ => {}
+        });
+    }
+
     fn sort(&mut self, sort: &DefinitionSortRef) {
         if let DefinitionSortRef::Builtin(sort) = sort {
             self.sorts.insert(*sort);
@@ -651,7 +729,9 @@ mod tests {
                 None,
                 Vec::new(),
             )))
-            .with_ensures(Some(DefinitionRuleCondition::new(origin("ensures"), term)))
+            .with_ensures(Some(
+                DefinitionRuleCondition::new(origin("ensures"), term).into(),
+            ))
     }
 
     #[test]

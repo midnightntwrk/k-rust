@@ -568,7 +568,9 @@ impl NamingPass {
                 let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
                     || match rule.relational_body() {
-                        RuleBodyRef::Term(_) => LabelIdentity::fallback_name(&short_hash(&owner)),
+                        RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => {
+                            LabelIdentity::fallback_name(&short_hash(&owner))
+                        }
                         RuleBodyRef::Configuration { .. } => lower_camel(rule.id().item_name()),
                     },
                     |label| label.name().to_owned(),
@@ -957,7 +959,7 @@ fn lower_module(
         };
         let dropped = match rule.relational_body() {
             RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
-            RuleBodyRef::Term(_) => BTreeSet::new(),
+            RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
         };
         let kept = rule
             .variables()
@@ -991,6 +993,16 @@ fn lower_module(
                 kind,
                 variables,
                 lower_configuration_rewrite(body, names, origins, stdin)?,
+            ),
+            RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
+                origin,
+                label,
+                variables,
+                krs_ir_levels::IrPredicateRewrite::new(
+                    origins.lower(body.origin(), "predicate-rewrite", Some(rule.id()), None)?,
+                    lower_predicate(body.lhs(), rule.id(), names, origins)?,
+                    lower_predicate(body.rhs(), rule.id(), names, origins)?,
+                ),
             ),
         };
         sentences.push(DefinitionSentence::Rule(lower_rule_metadata(
@@ -1586,16 +1598,93 @@ fn lower_restriction(
 }
 
 fn lower_rule_condition(
-    condition: &krs_ir_levels::SemanticRuleCondition,
+    condition: &krs_ir_levels::SemanticCondition,
     item: &StableItemId,
     names: &NamingPass,
     origins: &mut OriginPass,
     role: &'static str,
-) -> Result<DefinitionRuleCondition, LoweringError> {
-    Ok(DefinitionRuleCondition::new(
-        origins.lower(condition.origin(), role, Some(item), None)?,
-        lower_term(condition.term(), names, origins)?,
-    ))
+) -> Result<krs_ir_levels::DefinitionCondition, LoweringError> {
+    Ok(match condition {
+        krs_ir_levels::IrCondition::Bool(condition) => {
+            krs_ir_levels::IrCondition::Bool(DefinitionRuleCondition::new(
+                origins.lower(condition.origin(), role, Some(item), None)?,
+                lower_term(condition.term(), names, origins)?,
+            ))
+        }
+        krs_ir_levels::IrCondition::Predicate(predicate) => {
+            krs_ir_levels::IrCondition::Predicate(lower_predicate(predicate, item, names, origins)?)
+        }
+    })
+}
+
+/// Lowers one matching-logic predicate (KF-039); its binders keep their
+/// sentence-local identities.
+fn lower_predicate(
+    predicate: &krs_ir_levels::SemanticMlPredicate,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::DefinitionMlPredicate, LoweringError> {
+    use krs_ir_levels::IrMlKind;
+    let origin = origins.lower(predicate.origin(), "ml-connective", Some(item), None)?;
+    let lower = |inner: &krs_ir_levels::SemanticMlPredicate,
+                 origins: &mut OriginPass|
+     -> Result<Box<krs_ir_levels::DefinitionMlPredicate>, LoweringError> {
+        Ok(Box::new(lower_predicate(inner, item, names, origins)?))
+    };
+    let kind = match predicate.kind() {
+        IrMlKind::Top => IrMlKind::Top,
+        IrMlKind::Bottom => IrMlKind::Bottom,
+        IrMlKind::Not { operand } => IrMlKind::Not {
+            operand: lower(operand, origins)?,
+        },
+        IrMlKind::And { left, right } => IrMlKind::And {
+            left: lower(left, origins)?,
+            right: lower(right, origins)?,
+        },
+        IrMlKind::Or { left, right } => IrMlKind::Or {
+            left: lower(left, origins)?,
+            right: lower(right, origins)?,
+        },
+        IrMlKind::Implies { left, right } => IrMlKind::Implies {
+            left: lower(left, origins)?,
+            right: lower(right, origins)?,
+        },
+        IrMlKind::Equals {
+            operand_sort,
+            left,
+            right,
+        } => IrMlKind::Equals {
+            operand_sort: lower_sort_ref(operand_sort, names)?,
+            left: Box::new(lower_term(left, names, origins)?),
+            right: Box::new(lower_term(right, names, origins)?),
+        },
+        IrMlKind::Ceil { operand_sort, term } => IrMlKind::Ceil {
+            operand_sort: lower_sort_ref(operand_sort, names)?,
+            term: Box::new(lower_term(term, names, origins)?),
+        },
+        IrMlKind::Exists { binder, body } => IrMlKind::Exists {
+            binder: DefinitionScopedBinder::new(
+                origins.lower(binder.origin(), "ml-exists-binder", Some(item), None)?,
+                origins.lower(
+                    binder.name_origin(),
+                    "ml-exists-binder-name",
+                    Some(item),
+                    None,
+                )?,
+                binder.id().clone(),
+                origins.lower(
+                    binder.sort_origin(),
+                    "ml-exists-binder-sort",
+                    Some(item),
+                    None,
+                )?,
+                lower_sort_ref(binder.sort(), names)?,
+            ),
+            body: lower(body, origins)?,
+        },
+    };
+    Ok(krs_ir_levels::IrMlPredicate::new(origin, kind))
 }
 
 fn lower_claim(

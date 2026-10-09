@@ -16,7 +16,7 @@ use krs_ir::{
 use krs_ir_levels::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ModuleRole,
     ProductionSentence, SymbolId,
-    k_surface::{DefinitionIndex, ImportPolicy, VariableNaming, builtin_imports},
+    k_surface::{self, DefinitionIndex, ImportPolicy, VariableNaming, builtin_imports},
 };
 
 use crate::{
@@ -209,10 +209,23 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     let mut spec_writer = Writer::default();
     let author_modules = spec_modules_in_import_order(definition);
     let mut spec_modules = Vec::new();
+    // The generated spec module imports what its claims' predicates need
+    // (KF-039): K's ML-SYNTAX and, beside maps, MAP-SYMBOLIC.
+    let generated_imports = generated_spec_imports(definition, &claims);
     if !claims.is_empty() || !author_modules.is_empty() {
         spec_writer.push("requires \"");
         spec_writer.push(DEFINITION_ARTIFACT);
         spec_writer.push("\"\n");
+        // MAP-SYMBOLIC is in `domains.md`, which a definition that imports
+        // only MAP does not load for `kprove`.
+        let map_symbolic = generated_imports.contains(&k_surface::MAP_SYMBOLIC_MODULE)
+            || author_modules.iter().any(|module| {
+                builtin_imports(module, ImportPolicy::SourceText.for_module(module))
+                    .contains(&k_surface::MAP_SYMBOLIC_MODULE)
+            });
+        if map_symbolic {
+            spec_writer.push("requires \"domains.md\"\n");
+        }
     }
     for module in author_modules {
         let spec_context = EmitContext::new(definition).for_spec_module(definition, module);
@@ -239,6 +252,10 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
         spec_writer.push(&module);
         spec_writer.push("\n  imports ");
         spec_writer.push(main);
+        for import in &generated_imports {
+            spec_writer.push("\n  imports ");
+            spec_writer.push(import);
+        }
         spec_writer.push("\n\n");
         for claim in claims {
             emit_sentence(claim, &context, &mut spec_writer)?;
@@ -552,6 +569,33 @@ fn emit_module<'a>(
     writer.push("endmodule\n");
     writer.record(module.origin().key(), module_start, writer.source.len())?;
     Ok(())
+}
+
+/// The builtin imports of the generated spec module beyond the main module
+/// (KF-039): ML-SYNTAX when a claim has a predicate, and MAP-SYMBOLIC when
+/// the main module also imports MAP.
+fn generated_spec_imports(
+    definition: &DefinitionIr,
+    claims: &[&krs_ir_levels::DefinitionSentence],
+) -> Vec<&'static str> {
+    let predicates = claims.iter().any(|claim| {
+        matches!(claim, krs_ir_levels::DefinitionSentence::Rule(rule) if k_surface::has_predicate(rule))
+    });
+    if !predicates {
+        return Vec::new();
+    }
+    let maps = definition
+        .modules()
+        .iter()
+        .find(|module| module.id() == definition.main_module())
+        .is_some_and(|main| {
+            builtin_imports(main, ImportPolicy::SourceText.for_module(main)).contains("MAP")
+        });
+    let mut imports = vec![k_surface::ML_SYNTAX_MODULE];
+    if maps {
+        imports.push(k_surface::MAP_SYMBOLIC_MODULE);
+    }
+    imports
 }
 
 /// Returns the exact authored and compiler-inferred imports emitted for a module.

@@ -169,6 +169,10 @@ pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
                 }
             }
         }
+        RuleBodyRef::Predicate(body) => {
+            terms.extend(body.lhs().terms());
+            terms.extend(body.rhs().terms());
+        }
     }
     if let Some(context) = sentence.function_context() {
         terms.extend(
@@ -179,11 +183,8 @@ pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
                 .map(krs_ir::FixedCellPattern::pattern),
         );
     }
-    if let Some(condition) = sentence.requires() {
-        terms.push(condition.term());
-    }
-    if let Some(condition) = sentence.ensures() {
-        terms.push(condition.term());
+    for condition in sentence.requires().into_iter().chain(sentence.ensures()) {
+        terms.extend(condition.terms());
     }
     terms
 }

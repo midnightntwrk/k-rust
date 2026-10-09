@@ -345,7 +345,7 @@ impl Sample for RuleSentence {
         .unwrap()
         .with_simplification(Some(sample::<DefinitionSimplification>()))
         .with_claim(Some(sample::<DefinitionClaim>()))
-        .with_requires(Some(condition))
+        .with_requires(Some(condition.into()))
         .unwrap();
         let term = sample::<DefinitionTerm>();
         let anywhere = Self::new(
@@ -365,7 +365,7 @@ impl Sample for RuleSentence {
         .with_anywhere(Some(sample::<NodeOrigin>()))
         .unwrap()
         .with_existentials(sample::<Vec<DefinitionScopedBinder>>())
-        .with_ensures(Some(sample::<DefinitionRuleCondition>()))
+        .with_ensures(Some(sample::<DefinitionRuleCondition>().into()))
         .with_fresh(sample::<Vec<DefinitionScopedBinder>>())
         .with_restriction(Some(sample::<IrMatchRestriction>()))
         .with_unbound_variables(Some(sample::<IrUnboundVariables>()))
@@ -488,12 +488,12 @@ impl Sample for SemanticRule {
         .with_simplification(Some(sample::<SemanticSimplification>()))
         .with_claim(Some(sample::<SemanticClaim>()))
         .with_existentials(sample::<Vec<SemanticScopedBinder>>())
-        .with_ensures(Some(sample::<SemanticRuleCondition>()))
+        .with_ensures(Some(sample::<SemanticRuleCondition>().into()))
         .with_fresh(sample::<Vec<SemanticScopedBinder>>())
         .with_restriction(Some(sample::<IrMatchRestriction>()))
         .with_unbound_variables(Some(sample::<IrUnboundVariables>()))
         .with_function_context(Some(sample::<SemanticFunctionContext>()))
-        .with_requires(Some(condition))
+        .with_requires(Some(condition.into()))
         .unwrap();
         vec![rule]
     }

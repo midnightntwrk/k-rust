@@ -22,8 +22,8 @@ use krs_ir::{
     ProductionAttribute, SemanticId, SetOperation, StableItemId,
 };
 use krs_ir_levels::{
-    RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule, SemanticSortRef,
-    SemanticTerm, SemanticTermKind,
+    IrCondition, RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule,
+    SemanticSortRef, SemanticTerm, SemanticTermKind,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -896,8 +896,8 @@ impl<'a> FunctionContexts<'a> {
                 }
             }
             declared_applications(body.to(), &mut reads.callees);
-            if let Some(condition) = rule.requires() {
-                declared_applications(condition.term(), &mut reads.callees);
+            for term in rule.requires().into_iter().flat_map(IrCondition::terms) {
+                declared_applications(term, &mut reads.callees);
             }
         }
         Self { functions }
@@ -1046,6 +1046,8 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
                     }],
                 )
             }
+            // A predicate rewrite is a simplification, never a transition.
+            RuleBodyRef::Predicate(_) => continue,
         };
         let mut clauses = clauses;
         let read = contexts.reachable_cells(rule_results(rule));
@@ -1066,8 +1068,11 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
                 .map(|group| (rule.id().package(), group.name())),
             configuration,
             clauses,
+            // A matching-logic condition is a claim's or a simplification's
+            // (KF-039), and neither is an overlap view.
             requires: rule
                 .requires()
+                .and_then(IrCondition::as_bool)
                 .map(krs_ir_levels::SemanticRuleCondition::term),
             head,
         });
@@ -1089,10 +1094,9 @@ fn rule_results(rule: &SemanticRule) -> Vec<&SemanticTerm> {
                 krs_ir::CellPost::Preserve => None,
             })
             .collect(),
+        RuleBodyRef::Predicate(body) => body.rhs().terms(),
     };
-    if let Some(condition) = rule.requires() {
-        terms.push(condition.term());
-    }
+    terms.extend(rule.requires().into_iter().flat_map(IrCondition::terms));
     terms
 }
 
@@ -1604,6 +1608,7 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
 fn pre_patterns(rule: &SemanticRule) -> Vec<&SemanticTerm> {
     match rule.relational_body() {
         RuleBodyRef::Term(body) => vec![body.from()],
+        RuleBodyRef::Predicate(body) => body.lhs().terms(),
         RuleBodyRef::Configuration { body, .. } => body
             .clauses()
             .iter()

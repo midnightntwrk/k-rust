@@ -323,15 +323,35 @@ fn expand_ordinary_rule(
         span = Span::call_site()
     );
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
+    let predicate = predicate_rule(rule, sentence_kind)?;
     let parameter_key = format_ident!("__krs_rule_subject_sort_{nonce:016x}");
     let result_key = format_ident!("__krs_rule_result_sort_{nonce:016x}");
     let parameter_sort_path = call_site_path(rule.parameter().term_sort.sort())?;
     let result_sort_path = call_site_path(rule.result_sort().sort())?;
-    let parameter_sort_type = sort_type_tokens(
-        &parameter_sort_path,
-        rule.parameter().term_sort.is_dynamic(),
-    );
-    let result_sort_type = sort_type_tokens(&result_sort_path, rule.result_sort().is_dynamic());
+    // A predicate simplification's `ml::Predicate` types are no sorts: the
+    // descriptor carries Bool placeholders, and rustc checks that both
+    // types are the facade's `ml::Predicate` (KF-039).
+    let (parameter_sort_type, result_sort_type, predicate_checks) = if predicate {
+        (
+            quote!(#facade::builtin::Bool),
+            quote!(#facade::builtin::Bool),
+            quote! {
+                #(#cfg)*
+                const _: fn(#parameter_sort_path) -> #facade::ml::Predicate = |predicate| predicate;
+                #(#cfg)*
+                const _: fn(#result_sort_path) -> #facade::ml::Predicate = |predicate| predicate;
+            },
+        )
+    } else {
+        (
+            sort_type_tokens(
+                &parameter_sort_path,
+                rule.parameter().term_sort.is_dynamic(),
+            ),
+            sort_type_tokens(&result_sort_path, rule.result_sort().is_dynamic()),
+            TokenStream::new(),
+        )
+    };
 
     let original = rule.item();
     let attrs = &original.attrs;
@@ -487,6 +507,7 @@ fn expand_ordinary_rule(
             .and_then(krs_syntax::DesugarAttribute::unbound_variables)
             .map(unbound_variables),
         function_context,
+        predicate,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -538,6 +559,8 @@ fn expand_ordinary_rule(
             ::core::any::TypeId::of::<#result_sort_type>()
         }
 
+        #predicate_checks
+
         #(#binder_key_functions)*
 
         #(#term_key_functions)*
@@ -546,6 +569,48 @@ fn expand_ordinary_rule(
 
         #factory_tokens
     })
+}
+
+/// Whether a term-shaped rule fn is a predicate simplification (KF-039):
+/// its subject and result types are both `ml::Predicate`, which only a
+/// simplification may have.
+fn predicate_rule(
+    rule: &krs_syntax::RuleItem,
+    sentence_kind: krs_ir::SentenceKind,
+) -> crate::Result<bool> {
+    let subject = &rule.parameter().term_sort;
+    let result = rule.result_sort();
+    if !subject.is_predicate() && !result.is_predicate() {
+        return Ok(false);
+    }
+    let span = |sort: &krs_syntax::TermSort| syn::spanned::Spanned::span(sort.ty());
+    if sentence_kind != krs_ir::SentenceKind::Simplification {
+        let sort = if subject.is_predicate() {
+            subject
+        } else {
+            result
+        };
+        return Err(ExpandError::new(
+            expand::ML_PLACEMENT,
+            span(sort),
+            "an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)",
+        ));
+    }
+    if subject.is_predicate() != result.is_predicate() {
+        let (sort, other) = if subject.is_predicate() {
+            (result, "subject")
+        } else {
+            (subject, "result")
+        };
+        return Err(ExpandError::new(
+            expand::ML_PLACEMENT,
+            span(sort),
+            format!(
+                "a predicate simplification's parameter and result types disagree: the {other} is `ml::Predicate`, so this type must be `ml::Predicate` too; a simplification of object terms uses `Term<S>` on both sides"
+            ),
+        ));
+    }
+    Ok(true)
 }
 
 /// The shared expansion inputs of an equation's function context.
