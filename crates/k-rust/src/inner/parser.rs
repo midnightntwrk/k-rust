@@ -1084,6 +1084,19 @@ struct ProductionOptions<'a> {
     hook: Option<&'a str>,
 }
 
+/// The completions that advanced waiting callers on this thread since the last call, and their
+/// decisions of what they give each group of those callers
+/// ([`chart::ChartWorkCounters::caller_group_decisions`]).
+#[cfg(test)]
+pub(in crate::inner) fn take_caller_group_decisions() -> (usize, usize) {
+    let counters = chart_work_counters();
+    update_chart_work_counters(|counters| {
+        counters.caller_completions = 0;
+        counters.caller_group_decisions = 0;
+    });
+    (counters.caller_completions, counters.caller_group_decisions)
+}
+
 /// A test view of one `k_rust_kore::measure` counter with the `set`/`get` shape of the scalar
 /// `Cell` counters the parser tests were written against.
 #[cfg(test)]
@@ -1231,31 +1244,60 @@ pub struct Grammar {
     role: ParserRole,
 }
 
-/// The associativity relations by parent label, so that a pair of labels is looked up without
-/// copying either.
+/// The associativity relations over the labels that take part in one, each such label numbered,
+/// so that a pair of labels, or of the productions carrying them, is looked up without hashing
+/// or copying either label.
 #[derive(Clone, Debug, Default)]
 struct AssociativityIndex {
-    /// The labels each label may not have as its right child (`left` associativity).
-    left: HashMap<String, HashSet<String>>,
-    /// The labels each label may not have as its left child (`right` associativity).
-    right: HashMap<String, HashSet<String>>,
+    /// The number of each label that occurs in a relation.
+    ids: rustc_hash::FxHashMap<String, u32>,
+    /// The number of each production's parse label, when that label occurs in a relation.
+    production_labels: Vec<Option<u32>>,
+    /// The `(parent, child)` pairs where `child` may not be `parent`'s right child (`left`
+    /// associativity).
+    left: rustc_hash::FxHashSet<(u32, u32)>,
+    /// The `(parent, child)` pairs where `child` may not be `parent`'s left child (`right`
+    /// associativity).
+    right: rustc_hash::FxHashSet<(u32, u32)>,
 }
 
 impl AssociativityIndex {
-    fn new(relations: &AssociativityRelations) -> Self {
-        let index = |pairs: &BTreeSet<(String, String)>| {
-            let mut by_parent = HashMap::<String, HashSet<String>>::new();
-            for (parent, child) in pairs {
-                by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .insert(child.clone());
-            }
-            by_parent
+    fn new(relations: &AssociativityRelations, productions: &[Production]) -> Self {
+        let mut ids = rustc_hash::FxHashMap::<String, u32>::default();
+        let mut index = |pairs: &BTreeSet<(String, String)>| {
+            let mut id = |label: &String| {
+                let next = u32::try_from(ids.len()).expect("fewer than 2^32 labels");
+                *ids.entry(label.clone()).or_insert(next)
+            };
+            pairs
+                .iter()
+                .map(|(parent, child)| (id(parent), id(child)))
+                .collect::<rustc_hash::FxHashSet<_>>()
         };
+        let left = index(&relations.left);
+        let right = index(&relations.right);
+        let production_labels = productions
+            .iter()
+            .map(|production| {
+                production
+                    .parse_label
+                    .as_deref()
+                    .and_then(|label| ids.get(label).copied())
+            })
+            .collect();
         Self {
-            left: index(&relations.left),
-            right: index(&relations.right),
+            ids,
+            production_labels,
+            left,
+            right,
+        }
+    }
+
+    fn forbids(&self, parent: u32, child: u32, left_child: bool) -> bool {
+        if left_child {
+            self.right.contains(&(parent, child))
+        } else {
+            self.left.contains(&(parent, child))
         }
     }
 }
@@ -1767,6 +1809,9 @@ impl Grammar {
         // The tokens of the input from the first position a completion asks about them on,
         // read once, when the relations decide whether a node can reach the root.
         let mut remaining_tokens = None;
+        // What a completion gives each group of its callers (below), kept across completions so
+        // that it is allocated once per recognition.
+        let mut boundaries: Vec<(usize, usize, Option<Rc<PackedTerm>>)> = Vec::new();
         let doomed_pruned = std::cell::Cell::new(false);
         // The relations a skipped completion is judged by (`PredictionMode`): a retry judges
         // only whether the input can continue an item, never where the relations let its node
@@ -2100,9 +2145,40 @@ impl Grammar {
                             }
                             _ => None,
                         };
+                        // What a caller receives from these nodes depends on its production and
+                        // dot only (`filter_associative_boundary`), not on its origin; the callers
+                        // waiting in one chart share a few of those, however many origins they
+                        // have, so each is filtered and packed once per completion.
+                        boundaries.clear();
+                        #[cfg(test)]
+                        update_chart_work_counters(|counters| counters.caller_completions += 1);
+                        let mut boundary = |caller: &State| {
+                            if let Some((_, _, completed)) =
+                                boundaries.iter().find(|(production, dot, _)| {
+                                    *production == caller.production && *dot == caller.dot
+                                })
+                            {
+                                return completed.clone();
+                            }
+                            #[cfg(test)]
+                            update_chart_work_counters(|counters| {
+                                counters.caller_group_decisions += 1;
+                            });
+                            let completed = self.filter_associative_boundary(
+                                *caller,
+                                &nodes,
+                                filter,
+                                &mut first_violation,
+                            );
+                            let completed =
+                                (!completed.is_empty()).then(|| pack_alternatives(&completed));
+                            boundaries.push((caller.production, caller.dot, completed.clone()));
+                            completed
+                        };
                         let mut advance = |chart: &mut Chart,
                                            caller: State,
                                            caller_derivations: &Derivations,
+                                           completed: Rc<PackedTerm>,
                                            earlier: Option<&[Chart]>|
                          -> Result<(), ParseError> {
                             #[cfg(test)]
@@ -2110,19 +2186,12 @@ impl Grammar {
                                 counters.completion_caller_derivations_read +=
                                     caller_derivations.len();
                             });
-                            let completed = self.filter_associative_boundary(
-                                caller,
-                                &nodes,
-                                filter,
-                                &mut first_violation,
-                            );
                             let advanced = State {
                                 dot: caller.dot + 1,
                                 ..caller
                             };
                             if let (Some(analysis), Some(winner), Some(earlier)) =
                                 (completion_analysis, winner, earlier)
-                                && !completed.is_empty()
                                 && !self.advanced_item_useful(
                                     earlier,
                                     advanced,
@@ -2145,17 +2214,12 @@ impl Grammar {
                                 *pruned = true;
                                 return Ok(());
                             }
-                            if !completed.is_empty() {
-                                self.add_chart_extensions(
-                                    chart,
-                                    State {
-                                        dot: caller.dot + 1,
-                                        ..caller
-                                    },
-                                    caller_derivations,
-                                    Some(&pack_alternatives(&completed)),
-                                )?;
-                            }
+                            self.add_chart_extensions(
+                                chart,
+                                advanced,
+                                caller_derivations,
+                                Some(&completed),
+                            )?;
                             Ok(())
                         };
                         if state.origin < position {
@@ -2169,11 +2233,14 @@ impl Grammar {
                                 .into_iter()
                                 .flatten()
                             {
-                                if let Some(caller_derivations) = origin.states.get(caller) {
+                                if let Some(completed) = boundary(caller)
+                                    && let Some(caller_derivations) = origin.states.get(caller)
+                                {
                                     advance(
                                         &mut later[0],
                                         *caller,
                                         caller_derivations,
+                                        completed,
                                         Some(&*earlier),
                                     )?;
                                 }
@@ -2187,14 +2254,20 @@ impl Grammar {
                                 .into_iter()
                                 .flatten()
                                 .filter_map(|caller| {
-                                    charts[state.origin]
-                                        .states
-                                        .get(caller)
-                                        .map(|derivations| (*caller, derivations.clone()))
+                                    let completed = boundary(caller)?;
+                                    charts[state.origin].states.get(caller).map(|derivations| {
+                                        (*caller, derivations.clone(), completed)
+                                    })
                                 })
                                 .collect::<Vec<_>>();
-                            for (caller, caller_derivations) in callers {
-                                advance(&mut charts[position], caller, &caller_derivations, None)?;
+                            for (caller, caller_derivations, completed) in callers {
+                                advance(
+                                    &mut charts[position],
+                                    caller,
+                                    &caller_derivations,
+                                    completed,
+                                    None,
+                                )?;
                             }
                         }
                     }
@@ -2610,9 +2683,6 @@ impl Grammar {
     /// child of `caller` at its dot.
     fn associativity_admits(&self, caller: State, child: usize) -> bool {
         let production = &self.productions[caller.production];
-        let Some(parent) = production.parse_label.as_deref() else {
-            return true;
-        };
         let left_child = if caller.dot == 0 {
             true
         } else if caller.dot + 1 == production.items.len() {
@@ -2620,10 +2690,19 @@ impl Grammar {
         } else {
             return true;
         };
-        let Some(child) = self.productions[child].parse_label.as_deref() else {
+        let index = self.associativity_index();
+        let (Some(parent), Some(child)) = (
+            index.production_labels[caller.production],
+            index.production_labels[child],
+        ) else {
             return true;
         };
-        !self.associativity_forbids(parent, child, left_child)
+        !index.forbids(parent, child, left_child)
+    }
+
+    fn associativity_index(&self) -> &AssociativityIndex {
+        self.associativity_index
+            .get_or_init(|| AssociativityIndex::new(&self.associativities, &self.productions))
     }
 
     /// Whether the associativity relations forbid a node labelled `child` as the leftmost
@@ -2634,17 +2713,11 @@ impl Grammar {
         child: &str,
         left_child: bool,
     ) -> bool {
-        let index = self
-            .associativity_index
-            .get_or_init(|| AssociativityIndex::new(&self.associativities));
-        let by_parent = if left_child {
-            &index.right
-        } else {
-            &index.left
+        let index = self.associativity_index();
+        let (Some(&parent), Some(&child)) = (index.ids.get(parent), index.ids.get(child)) else {
+            return false;
         };
-        by_parent
-            .get(parent)
-            .is_some_and(|children| children.contains(child))
+        index.forbids(parent, child, left_child)
     }
 
     /// Whether the priority filter's check of the edge between `caller`'s node and a node built
@@ -2681,7 +2754,10 @@ impl Grammar {
         let Some(parent) = production.parse_label.as_deref() else {
             return Cow::Borrowed(nodes);
         };
-        if filter == PriorityFilter::Ignored {
+        // A label in no associativity relation forbids no child.
+        if filter == PriorityFilter::Ignored
+            || self.associativity_index().production_labels[caller.production].is_none()
+        {
             return Cow::Borrowed(nodes);
         }
         let (left_child, side) = if caller.dot == 0 {

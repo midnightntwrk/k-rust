@@ -1610,6 +1610,46 @@ endmodule
         assert!(universe.member(&Sort::new("Array")).is_some());
     }
 
+    /// A flat `~>` sequence written directly against a rule's rewrite keeps a doomed reading for
+    /// every sequence starting after its first item (each `~>` can begin a sequence), and each
+    /// completion of one finds a caller waiting for it for every item before it, all refused by
+    /// the associativity of `~>`. What a completion gives a caller depends on the caller's
+    /// production and dot only, so it is decided once per group of callers sharing them: the
+    /// decisions that lengthening the sequence adds per completion it adds do not grow with the
+    /// sequence (the prelude's rules, parsed alike at every length, cancel out), where deciding
+    /// for every caller made them grow with its length.
+    #[test]
+    fn a_sequence_against_a_rewrite_decides_each_group_of_callers_once() {
+        let [at_15, at_30, at_60] = [15, 30, 60].map(|length| {
+            let sequence = (0..length)
+                .map(|number| format!("foo({})", number % 10))
+                .collect::<Vec<_>>()
+                .join(" ~> ");
+            let source = format!(
+                "module MAIN\n  imports INT\n  syntax KItem ::= foo(Int) [symbol(foo)]\n  \
+                 configuration <k> $PGM:K </k>\n  rule <k> {sequence} => .K </k>\nendmodule\n"
+            );
+            crate::inner::parser::take_caller_group_decisions();
+            drop(load_with_prelude(&source));
+            crate::inner::parser::take_caller_group_decisions()
+        });
+        let per_added_completion =
+            |(shorter_completions, shorter_decisions): (usize, usize),
+             (longer_completions, longer_decisions): (usize, usize)| {
+                (longer_decisions - shorter_decisions) as f64
+                    / (longer_completions - shorter_completions) as f64
+            };
+        let (first, second) = (
+            per_added_completion(at_15, at_30),
+            per_added_completion(at_30, at_60),
+        );
+        assert!(
+            second <= first * 1.5,
+            "{first:.2} decisions per added completion from 15 to 30 items, {second:.2} from 30 \
+             to 60 ({at_15:?}, {at_30:?}, {at_60:?} completions and decisions)"
+        );
+    }
+
     /// The rule grammar of `module`, as a rule of that module is parsed with it.
     fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
         let module = resolved.module_id(module).expect("the module is resolved");
