@@ -685,7 +685,7 @@ collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` poin
 backend installation. `K_KOMPILE` may be supplied instead; its sibling LLVM executables will be
 used. Set `K_CHECKOUT` when the ignored reference checkout is not at `k/`.
 
-The WASM execution gate runs the pinned WASM semantics with the in-process backend: it compiles `test.md` with krust, runs `krust krun` on the 28 programs of upstream's `tests/simple` and `krust kprove` on the 6 specs of `tests/proofs`, and compares every exit status, standard error, final configuration (or its digest) and proof verdict with `scripts/wasm-execution-gate.toml`:
+The WASM execution gate runs the pinned WASM semantics with the in-process backend: it compiles `test.md` with krust, runs `krust krun` on the 28 programs of upstream's `tests/simple` and `krust kprove` on the 6 specs of `tests/proofs`, and compares every exit status, standard error, final configuration (or its digest), proof verdict and failed proof output (by its digest) with `scripts/wasm-execution-gate.toml`:
 
 ```console
 scripts/wasm-execution-gate.sh
