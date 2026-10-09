@@ -86,11 +86,9 @@ pub(super) struct ChartWorkCounters {
     pub(super) completed_nodes_misses: usize,
     pub(super) completed_nodes_invalidation_entries: usize,
     pub(super) completion_caller_derivations_read: usize,
-    /// The completions that advanced the callers waiting for them.
-    pub(super) caller_completions: usize,
-    /// What those completions gave their callers, each decided once per group of callers that
-    /// share a production and dot.
-    pub(super) caller_group_decisions: usize,
+    /// The most decisions of what it gives its waiting callers that one completion made; each
+    /// is made once per group of those callers sharing a production and dot.
+    pub(super) most_caller_group_decisions: usize,
 }
 
 #[cfg(test)]
@@ -119,8 +117,7 @@ impl ChartWorkCounters {
         completed_nodes_misses: 0,
         completed_nodes_invalidation_entries: 0,
         completion_caller_derivations_read: 0,
-        caller_completions: 0,
-        caller_group_decisions: 0,
+        most_caller_group_decisions: 0,
     };
 }
 

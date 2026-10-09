@@ -1084,17 +1084,13 @@ struct ProductionOptions<'a> {
     hook: Option<&'a str>,
 }
 
-/// The completions that advanced waiting callers on this thread since the last call, and their
-/// decisions of what they give each group of those callers
-/// ([`chart::ChartWorkCounters::caller_group_decisions`]).
+/// The most decisions of what it gives its waiting callers that one completion on this thread
+/// made since the last call ([`chart::ChartWorkCounters::most_caller_group_decisions`]).
 #[cfg(test)]
-pub(in crate::inner) fn take_caller_group_decisions() -> (usize, usize) {
-    let counters = chart_work_counters();
-    update_chart_work_counters(|counters| {
-        counters.caller_completions = 0;
-        counters.caller_group_decisions = 0;
-    });
-    (counters.caller_completions, counters.caller_group_decisions)
+pub(in crate::inner) fn take_most_caller_group_decisions() -> usize {
+    let most = chart_work_counters().most_caller_group_decisions;
+    update_chart_work_counters(|counters| counters.most_caller_group_decisions = 0);
+    most
 }
 
 /// A test view of one `k_rust_kore::measure` counter with the `set`/`get` shape of the scalar
@@ -2150,8 +2146,6 @@ impl Grammar {
                         // waiting in one chart share a few of those, however many origins they
                         // have, so each is filtered and packed once per completion.
                         boundaries.clear();
-                        #[cfg(test)]
-                        update_chart_work_counters(|counters| counters.caller_completions += 1);
                         let mut boundary = |caller: &State| {
                             if let Some((_, _, completed)) =
                                 boundaries.iter().find(|(production, dot, _)| {
@@ -2160,10 +2154,6 @@ impl Grammar {
                             {
                                 return completed.clone();
                             }
-                            #[cfg(test)]
-                            update_chart_work_counters(|counters| {
-                                counters.caller_group_decisions += 1;
-                            });
                             let completed = self.filter_associative_boundary(
                                 *caller,
                                 &nodes,
@@ -2173,6 +2163,11 @@ impl Grammar {
                             let completed =
                                 (!completed.is_empty()).then(|| pack_alternatives(&completed));
                             boundaries.push((caller.production, caller.dot, completed.clone()));
+                            #[cfg(test)]
+                            update_chart_work_counters(|counters| {
+                                counters.most_caller_group_decisions =
+                                    counters.most_caller_group_decisions.max(boundaries.len());
+                            });
                             completed
                         };
                         let mut advance = |chart: &mut Chart,
