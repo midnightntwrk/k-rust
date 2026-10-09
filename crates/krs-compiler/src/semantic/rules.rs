@@ -1157,6 +1157,7 @@ pub(super) fn lower_structured_rule_descriptor(
     let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
+    let restriction = super::restriction::lower_rule_restriction(descriptor, rule)?;
     let mut variables = Vec::new();
     for binding in rule.bindings.iter().chain(
         rule.existentials
@@ -1204,6 +1205,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .transpose()?,
     )
     .with_simplification(simplification)
+    .with_restriction(restriction)
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)

@@ -440,7 +440,7 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
         ),
         (
             "priority = 1, priority = 2",
-            SyntaxErrorKind::RustSyntax("simplification accepts only `priority = N`".into()),
+            SyntaxErrorKind::DuplicateArgument { name: "priority" },
         ),
         (
             "priority = 4294967296",
@@ -448,7 +448,9 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
         ),
         (
             "label = 1",
-            SyntaxErrorKind::RustSyntax("expected `priority = N`".into()),
+            SyntaxErrorKind::UnknownArgument {
+                name: "label".into(),
+            },
         ),
     ] {
         let error = krs_syntax::SimplificationAttribute::parse_source(source).unwrap_err();

@@ -297,6 +297,8 @@ pub enum SourceMapNodeKind {
     RuleFreshBinder,
     /// Claim trusted marker: the claim is assumed without proof.
     ClaimTrusted,
+    /// `concrete`, `symbolic`, or `smt_lemma` key of an equation or simplification, or one binder it names.
+    MatchRestriction,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -550,6 +552,15 @@ impl SourceMap {
                                     &mut entries,
                                     priority.origin(),
                                     SourceMapNodeKind::SimplificationPriority,
+                                )?;
+                            }
+                        }
+                        if let Some(restriction) = sentence.restriction() {
+                            for origin in restriction.origins() {
+                                insert_origin(
+                                    &mut entries,
+                                    origin,
+                                    SourceMapNodeKind::MatchRestriction,
                                 )?;
                             }
                         }

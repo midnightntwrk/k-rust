@@ -34,9 +34,10 @@ pub use definition::{
     SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
-    DefinitionLevel, IrClaim, IrContextAlias, IrLevel, IrRewrite, IrRuleBody, IrRuleCondition,
-    IrRulePriority, IrScopedBinder, IrSimplification, IrSimplificationPriority, IrSortRef,
-    IrSubsort, IrTerm, IrTermKind, IrVariable, RuleBodyRef, SemanticLevel,
+    DefinitionLevel, IrClaim, IrContextAlias, IrLevel, IrMatchRestriction, IrRestriction,
+    IrRestrictionVariable, IrRewrite, IrRuleBody, IrRuleCondition, IrRulePriority, IrScopedBinder,
+    IrSimplification, IrSimplificationPriority, IrSortRef, IrSubsort, IrTerm, IrTermKind,
+    IrVariable, RuleBodyRef, SemanticLevel,
 };
 pub use semantic::{
     SemanticApplicationRef, SemanticClaim, SemanticConfiguration, SemanticContextAlias,

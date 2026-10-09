@@ -665,6 +665,24 @@ pub struct ProbeH {
 "#,
     ),
     (
+        "equation_restriction",
+        r"
+#[k::equation(concrete, smt_lemma)]
+fn chop(k::term![Chop(i)]: Term<Int>) -> Term<Int> {
+    int::rem_euclid(i, 256)
+}
+",
+    ),
+    (
+        "simplification_restriction",
+        r"
+#[k::simplification(priority = 40, concrete(c, d), symbolic(s))]
+fn fold_constant(k::term![int::add(int::add(s, c), d)]: Term<Int>) -> Term<Int> {
+    int::add(s, int::add(c, d))
+}
+",
+    ),
+    (
         "equation",
         r"
 #[k::equation]

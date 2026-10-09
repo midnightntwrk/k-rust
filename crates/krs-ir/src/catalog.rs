@@ -2118,6 +2118,71 @@ macro_rules! define_builtin_operations {
 
 __krs_builtin_operation_catalog!(define_builtin_operations);
 
+impl BuiltinOperation {
+    /// Whether the pinned prelude gives the operation an SMT translation
+    /// (`smt-hook` or `smtlib`), so Z3 can see it in an `smt_lemma` (KF-043).
+    ///
+    /// The krs-k-rust catalog test checks this against the prepared prelude.
+    #[must_use]
+    pub const fn has_smt_translation(self) -> bool {
+        matches!(
+            self,
+            Self::IntAdd
+                | Self::IntSub
+                | Self::IntMul
+                | Self::IntTDiv
+                | Self::IntMod
+                | Self::IntPowMod
+                | Self::IntShiftRight
+                | Self::IntShiftLeft
+                | Self::IntBitAnd
+                | Self::IntBitXor
+                | Self::IntBitOr
+                | Self::IntGreaterEqual
+                | Self::IntGreater
+                | Self::IntLessEqual
+                | Self::IntLess
+                | Self::IntEqual
+                | Self::IntNotEqual
+                | Self::BoolNot
+                | Self::BoolEqual
+                | Self::BoolNotEqual
+                | Self::BoolAnd
+                | Self::BoolOr
+                | Self::BytesLength
+                | Self::IntTMod
+                | Self::IntEDiv
+                | Self::IntPow
+                | Self::IntBitNot
+                | Self::IntMin
+                | Self::IntMax
+                | Self::IntAbs
+                | Self::BoolXor
+                | Self::BoolImplies
+                | Self::BoolAndThen
+                | Self::BoolOrElse
+                | Self::KEqualEq
+                | Self::KEqualNe
+                | Self::KEqualIte
+                | Self::FloatAdd
+                | Self::FloatSub
+                | Self::FloatMul
+                | Self::FloatDiv
+                | Self::FloatNeg
+                | Self::FloatEqual
+                | Self::FloatNotEqual
+                | Self::FloatLess
+                | Self::FloatLessEqual
+                | Self::FloatGreater
+                | Self::FloatGreaterEqual
+                | Self::FloatAbs
+                | Self::FloatMin
+                | Self::FloatMax
+                | Self::FloatIsNan
+        )
+    }
+}
+
 /// Sort constraint on one collection-operation operand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CollectionOperandSort {
@@ -2496,6 +2561,13 @@ macro_rules! define_map_operations {
 __krs_map_operation_catalog!(define_map_operations);
 
 impl MapOperation {
+    /// Whether the pinned prelude gives the operation an SMT translation; no
+    /// Map operation has one (KF-043).
+    #[must_use]
+    pub const fn has_smt_translation(self) -> bool {
+        false
+    }
+
     /// Concatenation of Map terms: it joins map items and a cell's map remainder.
     pub const CONCATENATION: CollectionConcatenation = CollectionConcatenation {
         k_label: "_Map_",
@@ -2669,6 +2741,15 @@ macro_rules! define_list_operations {
 }
 
 __krs_list_operation_catalog!(define_list_operations);
+
+impl ListOperation {
+    /// Whether the pinned prelude gives the operation an SMT translation
+    /// (`smtlib` sequence symbols), so Z3 can see it in an `smt_lemma` (KF-043).
+    #[must_use]
+    pub const fn has_smt_translation(self) -> bool {
+        matches!(self, Self::Empty | Self::Item | Self::Concat | Self::Size)
+    }
+}
 
 #[doc(hidden)]
 #[macro_export]
@@ -2847,6 +2928,15 @@ macro_rules! define_set_operations {
 }
 
 __krs_set_operation_catalog!(define_set_operations);
+
+impl SetOperation {
+    /// Whether the pinned prelude gives the operation an SMT translation; no
+    /// Set operation has one (KF-043).
+    #[must_use]
+    pub const fn has_smt_translation(self) -> bool {
+        false
+    }
+}
 
 impl CollectionApplication for TermMapOperation {
     const SORT: BuiltinSort = BuiltinSort::Map;

@@ -366,7 +366,8 @@ impl Sample for RuleSentence {
         .unwrap()
         .with_existentials(sample::<Vec<DefinitionScopedBinder>>())
         .with_ensures(Some(sample::<DefinitionRuleCondition>()))
-        .with_fresh(sample::<Vec<DefinitionScopedBinder>>());
+        .with_fresh(sample::<Vec<DefinitionScopedBinder>>())
+        .with_restriction(Some(sample::<IrMatchRestriction>()));
         vec![rule, anywhere]
     }
 }
@@ -484,6 +485,7 @@ impl Sample for SemanticRule {
         .with_existentials(sample::<Vec<SemanticScopedBinder>>())
         .with_ensures(Some(sample::<SemanticRuleCondition>()))
         .with_fresh(sample::<Vec<SemanticScopedBinder>>())
+        .with_restriction(Some(sample::<IrMatchRestriction>()))
         .with_requires(Some(condition))
         .unwrap();
         vec![rule]

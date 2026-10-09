@@ -54,6 +54,8 @@ struct PreludeProduction {
     sort: String,
     parameters: Vec<String>,
     arguments: Vec<String>,
+    /// Whether the production carries `smt-hook` or `smtlib` (KF-043).
+    smt: bool,
 }
 
 struct Prelude {
@@ -139,6 +141,8 @@ fn collect_productions(module: &FlatModule, productions: &mut BTreeMap<String, P
                 PreludeProduction {
                     module: module.name.clone(),
                     hook: attributes.get_str("hook").map(str::to_owned),
+                    smt: attributes.get_str("smt-hook").is_some()
+                        || attributes.get_str("smtlib").is_some(),
                     sort: sort.name.clone(),
                     parameters: parameters
                         .iter()
@@ -562,5 +566,48 @@ fn one_ground_application_of_every_exposed_operation_evaluates_natively() {
                 "{label} remained unevaluated: {rendered}"
             );
         }
+    }
+}
+
+/// The catalog's SMT-translation fact (KF-043) is exactly the prelude's
+/// `smt-hook`/`smtlib` attributes: an `smt_lemma` may mention an operation only
+/// when Z3 can see it.
+#[test]
+fn catalog_smt_translations_match_the_pinned_native_prelude() {
+    let prelude = Prelude::load();
+    let smt = |label: &str| {
+        prelude
+            .productions
+            .get(label)
+            .unwrap_or_else(|| panic!("no native production labelled {label}"))
+            .smt
+    };
+    for operation in BuiltinOperation::ALL {
+        assert_eq!(
+            operation.has_smt_translation(),
+            smt(operation.spec().k_label),
+            "SMT translation of {operation:?}"
+        );
+    }
+    for operation in MapOperation::ALL {
+        assert_eq!(
+            operation.has_smt_translation(),
+            smt(operation.spec().k_label),
+            "SMT translation of {operation:?}"
+        );
+    }
+    for operation in ListOperation::ALL {
+        assert_eq!(
+            operation.has_smt_translation(),
+            smt(operation.spec().k_label),
+            "SMT translation of {operation:?}"
+        );
+    }
+    for operation in SetOperation::ALL {
+        assert_eq!(
+            operation.has_smt_translation(),
+            smt(operation.spec().k_label),
+            "SMT translation of {operation:?}"
+        );
     }
 }

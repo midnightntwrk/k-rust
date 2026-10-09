@@ -202,6 +202,21 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending binder or function.
         range: Option<Box<SourceRange>>,
     },
+    /// A `concrete` or `symbolic` key names no left-hand binder, restricts one
+    /// binder both ways, or is inconsistent across a function's equations (KF-043).
+    InvalidMatchRestriction {
+        /// Stable reason naming the binder or function and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending key or binder.
+        range: Option<Box<SourceRange>>,
+    },
+    /// An `smt_lemma` mentions a function Z3 cannot see (KF-043).
+    SmtLemmaUntranslatable {
+        /// Stable reason naming the function and the fix.
+        reason: String,
+        /// Sole exact authored range of the `smt_lemma` flag.
+        range: Option<Box<SourceRange>>,
+    },
     /// Two functions declare the same `smtlib` symbol (KF-044).
     DuplicateSmtlib {
         /// Stable reason naming the symbol and both functions.
@@ -245,6 +260,10 @@ pub enum NondetGroupProblem {
 }
 
 impl fmt::Display for DescriptorLoweringError {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per lowering error keeps every message beside its variant."
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BuiltinSortNameCollision { id, builtin } => write!(
@@ -343,6 +362,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
+            | Self::InvalidMatchRestriction { reason, .. }
+            | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
@@ -396,6 +417,8 @@ impl ToDiagnostic for DescriptorLoweringError {
                 FreshProblem::InvalidGenerator => codes::analysis::INVALID_FRESH_GENERATOR,
             },
             Self::DuplicateSmtlib { .. } => codes::analysis::DUPLICATE_SMTLIB,
+            Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
+            Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -420,6 +443,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }
             | Self::DuplicateSmtlib { range, .. }
+            | Self::InvalidMatchRestriction { range, .. }
+            | Self::SmtLemmaUntranslatable { range, .. }
             | Self::InvalidConsoleCell { range, .. } => range
                 .as_deref()
                 .cloned()

@@ -114,6 +114,9 @@ const UNSUPPORTED_VALIDATED: &[&str] = &[
 
 // Containers that reach an unsupported descendant must remain outside reflection.
 const UNSUPPORTED_TRANSITIVE: &[&str] = &[
+    "IrMatchRestriction",
+    "IrRestriction",
+    "IrRestrictionVariable",
     "ConstructorDescriptor",
     "ConstructorFieldDescriptor",
     "ContextAliasSentence",
@@ -679,6 +682,10 @@ fn registry() -> Registry {
     trace!(DescriptorRulePriority: DescriptorRulePriority);
     trace!(DescriptorNondetGroup: DescriptorNondetGroup);
     trace!(DescriptorSimplification: DescriptorSimplification);
+    trace!(DescriptorEquationAttributes: DescriptorEquationAttributes);
+    trace!(DescriptorMatchRestriction: DescriptorMatchRestriction);
+    trace!(DescriptorRestriction: DescriptorRestriction);
+    trace!(DescriptorRestrictionVariable: DescriptorRestrictionVariable);
     trace!(DescriptorSimplificationPriority: DescriptorSimplificationPriority);
     trace!(ExplicitSymbol: ExplicitSymbol);
     trace!(GroupAssociativity: GroupAssociativity);
@@ -813,6 +820,9 @@ fn registry() -> Registry {
     unsupported!(DefinitionRuleCondition: DefinitionRuleCondition);
     unsupported!(DefinitionRulePriority: DefinitionRulePriority);
     unsupported!(DefinitionSimplification: DefinitionSimplification);
+    unsupported!(IrMatchRestriction: IrMatchRestriction);
+    unsupported!(IrRestriction: IrRestriction);
+    unsupported!(IrRestrictionVariable: IrRestrictionVariable);
     unsupported!(DefinitionSimplificationPriority: DefinitionSimplificationPriority);
     unsupported!(DefinitionSortRef: DefinitionSortRef);
     unsupported!(DefinitionTerm: DefinitionTerm);

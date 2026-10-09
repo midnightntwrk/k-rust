@@ -85,6 +85,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidSmtMetadata {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidMatchRestriction {
+            reason: String::from("example"),
+        },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

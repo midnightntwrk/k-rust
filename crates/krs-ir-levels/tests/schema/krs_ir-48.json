@@ -710,6 +710,15 @@
       }
     ]
   },
+  "DescriptorEquationAttributes": {
+    "STRUCT": [
+      {
+        "restriction": {
+          "TYPENAME": "DescriptorMatchRestriction"
+        }
+      }
+    ]
+  },
   "DescriptorFieldReference": {
     "STRUCT": [
       {
@@ -791,6 +800,31 @@
       }
     ]
   },
+  "DescriptorMatchRestriction": {
+    "STRUCT": [
+      {
+        "concrete": {
+          "OPTION": {
+            "TYPENAME": "DescriptorRestriction"
+          }
+        }
+      },
+      {
+        "symbolic": {
+          "OPTION": {
+            "TYPENAME": "DescriptorRestriction"
+          }
+        }
+      },
+      {
+        "smt_lemma": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
   "DescriptorNondetGroup": {
     "STRUCT": [
       {
@@ -816,6 +850,34 @@
             "TYPENAME": "DescriptorGroupReference"
           }
         }
+      }
+    ]
+  },
+  "DescriptorRestriction": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "variables": {
+          "SEQ": {
+            "TYPENAME": "DescriptorRestrictionVariable"
+          }
+        }
+      }
+    ]
+  },
+  "DescriptorRestrictionVariable": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
       }
     ]
   },
@@ -854,6 +916,13 @@
         "priority": {
           "OPTION": {
             "TYPENAME": "DescriptorSimplificationPriority"
+          }
+        }
+      },
+      {
+        "restriction": {
+          "OPTION": {
+            "TYPENAME": "DescriptorMatchRestriction"
           }
         }
       }

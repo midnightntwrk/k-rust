@@ -77,6 +77,28 @@ pub struct MyAbs {
 With the hook, the claim `go(I) => true` after the rule `go(I) => myAbs(I) >=Int 0` is proved although `myAbs` has no equation; with `smtlib = "myAbs"` in its place Z3 sees an unknown function and the claim fails, on both `krs prove` and Java `kprove`.
 Like a trusted claim, neither key is checked: a wrong template proves wrong claims (see [SMT translations of functions](/reference/language#smt-translations-of-functions)).
 
+## Ground and symbolic arguments
+
+A simplification fires on any term its left side matches, and in a proof most terms contain variables.
+`concrete(x)` restricts it to a ground `x`, and `smt_lemma` gives the same equation to Z3 as an axiom:
+
+```rust
+#[k::function(total, sort = Int, syntax = "h({value})", smtlib = "probeH")]
+pub struct H {
+    pub value: Term<Int>,
+}
+
+#[k::simplification(concrete(x))]
+fn h_concrete(k::term![H(x)]: Term<Int>) -> Term<Int> {
+    int::add(x, 1)
+}
+```
+
+After the rule `go(I) => h(I) >Int 3`, the claim `go(5) => true` is proved: the prover rewrites `h(5)` to `6`.
+The claim `go(I) => true` with `requires I >Int 2` is not, on `krs prove` or Java `kprove`: `h(I)` is never rewritten, and Z3 sees only the uninterpreted `probeH(I)`.
+Without `concrete(x)` the simplification also rewrites `h(I)` and both claims are proved; with `#[k::simplification(concrete(x), smt_lemma)]` the prover still leaves `h(I)` alone, but Z3 knows `probeH(x) = x + 1` for every `x` and proves the claim.
+Z3 can use an `smt_lemma` only when it can see every function the lemma mentions, which is why `h` declares `smtlib`; like a trusted claim, the lemma is assumed, not checked (see [Concrete, symbolic, and SMT lemmas](/reference/language#concrete-symbolic-and-smt-lemmas)).
+
 ## Capability boundary
 
 `krs emit-k` writes claims to `spec.k`, a `<MAIN>-SPEC` module beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.

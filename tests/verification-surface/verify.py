@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042), SMT translations (KF-044).
+"""Verification-surface feature gate: existentials and ensures on rules (KF-040), trusted claims (KF-042), SMT translations (KF-044), concrete, symbolic, and smt_lemma (KF-043).
 
 The fixture packages are K tutorial lesson 1.21 in both layers:
 
@@ -63,6 +63,22 @@ renumbering (`#2` before `#1`). `krs prove` proves the claim with Z3, warns
 `smtlib = "myAbs"` instead, an uninterpreted symbol: the claim then fails on
 both routes. A negative fixture pins two functions with one `smtlib` symbol;
 the macro tests pin the syntax diagnostics.
+
+Restrictions on simplifications (KF-043): `conc` declares `h` with
+`smtlib = "probeH"` and no equation, the rule `go(I) => h(I) >Int 3`, and the
+simplification `h(X) => X +Int 1` restricted by `concrete(x)`, emitted
+`[simplification, concrete(X), label(..)]`. The claim `go-concrete`
+(`go(5) => true`) is proved on both routes; `go-symbolic` (`go(I) => true`
+when `I >Int 2`) fails on both, stuck at `h(I) >Int 3`, because the
+simplification never fires on a symbolic argument and Z3 sees only the
+uninterpreted `probeH`. `conc-unrestricted` drops the restriction and both
+claims are proved; `conc-smt-lemma` keeps `concrete(x)` and adds `smt_lemma`
+(`[simplification, concrete(X), smt-lemma, label(..)]`), so Z3 receives
+`probeH(x) = x + 1` as an axiom and both claims are proved. Java `kprove`
+runs once per claim. Negative fixtures pin a binder `concrete(..)` names that
+the left side does not bind, bare `concrete` with bare `symbolic`, an
+`smt_lemma` over a function without an SMT translation, and a `concrete`
+equation beside an unrestricted one of the same function.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -190,12 +206,42 @@ HOOK_EXPECTED = {
     ),
 }
 
+CONC = Fixture(MANIFEST, "krs-verification-surface-conc")
+CONC_UNRESTRICTED = Fixture(MANIFEST, "krs-verification-surface-conc-unrestricted")
+CONC_SMT_LEMMA = Fixture(MANIFEST, "krs-verification-surface-conc-smt-lemma")
+CONC_CLAIMS = ("go-concrete", "go-symbolic")
+CONC_EXPECTED = {
+    # package: (spec module, emitted simplification prefix, native statuses, krs prove exit status)
+    CONC.package: (
+        "KRS-CONC-SPEC",
+        "  rule h ( X:Int ) => X:Int +Int 1 [simplification, concrete(X), label(",
+        {"go-concrete": "proven", "go-symbolic": "failed"},
+        1,
+    ),
+    CONC_UNRESTRICTED.package: (
+        "KRS-CONC-UNRESTRICTED-SPEC",
+        "  rule h ( X:Int ) => X:Int +Int 1 [simplification, label(",
+        {"go-concrete": "proven", "go-symbolic": "proven"},
+        0,
+    ),
+    CONC_SMT_LEMMA.package: (
+        "KRS-CONC-SMT-LEMMA-SPEC",
+        "  rule h ( X:Int ) => X:Int +Int 1 [simplification, concrete(X), smt-lemma, label(",
+        {"go-concrete": "proven", "go-symbolic": "proven"},
+        0,
+    ),
+}
+
 NEGATIVE = (
     "exists-equation",
     "exists-unused",
     "exists-in-requires",
     "exists-shadows",
     "smtlib-duplicate",
+    "restriction-unknown-binder",
+    "restriction-both-bare",
+    "restriction-equation-inconsistent",
+    "smt-lemma-untranslatable",
 )
 
 
@@ -750,6 +796,69 @@ def verify_hook(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove proven={java['proven']}")
 
 
+def java_claim_proofs(harness: FixtureGate, emitted: Emitted, spec_module: str, labels: tuple[str, ...]) -> dict[str, bool]:
+    """Kompile the emitted definition for Haskell and `kprove` each claim of the spec module alone."""
+
+    package = emitted.fixture.package
+    inputs = {
+        f"emitted/{package}/definition.k": emitted.source,
+        f"emitted/{package}/spec.k": emitted.directory / "spec.k",
+    }
+    k = Snapshot(
+        f"verification-surface/{package}",
+        Key(tools=JAVA_TOOLS, inputs=inputs),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, package),
+    )
+    kompiled = harness.workspace / "kompiled" / package / "haskell"
+    process = k.run(
+        "kompile/haskell", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module, "--syntax-module", emitted.syntax_module,
+            "--backend", "haskell", "--output-definition", kompiled,
+        ],
+        timeout=900,
+    )
+    if process.returncode != 0:
+        raise GateError(f"{package}: kompile --backend haskell failed:\n{process.stderr}")
+    proofs = {}
+    for label in labels:
+        proved = k.run(
+            f"kprove/{label}", "kprove",
+            [
+                emitted.directory / "spec.k", "--definition", kompiled, "--spec-module", spec_module,
+                "--claims", f"{spec_module}.{label}",
+            ],
+            timeout=600,
+        )
+        proofs[label] = proved.returncode == 0 and proved.stdout.strip() == "#Top"
+    print(f"PASS verification-surface {package} reference snapshot: {k.finish()}")
+    return proofs
+
+
+def verify_conc(harness: FixtureGate, fixture: Fixture) -> None:
+    """`concrete(x)` keeps a simplification off symbolic arguments; `smt_lemma` hands it to Z3."""
+
+    spec_module, simplification, statuses, exit_status = CONC_EXPECTED[fixture.package]
+    harness.check(fixture)
+    emitted = harness.emit(fixture)
+    source = emitted.source.read_text(encoding="utf-8")
+    if simplification not in source:
+        raise GateError(f"{fixture.package}: emitted K omits:\n{simplification}")
+
+    native = native_trusted_proof(harness, fixture, spec_module)
+    if native["statuses"] != statuses or native["exit"] != exit_status or native["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    harness.pins.expect(("restriction_proofs", fixture.package), native)
+
+    java = java_claim_proofs(harness, emitted, spec_module, CONC_CLAIMS)
+    expected = {label: status == "proven" for label, status in statuses.items()}
+    if java != expected:
+        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(statuses)}")
+    harness.pins.expect(("restriction_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove {java}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -779,6 +888,9 @@ def main() -> int:
         verify_trusted(harness, TRUSTED_ABLATION)
         verify_hook(harness, HOOK)
         verify_hook(harness, HOOK_ABLATION)
+        verify_conc(harness, CONC)
+        verify_conc(harness, CONC_UNRESTRICTED)
+        verify_conc(harness, CONC_SMT_LEMMA)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

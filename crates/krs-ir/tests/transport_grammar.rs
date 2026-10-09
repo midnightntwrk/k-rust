@@ -344,6 +344,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            equation: None,
         })),
     );
     vec![grammar, rule]

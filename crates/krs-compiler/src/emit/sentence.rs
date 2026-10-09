@@ -773,7 +773,7 @@ fn emit_rule(
             )?;
             emit_requires(sentence, &names, context, writer)?;
             emit_ensures(sentence, &names, context, writer)?;
-            emit_term_rule_attributes(sentence, writer)?;
+            emit_term_rule_attributes(sentence, &names, writer)?;
             record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
         }
@@ -782,6 +782,7 @@ fn emit_rule(
 
 fn emit_term_rule_attributes(
     sentence: &RuleSentence,
+    names: &SentenceVariables,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     writer.push(" [");
@@ -811,9 +812,58 @@ fn emit_term_rule_attributes(
         writer.record(anywhere.key(), start, writer.source.len())?;
         writer.push(", ");
     }
+    if let Some(restriction) = sentence.restriction() {
+        emit_match_restriction(restriction, names, writer)?;
+    }
     writer.push("label(");
     emit_label(sentence.label(), writer);
     writer.push(")]");
+    Ok(())
+}
+
+/// Emits `concrete`, `symbolic`, and `smt-lemma` (KF-043), each followed by
+/// `, `; listed binders use the sentence's K variable names.
+fn emit_match_restriction(
+    restriction: &krs_ir_levels::IrMatchRestriction,
+    names: &SentenceVariables,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    for (key, attribute) in [
+        (restriction.concrete(), "concrete"),
+        (restriction.symbolic(), "symbolic"),
+    ] {
+        let Some(key) = key else {
+            continue;
+        };
+        let start = writer.source.len();
+        writer.push(attribute);
+        if !key.is_bare() {
+            writer.push("(");
+            for (index, variable) in key.variables().iter().enumerate() {
+                if index != 0 {
+                    writer.push(", ");
+                }
+                let name = names.name(variable.id()).ok_or_else(|| {
+                    EmitError::InvalidReference(format!(
+                        "{attribute} binder {:?} is not named in its sentence",
+                        variable.id().as_str()
+                    ))
+                })?;
+                let variable_start = writer.source.len();
+                writer.push(name);
+                writer.record(variable.origin().key(), variable_start, writer.source.len())?;
+            }
+            writer.push(")");
+        }
+        writer.record(key.origin().key(), start, writer.source.len())?;
+        writer.push(", ");
+    }
+    if let Some(origin) = restriction.smt_lemma() {
+        let start = writer.source.len();
+        writer.push("smt-lemma");
+        writer.record(origin.key(), start, writer.source.len())?;
+        writer.push(", ");
+    }
     Ok(())
 }
 

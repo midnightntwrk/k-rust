@@ -39,6 +39,7 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub existentials: &'a [crate::IrScopedBinder<L>],
     pub ensures: Option<&'a IrRuleCondition<L>>,
     pub fresh: &'a [crate::IrScopedBinder<L>],
+    pub restriction: Option<&'a crate::IrMatchRestriction>,
     pub anywhere: bool,
 }
 
@@ -175,6 +176,7 @@ pub(crate) enum ValidationError<L: Validation> {
     UnusedExistential(SemanticId),
     InvalidRuleExistentials(L::RuleId),
     InvalidRuleFresh(L::RuleId),
+    InvalidMatchRestriction(L::RuleId),
     FreshScopeViolation(SemanticId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
@@ -765,6 +767,9 @@ pub(crate) fn validate_rule<L: Validation>(
             rule.id.clone(),
         )));
     }
+    if let Some(restriction) = rule.restriction {
+        validate_restriction::<L>(&rule, restriction, nodes)?;
+    }
     if let Some(priority) = rule.priority {
         if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
             return Err(L::error(ValidationError::InvalidRulePriority(
@@ -873,6 +878,45 @@ pub(crate) fn validate_claim<L: Validation>(
         insert_node::<L>(nodes, binder.origin().key())?;
         insert_node::<L>(nodes, binder.name_origin().key())?;
         insert_node::<L>(nodes, binder.sort_origin().key())?;
+    }
+    Ok(())
+}
+
+/// Checks the `concrete`, `symbolic`, and `smt_lemma` keys (KF-043): only on a
+/// term-shaped equation or simplification, with at least one key, each listed
+/// binder a variable of the left-hand side, listed once per key.
+fn validate_restriction<L: Validation>(
+    rule: &RuleView<'_, L>,
+    restriction: &crate::IrMatchRestriction,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let invalid = || L::error(ValidationError::InvalidMatchRestriction(rule.id.clone()));
+    let RuleBodyRef::Term(body) = rule.body else {
+        return Err(invalid());
+    };
+    if !matches!(
+        rule.kind,
+        SentenceKind::Equation | SentenceKind::Simplification
+    ) || restriction.is_empty()
+    {
+        return Err(invalid());
+    }
+    let mut left = BTreeSet::new();
+    collect_term_variables::<L>(body.from(), &mut left);
+    for key in restriction
+        .concrete()
+        .into_iter()
+        .chain(restriction.symbolic())
+    {
+        let mut listed = BTreeSet::new();
+        for variable in key.variables() {
+            if !left.contains(variable.id()) || !listed.insert(variable.id()) {
+                return Err(invalid());
+            }
+        }
+    }
+    for origin in restriction.origins() {
+        insert_node::<L>(nodes, origin.key())?;
     }
     Ok(())
 }

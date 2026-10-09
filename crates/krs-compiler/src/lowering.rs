@@ -1473,8 +1473,58 @@ fn lower_rule_metadata(
             names,
             origins,
             "rule-fresh",
-        )?);
+        )?)
+        .with_restriction(
+            rule.restriction()
+                .map(|restriction| lower_restriction(restriction, rule.id(), origins))
+                .transpose()?,
+        );
     Ok(sentence)
+}
+
+/// Lowers the `concrete`, `symbolic`, and `smt_lemma` keys (KF-043); binder
+/// identities are sentence-local and unchanged.
+fn lower_restriction(
+    restriction: &krs_ir_levels::IrMatchRestriction,
+    item: &StableItemId,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::IrMatchRestriction, LoweringError> {
+    let mut ordinal = 0_usize;
+    let mut lower_key = |key: Option<&krs_ir_levels::IrRestriction>,
+                         role: &'static str|
+     -> Result<Option<krs_ir_levels::IrRestriction>, LoweringError> {
+        key.map(|key| {
+            let origin = origins.lower(key.origin(), role, Some(item), None)?;
+            let variables = key
+                .variables()
+                .iter()
+                .map(|variable| {
+                    let discriminator = ordinal.to_string();
+                    ordinal += 1;
+                    Ok(krs_ir_levels::IrRestrictionVariable::new(
+                        origins.lower(
+                            variable.origin(),
+                            "restriction-variable",
+                            Some(item),
+                            Some(&discriminator),
+                        )?,
+                        variable.id().clone(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, LoweringError>>()?;
+            Ok(krs_ir_levels::IrRestriction::new(origin, variables))
+        })
+        .transpose()
+    };
+    let concrete = lower_key(restriction.concrete(), "restriction-concrete")?;
+    let symbolic = lower_key(restriction.symbolic(), "restriction-symbolic")?;
+    let smt_lemma = restriction
+        .smt_lemma()
+        .map(|origin| origins.lower(origin, "smt-lemma", Some(item), None))
+        .transpose()?;
+    Ok(krs_ir_levels::IrMatchRestriction::new(
+        concrete, symbolic, smt_lemma,
+    ))
 }
 
 fn lower_rule_condition(

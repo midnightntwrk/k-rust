@@ -258,6 +258,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A `concrete`, `symbolic`, or `smt_lemma` key was malformed (KF-043).
+    InvalidMatchRestriction {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -341,6 +346,7 @@ impl SyntaxErrorKind {
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
+            Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
         }
     }
 }
@@ -574,7 +580,8 @@ impl fmt::Display for SyntaxError {
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
             SyntaxErrorKind::RawKShape { reason }
-            | SyntaxErrorKind::InvalidSmtMetadata { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidSmtMetadata { reason }
+            | SyntaxErrorKind::InvalidMatchRestriction { reason } => formatter.write_str(reason),
         }
     }
 }

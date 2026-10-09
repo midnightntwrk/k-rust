@@ -156,6 +156,28 @@ The template is checked like a `#[k::syntax]` template: each `{field}` names a f
 The two keys are mutually exclusive, and `smtlib` may be combined with a typed `hook`, so the hook computes concrete values while Z3 sees a symbol (`krs::syntax::invalid-smt-metadata`); two functions with one `smtlib` symbol are rejected, because Z3 would treat them as one function (`krs::analysis::duplicate-smtlib`).
 A function with an `smt_hook` and no equation means something only to Z3: concrete execution leaves its applications unevaluated, and every command warns (`krs::emit::smt-only-function`).
 
+### Concrete, symbolic, and SMT lemmas
+
+A simplification fires on any term its left side matches, whether the matched values are ground or contain variables.
+Three keys of `#[k::simplification]` and `#[k::equation]` change that; they name left-hand binders by their Rust names and are written after the priority:
+
+```rust
+#[k::simplification(concrete(x), smt_lemma)]
+fn h_concrete(k::term![H(x)]: Term<Int>) -> Term<Int> { int::add(x, 1) }
+#[k::simplification(priority = 40, concrete(c), symbolic(s))]
+fn fold_constant(k::term![int::add(int::add(s, c), d)]: Term<Int>) -> Term<Int> { int::add(s, int::add(c, d)) }
+#[k::equation(concrete, smt_lemma)]
+fn chop(k::term![Chop(i)]: Term<Int>) -> Term<Int> { int::rem_euclid(i, 256) }
+```
+
+`concrete(x)` applies the sentence only when `x` is ground, the usual guard on constant folding that would loop on symbols; bare `concrete` restricts every left-hand binder.
+`symbolic(x)` applies it only when `x` contains a variable.
+`smt_lemma` hands the equation to Z3 as an axiom, so the solver can use it on terms the prover never rewrites; like an SMT translation it is trusted, not checked.
+KRS emits K's attributes with the sentence's variable names, before the label: `[simplification, concrete(X), smt-lemma, label(..)]`, `[simplification(40), concrete(C), symbolic(S), label(..)]`, and `[concrete, smt-lemma, label(..)]`.
+Syntax errors (`krs::syntax::invalid-match-restriction`): a repeated key, `concrete` both bare and with a list, an empty list, a value on a key, and any of the keys on `#[k::rule]`, since restrictions apply to equations and simplifications.
+Analysis errors (`krs::analysis::invalid-match-restriction`): a listed name that is not a left-hand binder, a binder restricted both ways (bare `concrete` with any `symbolic` restricts every binder twice), and an equation whose function's other equations are not bare `concrete` (or `symbolic`) too, which K rejects ("Found concrete attribute without simplification attribute on function with one or more non-concrete rules"); write the restricted case as a simplification instead.
+An `smt_lemma` may mention only functions Z3 can see, so a user function needs `smtlib` or `smt_hook` and a builtin needs an SMT translation in the K prelude (`krs::analysis::smt-lemma-untranslatable`).
+
 ### Console I/O and the exit cell
 
 `#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.

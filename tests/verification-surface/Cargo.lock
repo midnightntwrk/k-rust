@@ -105,6 +105,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-verification-surface-conc"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-verification-surface-conc-smt-lemma"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-verification-surface-conc-unrestricted"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-verification-surface-hook"
 version = "0.1.0"
 dependencies = [

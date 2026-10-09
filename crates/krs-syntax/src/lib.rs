@@ -32,9 +32,9 @@ pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
     ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
     ContextAliasAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook,
-    FunctionSmt, FunctionTotality, InitAttribute, PlacementFlag, PriorityAttribute, RuleAttribute,
-    SimplificationAttribute, SortAttribute, SubsortAttribute, SymbolAttribute,
-    VariantSyntaxAttribute,
+    FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
+    PriorityAttribute, RestrictionKey, RuleAttribute, SimplificationAttribute, SortAttribute,
+    SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,

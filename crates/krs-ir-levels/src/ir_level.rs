@@ -363,6 +363,128 @@ impl IrSimplification {
     }
 }
 
+/// `concrete`, `symbolic`, and `smt_lemma` keys of an equation or simplification (KF-043).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IrMatchRestriction {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) concrete: Option<IrRestriction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) symbolic: Option<IrRestriction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) smt_lemma: Option<NodeOrigin>,
+}
+
+/// One `concrete` or `symbolic` key: every left-hand binder when `variables`
+/// is empty (the bare key), otherwise the listed binders.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IrRestriction {
+    pub(crate) origin: NodeOrigin,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) variables: Vec<IrRestrictionVariable>,
+}
+
+/// One left-hand binder named by `concrete(..)` or `symbolic(..)`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IrRestrictionVariable {
+    pub(crate) origin: NodeOrigin,
+    pub(crate) id: SemanticId,
+}
+
+impl IrMatchRestriction {
+    /// Creates the keys of one equation or simplification.
+    #[must_use]
+    pub const fn new(
+        concrete: Option<IrRestriction>,
+        symbolic: Option<IrRestriction>,
+        smt_lemma: Option<NodeOrigin>,
+    ) -> Self {
+        Self {
+            concrete,
+            symbolic,
+            smt_lemma,
+        }
+    }
+    /// Returns the `concrete` key.
+    #[must_use]
+    pub const fn concrete(&self) -> Option<&IrRestriction> {
+        self.concrete.as_ref()
+    }
+    /// Returns the `symbolic` key.
+    #[must_use]
+    pub const fn symbolic(&self) -> Option<&IrRestriction> {
+        self.symbolic.as_ref()
+    }
+    /// Returns the provenance of the `smt_lemma` flag.
+    #[must_use]
+    pub const fn smt_lemma(&self) -> Option<&NodeOrigin> {
+        self.smt_lemma.as_ref()
+    }
+    /// Whether no key is present.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
+    }
+    /// Every node origin, in source order: `concrete` with its binders, `symbolic` with its binders, `smt_lemma`.
+    pub fn origins(&self) -> impl Iterator<Item = &NodeOrigin> {
+        self.concrete
+            .iter()
+            .chain(&self.symbolic)
+            .flat_map(|restriction| {
+                std::iter::once(&restriction.origin).chain(
+                    restriction
+                        .variables
+                        .iter()
+                        .map(|variable| &variable.origin),
+                )
+            })
+            .chain(&self.smt_lemma)
+    }
+}
+
+impl IrRestriction {
+    /// Creates one key; an empty `variables` is the bare key.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, variables: Vec<IrRestrictionVariable>) -> Self {
+        Self { origin, variables }
+    }
+    /// Returns the key's provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the listed binders; empty for the bare key.
+    #[must_use]
+    pub fn variables(&self) -> &[IrRestrictionVariable] {
+        &self.variables
+    }
+    /// Whether the key is bare and restricts every left-hand binder.
+    #[must_use]
+    pub const fn is_bare(&self) -> bool {
+        self.variables.is_empty()
+    }
+}
+
+impl IrRestrictionVariable {
+    /// Creates one named binder.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, id: SemanticId) -> Self {
+        Self { origin, id }
+    }
+    /// Returns the identifier's provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the binder's sentence-local identity.
+    #[must_use]
+    pub const fn id(&self) -> &SemanticId {
+        &self.id
+    }
+}
+
 impl IrSimplificationPriority {
     /// Creates a provenance-bearing hint.
     #[must_use]

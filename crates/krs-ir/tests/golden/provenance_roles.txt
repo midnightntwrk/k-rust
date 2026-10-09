@@ -197,3 +197,7 @@ ClaimTrusted=claim_trusted
 FunctionSmtlib=function_smtlib
 FunctionSmtHook=function_smt_hook
 SmtHookPlaceholder=smt_hook_placeholder
+RestrictionConcrete=restriction_concrete
+RestrictionSymbolic=restriction_symbolic
+RestrictionVariable=restriction_variable
+SmtLemma=smt_lemma

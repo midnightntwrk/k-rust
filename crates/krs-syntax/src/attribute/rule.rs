@@ -37,6 +37,7 @@ pub(crate) const PRIORITY_RANGE: &str = "k-rust ranks rule priorities 0..=254";
 pub(crate) const OWISE_ON_SIMPLIFICATION: &str =
     "a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there";
 pub(crate) const PRIORITY_ON_STATIC_RULE: &str = "static rules have no priority";
+pub(crate) const RESTRICTION_ON_RULE: &str = "restrictions apply to equations and simplifications: `concrete`, `symbolic`, and `smt_lemma` are keys of #[k::equation] and #[k::simplification]";
 pub(crate) const NONDET_ON_FUNCTION: &str =
     "functions are deterministic in K; overlapping equations make the function ill-defined";
 pub(crate) const ANYWHERE_WITH_ORDER: &str = "an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`";
@@ -576,6 +577,9 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
                 nondet = Some(super::value::parse_unqualified_identifier_value(
                     "nondet", value,
                 )?);
+            }
+            "concrete" | "symbolic" | "smt_lemma" => {
+                return Err(rule_key_error(RESTRICTION_ON_RULE, key.span()));
             }
             _ => {
                 return Err(SyntaxError::new(

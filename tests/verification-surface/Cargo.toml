@@ -6,6 +6,9 @@ members = [
     "packages/trusted-ablation",
     "packages/hook",
     "packages/hook-ablation",
+    "packages/conc",
+    "packages/conc-unrestricted",
+    "packages/conc-smt-lemma",
 ]
 resolver = "3"
 

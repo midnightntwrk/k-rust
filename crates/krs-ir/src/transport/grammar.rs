@@ -1549,6 +1549,137 @@ pub struct DescriptorSimplification {
     /// Optional ordering hint and its exact literal provenance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<DescriptorSimplificationPriority>,
+    /// Optional `concrete`, `symbolic`, and `smt_lemma` keys (KF-043).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restriction: Option<DescriptorMatchRestriction>,
+}
+
+/// Keys of an equation beyond its priority (KF-043).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorEquationAttributes {
+    /// The equation's `concrete`, `symbolic`, and `smt_lemma` keys.
+    pub restriction: DescriptorMatchRestriction,
+}
+
+/// `concrete`, `symbolic`, and `smt_lemma` keys of an equation or simplification (KF-043).
+///
+/// At least one key is present; absent keys are omitted.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorMatchRestriction {
+    /// `concrete` (every binder) or `concrete(x, ..)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concrete: Option<DescriptorRestriction>,
+    /// `symbolic` (every binder) or `symbolic(x, ..)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbolic: Option<DescriptorRestriction>,
+    /// Provenance of the bare `smt_lemma` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smt_lemma: Option<ProvenanceKey>,
+}
+
+/// One `concrete` or `symbolic` key: bare (no variables) or a list of left-hand binders.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorRestriction {
+    /// Provenance of the key identifier.
+    pub key: ProvenanceKey,
+    /// Named binders in authored order; empty for the bare key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variables: Vec<DescriptorRestrictionVariable>,
+}
+
+/// One left-hand binder named by `concrete(..)` or `symbolic(..)`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorRestrictionVariable {
+    /// Exact identifier provenance.
+    pub key: ProvenanceKey,
+    /// The binder's Rust name.
+    pub name: String,
+}
+
+impl DescriptorMatchRestriction {
+    /// Whether no key is present.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
+    }
+
+    /// Validates key roles and ordinals: one key each, variables numbered
+    /// across `concrete` then `symbolic`, and nonblank distinct names per list.
+    fn validate(
+        &self,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        let invalid =
+            || GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidMatchRestriction);
+        if self.is_empty() {
+            return Err(invalid());
+        }
+        let mut ordinal = 0_u32;
+        for (restriction, role) in [
+            (&self.concrete, ProvenanceRole::RestrictionConcrete),
+            (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
+        ] {
+            let Some(restriction) = restriction else {
+                continue;
+            };
+            require_key(&restriction.key, provenance)?;
+            if restriction.key.role() != role || restriction.key.ordinal() != 0 {
+                return Err(invalid());
+            }
+            let mut names = BTreeSet::new();
+            for variable in &restriction.variables {
+                require_key(&variable.key, provenance)?;
+                if variable.key.role() != ProvenanceRole::RestrictionVariable
+                    || variable.key.ordinal() != ordinal
+                    || variable.name.trim().is_empty()
+                    || !names.insert(variable.name.as_str())
+                {
+                    return Err(invalid());
+                }
+                ordinal += 1;
+            }
+        }
+        if let Some(smt_lemma) = &self.smt_lemma {
+            require_key(smt_lemma, provenance)?;
+            if smt_lemma.role() != ProvenanceRole::SmtLemma || smt_lemma.ordinal() != 0 {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_expected_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+    ) -> Result<(), GrammarTransportError> {
+        let mut ordinal = 0_u32;
+        for (restriction, role) in [
+            (&self.concrete, ProvenanceRole::RestrictionConcrete),
+            (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
+        ] {
+            let Some(restriction) = restriction else {
+                continue;
+            };
+            insert_exact(keys, &restriction.key, role, 0)?;
+            for variable in &restriction.variables {
+                insert_exact(
+                    keys,
+                    &variable.key,
+                    ProvenanceRole::RestrictionVariable,
+                    ordinal,
+                )?;
+                ordinal += 1;
+            }
+        }
+        if let Some(smt_lemma) = &self.smt_lemma {
+            insert_exact(keys, smt_lemma, ProvenanceRole::SmtLemma, 0)?;
+        }
+        Ok(())
+    }
 }
 
 /// One numeric simplification ordering hint.
@@ -1652,6 +1783,9 @@ stage_shape! {
         /// Fresh binders of a transition (`#[k::fresh]`), K's `!X`: values the step draws from the generated counter.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub fresh: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
+        /// Keys of an equation beyond its priority: `concrete`, `symbolic`, `smt_lemma` (KF-043).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub equation: Option<DescriptorEquationAttributes> => [keep],
     }
 }
 
@@ -2045,6 +2179,14 @@ impl StructuredRuleDescriptor {
             }
         }
         self.validate_rule_keys(provenance)?;
+        if let Some(equation) = &self.equation {
+            if self.sentence_kind != SentenceKind::Equation {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidMatchRestriction,
+                ));
+            }
+            equation.restriction.validate(provenance)?;
+        }
         if let Some(simplification) = &self.simplification {
             require_key(&simplification.key, provenance)?;
             if self.sentence_kind != SentenceKind::Simplification {
@@ -2054,6 +2196,9 @@ impl StructuredRuleDescriptor {
             }
             if let Some(priority) = &simplification.priority {
                 require_key(&priority.key, provenance)?;
+            }
+            if let Some(restriction) = &simplification.restriction {
+                restriction.validate(provenance)?;
             }
         } else if self.sentence_kind == SentenceKind::Simplification {
             return Err(GrammarTransportError::InvalidTerm(
@@ -3381,6 +3526,12 @@ impl StructuredRuleDescriptor {
                     0,
                 )?;
             }
+            if let Some(restriction) = &simplification.restriction {
+                restriction.collect_expected_keys(&mut keys)?;
+            }
+        }
+        if let Some(equation) = &self.equation {
+            equation.restriction.collect_expected_keys(&mut keys)?;
         }
         insert_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
         for (index, binding) in self.typed_bindings.iter().enumerate() {
@@ -3932,6 +4083,7 @@ mod traversal_tests {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            equation: None,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

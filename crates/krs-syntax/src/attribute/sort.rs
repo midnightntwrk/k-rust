@@ -94,15 +94,220 @@ impl SymbolAttribute {
     }
 }
 
+/// One `concrete` or `symbolic` key: bare, or with a list of left-hand binders.
+#[derive(Clone, Debug)]
+pub struct RestrictionKey {
+    key: Ident,
+    variables: Option<Vec<Ident>>,
+}
+
+impl RestrictionKey {
+    /// Returns the authored key identifier.
+    #[must_use]
+    pub const fn key(&self) -> &Ident {
+        &self.key
+    }
+
+    /// Returns the listed binders, or `None` for the bare key (every binder).
+    #[must_use]
+    pub fn variables(&self) -> Option<&[Ident]> {
+        self.variables.as_deref()
+    }
+}
+
+/// The `concrete`, `symbolic`, and `smt_lemma` keys shared by
+/// `#[k::equation]` and `#[k::simplification]` (KF-043).
+///
+/// `concrete` restricts the sentence to ground values of the named left-hand
+/// binders (every binder when bare), `symbolic` to values containing a
+/// variable, and `smt_lemma` hands the equation to Z3 as an axiom.
+#[derive(Clone, Debug, Default)]
+pub struct MatchRestriction {
+    concrete: Option<RestrictionKey>,
+    symbolic: Option<RestrictionKey>,
+    smt_lemma: Option<Ident>,
+}
+
+impl MatchRestriction {
+    /// Returns the `concrete` key.
+    #[must_use]
+    pub const fn concrete(&self) -> Option<&RestrictionKey> {
+        self.concrete.as_ref()
+    }
+
+    /// Returns the `symbolic` key.
+    #[must_use]
+    pub const fn symbolic(&self) -> Option<&RestrictionKey> {
+        self.symbolic.as_ref()
+    }
+
+    /// Returns the `smt_lemma` flag.
+    #[must_use]
+    pub const fn smt_lemma(&self) -> Option<&Ident> {
+        self.smt_lemma.as_ref()
+    }
+
+    /// Whether no key was authored.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
+    }
+
+    /// Returns exact provenance: each key under its role, and each listed
+    /// binder under [`ProvenanceRole::RestrictionVariable`], numbered across
+    /// `concrete` then `symbolic`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if an authored token has no range.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        let mut ordinal = 0_u32;
+        for (restriction, role) in [
+            (&self.concrete, ProvenanceRole::RestrictionConcrete),
+            (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
+        ] {
+            let Some(restriction) = restriction else {
+                continue;
+            };
+            anchors.push(ProvenanceAnchor::new(
+                role,
+                0,
+                TokenRange::for_tokens(&restriction.key)?,
+            ));
+            for variable in restriction.variables().unwrap_or_default() {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::RestrictionVariable,
+                    ordinal,
+                    TokenRange::for_tokens(variable)?,
+                ));
+                ordinal += 1;
+            }
+        }
+        if let Some(smt_lemma) = &self.smt_lemma {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SmtLemma,
+                0,
+                TokenRange::for_tokens(smt_lemma)?,
+            ));
+        }
+        Ok(anchors)
+    }
+
+    /// Parses `key` when it is `concrete`, `symbolic`, or `smt_lemma`, with
+    /// its optional binder list; returns whether it was one of them.
+    fn parse_key(&mut self, key: &Ident, input: ParseStream<'_>) -> Result<bool, ParseError> {
+        let name = key.to_string();
+        let slot = match name.as_str() {
+            "concrete" => &mut self.concrete,
+            "symbolic" => &mut self.symbolic,
+            "smt_lemma" => {
+                if input.peek(Token![=]) || input.peek(syn::token::Paren) {
+                    return Err(restriction_error(
+                        "`smt_lemma` is a bare flag; write `smt_lemma` without a value".into(),
+                        key.span(),
+                    ));
+                }
+                if self.smt_lemma.is_some() {
+                    return Err(SyntaxError::new(
+                        SyntaxErrorKind::DuplicateArgument { name: "smt_lemma" },
+                        key.span(),
+                    )
+                    .into());
+                }
+                self.smt_lemma = Some(key.clone());
+                return Ok(true);
+            }
+            _ => return Ok(false),
+        };
+        if input.peek(Token![=]) {
+            return Err(restriction_error(
+                format!(
+                    "`{name}` takes no value; write bare `{name}` for every binder or `{name}(x, ..)` for some"
+                ),
+                key.span(),
+            ));
+        }
+        let variables = if input.peek(syn::token::Paren) {
+            let content = parenthesized(input)?;
+            let list = syn::punctuated::Punctuated::<Ident, Token![,]>::parse_terminated(&content)?;
+            if list.is_empty() {
+                return Err(restriction_error(
+                    format!(
+                        "`{name}()` lists no binder; write bare `{name}` to restrict every binder"
+                    ),
+                    key.span(),
+                ));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for variable in &list {
+                if !seen.insert(variable.to_string()) {
+                    return Err(restriction_error(
+                        format!("`{variable}` is listed twice in `{name}(..)`"),
+                        variable.span(),
+                    ));
+                }
+            }
+            Some(list.into_iter().collect::<Vec<_>>())
+        } else {
+            None
+        };
+        if let Some(previous) = slot {
+            if previous.variables.is_some() == variables.is_some() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: if name == "concrete" {
+                            "concrete"
+                        } else {
+                            "symbolic"
+                        },
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            return Err(restriction_error(
+                format!(
+                    "`{name}` is written bare (every binder) or with a list of binders, not both"
+                ),
+                key.span(),
+            ));
+        }
+        *slot = Some(RestrictionKey {
+            key: key.clone(),
+            variables,
+        });
+        Ok(true)
+    }
+}
+
+fn parenthesized(input: ParseStream<'_>) -> syn::Result<syn::parse::ParseBuffer<'_>> {
+    let content;
+    syn::parenthesized!(content in input);
+    Ok(content)
+}
+
+fn restriction_error(reason: String, span: proc_macro2::Span) -> ParseError {
+    SyntaxError::new(SyntaxErrorKind::InvalidMatchRestriction { reason }, span).into()
+}
+
 /// Checked payload of `#[k::equation]`, `#[k::equation(owise)]`, or
-/// `#[k::equation(priority = N)]`.
+/// `#[k::equation(priority = N)]`, with optional `concrete`, `symbolic`, and
+/// `smt_lemma` keys.
 #[derive(Clone, Debug, Default)]
 pub struct EquationAttribute {
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
+    restriction: MatchRestriction,
 }
 
 impl EquationAttribute {
+    /// Returns the `concrete`, `symbolic`, and `smt_lemma` keys.
+    #[must_use]
+    pub const fn restriction(&self) -> &MatchRestriction {
+        &self.restriction
+    }
+
     /// Whether this equation is an ordered fallback (priority 200).
     #[must_use]
     pub const fn is_owise(&self) -> bool {
@@ -149,17 +354,26 @@ impl EquationAttribute {
                 TokenRange::for_tokens(&priority.literal)?,
             ));
         }
+        anchors.extend(self.restriction.provenance()?);
         Ok(anchors)
     }
 }
 
-/// Checked payload of `#[k::simplification]` or `#[k::simplification(priority = N)]`.
+/// Checked payload of `#[k::simplification]` or `#[k::simplification(priority = N)]`,
+/// with optional `concrete`, `symbolic`, and `smt_lemma` keys.
 #[derive(Clone, Debug, Default)]
 pub struct SimplificationAttribute {
     priority: Option<(LitInt, u32)>,
+    restriction: MatchRestriction,
 }
 
 impl SimplificationAttribute {
+    /// Returns the `concrete`, `symbolic`, and `smt_lemma` keys.
+    #[must_use]
+    pub const fn restriction(&self) -> &MatchRestriction {
+        &self.restriction
+    }
+
     /// Returns the optional simplifier ordering hint.
     #[must_use]
     pub fn priority(&self) -> Option<u32> {
@@ -172,19 +386,16 @@ impl SimplificationAttribute {
     ///
     /// Returns an endpoint error only if an authored literal has no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.priority
-            .as_ref()
-            .map(|(literal, _)| {
-                TokenRange::for_tokens(literal).map(|range| {
-                    vec![ProvenanceAnchor::new(
-                        ProvenanceRole::SimplificationPriority,
-                        0,
-                        range,
-                    )]
-                })
-            })
-            .transpose()
-            .map(Option::unwrap_or_default)
+        let mut anchors = Vec::new();
+        if let Some((literal, _)) = &self.priority {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SimplificationPriority,
+                0,
+                TokenRange::for_tokens(literal)?,
+            ));
+        }
+        anchors.extend(self.restriction.provenance()?);
+        Ok(anchors)
     }
 }
 
@@ -318,9 +529,17 @@ impl KrsSyntax for EquationAttribute {
 fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, ParseError> {
     let mut owise: Option<Ident> = None;
     let mut priority: Option<PriorityValue> = None;
+    let mut restriction = MatchRestriction::default();
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
+        if restriction.parse_key(&key, input)? {
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            continue;
+        }
         match key_name.as_str() {
             "owise" if owise.is_some() => {
                 return Err(SyntaxError::new(
@@ -361,46 +580,70 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
         }
         input.parse::<Token![,]>()?;
     }
-    Ok(EquationAttribute { owise, priority })
+    Ok(EquationAttribute {
+        owise,
+        priority,
+        restriction,
+    })
 }
 
 impl KrsSyntax for SimplificationAttribute {
-    /// Parses an empty simplification payload or exactly `priority = N`.
+    /// Parses an empty simplification payload, `priority = N`, and the
+    /// `concrete`, `symbolic`, and `smt_lemma` keys.
     ///
     /// # Errors
     ///
-    /// Rejects `owise`, and unknown, malformed, repeated, or out-of-range payloads.
+    /// Rejects `owise`, `nondet`, and unknown, malformed, repeated, or
+    /// out-of-range keys.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        structured(
-            tokens,
-            |input: ParseStream<'_>| -> Result<SimplificationAttribute, ParseError> {
-                if input.is_empty() {
-                    return Ok(SimplificationAttribute::default());
-                }
-                let key: Ident = input.parse()?;
-                if key == "owise" {
-                    return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
-                }
-                if key == "nondet" {
-                    return Err(rule_key_error(NONDET_ON_FUNCTION, key.span()));
-                }
-                if key != "priority" {
-                    return Err(syn::Error::new(key.span(), "expected `priority = N`").into());
-                }
-                input.parse::<Token![=]>()?;
-                let literal: LitInt = input.parse()?;
-                if !input.is_empty() {
-                    return Err(input
-                        .error("simplification accepts only `priority = N`")
-                        .into());
-                }
-                let value = literal.base10_parse::<u32>()?;
-                Ok(SimplificationAttribute {
-                    priority: Some((literal, value)),
-                })
-            },
-        )
+        structured(tokens, parse_simplification_stream)
     }
+}
+
+fn parse_simplification_stream(
+    input: ParseStream<'_>,
+) -> Result<SimplificationAttribute, ParseError> {
+    let mut priority: Option<(LitInt, u32)> = None;
+    let mut restriction = MatchRestriction::default();
+    while !input.is_empty() {
+        let key: Ident = input.parse()?;
+        let consumed = restriction.parse_key(&key, input)?;
+        if consumed {
+            // A `concrete`, `symbolic`, or `smt_lemma` key.
+        } else if key == "owise" {
+            return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
+        } else if key == "nondet" {
+            return Err(rule_key_error(NONDET_ON_FUNCTION, key.span()));
+        } else if key == "priority" {
+            if priority.is_some() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "priority" },
+                    key.span(),
+                )
+                .into());
+            }
+            input.parse::<Token![=]>()?;
+            let literal: LitInt = input.parse()?;
+            let value = literal.base10_parse::<u32>()?;
+            priority = Some((literal, value));
+        } else {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnknownArgument {
+                    name: key.to_string(),
+                },
+                key.span(),
+            )
+            .into());
+        }
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(SimplificationAttribute {
+        priority,
+        restriction,
+    })
 }
 
 impl KrsSyntax for AliasAttribute {

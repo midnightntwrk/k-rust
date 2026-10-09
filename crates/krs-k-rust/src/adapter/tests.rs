@@ -1593,3 +1593,67 @@ fn transition_sentence_is_preserved_as_a_native_rule() {
             .any(|sentence| matches!(**sentence, Sentence::Rule { .. }))
     }));
 }
+
+/// `concrete(x)`, bare `symbolic`, and `smt_lemma` become the native frontend's
+/// `concrete = "X"`, `symbolic = ""`, and `smt-lemma = ""` (KF-043).
+#[test]
+fn match_restrictions_map_to_native_attributes_with_sentence_names() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let x = semantic_id("x");
+    let variable =
+        |name: &str| DefinitionTerm::variable(node(name), DefinitionSortRef::int(), x.clone());
+    let body = DefinitionTerm::rewrite(
+        node("restriction.body"),
+        DefinitionSortRef::int(),
+        variable("restriction.left"),
+        variable("restriction.right"),
+    )
+    .unwrap();
+    let rule = RuleSentence::new(
+        node("restriction.rule"),
+        LabelIdentity::new(LabelId::new("restriction.rule").unwrap(), "restricted").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        body,
+    )
+    .unwrap();
+    let restricted = rule
+        .clone()
+        .with_restriction(Some(krs_ir_levels::IrMatchRestriction::new(
+            Some(krs_ir_levels::IrRestriction::new(
+                node("restriction.concrete"),
+                vec![krs_ir_levels::IrRestrictionVariable::new(
+                    node("restriction.concrete.x"),
+                    x.clone(),
+                )],
+            )),
+            Some(krs_ir_levels::IrRestriction::new(
+                node("restriction.symbolic"),
+                Vec::new(),
+            )),
+            Some(node("restriction.smt-lemma")),
+        )));
+    let Sentence::Rule {
+        body, attributes, ..
+    } = adapter.rule(&restricted, MODULE, 0).unwrap()
+    else {
+        panic!("an equation adapts to a native rule")
+    };
+    let mut names = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Variable { name, .. } = term {
+            names.push(name.clone());
+        }
+    });
+    assert_eq!(attributes.get_str("concrete"), Some(names[0].as_str()));
+    assert_eq!(attributes.get_str("symbolic"), Some(""));
+    assert_eq!(attributes.get_str("smt-lemma"), Some(""));
+
+    let Sentence::Rule { attributes, .. } = adapter.rule(&rule, MODULE, 1).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    for key in ["concrete", "symbolic", "smt-lemma"] {
+        assert!(attributes.get(key).is_none(), "{key}");
+    }
+}

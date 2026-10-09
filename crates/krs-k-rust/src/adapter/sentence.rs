@@ -722,6 +722,9 @@ impl Adapter<'_> {
                 ),
             );
         }
+        if let Some(restriction) = sentence.restriction() {
+            self.insert_match_restriction(restriction, &mut attributes)?;
+        }
         if let Some(claim) = sentence.claim() {
             self.map_sentence_origin(
                 claim.modality_origin(),
@@ -775,6 +778,41 @@ impl Adapter<'_> {
                 attributes,
             })
         }
+    }
+
+    /// Inserts `concrete`, `symbolic` (`""` when bare, otherwise the listed
+    /// binders' native names joined by `,`), and `smt-lemma` (KF-043).
+    fn insert_match_restriction(
+        &self,
+        restriction: &krs_ir_levels::IrMatchRestriction,
+        attributes: &mut NativeAttributes,
+    ) -> Result<(), AdapterError> {
+        for (key, attribute) in [
+            (restriction.concrete(), "concrete"),
+            (restriction.symbolic(), "symbolic"),
+        ] {
+            let Some(key) = key else {
+                continue;
+            };
+            let names = key
+                .variables()
+                .iter()
+                .map(|variable| {
+                    self.variable_names.name(variable.id()).ok_or_else(|| {
+                        AdapterError::MissingReference {
+                            key: variable.origin().key().clone(),
+                            kind: "sentence variable",
+                            target: variable.id().as_str().to_owned(),
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            attributes.insert(attribute, json!(names.join(",")));
+        }
+        if restriction.smt_lemma().is_some() {
+            attributes.insert("smt-lemma", json!(""));
+        }
+        Ok(())
     }
 
     fn map_claim_binder(

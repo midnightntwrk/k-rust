@@ -247,6 +247,7 @@ details! {
         StaticAliasRequires => "static alias clauses cannot carry requires conditions",
         WildcardsAreAllowedOnlyInRuleSubjects => "wildcards are allowed only in rule subjects",
         EmptyLexemeText => "lexeme text must not be empty",
+        InvalidMatchRestriction => "concrete, symbolic, and smt_lemma keys are allowed only on equations and simplifications, once each, with distinct non-empty binder names",
     }
 }
 

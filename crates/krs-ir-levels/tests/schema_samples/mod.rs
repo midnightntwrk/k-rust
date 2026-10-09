@@ -398,7 +398,62 @@ impl Sample for DescriptorSimplification {
         vec![Self {
             key: sample::<ProvenanceKey>(),
             priority: sample::<Option<DescriptorSimplificationPriority>>(),
+            restriction: sample::<Option<DescriptorMatchRestriction>>(),
         }]
+    }
+}
+impl Sample for DescriptorEquationAttributes {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            restriction: sample::<DescriptorMatchRestriction>(),
+        }]
+    }
+}
+impl Sample for DescriptorMatchRestriction {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            concrete: sample::<Option<DescriptorRestriction>>(),
+            symbolic: sample::<Option<DescriptorRestriction>>(),
+            smt_lemma: sample::<Option<ProvenanceKey>>(),
+        }]
+    }
+}
+impl Sample for DescriptorRestriction {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            variables: sample::<Vec<DescriptorRestrictionVariable>>(),
+        }]
+    }
+}
+impl Sample for DescriptorRestrictionVariable {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+        }]
+    }
+}
+impl Sample for IrMatchRestriction {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<Option<IrRestriction>>(),
+            sample::<Option<IrRestriction>>(),
+            sample::<Option<NodeOrigin>>(),
+        )]
+    }
+}
+impl Sample for IrRestriction {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<Vec<IrRestrictionVariable>>(),
+        )]
+    }
+}
+impl Sample for IrRestrictionVariable {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(sample::<NodeOrigin>(), sample::<SemanticId>())]
     }
 }
 impl Sample for DescriptorSimplificationPriority {
@@ -3100,6 +3155,7 @@ impl Sample for StructuredRuleDescriptor {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            equation: sample::<Option<DescriptorEquationAttributes>>(),
         }]
     }
 }
@@ -3290,6 +3346,7 @@ impl Sample for WireStructuredRule {
             existentials: sample(),
             ensures: sample(),
             fresh: sample(),
+            equation: sample::<Option<DescriptorEquationAttributes>>(),
         }]
     }
 }
@@ -3388,6 +3445,9 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
     insert::<Arguments<DescriptorStage>>(corpus, "Arguments");
     insert::<AtLeastTwo<String>>(corpus, "AtLeastTwo");
     insert::<ConfigurationSentenceKind>(corpus, "ConfigurationSentenceKind");
+    insert::<IrMatchRestriction>(corpus, "IrMatchRestriction");
+    insert::<IrRestriction>(corpus, "IrRestriction");
+    insert::<IrRestrictionVariable>(corpus, "IrRestrictionVariable");
     insert::<IrRewrite<SemanticLevel>>(corpus, "IrRewrite");
     insert::<TermMapOperation>(corpus, "TermMapOperation");
     insert::<DefinitionTerm>(corpus, "DefinitionTerm");

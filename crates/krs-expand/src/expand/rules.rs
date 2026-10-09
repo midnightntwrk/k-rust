@@ -328,7 +328,11 @@ fn expand_ordinary_rule(
                 key: wire_key(simplification_priority_role, 0),
                 value,
             }),
+        restriction: match_restriction(simplification.restriction()),
     });
+    let equation_attributes = equation
+        .and_then(|equation| match_restriction(equation.restriction()))
+        .map(|restriction| krs_ir::DescriptorEquationAttributes { restriction });
     let item_kind_variant = format_ident!("{}", sentence_kind.item_kind().stable_text());
     let item_kind = quote!(#facade::ItemKind::#item_kind_variant);
     let nondet = attribute
@@ -359,6 +363,7 @@ fn expand_ordinary_rule(
         existentials,
         ensures,
         fresh,
+        equation: equation_attributes,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -455,6 +460,44 @@ fn typed_binders(
         });
     }
     Ok((bindings, key_functions))
+}
+
+/// The descriptor form of an equation's or simplification's `concrete`,
+/// `symbolic`, and `smt_lemma` keys (KF-043), or `None` when none is authored.
+fn match_restriction(
+    restriction: &krs_syntax::MatchRestriction,
+) -> Option<krs_ir::DescriptorMatchRestriction> {
+    if restriction.is_empty() {
+        return None;
+    }
+    let mut ordinal = 0_u32;
+    let mut key = |restriction: Option<&krs_syntax::RestrictionKey>, role: ProvenanceRole| {
+        restriction.map(|restriction| krs_ir::DescriptorRestriction {
+            key: wire_key(role, 0),
+            variables: restriction
+                .variables()
+                .unwrap_or_default()
+                .iter()
+                .map(|variable| {
+                    let key = wire_key(ProvenanceRole::RestrictionVariable, ordinal);
+                    ordinal += 1;
+                    krs_ir::DescriptorRestrictionVariable {
+                        key,
+                        name: variable.to_string(),
+                    }
+                })
+                .collect(),
+        })
+    };
+    let concrete = key(restriction.concrete(), ProvenanceRole::RestrictionConcrete);
+    let symbolic = key(restriction.symbolic(), ProvenanceRole::RestrictionSymbolic);
+    Some(krs_ir::DescriptorMatchRestriction {
+        concrete,
+        symbolic,
+        smt_lemma: restriction
+            .smt_lemma()
+            .map(|_| wire_key(ProvenanceRole::SmtLemma, 0)),
+    })
 }
 
 pub(crate) fn orphan_rule_helper(

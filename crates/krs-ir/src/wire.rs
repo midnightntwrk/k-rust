@@ -422,6 +422,7 @@ mod tests {
                 existentials: Vec::new(),
                 ensures: None,
                 fresh: Vec::new(),
+                equation: None,
             },
             "sort",
             4,

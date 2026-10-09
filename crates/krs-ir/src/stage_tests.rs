@@ -710,6 +710,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
+        equation: None,
     }
 }
 

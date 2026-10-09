@@ -194,6 +194,8 @@ register_codes! {
         NO_FRESH_GENERATOR: "krs::analysis::no-fresh-generator" => "A `#[k::fresh]` binder has a sort without a `fresh_generator` function (Int and Id have K's own).",
         DUPLICATE_FRESH_GENERATOR: "krs::analysis::duplicate-fresh-generator" => "A sort has more than one `fresh_generator` function.",
         DUPLICATE_SMTLIB: "krs::analysis::duplicate-smtlib" => "Two functions declare the same `smtlib` symbol, so Z3 would identify them.",
+        INVALID_MATCH_RESTRICTION: "krs::analysis::invalid-match-restriction" => "A `concrete` or `symbolic` key of an equation or simplification names no left-hand binder, restricts one binder both ways, is bare on both keys, or is on an equation whose function's other equations lack it.",
+        SMT_LEMMA_UNTRANSLATABLE: "krs::analysis::smt-lemma-untranslatable" => "An `smt_lemma` equation or simplification mentions a function Z3 cannot see: a user function without `smtlib` or `smt_hook`, or a builtin without an SMT translation.",
         INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
@@ -265,6 +267,7 @@ register_codes! {
         INVALID_LEXICAL_MACRO: "krs::syntax::invalid-lexical-macro" => "A `k::lexical!` or `k::layout!` block was malformed: it is empty, repeats a lexical name, names a lexical outside `[A-Z][A-Za-z0-9]*`, or has a malformed entry.",
         INVALID_SYNTAX_LIST_ATTRIBUTE: "krs::syntax::invalid-syntax-list" => "A `#[k::syntax_list]` enum was malformed: it needs exactly one two-field cons variant whose second field is the enum itself and one zero-field tuple terminator variant, a separator that is empty or one K terminal, no generics, and no `#[k::syntax]` on its variants.",
         RAW_K_SHAPE: "krs::syntax::raw-k-shape" => "A `raw_k!` text is not exactly one rule, claim, or context sentence.",
+        INVALID_MATCH_RESTRICTION_KEY: "krs::syntax::invalid-match-restriction" => "A `concrete`, `symbolic`, or `smt_lemma` key was malformed: repeated, `concrete` or `symbolic` both bare and with a list, an empty list, or a key on `#[k::rule]`.",
         INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.

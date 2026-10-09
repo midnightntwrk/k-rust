@@ -1043,6 +1043,7 @@ pub struct SemanticRule {
     existentials: Vec<SemanticScopedBinder>,
     ensures: Option<SemanticRuleCondition>,
     fresh: Vec<SemanticScopedBinder>,
+    restriction: Option<crate::IrMatchRestriction>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -1063,6 +1064,7 @@ impl Serialize for SemanticRule {
             existentials: Cow::Borrowed(&self.existentials),
             ensures: self.ensures.as_ref().map(Cow::Borrowed),
             fresh: Cow::Borrowed(&self.fresh),
+            restriction: self.restriction.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -1096,6 +1098,8 @@ struct SemanticRuleWire<'a, B> {
     ensures: Option<Cow<'a, SemanticRuleCondition>>,
     #[serde(default, skip_serializing_if = "crate::ir_level::is_empty_slice")]
     fresh: Cow<'a, [SemanticScopedBinder]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    restriction: Option<Cow<'a, crate::IrMatchRestriction>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1134,6 +1138,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             existentials: value.existentials.into_owned(),
             ensures: value.ensures.map(Cow::into_owned),
             fresh: value.fresh.into_owned(),
+            restriction: value.restriction.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1175,6 +1180,7 @@ impl SemanticRule {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            restriction: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1221,6 +1227,7 @@ impl SemanticRule {
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
+            restriction: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1322,6 +1329,17 @@ impl SemanticRule {
     #[must_use]
     pub fn fresh(&self) -> &[SemanticScopedBinder] {
         &self.fresh
+    }
+    /// Attaches the `concrete`, `symbolic`, and `smt_lemma` keys of an equation or simplification.
+    #[must_use]
+    pub fn with_restriction(mut self, restriction: Option<crate::IrMatchRestriction>) -> Self {
+        self.restriction = restriction;
+        self
+    }
+    /// Returns the `concrete`, `symbolic`, and `smt_lemma` keys.
+    #[must_use]
+    pub const fn restriction(&self) -> Option<&crate::IrMatchRestriction> {
+        self.restriction.as_ref()
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1547,6 +1565,9 @@ pub enum SemanticValidationError {
     InvalidRuleExistentials(Box<StableItemId>),
     /// Fresh binders occurred on a sentence other than a transition, or on an anywhere rule.
     InvalidRuleFresh(Box<StableItemId>),
+    /// `concrete`, `symbolic`, or `smt_lemma` occurred on a sentence other than an equation
+    /// or simplification, or named a binder that is not a left-hand variable.
+    InvalidMatchRestriction(Box<StableItemId>),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1764,6 +1785,11 @@ impl fmt::Display for SemanticValidationError {
             Self::InvalidRuleFresh(id) => write!(
                 formatter,
                 "fresh binders are allowed only on transition rules that are not anywhere rules, not on `{}`",
+                id.item_name()
+            ),
+            Self::InvalidMatchRestriction(id) => write!(
+                formatter,
+                "concrete, symbolic, and smt_lemma are allowed only on equations and simplifications, naming left-hand binders, not on `{}`",
                 id.item_name()
             ),
             Self::FreshScopeViolation(id) => write!(
@@ -1991,6 +2017,7 @@ mod tests {
             existentials: vec![binder],
             ensures: None,
             fresh: Vec::new(),
+            restriction: None,
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,

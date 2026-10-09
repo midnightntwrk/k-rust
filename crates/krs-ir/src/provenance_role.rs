@@ -440,6 +440,14 @@ provenance_roles! {
     FunctionSmtHook => "function_smt_hook",
     /// One `{field}` placeholder of a function's `smt_hook` template.
     SmtHookPlaceholder => "smt_hook_placeholder",
+    /// `concrete` or `concrete(..)` of an equation or simplification.
+    RestrictionConcrete => "restriction_concrete",
+    /// `symbolic` or `symbolic(..)` of an equation or simplification.
+    RestrictionSymbolic => "restriction_symbolic",
+    /// One binder named in `concrete(..)` or `symbolic(..)`, numbered across both lists.
+    RestrictionVariable => "restriction_variable",
+    /// Bare `smt_lemma` flag of an equation or simplification.
+    SmtLemma => "smt_lemma",
 }
 
 impl Serialize for ProvenanceRole {
