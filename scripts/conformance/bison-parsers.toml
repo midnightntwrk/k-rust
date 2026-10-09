@@ -1,8 +1,9 @@
 schema = 1
 
 # This manifest is the reviewed behavioral oracle for generated Bison parsers. Inputs are
-# relative to their regression-new case. `amb` permits only the test-only Lblamb canonicalizer;
-# every other successful parser invocation must produce byte-identical stdout.
+# relative to their regression-new case. `amb` permits only the test-only Lblamb canonicalizer
+# (N25), `locations` only the removal of #location line and column arguments (N46); every other
+# successful parser invocation must produce byte-identical stdout.
 
 [[case]]
 name = "bison-glr-bug"
@@ -13,10 +14,11 @@ inputs = ["forwarder.iele"]
 [[case]]
 name = "bison-parser-library"
 artifact = "shared-library"
-comparison = "exact"
+comparison = "locations"
 inputs = ["test.in"]
 consumer = "test.c"
 library = "parser_KItem_TEST"
+reason = "test.k declares Foo [locations]; the two toolchains number #location lines and columns differently (docs/compatibility.md#generated-parser-locations)."
 
 [[case]]
 name = "glr"

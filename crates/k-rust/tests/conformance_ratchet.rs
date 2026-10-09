@@ -731,7 +731,7 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
             .get("comparison")
             .and_then(Value::as_str)
             .unwrap_or("exact");
-        assert!(matches!(comparison, "exact" | "amb"));
+        assert!(matches!(comparison, "exact" | "amb" | "locations"));
         let inputs = row["inputs"].as_array().unwrap();
         let strings = inputs
             .iter()
@@ -781,6 +781,12 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
         if comparison == "amb" {
             assert_eq!(name, "parse-c", "ambiguity requires individual review");
         }
+        if comparison == "locations" {
+            assert_eq!(
+                name, "bison-parser-library",
+                "location normalization requires individual review"
+            );
+        }
     }
     assert_eq!((executable, executable_inputs, libraries), (18, 37, 1));
     let matrix_digest = Sha256::digest(reviewed_matrix.as_bytes())
@@ -789,7 +795,7 @@ fn bison_parser_manifest_covers_the_reviewed_positive_corpus() {
         .collect::<String>();
     assert_eq!(
         matrix_digest,
-        "67f65334366f36782f461d65670d84369da29d907bfaad25ae7e627882a7de59"
+        "c29e111b2a05f071b8a7d3b4644a3373785e272ef2ff35744b5e87a03cf37018"
     );
 }
 
@@ -916,8 +922,8 @@ print(json.dumps({"calls": calls, "comparison": comparison, "steps": case.steps}
         calls[1]["stdout"]
     );
     assert_eq!(
-        observed["comparison"]["env"]["K_BISON_PARSER_ALLOW_AMBIGUITY"],
-        "0"
+        observed["comparison"]["env"]["K_BISON_PARSER_COMPARISON"],
+        "exact"
     );
     assert_eq!(observed["steps"][0]["verdict"], "match");
     assert_eq!(observed["steps"][0]["comparison_policy"], "exact");

@@ -303,11 +303,22 @@ anchor_helpers = [
   "valid_amb_sort",
   "flattened_amb_alternative_count",
   "pattern_children",
+  "rebuild_bottom_up",
   "rebuild_pattern_node",
 ]
 rule = "Only for a manifest row explicitly classified as ambiguous, require both parser outputs to be complete KORE patterns, recursively flatten same-sort binary Lblamb trees, retain duplicate alternatives, sort alternatives by compact KORE bytes, and rebuild a deterministic binary tree. Every unambiguous parser output must remain byte-identical."
 justification = "Alternative order in a generated GLR grammar can change the nesting of an ambiguity tree without changing its alternatives. The manifest authorizes this test-only transformation only for individually reviewed ambiguous inputs; generated scanner and grammar source bytes are outside the compatibility contract."
-env = "K_BISON_PARSER_ALLOW_AMBIGUITY=1"
+env = "K_BISON_PARSER_COMPARISON=amb"
+
+[[normalisation]]
+id = "N46"
+gate = "generated Bison parser output"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_location_positions"
+anchor_symbol = "normalize_location_positions"
+anchor_helpers = ["rebuild_bottom_up", "pattern_children", "rebuild_pattern_node"]
+rule = "Only for a manifest row classified as locations (bison-parser-library), require both parser outputs to be complete KORE patterns without Lblamb, require every Lbl'Hash'location application to have one sort parameter, six arguments and SortInt decimal literals as its last four, remove those four line and column arguments on both sides, and require the results to be equal and the reference to contain at least one location. The located terms, their file names and every other term remain compared; the comparison prints the number of locations."
+justification = "Both parsers locate the same tokens, but number lines and columns by different conventions (docs/compatibility.md#generated-parser-locations), so the four integers cannot agree byte for byte. krust's numbers are checked against its own convention by the CLI location test (kast_gen_parser_locations_number_lines_and_columns_as_the_in_process_parser)."
+env = "K_BISON_PARSER_COMPARISON=locations"
 
 [[normalisation]]
 id = "N26"

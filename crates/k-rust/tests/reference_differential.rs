@@ -27,10 +27,43 @@ struct AmbiguityStats {
     alternatives: usize,
 }
 
+/// How a manifest row compares the two generated parsers' stdout (`comparison` in
+/// scripts/conformance/bison-parsers.toml, passed as `K_BISON_PARSER_COMPARISON`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BisonComparison {
+    /// Byte-identical stdout.
     Exact,
+    /// Equal KORE after canonicalizing same-sort `Lblamb` trees (N25).
     Amb,
+    /// Equal KORE after removing the line and column arguments of every `#location` (N46).
+    Locations,
+}
+
+impl BisonComparison {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "exact" => Ok(Self::Exact),
+            "amb" => Ok(Self::Amb),
+            "locations" => Ok(Self::Locations),
+            other => Err(format!("unknown bison parser comparison {other:?}")),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Amb => "amb",
+            Self::Locations => "locations",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BisonComparisonReport {
+    reference: AmbiguityStats,
+    actual: AmbiguityStats,
+    /// `#location` applications whose positions were removed on each side.
+    locations: usize,
 }
 
 #[test]
@@ -40,43 +73,42 @@ fn generated_bison_parser_outputs_match() {
         .expect("K_REFERENCE_BISON_PARSER_OUTPUT is required");
     let actual_path =
         env::var("K_RUST_BISON_PARSER_OUTPUT").expect("K_RUST_BISON_PARSER_OUTPUT is required");
-    let allow_ambiguity = env::var("K_BISON_PARSER_ALLOW_AMBIGUITY").as_deref() == Ok("1");
+    let comparison = BisonComparison::parse(
+        env::var("K_BISON_PARSER_COMPARISON")
+            .as_deref()
+            .unwrap_or("exact"),
+    )
+    .unwrap();
     let fixture = env::var("K_BISON_PARSER_INPUT").unwrap_or_else(|_| "<unknown input>".into());
     let reference = fs::read(reference_path).unwrap();
     let actual = fs::read(actual_path).unwrap();
-    let (comparison, reference_stats, actual_stats) =
-        compare_bison_parser_outputs(&reference, &actual, allow_ambiguity)
-            .unwrap_or_else(|error| panic!("{fixture}: {error}"));
-    println!(
-        "bison-parser-comparison = '{}'",
-        match comparison {
-            BisonComparison::Exact => "exact",
-            BisonComparison::Amb => "amb",
-        }
-    );
+    let report = compare_bison_parser_outputs(&reference, &actual, comparison)
+        .unwrap_or_else(|error| panic!("{fixture}: {error}"));
+    println!("bison-parser-comparison = '{}'", comparison.name());
     println!(
         "bison-parser-reference-ambiguity-nodes = {}",
-        reference_stats.nodes
+        report.reference.nodes
     );
     println!(
         "bison-parser-reference-alternatives = {}",
-        reference_stats.alternatives
+        report.reference.alternatives
     );
     println!(
         "bison-parser-krust-ambiguity-nodes = {}",
-        actual_stats.nodes
+        report.actual.nodes
     );
     println!(
         "bison-parser-krust-alternatives = {}",
-        actual_stats.alternatives
+        report.actual.alternatives
     );
+    println!("bison-parser-located-terms = {}", report.locations);
 }
 
 fn compare_bison_parser_outputs(
     reference_bytes: &[u8],
     actual_bytes: &[u8],
-    allow_ambiguity: bool,
-) -> Result<(BisonComparison, AmbiguityStats, AmbiguityStats), String> {
+    comparison: BisonComparison,
+) -> Result<BisonComparisonReport, String> {
     let reference_source = std::str::from_utf8(reference_bytes)
         .map_err(|error| format!("reference parser stdout is not UTF-8: {error}"))?;
     let actual_source = std::str::from_utf8(actual_bytes)
@@ -87,37 +119,101 @@ fn compare_bison_parser_outputs(
     let actual = parse_pattern(actual_source).map_err(|error| {
         format!("krust parser stdout is not one complete KORE pattern: {error}")
     })?;
-    let reference_stats = ambiguity_stats(&reference)?;
-    let actual_stats = ambiguity_stats(&actual)?;
-    let ambiguous = reference_stats.nodes != 0 || actual_stats.nodes != 0;
-
-    if !ambiguous {
-        if reference_bytes != actual_bytes {
-            return Err(format!(
-                "unambiguous parser stdout differs byte-for-byte\nreference: {}\nkrust: {}",
-                bounded_text(reference_source),
-                bounded_text(actual_source),
-            ));
-        }
-        if allow_ambiguity {
-            return Err("manifest authorizes amb comparison, but neither parser produced Lblamb; review the fixture classification".into());
-        }
-        return Ok((BisonComparison::Exact, reference_stats, actual_stats));
-    }
-    if !allow_ambiguity {
-        return Err("unexpected Lblamb under exact comparison; review this fixture before authorizing ambiguity canonicalization".into());
-    }
-
-    let reference = canonicalize_ambiguities(&reference)?;
-    let actual = canonicalize_ambiguities(&actual)?;
-    if reference != actual {
+    let mut report = BisonComparisonReport {
+        reference: ambiguity_stats(&reference)?,
+        actual: ambiguity_stats(&actual)?,
+        locations: 0,
+    };
+    let ambiguous = report.reference.nodes != 0 || report.actual.nodes != 0;
+    if ambiguous && comparison != BisonComparison::Amb {
         return Err(format!(
-            "ambiguous parser outputs differ after flattening and sorting same-sort Lblamb alternatives\nreference: {}\nkrust: {}",
-            bounded_text(&Printer::compact().print_pattern(&reference)),
-            bounded_text(&Printer::compact().print_pattern(&actual)),
+            "unexpected Lblamb under {} comparison; review this fixture before authorizing ambiguity canonicalization",
+            comparison.name()
         ));
     }
-    Ok((BisonComparison::Amb, reference_stats, actual_stats))
+
+    match comparison {
+        BisonComparison::Exact => {
+            if reference_bytes != actual_bytes {
+                return Err(format!(
+                    "unambiguous parser stdout differs byte-for-byte\nreference: {}\nkrust: {}",
+                    bounded_text(reference_source),
+                    bounded_text(actual_source),
+                ));
+            }
+        }
+        BisonComparison::Amb => {
+            if !ambiguous {
+                return Err("manifest authorizes amb comparison, but neither parser produced Lblamb; review the fixture classification".into());
+            }
+            let reference = canonicalize_ambiguities(&reference)?;
+            let actual = canonicalize_ambiguities(&actual)?;
+            if reference != actual {
+                return Err(format!(
+                    "ambiguous parser outputs differ after flattening and sorting same-sort Lblamb alternatives\nreference: {}\nkrust: {}",
+                    bounded_text(&Printer::compact().print_pattern(&reference)),
+                    bounded_text(&Printer::compact().print_pattern(&actual)),
+                ));
+            }
+        }
+        BisonComparison::Locations => {
+            let (reference, reference_locations) = normalize_location_positions(&reference)
+                .map_err(|error| format!("reference parser stdout: {error}"))?;
+            let (actual, actual_locations) = normalize_location_positions(&actual)
+                .map_err(|error| format!("krust parser stdout: {error}"))?;
+            if reference_locations == 0 {
+                return Err("manifest authorizes locations comparison, but the reference parser produced no #location; review the fixture classification".into());
+            }
+            if reference != actual || reference_locations != actual_locations {
+                return Err(format!(
+                    "parser outputs differ after removing #location line and column arguments\nreference: {}\nkrust: {}",
+                    bounded_text(&Printer::compact().print_pattern(&reference)),
+                    bounded_text(&Printer::compact().print_pattern(&actual)),
+                ));
+            }
+            report.locations = reference_locations;
+        }
+    }
+    Ok(report)
+}
+
+/// Keeps the located term and the file name of every `Lbl'Hash'location{S}(term, file, l1, c1,
+/// l2, c2)` and removes the four positions, which must be `SortInt` decimal literals. The two
+/// toolchains number lines and columns by different conventions (docs/compatibility.md
+/// "Generated parser locations"); the CLI location tests check krust's numbers, and this
+/// comparison checks everything else: which terms are located, their file, and the terms.
+fn normalize_location_positions(root: &Pattern) -> Result<(Pattern, usize), String> {
+    let mut count = 0;
+    let normalized = rebuild_bottom_up(root, |mut built| {
+        let Pattern::Application { symbol, arguments } = &mut built else {
+            return Ok(built);
+        };
+        if symbol.name != "Lbl'Hash'location" {
+            return Ok(built);
+        }
+        let positions_are_integers = arguments.get(2..).is_some_and(|positions| {
+            positions.iter().all(|position| {
+                matches!(
+                    position,
+                    Pattern::DomainValue { sort: Sort::Application { name, arguments }, value }
+                        if name == "SortInt"
+                            && arguments.is_empty()
+                            && !value.as_bytes().is_empty()
+                            && value.as_bytes().iter().all(u8::is_ascii_digit)
+                )
+            })
+        });
+        if symbol.sort_parameters.len() != 1 || arguments.len() != 6 || !positions_are_integers {
+            return Err(format!(
+                "malformed #location: {}",
+                bounded_text(&Printer::compact().print_pattern(&built))
+            ));
+        }
+        arguments.truncate(2);
+        count += 1;
+        Ok(built)
+    })?;
+    Ok((normalized, count))
 }
 
 fn bounded_text(value: &str) -> String {
@@ -231,7 +327,12 @@ fn pattern_children(pattern: &Pattern) -> Vec<&Pattern> {
     }
 }
 
-fn canonicalize_ambiguities(root: &Pattern) -> Result<Pattern, String> {
+/// Rebuilds `root` from the leaves up, passing each rebuilt node to `node`; iterative, like the
+/// traversals above.
+fn rebuild_bottom_up(
+    root: &Pattern,
+    mut node: impl FnMut(Pattern) -> Result<Pattern, String>,
+) -> Result<Pattern, String> {
     struct Frame<'a> {
         pattern: &'a Pattern,
         children: Vec<&'a Pattern>,
@@ -260,44 +361,51 @@ fn canonicalize_ambiguities(root: &Pattern) -> Result<Pattern, String> {
             continue;
         }
         let frame = stack.pop().expect("the completed frame is present");
-        let mut built = rebuild_pattern_node(frame.pattern, frame.built);
-        if let Some(sort) = valid_amb_sort(&built)?.cloned() {
-            let Pattern::Application { arguments, .. } = &mut built else {
-                unreachable!()
-            };
-            let mut work = std::mem::take(arguments);
-            let mut alternatives = Vec::new();
-            while let Some(mut candidate) = work.pop() {
-                if valid_amb_sort(&candidate)? == Some(&sort) {
-                    let Pattern::Application { arguments, .. } = &mut candidate else {
-                        unreachable!()
-                    };
-                    work.extend(std::mem::take(arguments));
-                } else {
-                    alternatives.push(candidate);
-                }
-            }
-            alternatives.sort_by_cached_key(|pattern| {
-                Printer::compact().print_pattern(pattern).into_bytes()
-            });
-            let mut alternatives = alternatives.into_iter();
-            let first = alternatives
-                .next()
-                .expect("a valid binary Lblamb has alternatives");
-            built = alternatives.fold(first, |left, right| Pattern::Application {
-                symbol: Symbol {
-                    name: "Lblamb".into(),
-                    sort_parameters: vec![sort.clone()],
-                },
-                arguments: vec![left, right],
-            });
-        }
+        let built = node(rebuild_pattern_node(frame.pattern, frame.built))?;
         if let Some(parent) = stack.last_mut() {
             parent.built.push(built);
         } else {
             return Ok(built);
         }
     }
+}
+
+fn canonicalize_ambiguities(root: &Pattern) -> Result<Pattern, String> {
+    rebuild_bottom_up(root, |mut built| {
+        let Some(sort) = valid_amb_sort(&built)?.cloned() else {
+            return Ok(built);
+        };
+        let Pattern::Application { arguments, .. } = &mut built else {
+            unreachable!()
+        };
+        let mut work = std::mem::take(arguments);
+        let mut alternatives = Vec::new();
+        while let Some(mut candidate) = work.pop() {
+            if valid_amb_sort(&candidate)? == Some(&sort) {
+                let Pattern::Application { arguments, .. } = &mut candidate else {
+                    unreachable!()
+                };
+                work.extend(std::mem::take(arguments));
+            } else {
+                alternatives.push(candidate);
+            }
+        }
+        alternatives
+            .sort_by_cached_key(|pattern| Printer::compact().print_pattern(pattern).into_bytes());
+        let mut alternatives = alternatives.into_iter();
+        let first = alternatives
+            .next()
+            .expect("a valid binary Lblamb has alternatives");
+        Ok(
+            alternatives.fold(first, |left, right| Pattern::Application {
+                symbol: Symbol {
+                    name: "Lblamb".into(),
+                    sort_parameters: vec![sort.clone()],
+                },
+                arguments: vec![left, right],
+            }),
+        )
+    })
 }
 
 fn rebuild_pattern_node(pattern: &Pattern, children: Vec<Pattern>) -> Pattern {
@@ -418,28 +526,27 @@ fn rebuild_pattern_node(pattern: &Pattern, children: Vec<Pattern>) -> Pattern {
 #[test]
 fn bison_parser_comparator_is_byte_exact_for_unambiguous_output() {
     let bytes = b"f{}(a{}())\n";
-    assert_eq!(
-        compare_bison_parser_outputs(bytes, bytes, false).unwrap().0,
-        BisonComparison::Exact
+    assert!(compare_bison_parser_outputs(bytes, bytes, BisonComparison::Exact).is_ok());
+    assert!(
+        compare_bison_parser_outputs(b"f{}(a{}())\n", b"f{}( a{}() )\n", BisonComparison::Exact)
+            .is_err()
     );
-    assert!(compare_bison_parser_outputs(b"f{}(a{}())\n", b"f{}( a{}() )\n", false).is_err());
 }
 
 #[test]
 fn bison_parser_comparator_canonicalizes_same_sort_ambiguity_only() {
     let left = b"wrap{}(Lblamb{SortA{}}(Lblamb{SortA{}}(m{}(),z{}()),a{}()),Lblamb{SortB{}}(x{}(),y{}()))\n";
     let right = b"wrap{}(Lblamb{SortA{}}(z{}(),Lblamb{SortA{}}(a{}(),m{}())),Lblamb{SortB{}}(y{}(),x{}()))\n";
-    let compared = compare_bison_parser_outputs(left, right, true).unwrap();
-    assert_eq!(compared.0, BisonComparison::Amb);
+    let compared = compare_bison_parser_outputs(left, right, BisonComparison::Amb).unwrap();
     assert_eq!(
-        compared.1,
+        compared.reference,
         AmbiguityStats {
             nodes: 3,
             alternatives: 5
         }
     );
     assert_eq!(
-        compared.2,
+        compared.actual,
         AmbiguityStats {
             nodes: 3,
             alternatives: 5
@@ -451,16 +558,16 @@ fn bison_parser_comparator_canonicalizes_same_sort_ambiguity_only() {
 fn bison_parser_comparator_keeps_different_sort_ambiguity_as_one_alternative() {
     let left = b"Lblamb{SortA{}}(z{}(),Lblamb{SortB{}}(b{}(),a{}()))";
     let right = b"Lblamb{SortA{}}(Lblamb{SortB{}}(a{}(),b{}()),z{}())";
-    let compared = compare_bison_parser_outputs(left, right, true).unwrap();
+    let compared = compare_bison_parser_outputs(left, right, BisonComparison::Amb).unwrap();
     assert_eq!(
-        compared.1,
+        compared.reference,
         AmbiguityStats {
             nodes: 2,
             alternatives: 4
         }
     );
     assert_eq!(
-        compared.2,
+        compared.actual,
         AmbiguityStats {
             nodes: 2,
             alternatives: 4
@@ -471,26 +578,43 @@ fn bison_parser_comparator_keeps_different_sort_ambiguity_as_one_alternative() {
 #[test]
 fn bison_parser_comparator_rejects_bad_ambiguity_contracts() {
     assert!(
-        compare_bison_parser_outputs(b"Lblamb{}(a{}(),b{}())", b"Lblamb{}(a{}(),b{}())", true)
+        compare_bison_parser_outputs(
+            b"Lblamb{}(a{}(),b{}())",
+            b"Lblamb{}(a{}(),b{}())",
+            BisonComparison::Amb
+        )
+        .is_err()
+    );
+    assert!(
+        compare_bison_parser_outputs(
+            b"Lblamb{S{},T{}}(a{}(),b{}())",
+            b"a{}()",
+            BisonComparison::Amb
+        )
+        .is_err()
+    );
+    assert!(
+        compare_bison_parser_outputs(b"Lblamb{S{}}(a{}())", b"a{}()", BisonComparison::Amb)
             .is_err()
     );
-    assert!(compare_bison_parser_outputs(b"Lblamb{S{},T{}}(a{}(),b{}())", b"a{}()", true).is_err());
-    assert!(compare_bison_parser_outputs(b"Lblamb{S{}}(a{}())", b"a{}()", true).is_err());
     assert!(
         compare_bison_parser_outputs(
             b"Lblamb{S{}}(a{}(),b{}())",
             b"Lblamb{S{}}(b{}(),a{}())",
-            false
+            BisonComparison::Exact
         )
         .is_err()
     );
-    assert!(compare_bison_parser_outputs(b"a{}()", b"a{}()", true).is_err());
-    assert!(compare_bison_parser_outputs(b"Lblamb{S{}}(a{}(),a{}())", b"a{}()", true).is_err());
+    assert!(compare_bison_parser_outputs(b"a{}()", b"a{}()", BisonComparison::Amb).is_err());
+    assert!(
+        compare_bison_parser_outputs(b"Lblamb{S{}}(a{}(),a{}())", b"a{}()", BisonComparison::Amb)
+            .is_err()
+    );
     assert!(
         compare_bison_parser_outputs(
             br#"\dv{S{}}("Lblamb{S{}}(a{}(),b{}())")"#,
             br#"\dv{S{}}("Lblamb{S{}}(a{}(),b{}())")"#,
-            false
+            BisonComparison::Exact
         )
         .is_ok()
     );
@@ -507,11 +631,88 @@ fn bison_parser_comparator_handles_a_deep_unambiguous_term_iteratively() {
     for _ in 0..depth {
         source.push(')');
     }
-    assert_eq!(
-        compare_bison_parser_outputs(source.as_bytes(), source.as_bytes(), false)
-            .unwrap()
-            .0,
-        BisonComparison::Exact,
+    assert!(
+        compare_bison_parser_outputs(source.as_bytes(), source.as_bytes(), BisonComparison::Exact)
+            .is_ok()
+    );
+}
+
+#[test]
+fn bison_parser_comparator_removes_only_location_positions() {
+    let located = |term: &str, file: &str, positions: [&str; 4]| {
+        format!(
+            r#"Lbl'Hash'location{{SortFoo{{}}}}({term}, \dv{{SortString{{}}}}("{file}"), \dv{{SortInt{{}}}}("{}"), \dv{{SortInt{{}}}}("{}"), \dv{{SortInt{{}}}}("{}"), \dv{{SortInt{{}}}}("{}"))"#,
+            positions[0], positions[1], positions[2], positions[3]
+        )
+    };
+    let reference = format!(
+        "wrap{{}}({},{})",
+        located(
+            "Lblfoo'LParRParUnds'TEST'Unds'Foo{}()",
+            "test.in",
+            ["1", "0", "1", "4"]
+        ),
+        located("b{}()", "test.in", ["2", "1", "2", "1"])
+    );
+    let actual = format!(
+        "wrap{{}}({},{})",
+        located(
+            "Lblfoo'LParRParUnds'TEST'Unds'Foo{}()",
+            "test.in",
+            ["1", "1", "1", "6"]
+        ),
+        located("b{}()", "test.in", ["2", "1", "2", "2"])
+    );
+    let report = compare_bison_parser_outputs(
+        reference.as_bytes(),
+        actual.as_bytes(),
+        BisonComparison::Locations,
+    )
+    .unwrap();
+    assert_eq!(report.locations, 2);
+    // The positions differ, so the outputs are not byte-identical.
+    assert!(
+        compare_bison_parser_outputs(
+            reference.as_bytes(),
+            actual.as_bytes(),
+            BisonComparison::Exact
+        )
+        .is_err()
+    );
+    // The located term, the file name, and an unlocated term are still compared.
+    for different in [
+        located("b{}()", "test.in", ["1", "1", "1", "6"]),
+        located(
+            "Lblfoo'LParRParUnds'TEST'Unds'Foo{}()",
+            "other.in",
+            ["1", "1", "1", "6"],
+        ),
+        "Lblfoo'LParRParUnds'TEST'Unds'Foo{}()".into(),
+    ] {
+        let actual = format!(
+            "wrap{{}}({different},{})",
+            located("b{}()", "test.in", ["2", "1", "2", "2"])
+        );
+        assert!(
+            compare_bison_parser_outputs(
+                reference.as_bytes(),
+                actual.as_bytes(),
+                BisonComparison::Locations
+            )
+            .is_err(),
+            "{actual}"
+        );
+    }
+    // A row without a location, or a malformed location, is refused.
+    assert!(compare_bison_parser_outputs(b"a{}()", b"a{}()", BisonComparison::Locations).is_err());
+    let malformed = located("a{}()", "test.in", ["1", "-1", "1", "2"]);
+    assert!(
+        compare_bison_parser_outputs(
+            malformed.as_bytes(),
+            malformed.as_bytes(),
+            BisonComparison::Locations
+        )
+        .is_err()
     );
 }
 
