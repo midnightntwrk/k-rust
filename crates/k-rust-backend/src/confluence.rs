@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, simplified only when no earlier condition of the check renamed to it; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, simplified only when no earlier condition of the check renamed to it; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -1619,13 +1619,15 @@ fn check_detached(
             });
         }
     }
-    let heads = definition
+    let withdrawable = definition
         .symbols()
         .values()
-        .any(|symbol| symbol.attributes.head_role() == HeadRole::EquationHead);
-    if !heads {
-        // No claim is about an equation-head application, and the collection claims read only
-        // equations indexed at a collection or a bare variable, which the rows above taint.
+        .any(|symbol| closure::taintable(symbol) && gate_symbol(definition, &symbol.name));
+    if !withdrawable {
+        // No symbol the gate is asked about can be tainted: the equation heads and the
+        // overloaded symbols are all free constructors or hooked, if any. So no pair changes a
+        // claim, and the collection claims read only equations indexed at a collection or a bare
+        // variable, which the rows above taint.
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
     }
 

@@ -235,7 +235,7 @@ impl<'e> Closure<'e> {
 }
 
 /// Whether the closure taints `symbol` when a tainted equation mentions it.
-fn taintable(symbol: &Symbol) -> bool {
+pub(super) fn taintable(symbol: &Symbol) -> bool {
     symbol.attributes.head_role() != HeadRole::FreeConstructor && symbol.attributes.hook.is_none()
 }
 

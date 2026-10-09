@@ -636,3 +636,4 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
 
 mod review_one;
 mod review_two;
+mod scope;
