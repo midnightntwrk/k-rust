@@ -6108,10 +6108,13 @@ fn on_thread_with_stack<T: Send + 'static>(
     stack_size: usize,
     body: impl FnOnce() -> T + Send + 'static,
 ) -> T {
+    // Each body recurses without end until the simplifier's stack runs out: the thread's and the
+    // segments of the budget beyond it. The default budget, 1 GiB, would commit that much stack
+    // per test; 16 MiB still takes the recursion onto a segment before it stops.
     std::thread::Builder::new()
         .name(name.into())
         .stack_size(stack_size)
-        .spawn(body)
+        .spawn(move || k_rust_backend::nesting::with_simplification_stack_budget(16 << 20, body))
         .expect("the regression thread should start")
         .join()
         .expect("the regression thread should complete")

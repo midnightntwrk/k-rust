@@ -1,11 +1,15 @@
 //! Inputs that once overflowed the native stack while loading or compiling, each compiled on a
-//! small thread at a size that overflowed it (`docs/backend-port.md`, "Stack bounds").
+//! small thread at a size that overflowed it, and executions whose evaluation recurses far deeper
+//! than their input, run through the backend facade on a small thread (`docs/backend-port.md`,
+//! "Stack bounds").
 //!
 //! A failure here is a stack overflow, which aborts the process; these tests live in their own
 //! binary so that the abort takes down only this file's tests.
 
+use k_rust::backend::{Backend, BackendOptions, ExecuteRequest};
 use k_rust::builtin::embedded;
 use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+use k_rust::kore::parser::parse_pattern;
 use k_rust::outer::{LoadOptions, ResolvedSource, load_with_options};
 
 /// The stack of the thread each test compiles on: small enough that the sizes below overflowed
@@ -124,4 +128,113 @@ fn deeply_nested_cells_load() {
 fn a_long_k_sequence_in_a_rule_compiles() {
     let items = vec!["a()"; 4_000].join(" ~> ");
     loads_on_a_small_stack(definition("", &format!("rule g(0) => {items}")), true);
+}
+
+/// A KORE definition in which `run(n, z)` takes `n` rewrite steps to build the term `c^n(z)` and
+/// then rewrites to `done(size(c^n(z)))`, where the function `size` counts the `c` levels
+/// recursively (`size(c(T)) = 1 + size(T)`): evaluating it descends `n` levels in the
+/// simplifier, from an input one level deep.
+const DEEP_EVALUATION: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), total{}(), hook{}("INT.add")]
+        hooked-symbol intSub{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), total{}(), hook{}("INT.sub")]
+        hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+            [function{}(), total{}(), hook{}("INT.gt")]
+        sort SortT{} []
+        sort SortState{} []
+        symbol z{}() : SortT{} [constructor{}(), functional{}()]
+        symbol c{}(SortT{}) : SortT{} [constructor{}(), functional{}()]
+        symbol size{}(SortT{}) : SortInt{} [function{}(), total{}()]
+        symbol run{}(SortInt{}, SortT{}) : SortState{} [constructor{}(), functional{}()]
+        symbol done{}(SortInt{}) : SortState{} [constructor{}(), functional{}()]
+        axiom{} \rewrites{SortState{}}(
+            \and{SortState{}}(
+                run{}(N:SortInt{}, T:SortT{}),
+                \equals{SortBool{}, SortState{}}(
+                    gtInt{}(N:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            run{}(intSub{}(N:SortInt{}, \dv{SortInt{}}("1")), c{}(T:SortT{}))
+        ) [label{}("step")]
+        axiom{} \rewrites{SortState{}}(
+            \and{SortState{}}(run{}(\dv{SortInt{}}("0"), T:SortT{}), \top{SortState{}}()),
+            done{}(size{}(T:SortT{}))
+        ) [label{}("measure")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, z{}()), \top{R}())),
+            \equals{SortInt{}, R}(size{}(X0:SortT{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))
+        ) [label{}("size-z")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, c{}(T:SortT{})), \top{R}())),
+            \equals{SortInt{}, R}(
+                size{}(X0:SortT{}),
+                \and{SortInt{}}(intAdd{}(\dv{SortInt{}}("1"), size{}(T:SortT{})), \top{SortInt{}}())
+            )
+        ) [label{}("size-c")]
+    endmodule []"#;
+
+/// The levels the deep evaluations below recurse through: far more than a 2 MiB thread holds
+/// in any build (about 400 levels in the `dev` profile).
+const EVALUATION_LEVELS: usize = 20_000;
+
+/// The stack of the thread each execution runs on: the default for a spawned Rust thread.
+const THREAD_STACK: usize = 2 << 20;
+
+/// Execute `run(levels, z)` through the facade on a [`THREAD_STACK`] thread, with the
+/// simplification stack budget set to `budget` when given, and return the result text or the
+/// error.
+fn execute_deep_evaluation(levels: usize, budget: Option<usize>) -> Result<String, String> {
+    std::thread::Builder::new()
+        .stack_size(THREAD_STACK)
+        .spawn(move || {
+            let mut backend = Backend::new(DEEP_EVALUATION, "MAIN", BackendOptions::default())
+                .expect("the definition loads");
+            if let Some(budget) = budget {
+                backend.set_simplification_stack_budget(budget);
+            }
+            let state = parse_pattern(&format!(
+                r#"run{{}}(\dv{{SortInt{{}}}}("{levels}"), z{{}}())"#
+            ))
+            .expect("the state parses");
+            backend
+                .execute_json(ExecuteRequest::new(state))
+                .map_err(|error| error.to_string())
+        })
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should not panic")
+}
+
+/// A recursive function 20,000 levels deep, evaluated from an input one level deep, completes:
+/// below its thread's stack the simplifier's recursion goes on on segments, up to
+/// `SIMPLIFICATION_STACK_BUDGET`. On this thread alone it stopped with `StackExhausted` a few
+/// hundred levels down.
+#[test]
+fn a_deep_recursive_function_completes_on_a_small_thread() {
+    let result = execute_deep_evaluation(EVALUATION_LEVELS, None).expect("the execution runs");
+    assert!(
+        result.contains(&format!(r#""value":"{EVALUATION_LEVELS}""#)),
+        "{result}"
+    );
+}
+
+/// The same recursion past the stack it may take (a budget of 16 MiB beyond the thread's 2 MiB)
+/// stops with `StackExhausted` and does not abort, though the stopped state holds a term 20,000
+/// levels deep that the operation then drops.
+#[test]
+fn a_recursion_past_its_stack_budget_stops_with_stack_exhausted() {
+    let result = execute_deep_evaluation(EVALUATION_LEVELS, Some(16 << 20));
+    let text = match &result {
+        Ok(text) | Err(text) => text,
+    };
+    assert!(
+        text.contains("StackExhausted")
+            || text.contains(&k_rust_backend::stop::StopCause::StackExhausted.to_string()),
+        "{result:?}"
+    );
 }

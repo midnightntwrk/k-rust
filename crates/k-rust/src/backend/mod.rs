@@ -500,6 +500,9 @@ fn serialize_wire(value: &impl Serialize) -> Result<String, BackendError> {
 pub struct Backend {
     session: BackendSession,
     options: BackendOptions,
+    /// The stack the simplifier's recursion may take beyond its thread's in each operation
+    /// (`nesting::with_simplification_stack_budget`).
+    simplification_stack_budget: usize,
     #[cfg(feature = "z3-inference")]
     solvers: std::collections::BTreeMap<String, Z3Solver>,
     #[cfg(feature = "z3-inference")]
@@ -588,6 +591,7 @@ impl Backend {
         let mut backend = Self {
             session,
             options,
+            simplification_stack_budget: k_rust_backend::nesting::SIMPLIFICATION_STACK_BUDGET,
             #[cfg(feature = "z3-inference")]
             solvers: Default::default(),
             #[cfg(feature = "z3-inference")]
@@ -595,6 +599,16 @@ impl Backend {
         };
         backend.with_solver(None, |_, _| Ok::<_, BackendError>(()))?;
         Ok(backend)
+    }
+
+    /// Set the native stack, in bytes, that the simplifier's recursion may take in each later
+    /// operation beyond the stack the operation runs on; the default is
+    /// [`k_rust_backend::nesting::SIMPLIFICATION_STACK_BUDGET`]. A function recursion deeper than
+    /// that stops with [`StopCause::StackExhausted`]. A smaller budget stops a runaway recursion
+    /// sooner and commits less memory before it does; 0 confines the simplifier to the stack the
+    /// operation runs on.
+    pub fn set_simplification_stack_budget(&mut self, bytes: usize) {
+        self.simplification_stack_budget = bytes;
     }
 
     pub fn capabilities(&self) -> BackendCapabilities {
@@ -1332,8 +1346,10 @@ impl Backend {
     /// that holds the backend's recursive passes over `patterns` with their aliases unfolded,
     /// over the definition, and over the internal terms built from them
     /// (`BackendDefinition::with_stack_for`), so it must return only external results and drop
-    /// its internal terms itself. Patterns too deep for the largest stack the backend provides
-    /// are refused with `InsufficientStack` before the operation runs.
+    /// its internal terms itself. Evaluation that recurses deeper than that stack goes on on
+    /// segments up to the operation's simplification stack budget
+    /// ([`Self::set_simplification_stack_budget`]). Patterns too deep for the largest stack the
+    /// backend provides are refused with `InsufficientStack` before the operation runs.
     pub fn with_solver_over<T, E>(
         &mut self,
         module: Option<&str>,
@@ -1349,9 +1365,14 @@ impl Backend {
             .map_err(error("could not select backend module"))
             .map_err(E::from)?;
         let depth = definition.operation_depth(patterns);
-        k_rust_backend::nesting::with_stack(depth, || self.run_with_solver(definition, operation))
-            .map_err(error("the request is too deep for the backend"))
-            .map_err(E::from)?
+        let budget = self.simplification_stack_budget;
+        k_rust_backend::nesting::with_stack(depth, || {
+            k_rust_backend::nesting::with_simplification_stack_budget(budget, || {
+                self.run_with_solver(definition, operation)
+            })
+        })
+        .map_err(error("the request is too deep for the backend"))
+        .map_err(E::from)?
     }
 
     #[cfg(feature = "z3-inference")]
@@ -3872,6 +3893,8 @@ endmodule
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
                 Backend::new(FUNCTION_CHAINS, "MAIN", BackendOptions::default()).unwrap();
+            // Confined to the stack sized from the input, the bound under test.
+            backend.set_simplification_stack_budget(0);
             let envelope = |term: &str| format!(r#"{{"format":"KORE","version":1,"term":{term}}}"#);
             let levels = 5_000;
             let a = nested(1, "a", "", "", "");
@@ -3937,6 +3960,8 @@ endmodule
                 endmodule []"#,
             );
             let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
+            // Confined to the stack sized from the input, the bound under test.
+            backend.set_simplification_stack_budget(0);
             let levels = BEYOND_THE_THREAD;
             let a = nested(1, "a", "", "", "");
             let nil = nested(1, "nil", "", "", "");
