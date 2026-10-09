@@ -3,6 +3,8 @@
 //! which need an index that is not a taintable symbol (a hooked root, a collection, a bare
 //! variable); the overloaded symbols of `G`; definitions without an equation head; and the
 //! spelling of a reported pair, which must not depend on what the check classified before it.
+//! Review 2 added definitions whose only equation head is hooked, which the closure withdraws
+//! through a variable's sort (T-obs) or a pin though T-sym never taints a hooked symbol.
 
 use super::definition;
 use crate::{
@@ -284,6 +286,67 @@ fn an_overloaded_function_is_withdrawn_without_an_equation_head() {
         ),
     ));
     assert_eq!(plain.value_claims().counts().pairs, 0);
+}
+
+/// A hooked `anywhere` symbol `hw : Nat -> S`, an equation head whose hook never applies to a
+/// `Nat`, with `extra`, in a signature with no other equation head.
+fn hooked_head(extra: &str) -> BackendDefinition {
+    without_heads(&format!(
+        r#"hooked-symbol hw{{}}(SortNat{{}}) : SortS{{}} [anywhere{{}}(), hook{{}}("INT.abs")]
+        {extra}"#
+    ))
+}
+
+fn assert_withdrawn_alike(definition: &BackendDefinition, symbol: &str) {
+    assert!(
+        definition
+            .value_claims()
+            .admit(&TermIndex::Symbol(symbol.into()))
+            .is_none(),
+        "`{symbol}` is admitted: {:?}",
+        definition.value_claims().tainted_symbols()
+    );
+    let differences = scope_differences(definition);
+    assert!(differences.is_empty(), "{differences:?}");
+}
+
+/// Review 2, N1 (T-obs): `ff(X) = z` and `ff(X) = s(z)` over `X : S` do not join, and an
+/// element of `S` can hold an application of the hooked head `hw`, so the pair withdraws `hw`
+/// though it never mentions it. The check must classify the pair although its only equation
+/// head is hooked; with an unrelated unhooked head `ww` beside it (no shortcut either way), the
+/// closure itself must return `hw`, a symbol T-sym never taints (the debug assertion that the
+/// closure returns only `may_be_tainted` symbols reads it).
+#[test]
+fn a_hooked_equation_head_is_withdrawn_through_a_variable_sort() {
+    for unrelated in ["", "symbol ww{}(SortNat{}) : SortNat{} [anywhere{}()]"] {
+        let definition = hooked_head(&format!(
+            "{unrelated} symbol ff{{}}(SortS{{}}) : SortNat{{}} [function{{}}()] {} {}",
+            equation("ff", "SortS{}", "SortNat{}", "X1:SortS{}", "z{}()", "to-z"),
+            equation(
+                "ff",
+                "SortS{}",
+                "SortNat{}",
+                "X1:SortS{}",
+                "s{}(z{}())",
+                "to-s"
+            ),
+        ));
+        assert!(tainted(&definition, "hw"), "with `{unrelated}`");
+        assert!(!definition.value_claims().unjoined().is_empty());
+        assert_withdrawn_alike(&definition, "hw");
+    }
+}
+
+/// Review 2, N1 (R1.4): a total injective `pin : S -> Int` into the hooked sort `Int` pins the
+/// heads an `S` can hold, the hooked `hw` included, with no pair at all.
+#[test]
+fn a_hooked_equation_head_is_withdrawn_through_a_pin() {
+    let definition = hooked_head(
+        r#"hooked-sort SortInt{} [hook{}("INT.Int")]
+        symbol pin{}(SortS{}) : SortInt{} [function{}(), functional{}(), total{}(), injective{}()]"#,
+    );
+    assert!(tainted(&definition, "hw"));
+    assert_withdrawn_alike(&definition, "hw");
 }
 
 /// `w3(X, Y, z) = m(X)` and `w3(z, Y, Z) = m(s(Y))`, which overlap at `w3(z, Y, z)` and do not

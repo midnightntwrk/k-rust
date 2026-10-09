@@ -1691,13 +1691,13 @@ fn check_detached(
     let withdrawable = definition
         .symbols()
         .values()
-        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
+        .any(|symbol| closure::may_be_tainted(symbol) && certified_root(definition, symbol));
     if !withdrawable {
         // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted: the equation heads and the overloaded symbols are all free
-        // constructors or hooked, if any. So no pair changes a
-        // claim, and the collection claims read only equations indexed at a collection or a bare
-        // variable, which the rows above taint.
+        // classes) can be tainted by any closure (`closure::may_be_tainted`): there is no
+        // equation head, hooked or not, and every overloaded symbol is a free constructor or
+        // hooked. So no pair changes a claim, and the collection claims read only equations
+        // indexed at a collection or a bare variable, which the rows above taint.
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
     }
 
@@ -1987,6 +1987,14 @@ fn check_detached(
             .flat_map(|pair| [&pair.first, &pair.second])
             .chain(&row_seeds),
         pinned_heads,
+    );
+    debug_assert!(
+        switches::active().seed_heads_only
+            || tainted.iter().all(|name| definition
+                .symbols()
+                .get(name)
+                .is_some_and(|symbol| closure::may_be_tainted(symbol))),
+        "the closure tainted a symbol outside `may_be_tainted`, which the shortcut reads: {tainted:?}"
     );
     for symbol in &tainted {
         checked

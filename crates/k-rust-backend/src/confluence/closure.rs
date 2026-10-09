@@ -234,9 +234,19 @@ impl<'e> Closure<'e> {
     }
 }
 
-/// Whether the closure taints `symbol` when a tainted equation mentions it.
+/// Whether the closure taints `symbol` when a tainted equation mentions it (T-sym's filter
+/// only: T-obs and the pins never consult it).
 pub(super) fn taintable(symbol: &Symbol) -> bool {
     symbol.attributes.head_role() != HeadRole::FreeConstructor && symbol.attributes.hook.is_none()
+}
+
+/// Whether some closure can taint `symbol`: the union of what the rules push. T-sym pushes the
+/// [`taintable`] symbols; T-obs and the pins push equation heads from [`SortReach`], which holds
+/// every equation head, hooked or not (a hooked head may be partial, so a pair whose variable
+/// ranges over its sort constrains it like any other head); T0 and T1 taint equations, not
+/// symbols. [`Closure::taint`] returns no other symbol.
+pub(super) fn may_be_tainted(symbol: &Symbol) -> bool {
+    taintable(symbol) || symbol.attributes.head_role() == HeadRole::EquationHead
 }
 
 /// The taintable symbols `rule` mentions: anywhere, or in its left-hand side only when not

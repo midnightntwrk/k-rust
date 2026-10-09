@@ -511,6 +511,52 @@ fn finding_n1_a_pair_withdraws_the_heads_its_variables_range_over() {
     assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortA{}");
 }
 
+/// Finding N1 with the value production hooked (review 2 of the load's scope, N1): `v` is still
+/// an equation head (`anywhere`, not a declared function), partial, and the only one, so every
+/// model makes `A` empty and `v(N)` undefined. The closure reaches `v` through the pair's
+/// variable (T-obs), which no hook exempts; the check must not skip the pairs because `v` is
+/// hooked. Its hook never applies to a `Nat` (inhabited by `z`), so no hook evaluation decides
+/// `\ceil(v(N))`.
+#[test]
+fn finding_n1_holds_when_the_value_production_is_hooked() {
+    let declarations = r#"
+        sort SortA{} []
+        sort SortB{} []
+        sort SortNat{} []
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol c1{}() : SortB{} [constructor{}(), functional{}(), injective{}()]
+        symbol c2{}() : SortB{} [constructor{}(), functional{}(), injective{}()]
+        hooked-symbol v{}(SortNat{}) : SortA{}
+            [anywhere{}(), value-production{}(), hook{}("INT.abs")]
+        symbol g{}(SortA{}) : SortB{} [function{}()]
+    "#;
+    let definition = definition(
+        declarations,
+        &[
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortB{}",
+                &["VarX:SortA{}"],
+                "c1{}()",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortB{}",
+                &["VarX:SortA{}"],
+                "c2{}()",
+                r"\top{R}()",
+                "",
+            ),
+        ],
+    );
+    assert_withdrawn(&definition, &["v"], Some(UnjoinedReason::DifferentResults));
+    assert_obligation_kept(&definition, "v{}(N:SortNat{})", "SortA{}");
+}
+
 /// A pair whose `requires` could be refuted only through a claim on a head the pair itself
 /// withdraws: `f(X) = c1 requires X ==K h(1)` and `f(X) = c2 requires X ==K h(2)`. Refuting the
 /// conjunction needs `h(1)` and `h(2)` to be distinct values, a free claim about `h`; the check
