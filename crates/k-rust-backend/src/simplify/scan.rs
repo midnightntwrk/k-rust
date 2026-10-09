@@ -323,3 +323,71 @@ pub(super) fn scan_instances<S, T, N>(
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{EquationAttempt, scan_instances};
+    use crate::{diagnostic, simplify::ConditionIndeterminacy};
+
+    /// The outcome of each instance in order, each of which emits a diagnostic naming itself;
+    /// returns the scan's outcome and the instances whose diagnostics reached the collector.
+    fn scan(outcomes: &[EquationAttempt<&'static str, ()>]) -> (String, Vec<usize>) {
+        let (outcome, diagnostics) = diagnostic::collect(|| {
+            scan_instances((0..outcomes.len()).collect(), |instance| {
+                diagnostic::emit_rule_condition_budget_exhausted(
+                    &format!("instance-{instance}"),
+                    1,
+                );
+                Ok(match &outcomes[instance] {
+                    EquationAttempt::Applied(result) => EquationAttempt::Applied(*result),
+                    EquationAttempt::NotApplicable(()) => EquationAttempt::NotApplicable(()),
+                    EquationAttempt::Indeterminate(_) => {
+                        EquationAttempt::Indeterminate(ConditionIndeterminacy::NoSolver)
+                    }
+                    EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
+                    EquationAttempt::Unused => EquationAttempt::Unused,
+                    EquationAttempt::Recurred => EquationAttempt::Recurred,
+                })
+            })
+        });
+        let outcome = match outcome.expect("no attempt stops") {
+            EquationAttempt::Applied(result) => format!("applied {result}"),
+            EquationAttempt::NotApplicable(()) => "not applicable".to_owned(),
+            EquationAttempt::Indeterminate(_) => "indeterminate".to_owned(),
+            EquationAttempt::ContextDependent => "context dependent".to_owned(),
+            EquationAttempt::Unused => "unused".to_owned(),
+            EquationAttempt::Recurred => "recurred".to_owned(),
+        };
+        let shown = format!("{diagnostics:?}");
+        let reached = (0..outcomes.len())
+            .filter(|instance| shown.contains(&format!("\"instance-{instance}\"")))
+            .collect();
+        (outcome, reached)
+    }
+
+    /// Diagnostics follow the outcome they explain: an instance passed over (refuted, unused)
+    /// explains nothing, an applied instance explains the result, and undecided instances explain
+    /// an undecided equation, but not one that a later instance applies.
+    #[test]
+    fn only_the_instances_that_explain_the_outcome_report_their_diagnostics() {
+        use EquationAttempt::{Applied, Indeterminate, NotApplicable, Unused};
+        let undecided = || Indeterminate(ConditionIndeterminacy::NoSolver);
+
+        assert_eq!(
+            scan(&[NotApplicable(()), Unused, Applied("r")]),
+            ("applied r".to_owned(), vec![2])
+        );
+        assert_eq!(
+            scan(&[undecided(), NotApplicable(()), Applied("r")]),
+            ("applied r".to_owned(), vec![2])
+        );
+        assert_eq!(
+            scan(&[NotApplicable(()), undecided(), Unused, undecided()]),
+            ("indeterminate".to_owned(), vec![1, 3])
+        );
+        assert_eq!(
+            scan(&[NotApplicable(()), Unused]),
+            ("unused".to_owned(), vec![])
+        );
+    }
+}
