@@ -1448,6 +1448,7 @@ struct Loader<'a, R> {
 }
 
 impl<R: SourceResolver> Loader<'_, R> {
+    // stack-accepted(import-chain): one level per file of a `requires` chain; real chains are tens deep, 4,000 modules pass on 8 MiB, and compile time is already about n^1.6. See docs/backend-port.md#stack-bounds.
     // Invariant: on entry `states` marks every source whose visit has started (`Visiting`) or finished (`Complete`), and `files` holds the parsed sources of finished visits in post-order; a source already in `states` returns at once, so each resolvable source is parsed once and each require edge makes at most one call.
     fn visit(&mut self, source: ResolvedSource) -> Result<(), LoadError> {
         match self.states.get(&source.source) {

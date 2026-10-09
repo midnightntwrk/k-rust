@@ -67,6 +67,7 @@ use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
 use super::{PACKED_STRUCTURAL_COMPARISONS, UNPACKED_NODES};
 use super::{ParseProvenance, Production, mint_literal_sort, term_metadata};
 
+// stack-accepted(debug-only-checks): the derived `Debug` recurses once per tree level and is used only in test and diagnostic output. See docs/backend-port.md#stack-bounds.
 /// An owned parse tree. Its copies and comparisons descend one level at a time under
 /// `crate::stack::guarded` and its drop frees one node at a time, so a tree of any depth is
 /// copied, compared and dropped on any thread.

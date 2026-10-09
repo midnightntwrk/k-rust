@@ -44,6 +44,7 @@ impl<'a> Converter<'a> {
         self.pattern(&normalize::for_kast(pattern))
     }
 
+    // stack-accepted(kore-to-kast): one level per pattern level, in a library API that no product path calls. See docs/backend-port.md#stack-bounds.
     fn pattern(&self, pattern: &Pattern) -> Result<Term, ConversionError> {
         match pattern {
             Pattern::Variable(variable) => self.variable(variable),

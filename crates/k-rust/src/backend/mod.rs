@@ -704,6 +704,8 @@ impl Backend {
     /// right-hand-side definedness obligation fails, even when a sibling candidate continues.
     /// A step's `trivial` leaves precede the leaves of its successors.
     /// Strategy `any` makes no coverage claim.
+    ///
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }
@@ -712,6 +714,8 @@ impl Backend {
     /// For the same request, leaves match `execute` after clearing `branch` and `observations`.
     /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
     /// every identity and no observation events.
+    ///
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
@@ -777,10 +781,12 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
         self.search_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -824,6 +830,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_paths(
         &mut self,
         request: SearchRequest,
@@ -831,6 +838,7 @@ impl Backend {
         self.search_paths_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_paths_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
@@ -874,6 +882,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern(
         &mut self,
         request: SearchPatternRequest,
@@ -881,6 +890,7 @@ impl Backend {
         self.search_pattern_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -933,6 +943,7 @@ impl Backend {
         })
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_paths(
         &mut self,
         request: SearchPatternRequest,
@@ -940,6 +951,7 @@ impl Backend {
         self.search_pattern_paths_using(request, None)
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn search_pattern_paths_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
@@ -1074,6 +1086,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::simplify_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         self.simplify_with(request, |pattern| encode_pattern(&pattern))
     }
@@ -1100,6 +1113,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::implies_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn implies(
         &mut self,
         request: ImplicationRequest,
@@ -1145,6 +1159,7 @@ impl Backend {
         )
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::get_model_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     pub fn get_model(
         &mut self,
         request: PatternRequest,
@@ -1209,6 +1224,7 @@ impl Backend {
         }
     }
 
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; the result has no text form yet. See docs/backend-port.md#stack-bounds.
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]

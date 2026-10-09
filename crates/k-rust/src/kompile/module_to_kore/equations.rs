@@ -1064,6 +1064,7 @@ pub(super) fn check_variable_sorts(
     })
 }
 
+// stack-accepted(emission-width): emission turns a rule's arity, `[owise]` competitors and flat cells into nesting the term-depth measure does not count; 32,000 arguments or competitors and 4,000 flat cells pass on 8 MiB, after time or memory has run out. See docs/backend-port.md#stack-bounds.
 fn visit_pattern_variables<'a>(pattern: &'a Pattern, visitor: &mut impl FnMut(&'a Variable)) {
     match pattern {
         Pattern::Variable(variable) => visitor(variable),

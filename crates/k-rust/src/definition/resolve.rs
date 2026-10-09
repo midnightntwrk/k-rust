@@ -1144,6 +1144,7 @@ fn reverse_reachable(graph: &DiGraph<ResolvedModule, Import>, roots: &[bool]) ->
 }
 
 fn find_cycle(graph: &DiGraph<ResolvedModule, Import>) -> Option<Vec<String>> {
+    // stack-accepted(import-chain): one level per module of an import chain; real chains are tens deep, 4,000 modules pass on 8 MiB, and compile time is already about n^1.6. See docs/backend-port.md#stack-bounds.
     // Invariant: `stack` is the current depth-first path, whose nodes have `state` 1, and finished nodes have `state` 2; each recursive call is made only on a node with `state` 0 and sets it to 1, so the node count of `graph` bounds the calls.
     fn visit(
         graph: &DiGraph<ResolvedModule, Import>,

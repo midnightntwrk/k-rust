@@ -27,6 +27,7 @@ impl Printer {
     }
 }
 
+// stack-accepted(kast-printer): one level per term level; about 85,000 levels print on 8 MiB in a release build, deeper than any term worth reading as KAST text. See docs/backend-port.md#stack-bounds.
 fn print_term(output: &mut String, term: &Term, precedence: u8, first_in_group: bool) {
     match term.unannotated() {
         Term::Token { token, sort } => {

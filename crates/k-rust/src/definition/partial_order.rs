@@ -400,6 +400,7 @@ fn unique<T: Ord>(mut elements: BTreeSet<T>) -> Option<T> {
 }
 
 fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
+    // stack-accepted(subsort-chain): one level per sort of a subsort chain; real chains are under 20, and 2,000 sorts pass on 8 MiB in about 7 minutes. See docs/backend-port.md#stack-bounds.
     // Invariant: `stack` is the current depth-first path, whose nodes have `state` 1, and finished nodes have `state` 2; each recursive call is made only on a node with `state` 0 and sets it to 1, so the node count of `graph` bounds the calls.
     fn visit<T: Clone + Ord>(
         graph: &DiGraph<T, ()>,

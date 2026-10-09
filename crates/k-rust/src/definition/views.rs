@@ -64,6 +64,7 @@ impl<'a> DefinitionViews<'a> {
             .get_or_init(|| self.definition.production_catalog(module))
     }
 
+    // stack-accepted(import-chain): one level per module of an import chain; real chains are tens deep, 4,000 modules pass on 8 MiB, and compile time is already about n^1.6. See docs/backend-port.md#stack-bounds.
     pub fn sort_catalog(&self, module: ModuleId) -> &SortCatalog<'a> {
         self.sort_catalogs[module.0.index()].get_or_init(|| {
             let imported_sorts = self

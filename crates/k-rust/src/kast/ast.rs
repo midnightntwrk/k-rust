@@ -704,6 +704,7 @@ impl Term {
     }
 }
 
+// stack-accepted(kast-debug): `Debug` is for diagnostics, and about 20,000 levels format on 8 MiB in a release build. See docs/backend-port.md#stack-bounds.
 impl fmt::Debug for Term {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self.unannotated() {

@@ -516,6 +516,7 @@ fn collect_sentence_provenance(
 }
 
 fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
+    // stack-accepted(import-chain): one level per module of an import chain; real chains are tens deep, 4,000 modules pass on 8 MiB, and compile time is already about n^1.6. See docs/backend-port.md#stack-bounds.
     // Invariant: `visited` holds the modules whose imports are already ordered, each pushed to `ordered` after its imports, and `visiting` is the current import path, so a name on it closes a cycle; each call that does not return at once moves one module into `visited`, so the module set bounds the calls.
     fn visit<'a>(
         name: &str,

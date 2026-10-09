@@ -552,6 +552,7 @@ impl Generator<'_, '_> {
         })
     }
 
+    // stack-accepted(nested-cells): one level per nested cell declaration; configurations nest a handful of levels, and 4,000 pass on 8 MiB in about 3.5 minutes. See docs/backend-port.md#stack-bounds.
     fn generate_cell(
         &mut self,
         arguments: &[Term],
@@ -1157,6 +1158,7 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
     }
 }
 
+// stack-accepted(nested-cells): one level per nested `Cells` group of a configuration declaration; configurations nest a handful of levels, and 4,000 pass on 8 MiB. See docs/backend-port.md#stack-bounds.
 // Invariant: `output` holds, in order, the non-`Cells` terms of every entry of `terms` already consumed, and each recursive call receives the `arguments` of a nested `Cells` application, so the size of `terms` bounds the calls.
 #[expect(
     clippy::wildcard_enum_match_arm,
