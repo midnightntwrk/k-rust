@@ -217,7 +217,7 @@ The thresholds were measured with a release `krust` on an 8 MiB main thread and 
 
 | id | shape | sites | threshold on 8 MiB, release | reason |
 |---|---|---|---|---|
-| `emission-width` | function arity, `[owise]` competitors, flat cells and map element arity, which emission nests one level per item | `visit_pattern_variables` (`kompile/module_to_kore/equations.rs`) | 32,000 arguments (13 GB) and 32,000 competitors (5-7 min) pass, as do 4,000 flat cells (2.5-3 min) | real arity is tens, competitors hundreds and cells about a hundred; time or memory runs out before the stack |
+| `emission-width` | function arity, `[owise]` competitors, flat cells and map element arity, which emission nests one level per item | `visit_pattern_variables` (`kompile/module_to_kore/equations.rs`) | 32,000 arguments (13 GB) and 32,000 competitors (5-7 min) pass, as do 4,000 flat cells (51 s, 4.1 GB) | real arity is tens, competitors hundreds and cells about a hundred; time or memory runs out before the stack |
 | `import-chain` | a chain of `imports` or `requires`, one level per module or file | `DefinitionViews::sort_catalog` (`definition/views.rs`), `Loader::visit` (`outer/loader.rs`), `find_cycle` (`definition/resolve.rs`), `collect_execution_rewrite_order` (`kompile/compile.rs`) | 4,000 modules pass (10 s, 0.76 GB); 8,000 overflow | real chains are tens deep, and compile time already grows as about n^1.6 ([Known compile costs](#known-compile-costs)) |
 | `subsort-chain` | a subsort chain `S_i ::= S_{i-1}` | `find_cycle` (`definition/partial_order.rs`) | 2,000 sorts pass (about 7 min, 2.6 GiB) | real chains are under 20 |
 | `lexical-chain` | named lexical identifiers whose regular expressions each refer to the next | `visit_cycle` (`definition/checks/regexes.rs`) | not measured | such chains are a few names deep |
@@ -228,6 +228,21 @@ The thresholds were measured with a release `krust` on an 8 MiB main thread and 
 | `search-pattern-variables` | the variables of a `krun --search` pattern | `variable_identities` (`kompile/search_pattern.rs`) | not measured | the pattern is written by hand on the command line |
 | `debug-only-checks` | a parse tree formatted with `Debug` | the derived `Debug` of `ParsedTerm` (`inner/parser/forest.rs`) | not measured | used only in test and diagnostic output |
 | `facade-value-results` | facade results that hold KORE as `serde_json::Value`, which their holder drops, clones, formats and serializes one stack frame per level | `Backend::execute`, `search`, `search_paths`, `search_pattern`, `search_pattern_paths` and their observed variants, `simplify`, `implies`, `get_model`, `prove` (`backend/mod.rs`) | not measured | each has a `_json` form that writes the result as text inside the operation, which the CLI and the host methods use |
+
+## Known compile costs
+
+These shapes compile in time or memory that grows faster than their size. Each is accepted because the definitions written in practice have it only at sizes where the cost does not show, and removing it would take a change of meaning or of structure out of proportion to what it buys. Figures are user time and peak memory of a release `kcompile`, with the instructions retired where the host's load made times unreliable.
+
+| shape | cost | cause | why accepted |
+|---|---|---|---|
+| a flat `~>` sequence, or an operator chain, written directly against a rule's rewrite with a second token that can begin a rewrite, sequence or `#let` (`rule <k> foo(0) ~> foo(1) ~> ... => .K </k>`) | 1.0 / 3.5 / 14 s at 250 / 500 / 1,000 items (7.8 / 29 / 159 billion instructions), 2.4 GB at 1,000; cubic | the doomed readings the deferred scope errors keep for the preference among the root's readings, and the callers waiting for each of their completions ([JSON depth policy](#json-depth-policy) above) | a rule's sequence has tens of items (30 cost nothing measurable); removing the readings changes which rule bodies are accepted |
+| a `List{Int, ","}` literal in a rule body, `foo(0, 1, ...)` | 1.0 / 7.2 s at 100 / 200 elements (6.2 / 35 billion), 0.9 GB at 200 | the rule grammar's generic application also reads every way of cutting the list into elements, a real ambiguity that only `foo`'s arity resolves, after parsing | literals in rules have tens of elements (20 cost nothing measurable); resolving it during recognition needs label arities in the recognizer or a narrower generic application syntax |
+| a subsort chain `S_i ::= S_{i-1}` | 3.8 / 15 s at 500 / 1,000 sorts (40 / 117 billion), 0.8 GB at 1,000 | the definition states the subsort closure, n^2 axioms for a chain, and sort injection takes the minimal upper bounds of a sort pairwise | real chains are under 20 sorts |
+| flat cells in a configuration | 0.5 s at 100 cells, 7.1 s at 1,000 (42 billion), 51 s and 4.1 GB at 4,000 | the no-junk axiom and the injection witnesses of each sort scan every production and sort | configurations have about a hundred cells |
+| a chain of imports | 0.6 s at 250 modules (4.9 billion, 2 billion more than one module), 10 s and 0.76 GB at 4,000 (92 billion); about n^1.6 | each module's view of the visible sentences and its catalogs are built per module, and again after each pass that changes a module it imports | real chains are tens of modules deep |
+| a rule body thousands of levels deep, in the pass adding the implicit computation cell | 4 / 49 ms at 4,000 / 16,000 levels | not investigated further | negligible beside the rest of such a compile (2 s at 16,000) |
+| Z3 typing of a deep ambiguous or parametric forest | 7.5 s for 16,000 nested ambiguities ([JSON depth policy](#json-depth-policy) above) | Z3's interning of the constraint terms | no definition nests ambiguities that deep; the portable engine types the unambiguous forests |
+| a grammar whose nullable sort repeats itself (`S ::= S S \| ""`) | exponential in the input | forest construction for an infinitely ambiguous grammar | met only by the random grammars of the parser's property tests, above about 4,000 cases per run |
 
 ## Final search depth cuts
 
