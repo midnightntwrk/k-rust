@@ -10,7 +10,7 @@ use krs_ir::{
     ConfigurationRoot, FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    MapOperation, NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
+    MapOperation, NodeOrigin, ProductionGroupId, SemanticId, SentenceKind, StrictnessKind,
 };
 use krs_ir_levels::{
     ConfigurationSentence, ContextAliasSentence, DefinitionProductionAttribute,
@@ -56,16 +56,8 @@ impl Adapter<'_> {
             }
             DefinitionSentence::Precedence(sentence) => Ok(NativeSentence::SyntaxPriority {
                 priorities: vec![
-                    sentence
-                        .higher()
-                        .iter()
-                        .map(|group| self.group_name(group, sentence.origin()))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    sentence
-                        .lower()
-                        .iter()
-                        .map(|group| self.group_name(group, sentence.origin()))
-                        .collect::<Result<Vec<_>, _>>()?,
+                    self.tags(sentence.higher(), sentence.origin())?,
+                    self.tags(sentence.lower(), sentence.origin())?,
                 ],
                 attributes: attributes_for_origin(sentence.origin()),
             }),
@@ -78,11 +70,7 @@ impl Adapter<'_> {
                             native_definition::Associativity::NonAssoc
                         }
                     },
-                    tags: sentence
-                        .groups()
-                        .iter()
-                        .map(|group| self.group_name(group, sentence.origin()))
-                        .collect::<Result<Vec<_>, _>>()?,
+                    tags: self.tags(sentence.groups(), sentence.origin())?,
                     attributes: attributes_for_origin(sentence.origin()),
                 })
             }
@@ -121,6 +109,20 @@ impl Adapter<'_> {
             }
             DefinitionSentence::Raw(sentence) => raw_sentence(sentence, module),
         }
+    }
+
+    /// The member labels a priority block or associativity sentence stands for, group by group in
+    /// the authored order, as K's outer loader resolves the tags (see `group_tags`).
+    fn tags<'g>(
+        &self,
+        groups: impl IntoIterator<Item = &'g ProductionGroupId>,
+        origin: &NodeOrigin,
+    ) -> Result<Vec<String>, AdapterError> {
+        let mut tags = Vec::new();
+        for group in groups {
+            tags.extend(self.group_tags(group, origin)?);
+        }
+        Ok(tags)
     }
 
     pub(super) fn production(

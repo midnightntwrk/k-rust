@@ -18,7 +18,7 @@ use k_rust::{
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{NodeOrigin, OriginFrame, ProductionGroupId, SemanticId, SourceMapKey, StableItemId};
 use krs_ir_levels::{
-    DefinitionIr, DefinitionSentence, DefinitionSortRef, SymbolId,
+    DefinitionIr, DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef, SymbolId,
     k_surface::{
         DefinitionIndex, ImportPolicy, SentenceVariables, VariableNaming, builtin_imports,
     },
@@ -171,6 +171,14 @@ pub enum AdapterError {
         /// Stable target identity.
         target: String,
     },
+    /// A `syntax priority` or associativity sentence names a production group that no labelled
+    /// production declares, which K rejects (`Could not find any productions for tag`).
+    EmptyProductionGroup {
+        /// Origin of the precedence or associativity sentence.
+        key: SourceMapKey,
+        /// Emitted name of the group.
+        group: String,
+    },
     /// The pinned outer K parser rejected a `raw_k!` text, or the text is not
     /// exactly one sentence of its declared kind.
     RawK {
@@ -186,6 +194,7 @@ impl ToDiagnostic for AdapterError {
         let (code, key) = match self {
             Self::MissingSymbol { key, .. } => (codes::native::ADAPTER_MISSING_SYMBOL, key),
             Self::MissingReference { key, .. } => (codes::native::ADAPTER_MISSING_REFERENCE, key),
+            Self::EmptyProductionGroup { key, .. } => (codes::native::ADAPTER_EMPTY_GROUP, key),
             Self::RawK { key, .. } => (codes::native::RAW_K_PARSE, key),
         };
         Diagnostic::error(code, self.to_string(), Location::Definition(key.clone()))
@@ -203,6 +212,10 @@ impl fmt::Display for AdapterError {
                 formatter,
                 "Definition IR {kind} reference {target:?} at {key} is absent from the adapter index"
             ),
+            Self::EmptyProductionGroup { key, group } => write!(
+                formatter,
+                "production group {group:?} named at {key} has no labelled member production"
+            ),
             Self::RawK { message, .. } => write!(formatter, "raw K text rejected: {message}"),
         }
     }
@@ -211,7 +224,10 @@ impl fmt::Display for AdapterError {
 impl Error for AdapterError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::MissingSymbol { .. } | Self::MissingReference { .. } | Self::RawK { .. } => None,
+            Self::MissingSymbol { .. }
+            | Self::MissingReference { .. }
+            | Self::EmptyProductionGroup { .. }
+            | Self::RawK { .. } => None,
         }
     }
 }
@@ -267,6 +283,9 @@ pub fn adapt_definition_for(
 
 struct Adapter<'a> {
     index: DefinitionIndex<'a>,
+    /// The labels of every production that declares each group, definition-wide (see
+    /// [`group_member_labels`]).
+    group_members: BTreeMap<ProductionGroupId, BTreeSet<String>>,
     initializer_variables: BTreeMap<SemanticId, String>,
     context_here: Option<SemanticId>,
     naming: VariableNaming,
@@ -283,6 +302,7 @@ impl<'a> Adapter<'a> {
     fn new(ir: &'a DefinitionIr, keep_claims: bool) -> Self {
         Self {
             index: DefinitionIndex::new(ir),
+            group_members: group_member_labels(ir),
             initializer_variables: BTreeMap::new(),
             context_here: None,
             naming: VariableNaming::new(ir),
@@ -390,6 +410,27 @@ impl<'a> Adapter<'a> {
             })
     }
 
+    /// The labels a `syntax priority` or associativity tag naming `group` stands for.
+    ///
+    /// K's outer loader resolves such a tag to the labels of the productions that declare the
+    /// group, sorted, before it builds the flat definition, and rejects a tag no production carries;
+    /// k-rust's priority and associativity relations, and the KORE attributes derived from them,
+    /// read those labels.
+    fn group_tags(
+        &self,
+        group: &ProductionGroupId,
+        origin: &NodeOrigin,
+    ) -> Result<impl Iterator<Item = String> + '_, AdapterError> {
+        let name = self.group_name(group, origin)?;
+        self.group_members
+            .get(group)
+            .map(|labels| labels.iter().cloned())
+            .ok_or_else(|| AdapterError::EmptyProductionGroup {
+                key: origin.key().clone(),
+                group: name,
+            })
+    }
+
     fn context_alias_name(
         &self,
         alias: &StableItemId,
@@ -476,6 +517,38 @@ fn spec_closure(ir: &DefinitionIr, name: &str) -> Result<BTreeSet<String>, Adapt
         }
     }
     Ok(closure)
+}
+
+/// The labels of the productions that declare each production group, across the whole definition.
+///
+/// This is the IR form of the definition-wide tag index K's outer loader builds: a production
+/// joins every group it declares under the label the adapter gives it. A token production has no
+/// label (see [`Adapter::production`]), so, as in K, it never stands for a tag.
+fn group_member_labels(ir: &DefinitionIr) -> BTreeMap<ProductionGroupId, BTreeSet<String>> {
+    let mut members = BTreeMap::<ProductionGroupId, BTreeSet<String>>::new();
+    for module in ir.modules() {
+        for sentence in module.sentences() {
+            let DefinitionSentence::Production(production) = sentence else {
+                continue;
+            };
+            if production
+                .attributes()
+                .iter()
+                .any(|attribute| matches!(attribute, DefinitionProductionAttribute::Token { .. }))
+            {
+                continue;
+            }
+            for attribute in production.attributes() {
+                if let DefinitionProductionAttribute::Group { group, .. } = attribute {
+                    members
+                        .entry(group.clone())
+                        .or_default()
+                        .insert(production.symbol().emitted_name().to_owned());
+                }
+            }
+        }
+    }
+    members
 }
 
 fn is_claim(sentence: &DefinitionSentence) -> bool {

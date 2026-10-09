@@ -113,6 +113,7 @@ register_codes! {
     native {
         ADAPTER_MISSING_SYMBOL: "krs::native::adapter-missing-symbol" => "A symbol is absent from the native adapter index.",
         ADAPTER_MISSING_REFERENCE: "krs::native::adapter-missing-reference" => "A nominal reference is absent from the native adapter index.",
+        ADAPTER_EMPTY_GROUP: "krs::native::adapter-empty-group" => "A precedence or associativity sentence names a production group with no labelled member.",
         DUPLICATE_SENTENCE_MAPPING: "krs::native::duplicate-sentence-mapping" => "Native provenance maps a sentence more than once.",
         MISSING_SENTENCE_MAPPING: "krs::native::missing-sentence-mapping" => "Native provenance has no mapping for an input address.",
         LOSSY_COMPILE_ADDRESS: "krs::native::lossy-compile-address" => "A compile address cannot map to a KRS sentence.",

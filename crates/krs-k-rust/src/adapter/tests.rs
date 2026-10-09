@@ -23,7 +23,7 @@ use krs_ir_levels::{
 };
 
 use super::{
-    Adapter,
+    Adapter, AdapterError,
     sentence::{claim_modality_attribute, native_claim_counter, native_rule_label},
     term::TermContext,
 };
@@ -856,28 +856,7 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
     let definition = smoke_definition();
     let application_group = ProductionGroupId::new("group.application").unwrap();
     let atom_group = ProductionGroupId::new("group.atom").unwrap();
-    let main = &definition.modules()[0];
-    let main = DefinitionModule::new(
-        main.origin().clone(),
-        main.id().clone(),
-        main.imports().iter().cloned().collect(),
-        [
-            (application_group.clone(), "application"),
-            (atom_group.clone(), "atom"),
-        ]
-        .into_iter()
-        .map(|(id, name)| {
-            ProductionGroupIdentity::new(node(&format!("schema9.group.{name}")), id, name).unwrap()
-        })
-        .collect(),
-        main.sentences().to_vec(),
-    );
-    let definition = DefinitionIr::new(
-        definition.main_module().clone(),
-        vec![main, definition.modules()[1].clone()],
-    )
-    .unwrap();
-    let mut adapter = Adapter::new(&definition, true);
+    let empty_group = ProductionGroupId::new("group.empty").unwrap();
     let left = ProductionFieldId::new("left").unwrap();
     let right = ProductionFieldId::new("right").unwrap();
     let production = ProductionSentence::new(
@@ -934,6 +913,51 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
         ],
     )
     .unwrap();
+    let atom = ProductionSentence::new(
+        node("schema9.production.unit"),
+        symbol(
+            "schema9.production.unit",
+            "unitValue",
+            SymbolKind::Production,
+        ),
+        DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap()),
+        vec![IrProductionItem::terminal(node("schema9.production.unit.text"), "unit").unwrap()],
+        vec![DefinitionProductionAttribute::Group {
+            origin: node("schema9.production.unit.group"),
+            group: atom_group.clone(),
+        }],
+    )
+    .unwrap();
+    let main = &definition.modules()[0];
+    let main = DefinitionModule::new(
+        main.origin().clone(),
+        main.id().clone(),
+        main.imports().iter().cloned().collect(),
+        [
+            (application_group.clone(), "application"),
+            (atom_group.clone(), "atom"),
+            (empty_group.clone(), "empty"),
+        ]
+        .into_iter()
+        .map(|(id, name)| {
+            ProductionGroupIdentity::new(node(&format!("schema9.group.{name}")), id, name).unwrap()
+        })
+        .collect(),
+        main.sentences()
+            .iter()
+            .cloned()
+            .chain([
+                DefinitionSentence::Production(production.clone()),
+                DefinitionSentence::Production(atom),
+            ])
+            .collect(),
+    );
+    let definition = DefinitionIr::new(
+        definition.main_module().clone(),
+        vec![main, definition.modules()[1].clone()],
+    )
+    .unwrap();
+    let mut adapter = Adapter::new(&definition, true);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production {
         label: Some(label),
@@ -999,7 +1023,7 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
     );
     assert!(matches!(adapter.sentence(&precedence, MODULE, 2).unwrap(),
         Sentence::SyntaxPriority { priorities, .. }
-            if priorities == vec![vec!["atom".to_owned()], vec!["application".to_owned()]]));
+            if priorities == vec![vec!["unitValue".to_owned()], vec!["applyTwice".to_owned()]]));
     let associativity = DefinitionSentence::Associativity(
         GroupAssociativitySentence::new(
             node("schema9.associativity"),
@@ -1010,8 +1034,21 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
     );
     assert!(
         matches!(adapter.sentence(&associativity, MODULE, 3).unwrap(),
-        Sentence::SyntaxAssociativity { tags, .. } if tags == vec!["application"])
+        Sentence::SyntaxAssociativity { tags, .. } if tags == vec!["applyTwice"])
     );
+    // K rejects a tag no production carries; so does the adapter.
+    let empty = DefinitionSentence::Associativity(
+        GroupAssociativitySentence::new(
+            node("schema9.associativity.empty"),
+            GroupAssociativity::NonAssociative,
+            vec![empty_group],
+        )
+        .unwrap(),
+    );
+    assert!(matches!(
+        adapter.sentence(&empty, MODULE, 4),
+        Err(AdapterError::EmptyProductionGroup { group, .. }) if group == "empty"
+    ));
 }
 
 #[test]
