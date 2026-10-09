@@ -9115,6 +9115,57 @@ fn an_equation_whose_map_pattern_matches_in_several_ways_is_named_as_paired_with
     assert!(!stderr.contains("is not checked"), "{stderr}");
 }
 
+const REQUIRES_ON_A_MATCHING: &str = r#"
+module RM
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= f(Map) [function] | g(Map) [function] | mk(Int)
+  rule f((K |-> _) _) => mk(1) requires K ==Int 2
+  rule f(_) => mk(2) [owise]
+  rule g((K |-> _) _) => mk(1) requires K ==Int 1
+  rule g(_) => mk(2) [owise]
+endmodule
+"#;
+
+/// `f((K |-> _) _) => mk(1) requires K ==Int 2` matches `1 |-> 0 2 |-> 0` with `K = 1` and with
+/// `K = 2`; the instance `K = 2` applies, so `f` of that map is `mk(1)` in every model and the
+/// `owise` rule does not apply there. `krun` tries each matching until one satisfies the
+/// `requires`, whichever comes first (`g` asks for the other key); it used to decide the
+/// `requires` on the first matching only and print `mk(2)` for one of them. A map neither
+/// matching satisfies still reaches the `owise` rule.
+#[test]
+fn a_function_rule_applies_when_any_matching_of_its_map_pattern_satisfies_its_requires() {
+    let (root, definition) = fixture();
+    fs::write(&definition, REQUIRES_ON_A_MATCHING).unwrap();
+    let compiled = root.join("compiled");
+    kcompile_for_krun(
+        &definition,
+        &["--main-module", "RM", "--syntax-module", "RM"],
+        &compiled,
+    );
+    for (program, result) in [
+        ("f(1 |-> 0 2 |-> 0)", 1),
+        ("g(1 |-> 0 2 |-> 0)", 1),
+        ("f(1 |-> 0 3 |-> 0)", 2),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", "--definition"])
+            .arg(&compiled)
+            .args(["-s", "Pgm", "--io", "off", "-e", program])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            stdout.contains(&format!(
+                r#"Lblmk'LParUndsRParUnds'RM'Unds'Pgm'Unds'Int{{}}(\dv{{SortInt{{}}}}("{result}"))"#
+            )),
+            "{program}: {stdout}"
+        );
+    }
+}
+
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
 /// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still

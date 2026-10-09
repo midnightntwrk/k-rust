@@ -9,6 +9,7 @@ mod matching;
 mod matching_oracle;
 mod parametric_subsorts;
 mod rewrite;
+mod several_matchings;
 mod walk_flags;
 
 pub(crate) mod alpha;

@@ -1318,7 +1318,7 @@ pub(crate) enum CollectionMatches {
 ///
 /// A deferred Set or Map pair may have multiple AC solutions. Returning all substitutions keeps
 /// that branching policy outside the one-result [`MatchResult`] API and lets each consumer decide
-/// whether the solutions are execution branches or equivalent choices for a functional equation.
+/// whether the solutions are execution branches or instances of one equation.
 /// An empty solution set is a failed match of the pattern, so it carries the [`MatchFailed`]
 /// token instead of an empty list.
 pub(crate) fn match_collection_remainders_all_in_definition(
