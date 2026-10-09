@@ -641,6 +641,39 @@ fn derive_sites_with<'b>(
     let mut exhaustive = true;
     let mut sites = Vec::new();
     let mut typers = std::collections::BTreeMap::new();
+    // Imported and builtin declarations matter too: the typer recognizes these
+    // names even when a user production gives them a real result sort.
+    let non_builtin_cell_labels = if universe.is_some() && !sorts.is_empty() {
+        baseline
+            .definition()
+            .modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .local_sentences
+                    .iter()
+                    .map(move |sentence| (module.name.as_str(), sentence))
+            })
+            .filter_map(|(module, sentence)| match sentence.as_ref() {
+                Sentence::Production {
+                    label: Some(label),
+                    attributes,
+                    ..
+                } if matches!(label.name.as_str(), "#cells" | "#dots" | "#noDots")
+                    && !(matches!(
+                        (module, label.name.as_str()),
+                        ("KCELLS", "#cells") | ("RULE-CELLS", "#dots" | "#noDots")
+                    ) && attributes.string(AttributeKey::Source)
+                        == Some("krust-builtin://kast.md")) =>
+                {
+                    Some(label.name.as_str())
+                }
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
     for (sentence_ref, sentence) in baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. })
             || universe
@@ -703,6 +736,7 @@ fn derive_sites_with<'b>(
                             && matches!(
                                 term.unannotated(), Term::Apply { label, .. }
                                     if matches!(label.name.as_str(), "#cells" | "#dots" | "#noDots")
+                                        && !non_builtin_cell_labels.contains(label.name.as_str())
                             )
                         {
                             false

@@ -9,8 +9,9 @@ use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort, Term};
 use k_rust::outer::ResolvedSource;
 use kink_patch::{
-    Baseline, Discovery, Edit, ExclusionReason, Patch, SelectionPolicy, SiteSelector, Universe,
-    canonical_json, derive_sites, derive_sites_in, payload_digest, resolve_universe, select,
+    Baseline, Discovery, Edit, ExclusionReason, Patch, SelectionPolicy, SentenceRef, SiteSelector,
+    Universe, canonical_json, derive_sites, derive_sites_in, payload_digest, resolve_universe,
+    select,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -18,17 +19,21 @@ use std::fs;
 use std::path::Path;
 
 fn load_text(text: &str) -> Baseline {
+    load_module("CELLS", text)
+}
+
+fn load_module(module: &str, text: &str) -> Baseline {
     let mut resolver = |_: &str, name: &str| {
         builtin::embedded(name).ok_or_else(|| format!("{name} is not embedded"))
     };
     Baseline::load(
         ResolvedSource::new("cells.k", text),
-        "CELLS",
+        module,
         None,
         &mut resolver,
         &support::options(),
     )
-    .expect("inline cell fixture loads")
+    .expect("inline fixture loads")
 }
 
 fn cells() -> Baseline {
@@ -209,6 +214,50 @@ fn cell_syntax_is_a_sort_non_site_only_in_the_declared_universe() {
         assert!(new.tuples().is_empty());
         assert_eq!(paths(&new), paths(&old));
     }
+}
+
+fn user_cell_label_is_undecided(module: &str, text: &str, sort: &str, sites: usize) {
+    let baseline = load_module(module, text);
+    let universe = resolve_universe(&baseline, &Universe::v1());
+    assert!(universe.excluded().is_empty());
+    assert_eq!(universe.included().len(), 1);
+    let clauses = [SiteSelector::Sort(Sort::new(sort))];
+    let old = derive_sites(&baseline, "site", &clauses).expect("legacy sort");
+    let new = derive_sites_in(&baseline, &universe, &clauses).expect("universe sort");
+    assert!(!old.exhaustive(), "legacy {module}");
+    assert_eq!(old.tuples().len(), sites, "legacy {module}");
+    assert_eq!(new.tuples(), old.tuples(), "{module}");
+    assert!(!new.exhaustive(), "universe {module}");
+}
+
+#[test]
+fn user_dots_constructor_is_not_a_sort_non_site() {
+    user_cell_label_is_undecided(
+        "RVDOTSCTOR",
+        r##"module RVDOTSCTOR imports INT imports BASIC-K syntax Foo ::= "#dots" "(" Int ")" [symbol(#dots)] | "foo0" [symbol(foo0)] syntax KItem ::= go(Foo) [symbol(go)] rule [g]: go(#dots(I)) => go(#dots(I -Int 1)) requires I >Int 0 endmodule"##,
+        "Foo",
+        0,
+    );
+}
+
+#[test]
+fn user_dots_hook_is_not_a_sort_non_site() {
+    user_cell_label_is_undecided(
+        "RVDOTSHOOK",
+        r##"module RVDOTSHOOK imports INT imports BASIC-K syntax Int ::= "#dots" "(" Int ")" [symbol(#dots), function, total, hook(INT.abs)] syntax KItem ::= go(Int) [symbol(go)] | done(Int) [symbol(done)] rule [g]: go(I) => done(#dots(I -Int 10)) requires I >Int 0 endmodule"##,
+        "Int",
+        9,
+    );
+}
+
+#[test]
+fn user_cells_constructor_is_not_a_sort_non_site() {
+    user_cell_label_is_undecided(
+        "RVCELLSCTOR",
+        r##"module RVCELLSCTOR imports INT imports BASIC-K syntax Foo ::= "#cells" "(" Int ")" [symbol(#cells)] | "foo0" [symbol(foo0)] syntax KItem ::= go(Foo) [symbol(go)] rule [g]: go(#cells(I)) => go(#cells(I -Int 1)) requires I >Int 0 endmodule"##,
+        "Foo",
+        0,
+    );
 }
 
 fn load_definition(path: &Path) -> Option<Baseline> {
@@ -446,8 +495,10 @@ fn expected_rule_exclusions() {
     );
     let macros = support::load("t12macro.k");
     let resolved = resolve_universe(&macros, &Universe::v1());
-    assert_eq!(resolved.excluded().len(), 1);
-    assert_eq!(resolved.excluded()[0].1, ExclusionReason::MacroRule);
+    assert_eq!(
+        resolved.excluded(),
+        &[(SentenceRef::new("T12MACRO", 1), ExclusionReason::MacroRule)]
+    );
     let claims = support::load("claims.k");
     let resolved = resolve_universe(&claims, &Universe::v1());
     assert!(resolved.excluded().contains(&(
