@@ -90,6 +90,9 @@ fn collect(
         DefinitionTermKind::Rewrite { from, to } => vec![from.as_ref(), to.as_ref()],
         DefinitionTermKind::As { pattern, .. } => vec![pattern.as_ref()],
         DefinitionTermKind::Or { alternatives } => alternatives.iter().collect(),
+        DefinitionTermKind::Matches {
+            subject, pattern, ..
+        } => vec![subject.as_ref(), pattern.as_ref()],
     };
     for child in children {
         collect(child, parents, names, warnings);

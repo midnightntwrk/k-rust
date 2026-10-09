@@ -134,6 +134,19 @@ Every alternative binds the same names (``variable `x` is not bound in all alter
 The rule-overlap check treats an or-pattern as each of its alternatives.
 `|` in a result, a requires or ensures condition, or an initializer is a syntax error that points to `bool::or` or `k::or_bool!` for Boolean disjunction; so are `|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function.
 
+### Shape tests
+
+`k::matches!(t, Pattern)` is std's `matches!` with K's meaning: an object-language Bool that is true when the term `t` matches the Rust pattern `Pattern`.
+K spells it `Pattern :=K T`, pattern first, and KRS emits exactly that, always parenthesised: `#[k::requires(k::matches!(e, Pair(_, _)))]` on `is_pair: IsPair { e } => true;` emits `requires ( pair ( _ , _ ) :=K E:Exp )`, and `bool::not(k::matches!(e, Pair(_, _)))` emits `notBool ( pair ( _ , _ ) :=K E:Exp )`, which is K's `:/=K`.
+It is valid in a rule's or equation's `#[k::requires]` and `#[k::ensures]` conditions and as a Bool-sorted result, such as the equation `fn twin(k::term![Twin(e)]: Term<Bool>) -> Term<Bool> { k::matches!(e, ExpSyntax::Pair(x, x)) }`, which emits `rule twin ( E:Exp ) => ( pair ( X:Exp , X:Exp ) :=K E:Exp )`.
+The subject is a term; the pattern is a left-hand-side pattern with `_`, `name @ pattern`, and `A | B`, but no `if` guard (conjoin a separate condition with `bool::and`).
+K compiles `P :=K T` into a fresh function with two equations, one returning `true` for the pattern and an `owise` one returning `false`, so the test works on symbolic terms too, and the names in the pattern stay inside it: they are local binders, emitted under names of their own.
+A name that occurs twice tests equality, as `Pair(x, x)` does; a name read once is rejected (``write `_` ``).
+The trap is a pattern name that is also a rule binder: in K, `pair(X, _) :=K E` binds a new `X` and ignores the rule's `X`, so KRS rejects it (`krs::analysis::invalid-matches`) and points to `int::eq` or `bool::eq` for a comparison.
+A pattern whose sort cannot meet the subject's, which would always be false, is rejected as well.
+K rejects `#as` in a rule's right-hand side, so `name @ pattern` inside `k::matches!` is accepted only in conditions, as in `k::matches!(e, Pair(p @ Pair(_, _), p))`.
+`k::matches!` in a left-hand side or inside a pattern, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `:=K` in a claim).
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

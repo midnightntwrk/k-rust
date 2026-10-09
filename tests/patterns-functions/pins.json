@@ -2,7 +2,8 @@
   "schema": 1,
   "expand": {
     "krs-patterns-functions-aliases": "0d0e304a40e0387e3db4a4b9e5e9fefdad67209a28c5a76c17293921f5ef589b",
-    "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7"
+    "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
+    "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -10,14 +11,20 @@
     },
     "krs-patterns-functions-alternatives": {
       "definition.k": "4e704e6207049918ac58fa79951e6c977892e1e7cf69c2a5e9d8017160e1108b"
+    },
+    "krs-patterns-functions-matches": {
+      "definition.k": "fc410812c066fb1fb4b609781c05c0160a0cba9af9ccf8611e5a1384a72e362b"
     }
   },
   "reference_sha256": {
     "krs-patterns-functions-aliases": "5d80bc1131a85c59014927eb1a3c0b24fc060d96926414388e7c9acfee728dfc",
-    "krs-patterns-functions-aliases-reference": "5e22c76536eef451e37112d1a7e05e560954c0b8d786355dc62b0ae392767366",
+    "krs-patterns-functions-aliases-reference": "9deded0011ddce82c6d28a4ec7c0cb61533f331a1f1df018ecf5ee8fd560c3db",
     "krs-patterns-functions-alternatives": "ed745b3725c8e07face30b7b8dce7c8ed2a58d7ecc17baf144f94cfd4dfda219",
-    "krs-patterns-functions-alternatives-reference": "b95e2b59ef01e26eddef8d52a2838bbbfefdb61468048661362607c2baa6f77d",
-    "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d"
+    "krs-patterns-functions-alternatives-reference": "73c96183cbb9bb5846890ba49e9cb95fc1e6a76c68ba3917cf6682aacabe4335",
+    "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d",
+    "krs-patterns-functions-matches": "14e473f378070e603ff6d217fe712043c6dd58eeb5a6d575cb3eeb7f3b9e89c4",
+    "krs-patterns-functions-matches-reference": "b8a8bb9f8ad4589f0ac784c5dc42865b77ea4db1d5b989c21e2eef715a070eb4",
+    "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -59,6 +66,40 @@
         "parse": "accepted",
         "run": "5"
       }
+    },
+    "krs-patterns-functions-matches": {
+      "is-pair": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-pair": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "boxed": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "unboxed": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "twin": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "not-twin": {
+        "parse": "accepted",
+        "run": "false"
+      },
+      "known": {
+        "parse": "accepted",
+        "run": "true"
+      },
+      "unknown": {
+        "parse": "accepted",
+        "run": "false"
+      }
     }
   },
   "diagnostics": {
@@ -88,6 +129,30 @@
     ],
     "or-remainder": [
       "error[krs::rust-expansion::uncoded-error]: or-patterns combine terms, not remainders"
+    ],
+    "matches-shadow": [
+      "error[krs::analysis::invalid-matches]: `e` in k::matches! binds a new variable; it does not compare with the rule's `e`. Use int::eq/bool::eq, or write `_`"
+    ],
+    "matches-unread": [
+      "error[krs::analysis::invalid-matches]: `x` is never read; write `_`"
+    ],
+    "matches-guard": [
+      "error[krs::rust-expansion::uncoded-error]: K's :=K has no guard; conjoin a separate condition with bool::and"
+    ],
+    "matches-std": [
+      "error[krs::rust-expansion::uncoded-error]: did you mean `k::matches!`? std's matches! tests a host value"
+    ],
+    "matches-lhs": [
+      "error[krs::rust-expansion::uncoded-error]: `k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern"
+    ],
+    "matches-alias-result": [
+      "error[krs::rust-expansion::uncoded-error]: `p @ pattern` in a `k::matches!` pattern is allowed only in requires and ensures conditions: K rejects #as in a rule's right-hand side"
+    ],
+    "matches-sort": [
+      "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"
+    ],
+    "matches-claim": [
+      "error[krs::rust-expansion::uncoded-error]: `k::matches!` is not supported in claims: the pinned native prover cannot resolve K's :=K in a claim; match the shape in the claim's subject instead"
     ]
   }
 }

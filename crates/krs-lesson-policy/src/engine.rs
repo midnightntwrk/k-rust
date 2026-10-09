@@ -449,12 +449,14 @@ impl<'ast> Checker<'_, 'ast> {
         }
         match (leading, segments.as_slice()) {
             (false, [name]) if name == "macro_rules" => MacroClass::Definition,
+            // A bare standard macro is std's even when a KRS macro shares its
+            // name (`matches!`): the KRS one is named `k::matches!`.
+            (false, [name]) if STANDARD_MACROS.contains(&name.as_str()) => MacroClass::Standard,
             (false, [name])
                 if FunctionMacro::from_name(name).is_some_and(|entry| !entry.is_reserved()) =>
             {
                 MacroClass::Unprefixed
             }
-            (false, [name]) if STANDARD_MACROS.contains(&name.as_str()) => MacroClass::Standard,
             (_, [krate, name])
                 if STANDARD_MACRO_CRATES.contains(&krate.as_str())
                     && STANDARD_MACROS.contains(&name.as_str()) =>

@@ -1603,6 +1603,10 @@ pub enum SemanticValidationError {
     /// `A | B` (#Or) outside a pre-pattern, at a sort an alternative does
     /// not inject into, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `k::matches!` (:=K) outside a post-term or condition, at a sort
+    /// other than Bool, or with local binders that are not exactly its
+    /// pattern's named variables or that occur outside it.
+    InvalidMatches,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1800,6 +1804,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidPatternOr => formatter.write_str(
                 "`A | B` (#Or) occurs only in pre-patterns, at a sort every alternative injects into, and every alternative binds the same variables",
+            ),
+            Self::InvalidMatches => formatter.write_str(
+                "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
             ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")

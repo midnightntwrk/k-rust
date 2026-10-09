@@ -109,5 +109,6 @@ pub fn expand_function(
         FunctionMacro::RawK => expand::raw_k(env, input),
         FunctionMacro::Is => islands::sort_test(krs_ir::SortTestKind::Predicate, input),
         FunctionMacro::Project => islands::sort_test(krs_ir::SortTestKind::Projection, input),
+        FunctionMacro::Matches => islands::matches(input),
     }
 }

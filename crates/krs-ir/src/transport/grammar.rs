@@ -1486,6 +1486,17 @@ stage_shape! {
             #[serde(deserialize_with = "deserialize_or_alternatives")]
             alternatives: crate::AtLeastTwo<Term<S>> => [at_least_two nested],
         },
+        /// `k::matches!(subject, pattern)` in a result or condition: K's
+        /// `( PATTERN :=K SUBJECT )`, a Bool. The pattern's names are local
+        /// binders, visible only inside it.
+        Matches {
+            /// Complete macro-shell provenance.
+            key: ProvenanceKey => [keep],
+            /// The tested term.
+            subject: Box<Term<S>> => [box nested],
+            /// The pattern, a left-hand-side-shaped term.
+            pattern: Box<Term<S>> => [box nested],
+        },
     }
 }
 
@@ -2197,6 +2208,7 @@ impl DescriptorTerm {
                 bindings,
                 seen_variables,
                 allow_wildcards,
+                in_matches_pattern: false,
             },
         )
     }
@@ -3841,11 +3853,7 @@ impl StructuredRuleDescriptor {
         let mut subject = TermKeyCounters::default();
         self.subject
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
-        let mut result = TermKeyCounters {
-            lexeme: subject.lexeme,
-            sort_test: subject.sort_test,
-            ..TermKeyCounters::default()
-        };
+        let mut result = subject.next_side();
         self.result
             .collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
         self.collect_condition_keys(&mut keys, &result)?;
@@ -3860,11 +3868,7 @@ impl StructuredRuleDescriptor {
         keys: &mut BTreeSet<ProvenanceKey>,
         result: &TermKeyCounters,
     ) -> Result<(), GrammarTransportError> {
-        let mut condition = TermKeyCounters {
-            lexeme: result.lexeme,
-            sort_test: result.sort_test,
-            ..TermKeyCounters::default()
-        };
+        let mut condition = result.next_side();
         if let Some(requires) = &self.requires {
             requires
                 .term
@@ -3918,11 +3922,7 @@ impl StructuredRuleDescriptor {
         }
         if let Some(ensures) = &self.ensures {
             insert_exact(keys, &ensures.key, ProvenanceRole::RuleEnsures, 0)?;
-            let mut postcondition = TermKeyCounters {
-                lexeme: condition.lexeme,
-                sort_test: condition.sort_test,
-                ..TermKeyCounters::default()
-            };
+            let mut postcondition = condition.next_side();
             ensures
                 .term
                 .collect_expected_term_keys(keys, TermSide::Ensures, &mut postcondition)?;
@@ -4016,10 +4016,39 @@ struct TermKeyCounters {
     lexeme: u32,
     /// Sort-test ordinals are side-neutral like lexeme ordinals.
     sort_test: u32,
-    /// `name @ pattern` ordinals; the form occurs only in the subject.
+    /// `name @ pattern` ordinals, side-neutral: the form occurs in the
+    /// subject and in `k::matches!` patterns.
     pattern_as: u32,
-    /// Or-pattern ordinals; the form occurs only in the subject.
+    /// Or-pattern ordinals, side-neutral like `pattern_as`.
     pattern_or: u32,
+    /// `k::matches!` ordinals, side-neutral.
+    matches: u32,
+    /// Wildcard ordinals inside `k::matches!` patterns, side-neutral.
+    matches_wildcard: u32,
+    /// Whether the validator is inside a `k::matches!` pattern.
+    in_matches_pattern: bool,
+}
+
+impl TermKeyCounters {
+    /// The counters of the next side: the side-neutral ordinals continue,
+    /// the per-side ones restart.
+    const fn next_side(&self) -> Self {
+        Self {
+            path: 0,
+            application: 0,
+            reference: 0,
+            literal: 0,
+            record_field: 0,
+            wildcard: 0,
+            lexeme: self.lexeme,
+            sort_test: self.sort_test,
+            pattern_as: self.pattern_as,
+            pattern_or: self.pattern_or,
+            matches: self.matches,
+            matches_wildcard: self.matches_wildcard,
+            in_matches_pattern: false,
+        }
+    }
 }
 
 impl DescriptorTerm {

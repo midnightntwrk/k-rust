@@ -267,6 +267,8 @@ impl RuleClause {
                     | ProvenanceRole::PatternAs
                     | ProvenanceRole::PatternAsBinding
                     | ProvenanceRole::PatternOr
+                    | ProvenanceRole::Matches
+                    | ProvenanceRole::MatchesWildcard
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -496,6 +498,10 @@ impl RuleClause {
         let mut ordinal = 0_usize;
         for nodes in &terms {
             crate::term::push_pattern_or_anchors(anchors, nodes, &mut ordinal)?;
+        }
+        let (mut matches, mut wildcards) = (0_usize, 0_usize);
+        for nodes in &terms {
+            crate::term::push_matches_anchors(anchors, nodes, &mut matches, &mut wildcards)?;
         }
         Ok(())
     }

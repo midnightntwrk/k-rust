@@ -483,6 +483,29 @@ k::rules! {
 ",
     ),
     (
+        "rules_matches",
+        r"
+k::rules! {
+    for Exp;
+    use ExpSyntax::*;
+
+    #[k::requires(k::matches!(e, Pair(p @ Pair(_, _), p)))]
+    boxed: Boxed { e } => true;
+    #[k::requires(bool::not(k::matches!(e, Pair(_, _) | Unit())))]
+    atom: IsPair { e } => false;
+}
+",
+    ),
+    (
+        "rule_matches",
+        r"
+#[k::equation]
+fn twin(k::term![Twin(e)]: Term<Bool>) -> Term<Bool> {
+    k::matches!(e, ExpSyntax::Pair(x, x))
+}
+",
+    ),
+    (
         "rule_pattern_or",
         r"
 #[k::equation]
@@ -935,6 +958,7 @@ k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
     ("lexeme", "k::lexeme!(Name, \"main\");"),
     ("is", "k::is!(Value, e);"),
     ("project", "k::project!(Int, e);"),
+    ("matches", "k::matches!(e, Pair(_, _) | Unit());"),
     (
         "syntax_list",
         r#"

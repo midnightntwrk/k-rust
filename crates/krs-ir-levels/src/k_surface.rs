@@ -393,6 +393,12 @@ impl BuiltinRequirements {
                     self.term(alternative);
                 }
             }
+            DefinitionTermKind::Matches {
+                subject, pattern, ..
+            } => {
+                self.term(subject);
+                self.term(pattern);
+            }
         }
     }
 

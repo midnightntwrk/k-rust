@@ -213,3 +213,5 @@ SpecModuleImport=spec_module_import
 PatternAs=pattern_as
 PatternAsBinding=pattern_as_binding
 PatternOr=pattern_or
+Matches=matches
+MatchesWildcard=matches_wildcard

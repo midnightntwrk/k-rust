@@ -36,10 +36,26 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// which every occurrence must accept, and its parameter-type key.
     pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     pub(super) wildcard_offset: usize,
+    /// Generated variables of the sentence: wildcards, then (KF-031) the
+    /// local binders of `k::matches!` patterns.
     pub(super) wildcards: Vec<SemanticVariable>,
     /// Whether wildcards may occur outside the subject: the result of a
     /// desugar clause that lists `_` in `unbound_variables` (KF-046).
     pub(super) result_wildcards: bool,
+    /// Scopes of `k::matches!` local binders (BIND-1).
+    pub(super) locals: LocalBinders,
+}
+
+/// The local binders of a sentence's `k::matches!` patterns (BIND-1, KF-031).
+#[derive(Default)]
+pub(super) struct LocalBinders {
+    /// The names of the pattern being inferred, if any.
+    inferring: Option<BTreeSet<String>>,
+    /// The inferred sort of each local binder, per `k::matches!` key.
+    sorts: BTreeMap<ProvenanceKey, BTreeMap<String, SemanticSortRef>>,
+    /// The identity and sort of each local binder of the pattern being
+    /// lowered, if any.
+    scope: Option<BTreeMap<String, (SemanticId, SemanticSortRef)>>,
 }
 
 impl StructuredTermBuilder<'_> {
@@ -55,7 +71,7 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(), DescriptorLoweringError> {
         match term {
             DescriptorTerm::Variable { name, .. } => {
-                if !self.binding_names.contains(name) {
+                if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
                 }
                 if let Some(expected) = expected_sort {
@@ -191,7 +207,7 @@ impl StructuredTermBuilder<'_> {
                         ),
                     ));
                 }
-                if !self.binding_names.contains(name) {
+                if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
                 }
                 if let Some(expected) = expected_sort {
@@ -214,8 +230,166 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::Or { key, alternatives } => {
                 self.infer_pattern_or(key, alternatives, expected_sort, subject)?;
             }
+            DescriptorTerm::Matches {
+                key,
+                subject: tested,
+                pattern,
+            } => self.infer_matches(key, tested, pattern, expected_sort, subject)?,
         }
         Ok(())
+    }
+
+    fn is_inferring_local(&self, name: &str) -> bool {
+        self.locals
+            .inferring
+            .as_ref()
+            .is_some_and(|names| names.contains(name))
+    }
+
+    /// Infers `k::matches!(subject, pattern)` (K's `:=K`, KF-031): a Bool
+    /// outside every pattern. The pattern's names are local binders
+    /// (BIND-1): none may be a rule binder, which K would silently shadow,
+    /// and each must be read twice (a name read once is `_`). Their sorts
+    /// are inferred from the pattern alone.
+    fn infer_matches(
+        &mut self,
+        key: &ProvenanceKey,
+        tested: &DescriptorTerm,
+        pattern: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
+            return Err(self.invalid_matches(
+                key,
+                "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern".to_owned(),
+            ));
+        }
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&bool_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "`k::matches!` has sort Bool, which is not admissible at sort {expected}"
+            )));
+        }
+        self.infer(tested, None, false)?;
+        let mut occurrences = Vec::new();
+        pattern_names(pattern, &mut occurrences);
+        let mut counts = BTreeMap::<&str, usize>::new();
+        for (name, _) in &occurrences {
+            *counts.entry(name.as_str()).or_default() += 1;
+        }
+        for (name, occurrence) in &occurrences {
+            if self.binding_names.contains(name) || self.declared_binders.contains_key(name) {
+                return Err(self.invalid_matches(
+                    occurrence,
+                    format!(
+                        "`{name}` in k::matches! binds a new variable; it does not compare with the rule's `{name}`. Use int::eq/bool::eq, or write `_`"
+                    ),
+                ));
+            }
+        }
+        for (name, occurrence) in &occurrences {
+            if counts.get(name.as_str()) == Some(&1) {
+                return Err(
+                    self.invalid_matches(occurrence, format!("`{name}` is never read; write `_`"))
+                );
+            }
+        }
+        let names = counts
+            .keys()
+            .map(|name| (*name).to_owned())
+            .collect::<BTreeSet<_>>();
+        let outer = std::mem::take(&mut self.binding_constraints);
+        self.locals.inferring = Some(names.clone());
+        let inferred = self.infer(pattern, None, true);
+        self.locals.inferring = None;
+        let constraints = std::mem::replace(&mut self.binding_constraints, outer);
+        inferred?;
+        let mut sorts = BTreeMap::new();
+        for name in names {
+            let candidates = constraints
+                .get(&name)
+                .map(|constraints| most_specific_common_descendants(constraints, self.sort_parents))
+                .unwrap_or_default();
+            let [sort] = candidates.as_slice() else {
+                return Err(self.invalid_matches(
+                    key,
+                    format!("`{name}` in k::matches! has no single sort its occurrences share"),
+                ));
+            };
+            sorts.insert(name, sort.clone());
+        }
+        self.locals.sorts.insert(key.clone(), sorts);
+        Ok(())
+    }
+
+    /// Lowers `k::matches!(subject, pattern)` with fresh identities for the
+    /// pattern's local binders, which join the sentence's variables.
+    fn lower_matches(
+        &mut self,
+        key: &ProvenanceKey,
+        tested: &DescriptorTerm,
+        pattern: &DescriptorTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let tested = self.lower(tested, None, false)?;
+        let sorts = self.locals.sorts.get(key).cloned().unwrap_or_default();
+        let mut occurrences = Vec::new();
+        pattern_names(pattern, &mut occurrences);
+        let mut scope = BTreeMap::new();
+        let mut binds = Vec::new();
+        for (name, _) in occurrences {
+            if scope.contains_key(&name) {
+                continue;
+            }
+            let sort = sorts.get(&name).cloned().ok_or_else(|| {
+                self.invalid_term(format!("local binder {name:?} has no inferred sort"))
+            })?;
+            let id = SemanticId::local(&name, self.wildcard_offset + self.wildcards.len())?;
+            self.wildcards
+                .push(SemanticVariable::new(id.clone(), sort.clone()));
+            binds.push(id.clone());
+            scope.insert(name, (id, sort));
+        }
+        self.locals.scope = Some(scope);
+        let lowered = self.lower(pattern, None, true);
+        self.locals.scope = None;
+        let lowered = lowered?;
+        let meets = most_specific_common_descendants(
+            &BTreeSet::from([tested.sort().clone(), lowered.sort().clone()]),
+            self.sort_parents,
+        );
+        if meets.is_empty() {
+            return Err(self.invalid_matches(
+                key,
+                format!(
+                    "the pattern has sort `{}` and the subject has sort `{}`, which share no subsort, so this test is always false",
+                    super::overload::sort_name(lowered.sort()),
+                    super::overload::sort_name(tested.sort())
+                ),
+            ));
+        }
+        Ok(SemanticTerm::matches(
+            semantic_origin(self.descriptor, key.clone(), "term-matches")?,
+            SemanticSortRef::Builtin(BuiltinSort::Bool),
+            tested,
+            lowered,
+            binds,
+        ))
+    }
+
+    fn invalid_matches(&self, key: &ProvenanceKey, reason: String) -> DescriptorLoweringError {
+        DescriptorLoweringError::InvalidMatches {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        }
     }
 
     /// Infers `A | B | ..` (K's `#Or`, KF-030): every alternative sits at
@@ -700,6 +874,20 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         match term {
+            DescriptorTerm::Variable { key, name, .. }
+                if self
+                    .locals
+                    .scope
+                    .as_ref()
+                    .is_some_and(|scope| scope.contains_key(name)) =>
+            {
+                let (id, sort) = self.locals.scope.as_ref().expect("checked above")[name].clone();
+                Ok(SemanticTerm::variable(
+                    semantic_origin(self.descriptor, key.clone(), "term-local-binder")?,
+                    sort,
+                    id,
+                ))
+            }
             DescriptorTerm::Variable { key, name, .. } => {
                 if !self.binding_names.contains(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
@@ -842,9 +1030,21 @@ impl StructuredTermBuilder<'_> {
                         ),
                     ));
                 }
-                let sort = self.binding_sorts.get(name).cloned().ok_or_else(|| {
-                    self.invalid_term(format!("variable {name:?} has no inferred sort"))
-                })?;
+                let local = self
+                    .locals
+                    .scope
+                    .as_ref()
+                    .and_then(|scope| scope.get(name))
+                    .cloned();
+                let (id, sort) = match local {
+                    Some(local) => local,
+                    None => (
+                        SemanticId::new(name.clone())?,
+                        self.binding_sorts.get(name).cloned().ok_or_else(|| {
+                            self.invalid_term(format!("variable {name:?} has no inferred sort"))
+                        })?,
+                    ),
+                };
                 let pattern = self.lower(pattern, Some(&sort), subject)?;
                 if !semantic_is_subsort(pattern.sort(), &sort, self.sort_parents) {
                     return Err(self.invalid_pattern_as(
@@ -858,13 +1058,18 @@ impl StructuredTermBuilder<'_> {
                 Ok(SemanticTerm::pattern_as(
                     semantic_origin(self.descriptor, key.clone(), "term-pattern-as")?,
                     sort,
-                    SemanticId::new(name.clone())?,
+                    id,
                     pattern,
                 ))
             }
             DescriptorTerm::Or { key, alternatives } => {
                 self.lower_pattern_or(key, alternatives, expected_sort, subject)
             }
+            DescriptorTerm::Matches {
+                key,
+                subject: tested,
+                pattern,
+            } => self.lower_matches(key, tested, pattern),
         }
     }
 
@@ -1326,6 +1531,52 @@ impl StructuredTermBuilder<'_> {
 }
 
 /// The authored macro of a sort test, for messages.
+/// Every name a `k::matches!` pattern binds, with the provenance key of each
+/// occurrence, in preorder: variables and `name @ ..` aliases.
+fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)>) {
+    match term {
+        DescriptorTerm::Variable { key, name, .. } => output.push((name.clone(), key.clone())),
+        DescriptorTerm::As {
+            binding_key,
+            name,
+            pattern,
+            ..
+        } => {
+            output.push((name.clone(), binding_key.clone()));
+            pattern_names(pattern, output);
+        }
+        DescriptorTerm::Or { alternatives, .. } => {
+            for alternative in alternatives {
+                pattern_names(alternative, output);
+            }
+        }
+        DescriptorTerm::OrBool { arguments, .. } => {
+            for argument in arguments {
+                pattern_names(argument, output);
+            }
+        }
+        DescriptorTerm::Application { arguments, .. } => {
+            for argument in arguments {
+                let (krs_ir::TermArgumentRef::Positional { value }
+                | krs_ir::TermArgumentRef::Named { value, .. }) = argument;
+                pattern_names(value, output);
+            }
+        }
+        DescriptorTerm::Cell { fields, .. } => {
+            for field in fields {
+                pattern_names(&field.value, output);
+            }
+        }
+        DescriptorTerm::SortTest { operand, .. } => pattern_names(operand, output),
+        DescriptorTerm::Matches { subject, .. } => pattern_names(subject, output),
+        DescriptorTerm::Literal { .. }
+        | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::BuiltinToken { .. }
+        | DescriptorTerm::Anonymous { .. }
+        | DescriptorTerm::Lexeme { .. } => {}
+    }
+}
+
 const fn sort_test_macro(kind: SortTestKind) -> &'static str {
     match kind {
         SortTestKind::Predicate => "`k::is!`",

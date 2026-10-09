@@ -54,3 +54,34 @@ module ALTERNATIVES-REFERENCE
   rule <k> (red() #Or green() #Or blue()) => 1 ... </k>
   rule <k> pick((pair(X, red()) #Or pair(X, green()))) => X ... </k>
 endmodule
+
+// The matches fixture written by hand in K; the negations use `:/=K`.
+module MATCHES-REFERENCE-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+
+  syntax Value ::= Int | Bool
+  syntax Exp ::= Value
+               | "isPair" "(" Exp ")"
+               | "pair" "(" Exp "," Exp ")"
+               | "unit" "(" ")"
+               | "boxed" "(" Exp ")"
+  syntax Bool ::= "twin" "(" Exp ")" [function, total]
+                | "known" "(" Exp ")" [function, total]
+endmodule
+
+module MATCHES-REFERENCE
+  imports MATCHES-REFERENCE-SYNTAX
+  imports BOOL
+
+  syntax KResult ::= Value
+
+  configuration <k> $PGM:Exp </k>
+
+  rule <k> isPair(E) => true ... </k> requires pair(_, _) :=K E
+  rule <k> isPair(E) => false ... </k> requires pair(_, _) :/=K E
+  rule <k> boxed(E) => true ... </k> requires pair((pair(_, _) #as P), P) :=K E
+  rule <k> boxed(E) => false ... </k> requires pair((pair(_, _) #as P), P) :/=K E
+  rule twin(E) => pair(X, X) :=K E
+  rule known(E) => (pair(_, _) #Or unit()) :=K E
+endmodule

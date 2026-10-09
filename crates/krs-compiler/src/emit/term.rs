@@ -290,6 +290,17 @@ fn render_term_with_binders(
             }
             output.push(" )");
         }
+        // `k::matches!(subject, pattern)` is K's `( PATTERN :=K SUBJECT )`:
+        // operands in K order, always parenthesised (X13).
+        DefinitionTermKind::Matches {
+            subject, pattern, ..
+        } => {
+            output.push("( ");
+            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.push(" :=K ");
+            output.append(render_term_with_binders(subject, context, false, names)?);
+            output.push(" )");
+        }
     }
     Ok(output.finish(term.origin().key(), start))
 }

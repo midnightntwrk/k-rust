@@ -67,6 +67,14 @@ pub(crate) fn sort_test(
     }})
 }
 
+/// Compiler-owned shape test (`k::matches!`, K's `:=K`). The subject and
+/// pattern are KRS terms whose names are not Rust values, so only the
+/// invocation's form is checked.
+pub(crate) fn matches(input: TokenStream) -> crate::Result<TokenStream> {
+    let (_subject, _pattern) = krs_syntax::parse_matches_arguments(input)?;
+    Ok(quote!(::core::panic!("matches! has no runtime value")))
+}
+
 /// Compiler-owned associative object-Bool disjunction.
 pub(crate) fn or_bool() -> TokenStream {
     quote!(::core::panic!("or_bool! has no runtime value"))

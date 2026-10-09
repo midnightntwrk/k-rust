@@ -882,6 +882,27 @@ impl<L: IrLevel> IrTerm<L> {
             kind: IrTermKind::Or { alternatives },
         }
     }
+    /// Creates `k::matches!(subject, pattern)` (K's `( PATTERN :=K SUBJECT )`)
+    /// at sort Bool; `binds` lists the pattern's local binders, declared in
+    /// the sentence's variables and referenced only inside the pattern.
+    #[must_use]
+    pub fn matches(
+        origin: NodeOrigin,
+        sort: L::Sort,
+        subject: Self,
+        pattern: Self,
+        binds: Vec<SemanticId>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: IrTermKind::Matches {
+                subject: Box::new(subject),
+                pattern: Box::new(pattern),
+                binds,
+            },
+        }
+    }
     /// Creates one typed Map-theory operation with an explicit result sort.
     #[must_use]
     pub fn typed_map(origin: NodeOrigin, sort: L::Sort, operands: MapOperands<Self>) -> Self {
@@ -1008,6 +1029,19 @@ pub enum IrTermKind<L: IrLevel> {
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<IrTerm<L>>,
     },
+    /// `k::matches!(subject, pattern)`: K's `( PATTERN :=K SUBJECT )`, a
+    /// Bool admitted only in post-terms and conditions. The pattern is
+    /// pre-pattern shaped; its named variables are the local binders
+    /// `binds` (BIND-1), declared in the sentence's variables and referenced
+    /// nowhere else.
+    Matches {
+        /// The tested term.
+        subject: Box<IrTerm<L>>,
+        /// The pattern.
+        pattern: Box<IrTerm<L>>,
+        /// The pattern's local binders, in first-occurrence order.
+        binds: Vec<SemanticId>,
+    },
 }
 
 /// Owned decoding form of [`IrTermKind`]; collection operands arrive as one ordered list.
@@ -1060,6 +1094,11 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
     Or {
         alternatives: AtLeastTwo<IrTerm<L>>,
     },
+    Matches {
+        subject: Box<IrTerm<L>>,
+        pattern: Box<IrTerm<L>>,
+        binds: Vec<SemanticId>,
+    },
 }
 
 /// Borrowed encoding form of [`IrTermKind`], field for field the shape of [`IrTermKindWire`].
@@ -1107,6 +1146,11 @@ enum IrTermKindRef<'a, L: IrLevel> {
     Or {
         alternatives: Vec<&'a IrTerm<L>>,
     },
+    Matches {
+        subject: &'a IrTerm<L>,
+        pattern: &'a IrTerm<L>,
+        binds: &'a [SemanticId],
+    },
 }
 
 impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
@@ -1140,6 +1184,15 @@ impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
             IrTermKindWire::Rewrite { from, to } => Self::Rewrite { from, to },
             IrTermKindWire::As { alias, pattern } => Self::As { alias, pattern },
             IrTermKindWire::Or { alternatives } => Self::Or { alternatives },
+            IrTermKindWire::Matches {
+                subject,
+                pattern,
+                binds,
+            } => Self::Matches {
+                subject,
+                pattern,
+                binds,
+            },
         })
     }
 }
@@ -1174,6 +1227,15 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
             Self::As { alias, pattern } => IrTermKindRef::As { alias, pattern },
             Self::Or { alternatives } => IrTermKindRef::Or {
                 alternatives: alternatives.iter().collect(),
+            },
+            Self::Matches {
+                subject,
+                pattern,
+                binds,
+            } => IrTermKindRef::Matches {
+                subject,
+                pattern,
+                binds,
             },
         }
         .serialize(serializer)

@@ -220,6 +220,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction.
         reason: String,
     },
+    /// A `k::matches!` (K's `:=K`) is malformed, guarded, spelled as std's
+    /// bare `matches!`, or in a left-hand side (KF-031).
+    InvalidMatches {
+        /// Specific restriction.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -359,6 +365,7 @@ impl SyntaxErrorKind {
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
             Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
+            Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -612,7 +619,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }
             | SyntaxErrorKind::InvalidPatternAs { reason }
-            | SyntaxErrorKind::InvalidPatternOr { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidPatternOr { reason }
+            | SyntaxErrorKind::InvalidMatches { reason } => formatter.write_str(reason),
         }
     }
 }

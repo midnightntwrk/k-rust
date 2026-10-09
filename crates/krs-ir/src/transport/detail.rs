@@ -173,6 +173,8 @@ details! {
         InitializerPatternAs => "`name @ pattern` (#as) is not allowed in initializers",
         PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
         InitializerPatternOr => "`A | B` or-patterns (#Or) are not allowed in initializers",
+        MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
+        InitializerMatches => "`k::matches!` (:=K) is not allowed in initializers",
     }
 }
 
@@ -258,6 +260,7 @@ details! {
         InvalidUnboundVariables => "unbound_variables is allowed only on desugar clauses, listing distinct names the subject does not bind and the result uses, or `_` for the result's wildcards",
         PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
         PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
+        MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
     }
 }
 

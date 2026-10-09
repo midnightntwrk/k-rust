@@ -225,7 +225,9 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => continue,
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -285,7 +287,9 @@ impl RuleTermCounters {
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
                 | TermNode::As { .. }
-                | TermNode::Or(_) => {}
+                | TermNode::Or(_)
+                | TermNode::Matches(_)
+                | TermNode::MatchesWildcard(_) => {}
             }
         }
         counters
@@ -334,7 +338,9 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => continue,
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -367,6 +373,11 @@ pub(super) fn parse_rule_pattern(
         Pat::Macro(macro_pattern) => {
             if crate::term::is_sort_test_macro(&macro_pattern.mac.path) {
                 return Err(crate::term::matched_sort_test(&macro_pattern.mac.path));
+            }
+            if crate::term::is_matches_macro(&macro_pattern.mac.path)
+                || crate::term::is_std_matches(&macro_pattern.mac.path)
+            {
+                return Err(crate::term::matched_matches(&macro_pattern.mac.path));
             }
             if !is_term_macro(&macro_pattern.mac.path) {
                 return Err(unexpected_macro(&macro_pattern.mac.path));
@@ -655,6 +666,12 @@ fn validate_native_pattern(
         Pat::Macro(macro_pattern) if crate::term::is_sort_test_macro(&macro_pattern.mac.path) => {
             Err(crate::term::matched_sort_test(&macro_pattern.mac.path))
         }
+        Pat::Macro(macro_pattern)
+            if crate::term::is_matches_macro(&macro_pattern.mac.path)
+                || crate::term::is_std_matches(&macro_pattern.mac.path) =>
+        {
+            Err(crate::term::matched_matches(&macro_pattern.mac.path))
+        }
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
             "nested pattern macros other than `k::lexeme!` are not supported",
             macro_pattern.span(),
@@ -866,7 +883,9 @@ pub(super) fn push_term_node_anchors(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => continue,
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -932,7 +951,9 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => continue,
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -958,7 +979,9 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::OrBool(range)
         | TermNode::SortTest { range, .. }
         | TermNode::As { range, .. }
-        | TermNode::Or(range) => Ok(*range),
+        | TermNode::Or(range)
+        | TermNode::Matches(range)
+        | TermNode::MatchesWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

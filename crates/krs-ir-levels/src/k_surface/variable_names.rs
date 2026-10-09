@@ -320,6 +320,12 @@ impl Scope {
                     self.term(alternative);
                 }
             }
+            DefinitionTermKind::Matches {
+                subject, pattern, ..
+            } => {
+                self.term(subject);
+                self.term(pattern);
+            }
         }
     }
 
@@ -352,6 +358,7 @@ enum Origin {
     Generated,
     Anonymous,
     Authored,
+    Local,
 }
 
 #[derive(Debug)]
@@ -370,6 +377,13 @@ impl<'a> Binder<'a> {
             ),
             SemanticIdKind::Anonymous { name } => {
                 (Origin::Anonymous, unreserved(anonymous_base(name)))
+            }
+            // A local binder (BIND-1) is spelled from its authored name; it
+            // is named after every rule binder, so a collision gives the
+            // local binder the suffix and emitted K never relies on K's
+            // shadowing.
+            SemanticIdKind::Local { name } => {
+                (Origin::Local, unreserved(authored_base(name, occurrences)))
             }
             SemanticIdKind::Named if variable.as_str().contains(RESERVED_MARKER) => {
                 (Origin::Generated, generated_base(variable.as_str()))
@@ -695,6 +709,28 @@ mod tests {
                     .all(|character| character == '_' || character.is_ascii_alphanumeric())
             );
         }
+    }
+
+    #[test]
+    fn local_binders_take_their_authored_name_and_yield_on_collision() {
+        let first = SemanticId::local("x", 0).expect("local ID");
+        let second = SemanticId::local("x", 1).expect("local ID");
+        let other = SemanticId::local("pair_left", 2).expect("local ID");
+        let ids = [
+            (first.clone(), 2),
+            (second.clone(), 2),
+            (other.clone(), 2),
+            (id("pairLeft"), 1),
+        ];
+        let binders = ids
+            .iter()
+            .map(|(variable, occurrences)| Binder::new(variable, *occurrences))
+            .collect();
+        let names = assign(binders, &BTreeSet::new(), []);
+        assert_eq!(names[&first], "X");
+        assert_eq!(names[&second], "X_2");
+        assert_eq!(names[&id("pairLeft")], "PairLeft");
+        assert_eq!(names[&other], "PairLeft_2");
     }
 
     #[test]

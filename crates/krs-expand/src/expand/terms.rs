@@ -224,8 +224,16 @@ pub(super) struct TermBuilder<'a> {
     /// `name @ pattern` ordinals, numbered once across a sentence's
     /// left-hand side (the only side that may alias).
     pub(super) pattern_as_ordinal: u32,
-    /// `A | B` ordinals, numbered once across a sentence's left-hand side.
+    /// `A | B` ordinals, numbered once across a sentence's left-hand side
+    /// and its `k::matches!` patterns.
     pub(super) pattern_or_ordinal: u32,
+    /// `k::matches!` ordinals, side-neutral like [`Self::lexeme_ordinal`].
+    pub(super) matches_ordinal: u32,
+    /// Ordinals of the `_` in `k::matches!` patterns, side-neutral.
+    pub(super) matches_wildcard_ordinal: u32,
+    /// The local binders (BIND-1) of the `k::matches!` pattern being
+    /// expanded, or `None` outside one.
+    local_binders: Option<Vec<Ident>>,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -256,6 +264,9 @@ impl<'a> TermBuilder<'a> {
             sort_test_ordinal: 0,
             pattern_as_ordinal: 0,
             pattern_or_ordinal: 0,
+            matches_ordinal: 0,
+            matches_wildcard_ordinal: 0,
+            local_binders: None,
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -295,6 +306,75 @@ impl<'a> TermBuilder<'a> {
 
     pub(super) fn reset_side(&mut self) {
         self.counters = TermCounters::default();
+    }
+
+    /// Continues the sentence-wide (side-neutral) ordinals of `previous`, a
+    /// builder of an earlier side of the same sentence.
+    pub(super) fn continue_ordinals(&mut self, previous: &TermBuilder<'_>) {
+        self.lexeme_ordinal = previous.lexeme_ordinal;
+        self.sort_test_ordinal = previous.sort_test_ordinal;
+        self.pattern_as_ordinal = previous.pattern_as_ordinal;
+        self.pattern_or_ordinal = previous.pattern_or_ordinal;
+        self.matches_ordinal = previous.matches_ordinal;
+        self.matches_wildcard_ordinal = previous.matches_wildcard_ordinal;
+    }
+
+    /// Whether `path` is a local binder of the `k::matches!` pattern being
+    /// expanded.
+    fn is_local_binder(&self, path: &Path) -> bool {
+        self.local_binders
+            .as_ref()
+            .is_some_and(|binders| is_bound_ident_path(path, binders))
+    }
+
+    /// Whether a `k::matches!` pattern is being expanded.
+    const fn in_matches_pattern(&self) -> bool {
+        self.local_binders.is_some()
+    }
+
+    /// Expands `k::matches!(subject, pattern)` (K's `:=K`, KF-031): the
+    /// subject on `side`, then the pattern, whose wildcards, aliases,
+    /// alternatives, and local binders are admitted.
+    fn expand_matches(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        subject: &TermTree,
+        pattern: &TermTree,
+        binders: &[Ident],
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        if matches!(side, TermSide::Left) || self.in_matches_pattern() {
+            return Err(ExpandError::new(
+                expand::MATCHES_OUTSIDE_CONDITION,
+                range.first(),
+                "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern",
+            ));
+        }
+        if self.claim {
+            return Err(ExpandError::new(
+                expand::MATCHES_OUTSIDE_CONDITION,
+                range.first(),
+                "`k::matches!` is not supported in claims: the pinned native prover cannot resolve K's :=K in a claim; match the shape in the claim's subject instead",
+            ));
+        }
+        let ordinal = self.matches_ordinal;
+        self.matches_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                range.first(),
+                "too many `k::matches!` terms in one sentence",
+            )
+        })?;
+        let subject = self.expand_wire(subject, side, slots)?;
+        self.local_binders = Some(binders.to_vec());
+        let pattern = self.expand_wire(pattern, side, slots);
+        self.local_binders = None;
+        Ok(WireTerm::Matches {
+            key: wire_key(ProvenanceRole::Matches, ordinal),
+            subject: Box::new(subject),
+            pattern: Box::new(pattern?),
+        })
     }
 
     /// Builds the literal term tree while retaining Rust-resolved heads in slots.
@@ -369,7 +449,14 @@ impl<'a> TermBuilder<'a> {
                 let reference_ordinal = take_counter(&mut self.counters.reference)?;
                 let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
                 let key = wire_key(side.role(TermRole::Reference), reference_ordinal);
-                if is_bound_ident_path(path, self.bindings) {
+                if self.is_local_binder(path) {
+                    // A local binder has no Rust binding for tooling to use.
+                    Ok(WireTerm::Variable {
+                        key,
+                        path_key,
+                        name: spelling(path),
+                    })
+                } else if is_bound_ident_path(path, self.bindings) {
                     self.tooling_binding_references.push(path.clone());
                     Ok(WireTerm::Variable {
                         key,
@@ -406,6 +493,19 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::Literal {
                     key: wire_key(side.role(TermRole::Literal), ordinal),
                     literal,
+                })
+            }
+            TermTree::Wildcard(range) if self.in_matches_pattern() => {
+                let ordinal = self.matches_wildcard_ordinal;
+                self.matches_wildcard_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        range.first(),
+                        "too many `_` in `k::matches!` patterns in one sentence",
+                    )
+                })?;
+                Ok(WireTerm::Wildcard {
+                    key: wire_key(ProvenanceRole::MatchesWildcard, ordinal),
                 })
             }
             TermTree::Wildcard(_) => {
@@ -475,8 +575,19 @@ impl<'a> TermBuilder<'a> {
                     operand: Box::new(self.expand_wire(operand, side, slots)?),
                 })
             }
+            TermTree::As { binding, .. }
+                if self.in_matches_pattern() && matches!(side, TermSide::Right) =>
+            {
+                Err(ExpandError::new(
+                    expand::PATTERN_AS_OUTSIDE_LHS,
+                    binding.span(),
+                    format!(
+                        "`{binding} @ pattern` in a `k::matches!` pattern is allowed only in requires and ensures conditions: K rejects #as in a rule's right-hand side"
+                    ),
+                ))
+            }
             TermTree::As { binding, pattern } => {
-                if !matches!(side, TermSide::Left) {
+                if !matches!(side, TermSide::Left) && !self.in_matches_pattern() {
                     return Err(ExpandError::new(
                         expand::PATTERN_AS_OUTSIDE_LHS,
                         binding.span(),
@@ -497,7 +608,7 @@ impl<'a> TermBuilder<'a> {
                 range,
                 alternatives,
             } => {
-                if !matches!(side, TermSide::Left) {
+                if !matches!(side, TermSide::Left) && !self.in_matches_pattern() {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
@@ -511,6 +622,12 @@ impl<'a> TermBuilder<'a> {
                         .try_map_ref(|alternative| self.expand_wire(alternative, side, slots))?,
                 })
             }
+            TermTree::Matches {
+                range,
+                subject,
+                pattern,
+                binders,
+            } => self.expand_matches(*range, subject, pattern, binders, side, slots),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(
@@ -567,7 +684,7 @@ impl<'a> TermBuilder<'a> {
                 "too many `name @ pattern` aliases in one sentence",
             )
         })?;
-        if self.bindings.contains(binding) {
+        if self.bindings.contains(binding) && !self.in_matches_pattern() {
             self.tooling_binding_references
                 .push(Path::from(binding.clone()));
         }

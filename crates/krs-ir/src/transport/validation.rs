@@ -167,8 +167,18 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         name: &str,
     ) -> Result<(), Self::Error>;
 
-    /// `A | B | ..` (K's `#Or`), admitted only in left-hand sides.
+    /// `A | B | ..` (K's `#Or`), admitted only in left-hand sides and in
+    /// the pattern of a `k::matches!`.
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    /// `k::matches!(subject, pattern)` (K's `:=K`), admitted only outside
+    /// left-hand sides and never inside another `k::matches!` pattern.
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the pattern of a `k::matches!`,
+    /// where wildcards, `name @ pattern`, `A | B`, and local binders are
+    /// admitted.
+    fn matches_pattern(&mut self, inside: bool);
 
     fn argument(
         &mut self,
@@ -255,6 +265,18 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
                 validate_term(alternative, context)?;
             }
             Ok(())
+        }
+        Term::Matches {
+            key,
+            subject,
+            pattern,
+        } => {
+            context.matches(key)?;
+            validate_term(subject, context)?;
+            context.matches_pattern(true);
+            let validated = validate_term(pattern, context);
+            context.matches_pattern(false);
+            validated
         }
     }
 }

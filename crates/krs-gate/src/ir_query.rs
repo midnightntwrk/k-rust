@@ -333,6 +333,21 @@ impl<'a> Context<'a> {
                 ("as", Some(vec![pattern.as_ref()]))
             }
             DefinitionTermKind::Or { alternatives } => ("or", Some(alternatives.iter().collect())),
+            DefinitionTermKind::Matches {
+                subject,
+                pattern,
+                binds,
+            } => {
+                fact["subject"] = self.term(subject);
+                fact["pattern"] = self.term(pattern);
+                fact["binds"] = json!(
+                    binds
+                        .iter()
+                        .map(krs_ir::SemanticId::as_str)
+                        .collect::<Vec<_>>()
+                );
+                ("matches", None)
+            }
         };
         fact["kind"] = json!(kind);
         if let Some(arguments) = arguments {

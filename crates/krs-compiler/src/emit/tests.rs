@@ -691,3 +691,68 @@ fn or_patterns_print_as_parenthesised_k_or() {
         "( 1 #Or 2 #Or X:Int )"
     );
 }
+
+/// `k::matches!(e, P)` is K's `( P :=K E )`: the pattern first, always
+/// parenthesised, and `bool::not` of it is `notBool ( P :=K E )`; a local
+/// binder named like a rule binder takes a distinct name (KF-031).
+#[test]
+fn matches_print_as_parenthesised_k_equals_k_in_k_order() {
+    let context = context();
+    let rule_x = krs_ir::SemanticId::new("x".to_owned()).unwrap();
+    let local_x = krs_ir::SemanticId::local("x", 1).unwrap();
+    let local = |name: &str| {
+        DefinitionTerm::variable(node(name), DefinitionSortRef::int(), local_x.clone())
+    };
+    let pattern = DefinitionTerm::application(
+        node("matches.pattern"),
+        DefinitionSortRef::int(),
+        DefinitionApplicationRef::Builtin(BuiltinOperation::IntAdd),
+        vec![local("matches.pattern.0"), local("matches.pattern.1")],
+    );
+    let subject = DefinitionTerm::variable(
+        node("matches.subject"),
+        DefinitionSortRef::int(),
+        rule_x.clone(),
+    );
+    let test = DefinitionTerm::matches(
+        node("matches"),
+        DefinitionSortRef::bool(),
+        subject,
+        pattern,
+        vec![local_x],
+    );
+    let negated = DefinitionTerm::application(
+        node("matches.not"),
+        DefinitionSortRef::bool(),
+        DefinitionApplicationRef::Builtin(BuiltinOperation::BoolNot),
+        vec![test.clone()],
+    );
+    let from = DefinitionTerm::variable(node("matches.from"), DefinitionSortRef::int(), rule_x);
+    let rule = krs_ir_levels::RuleSentence::new(
+        node("matches.rule"),
+        krs_ir_levels::LabelIdentity::new(
+            krs_ir_levels::LabelId::new("matches.rule").unwrap(),
+            "matches-rule",
+        )
+        .unwrap(),
+        krs_ir::SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(
+            node("matches.body"),
+            DefinitionSortRef::int(),
+            from,
+            negated.clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let names = context.naming.rule(&rule);
+    assert_eq!(
+        render_term(&test, &context, &names, false).unwrap().text,
+        "( X_2:Int +Int X_2:Int :=K X:Int )"
+    );
+    assert_eq!(
+        render_term(&negated, &context, &names, false).unwrap().text,
+        "notBool ( X_2:Int +Int X_2:Int :=K X:Int )"
+    );
+}

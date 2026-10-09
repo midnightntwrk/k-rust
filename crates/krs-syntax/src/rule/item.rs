@@ -468,18 +468,29 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
         }
+        // `name @ ..` and `A | B` occur in the subject and in `k::matches!`
+        // patterns; with `k::matches!` shells and pattern wildcards (KF-031)
+        // they are numbered in expansion order: the subject, the result, the
+        // condition, then the ensures condition.
+        let mut sides = vec![self.parameter.pattern.nodes(), self.result.nodes()];
+        if let Some(requires) = &self.requires {
+            sides.push(requires.term().nodes());
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            sides.push(ensures.nodes());
+        }
         let mut aliases = 0_usize;
-        crate::term::push_pattern_as_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut aliases,
-        )?;
+        for nodes in &sides {
+            crate::term::push_pattern_as_anchors(&mut anchors, nodes, &mut aliases)?;
+        }
         let mut alternatives = 0_usize;
-        crate::term::push_pattern_or_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut alternatives,
-        )?;
+        for nodes in &sides {
+            crate::term::push_pattern_or_anchors(&mut anchors, nodes, &mut alternatives)?;
+        }
+        let (mut matches, mut wildcards) = (0_usize, 0_usize);
+        for nodes in &sides {
+            crate::term::push_matches_anchors(&mut anchors, nodes, &mut matches, &mut wildcards)?;
+        }
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
             &mut anchors,
@@ -551,7 +562,9 @@ impl RuleItem {
                         | TermNode::Lexeme { .. }
                         | TermNode::SortTest { .. }
                         | TermNode::As { .. }
-                        | TermNode::Or(_) => continue,
+                        | TermNode::Or(_)
+                        | TermNode::Matches(_)
+                        | TermNode::MatchesWildcard(_) => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
@@ -828,7 +841,9 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
     };
     match expression {
         Expr::Macro(expression_macro)
-            if crate::term::is_sort_test_macro(&expression_macro.mac.path) =>
+            if crate::term::is_sort_test_macro(&expression_macro.mac.path)
+                || crate::term::is_matches_macro(&expression_macro.mac.path)
+                || crate::term::is_std_matches(&expression_macro.mac.path) =>
         {
             TermExpression::from_expression(expression.clone())
         }

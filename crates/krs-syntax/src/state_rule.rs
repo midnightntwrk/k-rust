@@ -277,20 +277,7 @@ impl StateClaimItem {
         }
         append_claim_special_anchors(&self.rule, self.ensures.as_ref(), &mut output)?;
         if let Some(ensures) = &self.ensures {
-            // The rule's own anchors number the lexemes of its subject,
-            // result, and condition; the ensures clause continues after them.
-            let mut lexemes = claim_terms(&self.rule, None)
-                .iter()
-                .flat_map(|term| term.nodes())
-                .filter(|node| matches!(node, TermNode::Lexeme { .. }))
-                .count();
-            push_lexeme_anchors(&mut output, ensures.term.nodes(), &mut lexemes)?;
-            let mut sort_tests = claim_terms(&self.rule, None)
-                .iter()
-                .flat_map(|term| term.nodes())
-                .filter(|node| matches!(node, TermNode::SortTest { .. }))
-                .count();
-            push_sort_test_anchors(&mut output, ensures.term.nodes(), &mut sort_tests)?;
+            push_claim_ensures_anchors(&self.rule, ensures, &mut output)?;
         }
         Ok(output)
     }
@@ -736,6 +723,27 @@ impl StateRuleItem {
         }
         if let Some(ensures) = self.existentials.ensures() {
             push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
+            crate::term::push_pattern_as_anchors(&mut output, ensures.nodes(), &mut aliases)?;
+            crate::term::push_pattern_or_anchors(&mut output, ensures.nodes(), &mut alternatives)?;
+        }
+        // `k::matches!` shells and pattern wildcards (KF-031), in expansion
+        // order: the cells, the condition, then the ensures condition.
+        let (mut matches, mut wildcards) = (0_usize, 0_usize);
+        for term in claim_terms(self, None) {
+            crate::term::push_matches_anchors(
+                &mut output,
+                term.nodes(),
+                &mut matches,
+                &mut wildcards,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_matches_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut matches,
+                &mut wildcards,
+            )?;
         }
         Ok(output)
     }
@@ -1265,7 +1273,9 @@ fn append_term_provenance(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => continue,
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1417,7 +1427,9 @@ fn append_term_candidates(
             | TermNode::Lexeme { .. }
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
-            | TermNode::Or(_) => {}
+            | TermNode::Or(_)
+            | TermNode::Matches(_)
+            | TermNode::MatchesWildcard(_) => {}
         }
     }
     Ok(())
@@ -1448,7 +1460,9 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         TermNode::OrBool(range)
         | TermNode::SortTest { range, .. }
         | TermNode::As { range, .. }
-        | TermNode::Or(range) => Ok(*range),
+        | TermNode::Or(range)
+        | TermNode::Matches(range)
+        | TermNode::MatchesWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1465,7 +1479,9 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         TermNode::OrBool(range)
         | TermNode::SortTest { range, .. }
         | TermNode::As { range, .. }
-        | TermNode::Or(range) => range.first(),
+        | TermNode::Or(range)
+        | TermNode::Matches(range)
+        | TermNode::MatchesWildcard(range) => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1544,6 +1560,36 @@ fn take_ensures_helper(
     }
     *attributes = retained;
     Ok(found)
+}
+
+/// Appends the lexeme, sort-test, `name @ ..`, `A | B`, and `k::matches!`
+/// anchors of a claim's ensures condition, whose ordinals continue after the
+/// rule's subject, result, and condition (the rule's own anchors number
+/// those).
+fn push_claim_ensures_anchors(
+    rule: &StateRuleItem,
+    ensures: &ClaimEnsures,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
+    let count = |wanted: fn(&TermNode) -> bool| {
+        claim_terms(rule, None)
+            .iter()
+            .flat_map(|term| term.nodes())
+            .filter(|node| wanted(node))
+            .count()
+    };
+    let nodes = ensures.term.nodes();
+    let mut lexemes = count(|node| matches!(node, TermNode::Lexeme { .. }));
+    push_lexeme_anchors(output, nodes, &mut lexemes)?;
+    let mut sort_tests = count(|node| matches!(node, TermNode::SortTest { .. }));
+    push_sort_test_anchors(output, nodes, &mut sort_tests)?;
+    let mut aliases = count(|node| matches!(node, TermNode::As { .. }));
+    crate::term::push_pattern_as_anchors(output, nodes, &mut aliases)?;
+    let mut alternatives = count(|node| matches!(node, TermNode::Or(_)));
+    crate::term::push_pattern_or_anchors(output, nodes, &mut alternatives)?;
+    let mut matches = count(|node| matches!(node, TermNode::Matches(_)));
+    let mut wildcards = count(|node| matches!(node, TermNode::MatchesWildcard(_)));
+    crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)
 }
 
 fn claim_terms<'a>(
@@ -1640,7 +1686,9 @@ fn append_claim_special_anchors(
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
                 | TermNode::As { .. }
-                | TermNode::Or(_) => {}
+                | TermNode::Or(_)
+                | TermNode::Matches(_)
+                | TermNode::MatchesWildcard(_) => {}
             }
         }
     }

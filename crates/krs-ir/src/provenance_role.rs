@@ -472,6 +472,12 @@ provenance_roles! {
     PatternAsBinding => "pattern_as_binding",
     /// Complete `A | B | ..` or-pattern (K's `#Or`) in a left-hand side.
     PatternOr => "pattern_or",
+    /// Complete `k::matches!(subject, pattern)` shell (K's `:=K`) in a
+    /// result or condition.
+    Matches => "matches",
+    /// One `_` in the pattern of a `k::matches!`, numbered across the
+    /// sentence.
+    MatchesWildcard => "matches_wildcard",
 }
 
 impl Serialize for ProvenanceRole {

@@ -1250,6 +1250,9 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
         DefinitionTermKind::Or { alternatives } => alternatives
             .iter()
             .any(|alternative| term_contains_variable(alternative, variable)),
+        DefinitionTermKind::Matches {
+            subject, pattern, ..
+        } => term_contains_variable(subject, variable) || term_contains_variable(pattern, variable),
         DefinitionTermKind::Token { .. } => false,
     }
 }

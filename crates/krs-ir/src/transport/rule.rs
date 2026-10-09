@@ -713,6 +713,9 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .iter()
             .map(|alternative| count_here_in_term(alternative, here))
             .sum(),
+        DescriptorTerm::Matches {
+            subject, pattern, ..
+        } => count_here_in_term(subject, here) + count_here_in_term(pattern, here),
     }
 }
 
@@ -865,6 +868,15 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
             for alternative in alternatives.iter() {
                 collect_term_keys(alternative, keys);
             }
+        }
+        DescriptorTerm::Matches {
+            key,
+            subject,
+            pattern,
+        } => {
+            keys.insert(key.clone());
+            collect_term_keys(subject, keys);
+            collect_term_keys(pattern, keys);
         }
     }
 }
@@ -1061,6 +1073,29 @@ struct RuleCounters {
     sort_test: u32,
     pattern_as: u32,
     pattern_or: u32,
+    matches: u32,
+    matches_wildcard: u32,
+    /// Whether the validator is inside a `k::matches!` pattern.
+    in_matches_pattern: bool,
+}
+
+impl RuleCounters {
+    /// The counters of the next side: the side-neutral ordinals continue,
+    /// the per-side ones restart.
+    fn next_side(&self) -> Self {
+        Self {
+            id_token: self.id_token,
+            bytes_token: self.bytes_token,
+            anonymous: self.anonymous,
+            lexeme: self.lexeme,
+            sort_test: self.sort_test,
+            pattern_as: self.pattern_as,
+            pattern_or: self.pattern_or,
+            matches: self.matches,
+            matches_wildcard: self.matches_wildcard,
+            ..Self::default()
+        }
+    }
 }
 
 fn builtin_token_role<'a>(
@@ -1455,14 +1490,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ));
     }
     let mut ignored = Vec::new();
-    let mut right_counters = RuleCounters {
-        id_token: left_counters.id_token,
-        bytes_token: left_counters.bytes_token,
-        anonymous: left_counters.anonymous,
-        lexeme: left_counters.lexeme,
-        sort_test: left_counters.sort_test,
-        ..RuleCounters::default()
-    };
+    let mut right_counters = left_counters.next_side();
     let mut right_bindings = rule.bindings.clone();
     if (!rule.existentials.is_empty() || rule.ensures.is_some())
         && rule.sentence_kind != crate::ConfigurationSentenceKind::Transition
@@ -1504,14 +1532,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         &mut right_counters,
         keys,
     )?;
-    let mut claim_counters = RuleCounters {
-        id_token: right_counters.id_token,
-        bytes_token: right_counters.bytes_token,
-        anonymous: right_counters.anonymous,
-        lexeme: right_counters.lexeme,
-        sort_test: right_counters.sort_test,
-        ..RuleCounters::default()
-    };
+    let mut claim_counters = right_counters.next_side();
     if let Some(requires) = &rule.requires {
         insert_rule_exact(keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
         validate_rule_term::<S>(
@@ -1612,14 +1633,7 @@ fn validate_rule_existentials<S: RuleValidationStage>(
     }
     if let Some(ensures) = &rule.ensures {
         insert_rule_exact(keys, &ensures.key, ProvenanceRole::RuleEnsures, 0)?;
-        let mut counters = RuleCounters {
-            id_token: inherited.id_token,
-            bytes_token: inherited.bytes_token,
-            anonymous: inherited.anonymous,
-            lexeme: inherited.lexeme,
-            sort_test: inherited.sort_test,
-            ..RuleCounters::default()
-        };
+        let mut counters = inherited.next_side();
         validate_rule_term::<S>(
             &ensures.term,
             ValidationSide::RuleEnsures,
@@ -1686,14 +1700,7 @@ fn validate_rule_claim<S: RuleValidationStage>(
     }
     if let Some(ensures) = &claim.ensures {
         insert_rule_exact(keys, &ensures.key, ProvenanceRole::ClaimEnsures, 0)?;
-        let mut counters = RuleCounters {
-            id_token: inherited.id_token,
-            bytes_token: inherited.bytes_token,
-            anonymous: inherited.anonymous,
-            lexeme: inherited.lexeme,
-            sort_test: inherited.sort_test,
-            ..RuleCounters::default()
-        };
+        let mut counters = inherited.next_side();
         validate_rule_term::<S>(
             &ensures.term,
             ValidationSide::Ensures,
@@ -2105,7 +2112,10 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         path_key: &ProvenanceKey,
         name: &str,
     ) -> Result<(), Self::Error> {
-        if !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
+        // A name in a `k::matches!` pattern is a local binder (BIND-1), not
+        // a rule binding; semantic lowering scopes it.
+        let local = self.counters.in_matches_pattern;
+        if !local && !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::RuleVariableBindingIsNotATerm,
             ));
@@ -2119,7 +2129,9 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.reference,
         )?;
         self.counters.reference = rule_increment(self.counters.reference)?;
-        discover_binding(self.side, name, self.discovered);
+        if !local {
+            discover_binding(self.side, name, self.discovered);
+        }
         Ok(())
     }
 
@@ -2172,6 +2184,16 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     }
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if self.counters.in_matches_pattern {
+            insert_rule_exact(
+                self.keys,
+                key,
+                ProvenanceRole::MatchesWildcard,
+                self.counters.matches_wildcard,
+            )?;
+            self.counters.matches_wildcard = rule_increment(self.counters.matches_wildcard)?;
+            return Ok(());
+        }
         if !matches!(self.side, ValidationSide::Left) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
@@ -2234,12 +2256,13 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         binding_key: &ProvenanceKey,
         name: &str,
     ) -> Result<(), Self::Error> {
-        if !matches!(self.side, ValidationSide::Left) {
+        let local = self.counters.in_matches_pattern;
+        if !local && !matches!(self.side, ValidationSide::Left) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::PatternAsOutsideLeftHandSide,
             ));
         }
-        if !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
+        if !local && !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::RuleVariableBindingIsNotATerm,
             ));
@@ -2257,12 +2280,34 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.pattern_as,
         )?;
         self.counters.pattern_as = rule_increment(self.counters.pattern_as)?;
-        discover_binding(self.side, name, self.discovered);
+        if !local {
+            discover_binding(self.side, name, self.discovered);
+        }
         Ok(())
     }
 
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if matches!(self.side, ValidationSide::Left) || self.counters.in_matches_pattern {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MatchesInPattern,
+            ));
+        }
+        insert_rule_exact(
+            self.keys,
+            key,
+            ProvenanceRole::Matches,
+            self.counters.matches,
+        )?;
+        self.counters.matches = rule_increment(self.counters.matches)?;
+        Ok(())
+    }
+
+    fn matches_pattern(&mut self, inside: bool) {
+        self.counters.in_matches_pattern = inside;
+    }
+
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if !matches!(self.side, ValidationSide::Left) {
+        if !matches!(self.side, ValidationSide::Left) && !self.counters.in_matches_pattern {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::PatternOrOutsideLeftHandSide,
             ));

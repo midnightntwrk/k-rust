@@ -303,8 +303,7 @@ pub(super) fn configuration_rule(
         &result_idents,
         RuleSide::Right,
     );
-    right.terms.lexeme_ordinal = left.terms.lexeme_ordinal;
-    right.terms.sort_test_ordinal = left.terms.sort_test_ordinal;
+    right.terms.continue_ordinals(&left.terms);
     let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
     let mut condition_builder = TermBuilder::new(
         &facade,
@@ -312,8 +311,7 @@ pub(super) fn configuration_rule(
         &cfg,
         &binding_idents,
     );
-    condition_builder.lexeme_ordinal = right.terms.lexeme_ordinal;
-    condition_builder.sort_test_ordinal = right.terms.sort_test_ordinal;
+    condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             condition.term().tree(),
@@ -332,8 +330,7 @@ pub(super) fn configuration_rule(
     ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
     ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
-    ensures_builder.lexeme_ordinal = condition_builder.lexeme_ordinal;
-    ensures_builder.sort_test_ordinal = condition_builder.sort_test_ordinal;
+    ensures_builder.continue_ordinals(&condition_builder);
     let ensures = ensures_condition(rule.existentials(), &mut ensures_builder, &mut slots)?;
     let mut key_functions = left.terms.key_functions;
     key_functions.extend(right.terms.key_functions);
@@ -947,6 +944,11 @@ impl<'a> StateRuleBuilder<'a> {
                     spelling: display_literal.value(),
                 })
             }
+            TermTree::Matches { range, .. } => Err(ExpandError::new(
+                expand::MATCHES_OUTSIDE_CONDITION,
+                range.first(),
+                "`k::matches!` is supported in requires and ensures conditions and in term results; in a cell value, test the cell's binder in `#[k::requires]`",
+            )),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(

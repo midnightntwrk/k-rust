@@ -437,3 +437,13 @@ pub fn desugar(attributes: TokenStream, item: TokenStream) -> TokenStream {
 pub fn spec_module(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::SpecModule, attributes, item)
 }
+
+/// K's shape test: `k::matches!(t, Pattern)` is `( PATTERN :=K T )`, an
+/// object-language Bool that is true when `t` matches the pattern. It is
+/// valid in results, requires, and ensures, never on a left-hand side. The
+/// pattern is a Rust pattern (`_`, `name @ ..`, `A | B`; no `if` guard)
+/// whose names are local binders visible only inside it.
+#[proc_macro]
+pub fn matches(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Matches, input)
+}

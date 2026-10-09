@@ -1064,8 +1064,13 @@ impl Sample for DefinitionTermKind {
                         Vec::new(),
                     ),
                 },
+                Self::Matches {
+                    subject: sample::<Box<DefinitionTerm>>(),
+                    pattern: sample::<Box<DefinitionTerm>>(),
+                    binds: vec![sample::<SemanticId>()],
+                },
             ],
-            11,
+            12,
             "DefinitionTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1079,6 +1084,7 @@ impl Sample for DefinitionTermKind {
                 Self::Rewrite { .. } => 8,
                 Self::As { .. } => 9,
                 Self::Or { .. } => 10,
+                Self::Matches { .. } => 11,
             },
         )
     }
@@ -1460,8 +1466,13 @@ impl Sample for DescriptorTerm {
                         Vec::new(),
                     ),
                 },
+                Self::Matches {
+                    key: sample::<ProvenanceKey>(),
+                    subject: Box::new(sample::<DescriptorTerm>()),
+                    pattern: Box::new(sample::<DescriptorTerm>()),
+                },
             ],
-            12,
+            13,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1476,6 +1487,7 @@ impl Sample for DescriptorTerm {
                 Self::SortTest { .. } => 9,
                 Self::As { .. } => 10,
                 Self::Or { .. } => 11,
+                Self::Matches { .. } => 12,
             },
         )
     }
@@ -2236,8 +2248,13 @@ impl Sample for SemanticTermKind {
                         Vec::new(),
                     ),
                 },
+                Self::Matches {
+                    subject: sample::<Box<SemanticTerm>>(),
+                    pattern: sample::<Box<SemanticTerm>>(),
+                    binds: vec![sample::<SemanticId>()],
+                },
             ],
-            11,
+            12,
             "SemanticTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2251,6 +2268,7 @@ impl Sample for SemanticTermKind {
                 Self::Rewrite { .. } => 8,
                 Self::As { .. } => 9,
                 Self::Or { .. } => 10,
+                Self::Matches { .. } => 11,
             },
         )
     }
@@ -2579,8 +2597,13 @@ impl Sample for WireTerm {
                         Vec::new(),
                     ),
                 },
+                Self::Matches {
+                    key: sample::<ProvenanceKey>(),
+                    subject: Box::new(sample::<WireTerm>()),
+                    pattern: Box::new(sample::<WireTerm>()),
+                },
             ],
-            12,
+            13,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2595,6 +2618,7 @@ impl Sample for WireTerm {
                 Self::SortTest { .. } => 9,
                 Self::As { .. } => 10,
                 Self::Or { .. } => 11,
+                Self::Matches { .. } => 12,
             },
         )
     }

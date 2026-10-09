@@ -220,6 +220,12 @@ pub enum TermNode {
     /// `A | B | ..` (K's `#Or`) shell in a pattern payload; it precedes the
     /// nodes of its alternatives.
     Or(TokenRange),
+    /// `k::matches!(subject, pattern)` (K's `:=K`) shell; it precedes the
+    /// nodes of its subject, then of its pattern.
+    Matches(TokenRange),
+    /// One `_` of a `k::matches!` pattern; these follow the pattern's other
+    /// nodes, in pattern preorder.
+    MatchesWildcard(TokenRange),
 }
 
 impl TermNode {
@@ -236,7 +242,9 @@ impl TermNode {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or(_) => None,
+            | Self::Or(_)
+            | Self::Matches(_)
+            | Self::MatchesWildcard(_) => None,
         }
     }
 
@@ -254,7 +262,9 @@ impl TermNode {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or(_) => None,
+            | Self::Or(_)
+            | Self::Matches(_)
+            | Self::MatchesWildcard(_) => None,
         }
     }
 
@@ -268,7 +278,9 @@ impl TermNode {
             Self::OrBool(range)
             | Self::SortTest { range, .. }
             | Self::As { range, .. }
-            | Self::Or(range) => Ok(*range),
+            | Self::Or(range)
+            | Self::Matches(range)
+            | Self::MatchesWildcard(range) => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -448,6 +460,20 @@ pub enum TermTree {
         /// The alternatives, in source order.
         alternatives: AtLeastTwo<TermTree>,
     },
+    /// `k::matches!(subject, pattern)`: K's `( PATTERN :=K SUBJECT )`, a Bool
+    /// test, only in results and conditions.
+    Matches {
+        /// Complete macro invocation range.
+        range: TokenRange,
+        /// The tested term.
+        subject: Box<TermTree>,
+        /// The pattern (a Rust pattern, PAT-1).
+        pattern: Box<TermTree>,
+        /// The pattern's local binders (BIND-1), in first-occurrence order:
+        /// every unqualified single-identifier reference below the pattern's
+        /// root and every `name @ ..` alias.
+        binders: Vec<syn::Ident>,
+    },
 }
 
 impl TermTree {
@@ -467,7 +493,8 @@ impl TermTree {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or { .. } => None,
+            | Self::Or { .. }
+            | Self::Matches { .. } => None,
         }
     }
 
@@ -487,7 +514,8 @@ impl TermTree {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or { .. } => None,
+            | Self::Or { .. }
+            | Self::Matches { .. } => None,
         }
     }
 
@@ -507,7 +535,8 @@ impl TermTree {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or { .. } => None,
+            | Self::Or { .. }
+            | Self::Matches { .. } => None,
         }
     }
 
@@ -527,7 +556,8 @@ impl TermTree {
             | Self::Lexeme { .. }
             | Self::SortTest { .. }
             | Self::As { .. }
-            | Self::Or { .. } => None,
+            | Self::Or { .. }
+            | Self::Matches { .. } => None,
         }
     }
 
@@ -553,6 +583,13 @@ impl TermTree {
                 for alternative in alternatives {
                     alternative.record_field_names_preorder(output);
                 }
+                return;
+            }
+            Self::Matches {
+                subject, pattern, ..
+            } => {
+                subject.record_field_names_preorder(output);
+                pattern.record_field_names_preorder(output);
                 return;
             }
             _ => return,
@@ -604,6 +641,9 @@ impl TermTree {
                     alternative.wildcard_ranges_preorder(output);
                 }
             }
+            // A `k::matches!` pattern's wildcards are its own
+            // (`TermNode::MatchesWildcard`); only its subject is searched.
+            Self::Matches { subject, .. } => subject.wildcard_ranges_preorder(output),
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -887,7 +927,9 @@ impl TermExpression {
                 | TermNode::Lexeme { .. }
                 | TermNode::SortTest { .. }
                 | TermNode::As { .. }
-                | TermNode::Or(_) => {
+                | TermNode::Or(_)
+                | TermNode::Matches(_)
+                | TermNode::MatchesWildcard(_) => {
                     continue;
                 }
             };
@@ -1486,12 +1528,15 @@ enum TermMacroKind {
     Lexeme,
     Is,
     Project,
+    Matches,
 }
 
 impl TermMacroKind {
     const fn root_kind(self) -> TermRootKind {
         match self {
-            Self::OrBool | Self::Fragment | Self::Is | Self::Project => TermRootKind::Call,
+            Self::OrBool | Self::Fragment | Self::Is | Self::Project | Self::Matches => {
+                TermRootKind::Call
+            }
             Self::Id | Self::Bytes | Self::Anonymous | Self::Lexeme => TermRootKind::Literal,
         }
     }
@@ -1508,10 +1553,15 @@ fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
         "lexeme" => Some(TermMacroKind::Lexeme),
         "is" => Some(TermMacroKind::Is),
         "project" => Some(TermMacroKind::Project),
+        "matches" => Some(TermMacroKind::Matches),
         _ => None,
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One match over the closed set of compiler-owned term islands."
+)]
 fn validate_special_macro(
     value: &ExprMacro,
     context: TermExpressionContext,
@@ -1519,6 +1569,9 @@ fn validate_special_macro(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&value.attrs, value.span())?;
+    if is_std_matches(&value.mac.path) {
+        return Err(matches_error(STD_MATCHES.to_owned(), value.mac.path.span()));
+    }
     match special_macro_kind(&value.mac.path) {
         Some(TermMacroKind::Id) => {
             let literal: LitStr = syn::parse2(value.mac.tokens.clone())?;
@@ -1605,13 +1658,227 @@ fn validate_special_macro(
         Some(TermMacroKind::Project) => {
             validate_sort_test(value, SortTestKind::Projection, context, symbols, nodes)
         }
+        Some(TermMacroKind::Matches) => {
+            if context == TermExpressionContext::Pattern {
+                return Err(matches_error(
+                    MATCHES_IN_PATTERN.to_owned(),
+                    value.mac.path.span(),
+                ));
+            }
+            validate_matches(value, symbols, nodes)
+        }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, or `or_bool!` islands",
+                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, or `or_bool!` islands",
             },
             value.span(),
         )),
     }
+}
+
+/// The reason given for std's bare `matches!` in a term.
+pub(crate) const STD_MATCHES: &str =
+    "did you mean `k::matches!`? std's matches! tests a host value";
+
+/// The reason given for `k::matches!` in a pattern.
+pub(crate) const MATCHES_IN_PATTERN: &str = "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern";
+
+/// The reason given for an `if` guard in `k::matches!`.
+const MATCHES_GUARD: &str = "K's :=K has no guard; conjoin a separate condition with bool::and";
+
+fn matches_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidMatches { reason }, span)
+}
+
+/// Whether `path` names std's `matches!` rather than `k::matches!`: the bare
+/// name, which the prelude resolves to std's macro, or a `std::`/`core::`
+/// path.
+pub(crate) fn is_std_matches(path: &Path) -> bool {
+    let Some(last) = path.segments.last() else {
+        return false;
+    };
+    last.ident == "matches"
+        && (path.segments.len() == 1
+            || path
+                .segments
+                .first()
+                .is_some_and(|first| first.ident == "std" || first.ident == "core"))
+}
+
+/// Whether `path` names `k::matches!`.
+pub(crate) fn is_matches_macro(path: &Path) -> bool {
+    is_plain_path(path)
+        && path.segments.len() > 1
+        && path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "matches")
+}
+
+/// The error for `k::matches!` (or std's `matches!`) in a pattern position,
+/// at the macro's name.
+pub(crate) fn matched_matches(path: &Path) -> SyntaxError {
+    let reason = if is_std_matches(path) {
+        STD_MATCHES
+    } else {
+        MATCHES_IN_PATTERN
+    };
+    matches_error(reason.to_owned(), path.span())
+}
+
+/// Splits the arguments of `k::matches!(subject, pattern)` into the subject
+/// expression and the pattern tokens.
+///
+/// # Errors
+///
+/// Rejects anything but one term expression, a comma, and a pattern without
+/// an `if` guard.
+pub fn parse_matches_arguments(tokens: TokenStream) -> Result<(Expr, TokenStream), SyntaxError> {
+    let shape =
+        || "`k::matches!` expects `subject, pattern`: `k::matches!(t, Pair(_, _))`".to_owned();
+    let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Expr, TokenStream)> {
+        let subject: Expr = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let pattern: TokenStream = input.parse()?;
+        Ok((subject, pattern))
+    };
+    let span = tokens.span();
+    let (subject, pattern) = parser
+        .parse2(tokens)
+        .map_err(|error| matches_error(shape(), error.span()))?;
+    if pattern.is_empty() {
+        return Err(matches_error(shape(), span));
+    }
+    if let Some(guard) = pattern.clone().into_iter().find_map(|token| match token {
+        proc_macro2::TokenTree::Ident(ident) if ident == "if" => Some(ident.span()),
+        _ => None,
+    }) {
+        return Err(matches_error(MATCHES_GUARD.to_owned(), guard));
+    }
+    Ok((subject, pattern))
+}
+
+/// The local binders of a `k::matches!` pattern (BIND-1), in first-occurrence
+/// order: every `name @ ..` alias and every unqualified single-identifier
+/// reference below the root (a bare root path is a unit constructor, as in a
+/// rule subject).
+fn matches_binders(pattern: &TermTree) -> Vec<syn::Ident> {
+    fn walk(tree: &TermTree, root: bool, output: &mut Vec<syn::Ident>) {
+        let mut push = |ident: &syn::Ident| {
+            if !output.contains(ident) {
+                output.push(ident.clone());
+            }
+        };
+        match tree {
+            TermTree::Reference(path) if !root && path.leading_colon.is_none() => {
+                if let Some(ident) = path.get_ident() {
+                    push(ident);
+                }
+            }
+            TermTree::As { binding, pattern } => {
+                push(binding);
+                walk(pattern, false, output);
+            }
+            TermTree::Or { alternatives, .. } => {
+                for alternative in alternatives {
+                    walk(alternative, root, output);
+                }
+            }
+            TermTree::Application(application) => match &application.arguments {
+                TermArguments::Positional(arguments) => {
+                    for argument in arguments {
+                        walk(argument, false, output);
+                    }
+                }
+                TermArguments::Named(arguments) => {
+                    for argument in arguments {
+                        walk(&argument.value, false, output);
+                    }
+                }
+            },
+            TermTree::Cell(cell) => {
+                for field in &cell.fields {
+                    walk(&field.value, false, output);
+                }
+            }
+            TermTree::SortTest { operand, .. } => walk(operand, false, output),
+            TermTree::OrBool { arguments, .. } => {
+                for argument in arguments {
+                    walk(argument, false, output);
+                }
+            }
+            TermTree::Matches { subject, .. } => walk(subject, false, output),
+            TermTree::Reference(_)
+            | TermTree::Literal(_)
+            | TermTree::Wildcard(_)
+            | TermTree::IdToken { .. }
+            | TermTree::BytesToken { .. }
+            | TermTree::Anonymous { .. }
+            | TermTree::Lexeme { .. } => {}
+        }
+    }
+    let mut output = Vec::new();
+    walk(pattern, true, &mut output);
+    output
+}
+
+/// Validates `k::matches!(subject, pattern)` (K's `:=K`, KF-031): the shell
+/// node precedes the subject's nodes, then the pattern's, then one
+/// `MatchesWildcard` node per `_` of the pattern.
+fn validate_matches(
+    value: &ExprMacro,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let (subject, pattern_tokens) = parse_matches_arguments(value.mac.tokens.clone())?;
+    let range = TokenRange::for_tokens(value)?;
+    nodes.push(TermNode::Matches(range));
+    let subject = validate_expression(&subject, TermExpressionContext::Expression, symbols, nodes)?;
+    let mut signs = crate::rule::NegativeLiteralSpans::scan(pattern_tokens.clone());
+    let pattern = Pat::parse_multi.parse2(pattern_tokens)?;
+    if let Pat::Rest(_) = pattern {
+        return Err(unsupported_pattern_form(&pattern));
+    }
+    let pattern = validate_pattern(&pattern, &mut signs, symbols, nodes)?;
+    let mut wildcards = Vec::new();
+    pattern.wildcard_ranges_preorder(&mut wildcards);
+    nodes.extend(wildcards.into_iter().map(TermNode::MatchesWildcard));
+    let binders = matches_binders(&pattern);
+    Ok(TermTree::Matches {
+        range,
+        subject: Box::new(subject),
+        pattern: Box::new(pattern),
+        binders,
+    })
+}
+
+/// Appends the `matches` anchor of every `k::matches!` node and the
+/// `matches_wildcard` anchor of every `_` in a `k::matches!` pattern,
+/// numbering each role from its ordinal. Like lexeme roles, both are
+/// side-neutral: a sentence numbers them once, in the order it expands.
+///
+/// # Errors
+///
+/// Returns an occurrence-overflow error.
+pub(crate) fn push_matches_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    matches: &mut usize,
+    wildcards: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        let (role, ordinal, range) = match node {
+            TermNode::Matches(range) => (ProvenanceRole::Matches, &mut *matches, range),
+            TermNode::MatchesWildcard(range) => {
+                (ProvenanceRole::MatchesWildcard, &mut *wildcards, range)
+            }
+            _ => continue,
+        };
+        let current = checked_ordinal(*ordinal, role, range.first())?;
+        anchors.push(ProvenanceAnchor::new(role, current, *range));
+        *ordinal += 1;
+    }
+    Ok(())
 }
 
 /// Appends the `lexeme_sort` and `lexeme_text` anchors of every

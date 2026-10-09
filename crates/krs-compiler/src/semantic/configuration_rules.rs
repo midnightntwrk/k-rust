@@ -61,6 +61,7 @@ impl StateRuleTerms<'_> {
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
             result_wildcards: false,
+            locals: super::infer::LocalBinders::default(),
             declared_binders: BTreeMap::new(),
         };
         builder.infer(term, expected_sort, subject)?;

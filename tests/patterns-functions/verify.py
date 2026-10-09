@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patterns-and-functions feature gate: `name @ pattern` (KF-029) and `A | B` (KF-030).
+"""Patterns-and-functions feature gate: `name @ pattern` (KF-029), `A | B` (KF-030), and `k::matches!` (KF-031).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -23,11 +23,27 @@ the outcomes must agree:
   `x`, makes `pick(pair(5, green()))` `5`. The programs agree natively, on
   Java K's LLVM backend from the emitted K and from `reference.k`, and on
   Java K's Haskell backend from the emitted K;
+- `matches`: `k::matches!(t, P)` is K's `( P :=K T )`, a Bool, with the
+  pattern first and always parenthesised. Two readable clauses guarded by
+  `k::matches!(e, Pair(_, _))` and its `bool::not` make `isPair(pair(1, 2))`
+  `true` and `isPair(3)` `false`; guards `Pair(p @ Pair(_, _), p)` make
+  `boxed(pair(pair(1, 2), pair(1, 2)))` `true` and
+  `boxed(pair(pair(1, 2), pair(2, 1)))` `false`; the equation
+  `twin(E) => ( pair ( X , X ) :=K E )`, whose local binder `x` occurs twice,
+  makes `twin(pair(1, 1))` `true` and `twin(pair(1, 2))` `false`; and
+  alternatives make `known(unit())` `true` and `known(3)` `false`. The
+  programs agree natively, on Java K's LLVM backend from the emitted K and
+  from `reference.k` (whose negations use `:/=K`), and on Java K's Haskell
+  backend;
 - negative fixtures: `ref` on an alias, an alias inside its own subpattern,
   an alias of a `..` remainder, `@` in a result, an alias of a whole rule
   subject, alternatives binding different names, alternatives that can bind
-  differently (K's #Or would be ambiguous), `|` in a result, and `|` beside a
-  `..` remainder, each fail `krs check` with a pinned diagnostic.
+  differently (K's #Or would be ambiguous), `|` in a result, `|` beside a
+  `..` remainder, a `k::matches!` name that shadows a rule binder, one read
+  once, an `if` guard, std's bare `matches!`, `k::matches!` in a pattern, `@`
+  in a `k::matches!` in a result, a pattern whose sort cannot meet its
+  subject's, and `k::matches!` in a claim (the pinned native prover cannot
+  resolve `:=K` there), each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -82,6 +98,19 @@ ALTERNATIVES_PROGRAMS = (
 )
 ALTERNATIVES_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-alternatives-reference")
 
+MATCHES = Fixture(MANIFEST, "krs-patterns-functions-matches")
+MATCHES_PROGRAMS = (
+    Program("is-pair", "isPair(pair(1, 2))", "accepted", "true"),
+    Program("not-pair", "isPair(3)", "accepted", "false"),
+    Program("boxed", "boxed(pair(pair(1, 2), pair(1, 2)))", "accepted", "true"),
+    Program("unboxed", "boxed(pair(pair(1, 2), pair(2, 1)))", "accepted", "false"),
+    Program("twin", "twin(pair(1, 1))", "accepted", "true"),
+    Program("not-twin", "twin(pair(1, 2))", "accepted", "false"),
+    Program("known", "known(unit())", "accepted", "true"),
+    Program("unknown", "known(3)", "accepted", "false"),
+)
+MATCHES_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-matches-reference")
+
 NEGATIVE = (
     "alias-ref",
     "alias-inside-itself",
@@ -92,6 +121,14 @@ NEGATIVE = (
     "or-ambiguous",
     "or-in-result",
     "or-remainder",
+    "matches-shadow",
+    "matches-unread",
+    "matches-guard",
+    "matches-std",
+    "matches-lhs",
+    "matches-alias-result",
+    "matches-sort",
+    "matches-claim",
 )
 
 
@@ -208,6 +245,32 @@ def verify_alternatives(harness: FixtureGate, workspace: Path) -> None:
             )
 
 
+def verify_matches(harness: FixtureGate, workspace: Path) -> None:
+    """Shape tests run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
+
+    harness.check(MATCHES)
+    harness.expand(MATCHES)
+    emitted = harness.emit(MATCHES)
+    emitted_fragments(emitted, (
+        "requires ( pair ( _ , _ ) :=K E:Exp )",
+        "requires notBool ( pair ( _ , _ ) :=K E:Exp )",
+        "requires ( pair ( ( pair ( _ , _ ) #as P:Exp ) , P:Exp ) :=K E:Exp )",
+        "rule twin ( E:Exp ) => ( pair ( X:Exp , X:Exp ) :=K E:Exp ) [label(",
+        "rule known ( E:Exp ) => ( ( pair ( _ , _ ) #Or unit ( ) ) :=K E:Exp ) [label(",
+    ))
+    observed = harness.compare(emitted, MATCHES_PROGRAMS, sort="Exp")
+    agree_with_reference(
+        harness, workspace, MATCHES_REFERENCE, "MATCHES-REFERENCE", MATCHES_PROGRAMS, observed,
+    )
+    haskell = java_haskell_outcomes(harness, emitted, MATCHES_PROGRAMS)
+    for program in MATCHES_PROGRAMS:
+        if haskell[program.name] != observed[program.name]:
+            raise GateError(
+                f"{MATCHES.package} {program.name}: Java K Haskell observed "
+                f"{haskell[program.name]}, the native and LLVM routes {observed[program.name]}"
+            )
+
+
 def verify_aliases(harness: FixtureGate, workspace: Path) -> None:
     """Aliases run natively, on Java LLVM from the emitted K, and from `reference.k`."""
 
@@ -253,6 +316,9 @@ def main() -> int:
 
         verify_alternatives(harness, workspace)
         print("PASS alternatives: rgb, primary, code-rgb, and pick agree natively, on Java LLVM, with reference.k, and on Java Haskell")
+
+        verify_matches(harness, workspace)
+        print("PASS matches: isPair, boxed, twin, and known agree natively, on Java LLVM, with reference.k, and on Java Haskell")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

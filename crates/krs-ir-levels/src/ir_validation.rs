@@ -176,6 +176,10 @@ pub(crate) enum ValidationError<L: Validation> {
     /// `A | B` outside a pre-pattern, at a sort an alternative does not
     /// inject into, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `k::matches!` outside a post-term or condition, at a sort other than
+    /// Bool, or with local binders that are not exactly its pattern's named
+    /// variables or that occur outside it.
+    InvalidMatches,
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -1125,6 +1129,12 @@ pub(crate) fn validate_term_cell_references<L: Validation>(
             }
             return Ok(());
         }
+        IrTermKind::Matches {
+            subject, pattern, ..
+        } => {
+            validate_term_cell_references::<L>(subject, declarations, cell_ids)?;
+            return validate_term_cell_references::<L>(pattern, declarations, cell_ids);
+        }
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => return Ok(()),
     };
     for child in children {
@@ -1225,6 +1235,12 @@ pub(crate) fn collect_term_variables<L: Validation>(
             for alternative in alternatives {
                 collect_term_variables::<L>(alternative, used);
             }
+        }
+        IrTermKind::Matches {
+            subject, pattern, ..
+        } => {
+            collect_term_variables::<L>(subject, used);
+            collect_term_variables::<L>(pattern, used);
         }
         IrTermKind::Cell { children, .. } => {
             for child in children {
@@ -1503,7 +1519,12 @@ pub(crate) fn validate_term<L: Validation>(
                 // only named binders must agree across alternatives.
                 let mut bound = BTreeSet::new();
                 collect_term_variables::<L>(alternative, &mut bound);
-                bound.retain(|variable| matches!(variable.kind(), krs_ir::SemanticIdKind::Named));
+                bound.retain(|variable| {
+                    matches!(
+                        variable.kind(),
+                        krs_ir::SemanticIdKind::Named | krs_ir::SemanticIdKind::Local { .. }
+                    )
+                });
                 match &expected {
                     None => expected = Some(bound),
                     Some(expected) if *expected != bound => {
@@ -1522,8 +1543,96 @@ pub(crate) fn validate_term<L: Validation>(
                 )?;
             }
         }
+        IrTermKind::Matches {
+            subject,
+            pattern,
+            binds,
+        } => {
+            // The pattern's named variables are exactly its local binders,
+            // each listed once; wildcards are generated variables.
+            let mut named = BTreeSet::new();
+            collect_term_variables::<L>(pattern, &mut named);
+            named.retain(|variable| variable.kind() != krs_ir::SemanticIdKind::Wildcard);
+            let listed = binds.iter().cloned().collect::<BTreeSet<_>>();
+            if *term.sort() != L::builtin_sort(BuiltinSort::Bool)
+                || listed.len() != binds.len()
+                || listed != named
+                || contains_matches(pattern)
+            {
+                return Err(L::error(ValidationError::InvalidMatches));
+            }
+            for term in [subject, pattern] {
+                validate_term::<L>(
+                    term,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            }
+        }
     }
     Ok(())
+}
+
+/// Whether `term` contains `k::matches!` (KF-031), which is admitted only in
+/// post-terms and conditions.
+pub(crate) fn contains_matches<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    match term.kind() {
+        IrTermKind::Matches { .. } => true,
+        IrTermKind::As { pattern, .. } => contains_matches(pattern),
+        IrTermKind::Or { alternatives } => alternatives.iter().any(contains_matches),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
+        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_matches),
+        IrTermKind::KSequence { items, .. } => items.iter().any(contains_matches),
+        IrTermKind::Cell { children, .. } => children.iter().any(contains_matches),
+        IrTermKind::Map(operands) => operands.operands().any(contains_matches),
+        IrTermKind::List(operands) => operands.operands().any(contains_matches),
+        IrTermKind::Set(operands) => operands.operands().any(contains_matches),
+        IrTermKind::Rewrite { from, to } => contains_matches(from) || contains_matches(to),
+    }
+}
+
+/// Collects the local binders of every `k::matches!` in `term` into `binds`
+/// and every variable used outside a `k::matches!` pattern into `outside`.
+fn collect_local_binders<L: IrLevel>(
+    term: &IrTerm<L>,
+    binds: &mut Vec<SemanticId>,
+    outside: &mut BTreeSet<SemanticId>,
+) {
+    let mut each = |terms: &mut dyn Iterator<Item = &IrTerm<L>>| {
+        for child in terms {
+            collect_local_binders(child, binds, outside);
+        }
+    };
+    match term.kind() {
+        IrTermKind::Matches {
+            subject,
+            binds: local,
+            ..
+        } => {
+            binds.extend(local.iter().cloned());
+            collect_local_binders(subject, binds, outside);
+        }
+        IrTermKind::Variable { variable } => {
+            outside.insert(variable.clone());
+        }
+        IrTermKind::Token { .. } => {}
+        IrTermKind::As { alias, pattern } => {
+            outside.insert(alias.clone());
+            collect_local_binders(pattern, binds, outside);
+        }
+        IrTermKind::Or { alternatives } => each(&mut alternatives.iter()),
+        IrTermKind::Application { arguments, .. } => each(&mut arguments.iter()),
+        IrTermKind::KSequence { items, .. } => each(&mut items.iter()),
+        IrTermKind::Cell { children, .. } => each(&mut children.iter()),
+        IrTermKind::Map(operands) => each(&mut operands.operands()),
+        IrTermKind::List(operands) => each(&mut operands.operands()),
+        IrTermKind::Set(operands) => each(&mut operands.operands()),
+        IrTermKind::Rewrite { from, to } => each(&mut [&**from, &**to].into_iter()),
+    }
 }
 
 /// Whether `term` contains `alias @ pattern`, which is admitted only in
@@ -1531,6 +1640,8 @@ pub(crate) fn validate_term<L: Validation>(
 pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
     match term.kind() {
         IrTermKind::As { .. } => true,
+        // A `k::matches!` pattern may alias (KF-031).
+        IrTermKind::Matches { subject, .. } => contains_pattern_as(subject),
         IrTermKind::Or { alternatives } => alternatives.iter().any(contains_pattern_as),
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
         IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_as),
@@ -1548,6 +1659,8 @@ pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
 pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
     match term.kind() {
         IrTermKind::Or { .. } => true,
+        // A `k::matches!` pattern may have alternatives (KF-031).
+        IrTermKind::Matches { subject, .. } => contains_pattern_or(subject),
         IrTermKind::As { pattern, .. } => contains_pattern_or(pattern),
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
         IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_or),
@@ -1561,15 +1674,22 @@ pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
 }
 
 /// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
-/// conditions.
+/// conditions (outside `k::matches!` patterns), `k::matches!` in its
+/// pre-patterns, and a `k::matches!` local binder that is listed twice or
+/// occurs outside its pattern (BIND-1).
 fn reject_pattern_as_outside_patterns<L: Validation>(
     rule: &RuleView<'_, L>,
 ) -> Result<(), L::Error> {
+    let mut pre = Vec::new();
     let mut post = Vec::new();
     match rule.body {
-        RuleBodyRef::Term(body) => post.push(body.to()),
+        RuleBodyRef::Term(body) => {
+            pre.push(body.from());
+            post.push(body.to());
+        }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
+                pre.push(clause.before());
                 if let CellPost::Replace { term } = clause.after() {
                     post.push(term);
                 }
@@ -1581,8 +1701,35 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
     if post.iter().copied().any(contains_pattern_as) {
         return Err(L::error(ValidationError::InvalidPatternAs));
     }
-    if post.into_iter().any(contains_pattern_or) {
+    if post.iter().copied().any(contains_pattern_or) {
         return Err(L::error(ValidationError::InvalidPatternOr));
+    }
+    if pre.iter().copied().any(contains_matches) {
+        return Err(L::error(ValidationError::InvalidMatches));
+    }
+    let mut binds = Vec::new();
+    let mut outside = BTreeSet::new();
+    for term in pre.into_iter().chain(post) {
+        collect_local_binders(term, &mut binds, &mut outside);
+    }
+    if let RuleBodyRef::Configuration { body, .. } = rule.body {
+        for clause in body.clauses() {
+            if let CellContentFrame::KSequenceTail {
+                binding: Some(binding),
+                ..
+            }
+            | CellContentFrame::MapRemainder {
+                binding: Some(binding),
+                ..
+            } = clause.frame()
+            {
+                outside.insert(binding.clone());
+            }
+        }
+    }
+    let distinct = binds.iter().collect::<BTreeSet<_>>();
+    if distinct.len() != binds.len() || distinct.iter().any(|bind| outside.contains(*bind)) {
+        return Err(L::error(ValidationError::InvalidMatches));
     }
     Ok(())
 }

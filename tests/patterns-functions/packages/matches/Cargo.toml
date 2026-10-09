@@ -1,0 +1,21 @@
+[package]
+name = "krs-patterns-functions-matches"
+description = "`k::matches!(t, P)`: K's `P :=K T` tests the shape of a term"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_patterns_functions_matches"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-MATCHES"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -69,6 +69,15 @@ enum Pattern {
         cell: SemanticId,
         children: Vec<Self>,
     },
+    /// `k::matches!(subject, pattern)` in a guard (KF-031): the subject, and
+    /// the pattern's shape with its local binders and wildcards renamed
+    /// canonically, so two guards testing one subject against one shape are
+    /// the same guard.
+    Matches {
+        sort: SemanticSortRef,
+        subject: Box<Self>,
+        shape: String,
+    },
 }
 
 impl Pattern {
@@ -81,7 +90,8 @@ impl Pattern {
             | Self::Map { sort, .. }
             | Self::List { sort, .. }
             | Self::Set { sort, .. }
-            | Self::Cell { sort, .. } => sort,
+            | Self::Cell { sort, .. }
+            | Self::Matches { sort, .. } => sort,
         }
     }
 }
@@ -117,6 +127,53 @@ fn subterms(term: &SemanticTerm) -> Vec<&SemanticTerm> {
         SemanticTermKind::Rewrite { from, to } => vec![from.as_ref(), to.as_ref()],
         SemanticTermKind::As { pattern, .. } => vec![pattern.as_ref()],
         SemanticTermKind::Or { alternatives } => alternatives.iter().collect(),
+        // A `k::matches!` pattern binds its own names and is never unified
+        // with a rule's patterns.
+        SemanticTermKind::Matches { subject, .. } => vec![subject.as_ref()],
+    }
+}
+
+/// The canonical shape of a `k::matches!` pattern: its structure with each
+/// local binder renamed by first occurrence and each wildcard written `_`.
+fn matches_shape(term: &SemanticTerm, names: &mut BTreeMap<SemanticId, usize>) -> String {
+    let list = |terms: Vec<&SemanticTerm>, names: &mut BTreeMap<SemanticId, usize>| {
+        terms
+            .into_iter()
+            .map(|term| matches_shape(term, names))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let sort = term.sort();
+    match term.kind() {
+        SemanticTermKind::Variable { variable } => {
+            if variable.kind() == krs_ir::SemanticIdKind::Wildcard {
+                format!("_:{sort}")
+            } else {
+                let next = names.len();
+                let index = *names.entry(variable.clone()).or_insert(next);
+                format!("${index}:{sort}")
+            }
+        }
+        SemanticTermKind::Token { value } => format!("{value:?}:{sort}"),
+        SemanticTermKind::Application {
+            application,
+            arguments,
+        } => format!(
+            "{application:?}({})",
+            list(arguments.iter().collect(), names)
+        ),
+        SemanticTermKind::As { alias, pattern } => {
+            let next = names.len();
+            let index = *names.entry(alias.clone()).or_insert(next);
+            format!("(${index}@{})", matches_shape(pattern, names))
+        }
+        SemanticTermKind::Or { alternatives } => {
+            format!(
+                "({})",
+                list(alternatives.iter().collect(), names).replace(',', "|")
+            )
+        }
+        _ => format!("{:?}", term.kind()),
     }
 }
 
@@ -605,6 +662,7 @@ impl<'graph> Unifier<'graph> {
             Pattern::Cell { children, .. } => children
                 .iter()
                 .any(|term| self.occurs(needle, term, visited)),
+            Pattern::Matches { subject, .. } => self.occurs(needle, subject, visited),
             Pattern::Token { .. } => false,
         }
     }
@@ -681,6 +739,15 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
         SemanticTermKind::Rewrite { .. } => {
             unreachable!("configuration clause pre-patterns are never rewrites")
         }
+        SemanticTermKind::Matches {
+            subject,
+            pattern: matched,
+            ..
+        } => Pattern::Matches {
+            sort: term.sort().clone(),
+            subject: Box::new(pattern(subject, rule, catalog)),
+            shape: matches_shape(matched, &mut BTreeMap::new()),
+        },
         // `alias @ pattern` unifies as its pattern, with the alias bound to
         // the pattern (clause 7b, KF-029).
         SemanticTermKind::As {
@@ -1011,6 +1078,18 @@ impl Unifier<'_> {
                     ..
                 },
             ) => left_cell == right_cell && all(left_children, right_children),
+            (
+                Pattern::Matches {
+                    subject: left_subject,
+                    shape: left_shape,
+                    ..
+                },
+                Pattern::Matches {
+                    subject: right_subject,
+                    shape: right_shape,
+                    ..
+                },
+            ) => left_shape == right_shape && self.same(left_subject, right_subject),
             _ => false,
         }
     }

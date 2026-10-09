@@ -2049,6 +2049,17 @@ fn lower_term(
             lower_sort_ref(term.sort(), names)?,
             alternatives.try_map_ref(|alternative| lower_term(alternative, names, origins))?,
         )),
+        SemanticTermKind::Matches {
+            subject,
+            pattern,
+            binds,
+        } => Ok(DefinitionTerm::matches(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            lower_term(subject, names, origins)?,
+            lower_term(pattern, names, origins)?,
+            binds.clone(),
+        )),
     }
 }
 

@@ -292,6 +292,11 @@ def main() -> None:
             "variable `x` is not bound in all alternatives",
             "Pair",
         ),
+        (
+            "matches_malformed",
+            "K's :=K has no guard; conjoin a separate condition with bool::and",
+            "if",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

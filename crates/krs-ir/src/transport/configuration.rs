@@ -1971,6 +1971,14 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
+    fn matches(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerMatches,
+        ))
+    }
+
+    fn matches_pattern(&mut self, _: bool) {}
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

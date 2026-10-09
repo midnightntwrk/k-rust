@@ -184,6 +184,8 @@ entry_points! {
         Is = "is",
         /// `k::project!`.
         Project = "project",
+        /// `k::matches!`.
+        Matches = "matches",
     }
 }
 

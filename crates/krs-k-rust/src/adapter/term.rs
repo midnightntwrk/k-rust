@@ -195,6 +195,19 @@ impl Adapter<'_> {
                     Ok(NativeTerm::apply("#Or", vec![left, right?]))
                 })
             }
+            // K's `( PATTERN :=K SUBJECT )`, with no label sort parameter;
+            // k-rust's `resolve_fun` generates its lambda (KF-031).
+            DefinitionTermKind::Matches {
+                subject, pattern, ..
+            } => {
+                let mut pattern_path = path.clone();
+                pattern_path.push(0);
+                let mut subject_path = path;
+                subject_path.push(1);
+                let pattern = self.term(pattern, module, sentence_index, pattern_path, context)?;
+                let subject = self.term(subject, module, sentence_index, subject_path, context)?;
+                Ok(NativeTerm::apply("_:=K_", vec![pattern, subject]))
+            }
         }
     }
 

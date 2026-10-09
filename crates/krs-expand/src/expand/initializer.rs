@@ -631,6 +631,11 @@ impl<'a> InitializerBuilder<'a> {
                 range.first(),
                 "`A | B` alternatives occur only on a left-hand side; initializers cannot contain them",
             )),
+            TermTree::Matches { range, .. } => Err(ExpandError::new(
+                expand::MATCHES_OUTSIDE_CONDITION,
+                range.first(),
+                "`k::matches!` is a rule and claim condition; initializers cannot contain it",
+            )),
         }
     }
 }

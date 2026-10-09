@@ -1752,3 +1752,65 @@ fn or_patterns_adapt_to_left_nested_native_or() {
             .all(|term| matches!(term, Term::Variable { name, .. } if name == "X"))
     );
 }
+
+/// `k::matches!(e, P)` adapts to the AST k-rust's parser builds for
+/// `P :=K E`: `_:=K_` with the pattern first and no label sort parameter, so
+/// k-rust's `resolve_fun` generates the lambda (KF-031).
+#[test]
+fn matches_adapt_to_native_k_equals_k_with_the_pattern_first() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let local = krs_ir::SemanticId::local("x", 1).unwrap();
+    let pattern = DefinitionTerm::variable(
+        node("matches.pattern"),
+        DefinitionSortRef::int(),
+        local.clone(),
+    );
+    let subject = DefinitionTerm::variable(
+        node("matches.subject"),
+        DefinitionSortRef::int(),
+        semantic_id("x"),
+    );
+    let test = DefinitionTerm::matches(
+        node("matches"),
+        DefinitionSortRef::bool(),
+        subject,
+        pattern,
+        vec![local],
+    );
+    let from = DefinitionTerm::variable(
+        node("matches.from"),
+        DefinitionSortRef::int(),
+        semantic_id("x"),
+    );
+    let rule = RuleSentence::new(
+        node("matches.rule"),
+        LabelIdentity::new(LabelId::new("matches.rule").unwrap(), "matches-rule").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(node("matches.body"), DefinitionSortRef::int(), from, test)
+            .unwrap(),
+    )
+    .unwrap();
+    let Sentence::Rule { body, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    let mut tests = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term
+            && label.name == "_:=K_"
+        {
+            assert!(label.parameters.is_empty(), "{label:?}");
+            tests.push(arguments.clone());
+        }
+    });
+    let [arguments] = tests.as_slice() else {
+        panic!("one native `_:=K_` term, found {tests:?}")
+    };
+    let [pattern, subject] = arguments.as_slice() else {
+        panic!("`_:=K_` is binary, found {arguments:?}")
+    };
+    // The local binder takes a name distinct from the rule's `x`.
+    assert!(matches!(pattern, Term::Variable { name, .. } if name == "X_2"));
+    assert!(matches!(subject, Term::Variable { name, .. } if name == "X"));
+}

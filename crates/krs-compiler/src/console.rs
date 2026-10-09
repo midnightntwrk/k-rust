@@ -129,5 +129,8 @@ fn term_mentions(term: &SemanticTerm, variable: &SemanticId) -> bool {
         IrTermKind::Or { alternatives } => alternatives
             .iter()
             .any(|alternative| term_mentions(alternative, variable)),
+        IrTermKind::Matches {
+            subject, pattern, ..
+        } => term_mentions(subject, variable) || term_mentions(pattern, variable),
     }
 }

@@ -20,6 +20,9 @@ pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) bindings: &'a BTreeSet<String>,
     pub(super) seen_variables: &'a mut BTreeSet<String>,
     pub(super) allow_wildcards: bool,
+    /// Whether the validator is inside a `k::matches!` pattern, whose names
+    /// are local binders rather than rule bindings.
+    pub(super) in_matches_pattern: bool,
 }
 
 impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
@@ -35,7 +38,16 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     ) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
         require_key(path_key, self.provenance)?;
-        if name.trim().is_empty() || !self.bindings.contains(name) {
+        if name.trim().is_empty() {
+            return Err(GrammarTransportError::InvalidBinding(name.to_owned()));
+        }
+        // A name in a `k::matches!` pattern is a local binder (BIND-1);
+        // semantic lowering scopes it and rejects one that shadows a rule
+        // binding.
+        if self.in_matches_pattern {
+            return Ok(());
+        }
+        if !self.bindings.contains(name) {
             return Err(GrammarTransportError::InvalidBinding(name.to_owned()));
         }
         self.seen_variables.insert(name.to_owned());
@@ -71,7 +83,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if !self.allow_wildcards {
+        if !self.allow_wildcards && !self.in_matches_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
@@ -150,6 +162,13 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     ) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
         require_key(binding_key, self.provenance)?;
+        if self.in_matches_pattern {
+            return if name.trim().is_empty() {
+                Err(GrammarTransportError::InvalidBinding(name.to_owned()))
+            } else {
+                Ok(())
+            };
+        }
         if !self.allow_wildcards {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternAsOutsideLeftHandSide,
@@ -164,12 +183,26 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if !self.allow_wildcards {
+        if !self.allow_wildcards && !self.in_matches_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternOrOutsideLeftHandSide,
             ));
         }
         Ok(())
+    }
+
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        if self.allow_wildcards || self.in_matches_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::MatchesInPattern,
+            ));
+        }
+        Ok(())
+    }
+
+    fn matches_pattern(&mut self, inside: bool) {
+        self.in_matches_pattern = inside;
     }
 
     fn argument(
@@ -281,6 +314,16 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if self.counters.in_matches_pattern {
+            insert_exact(
+                self.keys,
+                key,
+                ProvenanceRole::MatchesWildcard,
+                self.counters.matches_wildcard,
+            )?;
+            self.counters.matches_wildcard = increment(self.counters.matches_wildcard)?;
+            return Ok(());
+        }
         let Some(role) = self.side.wildcard_role() else {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
@@ -376,7 +419,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         binding_key: &ProvenanceKey,
         _: &str,
     ) -> Result<(), Self::Error> {
-        if !matches!(self.side, TermSide::Left) {
+        if !matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternAsOutsideLeftHandSide,
             ));
@@ -398,7 +441,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if !matches!(self.side, TermSide::Left) {
+        if !matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternOrOutsideLeftHandSide,
             ));
@@ -411,6 +454,26 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         )?;
         self.counters.pattern_or = increment(self.counters.pattern_or)?;
         Ok(())
+    }
+
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if matches!(self.side, TermSide::Left) || self.counters.in_matches_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::MatchesInPattern,
+            ));
+        }
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::Matches,
+            self.counters.matches,
+        )?;
+        self.counters.matches = increment(self.counters.matches)?;
+        Ok(())
+    }
+
+    fn matches_pattern(&mut self, inside: bool) {
+        self.counters.in_matches_pattern = inside;
     }
 
     fn argument(

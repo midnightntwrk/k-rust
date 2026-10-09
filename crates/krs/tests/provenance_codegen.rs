@@ -130,7 +130,7 @@ fn compact_provenance_rejects_non_normalized_package_relative_path() {
         },
     )
     .unwrap_err();
-    assert!(matches!(
+    assert!(std::matches!(
         error,
         HostProvenanceError {
             path_error: Some(ref error),

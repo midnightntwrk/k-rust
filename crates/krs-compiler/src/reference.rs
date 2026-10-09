@@ -1599,6 +1599,15 @@ fn render_term(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(quote!(k::or_bool!(#(#arguments),*)))
         }
+        DescriptorTerm::Matches {
+            subject,
+            pattern: matched,
+            ..
+        } => {
+            let subject = render_term(subject, pattern, package, bundle)?;
+            let matched = render_term(matched, true, package, bundle)?;
+            Ok(quote!(k::matches!(#subject, #matched)))
+        }
         DescriptorTerm::Cell {
             declaration,
             fields,

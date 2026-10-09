@@ -79,6 +79,7 @@ macro_rules! reserved_encodings {
         /// Marker reserved for generated semantic identifiers.
         pub const RESERVED_MARKER: &str = $marker;
         const WILDCARD_PREFIX: &str = concat!($marker, "wildcard_");
+        const LOCAL_SEPARATOR: &str = concat!($marker, "local_");
         const ANONYMOUS_SEPARATOR: &str = RESERVED_MARKER;
     };
 }
@@ -93,6 +94,12 @@ pub enum SemanticIdKind<'a> {
     /// An underscore-prefixed name followed by a decimal occurrence ordinal.
     Anonymous {
         /// The name before the final reserved separator.
+        name: &'a str,
+    },
+    /// A local binder of a `k::matches!` pattern (BIND-1): an authored name
+    /// followed by the reserved local separator and a decimal ordinal.
+    Local {
+        /// The authored name before the final reserved local separator.
         name: &'a str,
     },
     /// An identity without a recognized reserved encoding.
@@ -139,6 +146,17 @@ impl SemanticId {
         Self::new(format!("{spelling}{ANONYMOUS_SEPARATOR}{ordinal}"))
     }
 
+    /// Creates the identity of a local binder (BIND-1), such as a name in a
+    /// `k::matches!` pattern; `ordinal` distinguishes the sentence's local
+    /// binders of one name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IrIdentityError`] when the resulting identity is path-shaped.
+    pub fn local(name: &str, ordinal: usize) -> Result<Self, IrIdentityError> {
+        Self::new(format!("{name}{LOCAL_SEPARATOR}{ordinal}"))
+    }
+
     /// Classifies the reserved encoding.
     ///
     /// An identity that carries both encodings is a wildcard.
@@ -146,6 +164,13 @@ impl SemanticId {
     pub fn kind(&self) -> SemanticIdKind<'_> {
         if self.0.starts_with(WILDCARD_PREFIX) {
             return SemanticIdKind::Wildcard;
+        }
+        if let Some((name, ordinal)) = self.0.rsplit_once(LOCAL_SEPARATOR)
+            && !name.is_empty()
+            && !ordinal.is_empty()
+            && ordinal.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return SemanticIdKind::Local { name };
         }
         self.0
             .rsplit_once(ANONYMOUS_SEPARATOR)
@@ -279,6 +304,16 @@ mod tests {
         assert_eq!(anonymous.kind(), SemanticIdKind::Anonymous { name: "_B" });
         assert!(SemanticId::anonymous("_a/b", 0).is_err());
         assert!(SemanticId::anonymous("_a\\b", 0).is_err());
+        let local = SemanticId::local("x", 3).unwrap();
+        assert_eq!(local.as_str(), "x__krs_local_3");
+        assert_eq!(local.kind(), SemanticIdKind::Local { name: "x" });
+        for spelling in ["__krs_local_3", "x__krs_local_", "x__krs_local_y"] {
+            assert_ne!(
+                SemanticId::new(spelling).unwrap().kind(),
+                SemanticIdKind::Local { name: "x" },
+                "{spelling}"
+            );
+        }
     }
 
     #[test]

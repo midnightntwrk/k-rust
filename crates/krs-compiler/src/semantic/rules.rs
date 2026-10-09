@@ -288,6 +288,7 @@ pub(super) fn lower_head_rule_descriptor(
         wildcard_offset: 0,
         wildcards: Vec::new(),
         result_wildcards: false,
+        locals: super::infer::LocalBinders::default(),
         declared_binders: BTreeMap::new(),
     };
     let head_sort = rule
@@ -1149,6 +1150,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .unbound_variables
             .as_ref()
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
+        locals: super::infer::LocalBinders::default(),
         declared_binders,
     };
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);

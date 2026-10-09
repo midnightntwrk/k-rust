@@ -994,6 +994,12 @@ fn insert_term(
                 insert_term(entries, alternative)?;
             }
         }
+        DefinitionTermKind::Matches {
+            subject, pattern, ..
+        } => {
+            insert_term(entries, subject)?;
+            insert_term(entries, pattern)?;
+        }
         DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
     }
     Ok(())
