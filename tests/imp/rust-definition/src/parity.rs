@@ -519,8 +519,12 @@ fn project_completed_head_body(body: &Json, item: &str) -> Json {
     let clause = clauses[0].as_object().unwrap();
     assert_eq!(
         clause.keys().map(String::as_str).collect::<BTreeSet<_>>(),
-        BTreeSet::from(["after", "before", "cell", "frame"]),
+        BTreeSet::from(["after", "before", "cell", "clause_kind", "frame"]),
         "{item} completed k-cell clause changed shape",
+    );
+    assert_eq!(
+        clause["clause_kind"], "fixed",
+        "{item} must complete the exactly-once k cell",
     );
     assert_eq!(
         clause["frame"],
