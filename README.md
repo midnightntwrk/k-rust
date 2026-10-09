@@ -235,6 +235,10 @@ krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
+The JSON is pretty-printed with two spaces per level and each line's indentation capped at 100
+spaces, so its size is linear in the program however deep its term nests (a statement list nests
+one level per statement); KORE JSON pretty-prints the same way.
+
 In the Rust API, the legacy `ProgramParser::parse` omits source spans, while `parse_program` records the caller-provided `SourceId` in term spans.
 
 Write a standalone executable parser for an explicitly selected module and sort:

@@ -427,6 +427,15 @@ impl Parser<'_> {
     }
 }
 
+/// The most spaces a pretty line starts with: the indentation of 50 levels. JSON whitespace
+/// carries no meaning, and past this width the depth of a line is no longer readable from its
+/// indentation, while indenting every line by its depth makes the text of a term N levels deep
+/// O(N^2) bytes. A term shallower than 50 levels is written exactly as `serde_json` pretty-prints
+/// it.
+pub(crate) const PRETTY_INDENT_CAP: usize = 100;
+
+/// The JSON text of `root`, compact or pretty-printed with two spaces per level, the
+/// indentation capped at [`PRETTY_INDENT_CAP`] spaces.
 pub fn to_string(root: &Node, pretty: bool) -> String {
     enum Task<'a> {
         Node(&'a Node, usize),
@@ -446,7 +455,10 @@ pub fn to_string(root: &Node, pretty: bool) -> String {
             ),
             Task::Newline(indent) => {
                 output.push('\n');
-                output.extend(std::iter::repeat_n(' ', indent * 2));
+                output.extend(std::iter::repeat_n(
+                    ' ',
+                    (indent * 2).min(PRETTY_INDENT_CAP),
+                ));
             }
             Task::Node(node, depth) => match node {
                 Node::Null => output.push_str("null"),
@@ -510,6 +522,32 @@ pub fn to_string(root: &Node, pretty: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Node, parse, to_string};
+
+    /// A pretty line is indented by its depth up to the cap, so deep text grows linearly; the
+    /// text still reads back as the same tree.
+    #[test]
+    fn pretty_indentation_is_capped() {
+        let depth = 2_000;
+        let source = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let node = parse(&source).unwrap();
+        let pretty = to_string(&node, true);
+        assert!(
+            pretty
+                .lines()
+                .all(|line| line.len() - line.trim_start().len() <= super::PRETTY_INDENT_CAP),
+            "a line is indented past the cap"
+        );
+        assert!(pretty.len() < depth * (super::PRETTY_INDENT_CAP + 2) * 2);
+        assert_eq!(to_string(&parse(&pretty).unwrap(), false), source);
+        let shallow = r#"{"a":[[[1,{"b":[true]}]]]}"#;
+        assert_eq!(
+            to_string(&parse(shallow).unwrap(), true),
+            serde_json::to_string_pretty(
+                &serde_json::from_str::<serde_json::Value>(shallow).unwrap()
+            )
+            .unwrap()
+        );
+    }
 
     #[test]
     fn parses_and_prints_like_serde_json() {
