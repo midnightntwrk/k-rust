@@ -29,8 +29,36 @@ TOOLS = ("kompile", "kast")
 ACCEPTED = HERE / "corpus" / "accepted" / "iterated-unary.probe"
 REJECTED = HERE / "corpus" / "rejected" / "non-associative-equality.probe"
 ASSOCIATIVITY_ERROR = "[Error] Inner Parser: Associativity filter exception."
+NATIVE_ASSOCIATIVITY_ERROR = "cannot use eq as the immediate left child of eq because of associativity"
+PRIORITY_PROBE = "! true == false"
+"""Declared by group only: `Not` binds tighter than the non-associative equality tier."""
+NATIVE_PARSES = {
+    "iterated unary": 'not(not(#token("true","Bool")))',
+    "priority": 'eq(not(#token("true","Bool")),#token("false","Bool"))',
+}
 first_line = substitute(r"\n[\s\S]*", "\n")
 """K reports the rejected nesting at either child from run to run, so only the first diagnostic line is kept."""
+
+
+def check_native_parses(invocation: Invocation, environment: dict[str, str]) -> None:
+    """Require `krs parse` to apply the group-declared priority and non-associativity natively."""
+
+    def parse(program: Path | str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        source = ["-"] if isinstance(program, str) else [program]
+        return invocation.run(
+            "parse", "--sort", "Probe", *source, environment=environment, check=check,
+            input=program if isinstance(program, str) else None,
+        )
+
+    observed = {
+        "iterated unary": parse(ACCEPTED).stdout.strip(),
+        "priority": parse(PRIORITY_PROBE).stdout.strip(),
+    }
+    if observed != NATIVE_PARSES:
+        raise GateError(f"native parses differ: expected {NATIVE_PARSES}, observed {observed}")
+    rejected = parse(REJECTED, check=False)
+    if rejected.returncode == 0 or NATIVE_ASSOCIATIVITY_ERROR not in rejected.stderr:
+        raise GateError(f"native krs parse did not reject explicit non_assoc direct nesting: {rejected.stderr}")
 
 
 def main() -> int:
@@ -54,6 +82,8 @@ def main() -> int:
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
         invocation.run("check", environment=environment)
         invocation.run("emit-k", "--output", emitted, environment=environment)
+
+        check_native_parses(invocation, environment)
 
         gate = krs_gate.build(target, environment=environment)
         rows = krs_gate.ir_query(gate, emitted, {"kind": "sentences", "sentence_kind": "associativity"}, environment=environment)["rows"]
@@ -113,7 +143,10 @@ def main() -> int:
         print(f"PASS precedence/associativity reference snapshot: {k.finish()}")
     pins.finish("precedence/associativity")
 
-    print("PASS precedence/associativity: bare iterated unary accepted; explicit non_assoc nesting rejected")
+    print(
+        "PASS precedence/associativity: bare iterated unary accepted; group priority applied; "
+        "explicit non_assoc nesting rejected (native and Java K)"
+    )
     return 0
 
 

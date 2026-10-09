@@ -11,6 +11,11 @@ groups and explicit non-associativity:
 Run `PYTHONDONTWRITEBYTECODE=1 python3 tests/precedence-associativity/verify.py` from the workspace
 root. The verifier builds the production `krs` CLI, emits this Rust-authored
 definition, compiles it with the pinned K frontend, and checks both parses.
+It also parses both probes with native `krs parse`, plus `! true == false`,
+whose only tree under the group priority `(Not) > (Eq)` is
+`eq(not(true), false)`; the priority and associativity are declared by
+production group only, so this checks that the native route resolves group
+tags to the members' labels as K does.
 
 The K frontend results form the reference snapshot `parse` (`tests/support/reference.py`),
 keyed by the `Krs.lock` K version, the two probe digests, and the digest of the emitted `definition.k`.
