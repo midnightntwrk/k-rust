@@ -57,6 +57,12 @@ partition end to end on both routes:
   with the derived symbols `intsCons`/`intsNil` and `altsCons`/`altsNil`;
   `sum(1, 2, 3)` is `6` and `sum(7)` is `7` on both routes, while
   `sum(1, .Ints)` and the empty `count()` are rejected on both;
+- `strict-lists`: K's `Vals` idiom. `Exps` is a `seqstrict` list and
+  `impl Exps for Vals` makes `Vals` its value list, so both list sentences
+  carry `overload(expsCons)`; call arguments evaluate left to right to a
+  `Vals`, which is a `KResult`: `f(tick, tick, tick)` is `123` on both routes,
+  a program of values parses as a `Vals` (KAST agrees), and both KOREs carry
+  the two `symbol-overload` axioms of the cons and terminator families;
 - negative fixtures: the removed `root`/`syntax-root` keys, an invalid
   `int-literals`, `internal` on a non-pub item, a group that mixes `internal`
   and program syntax, an unsigned package importing signed program syntax, a
@@ -70,7 +76,8 @@ partition end to end on both routes:
   builtin sort, a token declared twice on one sort, a token alias of `Int`, a
   lexical declared twice, a regex that refers to an undefined lexical, two
   lexicals that refer to each other, a production whose symbol is a list's
-  derived `intsCons`, and a constructor of a list sort.
+  derived `intsCons`, a constructor of a list sort, a subsort into a list
+  that is not strict, and a value list that is not a `KResult`.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -179,6 +186,30 @@ LISTS_SOURCE_FRAGMENTS = (
     "rule sum ( I:Int , .Ints ) => I:Int ",
     "rule sum ( I1:Int , I2:Int , Is:Ints ) => sum ( I1:Int +Int I2:Int , Is:Ints ) ",
 )
+STRICT_LISTS = Fixture(MANIFEST, "krs-grammar-strict-lists")
+STRICT_LISTS_PROGRAMS = (
+    Program(
+        "left-to-right", "f(tick, tick, tick)", "accepted", "123",
+        kast='call(#token("f","Id"),expsCons(tick(.KList),expsCons(tick(.KList),'
+        'expsCons(tick(.KList),expsNil(.KList)))))',
+    ),
+    Program("mixed", "f(5, tick, 7)", "accepted", "517"),
+    Program(
+        "values", "f(1, 2)", "accepted", "12",
+        kast='call(#token("f","Id"),valsCons(#token("1","Int"),valsCons(#token("2","Int"),valsNil(.KList))))',
+    ),
+    Program("empty", "f()", "accepted", "0", kast='call(#token("f","Id"),valsNil(.KList))'),
+    Program("nested", "g(f(tick, 2), tick)", "accepted", "122"),
+    Program("terminator", "f(1, .Vals)", "rejected"),
+)
+STRICT_LISTS_SOURCE_FRAGMENTS = (
+    'syntax Exps ::= List{Exp, ","} [symbol(expsCons), terminator-symbol(expsNil), overload(expsCons), '
+    "seqstrict, result(KResult)]",
+    'syntax Vals ::= List{Val, ","} [symbol(valsCons), terminator-symbol(valsNil), overload(expsCons)]',
+    "syntax Exps ::= Vals",
+    "syntax KResult ::= Vals",
+)
+STRICT_LISTS_ATTRIBUTES = (("expsCons", "expsNil", "valsCons", "valsNil"), ("overload",))
 MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
 MEMO_ATTRIBUTES = (("square",), ("memo",))
 FORMAT_LABELS = ("while", "block", "assignX", "skip")
@@ -261,6 +292,8 @@ NEGATIVE = (
     ("lexical-recursive", "lexical-recursive", "krs-grammar-lexical-recursive", ()),
     ("list-collision", "list-collision", "krs-grammar-list-collision", ()),
     ("list-constructor", "list-constructor", "krs-grammar-list-constructor", ()),
+    ("list-value-not-strict", "list-value-not-strict", "krs-grammar-list-value-not-strict", ()),
+    ("list-value-result", "list-value-result", "krs-grammar-list-value-result", ()),
 )
 
 
@@ -534,6 +567,22 @@ def main() -> int:
                 raise GateError(f"lists: emitted K omits {fragment!r}")
         harness.compare(lists, LISTS_PROGRAMS, sort="Exp")
         print("PASS lists: sum(1, 2, 3) is 6 on both routes; .Ints and an empty NeList are not program syntax")
+
+        harness.check(STRICT_LISTS)
+        harness.expand(STRICT_LISTS)
+        strict_lists = harness.emit(STRICT_LISTS)
+        strict_lists_source = strict_lists.source.read_text(encoding="utf-8")
+        for fragment in STRICT_LISTS_SOURCE_FRAGMENTS:
+            if fragment not in strict_lists_source:
+                raise GateError(f"strict-lists: emitted K omits {fragment!r}")
+        harness.compare(strict_lists, STRICT_LISTS_PROGRAMS, sort="Exp", attributes=STRICT_LISTS_ATTRIBUTES)
+        axioms = [
+            line for line in harness.kore_attributes[STRICT_LISTS.package].splitlines()
+            if line.startswith("overload ")
+        ]
+        if len(axioms) != 2:
+            raise GateError(f"strict-lists: expected the cons and terminator overload axioms: {axioms}")
+        print("PASS strict-lists: call arguments evaluate left to right to a Vals on both routes; two overload axioms")
 
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):

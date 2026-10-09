@@ -11,7 +11,8 @@
     "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
     "krs-grammar-token-id": "47d8d9c0f113d3c06c4f65cb40d36e181ccca7b8d6f5a339d3ce9dfcd7087558",
     "krs-grammar-layout": "984b2fc390e4084fb729c5917aecffa19784ff0ace6e8af59c48cc6f25fc6236",
-    "krs-grammar-lists": "e83ca5e8e6a372a473a72c86764cb910f895077a1904e558dbad7d208853ba7c"
+    "krs-grammar-lists": "e83ca5e8e6a372a473a72c86764cb910f895077a1904e558dbad7d208853ba7c",
+    "krs-grammar-strict-lists": "9b38521170a171b37d811a33b0fa3ae43c7a0dcd721eb3eae07ab4f5482e47d7"
   },
   "emitted": {
     "krs-grammar-partition": {
@@ -49,6 +50,9 @@
     },
     "krs-grammar-lists": {
       "definition.k": "18defbcf9dc5ff3d43483e21f65969699debe1244a44e76902a9ff857ed2a4c0"
+    },
+    "krs-grammar-strict-lists": {
+      "definition.k": "4c50755c07c019cd83e1df1b193302af3b32e869944edacf6c4c23557127654a"
     }
   },
   "partition": {
@@ -76,7 +80,8 @@
     "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
     "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
     "krs-grammar-layout": "22e5d15bbb07a613871dc86454cdef557993ef88233ab807a01acdefcf944324",
-    "krs-grammar-lists": "4539b5bf0f0a925702f8839f72f1417c8be3132ed4b1008cfa258ebb07dda903"
+    "krs-grammar-lists": "4539b5bf0f0a925702f8839f72f1417c8be3132ed4b1008cfa258ebb07dda903",
+    "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -244,6 +249,32 @@
         "parse": "rejected",
         "run": null
       }
+    },
+    "krs-grammar-strict-lists": {
+      "left-to-right": {
+        "parse": "accepted",
+        "run": "123"
+      },
+      "mixed": {
+        "parse": "accepted",
+        "run": "517"
+      },
+      "values": {
+        "parse": "accepted",
+        "run": "12"
+      },
+      "empty": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "nested": {
+        "parse": "accepted",
+        "run": "122"
+      },
+      "terminator": {
+        "parse": "rejected",
+        "run": null
+      }
     }
   },
   "diagnostics": {
@@ -318,6 +349,12 @@
     ],
     "overload-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `general` and `specific` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
+    "list-value-not-strict": [
+      "error[krs::analysis::invalid-syntax-list]: `Vals` is declared a subsort of `Exps`, a syntactic list that is not strict: only a strict list admits a subsort, its value list"
+    ],
+    "list-value-result": [
+      "error[krs::analysis::invalid-syntax-list]: `Vals` is the value list of `Exps`, but `Vals` is not a subsort of `KResult`, the strictness result of `Exps`: declare it in `k::sorts!`, as in `impl KResult for Vals;`"
     ]
   },
   "format": {
@@ -330,7 +367,8 @@
     "krs-grammar-overload": "dot \nlvalDot \noverload Lbldot LbllvalDot\n",
     "krs-grammar-overload-ambiguous": "dot \nlvalDot \n",
     "krs-grammar-visibility": "inc \nwrap \n",
-    "krs-grammar-memo": "square memo=''\n"
+    "krs-grammar-memo": "square memo=''\n",
+    "krs-grammar-strict-lists": "expsCons \nexpsNil \nvalsCons \nvalsNil \noverload LblexpsCons LblvalsCons\noverload LblexpsNil LblvalsNil\n"
   },
   "induced_rejections": {
     "visibility": {

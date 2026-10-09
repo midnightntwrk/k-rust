@@ -4,6 +4,7 @@ members = [
     "packages/kevm-case",
     "packages/layout",
     "packages/lists",
+    "packages/strict-lists",
     "packages/memo",
     "packages/overload",
     "packages/overload-ambiguous",
