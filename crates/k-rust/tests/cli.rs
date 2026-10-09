@@ -10676,6 +10676,92 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A scanner with a `$`-anchored rule scans its whole input with a state buffer of its own
+/// (`bison::scanner::SCAN_WHOLE_INPUT`); a buffer one state too small is written past its end,
+/// which an uninstrumented parser survives. Built with AddressSanitizer, the parser must run the
+/// empty input, short programs and long candidates without a report. Without a C compiler that
+/// can build and run an AddressSanitizer program the test checks nothing.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_anchored_scanner_stays_in_its_buffers_under_address_sanitizer() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Leaks are not checked: the parser frees no node before it exits.
+    const ASAN_OPTIONS: &str = "detect_leaks=0:exitcode=86";
+    let compiler = std::env::var_os("KRUST_CC").unwrap_or_else(|| "cc".into());
+    let (probe_root, _) = fixture();
+    let probe_source = probe_root.join("probe.c");
+    let probe = probe_root.join("probe");
+    fs::write(&probe_source, "int main(void) { return 0; }\n").unwrap();
+    let supported = Command::new(&compiler)
+        .arg("-fsanitize=address")
+        .arg(&probe_source)
+        .arg("-o")
+        .arg(&probe)
+        .output()
+        .is_ok_and(|output| output.status.success())
+        && Command::new(&probe)
+            .env("ASAN_OPTIONS", ASAN_OPTIONS)
+            .output()
+            .is_ok_and(|output| output.status.success());
+    if !supported {
+        eprintln!("skipped: the C compiler cannot build and run an AddressSanitizer program");
+        fs::remove_dir_all(probe_root).unwrap();
+        return;
+    }
+    let wrapper = probe_root.join("asan-cc");
+    fs::write(
+        &wrapper,
+        "#!/bin/sh\nexec \"$KRUST_ASAN_CC\" -fsanitize=address -fno-omit-frame-pointer \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let definition = r#"
+module LOOKAHEAD-SYNTAX
+  syntax Q ::= r"<[a-z ]*>" [token]
+  syntax Foo ::= r"a$" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo
+endmodule
+"#;
+    let (root, parser) = generate_parser(
+        definition,
+        "LOOKAHEAD-SYNTAX",
+        &[
+            ("KRUST_CC", wrapper.as_os_str()),
+            ("KRUST_ASAN_CC", compiler.as_os_str()),
+        ],
+    );
+    let programs = [
+        (String::new(), false),
+        ("a\n".to_owned(), true),
+        ("a".to_owned(), false),
+        (format!("<{}z", " ".repeat(20_000)), true),
+        (format!("<{}", "a".repeat(20_000)), false),
+    ];
+    for (index, (program, accepted)) in programs.iter().enumerate() {
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
+        let parsed = Command::new(&parser)
+            .arg(&input)
+            .env("ASAN_OPTIONS", ASAN_OPTIONS)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&parsed.stderr);
+        assert!(
+            parsed.status.code() != Some(86) && !stderr.contains("AddressSanitizer"),
+            "program {index}: {stderr}"
+        );
+        assert_eq!(
+            parsed.status.success(),
+            *accepted,
+            "program {index}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(probe_root).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_keeps_byte_string_tokens() {
