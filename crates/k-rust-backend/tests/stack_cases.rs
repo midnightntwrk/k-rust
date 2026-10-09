@@ -103,3 +103,19 @@ fn a_partly_shared_deep_term_drops_on_a_small_thread() {
         drop(kept);
     });
 }
+
+/// A deep term that a thread-local of the thread holds is freed by that thread-local's destructor
+/// at the thread's exit, whether or not the leaf a drop leaves in the handles it takes apart is
+/// still there: here that leaf is made before the holder is filled, so it is destroyed first
+/// where destructors run in the reverse order of their registration.
+#[test]
+fn a_deep_term_held_by_a_thread_local_drops_at_the_thread_exit() {
+    std::thread_local! {
+        static HELD: std::cell::RefCell<Option<Term>> = const { std::cell::RefCell::new(None) };
+    }
+    on_small_thread(|| {
+        HELD.with(|held| held.borrow_mut().take());
+        drop(mixed_deep_term());
+        HELD.with(|held| *held.borrow_mut() = Some(mixed_deep_term()));
+    });
+}

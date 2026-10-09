@@ -816,7 +816,12 @@ pub struct Term(Arc<TermData>);
 /// moment may be left to the glue, which then frees it through this same `Drop` one level down.
 ///
 /// Cost: a drop of a shared handle reads its count once more; a drop of a last handle also reads
-/// the count and kind of each of its subterms.
+/// the count and kind of each of its subterms. Measured on function-heavy `krun` workloads (30,000
+/// rewrite steps; 300 recursive functions over 300 levels each), that is about 3% more
+/// instructions and 2-4% more time in a release build, and about 2% on a workload that wraps its
+/// state each step; a stack check before the subterm scan, or a drop of `TermData` alone, removes
+/// little of it. It is the price of a process that does not abort on a term execution made deeper
+/// than its stack.
 impl Drop for Term {
     fn drop(&mut self) {
         if Arc::strong_count(&self.0) != 1 || !self.0.kind.owns_deep_subterm() {
@@ -841,10 +846,22 @@ struct Detached {
     rest: Vec<Arc<TermData>>,
 }
 
-/// The node [`Term::take_node`] leaves in a handle it takes the node out of: a leaf, which the
-/// handle's drop then releases without descending.
-static DETACHED: LazyLock<Term> =
-    LazyLock::new(|| Term::domain_value(Sort::Variable(Name::from("")), ""));
+std::thread_local! {
+    /// The node [`Term::take_node`] leaves in a handle it takes the node out of: a leaf, which the
+    /// handle's drop then releases without descending. Each thread has its own, so that every
+    /// node a drop frees through its work list counts a reference on a node of its own thread:
+    /// with one leaf for the process, concurrent deep drops contended on its count and ran 4-5
+    /// times slower at 16 threads.
+    static DETACHED: Term = detached_leaf();
+}
+
+/// The leaf a thread whose [`DETACHED`] is already destroyed uses: a term dropped by another
+/// thread-local's destructor at the thread's exit.
+static DETACHED_AT_EXIT: LazyLock<Term> = LazyLock::new(detached_leaf);
+
+fn detached_leaf() -> Term {
+    Term::domain_value(Sort::Variable(Name::from("")), "")
+}
 
 impl Term {
     /// Whether this is the last handle of a node with subterms (a hint, as in [`Term`]'s `Drop`).
@@ -852,9 +869,12 @@ impl Term {
         Arc::strong_count(&self.0) == 1 && self.0.kind.has_subterms()
     }
 
-    /// This handle's node, the handle left on [`DETACHED`].
+    /// This handle's node, the handle left on this thread's [`DETACHED`].
     fn take_node(&mut self) -> Arc<TermData> {
-        std::mem::replace(&mut self.0, Arc::clone(&DETACHED.0))
+        let leaf = DETACHED
+            .try_with(|leaf| Arc::clone(&leaf.0))
+            .unwrap_or_else(|_| Arc::clone(&DETACHED_AT_EXIT.0));
+        std::mem::replace(&mut self.0, leaf)
     }
 }
 
