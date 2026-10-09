@@ -700,6 +700,7 @@ fn halt_side(
 
 fn mutant_status(run: TestRun) -> MutantStatus {
     let plan = MutantPlan {
+        selection: None,
         mutant_id: MutantId(0),
         tests: vec![TestPlan {
             test_id: "t".to_owned(),

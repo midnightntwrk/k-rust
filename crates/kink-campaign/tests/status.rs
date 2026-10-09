@@ -75,6 +75,7 @@ fn one_test(outcomes: &[OracleOutcome]) -> Vec<TestPlan> {
 /// A valid mutant's plan over `tests`.
 fn plan(tests: Vec<TestPlan>) -> MutantPlan {
     MutantPlan {
+        selection: None,
         mutant_id: MutantId(0),
         tests,
         mutant_failure: None,
@@ -194,6 +195,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
             NotExecuted => Vec::new(),
         };
         let plan = MutantPlan {
+            selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
             ..plan(tests)
@@ -245,6 +247,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
 fn killed_cannot_fail_validation() {
     let declared = manifest(&[("t1", 2)]);
     let with_failure = |failure, tests| MutantPlan {
+        selection: None,
         mutant_failure: Some(failure),
         claims: Withdrawal::default(),
         ..plan(tests)
@@ -309,6 +312,7 @@ fn every_failure_kind_maps_to_one_status() {
                 let executed = !tests.is_empty();
                 let derived = derive_mutant_report(
                     &MutantPlan {
+                        selection: None,
                         mutant_failure: Some(kind),
                         claims: Withdrawal::default(),
                         ..plan(tests)
@@ -403,6 +407,7 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
     ];
     for (id, mutant_failure, tests, expected, killing, first_kill_executed) in rows {
         let plan = MutantPlan {
+            selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
             ..plan(
@@ -517,6 +522,7 @@ fn tests_may_be_skipped_only_after_a_first_kill() {
     ];
     for (id, mutant_failure, tests, declared, first_kill, full) in rows {
         let plan = MutantPlan {
+            selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
             ..plan(tests)
@@ -600,6 +606,7 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
     ];
     for (id, mutant_failure, tests, declared, expected) in rows {
         let plan = MutantPlan {
+            selection: None,
             mutant_failure,
             claims: Withdrawal::default(),
             ..plan(tests)
@@ -708,6 +715,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
         Error => OracleOutcome::Error,
         Equivalent => {
             return MutantPlan {
+                selection: None,
                 mutant_id: MutantId(id),
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::EquivalentCompilation),
@@ -716,6 +724,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
         }
         Invalid => {
             return MutantPlan {
+                selection: None,
                 mutant_id: MutantId(id),
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::Rejected),
@@ -724,6 +733,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
         }
     };
     MutantPlan {
+        selection: None,
         mutant_id: MutantId(id),
         ..plan(one_test(&[outcome]))
     }
@@ -1119,6 +1129,7 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         .map(|index| {
             report(
                 &MutantPlan {
+                    selection: None,
                     mutant_id: MutantId(index),
                     ..plan(one_test(&[Distinguish]))
                 },
@@ -1139,6 +1150,7 @@ fn representation_refusal_is_unknown_before_execution() {
     let declared = manifest(&[("t1", 2)]);
     for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
         let refused = MutantPlan {
+            selection: None,
             mutant_failure: Some(MutantScopeFailure::RepresentationRefused),
             ..plan(Vec::new())
         };
@@ -1149,6 +1161,7 @@ fn representation_refusal_is_unknown_before_execution() {
         assert_eq!(score(&[actual.status]).denominator, 0);
         for outcomes in [&[Agree][..], &[Distinguish][..]] {
             let inconsistent = MutantPlan {
+                selection: None,
                 tests: one_test(outcomes),
                 ..refused.clone()
             };

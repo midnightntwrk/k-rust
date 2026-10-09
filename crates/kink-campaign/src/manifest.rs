@@ -22,6 +22,7 @@ pub struct ManifestInput<'a> {
     pub campaign: &'a Campaign<'a>,
     pub generation: &'a CandidateGeneration<'a>,
     pub schedule: ScheduleMode,
+    pub selection: crate::SelectionPolicy,
     pub operator: OperatorId<'a>,
     pub classifier: &'a str,
 }
@@ -144,7 +145,7 @@ pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, 
     }
     let backend = BackendOptions::default();
     let value = json!({
-        "schema":"kink-campaign-manifest","version":1,
+        "schema":"kink-campaign-manifest","version":2,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":{"fingerprint":FINGERPRINT_DOMAIN,"canonical_patch":CANONICAL_PATCH_DOMAIN,"compiled_kore":COMPILED_KORE_DOMAIN},
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
@@ -152,6 +153,7 @@ pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, 
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
         "schedule":match input.schedule { ScheduleMode::Full => "full", ScheduleMode::FirstKill => "first-kill" },
         "module":campaign.module,"classifier":input.classifier,
+        "selection":input.selection.value(),
         "operator":{"id":input.operator.id,"version":input.operator.version,"policy":policy(input.operator.policy)},
         "baseline":{"semantic_input_sha256":baseline_digest,"artifact":format!("semantic-input/{baseline_digest}.json"),"structure_sha256":structure_sha256(baseline.definition()).map_err(encode)?.to_string(),"kore_sha256":compiled.kore_sha256().to_string()},
         "tests":{"count":campaign.tests.len(),"sha256":digest_value(TEST_MANIFEST_DOMAIN, &tests)},

@@ -15,6 +15,8 @@ pub use report::{CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_
 mod replay;
 pub use replay::{ReplayDeclaration, ReplayOutcome, ReplayRefusal, replay};
 mod runner;
+pub mod selection;
+pub use selection::{Coupled, MutantSelection, Sel, SelectionPolicy};
 
 pub use campaign::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, ExecutionFailureKind, ManifestTest,
@@ -26,6 +28,7 @@ pub use oracle::{
     OracleValue, PatternValue, TerminalClass, compare_supplied,
 };
 pub use runner::{
-    Campaign, CampaignRun, MutantRun, OracleDeclaration, Projection, SideRun, StateProjection,
-    Tally, TestCase, TestEvidence, pattern_side, run_campaign, slot_outcome, state_side, tally,
+    Campaign, CampaignOptions, CampaignRun, MutantRun, OracleDeclaration, Projection, SideRun,
+    StateProjection, Tally, TestCase, TestEvidence, pattern_side, run_campaign, run_campaign_with,
+    slot_outcome, state_side, tally,
 };

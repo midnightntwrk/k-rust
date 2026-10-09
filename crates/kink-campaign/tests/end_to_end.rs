@@ -1276,6 +1276,7 @@ fn tally_rejects_a_run_with_fewer_mutants_than_candidates() {
     let generation = generation(&baseline, &[mutant]);
     assert_eq!(generation.candidates().len(), 1);
     let run = CampaignRun {
+        selection: kink_campaign::SelectionPolicy::None,
         baseline: Vec::new(),
         baseline_coverage: Vec::new(),
         mutants: Vec::new(),

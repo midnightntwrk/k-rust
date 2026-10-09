@@ -6,7 +6,7 @@
 
 use crate::{
     Campaign, CampaignManifest, CampaignRun, FinalResult, OracleSide, OracleValue, PatternValue,
-    SideRun, TestRun, tally,
+    SelectionPolicy, SideRun, TestRun, tally,
 };
 use k_rust::{
     definition::{AttributeKey, Sentence},
@@ -19,7 +19,7 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 
-pub const CAMPAIGN_REPORT_VERSION: u64 = 1;
+pub const CAMPAIGN_REPORT_VERSION: u64 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignReport {
@@ -181,6 +181,24 @@ pub fn campaign_report(
     run: &CampaignRun,
 ) -> Result<CampaignReport, ReportError> {
     let counts = tally(generation, run).ok_or(ReportError::MutantCountMismatch)?;
+    if manifest.value()["selection"] != run.selection.value() {
+        return Err(ReportError::ManifestMismatch);
+    }
+    for mutant in &run.mutants {
+        match &mutant.plan.selection {
+            Some(selection)
+                if selection.policy != run.selection || run.selection == SelectionPolicy::None =>
+            {
+                return Err(ReportError::ManifestMismatch);
+            }
+            None if run.selection != SelectionPolicy::None
+                && mutant.plan.mutant_failure.is_none() =>
+            {
+                return Err(ReportError::ManifestMismatch);
+            }
+            _ => {}
+        }
+    }
     let entries = manifest.value()["mutants"]
         .as_array()
         .ok_or(ReportError::ManifestMismatch)?;
@@ -236,15 +254,24 @@ pub fn campaign_report(
             .map(|(edit, canonical)| diff(baseline, edit, canonical))
             .collect::<Result<Vec<_>, _>>()?;
         let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
-        mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()}}));
+        mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()}}));
     }
     let baseline_runs = run
         .baseline
         .iter()
         .map(|e| Ok(json!({"test_id":e.test_id,"run":side_run(&e.run)?})))
         .collect::<Result<Vec<_>, ReportError>>()?;
+    let coverage = match run.selection {
+        SelectionPolicy::None => Value::Null,
+        SelectionPolicy::Prioritize(_) => Value::Array(
+            run.baseline_coverage
+                .iter()
+                .map(|coverage| coverage.value())
+                .collect(),
+        ),
+    };
     let score = run.score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))}));
     Ok(CampaignReport {
-        value: json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score}}),
+        value: json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score}}),
     })
 }

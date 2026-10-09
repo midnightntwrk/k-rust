@@ -50,7 +50,7 @@
 //! leaf Unsat decisions rely on the definedness premise pinned by TB-01 and the TV-01
 //! initial-state admission guard. Undecided evidence stays Unknown.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kore::{
@@ -84,6 +84,7 @@ use kink_pattern::{
 
 use crate::campaign::check_manifest;
 use crate::oracle::OracleFailure;
+use crate::selection::{CompiledEdit, coverage_selected};
 use crate::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, CrashPolicy, ExecutionFailureKind,
     ExitStop, FinalResult, ManifestTest, MutantId, MutantPlan, MutantReport, MutantScopeFailure,
@@ -91,6 +92,7 @@ use crate::{
     PatternValue, ScheduleMode, Score, TerminalClass, TestPlan, TestRun, compare_supplied,
     derive_mutant_report, score, validate_baseline,
 };
+use crate::{MutantSelection, SelectionPolicy};
 
 /// What a state oracle reads from each complete terminal.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -202,7 +204,7 @@ pub struct TestEvidence {
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
-/// mutant is one `MutantRun` regardless of its edit count. Runs are in manifest order:
+/// mutant is one `MutantRun` regardless of its edit count. Runs follow the recorded order:
 /// none for a test planned as `SkippedAfterKill`, and none at all when a mutant-scope
 /// failure stopped it before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -215,7 +217,15 @@ pub struct MutantRun {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignOptions {
+    pub schedule: ScheduleMode,
+    pub selection: SelectionPolicy,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignRun {
+    /// The declaration whose regenerated order the run used.
+    pub selection: SelectionPolicy,
     pub baseline: Vec<TestEvidence>,
     /// The rule coverage of each baseline run, in manifest order: a scheduling input only, read
     /// by no oracle, fold, status or score.
@@ -315,6 +325,23 @@ pub fn run_campaign(
     generation: &CandidateGeneration<'_>,
     schedule: ScheduleMode,
 ) -> Result<CampaignRun, CampaignFailure> {
+    run_campaign_with(
+        campaign,
+        generation,
+        &CampaignOptions {
+            schedule,
+            selection: SelectionPolicy::None,
+        },
+    )
+}
+
+/// Runs every test, with coverage scheduling when requested.
+pub fn run_campaign_with(
+    campaign: &Campaign<'_>,
+    generation: &CandidateGeneration<'_>,
+    options: &CampaignOptions,
+) -> Result<CampaignRun, CampaignFailure> {
+    let schedule = options.schedule;
     let manifest = campaign
         .tests
         .iter()
@@ -413,6 +440,29 @@ pub fn run_campaign(
         validate_baseline(admit(campaign.tests, &baseline_evidence))?;
         (baseline_evidence, baseline_coverage)
     };
+    let paired = campaign
+        .tests
+        .iter()
+        .map(|test| {
+            let baseline = baseline_evidence
+                .iter()
+                .find(|e| e.test_id == test.id)
+                .expect("baseline test id");
+            let coverage = baseline_coverage
+                .iter()
+                .find(|e| e.test_id == test.id)
+                .expect("coverage test id");
+            (
+                test.id.as_str(),
+                PairedTest {
+                    test,
+                    baseline,
+                    coverage,
+                    symbolic: !test.initial_state.variable_occurrences().is_empty(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut observations = BaselineObservations {
         runtime: &mut runtime,
         observation,
@@ -420,20 +470,21 @@ pub fn run_campaign(
 
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
-        let (tests, mutant_failure, evidence, claims) = run_mutant(
+        let execution = run_mutant(
             campaign,
             &candidate.patch,
             &baseline,
-            &baseline_evidence,
-            schedule,
-            (support.as_ref(), &symbolic),
+            &paired,
+            options,
+            support.as_ref(),
             &mut observations,
         );
         let plan = MutantPlan {
             mutant_id: MutantId(index),
-            tests,
-            mutant_failure,
-            claims,
+            tests: execution.tests,
+            mutant_failure: execution.failure,
+            claims: execution.claims,
+            selection: execution.selection,
         };
         let report = derive_mutant_report(&plan, &manifest, schedule)?;
         runs.push(MutantRun {
@@ -441,11 +492,12 @@ pub fn run_campaign(
             written_sentences: candidate.patch.written_sentences(),
             plan,
             report,
-            evidence,
+            evidence: execution.evidence,
         });
     }
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
     Ok(CampaignRun {
+        selection: options.selection,
         baseline: baseline_evidence,
         baseline_coverage,
         mutants: runs,
@@ -489,6 +541,21 @@ struct BaselineObservations<'a> {
     observation: StepObservation,
 }
 
+struct PairedTest<'a> {
+    test: &'a TestCase,
+    baseline: &'a TestEvidence,
+    coverage: &'a TestCoverage,
+    symbolic: bool,
+}
+
+struct MutantExecution {
+    tests: Vec<TestPlan>,
+    failure: Option<MutantScopeFailure>,
+    evidence: Vec<TestEvidence>,
+    claims: Withdrawal,
+    selection: Option<MutantSelection>,
+}
+
 /// A mutant's tests, its mutant-scope failure, its runs and its claim withdrawal. Under
 /// `FirstKill` it stops after the first killing test and plans every later test as
 /// `SkippedAfterKill`.
@@ -504,30 +571,113 @@ fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
-    baseline: &[TestEvidence],
-    schedule: ScheduleMode,
-    (support, symbolic): (Option<&ClaimSupport>, &[bool]),
+    paired: &BTreeMap<&str, PairedTest<'_>>,
+    options: &CampaignOptions,
+    support: Option<&ClaimSupport>,
     observations: &mut BaselineObservations<'_>,
-) -> (
-    Vec<TestPlan>,
-    Option<MutantScopeFailure>,
-    Vec<TestEvidence>,
-    Withdrawal,
-) {
+) -> MutantExecution {
     match prepare_mutant(campaign, patch, compiled_baseline, support) {
-        Err(failure) => (Vec::new(), Some(failure), Vec::new(), Withdrawal::default()),
+        Err(failure) => MutantExecution {
+            tests: Vec::new(),
+            failure: Some(failure),
+            evidence: Vec::new(),
+            claims: Withdrawal::default(),
+            selection: None,
+        },
         Ok((mut sides, claims)) => {
+            let selection = mutant_selection(
+                campaign,
+                paired,
+                &sides,
+                patch,
+                options.selection,
+                observations,
+            );
+            let order = selection.as_ref().map_or_else(
+                || campaign.tests.iter().map(|test| test.id.clone()).collect(),
+                |selection| selection.order.clone(),
+            );
             let (tests, evidence) = run_tests(
                 campaign,
                 &mut sides,
-                symbolic,
-                baseline,
-                schedule,
+                paired,
+                &order,
+                options.schedule,
                 observations,
             );
-            (tests, None, evidence, claims)
+            MutantExecution {
+                tests,
+                failure: None,
+                evidence,
+                claims,
+                selection,
+            }
         }
     }
+}
+
+fn mutant_selection(
+    campaign: &Campaign<'_>,
+    paired: &BTreeMap<&str, PairedTest<'_>>,
+    sides: &MutantSides,
+    patch: &Patch,
+    policy: SelectionPolicy,
+    observations: &BaselineObservations<'_>,
+) -> Option<MutantSelection> {
+    let SelectionPolicy::Prioritize(selection) = policy else {
+        return None;
+    };
+    let authors = observations
+        .runtime
+        .coverage
+        .as_ref()
+        .expect("baseline coverage authors");
+    let site_ids = patch
+        .written_sentences()
+        .iter()
+        .map(|sentence| {
+            authors
+                .ids_of(sentence)
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut selected = BTreeSet::new();
+    let mut removed_rule_ids = BTreeSet::new();
+    let mut global = false;
+    for test in campaign.tests {
+        let pair = &paired[test.id.as_str()];
+        let edit = sides.edit(pair.symbolic);
+        let groups = site_ids
+            .iter()
+            .map(|ids| ids.intersection(&edit.removed_rule_ids).cloned().collect())
+            .collect::<Vec<_>>();
+        if coverage_selected(pair.coverage, edit, selection.coupled, &groups) {
+            selected.insert(test.id.as_str());
+        }
+        global |= edit.global;
+        removed_rule_ids.extend(edit.removed_rule_ids.iter().cloned());
+    }
+    if global || selected.is_empty() {
+        selected.extend(campaign.tests.iter().map(|test| test.id.as_str()));
+    }
+    let mut order = Vec::with_capacity(campaign.tests.len());
+    for first in [true, false] {
+        order.extend(
+            campaign
+                .tests
+                .iter()
+                .filter(|test| selected.contains(test.id.as_str()) == first)
+                .map(|test| test.id.clone()),
+        );
+    }
+    Some(MutantSelection {
+        policy,
+        order,
+        deselected: Vec::new(),
+        global,
+        removed_rule_ids,
+    })
 }
 
 /// Validates and compiles the mutant side, then, when a test is symbolic (`support` is
@@ -549,12 +699,15 @@ fn prepare_mutant(
         Err(_) => return Err(MutantScopeFailure::Infrastructure),
     }
     // A preparation failure here is the mutant side's.
+    let patched_edit = CompiledEdit::between(compiled_baseline, &side);
     let patched =
         Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)?;
     let Some(support) = support else {
         return Ok((
             MutantSides {
                 patched,
+                patched_edit,
+                symbolic_edit: None,
                 symbolic: SymbolicSide::Patched,
             },
             Withdrawal::default(),
@@ -564,6 +717,7 @@ fn prepare_mutant(
     let claims = support
         .withdraw(campaign.validator.baseline(), patch)
         .map_err(|_| MutantScopeFailure::Infrastructure)?;
+    let mut symbolic_edit = None;
     let symbolic = if !claims.trusted() {
         SymbolicSide::Unsupported
     } else if let Some(withdrawing) = claims.patch() {
@@ -571,6 +725,7 @@ fn prepare_mutant(
             Ok(side) => {
                 validate_representation(&side)
                     .map_err(|_| MutantScopeFailure::RepresentationRefused)?;
+                symbolic_edit = Some(CompiledEdit::between(compiled_baseline, &side));
                 SymbolicSide::Withdrawn(Box::new(
                     Runtime::prepare(campaign, &side)
                         .map_err(|_| MutantScopeFailure::Infrastructure)?,
@@ -581,13 +736,23 @@ fn prepare_mutant(
     } else {
         SymbolicSide::Patched
     };
-    Ok((MutantSides { patched, symbolic }, claims))
+    Ok((
+        MutantSides {
+            patched,
+            symbolic,
+            patched_edit,
+            symbolic_edit,
+        },
+        claims,
+    ))
 }
 
 /// A prepared mutant: the patched definition, and what its symbolic tests run on.
 struct MutantSides {
     patched: Runtime,
     symbolic: SymbolicSide,
+    patched_edit: CompiledEdit,
+    symbolic_edit: Option<CompiledEdit>,
 }
 
 enum SymbolicSide {
@@ -600,6 +765,14 @@ enum SymbolicSide {
 }
 
 impl MutantSides {
+    fn edit(&self, symbolic: bool) -> &CompiledEdit {
+        if symbolic {
+            self.symbolic_edit.as_ref().unwrap_or(&self.patched_edit)
+        } else {
+            &self.patched_edit
+        }
+    }
+
     fn run(
         &mut self,
         campaign: &Campaign<'_>,
@@ -633,15 +806,17 @@ impl MutantSides {
 fn run_tests(
     campaign: &Campaign<'_>,
     sides: &mut MutantSides,
-    symbolic: &[bool],
-    baseline: &[TestEvidence],
+    paired: &BTreeMap<&str, PairedTest<'_>>,
+    order: &[String],
     schedule: ScheduleMode,
     observations: &mut BaselineObservations<'_>,
 ) -> (Vec<TestPlan>, Vec<TestEvidence>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
     let mut killed = false;
-    for ((test, baseline), symbolic) in campaign.tests.iter().zip(baseline).zip(symbolic) {
+    for id in order {
+        let pair = &paired[id.as_str()];
+        let (test, baseline, symbolic) = (pair.test, pair.baseline, pair.symbolic);
         if killed {
             tests.push(TestPlan {
                 test_id: test.id.clone(),
@@ -649,7 +824,7 @@ fn run_tests(
             });
             continue;
         }
-        let (mut mutant, cache) = sides.run(campaign, test, *symbolic);
+        let (mut mutant, cache) = sides.run(campaign, test, symbolic);
         let mut paired_baseline = baseline.clone();
         {
             // The baseline's pattern sides were evaluated at admission by the same function of
@@ -660,7 +835,7 @@ fn run_tests(
                 .facts()
                 .and_then(|baseline_facts| {
                     sides
-                        .facts(*symbolic)
+                        .facts(symbolic)
                         .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
                 })
                 .unwrap_or(false);

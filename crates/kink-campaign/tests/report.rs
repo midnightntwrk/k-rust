@@ -531,13 +531,14 @@ fn check_report(report: &CampaignReport) {
             "manifest_sha256",
             "manifest",
             "baseline",
+            "coverage",
             "origins",
             "mutants",
             "summary",
         ],
     );
     assert_eq!(v["schema"], "kink-campaign-report");
-    assert_eq!(v["version"], 1);
+    assert_eq!(v["version"], 2);
     for baseline in array(&v["baseline"]) {
         keys(baseline, &["test_id", "run"]);
         check_side_run(&baseline["run"]);
@@ -587,6 +588,7 @@ fn check_report(report: &CampaignReport) {
                 "skipped_test_ids",
                 "tests",
                 "claims",
+                "selection",
             ],
         );
         for sentence in array(&mutant["affected_sentences"]) {
@@ -714,6 +716,7 @@ fn build(
         campaign,
         generation,
         schedule,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: operator,
             version: 1,
@@ -832,6 +835,7 @@ fn counter_reports_are_identical_and_match_runs_in_both_schedules() {
                     campaign: &campaign,
                     generation: &generation,
                     schedule,
+                    selection: kink_campaign::SelectionPolicy::None,
                     operator: OperatorId {
                         id: "test",
                         version: 1,
@@ -1177,6 +1181,7 @@ fn supplied_evidence_and_claims_keep_their_exact_schema() {
             campaign: &campaign,
             generation: &generation,
             schedule: ScheduleMode::Full,
+            selection: kink_campaign::SelectionPolicy::None,
             operator: OperatorId {
                 id: "test",
                 version: 1,

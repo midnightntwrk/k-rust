@@ -445,6 +445,7 @@ fn counter_declaration<'a>(
         tests,
         budget: BUDGET,
         schedule,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: "test",
             version: 1,
@@ -465,6 +466,7 @@ fn coupled_declaration<'a>(
         tests,
         budget: BUDGET,
         schedule: ScheduleMode::Full,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: "release-after-access",
             version: 1,
@@ -491,6 +493,7 @@ fn build(file: &str, declaration: &ReplayDeclaration<'_>) -> (CampaignReport, St
         campaign: &campaign,
         generation: &generation,
         schedule: declaration.schedule,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: declaration.operator.id,
             version: declaration.operator.version,
@@ -720,7 +723,7 @@ fn malformed_reports_and_digest_mismatches_fail_in_check_order() {
             );
         }
         let mut changed = report.value().clone();
-        changed["version"] = json!(2);
+        changed["version"] = json!(3);
         assert_eq!(
             replay(&canonical_json(&changed), "invalid artifact", &declaration),
             ReplayOutcome::Refused(ReplayRefusal::Schema)

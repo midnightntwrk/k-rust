@@ -7,8 +7,8 @@
 //! gives `Reproduced`. Refusals and divergences never return or alter a verdict.
 
 use crate::{
-    CAMPAIGN_REPORT_VERSION, Campaign, ManifestInput, MutantId, OperatorId, ScheduleMode, TestCase,
-    campaign_manifest, campaign_report, run_campaign,
+    CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestInput, MutantId, OperatorId,
+    ScheduleMode, SelectionPolicy, TestCase, campaign_manifest, campaign_report, run_campaign_with,
 };
 use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
 use kink_native::{
@@ -33,6 +33,7 @@ pub struct ReplayDeclaration<'a> {
     pub tests: &'a [TestCase],
     pub budget: ExecutionBudget,
     pub schedule: ScheduleMode,
+    pub selection: SelectionPolicy,
     pub operator: OperatorId<'a>,
     pub select:
         &'a dyn for<'b> Fn(&'b Baseline) -> Result<CandidateGeneration<'b>, CandidateFailure>,
@@ -114,6 +115,7 @@ fn replay_checked(
         campaign: &campaign,
         generation: &generation,
         schedule: declaration.schedule,
+        selection: declaration.selection,
         operator: OperatorId {
             id: declaration.operator.id,
             version: declaration.operator.version,
@@ -125,8 +127,15 @@ fn replay_checked(
     if regenerated_manifest.text() != manifest_text {
         return Err(ReplayRefusal::Declaration);
     }
-    let run = run_campaign(&campaign, &generation, declaration.schedule)
-        .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;
+    let run = run_campaign_with(
+        &campaign,
+        &generation,
+        &CampaignOptions {
+            schedule: declaration.schedule,
+            selection: declaration.selection,
+        },
+    )
+    .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;
     let regenerated = campaign_report(&regenerated_manifest, &campaign, &generation, &run)
         .map_err(|e| ReplayRefusal::Report(e.to_string()))?;
     if regenerated.text() == report {

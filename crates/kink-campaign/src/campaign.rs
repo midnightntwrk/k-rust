@@ -3,6 +3,8 @@ use std::fmt;
 
 use kink_patch::Withdrawal;
 
+use crate::{MutantSelection, SelectionPolicy};
+
 /// Campaign scheduling policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScheduleMode {
@@ -150,7 +152,7 @@ impl TestRun {
     }
 }
 
-/// One manifest-ordered test and what its mutant execution produced.
+/// One scheduled test and what its mutant execution produced.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestPlan {
     /// Unique manifest test ID.
@@ -176,9 +178,11 @@ pub struct MutantId(pub usize);
 /// A mutation candidate ready for scheduling.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantPlan {
+    /// Regenerated order under prioritize; none keeps manifest order.
+    pub selection: Option<MutantSelection>,
     /// Mutant identity within its campaign.
     pub mutant_id: MutantId,
-    /// Every manifest test in manifest order, or none when a mutant-scope
+    /// Every manifest test in manifest order (or the recorded prioritize order), or none when a mutant-scope
     /// failure stopped the mutant before execution began. A mutant rejected,
     /// or whose lowering did not finish, never ran, so it must list none.
     /// Under `FirstKill`, the tests after the first killing test may end in a
@@ -200,7 +204,7 @@ pub struct MutantReport {
     pub mutant_id: MutantId,
     /// Final closed classification.
     pub status: MutantStatus,
-    /// Tests whose outcomes the status fold read, in manifest order: every
+    /// Tests whose outcomes the status fold read, in plan order: every
     /// test under `Full`, and the prefix through the first killing test under
     /// `FirstKill`, or none when the plan lists no tests. The runner executes
     /// exactly these tests of a mutant it can run: under `FirstKill` it stops
@@ -210,7 +214,7 @@ pub struct MutantReport {
     pub executed_test_ids: Vec<String>,
     /// Exact killing-test prefix or full list; empty unless `Killed`.
     pub killing_test_ids: Vec<String>,
-    /// The manifest suffix the fold did not read under first-kill, whether
+    /// The plan suffix the fold did not read under first-kill, whether
     /// its tests ran or were planned as `SkippedAfterKill`.
     pub skipped_test_ids: Vec<String>,
     /// The plan's claim withdrawal, beside the candidate's canonical edits.
@@ -298,14 +302,45 @@ fn check_plan(
             "mutant tests differ from the selected-test manifest",
         ));
     }
+    let declared = manifest
+        .iter()
+        .map(|test| (test.test_id.as_str(), test))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let order = if let Some(selection) = &plan.selection {
+        if !matches!(selection.policy, SelectionPolicy::Prioritize(_))
+            || !selection.deselected.is_empty()
+            || selection.order.len() != manifest.len()
+            || selection
+                .order
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+                != declared.keys().copied().collect::<BTreeSet<_>>()
+        {
+            return Err(invalid_manifest(
+                "prioritize must record a permutation without deselections",
+            ));
+        }
+        selection
+            .order
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    } else {
+        manifest
+            .iter()
+            .map(|test| test.test_id.as_str())
+            .collect::<Vec<_>>()
+    };
     let mut killed = false;
     let mut skipping = false;
-    for (test, declared) in plan.tests.iter().zip(manifest) {
-        if test.test_id != declared.test_id {
+    for (test, expected) in plan.tests.iter().zip(order) {
+        if test.test_id != expected {
             return Err(invalid_manifest(
                 "mutant tests differ from the selected-test manifest order",
             ));
         }
+        let declared = declared[expected];
         match &test.run {
             TestRun::Compared(outcomes) => {
                 if outcomes.len() != declared.slot_count {
@@ -382,10 +417,14 @@ pub fn derive_mutant_report(
         status = failure.status();
         killing.clear();
     }
-    let skipped_test_ids = manifest[executed.len()..]
-        .iter()
-        .map(|test| test.test_id.clone())
-        .collect();
+    let skipped_test_ids = if plan.tests.is_empty() {
+        manifest.iter().map(|test| test.test_id.clone()).collect()
+    } else {
+        plan.tests[executed.len()..]
+            .iter()
+            .map(|test| test.test_id.clone())
+            .collect()
+    };
     Ok(MutantReport {
         mutant_id: plan.mutant_id,
         status,

@@ -472,6 +472,7 @@ fn check_manifest(manifest: &CampaignManifest) {
             "backend_options",
             "budget",
             "schedule",
+            "selection",
             "module",
             "classifier",
             "operator",
@@ -543,7 +544,7 @@ fn check_manifest(manifest: &CampaignManifest) {
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 1);
+    assert_eq!(value["version"], 2);
     assert_eq!(
         value["profile"],
         if cfg!(feature = "z3") { "z3" } else { "no-z3" }
@@ -615,6 +616,7 @@ fn build<'a>(
         campaign,
         generation,
         schedule: ScheduleMode::Full,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: "test",
             version,
@@ -733,6 +735,7 @@ fn coupled_manifest_is_deterministic() {
             campaign: &campaign,
             generation: &generation,
             schedule: ScheduleMode::Full,
+            selection: kink_campaign::SelectionPolicy::None,
             operator: OperatorId {
                 id: "release-after-access",
                 version: 1,
@@ -792,6 +795,7 @@ fn foreign_generation_operator_mismatch_and_nondefault_options_are_refused() {
         campaign: &campaign,
         generation: &generation,
         schedule: ScheduleMode::Full,
+        selection: kink_campaign::SelectionPolicy::None,
         operator: OperatorId {
             id: "other",
             version: 1,
