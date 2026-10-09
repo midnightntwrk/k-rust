@@ -1691,10 +1691,11 @@ fn check_detached(
     let withdrawable = definition
         .symbols()
         .values()
-        .any(|symbol| closure::taintable(symbol) && gate_symbol(definition, &symbol.name));
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
     if !withdrawable {
-        // No symbol the gate is asked about can be tainted: the equation heads and the
-        // overloaded symbols are all free constructors or hooked, if any. So no pair changes a
+        // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
+        // classes) can be tainted: the equation heads and the overloaded symbols are all free
+        // constructors or hooked, if any. So no pair changes a
         // claim, and the collection claims read only equations indexed at a collection or a bare
         // variable, which the rows above taint.
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
@@ -1892,12 +1893,12 @@ fn check_detached(
     context.counts.relevant_equations = relevant.iter().filter(|relevant| **relevant).count();
     let needs_both = switches::active().relevance_needs_both;
     let classified = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
-        let (first, second) = (relevant[closure.id(first)], relevant[closure.id(second)]);
+        let relevant = |rule| relevant[closure.id(rule)];
         scope == CheckScope::All
             || if needs_both {
-                first && second
+                relevant(first) && relevant(second)
             } else {
-                first || second
+                relevant(first) || relevant(second)
             }
     };
     for (family, rules) in &root_groups {
