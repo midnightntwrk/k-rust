@@ -44,6 +44,9 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) result_wildcards: bool,
     /// Scopes of `k::matches!` local binders (BIND-1).
     pub(super) locals: LocalBinders,
+    /// Whether the next term lowered is the head of an equation or rule,
+    /// whose parametric instance its turbofish fixes (KF-027).
+    pub(super) head_pending: bool,
 }
 
 /// The local binders of a sentence's `k::matches!` patterns (BIND-1, KF-031).
@@ -131,8 +134,9 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::Application {
                 reference,
                 arguments,
+                instance,
                 ..
-            } => self.infer_application(reference, arguments, expected_sort, subject)?,
+            } => self.infer_application(reference, arguments, instance, expected_sort, subject)?,
             DescriptorTerm::BuiltinToken { sort, .. } => {
                 let sort = SemanticSortRef::Builtin(*sort);
                 if let Some(expected) = expected_sort
@@ -756,9 +760,25 @@ impl StructuredTermBuilder<'_> {
         &mut self,
         reference: &DescriptorApplicationReference,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        instance: &[krs_ir::DescriptorSortReference],
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
+        self.reject_misplaced_turbofish(reference, instance)?;
+        if let DescriptorApplicationRef::Declared(id) = &reference.application
+            && let Some(signature) = self.catalog.get(id)
+            && !signature.parameters.is_empty()
+        {
+            let signature = signature.clone();
+            return self.infer_parametric(
+                reference,
+                &signature,
+                arguments,
+                instance,
+                expected_sort,
+                subject,
+            );
+        }
         let signature = match &reference.application {
             DescriptorApplicationRef::Declared(id) => {
                 self.catalog.get(id).cloned().ok_or_else(|| {
@@ -1073,6 +1093,10 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        // Only the root of a sentence's subject is its head (KF-027).
+        if !matches!(term, DescriptorTerm::Application { .. }) {
+            self.head_pending = false;
+        }
         match term {
             DescriptorTerm::Variable { key, name, .. }
                 if self
@@ -1174,8 +1198,12 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::Application {
                 reference,
                 arguments,
+                instance,
                 ..
-            } => self.lower_application(reference, arguments, expected_sort, subject),
+            } => {
+                let head = std::mem::take(&mut self.head_pending);
+                self.lower_application(reference, arguments, instance, expected_sort, subject, head)
+            }
             DescriptorTerm::BuiltinToken { key, sort, value } => SemanticTerm::token(
                 semantic_origin(self.descriptor, key.clone(), "claim-builtin-token")?,
                 SemanticSortRef::Builtin(*sort),
@@ -1375,9 +1403,27 @@ impl StructuredTermBuilder<'_> {
         &mut self,
         reference: &DescriptorApplicationReference,
         arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        instance: &[krs_ir::DescriptorSortReference],
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
+        head: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if let DescriptorApplicationRef::Declared(id) = &reference.application
+            && let Some(signature) = self.catalog.get(id)
+            && !signature.parameters.is_empty()
+        {
+            let signature = signature.clone();
+            return self.lower_parametric(
+                reference,
+                id,
+                &signature,
+                arguments,
+                instance,
+                expected_sort,
+                subject,
+                head,
+            );
+        }
         let (application, signature) = match &reference.application {
             DescriptorApplicationRef::Declared(id) => {
                 let signature = self.catalog.get(id).cloned().ok_or_else(|| {
@@ -1685,6 +1731,9 @@ impl StructuredTermBuilder<'_> {
                 "`k::lexeme!` names the builtin sort `{}`; write a builtin token as a literal, `k::id!(\"$name\")`, or `k::bytes!(b\"..\")`",
                 builtin.k_name()
             )),
+            SemanticSortRef::Parameter(_) => {
+                Some("`k::lexeme!` names a sort parameter, which is not a token sort".to_owned())
+            }
             SemanticSortRef::Declared(_)
                 if !self
                     .catalog
@@ -1747,6 +1796,383 @@ impl StructuredTermBuilder<'_> {
                 .and_then(krs_ir::OriginStack::exact_authored_range)
                 .map(Box::new),
         })
+    }
+
+    /// A turbofish names an instance only on a parametric production
+    /// (KF-027); one on a builtin operation or a fixed production is an error.
+    fn reject_misplaced_turbofish(
+        &self,
+        reference: &DescriptorApplicationReference,
+        instance: &[krs_ir::DescriptorSortReference],
+    ) -> Result<(), DescriptorLoweringError> {
+        let Some(first) = instance.first() else {
+            return Ok(());
+        };
+        let parametric = match &reference.application {
+            DescriptorApplicationRef::Declared(id) => self
+                .catalog
+                .get(id)
+                .is_some_and(|signature| !signature.parameters.is_empty()),
+            _ => false,
+        };
+        if parametric {
+            return Ok(());
+        }
+        Err(self.parametric_instance_error(
+            &first.key,
+            "this application is not a parametric production, so it takes no turbofish; remove it"
+                .to_owned(),
+        ))
+    }
+
+    /// The turbofish of a parametric application as semantic sorts, checked
+    /// against the production's parameter count.
+    fn turbofish(
+        &self,
+        reference: &DescriptorApplicationReference,
+        signature: &ProductionSignature,
+        instance: &[krs_ir::DescriptorSortReference],
+    ) -> Result<Option<Vec<SemanticSortRef>>, DescriptorLoweringError> {
+        if instance.is_empty() {
+            return Ok(None);
+        }
+        if instance.len() != signature.parameters.len() {
+            return Err(self.parametric_instance_error(
+                &reference.key,
+                format!(
+                    "this production has {} sort parameter{} but its turbofish names {} sort{}",
+                    signature.parameters.len(),
+                    if signature.parameters.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    },
+                    instance.len(),
+                    if instance.len() == 1 { "" } else { "s" },
+                ),
+            ));
+        }
+        Ok(Some(
+            instance
+                .iter()
+                .map(|sort| semantic_sort_ref(&sort.sort))
+                .collect(),
+        ))
+    }
+
+    /// The sort each field of a parametric application is inferred and
+    /// lowered at: its declared sort at the turbofish instance or, without
+    /// one, a parameter position bounded by the position's sort when the
+    /// result is that parameter (an upper bound of the instance).
+    fn parametric_field_sorts(
+        signature: &ProductionSignature,
+        turbofish: Option<&[SemanticSortRef]>,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Vec<Option<SemanticSortRef>> {
+        signature
+            .fields
+            .iter()
+            .map(|(_, sort)| match sort {
+                SemanticSortRef::Parameter(name) => {
+                    let index = signature
+                        .parameters
+                        .iter()
+                        .position(|parameter| parameter == name);
+                    match (index, turbofish) {
+                        (Some(index), Some(turbofish)) => turbofish.get(index).cloned(),
+                        _ if signature.result_sort == *sort => expected_sort.cloned(),
+                        _ => None,
+                    }
+                }
+                sort => Some(sort.clone()),
+            })
+            .collect()
+    }
+
+    fn instantiate(
+        signature: &ProductionSignature,
+        sort: &SemanticSortRef,
+        instance: &[SemanticSortRef],
+    ) -> SemanticSortRef {
+        match sort {
+            SemanticSortRef::Parameter(name) => signature
+                .parameters
+                .iter()
+                .position(|parameter| parameter == name)
+                .and_then(|index| instance.get(index))
+                .cloned()
+                .unwrap_or_else(|| sort.clone()),
+            sort => sort.clone(),
+        }
+    }
+
+    fn infer_parametric(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        signature: &ProductionSignature,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        instance: &[krs_ir::DescriptorSortReference],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let turbofish = self.turbofish(reference, signature, instance)?;
+        if let Some(expected) = expected_sort {
+            let result = match &turbofish {
+                Some(turbofish) => Some(Self::instantiate(
+                    signature,
+                    &signature.result_sort,
+                    turbofish,
+                )),
+                None if matches!(signature.result_sort, SemanticSortRef::Parameter(_)) => None,
+                None => Some(signature.result_sort.clone()),
+            };
+            if let Some(result) = result
+                && !semantic_is_subsort(&result, expected, self.sort_parents)
+            {
+                return Err(match &turbofish {
+                    Some(turbofish) => self.parametric_instance_error(
+                        &reference.key,
+                        format!(
+                            "the turbofish `::<{}>` gives this application the sort {}, which is not admissible where the sort {} is declared or expected",
+                            turbofish.iter().map(marker_spelling).collect::<Vec<_>>().join(", "),
+                            super::overload::sort_name(&result),
+                            super::overload::sort_name(expected),
+                        ),
+                    ),
+                    None => self.invalid_term(format!(
+                        "application result sort {result} is not admissible at sort {expected}"
+                    )),
+                });
+            }
+        }
+        let sorts = Self::parametric_field_sorts(signature, turbofish.as_deref(), expected_sort);
+        let ordered = order_structured_arguments(arguments, &signature.fields, subject)
+            .map_err(|detail| self.invalid_term(detail))?;
+        for (argument, sort) in ordered.into_iter().zip(&sorts) {
+            if let Some(argument) = argument {
+                self.infer(argument, sort.as_ref(), subject)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Lowers an application of a parametric production (KF-027) and solves
+    /// its instance by k-rust's rule (X9.1): per parameter, the least sort
+    /// above the sorts of its argument positions, bounded by the position
+    /// when the result is that parameter. A head's turbofish fixes the
+    /// instance; elsewhere a turbofish must agree with the solved instance,
+    /// because emitted K and k-rust cannot write it.
+    #[expect(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "One pass lowers, solves, and checks a parametric application."
+    )]
+    fn lower_parametric(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        id: &StableItemId,
+        signature: &ProductionSignature,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        instance: &[krs_ir::DescriptorSortReference],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+        head: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let turbofish = self.turbofish(reference, signature, instance)?;
+        let name = crate::partition::production_display_name(id);
+        if head && turbofish.is_none() {
+            let example = format!(
+                "{name}::<{}>",
+                expected_sort.map_or_else(|| "k::builtin::Int".to_owned(), marker_spelling)
+            );
+            return Err(self.parametric_instance_error(
+                &reference.key,
+                format!(
+                    "an equation or rule head of the parametric production `{name}` needs a turbofish: without one K would instantiate its sort parameter at K and this sentence would never apply; write `{example}`"
+                ),
+            ));
+        }
+        let sorts = Self::parametric_field_sorts(signature, turbofish.as_deref(), expected_sort);
+        let ordered = order_structured_arguments(arguments, &signature.fields, subject)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let mut lowered = Vec::with_capacity(sorts.len());
+        let mut variables = Vec::with_capacity(sorts.len());
+        for (argument, sort) in ordered.into_iter().zip(&sorts) {
+            // A record rest (`..`) is a wildcard, so it counts as a variable.
+            variables.push(argument.is_none_or(|argument| {
+                matches!(
+                    argument,
+                    DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
+                )
+            }));
+            let term = if let Some(argument) = argument {
+                self.lower(argument, sort.as_ref(), subject)?
+            } else {
+                let sort = sort.clone().ok_or_else(|| {
+                    self.invalid_term("a record rest at a parameter position needs a turbofish")
+                })?;
+                self.lower_record_rest_wildcard(&sort)?
+            };
+            lowered.push(term);
+        }
+        let mut solved_instance = Vec::with_capacity(signature.parameters.len());
+        for (index, parameter) in signature.parameters.iter().enumerate() {
+            let parameter_sort = SemanticSortRef::Parameter(parameter.clone());
+            let positions = signature
+                .fields
+                .iter()
+                .zip(&lowered)
+                .zip(&variables)
+                .filter(|(((_, sort), _), _)| *sort == parameter_sort)
+                .map(|((_, argument), variable)| (argument.sort().clone(), *variable))
+                .collect::<Vec<_>>();
+            let argument_sorts = positions
+                .iter()
+                .map(|(sort, _)| sort.clone())
+                .collect::<Vec<_>>();
+            let bound = if signature.result_sort == parameter_sort {
+                expected_sort
+            } else {
+                None
+            };
+            let solved = least_instance(&argument_sorts, bound, self.sort_parents);
+            let Some(turbofish) = &turbofish else {
+                let instance = solved.map_err(|error| {
+                    self.parametric_instance_error(
+                        &reference.key,
+                        format!(
+                            "K cannot determine the sort parameter `{parameter}` of `{name}` from its arguments ({}) and position: {}; give an argument a narrower sort with a typed binder or `where`",
+                            argument_sorts.iter().map(super::overload::sort_name).collect::<Vec<_>>().join(", "),
+                            match error {
+                                InstanceError::NoCommonSort { .. } => "they have no common sort".to_owned(),
+                                InstanceError::Ambiguous(candidates) => format!(
+                                    "they have no least common sort (candidates {})",
+                                    candidates.iter().map(super::overload::sort_name).collect::<Vec<_>>().join(", ")
+                                ),
+                            }
+                        ),
+                    )
+                })?;
+                solved_instance.push(instance);
+                continue;
+            };
+            let fixed = turbofish[index].clone();
+            if head {
+                if bound.is_some_and(|bound| *bound != fixed) {
+                    return Err(self.parametric_instance_error(
+                        &reference.key,
+                        format!(
+                            "the turbofish `{name}::<{}>` disagrees with the head's declared `k::Term<{}>`; the result of `{name}` is its sort parameter `{parameter}`, so both name the same sort",
+                            marker_spelling(&fixed),
+                            expected_sort.map_or_else(String::new, marker_spelling),
+                        ),
+                    ));
+                }
+                for (sort, variable) in &positions {
+                    if !*variable && *sort != fixed {
+                        return Err(self.parametric_instance_error(
+                            &reference.key,
+                            format!(
+                                "an argument of sort {} at a position of the sort parameter `{parameter}` of this head is not a variable, so K's strict cast cannot fix its instance `{}`; match it with a variable of sort {} and test it in `requires`",
+                                super::overload::sort_name(sort),
+                                super::overload::sort_name(&fixed),
+                                super::overload::sort_name(&fixed),
+                            ),
+                        ));
+                    }
+                }
+                if solved.as_ref().ok() != Some(&fixed) {
+                    let solved_text = solved.as_ref().map_or_else(
+                        |_| "no unique instance".to_owned(),
+                        |sort| format!("{parameter} = {}", super::overload::sort_name(sort)),
+                    );
+                    return Err(DescriptorLoweringError::NativeInstance {
+                        item: Box::new(self.descriptor.id().clone()),
+                        reason: format!(
+                            "label sort parameters cannot be written natively, so k-rust fixes this head's instance from its argument sorts: it would solve {solved_text}, not the turbofish's {parameter} = {}. Give at least one parametric argument a variable of sort {}.",
+                            super::overload::sort_name(&fixed),
+                            super::overload::sort_name(&fixed),
+                        ),
+                        range: self.authored_range(&reference.key),
+                    });
+                }
+            } else if solved.as_ref().ok() != Some(&fixed) {
+                return Err(self.parametric_instance_error(
+                    &reference.key,
+                    format!(
+                        "K and k-rust solve the sort parameter `{parameter}` of this `{name}` from its arguments and position as {}, not the turbofish's {}; the turbofish of a term that is not an equation or rule head must name the instance K solves",
+                        solved.as_ref().map_or_else(
+                            |_| "no unique sort".to_owned(),
+                            super::overload::sort_name,
+                        ),
+                        super::overload::sort_name(&fixed),
+                    ),
+                ));
+            }
+            solved_instance.push(fixed);
+        }
+        let result_sort = Self::instantiate(signature, &signature.result_sort, &solved_instance);
+        if !signature.function
+            && matches!(signature.result_sort, SemanticSortRef::Parameter(_))
+            && self.has_domain_values(&result_sort)
+        {
+            return Err(DescriptorLoweringError::InvalidParametricProduction {
+                item: Box::new(self.descriptor.id().clone()),
+                reason: format!(
+                    "the parametric constructor `{name}` builds a value of its sort parameter, so it cannot be instantiated at {}, whose values its domain or hook fixes",
+                    super::overload::sort_name(&result_sort)
+                ),
+                range: self.authored_range(&reference.key),
+            });
+        }
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "application result sort {result_sort} is not admissible at sort {expected}"
+            )));
+        }
+        Ok(SemanticTerm::parametric_application(
+            semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
+            result_sort,
+            ApplicationRef::Declared(id.clone()),
+            lowered,
+            solved_instance,
+            head,
+        ))
+    }
+
+    /// Whether `sort` has domain values or a hook: a builtin sort other than
+    /// `K` and `KItem`, or a token sort.
+    fn has_domain_values(&self, sort: &SemanticSortRef) -> bool {
+        match sort {
+            SemanticSortRef::Builtin(builtin) => *builtin != BuiltinSort::KSequence,
+            SemanticSortRef::Declared(_) => self
+                .catalog
+                .values()
+                .any(|signature| signature.token && signature.result_sort == *sort),
+            SemanticSortRef::Cell(_) | SemanticSortRef::Parameter(_) => false,
+        }
+    }
+
+    fn authored_range(&self, key: &ProvenanceKey) -> Option<Box<krs_ir::SourceRange>> {
+        self.descriptor
+            .provenance()
+            .origin_for(key)
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .map(Box::new)
+    }
+
+    fn parametric_instance_error(
+        &self,
+        key: &ProvenanceKey,
+        reason: String,
+    ) -> DescriptorLoweringError {
+        DescriptorLoweringError::ParametricInstance {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self.authored_range(key),
+        }
     }
 
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
@@ -1962,6 +2388,8 @@ fn builtin_production_signature(operation: BuiltinOperation) -> Option<Productio
             })
             .collect::<Option<_>>()?,
         token: false,
+        parameters: Vec::new(),
+        function: true,
     })
 }
 
@@ -2062,6 +2490,18 @@ fn order_structured_arguments<'a>(
         ));
     }
     Ok(ordered)
+}
+
+/// The sort marker a turbofish names for `sort`: `k::builtin::Int`, or a user
+/// sort's `dyn ExpSort` (KF-027).
+fn marker_spelling(sort: &SemanticSortRef) -> String {
+    match sort {
+        SemanticSortRef::Builtin(builtin) => format!("k::builtin::{}", builtin.marker_name()),
+        SemanticSortRef::Declared(id) => format!("dyn {}Sort", id.item_name()),
+        SemanticSortRef::Cell(_) | SemanticSortRef::Parameter(_) => {
+            super::overload::sort_name(sort)
+        }
+    }
 }
 
 #[cfg(test)]

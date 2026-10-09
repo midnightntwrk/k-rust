@@ -12,6 +12,7 @@ impl StableText for SemanticSortRef {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
             Self::Cell(id) => format!("Cell({})", id.stable_text()),
+            Self::Parameter(name) => format!("Parameter({:?})", name.as_str()),
         })
     }
 }
@@ -28,6 +29,7 @@ impl StableText for DefinitionSortRef {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
             Self::Cell(id) => format!("Cell({})", id.stable_text()),
+            Self::Parameter(name) => format!("Parameter({:?})", name.as_str()),
         })
     }
 }

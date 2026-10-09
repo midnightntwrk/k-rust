@@ -209,6 +209,9 @@ register_codes! {
         INVALID_MATCHES: "krs::analysis::invalid-matches" => "A `k::matches!` (K's `:=K`) pattern name shadows a rule binder or is never read, or its pattern's sort cannot meet its subject's sort.",
         INVALID_LET: "krs::analysis::invalid-let" => "A `let` statement's (K's `#let`) pattern sort cannot meet its value's sort, or its names have no single sort.",
         INVALID_FUNCTION_CONTEXT: "krs::analysis::invalid-function-context" => "An equation's function context (K's `[[ .. ]]`) reads a whole nested cell, or declares a binder at a sort its cell does not have.",
+        INVALID_PARAMETRIC_PRODUCTION: "krs::analysis::invalid-parametric-production" => "A parametric production (K's `syntax {S}`) names a parameter like a sort, carries strictness, an alias, a hook, a token, or a bracket, or is a constructor whose result parameter would be instantiated at a sort with domain values.",
+        PARAMETRIC_INSTANCE: "krs::analysis::parametric-instance" => "A parametric production's instance is missing, disagrees with the head's declared sort or its arguments, or cannot be determined from the arguments and position.",
+        NATIVE_INSTANCE: "krs::analysis::native-instance" => "The least instance K and k-rust solve from an equation or rule head's argument sorts differs from its turbofish, so the head would not be the equation the author wrote.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -284,6 +287,8 @@ register_codes! {
         INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
         INVALID_UNBOUND_VARIABLES: "krs::syntax::invalid-unbound-variables" => "An `unbound_variables = [..]` key was malformed or misplaced: outside a desugar clause's `#[k::desugar(..)]`, an empty or repeated list, a name the clause's pattern binds or its result does not use, or `_` with no `_` in the result.",
         INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
+        INVALID_SORT_PARAMETER: "krs::syntax::invalid-sort-parameter" => "A production struct's generic parameter is not a K sort parameter `S: ?Sized` used by a field: a lifetime, const, default, other bound, or where clause.",
+        INVALID_TURBOFISH: "krs::syntax::invalid-turbofish" => "A turbofish on a term head is not a list of sort markers (`Choose::<k::builtin::Int>`, `Choose::<dyn ExpSort>`): it has lifetimes, consts, or other types, or sits on a path segment other than the last.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {
@@ -349,6 +354,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
         EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
         FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context alias, or anywhere rule; fresh values are drawn only by a transition step of the configuration.",
+        TURBOFISH_PLACEMENT: "krs::expand::turbofish-placement" => "A turbofish instance (`Choose::<k::builtin::Int> { .. }`) occurs in an initializer, which builds a concrete value.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

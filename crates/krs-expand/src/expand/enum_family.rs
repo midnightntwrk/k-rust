@@ -571,6 +571,7 @@ fn expand_enum_variant(
     );
     let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
+            parameters: Vec::new(),
             key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
             template_key,
             owner: WireProductionOwner::Constructor {
@@ -588,6 +589,7 @@ fn expand_enum_variant(
     let grammar_wire = serde_json::to_string(&grammar_wire).expect("KRS wire values serialize");
     let grammar_slot_tokens = grammar_slots.tokens();
     let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
+        parameters: Vec::new(),
         sort: WireSortReference {
             key: wire_key(ProvenanceRole::ConstructorSort, 0),
             target: WireTypeReference {

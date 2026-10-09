@@ -1069,8 +1069,8 @@ stage_shape! {
     #[serde(
         rename = "ConstructorDescriptor",
         bound(
-            serialize = "S::ConstructorSort: Serialize, S::ConstructorFieldSort: Serialize",
-            deserialize = "S::ConstructorSort: Deserialize<'de>, S::ConstructorFieldSort: Deserialize<'de>"
+            serialize = "S::ConstructorSort: Serialize, S::ConstructorFieldSort: Serialize, S::Sort: Serialize",
+            deserialize = "S::ConstructorSort: Deserialize<'de>, S::ConstructorFieldSort: Deserialize<'de>, S::Sort: Deserialize<'de>"
         )
     )]
     pub struct Constructor<S: Stage> {
@@ -1078,6 +1078,10 @@ stage_shape! {
         pub sort: S::ConstructorSort => [constructor_sort],
         /// Fields in authored constructor order.
         pub fields: Vec<ConstructorField<S>> => [vec nested],
+        /// Sort parameters of a parametric production struct, in declaration
+        /// order (KF-027); empty for every other constructor.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub parameters: Vec<S::Sort> => [vec sort],
     }
 }
 

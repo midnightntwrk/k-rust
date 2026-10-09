@@ -730,6 +730,22 @@ impl StateRuleItem {
             crate::term::push_pattern_as_anchors(&mut output, ensures.nodes(), &mut aliases)?;
             crate::term::push_pattern_or_anchors(&mut output, ensures.nodes(), &mut alternatives)?;
         }
+        // Turbofish sort markers (KF-027), in expansion order, like sort tests.
+        let mut instances = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_application_instance_anchors(
+                &mut output,
+                term.nodes(),
+                &mut instances,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_application_instance_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut instances,
+            )?;
+        }
         // `k::matches!` shells and pattern wildcards (KF-031), in expansion
         // order: the cells, the condition, then the ensures condition.
         let (mut matches, mut wildcards) = (0_usize, 0_usize);
@@ -1880,7 +1896,26 @@ fn push_claim_ensures_anchors(
     crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)?;
     let mut lets = count(|node| matches!(node, TermNode::Let { .. }));
     let mut let_wildcards = count(|node| matches!(node, TermNode::LetWildcard(_)));
-    crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)
+    crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)?;
+    let mut instances = claim_terms(rule, None)
+        .iter()
+        .flat_map(|term| term.nodes())
+        .map(application_instance_count)
+        .sum();
+    crate::term::push_application_instance_anchors(output, nodes, &mut instances)
+}
+
+/// The number of turbofish sort markers on an application-head node.
+fn application_instance_count(node: &TermNode) -> usize {
+    match node {
+        TermNode::ApplicationHead(path) => {
+            match path.segments.last().map(|segment| &segment.arguments) {
+                Some(syn::PathArguments::AngleBracketed(arguments)) => arguments.args.len(),
+                _ => 0,
+            }
+        }
+        _ => 0,
+    }
 }
 
 fn claim_terms<'a>(

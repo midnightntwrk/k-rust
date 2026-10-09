@@ -660,6 +660,10 @@ fn render_reference_term_type(
             ReferenceExpansionError::ExternalReferenceSort(Box::new(id.clone())),
         ),
         krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
+        krs_ir::DescriptorSortRef::Parameter(name) => {
+            let name = format_ident!("{name}");
+            Ok(quote!(k::Term<#name>))
+        }
     }
 }
 
@@ -1443,9 +1447,21 @@ fn render_term(
             reference,
             head_class,
             arguments,
+            instance,
             ..
         } => {
             let head = match &reference.application {
+                // A turbofish renders its sort markers, the types inside
+                // `k::Term<..>`: a readable `Choose::<Exp>` is
+                // `Choose::<dyn crate::ExpSort>` (KF-027).
+                DescriptorApplicationRef::Declared(id) if !instance.is_empty() => {
+                    let head = render_declared_application(id, package)?;
+                    let markers = instance
+                        .iter()
+                        .map(|sort| render_sort_marker(&sort.sort, package))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    quote!(#head::<#(#markers),*>)
+                }
                 DescriptorApplicationRef::Declared(id) => render_declared_application(id, package)?,
                 DescriptorApplicationRef::Builtin(operation) => {
                     render_builtin_operation(*operation)
@@ -1666,6 +1682,10 @@ fn render_sort_type(
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
         }
+        SemanticSortRef::Parameter(name) => {
+            let name = format_ident!("{name}");
+            Ok(quote!(k::Term<#name>))
+        }
     }
 }
 
@@ -1678,6 +1698,10 @@ fn render_descriptor_sort(
             render_declared_path(id, package)
         }
         krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
+        krs_ir::DescriptorSortRef::Parameter(name) => {
+            let name = format_ident!("{name}");
+            Ok(quote!(#name))
+        }
     }
 }
 
@@ -1726,6 +1750,25 @@ fn render_local_path(
     path.segments
         .extend(suffix.iter().cloned().map(syn::PathSegment::from));
     Ok(path)
+}
+
+/// The sort marker of a turbofish argument: a builtin's marker type, or a
+/// declared sort's `dyn` marker trait (KF-027).
+fn render_sort_marker(
+    sort: &krs_ir::DescriptorSortRef,
+    package: &PackageId,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    match sort {
+        krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
+        krs_ir::DescriptorSortRef::Declared(id) => {
+            let marker = format_ident!("{}Sort", id.item_name());
+            let path = render_local_path(id, package, &[marker])?;
+            Ok(quote!(dyn #path))
+        }
+        krs_ir::DescriptorSortRef::Cell(_) | krs_ir::DescriptorSortRef::Parameter(_) => {
+            render_descriptor_sort(sort, package)
+        }
+    }
 }
 
 fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
@@ -2252,6 +2295,7 @@ mod tests {
             name: name.to_owned(),
         };
         let lookup = DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresApplicationHead, 0),

@@ -203,6 +203,9 @@ stage_shape! {
         pub sort: S::Sort => [sort],
         /// Constructor fields in authored order.
         pub fields: Vec<StaticConstructorField<S>> => [vec nested],
+        /// Sort parameters of a parametric production struct (KF-027).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub parameters: Vec<S::Sort> => [vec sort],
     }
     host_shape: crate::HostConstructorDescriptor;
 }
@@ -285,6 +288,7 @@ mod tests {
     #[test]
     fn application_wire_has_stable_compact_json_and_round_trips() {
         let term = WireTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::BareReference,
             reference: WireApplicationReference {
                 key: ProvenanceKey::new(ProvenanceRole::RuleLeftReference, 2),
@@ -342,6 +346,7 @@ mod tests {
         );
         assert_eq!(map.calls, ["nominal"]);
         let constructor = super::WireConstructorDescriptor {
+            parameters: Vec::new(),
             sort: sort(),
             fields: vec![field],
         };
@@ -387,6 +392,7 @@ mod tests {
     fn rule_and_constructor_traversals_preserve_data_and_propagate_errors() {
         assert_traversal(
             super::WireConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: sort(),
                 fields: vec![],
             },

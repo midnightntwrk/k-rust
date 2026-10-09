@@ -456,12 +456,35 @@ fn constructor_like(
         "__krs_constructor_sort_{nonce:016x}",
         span = Span::call_site()
     );
-    let item = declaration.item();
+    let item = &parametric_item(declaration.item());
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
     let authored_sort = &attribute.sort;
     let generated_sort = call_site_path(&attribute.sort)?;
+    // A K sort parameter (KF-027) has no `TypeId` in a free function, so each
+    // one is a generated marker type whose key the collector joins back to
+    // the parameter's name.
+    let parameter_markers = declaration
+        .sort_parameters()
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            (
+                format_ident!(
+                    "__KrsSortParameter_{nonce:016x}_{index}",
+                    span = Span::call_site()
+                ),
+                format_ident!(
+                    "__krs_sort_parameter_{nonce:016x}_{index}",
+                    span = Span::call_site()
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let result_parameter = declaration
+        .sort_parameter_index(&attribute.sort)
+        .map(|index| parameter_markers[index].0.clone());
     let authored_sort_type = if functional {
         quote!(#authored_sort)
     } else {
@@ -488,8 +511,13 @@ fn constructor_like(
             "__krs_constructor_field_{nonce:016x}_{index}",
             span = Span::call_site()
         );
-        let generated = call_site_path(field.term_sort().sort())?;
-        let generated = sort_type_tokens(&generated, field.term_sort().is_dynamic());
+        let generated = if let Some(parameter) = field.parameter() {
+            let marker = &parameter_markers[parameter].0;
+            quote!(#marker)
+        } else {
+            let generated = call_site_path(field.term_sort().sort())?;
+            sort_type_tokens(&generated, field.term_sort().is_dynamic())
+        };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();
         field_key_functions.push(quote! {
@@ -507,17 +535,26 @@ fn constructor_like(
             },
         });
     }
+    let parameters = parameter_wire_references(
+        &facade,
+        declaration.sort_parameters(),
+        &parameter_markers,
+        &mut slots,
+    );
     let wire = WirePayload::Constructor(WireConstructorDescriptor {
         sort: sort_reference,
         fields,
+        parameters,
     });
     let wire = serde_json::to_string(&wire).expect("constructor wire is serializable");
     let slot_tokens = slots.tokens();
 
+    let generic_parameters = declaration.sort_parameters();
     let rule_application = quote! {
         #(#cfg)*
-        impl<const __KRS_SELECTOR: u64> #facade::__KrsRuleApplication<__KRS_SELECTOR>
-            for #declared
+        impl<#(#generic_parameters: ?Sized + 'static,)* const __KRS_SELECTOR: u64>
+            #facade::__KrsRuleApplication<__KRS_SELECTOR>
+            for #declared<#(#generic_parameters),*>
         {
             fn __krs_rule_application(authored_path: &str) -> #facade::HostApplicationTarget {
                 #facade::HostApplicationTarget::Nominal(#facade::HostTypeReference {
@@ -534,6 +571,7 @@ fn constructor_like(
         strictness.as_ref(),
         &declared_key,
         &sort_key,
+        &parameter_markers,
         nonce,
         &cfg,
         &grammar_provenance,
@@ -568,12 +606,38 @@ fn constructor_like(
     }
     .render();
 
+    let sort_check = if result_parameter.is_some() {
+        TokenStream::new()
+    } else {
+        quote! {
+            #(#cfg)*
+            const _: ::core::marker::PhantomData<#authored_sort_type> =
+                ::core::marker::PhantomData;
+        }
+    };
+    let generated_sort_type =
+        result_parameter.map_or(generated_sort_type, |marker| quote!(#marker));
+    let parameter_items = parameter_markers.iter().map(|(marker, key)| {
+        quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            enum #marker {}
+
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#marker>()
+            }
+        }
+    });
+
     Ok(quote! {
         #item
 
-        #(#cfg)*
-        const _: ::core::marker::PhantomData<#authored_sort_type> =
-            ::core::marker::PhantomData;
+        #sort_check
+
+        #(#parameter_items)*
 
         #(#cfg)*
         #[doc(hidden)]
@@ -595,6 +659,46 @@ fn constructor_like(
 
         #grammar
     })
+}
+
+/// The declared struct as rustc sees it. Each K sort parameter gets the
+/// default `dyn ::core::any::Any`, so `TypeId::of::<Choose>()` names the one
+/// canonical instantiation that keys the declaration and every application,
+/// with or without a turbofish (KF-027). Authors cannot write a default.
+fn parametric_item(item: &ItemStruct) -> ItemStruct {
+    let mut item = item.clone();
+    for parameter in &mut item.generics.params {
+        if let syn::GenericParam::Type(parameter) = parameter {
+            parameter.eq_token = Some(syn::Token![=](Span::call_site()));
+            parameter.default = Some(syn::parse_quote!(dyn ::core::any::Any));
+        }
+    }
+    item
+}
+
+/// One sort reference per K sort parameter, keyed `sort_parameter` in
+/// declaration order, whose slot is the parameter's marker type (KF-027).
+fn parameter_wire_references(
+    facade: &Path,
+    parameters: &[Ident],
+    markers: &[(Ident, Ident)],
+    slots: &mut WireSlots,
+) -> Vec<WireSortReference> {
+    parameters
+        .iter()
+        .zip(markers)
+        .enumerate()
+        .map(|(ordinal, (parameter, (_, key)))| {
+            wire_sort_reference(
+                slots,
+                facade,
+                ProvenanceRole::SortParameter,
+                u32::try_from(ordinal).expect("sort parameters are few"),
+                key,
+                &parameter.to_string(),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn reject_unexpanded_symbol(attributes: &[Attribute]) -> crate::Result<()> {
@@ -853,6 +957,7 @@ pub(crate) fn token(
                 },
             };
             WireProduction {
+                parameters: Vec::new(),
                 key: wire_key(role, ordinal),
                 template_key: None,
                 owner: WireProductionOwner::TokenSort {
@@ -960,6 +1065,7 @@ fn constructor_grammar(
     strictness: Option<&StrictnessAttribute>,
     declared_key: &Ident,
     sort_key: &Ident,
+    parameter_markers: &[(Ident, Ident)],
     nonce: u64,
     cfg: &[Attribute],
     provenance: &TokenStream,
@@ -1126,6 +1232,12 @@ fn constructor_grammar(
             result_sort,
             items,
             attributes,
+            parameters: parameter_wire_references(
+                facade,
+                declaration.sort_parameters(),
+                parameter_markers,
+                &mut slots,
+            ),
         },
     )));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");

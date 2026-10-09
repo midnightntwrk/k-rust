@@ -769,6 +769,7 @@ impl<'a> StateRuleBuilder<'a> {
                     .terms
                     .application_wire_slot(application.head(), slots)?;
                 let authored_path = self.terms.application_authored_path(application.head());
+                let instance = self.terms.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
                         let mut arguments = Vec::new();
@@ -792,6 +793,7 @@ impl<'a> StateRuleBuilder<'a> {
                     }
                 };
                 Ok(WireTerm::Application {
+                    instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
                         key: key.clone(),
@@ -814,6 +816,7 @@ impl<'a> StateRuleBuilder<'a> {
                 } else {
                     let target = self.terms.application_wire_slot(path, slots)?;
                     Ok(WireTerm::Application {
+                        instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
                             key: key.clone(),

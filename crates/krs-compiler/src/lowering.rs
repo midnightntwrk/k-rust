@@ -790,7 +790,9 @@ fn lower_module(
     {
         let item = match subsort.subsort() {
             SemanticSortRef::Declared(item) => Some(item),
-            SemanticSortRef::Builtin(_) | SemanticSortRef::Cell(_) => None,
+            SemanticSortRef::Builtin(_)
+            | SemanticSortRef::Cell(_)
+            | SemanticSortRef::Parameter(_) => None,
         };
         sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
             origins.lower(
@@ -809,18 +811,21 @@ fn lower_module(
     }
 
     for production in productions {
-        sentences.push(DefinitionSentence::Production(ProductionSentence::new(
-            origins.lower(
-                production.origin(),
-                "production",
-                Some(production.id()),
-                None,
-            )?,
-            names.production(production.id())?,
-            lower_sort_ref(production.result_sort(), names)?,
-            lower_production_items(production, names, origins)?,
-            lower_production_attributes(production, names, origins)?,
-        )?));
+        sentences.push(DefinitionSentence::Production(
+            ProductionSentence::new(
+                origins.lower(
+                    production.origin(),
+                    "production",
+                    Some(production.id()),
+                    None,
+                )?,
+                names.production(production.id())?,
+                lower_sort_ref(production.result_sort(), names)?,
+                lower_production_items(production, names, origins)?,
+                lower_production_attributes(production, names, origins)?,
+            )?
+            .with_parameters(production.parameters().to_vec()),
+        ));
     }
 
     for (index, precedence) in module
@@ -1674,6 +1679,7 @@ fn lower_sort_ref(
         SemanticSortRef::Cell(declaration) => {
             Ok(DefinitionSortRef::Cell(names.group_cell(declaration)?))
         }
+        SemanticSortRef::Parameter(name) => Ok(DefinitionSortRef::Parameter(name.clone())),
     }
 }
 
@@ -2001,7 +2007,9 @@ fn lower_term(
         SemanticTermKind::Application {
             application,
             arguments,
-        } => Ok(DefinitionTerm::application(
+            instance,
+            head_instance_fixed,
+        } => Ok(DefinitionTerm::parametric_application(
             origin,
             lower_sort_ref(term.sort(), names)?,
             match application {
@@ -2017,6 +2025,11 @@ fn lower_term(
                 .iter()
                 .map(|argument| lower_term(argument, names, origins))
                 .collect::<Result<Vec<_>, _>>()?,
+            instance
+                .iter()
+                .map(|sort| lower_sort_ref(sort, names))
+                .collect::<Result<Vec<_>, _>>()?,
+            *head_instance_fixed,
         )),
         SemanticTermKind::Token { value } => Ok(DefinitionTerm::token(
             origin,

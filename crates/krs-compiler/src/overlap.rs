@@ -42,6 +42,9 @@ enum Pattern {
         sort: SemanticSortRef,
         application: SemanticApplicationRef,
         arguments: Vec<Self>,
+        /// A parametric application's instance: with the symbol, its
+        /// identity (X10.7d, KF-027).
+        instance: Vec<SemanticSortRef>,
     },
     Token {
         sort: SemanticSortRef,
@@ -168,8 +171,10 @@ fn matches_shape(term: &SemanticTerm, names: &mut BTreeMap<SemanticId, usize>) -
         SemanticTermKind::Application {
             application,
             arguments,
+            instance,
+            ..
         } => format!(
-            "{application:?}({})",
+            "{application:?}{instance:?}({})",
             list(arguments.iter().collect(), names)
         ),
         SemanticTermKind::As { alias, pattern } => {
@@ -461,14 +466,17 @@ impl<'graph> Unifier<'graph> {
                     sort: left_sort,
                     application: left_application,
                     arguments: left_arguments,
+                    instance: left_instance,
                 },
                 Pattern::Application {
                     sort: right_sort,
                     application: right_application,
                     arguments: right_arguments,
+                    instance: right_instance,
                 },
             ) => {
-                self.graph.same_head(&left_application, &right_application)
+                left_instance == right_instance
+                    && self.graph.same_head(&left_application, &right_application)
                     && self.graph.compatible(&left_sort, &right_sort)
                     && self.unify_arguments(left_arguments, right_arguments)
             }
@@ -705,8 +713,11 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
         SemanticTermKind::Application {
             application,
             arguments,
+            instance,
+            ..
         } => Pattern::Application {
             sort: term.sort().clone(),
+            instance: instance.clone(),
             application: application.clone(),
             arguments: arguments
                 .iter()
@@ -1165,6 +1176,10 @@ impl Unifier<'_> {
     }
 
     /// Whether two patterns are identical under the current substitution.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One exhaustive comparison over the closed pattern sum."
+    )]
     fn same(&self, left: &Pattern, right: &Pattern) -> bool {
         let left = self.resolve(left.clone());
         let right = self.resolve(right.clone());
@@ -1183,14 +1198,20 @@ impl Unifier<'_> {
                 Pattern::Application {
                     application: left_application,
                     arguments: left_arguments,
+                    instance: left_instance,
                     ..
                 },
                 Pattern::Application {
                     application: right_application,
                     arguments: right_arguments,
+                    instance: right_instance,
                     ..
                 },
-            ) => left_application == right_application && all(left_arguments, right_arguments),
+            ) => {
+                left_application == right_application
+                    && left_instance == right_instance
+                    && all(left_arguments, right_arguments)
+            }
             (
                 Pattern::Token {
                     sort: left_sort,
@@ -1724,6 +1745,7 @@ fn render_alternative(term: &SemanticTerm) -> String {
         SemanticTermKind::Application {
             application,
             arguments,
+            ..
         } => {
             let head = match application {
                 ApplicationRef::Declared(id) => id
@@ -1776,6 +1798,9 @@ mod pattern_or_tests;
 mod function_context_tests;
 
 #[cfg(test)]
+mod parametric_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use krs_ir::{ApplicationRef, ItemKind, PackageId};
@@ -1793,6 +1818,7 @@ mod tests {
 
     fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
         Pattern::Application {
+            instance: Vec::new(),
             sort: SemanticSortRef::Builtin(BuiltinSort::KSequence),
             application: ApplicationRef::Declared(declared(name, ItemKind::Constructor)),
             arguments,

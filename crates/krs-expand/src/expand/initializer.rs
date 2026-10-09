@@ -307,7 +307,9 @@ impl<'a> InitializerBuilder<'a> {
             facade,
             bindings,
             counters: InitializerCounters::default(),
-            terms: TermBuilder::new(facade, nonce, cfg, bindings).with_associated_keys(),
+            terms: TermBuilder::new(facade, nonce, cfg, bindings)
+                .with_associated_keys()
+                .without_application_instances(),
             key_functions: Vec::new(),
             slots: WireSlots::new(facade),
         }
@@ -536,6 +538,9 @@ impl<'a> InitializerBuilder<'a> {
                     .terms
                     .application_wire_slot(application.head(), &mut self.slots)?;
                 let authored_path = self.terms.application_authored_path(application.head());
+                // An initializer admits no turbofish (KF-027); this rejects one.
+                self.terms
+                    .application_instance_wire(application, &mut self.slots)?;
                 let TermArguments::Positional(values) = application.arguments() else {
                     return Err(ExpandError::new(
                         expand::INITIALIZER_RECORD_ARGUMENTS,
@@ -551,6 +556,7 @@ impl<'a> InitializerBuilder<'a> {
                     })
                     .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::Application {
+                    instance: Vec::new(),
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
                         key: key.clone(),
@@ -575,6 +581,7 @@ impl<'a> InitializerBuilder<'a> {
                     let target = self.terms.application_wire_slot(path, &mut self.slots)?;
                     let authored_path = self.terms.application_authored_path(path);
                     Ok(WireTerm::Application {
+                        instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
                             key: key.clone(),

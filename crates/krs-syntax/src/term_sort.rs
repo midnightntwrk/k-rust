@@ -140,3 +140,33 @@ pub(crate) fn parse_readable_sort(ty: Type) -> Result<TermSort, SyntaxError> {
         dynamic: false,
     })
 }
+
+/// Parses one turbofish argument of a parametric application head
+/// (`Choose::<k::builtin::Int>` or `Choose::<dyn ExpSort>`, KF-027): the sort
+/// marker that goes inside `k::Term<..>`, a plain path or a single-trait
+/// `dyn` object.
+pub(crate) fn parse_instance_sort(ty: &Type) -> Option<TermSort> {
+    match ty {
+        Type::Path(sort) if sort.qself.is_none() && is_plain_path(&sort.path) => Some(TermSort {
+            ty: ty.clone(),
+            sort: sort.path.clone(),
+            dynamic: false,
+        }),
+        Type::TraitObject(object) if object.dyn_token.is_some() && object.bounds.len() == 1 => {
+            let Some(TypeParamBound::Trait(bound)) = object.bounds.first() else {
+                return None;
+            };
+            (matches!(bound.modifier, TraitBoundModifier::None)
+                && bound.lifetimes.is_none()
+                && bound.paren_token.is_none()
+                && is_plain_path(&bound.path))
+            .then(|| TermSort {
+                ty: ty.clone(),
+                sort: bound.path.clone(),
+                dynamic: true,
+            })
+        }
+        Type::Group(group) => parse_instance_sort(&group.elem),
+        _ => None,
+    }
+}

@@ -24,6 +24,7 @@ macro_rules! validation_error {
             ValidationError::GeneratedApplicationSignature => {
                 $public::GeneratedApplicationSignature
             }
+            ValidationError::ParameterSortInTerm => $public::ParameterSortInTerm,
             ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
             ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
             ValidationError::ContextAliasFrameSortMismatch => {
@@ -192,7 +193,16 @@ impl Validation for SemanticLevel {
     fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             SemanticSortRef::Declared(id) => Some(id),
-            SemanticSortRef::Builtin(_) | SemanticSortRef::Cell(_) => None,
+            SemanticSortRef::Builtin(_)
+            | SemanticSortRef::Cell(_)
+            | SemanticSortRef::Parameter(_) => None,
+        }
+    }
+
+    fn parameter_name(sort: &Self::Sort) -> Option<&crate::SortParameterId> {
+        match sort {
+            SemanticSortRef::Parameter(name) => Some(name),
+            _ => None,
         }
     }
 
@@ -203,7 +213,9 @@ impl Validation for SemanticLevel {
     fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             SemanticSortRef::Cell(id) => Some(id),
-            SemanticSortRef::Declared(_) | SemanticSortRef::Builtin(_) => None,
+            SemanticSortRef::Declared(_)
+            | SemanticSortRef::Builtin(_)
+            | SemanticSortRef::Parameter(_) => None,
         }
     }
 
@@ -334,7 +346,16 @@ impl Validation for DefinitionLevel {
     fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             DefinitionSortRef::Declared(id) => Some(id),
-            DefinitionSortRef::Builtin(_) | DefinitionSortRef::Cell(_) => None,
+            DefinitionSortRef::Builtin(_)
+            | DefinitionSortRef::Cell(_)
+            | DefinitionSortRef::Parameter(_) => None,
+        }
+    }
+
+    fn parameter_name(sort: &Self::Sort) -> Option<&crate::SortParameterId> {
+        match sort {
+            DefinitionSortRef::Parameter(name) => Some(name),
+            _ => None,
         }
     }
 
@@ -345,7 +366,9 @@ impl Validation for DefinitionLevel {
     fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
         match sort {
             DefinitionSortRef::Cell(id) => Some(id),
-            DefinitionSortRef::Declared(_) | DefinitionSortRef::Builtin(_) => None,
+            DefinitionSortRef::Declared(_)
+            | DefinitionSortRef::Builtin(_)
+            | DefinitionSortRef::Parameter(_) => None,
         }
     }
 

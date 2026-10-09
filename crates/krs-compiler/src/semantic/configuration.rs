@@ -562,6 +562,7 @@ fn lower_initializer_term(
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
+        head_pending: false,
         declared_binders: BTreeMap::new(),
     };
     builder.infer(term, expected_sort, false)?;

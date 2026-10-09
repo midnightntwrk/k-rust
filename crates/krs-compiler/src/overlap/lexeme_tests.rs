@@ -26,6 +26,7 @@ fn name_sort() -> SemanticSortRef {
 
 fn call(argument: Pattern) -> Pattern {
     Pattern::Application {
+        instance: Vec::new(),
         sort: SemanticSortRef::Declared(item("Stmt", ItemKind::Sort)),
         application: ApplicationRef::Declared(item("Call", ItemKind::Constructor)),
         arguments: vec![argument],

@@ -491,6 +491,12 @@ provenance_roles! {
     FunctionContext => "function_context",
     /// The configuration type path of an equation's function context.
     FunctionContextType => "function_context_type",
+    /// One sort parameter `S` of a parametric production struct
+    /// (`struct Choose<S: ?Sized>`, K's `syntax {S}`), in declaration order (KF-027).
+    SortParameter => "sort_parameter",
+    /// One turbofish type argument of a parametric application head
+    /// (`Choose::<Int> { .. }`), numbered once across a sentence (KF-027).
+    ApplicationInstance => "application_instance",
 }
 
 impl Serialize for ProvenanceRole {

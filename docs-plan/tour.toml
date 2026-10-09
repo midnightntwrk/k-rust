@@ -883,4 +883,4 @@ coverage = "limitation"
 chapter = "limits"
 prerequisites = ["host-object-split", "symbolic-terms"]
 evidence = ["crates/krs-syntax/src/term.rs", "crates/krs-syntax/tests/initializers.rs", "crates/krs-syntax/tests/rules.rs"]
-note = "Arbitrary operators, methods, closures, host control flow, and generic constructor shapes are intentionally unavailable."
+note = "Arbitrary operators, methods, closures, host control flow, and generic constructor shapes other than K sort parameters (`S: ?Sized`) are intentionally unavailable."

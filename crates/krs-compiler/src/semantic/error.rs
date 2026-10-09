@@ -242,6 +242,37 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending cell or binder.
         range: Option<Box<SourceRange>>,
     },
+    /// A parametric production (K's `syntax {S}`) names a parameter like a
+    /// sort, or carries strictness, an alias, a hook, a token, or a bracket
+    /// (KF-027).
+    InvalidParametricProduction {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the fix.
+        reason: String,
+        /// Sole exact authored range of the offending node.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A parametric application's instance is missing, disagrees with its
+    /// declared sort or arguments, or cannot be determined (KF-027).
+    ParametricInstance {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the fix.
+        reason: String,
+        /// Sole exact authored range of the offending head or argument.
+        range: Option<Box<SourceRange>>,
+    },
+    /// The instance k-rust solves from a head's argument sorts differs from
+    /// its turbofish (KF-027, R2).
+    NativeInstance {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the fix.
+        reason: String,
+        /// Sole exact authored range of the head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
     InvalidTokenSort {
         /// Item the diagnostic is about.
@@ -455,6 +486,9 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidMatches { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
+            | Self::InvalidParametricProduction { reason, .. }
+            | Self::ParametricInstance { reason, .. }
+            | Self::NativeInstance { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
@@ -512,6 +546,11 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,
+            Self::InvalidParametricProduction { .. } => {
+                codes::analysis::INVALID_PARAMETRIC_PRODUCTION
+            }
+            Self::ParametricInstance { .. } => codes::analysis::PARAMETRIC_INSTANCE,
+            Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -555,6 +594,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidMatches { range, .. }
             | Self::InvalidLet { range, .. }
             | Self::InvalidFunctionContext { range, .. }
+            | Self::InvalidParametricProduction { range, .. }
+            | Self::ParametricInstance { range, .. }
+            | Self::NativeInstance { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }

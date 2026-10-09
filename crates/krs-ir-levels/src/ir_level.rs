@@ -97,6 +97,36 @@ pub enum IrSortRef<D> {
     /// `<frame>`: the nominal `#[k::cell]` declaration at Semantic level and
     /// the group cell's symbol at Definition level. It is a subsort of `KItem`.
     Cell(D),
+    /// A sort parameter of a parametric production (`S` of K's
+    /// `syntax {S} S ::= choose(Bool, S, S)`, KF-027). It occurs only in the
+    /// signature of the production that declares it, never in a term.
+    Parameter(SortParameterId),
+}
+
+/// The declared name of one sort parameter of a parametric production, as
+/// emitted in K's `syntax {S}` (KF-027).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SortParameterId(String);
+
+impl SortParameterId {
+    /// Wraps a parameter name, which the syntax has validated as a Rust identifier.
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// Returns the parameter's declared and emitted name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SortParameterId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
 }
 
 impl<D> IrSortRef<D> {
@@ -811,6 +841,31 @@ impl<L: IrLevel> IrTerm<L> {
             kind: IrTermKind::Application {
                 application,
                 arguments,
+                instance: Vec::new(),
+                head_instance_fixed: false,
+            },
+        }
+    }
+    /// Creates an application of a parametric production at `instance`, one
+    /// sort per parameter (KF-027). `head_instance_fixed` marks the head of an
+    /// equation or rule, whose instance its turbofish fixed.
+    #[must_use]
+    pub const fn parametric_application(
+        origin: NodeOrigin,
+        sort: L::Sort,
+        application: ApplicationRef<L::Declaration, L::Sort>,
+        arguments: Vec<Self>,
+        instance: Vec<L::Sort>,
+        head_instance_fixed: bool,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: IrTermKind::Application {
+                application,
+                arguments,
+                instance,
+                head_instance_fixed,
             },
         }
     }
@@ -1003,6 +1058,14 @@ pub enum IrTermKind<L: IrLevel> {
         application: ApplicationRef<L::Declaration, L::Sort>,
         /// Arguments in production order.
         arguments: Vec<IrTerm<L>>,
+        /// The instance of a parametric production, one sort per parameter,
+        /// always resolved after inference; empty for every other application
+        /// (KF-027).
+        instance: Vec<L::Sort>,
+        /// Whether this is the head of an equation or rule, whose instance its
+        /// turbofish fixed; K's text renders its parametric variables as
+        /// strict casts (X13).
+        head_instance_fixed: bool,
     },
     /// Domain token with its sort on the enclosing term.
     Token {
@@ -1099,6 +1162,10 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
     Application {
         application: ApplicationRef<L::Declaration, L::Sort>,
         arguments: Vec<IrTerm<L>>,
+        #[serde(default)]
+        instance: Vec<L::Sort>,
+        #[serde(default)]
+        head_instance_fixed: bool,
     },
     Token {
         value: String,
@@ -1157,6 +1224,10 @@ enum IrTermKindRef<'a, L: IrLevel> {
     Application {
         application: &'a ApplicationRef<L::Declaration, L::Sort>,
         arguments: &'a [IrTerm<L>],
+        #[serde(skip_serializing_if = "<[L::Sort]>::is_empty")]
+        instance: &'a [L::Sort],
+        #[serde(skip_serializing_if = "is_false")]
+        head_instance_fixed: bool,
     },
     Token {
         value: &'a str,
@@ -1214,9 +1285,13 @@ impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
             IrTermKindWire::Application {
                 application,
                 arguments,
+                instance,
+                head_instance_fixed,
             } => Self::Application {
                 application,
                 arguments,
+                instance,
+                head_instance_fixed,
             },
             IrTermKindWire::Token { value } => Self::Token { value },
             IrTermKindWire::KSequence { item_sort, items } => Self::KSequence { item_sort, items },
@@ -1267,9 +1342,13 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
             Self::Application {
                 application,
                 arguments,
+                instance,
+                head_instance_fixed,
             } => IrTermKindRef::Application {
                 application,
                 arguments,
+                instance,
+                head_instance_fixed: *head_instance_fixed,
             },
             Self::Token { value } => IrTermKindRef::Token { value },
             Self::KSequence { item_sort, items } => IrTermKindRef::KSequence { item_sort, items },
@@ -1496,4 +1575,13 @@ impl<L: IrLevel> IrContextAlias<L> {
     pub const fn body(&self) -> &FixedConfigurationPattern<L::Cell, IrTerm<L>> {
         &self.body
     }
+}
+
+/// Whether a flag is unset (serde `skip_serializing_if`).
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes `skip_serializing_if` a reference to the field."
+)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }

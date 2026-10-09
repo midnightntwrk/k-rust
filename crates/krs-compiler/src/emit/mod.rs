@@ -415,6 +415,9 @@ impl<'a> EmitContext<'a> {
                 .cell_sort_name(id)
                 .map(std::borrow::Cow::Owned)
                 .ok_or_else(|| EmitError::InvalidReference(format!("missing source cell {id}"))),
+            // A sort parameter is printed by name inside its production's
+            // `syntax {S}` signature (KF-027).
+            DefinitionSortRef::Parameter(name) => Ok(std::borrow::Cow::Owned(name.to_string())),
         }
     }
 

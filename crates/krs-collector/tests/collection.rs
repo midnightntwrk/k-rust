@@ -1132,6 +1132,7 @@ impl TestPackage {
                 declared,
             ))),
             payload: HostDescriptorPayload::Constructor(HostConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: krs_ir::HostSortReference {
                     key: krs_ir::ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                     target: type_ref(sort, "Expr"),

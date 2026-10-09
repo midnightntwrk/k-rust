@@ -282,6 +282,9 @@ fn samples() -> Samples {
         .trace_value(&mut samples, &LabelId::new("label").unwrap())
         .unwrap();
     tracer
+        .trace_value(&mut samples, &SortParameterId::new("S"))
+        .unwrap();
+    tracer
         .trace_value(&mut samples, &ProductionFieldId::new("field").unwrap())
         .unwrap();
     tracer
@@ -724,6 +727,7 @@ fn registry() -> Registry {
     trace!(Span: Span);
     trace!(StableItemId: StableItemId);
     trace!(StrictnessKind: StrictnessKind);
+    trace!(SortParameterId: SortParameterId);
     trace!(SymbolId: SymbolId);
     trace!(SymbolIdentity: SymbolIdentity);
     trace!(SymbolKind: SymbolKind);

@@ -338,6 +338,7 @@ mod tests {
             name,
             ItemKind::Constructor,
             DescriptorPayload::Constructor(ConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: DescriptorSortRef::Declared(item("lookup", "Sort", ItemKind::Sort)),
                 fields: vec![ConstructorFieldDescriptor {
                     name: "field".into(),

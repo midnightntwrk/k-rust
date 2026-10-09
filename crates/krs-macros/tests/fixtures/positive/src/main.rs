@@ -2818,10 +2818,12 @@ mod tests {
                 krs_ir_levels::SemanticTermKind::Application {
                     application: explicit_application,
                     arguments: explicit_arguments,
+                    ..
                 },
                 krs_ir_levels::SemanticTermKind::Application {
                     application: readable_application,
                     arguments: readable_arguments,
+                    ..
                 },
             ) => {
                 assert_eq!(explicit_application, readable_application);

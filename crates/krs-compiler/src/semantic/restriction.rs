@@ -264,6 +264,7 @@ fn first_untranslatable(
         IrTermKind::Application {
             application,
             arguments,
+            ..
         } => {
             let unseen = match application {
                 ApplicationRef::Declared(id) => productions

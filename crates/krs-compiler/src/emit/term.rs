@@ -133,6 +133,8 @@ fn render_term_with_binders(
         DefinitionTermKind::Application {
             application,
             arguments,
+            head_instance_fixed,
+            ..
         } => match application {
             ApplicationRef::Builtin(operation) => {
                 render_builtin_application(*operation, arguments, context, names, &mut output)?;
@@ -157,13 +159,39 @@ fn render_term_with_binders(
                     }
                     match item.kind() {
                         GrammarProductionItemKind::Terminal { text } => output.push(text),
-                        GrammarProductionItemKind::NonTerminal { .. } => {
+                        GrammarProductionItemKind::NonTerminal { sort, .. } => {
                             let Some(argument) = arguments.next() else {
                                 return Err(EmitError::InvalidReference(format!(
                                     "production {:?} has fewer application arguments than nonterminals",
                                     symbol.as_str()
                                 )));
                             };
+                            // At a parametric position of an equation or rule
+                            // head, a variable prints K's strict cast to its
+                            // own sort and a wildcard to the instance (X13,
+                            // KF-027): a semantic cast there would let K
+                            // instantiate the parameter at `K`, so the
+                            // sentence would never apply.
+                            if *head_instance_fixed
+                                && matches!(sort, DefinitionSortRef::Parameter(_))
+                                && let DefinitionTermKind::Variable { variable } = argument.kind()
+                            {
+                                let mut cast = Rendered::default();
+                                if variable.kind() == SemanticIdKind::Wildcard {
+                                    cast.push("_");
+                                } else {
+                                    cast.push(names.name(variable).ok_or_else(|| {
+                                        EmitError::InvalidReference(format!(
+                                            "variable {:?} is not named in its sentence",
+                                            variable.as_str()
+                                        ))
+                                    })?);
+                                }
+                                cast.push("::");
+                                cast.push(&context.sort_name_ref(argument.sort())?);
+                                output.append(cast.finish(argument.origin().key(), 0));
+                                continue;
+                            }
                             let parenthesize =
                                 parenthesize_declared_child(production, argument, context)?;
                             if parenthesize {

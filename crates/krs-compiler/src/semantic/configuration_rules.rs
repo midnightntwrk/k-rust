@@ -62,6 +62,7 @@ impl StateRuleTerms<'_> {
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
+            head_pending: false,
             declared_binders: BTreeMap::new(),
         };
         builder.infer(term, expected_sort, subject)?;
@@ -1122,13 +1123,18 @@ fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool 
             krs_ir_levels::SemanticTermKind::Application {
                 application: left_application,
                 arguments: left_arguments,
+                instance: left_instance,
+                ..
             },
             krs_ir_levels::SemanticTermKind::Application {
                 application: right_application,
                 arguments: right_arguments,
+                instance: right_instance,
+                ..
             },
         ) => {
             left_application == right_application
+                && left_instance == right_instance
                 && semantic_term_slices_equivalent(left_arguments, right_arguments)
         }
         (

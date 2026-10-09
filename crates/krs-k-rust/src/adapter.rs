@@ -369,6 +369,9 @@ impl<'a> Adapter<'a> {
             DefinitionSortRef::Cell(cell) => NativeSort::new(
                 krs_ir_levels::k_surface::cell_sort_name(self.cell_name(cell, origin)?).as_str(),
             ),
+            // A sort parameter occurs only in its production's signature,
+            // where k-rust reads it by name (KF-027).
+            DefinitionSortRef::Parameter(name) => NativeSort::new(name.as_str()),
         })
     }
 

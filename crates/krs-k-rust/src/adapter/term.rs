@@ -58,6 +58,7 @@ impl Adapter<'_> {
             DefinitionTermKind::Application {
                 application: ApplicationRef::Generated(operation),
                 arguments,
+                ..
             } => self.generated_application(
                 operation,
                 arguments,
@@ -67,9 +68,13 @@ impl Adapter<'_> {
                 &path,
                 context,
             ),
+            // Labels never carry sort parameters (X9.1): k-rust solves a
+            // parametric application's instance from its arguments, and a
+            // head's variables are sorted at their instance (KF-027, R2).
             DefinitionTermKind::Application {
                 application,
                 arguments,
+                ..
             } => Ok(NativeTerm::Apply {
                 label: NativeLabel::new(match application {
                     ApplicationRef::Declared(symbol) => {

@@ -192,6 +192,13 @@ fn lower_module_descriptor(
             lower_sort_descriptor(descriptor, sort, declaration, sentences)?;
         }
         DescriptorPayload::Grammar(grammar) => {
+            if let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() {
+                super::grammar::check_parametric_production(
+                    descriptor,
+                    production,
+                    semantic_sort_parents,
+                )?;
+            }
             lower_grammar_descriptor(descriptor, grammar, declaration, sentences)?;
         }
         DescriptorPayload::StructuredRule(rule) => {

@@ -389,6 +389,9 @@ struct Resolver<'a> {
     allow_builtin_application: bool,
     parent_ordinal: u32,
     field_ordinal: u32,
+    /// The generated marker type of each sort parameter of this payload's
+    /// parametric production, by its declared name (KF-027).
+    parameters: HashMap<TypeId, String>,
 }
 
 impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
@@ -398,6 +401,12 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         &mut self,
         reference: HostSortReference,
     ) -> Result<DescriptorSortReference, Self::Error> {
+        if let Some(name) = self.parameters.get(&reference.target.key.resolve()) {
+            return Ok(DescriptorSortReference {
+                key: reference.key,
+                sort: DescriptorSortRef::Parameter(name.clone()),
+            });
+        }
         resolve_sort_reference(&reference, self.declarations, self.builtins)
             .map_err(|error| error.with_reference_key(reference.key))
     }
@@ -553,6 +562,9 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
     ) -> Result<Option<DescriptorSortRef>, Self::Error> {
         let key = krs_ir::ProvenanceRole::ConstructorFieldSort.key(self.field_ordinal);
         self.field_ordinal += 1;
+        if let Some(name) = self.parameters.get(&reference.key.resolve()) {
+            return Ok(Some(DescriptorSortRef::Parameter(name.clone())));
+        }
         resolve_constructor_field_sort(&reference, self.declarations, self.builtins)
             .map(Some)
             .map_err(|error| error.with_reference_key(key))
@@ -605,10 +617,36 @@ pub(super) fn resolve_payload(
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
         parent_ordinal: 0,
         field_ordinal: 0,
+        parameters: sort_parameters(payload),
     };
     payload
         .clone()
         .try_map_refs(&mut map, &mut resolve_head_rule)
+}
+
+/// The sort parameters a parametric production's constructor or grammar
+/// payload declares: each is a generated marker type, joined here by its
+/// `TypeId` to the parameter's declared name (KF-027).
+fn sort_parameters(payload: &HostDescriptorPayload) -> HashMap<TypeId, String> {
+    let parameters = match payload {
+        HostDescriptorPayload::Constructor(constructor) => constructor.parameters.as_slice(),
+        HostDescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
+            krs_ir::HostGrammarDescriptor::Production(production) => {
+                production.parameters.as_slice()
+            }
+            _ => &[],
+        },
+        _ => &[],
+    };
+    parameters
+        .iter()
+        .map(|parameter| {
+            (
+                parameter.target.key.resolve(),
+                parameter.target.authored_path.trim().to_owned(),
+            )
+        })
+        .collect()
 }
 
 fn resolve_cell_reference(
@@ -1001,6 +1039,7 @@ mod tests {
             },
         };
         let mut production = krs_ir::HostProduction {
+            parameters: Vec::new(),
             key: owner_sort.key.clone(),
             template_key: None,
             owner: krs_ir::HostProductionOwner::TokenSort { sort: owner_sort },
@@ -1045,6 +1084,7 @@ mod tests {
     fn production_owner_rejects_builtin_term_operations() {
         let registry = registry();
         let production = krs_ir::HostProduction {
+            parameters: Vec::new(),
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
             template_key: None,
             owner: krs_ir::HostProductionOwner::Constructor {
@@ -1133,6 +1173,7 @@ mod tests {
         let fields = HashMap::new();
         let aliases = HashMap::new();
         let mut map = Resolver {
+            parameters: HashMap::new(),
             declarations: &declarations,
             cell_fields: &fields,
             context_aliases: &aliases,

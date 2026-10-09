@@ -36,6 +36,7 @@ fn int(value: &str) -> Pattern {
 
 fn builtin(operation: BuiltinOperation, arguments: Vec<Pattern>) -> Pattern {
     Pattern::Application {
+        instance: Vec::new(),
         sort: SemanticSortRef::Builtin(
             operation
                 .result_sort()
@@ -49,6 +50,7 @@ fn builtin(operation: BuiltinOperation, arguments: Vec<Pattern>) -> Pattern {
 
 fn constructor(name: &str, arguments: Vec<Pattern>) -> Pattern {
     Pattern::Application {
+        instance: Vec::new(),
         sort: SemanticSortRef::Builtin(BuiltinSort::KSequence),
         application: ApplicationRef::Declared(
             StableItemId::new(

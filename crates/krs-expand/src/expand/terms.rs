@@ -202,6 +202,10 @@ struct TermCounters {
     wildcard: u32,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag selects one independent sentence-kind policy of the shared term builder."
+)]
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
     pub(super) nonce: u64,
@@ -229,6 +233,10 @@ pub(super) struct TermBuilder<'a> {
     pub(super) pattern_or_ordinal: u32,
     /// `k::matches!` ordinals, side-neutral like [`Self::lexeme_ordinal`].
     pub(super) matches_ordinal: u32,
+    /// Turbofish sort-marker ordinals, side-neutral like sort tests (KF-027).
+    pub(super) application_instance_ordinal: u32,
+    /// Whether this sentence kind admits turbofish instances (KF-027).
+    application_instances: bool,
     /// Ordinals of the `_` in `k::matches!` patterns, side-neutral.
     pub(super) matches_wildcard_ordinal: u32,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
@@ -274,6 +282,8 @@ impl<'a> TermBuilder<'a> {
             pattern_as_ordinal: 0,
             pattern_or_ordinal: 0,
             matches_ordinal: 0,
+            application_instance_ordinal: 0,
+            application_instances: true,
             matches_wildcard_ordinal: 0,
             local_binders: None,
             let_ordinal: 0,
@@ -312,6 +322,13 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
+    /// Rejects turbofish instances on application heads (KF-027): an
+    /// initializer builds a concrete value, whose syntax numbers no instance.
+    pub(super) const fn without_application_instances(mut self) -> Self {
+        self.application_instances = false;
+        self
+    }
+
     pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
         self.lexical_rule_head = enabled;
         self
@@ -339,6 +356,7 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn continue_ordinals(&mut self, previous: &TermBuilder<'_>) {
         self.lexeme_ordinal = previous.lexeme_ordinal;
         self.sort_test_ordinal = previous.sort_test_ordinal;
+        self.application_instance_ordinal = previous.application_instance_ordinal;
         self.pattern_as_ordinal = previous.pattern_as_ordinal;
         self.pattern_or_ordinal = previous.pattern_or_ordinal;
         self.matches_ordinal = previous.matches_ordinal;
@@ -531,13 +549,14 @@ impl<'a> TermBuilder<'a> {
                 };
                 let target = if lexical {
                     let expression = self.lexical_rule_application_target(
-                        application.head(),
+                        &turbofish_path(application),
                         Some(application.arguments()),
                     );
                     slots.target_slot_unique(&expression)
                 } else {
                     self.application_wire_slot(application.head(), slots)?
                 };
+                let instance = self.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
                         let mut arguments = Vec::new();
@@ -562,6 +581,7 @@ impl<'a> TermBuilder<'a> {
                     }
                 };
                 Ok(WireTerm::Application {
+                    instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
                         key,
@@ -605,6 +625,7 @@ impl<'a> TermBuilder<'a> {
                         self.application_wire_slot(path, slots)?
                     };
                     Ok(WireTerm::Application {
+                        instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
                             key,
@@ -1041,6 +1062,88 @@ impl<'a> TermBuilder<'a> {
         })
     }
 
+    /// Lowers the turbofish of a parametric production head (KF-027) to one
+    /// sort reference per marker, keyed `application_instance` across the
+    /// sentence. A plain marker path is keyed by its own type (`Int`, or a
+    /// readable sort alias); a `dyn ExpSort` marker by `Term<dyn ExpSort>`,
+    /// the type of the sort's B2 alias. A generated check makes rustc resolve
+    /// `Choose<k::builtin::Int>` itself, so an unknown marker or a wrong arity
+    /// is a rustc error at the authored turbofish.
+    pub(super) fn application_instance_wire(
+        &mut self,
+        application: &krs_syntax::TermApplication,
+        slots: &mut WireSlots,
+    ) -> crate::Result<Vec<krs_ir::wire::WireSortReference>> {
+        let instance = application.instance();
+        let Some(first) = instance.first() else {
+            return Ok(Vec::new());
+        };
+        if !self.application_instances {
+            return Err(ExpandError::new(
+                expand::TURBOFISH_PLACEMENT,
+                syn::spanned::Spanned::span(first.ty()),
+                "a turbofish instance is written only in a rule, equation, simplification, alias, desugar, or claim, not in an initializer",
+            ));
+        }
+        let cfg = self.cfg;
+        let facade = self.facade;
+        let owner = application.head();
+        let types = instance.iter().map(krs_syntax::TermSort::ty);
+        let check_fn = format_ident!(
+            "__krs_rule_instance_check_{:016x}_{}",
+            self.nonce,
+            self.next_key
+        );
+        self.next_key += 1;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            fn #check_fn() {
+                let _: ::core::marker::PhantomData<#owner<#(#types),*>>;
+            }
+        });
+        let mut references = Vec::with_capacity(instance.len());
+        for sort in instance {
+            let ordinal = self.application_instance_ordinal;
+            self.application_instance_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    syn::spanned::Spanned::span(sort.ty()),
+                    "too many turbofish instances in one sentence",
+                )
+            })?;
+            let generated = call_site_path(sort.sort())?;
+            let generated = if sort.is_dynamic() {
+                quote!(#facade::Term<dyn #generated>)
+            } else {
+                quote!(#generated)
+            };
+            let key_fn = format_ident!("__krs_rule_instance_{:016x}_{}", self.nonce, self.next_key);
+            self.next_key += 1;
+            self.key_functions.push(quote! {
+                #(#cfg)*
+                #[doc(hidden)]
+                fn #key_fn() -> ::core::any::TypeId {
+                    ::core::any::TypeId::of::<#generated>()
+                }
+            });
+            let key_reference = if self.associated_keys {
+                quote!(Self::#key_fn)
+            } else {
+                quote!(#key_fn)
+            };
+            references.push(krs_ir::wire::WireSortReference {
+                key: wire_key(ProvenanceRole::ApplicationInstance, ordinal),
+                target: krs_ir::wire::WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
+                    authored_path: quote::ToTokens::to_token_stream(sort.ty()).to_string(),
+                },
+            });
+        }
+        Ok(references)
+    }
+
     pub(super) fn application_authored_path(&self, path: &Path) -> String {
         if path.leading_colon.is_none()
             && path.segments.len() == 1
@@ -1090,4 +1193,18 @@ impl<'a> TermBuilder<'a> {
             )
         }}
     }
+}
+
+/// The head of `application` with its turbofish restored, for a readable
+/// rule head whose owning type rustc infers from a witness pattern (KF-027).
+fn turbofish_path(application: &krs_syntax::TermApplication) -> Path {
+    let mut path = application.head().clone();
+    if application.instance().is_empty() {
+        return path;
+    }
+    let types = application.instance().iter().map(krs_syntax::TermSort::ty);
+    if let Some(last) = path.segments.last_mut() {
+        last.arguments = syn::PathArguments::AngleBracketed(syn::parse_quote!(::<#(#types),*>));
+    }
+    path
 }

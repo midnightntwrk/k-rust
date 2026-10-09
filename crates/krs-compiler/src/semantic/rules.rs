@@ -289,6 +289,7 @@ pub(super) fn lower_head_rule_descriptor(
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
+        head_pending: false,
         declared_binders: BTreeMap::new(),
     };
     let head_sort = rule
@@ -518,12 +519,16 @@ fn same_term(left: &SemanticTerm, right: &SemanticTerm) -> bool {
             Kind::Application {
                 application: l,
                 arguments: la,
+                instance: li,
+                ..
             },
             Kind::Application {
                 application: r,
                 arguments: ra,
+                instance: ri,
+                ..
             },
-        ) => l == r && all(la, ra),
+        ) => l == r && li == ri && all(la, ra),
         (Kind::Token { value: l }, Kind::Token { value: r }) => l == r,
         (
             Kind::KSequence {
@@ -791,6 +796,7 @@ fn lower_head_rule_computation_clause(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
+    builder.head_pending = true;
     let subject_head = builder.lower(&head.subject, head_sort, true)?;
     let subject_item_sort = subject_head.sort().clone();
     let before_k = SemanticTerm::k_sequence(
@@ -1178,6 +1184,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .as_ref()
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         locals: super::infer::LocalBinders::default(),
+        head_pending: false,
         declared_binders,
     };
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
@@ -1192,6 +1199,9 @@ pub(super) fn lower_structured_rule_descriptor(
         builder.infer(&ensures.term, Some(&bool_sort), false)?;
     }
     builder.resolve_binding_sorts()?;
+    // The subject's root is the sentence's head, whose parametric instance
+    // its turbofish fixes (KF-027).
+    builder.head_pending = true;
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
     let function_context = rule
         .function_context

@@ -1099,6 +1099,7 @@ mod tests {
     #[test]
     fn constructor_fields_retain_names_and_resolved_sorts() {
         let constructor = HostConstructorDescriptor {
+            parameters: Vec::new(),
             sort: crate::HostSortReference {
                 key: ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                 target: type_reference("model::Expr"),

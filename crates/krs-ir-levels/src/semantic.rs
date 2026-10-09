@@ -257,10 +257,12 @@ impl SemanticTheory {
                         groups.insert(group.clone());
                     }
                 }
-                production_signatures.insert(
+                crate::ir_validation::insert_production_signature::<SemanticLevel>(
+                    &mut production_signatures,
                     production.id.clone(),
                     (
                         production.result_sort.clone(),
+                        production.parameters.clone(),
                         production
                             .items
                             .iter()
@@ -273,7 +275,7 @@ impl SemanticTheory {
                             })
                             .collect(),
                     ),
-                );
+                )?;
             }
             for precedence in &module.precedences {
                 insert_node::<SemanticLevel>(&mut node_keys, precedence.origin().key())?;
@@ -880,6 +882,8 @@ pub struct SemanticProduction {
     visibility: krs_ir::RustVisibility,
     #[serde(skip_serializing_if = "Option::is_none")]
     explicit_symbol: Option<krs_ir::ExplicitSymbol>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    parameters: Vec<crate::SortParameterId>,
 }
 
 impl SemanticProduction {
@@ -904,6 +908,7 @@ impl SemanticProduction {
             attributes,
             visibility: krs_ir::RustVisibility::Inherited,
             explicit_symbol: None,
+            parameters: Vec::new(),
         })
     }
     /// Creates and validates a production with exact author-facing API metadata.
@@ -929,7 +934,21 @@ impl SemanticProduction {
             attributes,
             visibility,
             explicit_symbol,
+            parameters: Vec::new(),
         })
+    }
+    /// Declares the production's sort parameters, in declaration order: K's
+    /// `syntax {S, T}` (KF-027).
+    #[must_use]
+    pub fn with_parameters(mut self, parameters: Vec<crate::SortParameterId>) -> Self {
+        self.parameters = parameters;
+        self
+    }
+    /// Returns the sort parameters of a parametric production; empty for
+    /// every other production (KF-027).
+    #[must_use]
+    pub fn parameters(&self) -> &[crate::SortParameterId] {
+        &self.parameters
     }
     /// Returns the authored production ID.
     #[must_use]
@@ -1623,6 +1642,8 @@ pub enum SemanticValidationError {
     BuiltinApplicationSignature(BuiltinOperation),
     /// A generated sort predicate or projection has the wrong signature.
     GeneratedApplicationSignature,
+    /// A term has a production's sort parameter as its sort (KF-027).
+    ParameterSortInTerm,
     /// A rewrite's endpoints do not share its sort.
     RewriteSortMismatch,
     /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
@@ -1830,6 +1851,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::GeneratedApplicationSignature => formatter.write_str(
                 "a sort predicate takes one argument and has sort Bool; a sort projection takes one argument and has its target sort",
+            ),
+            Self::ParameterSortInTerm => formatter.write_str(
+                "a sort parameter occurs only in its production's signature; a term has its instance's sort",
             ),
             Self::RewriteSortMismatch => {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")

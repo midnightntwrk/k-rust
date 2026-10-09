@@ -162,6 +162,11 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         sort.sort.validate()
     }
 
+    fn application_instance(&mut self, sort: &DescriptorSortReference) -> Result<(), Self::Error> {
+        require_key(&sort.key, self.provenance)?;
+        sort.sort.validate()
+    }
+
     fn pattern_as(
         &mut self,
         key: &ProvenanceKey,
@@ -467,6 +472,17 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         Ok(())
     }
 
+    fn application_instance(&mut self, sort: &DescriptorSortReference) -> Result<(), Self::Error> {
+        insert_exact(
+            self.keys,
+            &sort.key,
+            ProvenanceRole::ApplicationInstance,
+            self.counters.application_instance,
+        )?;
+        self.counters.application_instance = increment(self.counters.application_instance)?;
+        Ok(())
+    }
+
     fn pattern_as(
         &mut self,
         key: &ProvenanceKey,
@@ -625,6 +641,7 @@ mod tests {
 
     fn application(arguments: Vec<DescriptorTermArgument>) -> DescriptorTerm {
         DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleLeftApplicationHead, 0),

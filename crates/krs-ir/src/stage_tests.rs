@@ -728,6 +728,7 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
     };
     assert_mapping!(sorts.clone(), [], ["parent", "parent"]);
     let constructor = ConstructorDescriptor {
+        parameters: Vec::new(),
         sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
         fields: vec![
             ConstructorFieldDescriptor {
@@ -767,6 +768,7 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
         .collect(),
     };
     let constructor = ConstructorDescriptor {
+        parameters: Vec::new(),
         sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
         fields: vec![
             ConstructorFieldDescriptor {

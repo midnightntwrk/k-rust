@@ -579,6 +579,7 @@ fn validate_native_pattern(
             Ok(TermTree::Application(TermApplication {
                 head: tuple.path.clone(),
                 arguments: TermArguments::Positional(arguments),
+                instance: Vec::new(),
             }))
         }
         Pat::Struct(record) => {
@@ -626,6 +627,7 @@ fn validate_native_pattern(
             Ok(TermTree::Application(TermApplication {
                 head: record.path.clone(),
                 arguments: TermArguments::Named(arguments),
+                instance: Vec::new(),
             }))
         }
         Pat::Paren(paren) => validate_native_pattern(

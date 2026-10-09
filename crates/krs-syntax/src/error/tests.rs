@@ -102,6 +102,12 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidFunctionContext {
             reason: String::from("example"),
         },
+        SyntaxErrorKind::InvalidSortParameter {
+            reason: String::from("example"),
+        },
+        SyntaxErrorKind::InvalidTurbofish {
+            reason: String::from("example"),
+        },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

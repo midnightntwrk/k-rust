@@ -21,6 +21,7 @@ pub struct ConstructorField {
     pub(crate) field: Field,
     pub(crate) name: Ident,
     pub(crate) term_sort: TermSort,
+    pub(crate) parameter: Option<usize>,
 }
 
 impl ConstructorField {
@@ -40,6 +41,14 @@ impl ConstructorField {
     #[must_use]
     pub const fn term_sort(&self) -> &TermSort {
         &self.term_sort
+    }
+
+    /// Returns the index of the declaration's sort parameter this field's
+    /// sort names (`k::Term<S>` of `struct Choose<S: ?Sized>`, KF-027), or
+    /// `None` for a field of a fixed sort.
+    #[must_use]
+    pub const fn parameter(&self) -> Option<usize> {
+        self.parameter
     }
 }
 
@@ -73,6 +82,7 @@ impl ProductionDocumentation {
 #[derive(Clone, Debug)]
 pub struct ConstructorDeclaration {
     item: ItemStruct,
+    parameters: Vec<Ident>,
     fields: Vec<ConstructorField>,
     documentation: Vec<ProductionDocumentation>,
 }
@@ -82,22 +92,13 @@ impl ConstructorDeclaration {
     ///
     /// # Errors
     ///
-    /// Rejects generic and where-clause declarations, tuple structs, field
-    /// attributes, and record fields not typed as `Term<SortPath>` or
-    /// `Term<dyn SortPath>` at the responsible token.
+    /// Rejects where clauses, generic parameters other than K sort
+    /// parameters `S: ?Sized` used by a field, tuple structs, field
+    /// attributes, and record fields not typed as `Term<SortPath>`,
+    /// `Term<dyn SortPath>`, or `Term<S>` for a sort parameter `S`, at the
+    /// responsible token.
     pub fn from_item(item: ItemStruct) -> Result<Self, SyntaxError> {
-        if !item.generics.params.is_empty() {
-            return Err(unsupported_constructor(
-                "constructors cannot have generic parameters",
-                item.generics.params.span(),
-            ));
-        }
-        if let Some(where_clause) = &item.generics.where_clause {
-            return Err(unsupported_constructor(
-                "constructors cannot have a where clause",
-                where_clause.span(),
-            ));
-        }
+        let parameters = sort_parameters(&item.generics)?;
 
         let fields = match &item.fields {
             Fields::Unit => Vec::new(),
@@ -117,10 +118,12 @@ impl ConstructorDeclaration {
                         ));
                     };
                     let term_sort = parse_term_sort(field.ty.clone())?;
+                    let parameter = term_sort_parameter(&term_sort, &parameters);
                     parsed.push(ConstructorField {
                         field: field.clone(),
                         name,
                         term_sort,
+                        parameter,
                     });
                 }
                 parsed
@@ -133,13 +136,43 @@ impl ConstructorDeclaration {
             }
         };
 
+        for (index, parameter) in parameters.iter().enumerate() {
+            if !fields.iter().any(|field| field.parameter == Some(index)) {
+                return Err(invalid_sort_parameter(
+                    format!(
+                        "sort parameter `{parameter}` is used by no field: a K sort parameter must be the sort of an argument, such as `pub value: k::Term<{parameter}>` (rustc also reports E0392)"
+                    ),
+                    parameter.span(),
+                ));
+            }
+        }
+
         let documentation = production_documentation(&item.attrs)?;
 
         Ok(Self {
             item,
+            parameters,
             fields,
             documentation,
         })
+    }
+
+    /// Returns the K sort parameters of a parametric production, in
+    /// declaration order (`S` of `struct Choose<S: ?Sized>`, K's
+    /// `syntax {S}`, KF-027); empty for every other declaration.
+    #[must_use]
+    pub fn sort_parameters(&self) -> &[Ident] {
+        &self.parameters
+    }
+
+    /// Returns the index of the sort parameter named by `path`, when the
+    /// path is exactly one of this declaration's parameter names.
+    #[must_use]
+    pub fn sort_parameter_index(&self, path: &syn::Path) -> Option<usize> {
+        let ident = crate::path::unqualified_path_ident(path)?;
+        self.parameters
+            .iter()
+            .position(|parameter| parameter == ident)
     }
 
     /// Returns the original span-preserving Rust struct.
@@ -175,12 +208,19 @@ impl ConstructorDeclaration {
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(self.fields.len() + 1);
+        let mut anchors = Vec::with_capacity(self.fields.len() + self.parameters.len() + 1);
         anchors.push(ProvenanceAnchor::new(
             ProvenanceRole::ConstructorDeclaration,
             0,
             TokenRange::for_tokens(&self.item.ident)?,
         ));
+        for (ordinal, parameter) in self.parameters.iter().enumerate() {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SortParameter,
+                checked_ordinal(ordinal, ProvenanceRole::SortParameter, parameter.span())?,
+                TokenRange::for_tokens(parameter)?,
+            ));
+        }
         for (ordinal, field) in self.fields.iter().enumerate() {
             let range = TokenRange::for_tokens(field.term_sort.sort())?;
             anchors.push(ProvenanceAnchor::new(
@@ -223,6 +263,81 @@ impl ConstructorDeclaration {
         }
         Ok(anchors)
     }
+}
+
+/// Validates the generics of a production struct: each is a K sort
+/// parameter `S: ?Sized`, with no other bound, default, or attribute, and the
+/// struct has no where clause (KF-027).
+fn sort_parameters(generics: &syn::Generics) -> Result<Vec<Ident>, SyntaxError> {
+    if let Some(where_clause) = &generics.where_clause {
+        return Err(invalid_sort_parameter(
+            "a production struct cannot have a where clause; a K sort parameter is declared as `S: ?Sized` in the parameter list",
+            where_clause.span(),
+        ));
+    }
+    let mut parameters = Vec::with_capacity(generics.params.len());
+    for parameter in &generics.params {
+        let type_parameter = match parameter {
+            syn::GenericParam::Type(type_parameter) => type_parameter,
+            syn::GenericParam::Lifetime(lifetime) => {
+                return Err(invalid_sort_parameter(
+                    "a production struct cannot have lifetime parameters: its generic parameters are K sort parameters `S: ?Sized`",
+                    lifetime.span(),
+                ));
+            }
+            syn::GenericParam::Const(constant) => {
+                return Err(invalid_sort_parameter(
+                    "a production struct cannot have const parameters: const generics are reserved for machine-integer widths (KF-034); its generic parameters are K sort parameters `S: ?Sized`",
+                    constant.span(),
+                ));
+            }
+        };
+        if let Some(attribute) = type_parameter.attrs.first() {
+            return Err(invalid_sort_parameter(
+                "a sort parameter cannot have attributes",
+                attribute.span(),
+            ));
+        }
+        if let Some(default) = &type_parameter.default {
+            return Err(invalid_sort_parameter(
+                "a sort parameter cannot have a default: K instantiates it from each term's arguments",
+                default.span(),
+            ));
+        }
+        let mut bounds = type_parameter.bounds.iter();
+        let only_unsized = matches!(
+            (bounds.next(), bounds.next()),
+            (Some(TypeParamBound::Trait(bound)), None)
+                if matches!(bound.modifier, TraitBoundModifier::Maybe(_))
+                    && bound.lifetimes.is_none()
+                    && bound.path.is_ident("Sized")
+        );
+        if !only_unsized {
+            let span = if type_parameter.bounds.is_empty() {
+                type_parameter.ident.span()
+            } else {
+                type_parameter.bounds.span()
+            };
+            return Err(invalid_sort_parameter(
+                format!(
+                    "sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `{}: ?Sized`",
+                    type_parameter.ident
+                ),
+                span,
+            ));
+        }
+        parameters.push(type_parameter.ident.clone());
+    }
+    Ok(parameters)
+}
+
+/// The sort parameter a field's `Term<S>` names, by index.
+fn term_sort_parameter(term_sort: &TermSort, parameters: &[Ident]) -> Option<usize> {
+    if term_sort.is_dynamic() {
+        return None;
+    }
+    let ident = crate::path::unqualified_path_ident(term_sort.sort())?;
+    parameters.iter().position(|parameter| parameter == ident)
 }
 
 pub(crate) fn production_documentation(
@@ -293,7 +408,7 @@ impl SortDeclaration {
         }
         if !item.generics.params.is_empty() {
             return Err(unsupported_sort(
-                "sort traits cannot have generic parameters",
+                "sort traits cannot have generic parameters: K 7.1.337 and k-rust support no user parametric sorts; a sort parameter belongs to one production struct (`struct Choose<S: ?Sized>`)",
                 item.generics.params.span(),
             ));
         }
@@ -377,6 +492,15 @@ impl KrsSyntax for SortDeclaration {
 
 fn unsupported_sort(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::UnsupportedSortDeclaration { reason }, span)
+}
+
+fn invalid_sort_parameter(reason: impl Into<String>, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidSortParameter {
+            reason: reason.into(),
+        },
+        span,
+    )
 }
 
 fn unsupported_constructor(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {

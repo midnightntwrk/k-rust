@@ -398,6 +398,7 @@ mod tests {
     #[test]
     fn constructor_wire_matches_code_built_payload() {
         let wire = WirePayload::Constructor(WireConstructorDescriptor {
+            parameters: Vec::new(),
             sort: wire_sort(),
             fields: vec![WireConstructorFieldDescriptor {
                 name: "value".to_owned(),
@@ -409,6 +410,7 @@ mod tests {
         });
         let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
+            parameters: Vec::new(),
             sort: host_sort(),
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".to_owned(),
@@ -450,6 +452,7 @@ mod tests {
     fn grammar_production_wire_matches_code_built_payload() {
         let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
+                parameters: Vec::new(),
                 key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: WireProductionOwner::TokenSort { sort: wire_sort() },
@@ -466,6 +469,7 @@ mod tests {
         let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
+                parameters: Vec::new(),
                 key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: HostProductionOwner::TokenSort { sort: host_sort() },
@@ -536,6 +540,7 @@ mod tests {
             HostItemId::new(package, ["semantics"], "eval", ItemKind::ContextAlias, "").unwrap();
         let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
+                parameters: Vec::new(),
                 key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: WireProductionOwner::TokenSort { sort: wire_sort() },
@@ -563,6 +568,7 @@ mod tests {
         );
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
+                parameters: Vec::new(),
                 key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: HostProductionOwner::TokenSort { sort: host_sort() },
@@ -1197,6 +1203,7 @@ mod tests {
     #[should_panic(expected = "KRS generated rule wire has an invalid type slot 0")]
     fn out_of_range_type_slot_panics() {
         let wire = WirePayload::Constructor(WireConstructorDescriptor {
+            parameters: Vec::new(),
             sort: wire_sort(),
             fields: vec![],
         });

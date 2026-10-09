@@ -360,6 +360,7 @@ impl TermNamedArgument {
 pub struct TermApplication {
     pub(crate) head: Path,
     pub(crate) arguments: TermArguments,
+    pub(crate) instance: Vec<crate::TermSort>,
 }
 
 /// One compiler-owned complete parent-cell term.
@@ -402,6 +403,89 @@ impl TermApplication {
     pub const fn arguments(&self) -> &TermArguments {
         &self.arguments
     }
+
+    /// Returns the turbofish sort markers of a parametric production head
+    /// (`Choose::<k::builtin::Int> { .. }`, KF-027), in parameter order;
+    /// empty when the head has no turbofish. [`Self::head`] never carries them.
+    #[must_use]
+    pub fn instance(&self) -> &[crate::TermSort] {
+        &self.instance
+    }
+}
+
+/// Splits an application head into its rustc-resolvable path without generic
+/// arguments and the sort markers of its turbofish (KF-027). Only the last
+/// segment may carry generic arguments, and each must be a sort marker: a
+/// plain path such as `k::builtin::Int` or a single-trait object such as
+/// `dyn ExpSort`.
+pub(crate) fn application_head(path: &Path) -> Result<(Path, Vec<crate::TermSort>), SyntaxError> {
+    let invalid = |reason: &str, span: proc_macro2::Span| {
+        SyntaxError::new(
+            SyntaxErrorKind::InvalidTurbofish {
+                reason: reason.to_owned(),
+            },
+            span,
+        )
+    };
+    let Some(last) = path.segments.last() else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedPath,
+            path.span(),
+        ));
+    };
+    for segment in path.segments.iter().take(path.segments.len() - 1) {
+        if !matches!(segment.arguments, syn::PathArguments::None) {
+            return Err(invalid(
+                "a turbofish belongs on the last segment of a term head, the production: `Choose::<k::builtin::Int>`",
+                segment.arguments.span(),
+            ));
+        }
+    }
+    let arguments = match &last.arguments {
+        syn::PathArguments::None => return Ok((path.clone(), Vec::new())),
+        syn::PathArguments::Parenthesized(arguments) => {
+            return Err(invalid(
+                "a term head's generic arguments are a turbofish of sort markers, such as `Choose::<k::builtin::Int>`",
+                arguments.span(),
+            ));
+        }
+        syn::PathArguments::AngleBracketed(arguments) => arguments,
+    };
+    if arguments.args.is_empty() {
+        return Err(invalid(
+            "an empty turbofish names no instance; write the sort marker, such as `Choose::<k::builtin::Int>`",
+            arguments.span(),
+        ));
+    }
+    let mut instance = Vec::with_capacity(arguments.args.len());
+    for argument in &arguments.args {
+        let sort = match argument {
+            syn::GenericArgument::Type(ty) => crate::term_sort::parse_instance_sort(ty),
+            _ => None,
+        };
+        let Some(sort) = sort else {
+            return Err(invalid(
+                "a turbofish on a term head lists sort markers only, the types that go inside `k::Term<..>`: `k::builtin::Int`, or a user sort's `dyn ExpSort`; lifetimes and consts are not sorts",
+                argument.span(),
+            ));
+        };
+        instance.push(sort);
+    }
+    let mut head = path.clone();
+    if let Some(last) = head.segments.last_mut() {
+        last.arguments = syn::PathArguments::None;
+    }
+    Ok((head, instance))
+}
+
+/// Whether `path` is a valid application head: a plain path, or a plain path
+/// whose last segment carries a turbofish (KF-027).
+fn is_head_path(path: &Path) -> bool {
+    path.segments
+        .iter()
+        .take(path.segments.len().saturating_sub(1))
+        .all(|segment| matches!(segment.arguments, syn::PathArguments::None))
+        && !path.segments.is_empty()
 }
 
 /// Structured term/pattern shape used for deterministic argument lowering.
@@ -1467,12 +1551,13 @@ fn validate_tuple_struct_pattern(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&tuple.attrs, tuple.span())?;
-    if tuple.qself.is_some() || !is_plain_path(&tuple.path) {
+    if tuple.qself.is_some() || !is_head_path(&tuple.path) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedPath,
             tuple.path.span(),
         ));
     }
+    let (head, instance) = application_head(&tuple.path)?;
     symbols.push(TermSymbol {
         path: tuple.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -1483,8 +1568,9 @@ fn validate_tuple_struct_pattern(
         arguments.push(validate_pattern(element, signs, symbols, nodes)?);
     }
     Ok(TermTree::Application(TermApplication {
-        head: tuple.path.clone(),
+        head,
         arguments: TermArguments::Positional(arguments),
+        instance,
     }))
 }
 
@@ -1495,12 +1581,13 @@ fn validate_struct_pattern(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&record.attrs, record.span())?;
-    if record.qself.is_some() || !is_plain_path(&record.path) {
+    if record.qself.is_some() || !is_head_path(&record.path) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedPath,
             record.path.span(),
         ));
     }
+    let (head, instance) = application_head(&record.path)?;
     if let Some(rest) = &record.rest {
         reject_attributes(&rest.attrs, rest.span())?;
     }
@@ -1517,8 +1604,9 @@ fn validate_struct_pattern(
         nodes,
     )?;
     Ok(TermTree::Application(TermApplication {
-        head: record.path.clone(),
+        head,
         arguments: TermArguments::Named(arguments),
+        instance,
     }))
 }
 
@@ -2299,6 +2387,41 @@ pub(crate) fn push_sort_test_anchors(
     Ok(())
 }
 
+/// Appends the `application_instance` anchor of every turbofish sort marker
+/// on an application head in `nodes` (`Choose::<k::builtin::Int>`, KF-027),
+/// numbering them from `*ordinal`. Like sort tests, instances are numbered
+/// once across a sentence, in expansion order.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_application_instance_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        let TermNode::ApplicationHead(path) = node else {
+            continue;
+        };
+        let Some(syn::PathArguments::AngleBracketed(arguments)) =
+            path.segments.last().map(|segment| &segment.arguments)
+        else {
+            continue;
+        };
+        for argument in &arguments.args {
+            let range = TokenRange::for_tokens(argument)?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ApplicationInstance,
+                checked_ordinal(*ordinal, ProvenanceRole::ApplicationInstance, range.first())?,
+                range,
+            ));
+            *ordinal += 1;
+        }
+    }
+    Ok(())
+}
+
 /// Appends the `pattern_as` and `pattern_as_binding` anchors of every
 /// `name @ pattern` node in `nodes`, numbering them from `*ordinal`. A
 /// sentence numbers its aliases once, in the order its left-hand side
@@ -2610,12 +2733,13 @@ fn validate_call(
             call.func.span(),
         ));
     };
-    if head.qself.is_some() || !head.attrs.is_empty() || !is_plain_path(&head.path) {
+    if head.qself.is_some() || !head.attrs.is_empty() || !is_head_path(&head.path) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedPath,
             head.span(),
         ));
     }
+    let (head_path, instance) = application_head(&head.path)?;
     symbols.push(TermSymbol {
         path: head.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -2626,8 +2750,9 @@ fn validate_call(
         arguments.push(validate_expression(argument, context, symbols, nodes)?);
     }
     Ok(TermTree::Application(TermApplication {
-        head: head.path.clone(),
+        head: head_path,
         arguments: TermArguments::Positional(arguments),
+        instance,
     }))
 }
 
@@ -2638,12 +2763,13 @@ fn validate_record(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&record.attrs, record.span())?;
-    if record.qself.is_some() || !is_plain_path(&record.path) {
+    if record.qself.is_some() || !is_head_path(&record.path) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedPath,
             record.path.span(),
         ));
     }
+    let (head, instance) = application_head(&record.path)?;
     if let Some(rest) = &record.rest {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
@@ -2681,8 +2807,9 @@ fn validate_record(
         });
     }
     Ok(TermTree::Application(TermApplication {
-        head: record.path.clone(),
+        head,
         arguments: TermArguments::Named(arguments),
+        instance,
     }))
 }
 

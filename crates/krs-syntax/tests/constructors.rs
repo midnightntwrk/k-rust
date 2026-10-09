@@ -98,11 +98,9 @@ fn production_rustdoc_is_normalized_and_has_exact_full_provenance() {
 }
 
 #[test]
-fn tuple_generic_where_and_attributed_field_shapes_are_rejected() {
+fn tuple_and_attributed_field_shapes_are_rejected() {
     let cases = [
         "struct Tuple(Term<Expr>);",
-        "struct Generic<T> { value: Term<T> }",
-        "struct Where where Expr: Sort { value: Term<Expr> }",
         "struct Attributed { #[cfg(any())] value: Term<Expr> }",
     ];
 

@@ -72,6 +72,10 @@ pub enum DescriptorSortRef {
     /// The generated sort of a nested `#[k::cell]` declaration, used only by
     /// whole-group rule binders (KF-016).
     Cell(StableItemId),
+    /// A sort parameter of the enclosing parametric production, by its
+    /// declared name (`S` of `struct Choose<S: ?Sized>`, KF-027). It occurs
+    /// only inside that production's own signature.
+    Parameter(String),
 }
 
 /// One stable sort reference paired with its exact parser-owned origin key.
@@ -851,8 +855,13 @@ stage_shape! {
         pub items: Vec<ProductionItem<S>> => [vec nested],
         /// Classified metadata only.
         pub attributes: Vec<ProductionAttribute<S>> => [vec nested],
+        /// Sort parameters of a parametric production (`struct Choose<S: ?Sized>`,
+        /// K's `syntax {S}`), in declaration order; each resolves to
+        /// [`DescriptorSortRef::Parameter`] (KF-027). Empty for every other production.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub parameters: Vec<S::Sort> => [vec sort],
     }
-    map_order: [key, template_key, owner, items, attributes, result_sort];
+    map_order: [key, template_key, owner, parameters, items, attributes, result_sort];
 }
 
 /// Descriptor-stage form of [`Production`].
@@ -1396,6 +1405,11 @@ stage_shape! {
             /// Positional or named arguments.
             /// One application may not mix forms.
             arguments: Arguments<S> => [nested],
+            /// Turbofish sort arguments of a parametric production head
+            /// (`Choose::<Int> { .. }`), in parameter order (KF-027); empty
+            /// when none was written.
+            #[serde(default, skip_serializing_if = "Vec::is_empty")]
+            instance: Vec<S::Sort> => [vec sort],
         },
         /// Exact Int/Bool literal.
         Literal {
@@ -2113,9 +2127,21 @@ impl DescriptorSortRef {
             Self::Cell(id) if id.item_kind() != ItemKind::Cell => {
                 Err(GrammarTransportError::SortReferenceKind(id.item_kind()))
             }
-            Self::Declared(_) | Self::Builtin(_) | Self::Cell(_) => Ok(()),
+            Self::Parameter(name) if !is_sort_parameter_name(name) => {
+                Err(GrammarTransportError::SortReferenceKind(ItemKind::Sort))
+            }
+            Self::Declared(_) | Self::Builtin(_) | Self::Cell(_) | Self::Parameter(_) => Ok(()),
         }
     }
+}
+
+/// Whether `name` is a Rust identifier usable as a sort parameter name.
+fn is_sort_parameter_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 impl DescriptorApplicationRef {
@@ -3454,6 +3480,26 @@ impl DescriptorProduction {
         Ok(())
     }
 
+    /// The sort parameters of a parametric constructor production, each a
+    /// parameter reference keyed `sort_parameter` in declaration order (KF-027).
+    fn collect_parameter_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+    ) -> Result<(), GrammarTransportError> {
+        for (ordinal, parameter) in self.parameters.iter().enumerate() {
+            if !matches!(parameter.sort, DescriptorSortRef::Parameter(_)) {
+                return Err(GrammarTransportError::SortReferenceKind(ItemKind::Sort));
+            }
+            insert_exact(
+                keys,
+                &parameter.key,
+                ProvenanceRole::SortParameter,
+                checked_index(ordinal)?,
+            )?;
+        }
+        Ok(())
+    }
+
     fn collect_expected_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
@@ -3476,6 +3522,7 @@ impl DescriptorProduction {
                 if let Some(template_key) = &self.template_key {
                     insert_exact(keys, template_key, ProvenanceRole::ConstructorSyntax, 0)?;
                 }
+                self.collect_parameter_keys(keys)?;
                 self.collect_constructor_item_keys(keys)?;
                 self.collect_constructor_attribute_keys(keys)
             }
@@ -4126,6 +4173,8 @@ struct TermKeyCounters {
     lexeme: u32,
     /// Sort-test ordinals are side-neutral like lexeme ordinals.
     sort_test: u32,
+    /// Turbofish instance ordinals, side-neutral like sort tests (KF-027).
+    application_instance: u32,
     /// `name @ pattern` ordinals, side-neutral: the form occurs in the
     /// subject and in `k::matches!` patterns.
     pattern_as: u32,
@@ -4158,6 +4207,7 @@ impl TermKeyCounters {
             wildcard: 0,
             lexeme: self.lexeme,
             sort_test: self.sort_test,
+            application_instance: self.application_instance,
             pattern_as: self.pattern_as,
             pattern_or: self.pattern_or,
             matches: self.matches,
@@ -4381,6 +4431,7 @@ mod traversal_tests {
 
     fn production() -> Production<WireStage> {
         Production {
+            parameters: Vec::new(),
             key: key(11),
             template_key: Some(key(12)),
             owner: ProductionOwner::Constructor {
@@ -4403,6 +4454,7 @@ mod traversal_tests {
                     name: "bound".to_owned(),
                 },
                 Term::Application {
+                    instance: Vec::new(),
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: application(),
                     path_key: key(3),

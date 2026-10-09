@@ -1171,6 +1171,7 @@ struct RuleCounters {
     anonymous: u32,
     lexeme: u32,
     sort_test: u32,
+    application_instance: u32,
     pattern_as: u32,
     pattern_or: u32,
     matches: u32,
@@ -1193,6 +1194,7 @@ impl RuleCounters {
             anonymous: self.anonymous,
             lexeme: self.lexeme,
             sort_test: self.sort_test,
+            application_instance: self.application_instance,
             pattern_as: self.pattern_as,
             pattern_or: self.pattern_or,
             matches: self.matches,
@@ -2517,6 +2519,19 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.sort_test,
         )?;
         self.counters.sort_test = rule_increment(self.counters.sort_test)?;
+        Ok(())
+    }
+
+    fn application_instance(&mut self, sort: &S::Sort) -> Result<(), Self::Error> {
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort))?;
+        insert_rule_exact(
+            self.keys,
+            S::sort_key(sort),
+            ProvenanceRole::ApplicationInstance,
+            self.counters.application_instance,
+        )?;
+        self.counters.application_instance = rule_increment(self.counters.application_instance)?;
         Ok(())
     }
 

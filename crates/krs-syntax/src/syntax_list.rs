@@ -569,6 +569,7 @@ fn validate(
                         field: field.clone(),
                         name,
                         term_sort,
+                        parameter: None,
                     });
                 }
                 let tail = fields.pop().expect("two fields");

@@ -265,6 +265,7 @@ impl<'a> Context<'a> {
             DefinitionSortRef::Declared(id) => self.names[id].to_owned(),
             DefinitionSortRef::Builtin(sort) => sort.k_name().to_owned(),
             DefinitionSortRef::Cell(id) => krs_ir_levels::k_surface::cell_sort_name(self.cells[id]),
+            DefinitionSortRef::Parameter(name) => name.to_string(),
         }
     }
     #[expect(
@@ -285,7 +286,17 @@ impl<'a> Context<'a> {
             DefinitionTermKind::Application {
                 application,
                 arguments,
+                instance,
+                ..
             } => {
+                if !instance.is_empty() {
+                    fact["instance"] = json!(
+                        instance
+                            .iter()
+                            .map(|sort| self.sort(sort))
+                            .collect::<Vec<_>>()
+                    );
+                }
                 match application {
                     ApplicationRef::Declared(id) => {
                         fact["symbol"] = json!(self.names[id]);
@@ -446,6 +457,7 @@ impl<'a> Context<'a> {
             DefinitionTermKind::Application {
                 application: ApplicationRef::Declared(id),
                 arguments,
+                ..
             } => Some((
                 Some(self.names[id].to_owned()),
                 None,
@@ -454,6 +466,7 @@ impl<'a> Context<'a> {
             DefinitionTermKind::Application {
                 application: ApplicationRef::Builtin(operation),
                 arguments,
+                ..
             } => Some((None, Some(enum_name(operation)), arguments.iter().collect())),
             DefinitionTermKind::Map(operands) => Some((
                 None,
@@ -2060,6 +2073,7 @@ mod tests {
             name: name.into(),
         };
         let application = |head, args| DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleLeftReference),

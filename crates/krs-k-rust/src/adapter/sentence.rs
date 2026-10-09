@@ -206,13 +206,20 @@ impl Adapter<'_> {
         // token-production-constructor: token values lower to KORE domain
         // values, never applications of their parser production. Omit the
         // unused label to match the source frontend's unlabelled-token form.
-        let label = attributes
-            .get("token")
-            .is_none()
-            .then(|| NativeLabel::new(sentence.symbol().emitted_name()));
+        // A parametric production declares its parameters on the production
+        // and on its label, as k-rust's outer lowering of `syntax {S}` does
+        // (KF-027); labels in terms never carry them (X9.1).
+        let parameters = sentence
+            .parameters()
+            .iter()
+            .map(|parameter| NativeSort::new(parameter.as_str()))
+            .collect::<Vec<_>>();
+        let label = attributes.get("token").is_none().then(|| {
+            NativeLabel::with_parameters(sentence.symbol().emitted_name(), parameters.clone())
+        });
         Ok(NativeSentence::Production {
             label,
-            parameters: Vec::new(),
+            parameters,
             sort: self.sort(sentence.result_sort(), sentence.origin())?,
             items,
             attributes,

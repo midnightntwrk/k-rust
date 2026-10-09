@@ -176,6 +176,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
         provenance(grammar_primary.clone(), &grammar_keys),
         DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
+                parameters: Vec::new(),
                 key: grammar_primary.clone(),
                 template_key: Some(key(ProvenanceRole::ConstructorSyntax, 0)),
                 owner: DescriptorProductionOwner::Constructor {
@@ -313,6 +314,7 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr),
             bindings: vec!["x".into()],
             subject: DescriptorTerm::Application {
+                instance: Vec::new(),
                 head_class: DescriptorApplicationHeadClass::Applied,
                 reference: DescriptorApplicationReference {
                     key: key(ProvenanceRole::RuleLeftApplicationHead, 0),
@@ -447,6 +449,7 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     rule.requires = Some(DescriptorRuleCondition {
         key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
@@ -633,6 +636,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         unreachable!()
     };
     rule.result = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::BareReference,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightReference, 0),
@@ -652,6 +656,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         unreachable!()
     };
     rule.result = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::BareReference,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightReference, 0),
@@ -709,6 +714,7 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         r#"{"key":{"role":"rule_right_application_head","ordinal":0},"application":{"application_source":"map","application":"update"}}"#
     );
     let term = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: application,
         path_key: key(ProvenanceRole::RuleRightPath, 0),
@@ -730,6 +736,7 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         (TermMapOperation::InKeys, ["key", "map"]),
     ] {
         let term = DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleRightApplicationHead, 0),
@@ -825,6 +832,7 @@ fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
                 .contains(r#""application_source":"set""#)
         );
         let term = DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference,
             path_key: key(ProvenanceRole::RuleRightPath, 0),
@@ -872,6 +880,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
         let json = serde_json::to_string(&reference).unwrap();
         assert!(json.contains(r#""application_source":"list""#));
         let term = DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference,
             path_key: key(ProvenanceRole::RuleRightPath, 0),
@@ -889,6 +898,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
     }
 
     let wrong_arity = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightApplicationHead, 0),
@@ -949,6 +959,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
         GrammarDescriptor::Tokens {
             productions: vec![
                 DescriptorProduction {
+                    parameters: Vec::new(),
                     key: key(ProvenanceRole::TokenRegex, 0),
                     template_key: None,
                     owner: DescriptorProductionOwner::TokenSort {
@@ -970,6 +981,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
                     }],
                 },
                 DescriptorProduction {
+                    parameters: Vec::new(),
                     key: key(ProvenanceRole::TokenTerminal, 0),
                     template_key: None,
                     owner: DescriptorProductionOwner::TokenSort {
@@ -1001,6 +1013,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
             key(ProvenanceRole::BracketValueReference, 0),
         ],
         GrammarDescriptor::Production(DescriptorProduction {
+            parameters: Vec::new(),
             key: bracket_primary.clone(),
             template_key: None,
             owner: DescriptorProductionOwner::BracketSort {

@@ -15,6 +15,12 @@ pub(super) struct ProductionSignature {
     pub(super) fields: Vec<(ProductionFieldId, SemanticSortRef)>,
     /// Whether this is a `#[k::token]` production, whose result sort is a token sort.
     pub(super) token: bool,
+    /// Sort parameters of a parametric production, in declaration order
+    /// (KF-027); empty for every other production.
+    pub(super) parameters: Vec<krs_ir_levels::SortParameterId>,
+    /// Whether the production is a function, whose applications denote
+    /// equation results rather than values of their own.
+    pub(super) function: bool,
 }
 
 pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
@@ -22,6 +28,9 @@ pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
         DescriptorSortRef::Declared(id) => SemanticSortRef::Declared(id.clone()),
         DescriptorSortRef::Builtin(sort) => SemanticSortRef::Builtin(*sort),
         DescriptorSortRef::Cell(id) => SemanticSortRef::Cell(id.clone()),
+        DescriptorSortRef::Parameter(name) => {
+            SemanticSortRef::Parameter(krs_ir_levels::SortParameterId::new(name.clone()))
+        }
     }
 }
 
@@ -142,6 +151,22 @@ pub(super) fn build_production_catalog(
                             production.owner,
                             krs_ir::DescriptorProductionOwner::TokenSort { .. }
                         ),
+                        parameters: production
+                            .parameters
+                            .iter()
+                            .map(|parameter| match &parameter.sort {
+                                DescriptorSortRef::Parameter(name) => {
+                                    krs_ir_levels::SortParameterId::new(name.clone())
+                                }
+                                other => krs_ir_levels::SortParameterId::new(format!("{other:?}")),
+                            })
+                            .collect(),
+                        function: production.attributes.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                krs_ir::DescriptorProductionAttribute::Function { .. }
+                            )
+                        }),
                     },
                 )
                 .is_some()

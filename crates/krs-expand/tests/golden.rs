@@ -549,6 +549,37 @@ fn bar_plus(
 ",
     ),
     (
+        "function_parametric",
+        r#"
+#[k::function(total, sort = S, syntax = "choose({cond}, {then_branch}, {else_branch})")]
+pub struct Choose<S: ?Sized> {
+    pub cond: Term<k::builtin::Bool>,
+    pub then_branch: Term<S>,
+    pub else_branch: Term<S>,
+}
+"#,
+    ),
+    (
+        "constructor_parametric",
+        r#"
+#[k::constructor(sort = S, syntax = "wrap({inner})")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
+}
+"#,
+    ),
+    (
+        "equation_turbofish",
+        r"
+#[k::equation]
+fn choose_true_exp(
+    k::term![Choose::<dyn ExpSort> { cond: true, then_branch: a, else_branch: _ }]: Term<Exp>,
+) -> Term<Exp> {
+    a
+}
+",
+    ),
+    (
         "rule_pattern_or",
         r"
 #[k::equation]

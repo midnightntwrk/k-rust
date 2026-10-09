@@ -159,6 +159,9 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         sort: &S::Sort,
     ) -> Result<(), Self::Error>;
 
+    /// One turbofish sort argument of a parametric application head (KF-027).
+    fn application_instance(&mut self, sort: &S::Sort) -> Result<(), Self::Error>;
+
     /// `name @ pattern` (K's `#as`), admitted only in left-hand sides.
     fn pattern_as(
         &mut self,
@@ -225,8 +228,12 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             reference,
             path_key,
             arguments,
+            instance,
         } => {
             context.application(*head_class, reference, path_key, arguments)?;
+            for sort in instance {
+                context.application_instance(sort)?;
+            }
             validate_arguments(arguments, context)
         }
         Term::Literal { key, literal } => context.literal(key, literal),

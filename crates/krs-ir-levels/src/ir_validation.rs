@@ -21,7 +21,12 @@ mod levels;
 mod tests;
 
 pub(crate) type Declarations<L> = BTreeMap<<L as IrLevel>::Declaration, <L as Validation>::Kind>;
-pub(crate) type Signature<L> = (<L as IrLevel>::Sort, Vec<<L as IrLevel>::Sort>);
+/// A production's result sort, sort parameters (KF-027), and argument sorts.
+pub(crate) type Signature<L> = (
+    <L as IrLevel>::Sort,
+    Vec<crate::SortParameterId>,
+    Vec<<L as IrLevel>::Sort>,
+);
 pub(crate) type Signatures<L> = BTreeMap<<L as IrLevel>::Declaration, Signature<L>>;
 pub(crate) type SortParents<L> = BTreeMap<<L as IrLevel>::Sort, Vec<<L as IrLevel>::Sort>>;
 pub(crate) type Configuration<L> =
@@ -102,6 +107,10 @@ pub(crate) trait Validation: IrLevel {
         signatures: &Signatures<Self>,
         id: &Self::Declaration,
     ) -> Result<Signature<Self>, Self::Error>;
+
+    /// The parameter name of a sort-parameter reference, which may occur only
+    /// in a parametric production's signature (KF-027).
+    fn parameter_name(sort: &Self::Sort) -> Option<&crate::SortParameterId>;
     /// Definition cell references must retain their check before content validation.
     /// Semantic references must be checked in the final reference pass after existing theory checks succeed.
     const CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION: bool;
@@ -120,6 +129,7 @@ pub(crate) enum ValidationError<L: Validation> {
     ApplicationSignature(L::Declaration),
     BuiltinApplicationSignature(BuiltinOperation),
     GeneratedApplicationSignature,
+    ParameterSortInTerm,
     CellFrameBindingMismatch(SemanticId),
     CellFrameSortMismatch,
     ContextAliasFrameSortMismatch,
@@ -1411,6 +1421,9 @@ pub(crate) fn validate_term<L: Validation>(
 ) -> Result<(), L::Error> {
     insert_node::<L>(nodes, term.origin().key())?;
     require_sort::<L>(declarations, term.sort())?;
+    if L::parameter_name(term.sort()).is_some() {
+        return Err(L::error(ValidationError::ParameterSortInTerm));
+    }
     match term.kind() {
         IrTermKind::Variable { variable } => match scope.get(variable) {
             None => {
@@ -1428,12 +1441,34 @@ pub(crate) fn validate_term<L: Validation>(
         IrTermKind::Application {
             application,
             arguments,
+            instance,
+            head_instance_fixed,
         } => {
             let holds = match application {
                 ApplicationRef::Declared(production) => {
-                    let (result_sort, argument_sorts) =
+                    let (result_sort, parameters, argument_sorts) =
                         L::application_signature(declarations, signatures, production)?;
-                    *term.sort() == result_sort
+                    // A parametric application carries one resolved sort per
+                    // parameter, and its signature is read at that instance
+                    // (KF-027); no other application has an instance.
+                    let instantiate = |sort: &L::Sort| {
+                        L::parameter_name(sort)
+                            .and_then(|name| parameters.iter().position(|p| p == name))
+                            .and_then(|index| instance.get(index))
+                            .unwrap_or(sort)
+                            .clone()
+                    };
+                    let result_sort = instantiate(&result_sort);
+                    let argument_sorts = argument_sorts.iter().map(instantiate).collect::<Vec<_>>();
+                    instance.len() == parameters.len()
+                        && (!*head_instance_fixed || !parameters.is_empty())
+                        && instance
+                            .iter()
+                            .all(|sort| L::parameter_name(sort).is_none())
+                        && argument_sorts
+                            .iter()
+                            .all(|sort| L::parameter_name(sort).is_none())
+                        && *term.sort() == result_sort
                         && arguments.len() == argument_sorts.len()
                         && arguments
                             .iter()
@@ -1443,11 +1478,20 @@ pub(crate) fn validate_term<L: Validation>(
                             })
                 }
                 ApplicationRef::Builtin(operation) => {
-                    builtin_application_holds::<L>(*operation, term.sort(), arguments, sort_parents)
+                    instance.is_empty()
+                        && !*head_instance_fixed
+                        && builtin_application_holds::<L>(
+                            *operation,
+                            term.sort(),
+                            arguments,
+                            sort_parents,
+                        )
                 }
                 ApplicationRef::Generated(operation) => {
                     require_sort::<L>(declarations, operation.sort())?;
-                    arguments.len() == 1
+                    instance.is_empty()
+                        && !*head_instance_fixed
+                        && arguments.len() == 1
                         && match operation {
                             GeneratedOperation::SortPredicate(_) => {
                                 *term.sort() == L::builtin_sort(BuiltinSort::Bool)
@@ -1980,6 +2024,41 @@ fn valid_list_cons<L: Validation>(
                 && tail_is_list(tail)
         }
         _ => false,
+    }
+}
+
+/// Validates a production's parameters and records its signature.
+pub(crate) fn insert_production_signature<L: Validation>(
+    signatures: &mut Signatures<L>,
+    id: L::Declaration,
+    signature: Signature<L>,
+) -> Result<(), L::Error> {
+    validate_production_parameters::<L>(&id, &signature)?;
+    signatures.insert(id, signature);
+    Ok(())
+}
+
+/// Checks a production's sort parameters (KF-027): distinct, each the sort
+/// of some argument, and the only parameters its result and arguments name.
+pub(crate) fn validate_production_parameters<L: Validation>(
+    id: &L::Declaration,
+    (result_sort, parameters, argument_sorts): &Signature<L>,
+) -> Result<(), L::Error> {
+    let declared =
+        |sort: &L::Sort| L::parameter_name(sort).is_none_or(|name| parameters.contains(name));
+    let distinct = parameters
+        .iter()
+        .enumerate()
+        .all(|(index, name)| !parameters[..index].contains(name));
+    let used = parameters.iter().all(|name| {
+        argument_sorts
+            .iter()
+            .any(|sort| L::parameter_name(sort) == Some(name))
+    });
+    if distinct && used && declared(result_sort) && argument_sorts.iter().all(declared) {
+        Ok(())
+    } else {
+        Err(L::error(ValidationError::ApplicationSignature(id.clone())))
     }
 }
 

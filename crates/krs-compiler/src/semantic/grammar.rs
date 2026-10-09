@@ -172,6 +172,19 @@ fn lower_grammar_production(
         .iter()
         .map(|attribute| lower_production_attribute(descriptor, attribute))
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    let parameters = production
+        .parameters
+        .iter()
+        .map(|parameter| match &parameter.sort {
+            krs_ir::DescriptorSortRef::Parameter(name) => {
+                Ok(krs_ir_levels::SortParameterId::new(name.clone()))
+            }
+            _ => Err(DescriptorLoweringError::UnsupportedShape {
+                node: "sort parameter",
+                detail: "a production's sort parameter resolves to a sort".to_owned(),
+            }),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(SemanticProduction::with_api(
         semantic_origin(descriptor, production.key.clone(), "production")?,
         id,
@@ -180,7 +193,88 @@ fn lower_grammar_production(
         attributes,
         declaration.visibility.clone(),
         declaration.explicit_symbol.clone(),
-    )?)
+    )?
+    .with_parameters(parameters))
+}
+
+/// Rejects what K and k-rust do not accept on a parametric production
+/// (KF-027): a parameter named like a sort, and strictness, an alias or
+/// desugar marker, a hook, a token, or a bracket.
+pub(super) fn check_parametric_production(
+    descriptor: &Descriptor,
+    production: &DescriptorProduction,
+    sort_parents: &std::collections::BTreeMap<
+        SemanticSortRef,
+        std::collections::BTreeSet<SemanticSortRef>,
+    >,
+) -> Result<(), DescriptorLoweringError> {
+    if production.parameters.is_empty() {
+        return Ok(());
+    }
+    let error = |key: &krs_ir::ProvenanceKey, reason: String| {
+        DescriptorLoweringError::InvalidParametricProduction {
+            item: Box::new(descriptor.id().clone()),
+            reason,
+            range: descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        }
+    };
+    let sort_names = sort_parents
+        .iter()
+        .flat_map(|(sort, parents)| std::iter::once(sort).chain(parents))
+        .filter_map(|sort| match sort {
+            SemanticSortRef::Declared(id) => Some(id.item_name().to_owned()),
+            _ => None,
+        })
+        .chain(
+            krs_ir::BuiltinSort::ALL
+                .iter()
+                .map(|sort| sort.k_name().to_owned()),
+        )
+        .chain(["K", "KItem", "KResult", "Bag", "KConfigVar"].map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>();
+    for parameter in &production.parameters {
+        if let krs_ir::DescriptorSortRef::Parameter(name) = &parameter.sort
+            && sort_names.contains(name)
+        {
+            return Err(error(
+                &parameter.key,
+                format!(
+                    "the sort parameter `{name}` has the name of a sort, so K would read `syntax {{{name}}}` as that sort; rename the parameter, such as `S`"
+                ),
+            ));
+        }
+    }
+    for attribute in &production.attributes {
+        let marker = match attribute {
+            DescriptorProductionAttribute::Strictness { .. } => {
+                "`#[k::strict]` or `#[k::seqstrict]`: k-rust rejects strictness on a parametric production (InvalidStrictness)"
+            }
+            DescriptorProductionAttribute::Alias { .. }
+            | DescriptorProductionAttribute::Desugar { .. } => {
+                "`#[k::alias]` or `#[k::desugar]`: a static rewrite of a parametric production is not supported"
+            }
+            DescriptorProductionAttribute::Hook { .. }
+            | DescriptorProductionAttribute::RawHook { .. } => {
+                "a hook: KRS's hooked operations are fixed builtin signatures"
+            }
+            DescriptorProductionAttribute::Token { .. } => {
+                "a token: a token production has a fixed sort"
+            }
+            DescriptorProductionAttribute::Bracket { .. } => {
+                "a bracket: a bracket production has a fixed sort"
+            }
+            _ => continue,
+        };
+        return Err(error(
+            &production.key,
+            format!("a parametric production (K's `syntax {{S}}`) cannot carry {marker}"),
+        ));
+    }
+    Ok(())
 }
 
 /// Returns the production identity: the owning constructor, or the generated

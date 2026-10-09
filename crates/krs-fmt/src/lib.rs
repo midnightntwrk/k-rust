@@ -271,6 +271,27 @@ mod tests {
 
     use super::*;
 
+    /// A parametric production struct (KF-027) formats like any Rust
+    /// generic struct, and a turbofish head in a rule table keeps Rust's
+    /// spelling; formatting the output again changes nothing.
+    #[test]
+    fn generic_structs_and_turbofish_heads_format_idempotently() {
+        let source = r#"#[k::function(total, sort = S, syntax = "choose({cond}, {then_branch}, {else_branch})")]
+pub struct Choose<S:?Sized>{pub cond:Term<Bool>,pub then_branch:Term<S>,pub else_branch:Term<S>}
+k::rules! { for Exp; use ExpSyntax::*; pick:Pick(c,x,y)=>Choose::<Exp>{cond:c,then_branch:x,else_branch:y}; }
+"#;
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(
+            format_source(&output, &FormatOptions::default()).unwrap(),
+            output
+        );
+        assert!(
+            output.contains("pub struct Choose<S: ?Sized> {"),
+            "{output}"
+        );
+        assert!(output.contains("Choose::<Exp> {"), "{output}");
+    }
+
     #[test]
     fn non_krs_rules_remain_under_rustfmt_policy() {
         let source = r"use other::rules;

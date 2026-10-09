@@ -355,7 +355,7 @@ impl EnumConstructorDeclaration {
     ) -> Result<Self, SyntaxError> {
         if !item.generics.params.is_empty() {
             return Err(unsupported_enum(
-                "enum constructor families cannot have generic parameters",
+                "enum constructor families cannot have generic parameters: a K sort parameter belongs to one production, so declare a parametric production as a struct (`#[k::constructor] struct Wrap<S: ?Sized>` or `#[k::function] struct Choose<S: ?Sized>`)",
                 item.generics.params.span(),
             ));
         }
@@ -1176,6 +1176,7 @@ fn parse_variant_fields(
                     field: field.clone(),
                     name,
                     term_sort,
+                    parameter: None,
                 });
             }
             Ok(parsed)

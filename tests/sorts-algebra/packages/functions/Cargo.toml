@@ -1,0 +1,21 @@
+[package]
+name = "krs-sorts-algebra-functions"
+description = "Sort-parametric functions: K's `syntax {S} S ::= choose(Bool, S, S) [function]`"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_sorts_algebra_functions"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SORTS-FUNCTIONS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -92,7 +92,6 @@ fn out_of_scope_rust_expressions_are_rejected() {
         "42u32",
         "1.0f16",
         "'x'",
-        "Ctor::<Value>(value)",
         "outer!(value)",
     ] {
         let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();

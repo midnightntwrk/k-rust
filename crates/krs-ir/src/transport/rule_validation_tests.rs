@@ -147,6 +147,7 @@ fn rule_binding_catalog_preserves_descriptor_only_declared_sort_check() {
 #[test]
 fn rule_applications_preserve_reference_check_and_path_error_order() {
     let mut descriptor: Term<DescriptorStage> = Term::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleLeftApplicationHead),
@@ -156,6 +157,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
         arguments: crate::Arguments::default(),
     };
     let host: Term<HostStage> = Term::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: HostApplicationReference {
             key: key(ProvenanceRole::RuleLeftApplicationHead),
@@ -185,6 +187,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
 fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
     let field = ProductionFieldId::new("value").unwrap();
     let mut term: Term<S> = Term::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         reference,

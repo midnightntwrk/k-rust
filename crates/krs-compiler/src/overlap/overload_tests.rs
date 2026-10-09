@@ -68,6 +68,7 @@ fn variable(rule: usize, ordinal: usize, sort: SemanticSortRef) -> Pattern {
 
 fn dot(constructor: &str, result: &str, base: Pattern, field: Pattern) -> Pattern {
     Pattern::Application {
+        instance: Vec::new(),
         sort: sort(result),
         application: ApplicationRef::Declared(item(constructor, ItemKind::Constructor)),
         arguments: vec![base, field],

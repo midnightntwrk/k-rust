@@ -224,6 +224,18 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
         evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust 195a7718 docs/compatibility.md: existential right-hand-side variables follow K's Haskell policy)",
     },
+    RouteCapability {
+        feature: "ParametricFunctionEquations",
+        unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
+        reason: "backend llvm cannot compile equations of a parametric function (Java K 7.1.337's llvm-kompile crashes on them); build with --backend haskell",
+        evidence: "llvm-kompile 7.1.337 exits 139 (segmentation fault) on `syntax {S} S ::= choose(Bool, S, S) [function, total]` with one equation per instance (KF-027 probe, 2026-10-09); whether k-rust's LLVM KORE crashes it too is unverified, so native-llvm refuses conservatively",
+    },
+    RouteCapability {
+        feature: "ParametricConstructorSchema",
+        unavailable_on: &[Route::JavaHaskellReference],
+        reason: "K 7.1.337's Haskell backend rejects a parametric constructor when it validates the compiled definition; run this on the LLVM or k-rust route",
+        evidence: "kompile --backend haskell 7.1.337 exits 113 (\"Haskell backend reported errors validating compiled definition\") on `syntax {S} S ::= wrap(S)`, which kompile --backend llvm accepts and runs (KF-027 probe, 2026-10-09)",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

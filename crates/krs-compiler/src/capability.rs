@@ -38,6 +38,10 @@ pub enum CapabilityFeature {
     ConsoleIO,
     /// A transition whose result introduces a symbolic value (`#[k::exists]`, K's `?X`).
     RuleExistential,
+    /// An equation of a parametric function (K's `syntax {S} S ::= .. [function]`, KF-027).
+    ParametricFunctionEquations,
+    /// A parametric constructor, a value-building production schema (KF-027).
+    ParametricConstructorSchema,
 }
 
 impl CapabilityFeature {
@@ -48,6 +52,8 @@ impl CapabilityFeature {
         Self::FloatPrecisionBeyondBinary64,
         Self::ConsoleIO,
         Self::RuleExistential,
+        Self::ParametricFunctionEquations,
+        Self::ParametricConstructorSchema,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -59,6 +65,8 @@ impl CapabilityFeature {
             Self::FloatPrecisionBeyondBinary64 => "FloatPrecisionBeyondBinary64",
             Self::ConsoleIO => "ConsoleIO",
             Self::RuleExistential => "RuleExistential",
+            Self::ParametricFunctionEquations => "ParametricFunctionEquations",
+            Self::ParametricConstructorSchema => "ParametricConstructorSchema",
         }
     }
 
@@ -71,6 +79,8 @@ impl CapabilityFeature {
             Self::FloatPrecisionBeyondBinary64 => "Float formats other than f32 and f64",
             Self::ConsoleIO => "console input or output",
             Self::RuleExistential => "rules that introduce symbolic values",
+            Self::ParametricFunctionEquations => "equations of parametric functions",
+            Self::ParametricConstructorSchema => "parametric constructors",
         }
     }
 }
@@ -127,6 +137,18 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     }
     if sentence.kind() == SentenceKind::Transition && !sentence.existentials().is_empty() {
         features.push(CapabilityFeature::RuleExistential);
+    }
+    if sentence.kind() == SentenceKind::Equation
+        && let RuleBodyRef::Term(rewrite) = sentence.relational_body()
+        && matches!(
+            rewrite.from().kind(),
+            DefinitionTermKind::Application {
+                head_instance_fixed: true,
+                ..
+            }
+        )
+    {
+        features.push(CapabilityFeature::ParametricFunctionEquations);
     }
     features
 }
@@ -196,6 +218,7 @@ impl TermUse {
             DefinitionTermKind::Application {
                 application,
                 arguments,
+                ..
             } => {
                 if let ApplicationRef::Builtin(operation) = application {
                     self.operation(*operation, arguments);
@@ -290,6 +313,19 @@ impl TermUse {
 #[must_use]
 pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequirement> {
     let mut requirements = Vec::new();
+    // An equation of a parametric function is named by its function (KF-027).
+    let production_names = definition
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Production(production) => Some((
+                production.symbol().id().clone(),
+                production.symbol().emitted_name().to_owned(),
+            )),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     for module in definition.modules() {
         for sentence in module.sentences() {
             if let DefinitionSentence::Configuration(configuration) = sentence {
@@ -301,13 +337,38 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
                     });
                 }
             }
+            if let DefinitionSentence::Production(production) = sentence
+                && !production.parameters().is_empty()
+                && !production.attributes().iter().any(|attribute| {
+                    matches!(attribute, krs_ir::ProductionAttribute::Function { .. })
+                })
+            {
+                requirements.push(CapabilityRequirement {
+                    feature: CapabilityFeature::ParametricConstructorSchema,
+                    symbol: production.symbol().emitted_name().to_owned(),
+                    origin: production.origin().key().clone(),
+                });
+            }
             let DefinitionSentence::Rule(rule) = sentence else {
                 continue;
             };
             for feature in sentence_features(rule) {
+                let function = match (feature, rule.relational_body()) {
+                    (
+                        CapabilityFeature::ParametricFunctionEquations,
+                        RuleBodyRef::Term(rewrite),
+                    ) => match rewrite.from().kind() {
+                        DefinitionTermKind::Application {
+                            application: ApplicationRef::Declared(symbol),
+                            ..
+                        } => production_names.get(symbol).cloned(),
+                        _ => None,
+                    },
+                    _ => None,
+                };
                 requirements.push(CapabilityRequirement {
                     feature,
-                    symbol: rule.label().emitted_name().to_owned(),
+                    symbol: function.unwrap_or_else(|| rule.label().emitted_name().to_owned()),
                     origin: rule.origin().key().clone(),
                 });
             }
@@ -380,6 +441,8 @@ pub fn unavailable_message(
         .iter()
         .filter(|requirement| requirement.feature == feature)
         .map(CapabilityRequirement::symbol)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>()
         .join(", ");
     format!(

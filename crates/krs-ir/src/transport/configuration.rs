@@ -1024,6 +1024,7 @@ impl ConfigurationValidationStage for DescriptorStage {
         };
         match &sort.sort {
             DescriptorSortRef::Cell(id) => return Err(invalid(id.item_kind())),
+            DescriptorSortRef::Parameter(_) => return Err(invalid(ItemKind::Sort)),
             DescriptorSortRef::Declared(id) => {
                 sort.sort.validate().map_err(|_| invalid(id.item_kind()))?;
             }
@@ -1951,6 +1952,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerSortTest,
+        ))
+    }
+
+    fn application_instance(&mut self, _: &S::Sort) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerApplicationInstance,
         ))
     }
 

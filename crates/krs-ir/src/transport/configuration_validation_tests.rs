@@ -463,6 +463,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
     let path_key = key(ProvenanceRole::InitializerTermPath);
     assert_eq!(
         initializer_term::<DescriptorStage>(Term::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::BareReference,
             reference: DescriptorApplicationReference {
                 key: path_key.clone(),
@@ -477,6 +478,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
     );
     assert_eq!(
         initializer_term::<HostStage>(Term::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::BareReference,
             reference: HostApplicationReference {
                 key: path_key.clone(),
@@ -554,6 +556,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         }),
     };
     let application = |arguments| Term::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         path_key: key(ProvenanceRole::InitializerTermPath),
         reference: reference.clone(),

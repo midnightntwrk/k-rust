@@ -900,6 +900,7 @@ fn expand_bracket_grammar_parts(
     let disambiguator = format!("bracket:{index}");
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         krs_ir::wire::WireProduction {
+            parameters: Vec::new(),
             key: wire_key(bracket_declaration_role, 0),
             template_key: None,
             owner: krs_ir::wire::WireProductionOwner::BracketSort {

@@ -333,7 +333,13 @@ impl BuiltinRequirements {
             DefinitionTermKind::Application {
                 application,
                 arguments,
+                instance,
+                ..
             } => {
+                // A head's strict casts name its instance (KF-027).
+                for sort in instance {
+                    self.sort(sort);
+                }
                 if let ApplicationRef::Builtin(operation) = application {
                     self.modules.insert(operation.spec().k_module);
                     self.operations.extend(

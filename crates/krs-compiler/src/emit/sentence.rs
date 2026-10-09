@@ -132,6 +132,17 @@ fn emit_production(
         }
     }
     writer.push("syntax ");
+    // K's `syntax {S, T} R ::= ..` declares a parametric production (KF-027).
+    if !sentence.parameters().is_empty() {
+        writer.push("{");
+        for (index, parameter) in sentence.parameters().iter().enumerate() {
+            if index != 0 {
+                writer.push(", ");
+            }
+            writer.push(parameter.as_str());
+        }
+        writer.push("} ");
+    }
     writer.push(&context.sort_name_ref(sentence.result_sort())?);
     writer.push(" ::= ");
     let list = sentence

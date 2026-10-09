@@ -188,6 +188,40 @@ Because a rule that calls such a function reads those cells, the overlap check c
 The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
 A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
 
+### Sort-parametric productions
+
+A K sort parameter is a Rust type parameter of a production struct with exactly the bound `?Sized` (sort markers such as `dyn ExpSort` are unsized); `sort = S` and `k::Term<S>` fields name it.
+Read `<S: ?Sized>` as K's `{S}` and `k::Term<S>` as a term of sort S.
+
+```rust
+#[k::function(total, sort = S, syntax = "choose({cond}, {then_branch}, {else_branch})")]
+pub struct Choose<S: ?Sized> {
+    pub cond: Term<Bool>,
+    pub then_branch: Term<S>,
+    pub else_branch: Term<S>,
+}
+
+#[k::equation]
+fn choose_true_int(
+    k::term![Choose::<Int> { cond: true, then_branch: a, else_branch: _ }]: Term<Int>,
+) -> Term<Int> {
+    a
+}
+```
+
+It emits `syntax {S} S ::= "choose" "(" Bool "," S "," S ")" [symbol(choose), function, total]`, and the equation `rule choose ( true , A::Int , _::Int ) => A:Int`.
+Rust generics are monomorphised, so one generic fn body would serve every instance; a K rule never quantifies over sorts, so each equation or rule head names its instance with a turbofish, whose argument is the sort marker that goes inside `k::Term<..>` (`Choose::<Int>`, `Choose::<dyn ExpSort>`; a readable clause writes the sort, `Choose::<Exp>`, and `krs expand` renders `Choose::<dyn crate::ExpSort>`).
+The emitted head writes each variable at a parameter position as K's strict cast to its own sort, `A::Int`, and a wildcard as `_::Int`: a semantic cast `A:Int` there would let K instantiate the parameter at `K`, and the equation would never apply.
+Natively, labels never carry sort parameters; those variables are sorted at the same sorts and k-rust solves the instance from them, bounded by the rewrite's sort, exactly as K's text solver does.
+A head whose binders all sit below its turbofish (`Choose::<dyn ExpSort>` over two `Term<Int>` binders) would be solved at `Int` instead, so it is rejected (`krs::analysis::native-instance`).
+Terms elsewhere need no turbofish: K solves the instance from the arguments, bounded by the position when the result is the parameter, and KRS mirrors that solver; a term whose instance has no unique least solution is rejected, and a turbofish there must name the instance K solves.
+
+A parametric constructor is a value-building schema: `#[k::constructor(sort = S, syntax = "wrap({inner})")] pub struct Wrap<S: ?Sized>` emits `syntax {S} S ::= "wrap" "(" S ")"`, so `wrap(v(7))` is a `Val`; it cannot be instantiated at a sort whose values its domain or hook fixes (Int, Bool, String, a token sort).
+The backends differ: equations of parametric functions run on the k-rust and Java Haskell routes and the LLVM routes refuse them (Java K's llvm-kompile crashes on them), while parametric constructors run on the k-rust and Java LLVM routes and Java K's Haskell backend rejects them (`krs::capability::unavailable` on the route that lacks the feature).
+K's own `#if` (`kequal::ite`) is a hooked parametric function.
+
+A lifetime, const, defaulted, otherwise bounded, or unused parameter, a where clause, generics on an enum family (a parameter belongs to one production), on a sort trait (K and k-rust have no user parametric sorts), or on a rule fn (``K rules never quantify over sorts``), and a turbofish with a lifetime, a const, or the wrong arity are rejected; so are a parameter named like a sort, strictness, an alias or desugar marker, a hook, a token, or a bracket on a parametric production (`krs::analysis::invalid-parametric-production`), and an equation or rule head without a turbofish, with one that disagrees with its declared sort, or with a non-variable argument below the instance (`krs::analysis::parametric-instance`).
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

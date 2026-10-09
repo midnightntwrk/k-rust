@@ -148,6 +148,7 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
         BTreeMap::new(),
         provenance(ProvenanceRole::ConstructorSort),
         DescriptorPayload::Constructor(ConstructorDescriptor {
+            parameters: Vec::new(),
             sort: krs_ir::DescriptorSortRef::Declared(sort),
             fields: Vec::new(),
         }),

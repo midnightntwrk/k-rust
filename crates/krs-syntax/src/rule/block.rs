@@ -264,6 +264,7 @@ impl RuleClause {
                     | ProvenanceRole::LexemeText
                     | ProvenanceRole::SortTest
                     | ProvenanceRole::SortTestSort
+                    | ProvenanceRole::ApplicationInstance
                     | ProvenanceRole::PatternAs
                     | ProvenanceRole::PatternAsBinding
                     | ProvenanceRole::PatternOr
@@ -493,6 +494,10 @@ impl RuleClause {
         let mut ordinal = 0_usize;
         for nodes in &terms {
             push_sort_test_anchors(anchors, nodes, &mut ordinal)?;
+        }
+        let mut ordinal = 0_usize;
+        for nodes in &terms {
+            crate::term::push_application_instance_anchors(anchors, nodes, &mut ordinal)?;
         }
         let mut ordinal = 0_usize;
         for nodes in &terms {

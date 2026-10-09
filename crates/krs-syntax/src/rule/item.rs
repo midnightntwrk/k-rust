@@ -625,6 +625,15 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             push_sort_test_anchors(&mut anchors, ensures.nodes(), &mut sort_tests)?;
         }
+        let mut instances = 0_usize;
+        let instance_sides = std::iter::once(self.parameter.pattern.nodes())
+            .chain(context_terms.iter().map(|term| term.nodes()))
+            .chain(std::iter::once(self.result.nodes()))
+            .chain(self.requires.iter().map(|requires| requires.term().nodes()))
+            .chain(self.existentials.ensures().map(TermExpression::nodes));
+        for nodes in instance_sides {
+            crate::term::push_application_instance_anchors(&mut anchors, nodes, &mut instances)?;
+        }
         Ok(anchors)
     }
 
@@ -804,7 +813,7 @@ fn validate_signature_features(item: &ItemFn) -> Result<(), SyntaxError> {
     }
     if !signature.generics.params.is_empty() {
         return Err(unsupported_signature(
-            "rule generics are not supported",
+            "K rules never quantify over sorts; write one equation per instance with a turbofish, such as `Choose::<k::builtin::Int> { .. }`",
             signature.generics.params.span(),
         ));
     }

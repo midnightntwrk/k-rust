@@ -524,10 +524,26 @@ fn render_tokens(tokens: &[TokenTree]) -> String {
     let stream = TokenStream::from_iter(tokens.iter().cloned());
     let atoms = atoms(stream);
     let mut output = String::new();
+    // Open turbofish angle brackets (`Choose::<Exp>`, KF-027), which hug
+    // their arguments like Rust's own spelling.
+    let mut turbofish = 0_usize;
+    let mut after_close = false;
     for (index, atom) in atoms.iter().enumerate() {
-        if index > 0 && needs_space(&atoms[index - 1], atom) {
+        let punctuation = |atom: &Atom, text: &str| matches!(&atom.kind, AtomKind::Punctuation(value) if value == text);
+        let opens = index > 0 && punctuation(atom, "<") && punctuation(&atoms[index - 1], "::");
+        let closes = turbofish > 0 && punctuation(atom, ">");
+        let after_open = index > 0 && turbofish > 0 && punctuation(&atoms[index - 1], "<");
+        let call = after_close && matches!(atom.kind, AtomKind::Group(Delimiter::Parenthesis));
+        if index > 0 && !closes && !after_open && !call && needs_space(&atoms[index - 1], atom) {
             output.push(' ');
         }
+        if opens {
+            turbofish += 1;
+        }
+        if closes {
+            turbofish -= 1;
+        }
+        after_close = closes;
         output.push_str(&atom.text);
     }
     output
@@ -659,6 +675,32 @@ fn needs_space(previous: &Atom, current: &Atom) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A turbofish on a parametric head (KF-027) keeps Rust's spelling,
+    /// `Choose::<Exp>`, and formats idempotently.
+    #[test]
+    fn turbofish_heads_hug_their_sort_markers() {
+        let source = r"
+            for Exp;
+            use ExpSyntax::*;
+
+            pick: Pick(c, x, y) => crate::Choose :: < Exp > { cond: c, then_branch: x, else_branch: y };
+            pair: Both(x) => Pair::<Int,dyn ExpSort>(x, x);
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format again");
+        assert_eq!(output, again);
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Exp;
+                use ExpSyntax::*;
+
+                pick: Pick(c, x, y) => crate::Choose::<Exp> { cond: c, then_branch: x, else_branch: y };
+                pair: Both(x)       => Pair::<Int, dyn ExpSort>(x, x);"]].assert_eq(&actual);
+    }
 
     #[test]
     fn formats_single_cell_table_with_global_alignment() {

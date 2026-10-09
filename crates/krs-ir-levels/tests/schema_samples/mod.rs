@@ -685,6 +685,7 @@ impl Sample for WireConfigurationReference {
 impl Sample for WireConstructorDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
+            parameters: Vec::new(),
             sort: sample::<WireSortReference>(),
             fields: sample::<Vec<WireConstructorFieldDescriptor>>(),
         }]
@@ -1003,13 +1004,15 @@ impl Sample for DefinitionSortRef {
                 Self::Declared(sample::<SymbolId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
                 Self::Cell(sample::<SymbolId>()),
+                Self::Parameter(krs_ir_levels::SortParameterId::new("S")),
             ],
-            3,
+            4,
             "DefinitionSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
                 Self::Cell(..) => 2,
+                Self::Parameter(..) => 3,
             },
         )
     }
@@ -1022,6 +1025,8 @@ impl Sample for DefinitionTermKind {
                     variable: sample::<SemanticId>(),
                 },
                 Self::Application {
+                    head_instance_fixed: false,
+                    instance: Vec::new(),
                     application: sample::<DefinitionApplicationRef>(),
                     arguments: sample::<Vec<DefinitionTerm>>(),
                 },
@@ -1386,13 +1391,15 @@ impl Sample for DescriptorSortRef {
                 Self::Declared(sample::<StableItemId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
                 Self::Cell(sample::<StableItemId>()),
+                Self::Parameter("S".to_owned()),
             ],
-            3,
+            4,
             "DescriptorSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
                 Self::Cell(..) => 2,
+                Self::Parameter(..) => 3,
             },
         )
     }
@@ -1411,6 +1418,7 @@ impl Sample for DescriptorTerm {
                     name: sample::<String>(),
                 },
                 Self::Application {
+                    instance: Vec::new(),
                     head_class: sample::<DescriptorApplicationHeadClass>(),
                     reference: sample::<DescriptorApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
@@ -2213,13 +2221,15 @@ impl Sample for SemanticSortRef {
                 Self::Declared(sample::<StableItemId>()),
                 Self::Builtin(sample::<BuiltinSort>()),
                 Self::Cell(sample::<StableItemId>()),
+                Self::Parameter(krs_ir_levels::SortParameterId::new("S")),
             ],
-            3,
+            4,
             "SemanticSortRef",
             |value| match value {
                 Self::Declared(..) => 0,
                 Self::Builtin(..) => 1,
                 Self::Cell(..) => 2,
+                Self::Parameter(..) => 3,
             },
         )
     }
@@ -2232,6 +2242,8 @@ impl Sample for SemanticTermKind {
                     variable: sample::<SemanticId>(),
                 },
                 Self::Application {
+                    head_instance_fixed: false,
+                    instance: Vec::new(),
                     application: sample::<SemanticApplicationRef>(),
                     arguments: sample::<Vec<SemanticTerm>>(),
                 },
@@ -2568,6 +2580,7 @@ impl Sample for WireTerm {
                     name: sample::<String>(),
                 },
                 Self::Application {
+                    instance: Vec::new(),
                     head_class: sample::<DescriptorApplicationHeadClass>(),
                     reference: sample::<WireApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
@@ -2754,6 +2767,7 @@ impl Sample for SemanticRuleBody {
 impl Sample for ConstructorDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
+            parameters: Vec::new(),
             sort: sample::<DescriptorSortRef>(),
             fields: sample::<Vec<ConstructorFieldDescriptor>>(),
         }]
@@ -3050,6 +3064,7 @@ impl Sample for DescriptorNodeOrigin {
 impl Sample for DescriptorProduction {
     fn samples() -> Vec<Self> {
         vec![Self {
+            parameters: Vec::new(),
             key: sample::<ProvenanceKey>(),
             template_key: sample::<Option<ProvenanceKey>>(),
             owner: sample::<DescriptorProductionOwner>(),
@@ -3558,6 +3573,7 @@ impl Sample for WireContextAlias {
 impl Sample for WireProduction {
     fn samples() -> Vec<Self> {
         vec![Self {
+            parameters: Vec::new(),
             key: sample::<ProvenanceKey>(),
             template_key: sample::<Option<ProvenanceKey>>(),
             owner: sample::<WireProductionOwner>(),

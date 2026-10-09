@@ -11,6 +11,7 @@ use super::{Pattern, SortGraph, Unifier, VariableKey};
 
 fn sgn(argument: Pattern) -> Pattern {
     Pattern::Application {
+        instance: Vec::new(),
         sort: SemanticSortRef::Builtin(BuiltinSort::Int),
         application: ApplicationRef::Declared(
             StableItemId::new(

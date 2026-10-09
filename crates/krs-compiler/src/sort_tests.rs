@@ -64,6 +64,7 @@ fn collect(
         DefinitionTermKind::Application {
             application,
             arguments,
+            ..
         } => {
             if let ApplicationRef::Generated(operation) = application
                 && let [operand] = arguments.as_slice()

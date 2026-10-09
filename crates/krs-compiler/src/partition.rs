@@ -307,6 +307,7 @@ fn sort_display(sort: &SemanticSortRef) -> String {
         SemanticSortRef::Declared(id) => id.item_name().to_owned(),
         SemanticSortRef::Builtin(sort) => sort.k_name().to_owned(),
         SemanticSortRef::Cell(id) => format!("{}Cell", id.item_name()),
+        SemanticSortRef::Parameter(name) => name.to_string(),
     }
 }
 

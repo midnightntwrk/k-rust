@@ -421,10 +421,12 @@ impl DefinitionIr {
                     DefinitionSentence::Production(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
                         declare_symbol(&sentence.symbol, &mut symbols, &mut symbol_names)?;
-                        production_signatures.insert(
+                        crate::ir_validation::insert_production_signature::<DefinitionLevel>(
+                            &mut production_signatures,
                             sentence.symbol.id.clone(),
                             (
                                 sentence.result_sort.clone(),
+                                sentence.parameters.clone(),
                                 sentence
                                     .items
                                     .iter()
@@ -437,7 +439,7 @@ impl DefinitionIr {
                                     })
                                     .collect(),
                             ),
-                        );
+                        )?;
                         if sentence.attributes.iter().any(|attribute| {
                             matches!(attribute, ProductionAttribute::Function { .. })
                         }) {
@@ -975,6 +977,8 @@ pub struct ProductionSentence {
     result_sort: DefinitionSortRef,
     items: Vec<ProductionItem>,
     attributes: Vec<DefinitionProductionAttribute>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    parameters: Vec<crate::SortParameterId>,
 }
 
 impl ProductionSentence {
@@ -1008,7 +1012,21 @@ impl ProductionSentence {
             result_sort,
             items,
             attributes,
+            parameters: Vec::new(),
         })
+    }
+    /// Declares the production's sort parameters, in declaration order: K's
+    /// `syntax {S, T}` (KF-027).
+    #[must_use]
+    pub fn with_parameters(mut self, parameters: Vec<crate::SortParameterId>) -> Self {
+        self.parameters = parameters;
+        self
+    }
+    /// Returns the sort parameters of a parametric production; empty for
+    /// every other production (KF-027).
+    #[must_use]
+    pub fn parameters(&self) -> &[crate::SortParameterId] {
+        &self.parameters
     }
     /// Returns sentence provenance.
     #[must_use]
@@ -1593,6 +1611,8 @@ pub enum DefinitionValidationError {
     BuiltinApplicationSignature(BuiltinOperation),
     /// A generated sort predicate or projection has the wrong signature.
     GeneratedApplicationSignature,
+    /// A term has a production's sort parameter as its sort (KF-027).
+    ParameterSortInTerm,
     /// Rewrite endpoint sorts differ.
     RewriteSortMismatch,
     /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
@@ -1801,6 +1821,9 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::GeneratedApplicationSignature => formatter.write_str(
                 "a sort predicate takes one argument and has sort Bool; a sort projection takes one argument and has its target sort",
+            ),
+            Self::ParameterSortInTerm => formatter.write_str(
+                "a sort parameter occurs only in its production's signature; a term has its instance's sort",
             ),
             Self::RewriteSortMismatch => {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")

@@ -50,6 +50,7 @@ PACKAGES = (
     Package("tests/configuration-cells/Cargo.toml", "configuration-cells", "authored"),
     Package("tests/verification-surface/Cargo.toml", "verification-surface", "authored"),
     Package("tests/patterns-functions/Cargo.toml", "patterns-functions", "authored"),
+    Package("tests/sorts-algebra/Cargo.toml", "sorts-algebra", "authored"),
     Package("tests/imp/compatibility/diagnostics/krs-analysis/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/diagnostics/rust-expansion/Cargo.toml", "imp", "fixture"),
     Package("tests/imp/compatibility/stable-names/baseline/Cargo.toml", "imp", "fixture"),

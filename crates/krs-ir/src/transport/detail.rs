@@ -177,6 +177,7 @@ details! {
         InitializerMatches => "`k::matches!` (:=K) is not allowed in initializers",
         LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
         InitializerLet => "a `let` block (#let) is not allowed in initializers",
+        InitializerApplicationInstance => "a turbofish instance (`Choose::<Int> { .. }`) is not allowed in initializers",
     }
 }
 

@@ -61,6 +61,7 @@ fn populated_bundle() -> DescriptorBundle {
     let constructor = descriptor(
         foo_constructor,
         DescriptorPayload::Constructor(ConstructorDescriptor {
+            parameters: Vec::new(),
             sort: DescriptorSortRef::Declared(value.clone()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
@@ -71,6 +72,7 @@ fn populated_bundle() -> DescriptorBundle {
     let bar = descriptor(
         bar_constructor,
         DescriptorPayload::Constructor(ConstructorDescriptor {
+            parameters: Vec::new(),
             sort: DescriptorSortRef::Declared(value),
             fields: Vec::new(),
         }),

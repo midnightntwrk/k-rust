@@ -152,6 +152,7 @@ fn machine_configuration(start: StableItemId) -> DescriptorInputs {
                                 value: krs_ir::ProtocolInitializerTerm {
                                     key: key(ProvenanceRole::InitializerTerm, 0),
                                     term: DescriptorTerm::Application {
+                                        instance: Vec::new(),
                                         head_class: DescriptorApplicationHeadClass::BareReference,
                                         reference: DescriptorApplicationReference {
                                             key: key(ProvenanceRole::InitializerTermPath, 0),
@@ -212,6 +213,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         declaration(
             add.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: DescriptorSortRef::Declared(expr.clone()),
                 fields: vec![
                     ConstructorFieldDescriptor {
@@ -229,6 +231,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         declaration(
             unit.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: DescriptorSortRef::Declared(expr.clone()),
                 fields: vec![],
             }),
@@ -237,6 +240,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         declaration(
             start.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
+                parameters: Vec::new(),
                 sort: DescriptorSortRef::Declared(expr.clone()),
                 fields: vec![],
             }),
@@ -267,6 +271,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         ),
         DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
+                parameters: Vec::new(),
                 key: add_primary.clone(),
                 template_key: Some(key(ProvenanceRole::ConstructorSyntax, 0)),
                 owner: DescriptorProductionOwner::Constructor {
@@ -327,6 +332,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         ),
         DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
+                parameters: Vec::new(),
                 key: unit_primary.clone(),
                 template_key: None,
                 owner: DescriptorProductionOwner::Constructor {
@@ -360,6 +366,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         ),
         DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
+                parameters: Vec::new(),
                 key: start_primary.clone(),
                 template_key: None,
                 owner: DescriptorProductionOwner::Constructor {
@@ -394,6 +401,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
         ),
         DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
+                parameters: Vec::new(),
                 key: bracket_primary.clone(),
                 template_key: None,
                 owner: DescriptorProductionOwner::BracketSort {
@@ -520,6 +528,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr.clone()),
             bindings: vec!["x".into()],
             subject: DescriptorTerm::Application {
+                instance: Vec::new(),
                 head_class: DescriptorApplicationHeadClass::Applied,
                 reference: DescriptorApplicationReference {
                     key: key(ProvenanceRole::RuleLeftApplicationHead, 0),
@@ -548,6 +557,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 .unwrap(),
             },
             result: DescriptorTerm::Application {
+                instance: Vec::new(),
                 head_class: DescriptorApplicationHeadClass::BareReference,
                 reference: DescriptorApplicationReference {
                     key: key(ProvenanceRole::RuleRightReference, 0),
@@ -682,6 +692,7 @@ fn replace_rule_result_with_builtin(
         });
     }
     rule.result = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightApplicationHead, 0),
@@ -822,6 +833,7 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundleInputs) {
     rule.requires = Some(DescriptorRuleCondition {
         key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
@@ -952,6 +964,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         literal: DescriptorLiteral::Int(value.into()),
     };
     let update = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightApplicationHead, 1),
@@ -973,6 +986,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         .unwrap(),
     };
     rule.result = DescriptorTerm::Application {
+        instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightApplicationHead, 0),
@@ -1136,6 +1150,7 @@ fn constructor_without_grammar_descriptor_is_rejected() {
     bundle.descriptors.push(declaration(
         escaped.clone(),
         DescriptorPayload::Constructor(ConstructorDescriptor {
+            parameters: Vec::new(),
             sort: DescriptorSortRef::Declared(id("Expr", ItemKind::Sort)),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
@@ -1588,6 +1603,10 @@ fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The fixture spells one complete descriptor term inline."
+)]
 fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     let (mut bundle, _) = bundle();
 
@@ -1659,6 +1678,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     rule.requires = Some(DescriptorRuleCondition {
         key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),

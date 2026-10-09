@@ -713,6 +713,7 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     rule.requires = Some(DescriptorRuleCondition {
         key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
+            instance: Vec::new(),
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
                 key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
