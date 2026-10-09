@@ -1633,6 +1633,9 @@ endmodule
             crate::inner::parser::take_most_caller_group_decisions()
         });
         println!("the most decisions one completion made: {at_30} with 30 items, {at_60} with 60");
+        // Each completion of a doomed sequence decides for its callers, so a zero is a counter
+        // that is no longer fed, which would make the comparison below vacuous.
+        assert!(at_30 > 0, "no completion decided for its callers");
         assert_eq!(
             at_30, at_60,
             "the most decisions one completion made: {at_30} with 30 items, {at_60} with 60"

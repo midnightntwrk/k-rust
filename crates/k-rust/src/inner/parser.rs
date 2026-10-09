@@ -2519,6 +2519,8 @@ impl Grammar {
                         // waiting in one chart share a few of those, however many origins they
                         // have, so each is filtered and packed once per completion.
                         boundaries.clear();
+                        #[cfg(test)]
+                        update_chart_work_counters(|counters| counters.caller_group_decisions = 0);
                         let mut boundary = |caller: &State| {
                             if let Some((_, _, completed)) =
                                 boundaries.iter().find(|(production, dot, _)| {
@@ -2527,6 +2529,13 @@ impl Grammar {
                             {
                                 return completed.clone();
                             }
+                            #[cfg(test)]
+                            update_chart_work_counters(|counters| {
+                                counters.caller_group_decisions += 1;
+                                counters.most_caller_group_decisions = counters
+                                    .most_caller_group_decisions
+                                    .max(counters.caller_group_decisions);
+                            });
                             let completed = self.filter_associative_boundary(
                                 *caller,
                                 &nodes,
@@ -2536,11 +2545,6 @@ impl Grammar {
                             let completed =
                                 (!completed.is_empty()).then(|| pack_alternatives(&completed));
                             boundaries.push((caller.production, caller.dot, completed.clone()));
-                            #[cfg(test)]
-                            update_chart_work_counters(|counters| {
-                                counters.most_caller_group_decisions =
-                                    counters.most_caller_group_decisions.max(boundaries.len());
-                            });
                             completed
                         };
                         let mut advance = |chart: &mut Chart,

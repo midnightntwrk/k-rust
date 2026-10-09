@@ -88,6 +88,9 @@ pub(super) struct ChartWorkCounters {
     pub(super) completion_caller_derivations_read: usize,
     /// The chart steps recognitions charged against their work limit (`WorkMeter`).
     pub(super) chart_steps: usize,
+    /// The decisions of what it gives its waiting callers that the current completion has made,
+    /// counted at each decision whether or not a group of callers shares it.
+    pub(super) caller_group_decisions: usize,
     /// The most decisions of what it gives its waiting callers that one completion made; each
     /// is made once per group of those callers sharing a production and dot.
     pub(super) most_caller_group_decisions: usize,
@@ -120,6 +123,7 @@ impl ChartWorkCounters {
         completed_nodes_invalidation_entries: 0,
         completion_caller_derivations_read: 0,
         chart_steps: 0,
+        caller_group_decisions: 0,
         most_caller_group_decisions: 0,
     };
 }
