@@ -145,6 +145,29 @@ reset_output() {
   mkdir -p "$(dirname "$output")"
 }
 
+# The prepared krust-definition and krust-specification are written in the format of the
+# binary that compiled them, which another build may not read; reusing them would make the
+# benchmark fail or measure another binary's preparation. The work directory records the
+# SHA-256 of the binary that prepared it, and a different binary discards both.
+krust_binary_digest=
+discard_other_krust_preparation() {
+  local work=$1
+  local stamp="$work/krust-binary.sha256"
+  if [[ -z "$krust_binary_digest" ]]; then
+    krust_binary_digest=$(sha256sum <"$KRUST_BIN")
+    krust_binary_digest=${krust_binary_digest%% *}
+  fi
+  if [[ -f "$stamp" && "$(<"$stamp")" == "$krust_binary_digest" ]]; then
+    return
+  fi
+  if [[ -e "$work/krust-definition" || -e "$work/krust-specification" ]]; then
+    echo "[$(basename "$work")] discarding the krust preparation of another binary"
+  fi
+  reset_output "$work/krust-definition"
+  reset_output "$work/krust-specification"
+  printf '%s\n' "$krust_binary_digest" >"$stamp"
+}
+
 run_compile() {
   local engine=$1
   local work=$2
@@ -831,6 +854,7 @@ benchmark_single() {
     cat "$result_dir/commands.txt"
     return
   fi
+  discard_other_krust_preparation "$work"
   if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ]]; then
     echo "[$suite] preparing proof-ready krust definition"
     "$script" __prepare-krust-proof "$suite" "$work"
@@ -910,6 +934,7 @@ benchmark_pair() {
     echo "[$suite] preparing canonical Haskell definition"
     "$script" __prepare-proof "$suite" "$work"
   fi
+  discard_other_krust_preparation "$work"
   if [[ "$phase" == prove && ( ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ) ]]; then
     echo "[$suite] preparing proof-ready krust definition"
     "$script" __prepare-krust-proof "$suite" "$work"

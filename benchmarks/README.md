@@ -201,7 +201,7 @@ taskset -c 0-15 samply record --save-only --rate 100 \
 
 The workloads are the benchmark's own commands: `imp-compile` and `kevm-compile` are the `compile` phase's krust command, `imp-prove` is the `execute` phase's `kprove` on a prepared bundle (default claim `IMP-SIMPLE-SPEC.sum-loop`).
 Checkouts, pin checks, and `--allow-unpinned` work as for `scripts/benchmark.sh`; `KRUST_BIN` defaults to `target/profiling/krust` and must carry line tables.
-Prepared proof bundles live under `target/profiles/work/<suite>/` and are reused like `BENCHMARK_WORK_ROOT`; set `PROFILE_WORK_ROOT` to a fresh directory after a compiler or option change.
+Prepared proof bundles live under `target/profiles/work/<suite>/` and are reused like `BENCHMARK_WORK_ROOT`, by the same binary only; set `PROFILE_WORK_ROOT` to a fresh directory after a source or option change.
 
 Each run writes `target/profiles/<timestamp>-<workload>/` (or `--output DIR`) with:
 
@@ -259,9 +259,11 @@ give Rust an unfair preparation advantage. There is no canonical load-only or is
 timing in this harness; Rust-only rows intentionally have no ratio. These measurements do not
 establish an isolated Haskell-kernel-versus-Rust-kernel speedup.
 
-Prepared artifacts are reused under `target/benchmarks/work/<suite>/`. They are not automatically
-invalidated by source, compiler, or option changes. Use a fresh `BENCHMARK_WORK_ROOT` after such
-changes. Result metadata records whether the krust worktree was dirty, but it is not an artifact
+Prepared artifacts are reused under `target/benchmarks/work/<suite>/`, only by the krust binary that
+prepared them: `krust-binary.sha256` holds that binary's SHA-256, and a run with any other binary
+discards `krust-definition` and `krust-specification` and prepares them again, since another build
+may write a different format. They are not invalidated by source or option changes; use a fresh
+`BENCHMARK_WORK_ROOT` after such changes. Result metadata records whether the krust worktree was dirty, but it is not an artifact
 content hash.
 
 For stable measurements, use an otherwise idle machine, fixed power/performance settings, the same
