@@ -4330,7 +4330,7 @@ id = "definition.resolve.sentences"
 provenance = "declared"
 area = "definition"
 name = "visible-sentence selection with bucketed equivalence deduplication"
-variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
+variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 table = "Algorithm::ALL"
 registry_name = "DefinitionResolveSentences"
 
@@ -4352,15 +4352,24 @@ symbol = "ResolvedDefinition::sentence_classes"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::import_closures"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "united_inputs"
 
 [[node.cost]]
 mode = "one module's first sentences or sentence_arcs call"
-bound = "O((M + E) log M + n_m + n_m x a x A + u x (z + A)) expected"
+bound = "O(v_m + n_m + n_m x a x A + u x (z + A)) expected"
 
 [[node.cost]]
 mode = "first selection of a resolution (sentence_classes)"
 bound = "O(L log L + L x k x eq)"
+
+[[node.cost]]
+mode = "first selection under an import graph (import_closures, shared by the resolutions updated from it without import changes)"
+bound = "O(sum over import edges (m, i) of v_i + sum_m v_m log v_m)"
 
 [[node]]
 kind = "phase"
