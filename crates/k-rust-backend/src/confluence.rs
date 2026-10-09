@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise, for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise, for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -79,7 +79,7 @@ use std::{
     sync::Arc,
 };
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use k_rust_kore::measure::{self, Counter};
 
@@ -694,6 +694,10 @@ pub(crate) struct Context<'d> {
     sorts: symbols::Sorts,
     /// The executable equations, by index and priority, as equation selection offers them.
     groups: BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>,
+    /// Each executable equation renamed apart, every variable to a fresh `!apart` name, made on
+    /// its first use as a pair's second equation and shared by all its pairs (keyed by the
+    /// equation's address; the equations live in `groups` for the whole check).
+    renamed: FxHashMap<*const RewriteRule, Arc<RewriteRule>>,
     fresh: u64,
     counts: CheckCounts,
 }
@@ -939,10 +943,10 @@ impl Context<'_> {
         self.counts.pairs += 1;
         measure::bump(Counter::ConfluencePairs);
         let first = candidate.first;
-        let second = match rename_apart(candidate.second, &first.computed_attributes.variables, &[])
-        {
-            Some((renamed, _)) if !switches::active().no_rename_apart => Arc::new(renamed),
-            _ => Arc::clone(candidate.second),
+        let second = if switches::active().no_rename_apart {
+            Arc::clone(candidate.second)
+        } else {
+            self.renamed_apart(first, candidate.second)
         };
         let not_joined = |reason: UnjoinedReason| {
             Classified::NotJoined(Box::new(unjoined_report(candidate, reason)))
@@ -1106,6 +1110,39 @@ impl Context<'_> {
     }
 }
 
+impl Context<'_> {
+    /// `second` with variables disjoint from `first`'s: its shared copy with every variable
+    /// renamed to a fresh `!apart` name ([`rename_apart`] against its own variables), made once
+    /// per equation. A renaming of an equation's variables is the same equation, and the first
+    /// equation of a pair is an equation of the definition, whose variables no `!apart` renaming
+    /// minted, so the copy is apart from it; the disjointness is still tested (two sorted sets),
+    /// and on a clash the equation is renamed apart from `first` alone, as for one pair.
+    fn renamed_apart(
+        &mut self,
+        first: &Arc<RewriteRule>,
+        second: &Arc<RewriteRule>,
+    ) -> Arc<RewriteRule> {
+        let shared =
+            self.renamed.entry(Arc::as_ptr(second)).or_insert_with(|| {
+                match rename_apart(second, &second.computed_attributes.variables, &[]) {
+                    Some((renamed, _)) => Arc::new(renamed),
+                    None => Arc::clone(second),
+                }
+            });
+        if shared
+            .computed_attributes
+            .variables
+            .is_disjoint(&first.computed_attributes.variables)
+        {
+            return Arc::clone(shared);
+        }
+        match rename_apart(second, &first.computed_attributes.variables, &[]) {
+            Some((renamed, _)) => Arc::new(renamed),
+            None => Arc::clone(second),
+        }
+    }
+}
+
 /// The pairs of conjuncts of every `\and` in `pattern`.
 fn aliases(pattern: &Term, into: &mut Vec<(Term, Term)>) {
     if let TermKind::And(left, right) = pattern.kind() {
@@ -1254,6 +1291,7 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
         families: Families::of(definition),
         sorts: symbols::Sorts::of(definition),
         groups,
+        renamed: FxHashMap::default(),
         fresh: 0,
         counts: CheckCounts::default(),
     };
