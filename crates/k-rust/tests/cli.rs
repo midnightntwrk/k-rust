@@ -10598,6 +10598,26 @@ fn generate_parser(
     (root, parser)
 }
 
+/// A literal token production's `prec` orders it against regex tokens in both scanners: with
+/// `prec(-1)` the regex `[a-z]+` wins `ab`, and without `prec` the literal does.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_gives_a_literal_token_its_declared_precedence() {
+    for (precedence, regex_wins) in [(", prec(-1)", true), ("", false)] {
+        let definition = format!(
+            r#"
+module PREC-SYNTAX
+  syntax Foo ::= "ab" [token{precedence}]
+  syntax Bar ::= r"[a-z]+" [token]
+  syntax Pgm ::= Foo "!" | Bar "?"
+endmodule
+"#
+        );
+        let programs = [("ab?", regex_wins), ("ab!", !regex_wins), ("abc?", true)];
+        assert_both_scanners_decide(&definition, "PREC-SYNTAX", &owned_programs(&programs));
+    }
+}
+
 /// Generated parsers locate tokens as the in-process parser does (`inner::location`): lines and
 /// columns from 1 on every line, a column per Unicode scalar value, the end column after the last
 /// character, and `\n`, `\r`, `\r\n` and U+2028 each ending one line, also when two tokens split a

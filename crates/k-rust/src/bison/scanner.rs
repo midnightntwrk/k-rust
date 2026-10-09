@@ -112,6 +112,9 @@ impl Scanner {
                         let Some(key) = TokenKey::from_item(item)? else {
                             continue;
                         };
+                        // The in-process scanner's rule (`inner::parser::scanner::token_precedence`):
+                        // the production's `prec`, else the largest precedence for a literal and 0
+                        // for a regex; every mention must agree.
                         let precedence = declared.unwrap_or(match key {
                             TokenKey::Literal(_) => i32::MAX,
                             TokenKey::Regex(_) => 0,
@@ -555,6 +558,43 @@ mod tests {
                 rendered.contains("static void krust_scan_whole_input(yyscan_t yyscanner) {"),
                 anchored,
                 "{regex}"
+            );
+        }
+    }
+
+    /// The export gives a literal the in-process scanner's precedence: its production's `prec`,
+    /// or the largest precedence, and rejects a literal two productions order differently.
+    #[test]
+    fn literal_precedence_is_declared_or_largest_and_must_agree() {
+        let literal = |prec: Option<&str>| {
+            let mut attributes = Attributes::default();
+            if let Some(prec) = prec {
+                attributes.insert("prec", serde_json::json!(prec));
+            }
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::new("Token"),
+                items: vec![ProductionItem::Terminal("ab".into())],
+                attributes,
+            }
+        };
+        let precedence = |sentences: &[Sentence]| {
+            Scanner::new(sentences)
+                .map(|scanner| scanner.tokens_by_kind()[0].precedence)
+                .map_err(|error| error.to_string())
+        };
+
+        assert_eq!(precedence(&[literal(Some("-1"))]), Ok(-1));
+        assert_eq!(precedence(&[literal(None)]), Ok(i32::MAX));
+        for sentences in [
+            [literal(Some("-1")), literal(None)],
+            [literal(None), literal(Some("-1"))],
+        ] {
+            assert!(
+                precedence(&sentences)
+                    .unwrap_err()
+                    .starts_with("inconsistent token precedence for \"ab\"")
             );
         }
     }

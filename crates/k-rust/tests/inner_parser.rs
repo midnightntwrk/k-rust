@@ -1120,6 +1120,36 @@ fn equivalent_k_regex_asts_share_a_scanner_lexeme() {
     ));
 }
 
+/// A literal's precedence is its production's `prec`, or the largest precedence when the
+/// production declares none; two productions that give one literal different precedences are
+/// rejected whichever comes first.
+#[test]
+fn rejects_inconsistent_literal_precedence_in_either_order() {
+    let declared = production(
+        "Foo",
+        vec![ProductionItem::Terminal("ab".into())],
+        Some("declared"),
+        precedence("-1"),
+    );
+    let defaulted = production(
+        "Bar",
+        vec![ProductionItem::Terminal("ab".into())],
+        Some("defaulted"),
+        Attributes::default(),
+    );
+
+    for sentences in [
+        vec![declared.clone(), defaulted.clone()],
+        vec![defaulted, declared.clone()],
+    ] {
+        assert!(matches!(
+            Grammar::from_sentences(&sentences),
+            Err(ParseError::InconsistentTokenPrecedence { .. })
+        ));
+    }
+    assert!(Grammar::from_sentences(&[declared.clone(), declared]).is_ok());
+}
+
 #[test]
 fn reports_productive_unary_cycles_without_a_derivation_limit() {
     let sentences = vec![

@@ -435,6 +435,11 @@ A module that imports `INT-SYNTAX` and declares `syntax Foo ::= r"[0-9]+" [token
 The pinned K frontend rejects the second definition as well (`checks/invalidPrec.k`), naming `Int`'s token from domains.md, which reaches the main module only through modules compilation adds to it (configuration support), not through the definition's imports.
 Rust does not count those modules as part of the syntax the definition's author declared; the conformance expectations record that recipe as `compiler-added-grammar`.
 
+A literal terminal is a lexeme as well.
+The manual's default precedence, 0, is the default of regular-expression tokens; a literal without `prec` has the largest precedence, so that a keyword wins over a regular-expression token of the same length (`if` over an identifier), which every grammar with keywords needs.
+A production's `prec(N)` gives its literals precedence `N` as it gives its regular expressions, in the in-process scanner and in generated parsers alike: with `syntax Foo ::= "ab" [token, prec(-1)]` and `syntax Bar ::= r"[a-z]+" [token]`, the text `ab` is a `Bar`.
+Every production that mentions a literal declares its precedence, explicitly or by default, so a literal that one production gives `prec(-1)` and another mentions without `prec` is rejected, whichever comes first, as a regular expression with two precedences is.
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
