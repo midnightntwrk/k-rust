@@ -40,9 +40,8 @@ pub enum ExpSyntax {
     Goto { target: Label },
 }
 
-/// Rule machinery private to this package. Only K rules construct it, so
-/// rustc sees no Rust use of the variant.
-#[allow(dead_code)]
+/// Rule machinery private to this package. Only K rules construct it; the
+/// macro allows rustc's `dead_code` lint on a family that is not `pub`.
 #[k::constructors(sort = Exp, result = KResult)]
 #[k::precedence((Wrap))]
 #[rustfmt::skip]

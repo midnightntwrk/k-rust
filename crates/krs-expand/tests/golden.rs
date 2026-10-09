@@ -190,6 +190,17 @@ pub enum Object {
 "#,
     ),
     (
+        "constructors_private",
+        r#"
+#[k::constructors(sort = ObjectTerm, result = KResult)]
+#[k::precedence((Foo))]
+enum Object {
+    #[k::syntax("foo")]
+    Foo(),
+}
+"#,
+    ),
+    (
         "constructors_helpers",
         r#"
 #[k::constructors(sort = Expr, result = k::KResult)]

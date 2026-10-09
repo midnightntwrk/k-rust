@@ -67,7 +67,6 @@ pub fn cross_package(
     semantic_base::Same
 }
 
-#[allow(dead_code)]
 #[must_use]
 pub fn standalone_term(value: Term<dyn Expr>) -> Term<dyn Expr> {
     k::term![Wrap { value }]

@@ -262,7 +262,13 @@ pub(crate) fn constructors(
         fallback,
     )?;
 
+    // Only K rules construct the variants of a family that is not `pub`, so
+    // rustc would report them as never constructed.
+    let dead_code =
+        (!matches!(item.vis, syn::Visibility::Public(_))).then(|| quote!(#[allow(dead_code)]));
+
     Ok(quote! {
+        #dead_code
         #item
 
         #(#cfg)*
