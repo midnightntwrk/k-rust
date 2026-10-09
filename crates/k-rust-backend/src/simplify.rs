@@ -17,7 +17,7 @@
 //!
 //! [[cost]]
 //! mode = "Unspecified application (UnspecifiedEvaluation)"
-//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions of one predicate included (a conjunct of several is evaluated with the others as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
+//! bound = "only at a root whose hook is Unspecified: one hash lookup in the stack of Unspecified applications with an open attempt (one not found is added to the innermost attempt's reads, at most 256 applications and keys), one in the records by the application and the hash of the assumed predicates, each recorded evaluation of that hash checked against what it read (options, solver and console position, assumptions by content, the stack up to the deepest open attempt it reached, one pointer comparison while that prefix stands, the active rule-condition keys, the applications open now above that prefix, one pointer comparison while the stack it began on stands); per step taken on one, a frame of constant size (marks into the lineage's result, the console state); at the lineage's end, per frame that cut an occurrence, one walk of the outcome and of the conditions added since its step, each shared node once. Within one evaluation of an application each equation's step is taken at most once (a failed one is excluded for the rest of it); the value a nested lineage computed, and an evaluation that ended unevaluated after a failed attempt, are recorded with what they read until the outermost lineage that took such a step ends, and are not computed again wherever an evaluation would read the same (a failed one's later evaluation re-decides only the other equations' conditions), rule conditions included once one conjunct is left open (a conjunct is evaluated with the others not yet decided as assumptions, and shares records only with evaluations under them). Every rule condition adds its key to the innermost open attempt's reads (one thread-local access, nothing when none is open), as does a console hook at a root; at any root while an attempt is open, each equation attempt notes the lowest depth cut while it ran (one thread-local push and pop)"
 //!
 //! [[cost]]
 //! mode = "report retraction (retract_dropped)"
@@ -5412,11 +5412,12 @@ struct RecordTable {
 /// attempt that was undone, which discarded it. What the record read is added to the evaluation
 /// that serves it ([`UnspecifiedEvaluation::reach`]).
 ///
-/// A rule condition is evaluated under its other conjuncts as assumptions
-/// (`simplify_predicates_with_budget`), so it shares records with the evaluation around it only
-/// when it is one predicate: then its assumptions have the content of those around it. A
-/// `requires` `C1 andBool C2`, or one whose definedness obligation stays open, is two or more,
-/// and its conjuncts share records only with evaluations under the same other conjuncts.
+/// A conjunct of a rule condition is evaluated under the other conjuncts not yet decided as
+/// assumptions (`simplify_predicates_with_budget`; one decided to hold is `\top`, no
+/// assumption), so it shares records with the evaluation around it when it is the only conjunct
+/// left open: then its assumptions have the content of those around it. While two or more stay
+/// open (`C1 andBool C2`, or a conjunct beside a definedness obligation that stays open), each
+/// shares records only with evaluations under the same other open conjuncts.
 struct UnspecifiedValues;
 
 impl UnspecifiedValues {
@@ -7191,6 +7192,61 @@ mod tests {
         assert!(under(&without, &made_under_top, false));
         assert!(under(&without, &made_under_none, true));
         assert!(under(&with_top, &made_under_none, false));
+    }
+
+    /// Of an application's records under the same assumptions, a lookup serves the first one
+    /// made that holds: one that does not hold is passed over, and a later one that also holds
+    /// is not served. Every record that holds gives the outcome a fresh evaluation would, so the
+    /// order decides only which is served, and this pins the one the index documents
+    /// ([`RecordTable`]). The records differ in the contingency they hand on, which tells them
+    /// apart; the first read a rule-condition key that is not active now.
+    #[test]
+    fn the_first_record_that_holds_is_served() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("a")"#);
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let active = BTreeSet::new();
+        let given = EvaluationGiven {
+            assumptions: &assumptions,
+            options: SimplificationOptions::default(),
+            active: &active,
+            console: None,
+            solver: &NoSolver,
+        };
+        let inactive = Reads {
+            active: std::iter::once(("other".to_owned(), application.clone())).collect(),
+            ..Reads::default()
+        };
+        let _scope = UnspecifiedValues::open();
+        for (contingent, reads) in [(1, inactive), (2, Reads::default()), (3, Reads::default())] {
+            UnspecifiedValues::record(
+                &application,
+                RecordedOutcome::Failed {
+                    excluded: Vec::new(),
+                    contingent: Some(contingent),
+                },
+                reads,
+                0,
+                &given,
+            );
+        }
+        let served = match UnspecifiedValues::recorded(&application, &given) {
+            Some((RecordedOutcome::Failed { contingent, .. }, _)) => contingent,
+            _ => None,
+        };
+        assert_eq!(served, Some(2));
     }
 
     /// A record is served only under the same path condition as well as the same predicates:
