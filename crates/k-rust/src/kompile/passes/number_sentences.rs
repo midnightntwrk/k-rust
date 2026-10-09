@@ -285,11 +285,13 @@ mod tests {
     fn unique_id_text_numbers_rule_variables_by_first_occurrence() {
         let sentence = Sentence::Rule {
             body: Term::Rewrite {
+                // `B` occurs before `A`, so numbering by first occurrence and numbering by name
+                // give different texts.
                 left: Box::new(Term::Apply {
                     label: Label::new("f"),
-                    arguments: vec![Term::variable("X")],
+                    arguments: vec![Term::variable("B"), Term::variable("A")],
                 }),
-                right: Box::new(Term::variable("X")),
+                right: Box::new(Term::variable("A")),
             },
             requires: truth(),
             ensures: truth(),
@@ -297,7 +299,7 @@ mod tests {
         };
         assert_eq!(
             unique_id_text(&sentence, &Attributes::default()),
-            "rule f(_0)=>_0 requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") "
+            "rule f(_0,_1)=>_1 requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") "
         );
     }
 }
