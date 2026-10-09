@@ -297,6 +297,11 @@ def main() -> None:
             "K's :=K has no guard; conjoin a separate condition with bool::and",
             "if",
         ),
+        (
+            "let_block_malformed",
+            "a term block is `let pattern = term;`* followed by one result term (K's #let)",
+            "y",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

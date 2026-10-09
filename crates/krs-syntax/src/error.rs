@@ -226,6 +226,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction.
         reason: String,
     },
+    /// A term block (`let pattern = term;`* then one result term, K's
+    /// `#let`) is malformed or occurs in a pattern (KF-032).
+    InvalidLet {
+        /// Specific restriction.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -366,6 +372,7 @@ impl SyntaxErrorKind {
             Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
+            Self::InvalidLet { .. } => codes::syntax::INVALID_LET,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -620,7 +627,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidSpecModule { reason }
             | SyntaxErrorKind::InvalidPatternAs { reason }
             | SyntaxErrorKind::InvalidPatternOr { reason }
-            | SyntaxErrorKind::InvalidMatches { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidMatches { reason }
+            | SyntaxErrorKind::InvalidLet { reason } => formatter.write_str(reason),
         }
     }
 }

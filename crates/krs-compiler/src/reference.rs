@@ -1608,6 +1608,32 @@ fn render_term(
             let matched = render_term(matched, true, package, bundle)?;
             Ok(quote!(k::matches!(#subject, #matched)))
         }
+        // A block's `let` statements nest to the right; they print as one
+        // Rust block.
+        DescriptorTerm::Let { .. } => {
+            let mut statements = Vec::new();
+            let mut current = term;
+            while let DescriptorTerm::Let {
+                pattern: bound,
+                sort,
+                value,
+                body,
+                ..
+            } = current
+            {
+                let bound = render_term(bound, true, package, bundle)?;
+                let value = render_term(value, pattern, package, bundle)?;
+                statements.push(if let Some(sort) = sort {
+                    let sort = render_descriptor_sort(&sort.sort, package)?;
+                    quote!(let #bound: #sort = #value;)
+                } else {
+                    quote!(let #bound = #value;)
+                });
+                current = body;
+            }
+            let result = render_term(current, pattern, package, bundle)?;
+            Ok(quote!({ #(#statements)* #result }))
+        }
         DescriptorTerm::Cell {
             declaration,
             fields,

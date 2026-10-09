@@ -1963,6 +1963,10 @@ fn lower_rule_rewrite(
     )?)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exhaustive lowering over the closed semantic term sum."
+)]
 fn lower_term(
     term: &SemanticTerm,
     names: &NamingPass,
@@ -2058,6 +2062,19 @@ fn lower_term(
             lower_sort_ref(term.sort(), names)?,
             lower_term(subject, names, origins)?,
             lower_term(pattern, names, origins)?,
+            binds.clone(),
+        )),
+        SemanticTermKind::Let {
+            pattern,
+            value,
+            body,
+            binds,
+        } => Ok(DefinitionTerm::let_binding(
+            origin,
+            lower_sort_ref(term.sort(), names)?,
+            lower_term(pattern, names, origins)?,
+            lower_term(value, names, origins)?,
+            lower_term(body, names, origins)?,
             binds.clone(),
         )),
     }

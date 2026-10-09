@@ -269,6 +269,9 @@ impl RuleClause {
                     | ProvenanceRole::PatternOr
                     | ProvenanceRole::Matches
                     | ProvenanceRole::MatchesWildcard
+                    | ProvenanceRole::Let
+                    | ProvenanceRole::LetSort
+                    | ProvenanceRole::LetWildcard
                     | ProvenanceRole::RuleResult
                     | ProvenanceRole::RuleRightPath
                     | ProvenanceRole::RuleRightApplicationHead
@@ -502,6 +505,10 @@ impl RuleClause {
         let (mut matches, mut wildcards) = (0_usize, 0_usize);
         for nodes in &terms {
             crate::term::push_matches_anchors(anchors, nodes, &mut matches, &mut wildcards)?;
+        }
+        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
+        for nodes in &terms {
+            crate::term::push_let_anchors(anchors, nodes, &mut lets, &mut let_wildcards)?;
         }
         Ok(())
     }

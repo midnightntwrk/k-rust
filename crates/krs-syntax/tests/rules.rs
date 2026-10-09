@@ -268,7 +268,9 @@ fn malformed_rule_patterns_and_bodies_are_rejected() {
             "body",
         ),
         (
-            "fn statements(Foo: Term<Expr>) -> Term<Expr> { let x = Done; x }",
+            // A body with `let` statements is a term block (KF-032); other
+            // statements are not.
+            "fn statements(Foo: Term<Expr>) -> Term<Expr> { Done; Done }",
             "body",
         ),
         (

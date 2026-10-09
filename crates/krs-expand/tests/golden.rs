@@ -506,6 +506,30 @@ fn twin(k::term![Twin(e)]: Term<Bool>) -> Term<Bool> {
 ",
     ),
     (
+        "rule_let",
+        r"
+#[k::equation]
+fn scale(k::term![Scale(e)]: Term<Int>) -> Term<Int> {
+    let ExpSyntax::Pair(_, n) = e;
+    let m: Int = n;
+    int::mul(m, m)
+}
+",
+    ),
+    (
+        "rules_let",
+        r"
+k::rules! {
+    for Exp;
+    use ExpSyntax::*;
+
+    swap: Swap { e } => { let Pair(x, y) = e; Pair(y, x) };
+    #[k::requires({ let m: Int = e; int::gt(m, 0) })]
+    positive: Positive { e } => 1;
+}
+",
+    ),
+    (
         "rule_pattern_or",
         r"
 #[k::equation]

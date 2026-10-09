@@ -93,6 +93,12 @@ fn collect(
         DefinitionTermKind::Matches {
             subject, pattern, ..
         } => vec![subject.as_ref(), pattern.as_ref()],
+        DefinitionTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![pattern.as_ref(), value.as_ref(), body.as_ref()],
     };
     for child in children {
         collect(child, parents, names, warnings);

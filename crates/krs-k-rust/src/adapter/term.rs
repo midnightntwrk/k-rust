@@ -208,6 +208,27 @@ impl Adapter<'_> {
                 let subject = self.term(subject, module, sentence_index, subject_path, context)?;
                 Ok(NativeTerm::apply("_:=K_", vec![pattern, subject]))
             }
+            // K's `( #let PATTERN = VALUE #in BODY )` is `#let(PATTERN,
+            // VALUE, BODY)` with no label sort parameter; k-rust's
+            // `resolve_fun` lowers it to `#fun(PATTERN => BODY)(VALUE)`
+            // (KF-032).
+            DefinitionTermKind::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                let mut pattern_path = path.clone();
+                pattern_path.push(0);
+                let mut value_path = path.clone();
+                value_path.push(1);
+                let mut body_path = path;
+                body_path.push(2);
+                let pattern = self.term(pattern, module, sentence_index, pattern_path, context)?;
+                let value = self.term(value, module, sentence_index, value_path, context)?;
+                let body = self.term(body, module, sentence_index, body_path, context)?;
+                Ok(NativeTerm::apply("#let", vec![pattern, value, body]))
+            }
         }
     }
 

@@ -175,6 +175,8 @@ details! {
         InitializerPatternOr => "`A | B` or-patterns (#Or) are not allowed in initializers",
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
         InitializerMatches => "`k::matches!` (:=K) is not allowed in initializers",
+        LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
+        InitializerLet => "a `let` block (#let) is not allowed in initializers",
     }
 }
 
@@ -261,6 +263,7 @@ details! {
         PatternAsOutsideLeftHandSide => "`name @ pattern` (#as) is allowed only in left-hand sides",
         PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
+        LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
     }
 }
 

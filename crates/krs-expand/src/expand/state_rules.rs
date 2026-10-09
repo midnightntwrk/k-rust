@@ -949,6 +949,11 @@ impl<'a> StateRuleBuilder<'a> {
                 range.first(),
                 "`k::matches!` is supported in requires and ensures conditions and in term results; in a cell value, test the cell's binder in `#[k::requires]`",
             )),
+            TermTree::Let { range, .. } => Err(ExpandError::new(
+                expand::LET_OUTSIDE_TERM,
+                range.first(),
+                "`let` blocks (K's #let) are supported in requires and ensures conditions and in term results; in a cell value, compute the value with a function",
+            )),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(

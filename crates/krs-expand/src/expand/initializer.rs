@@ -636,6 +636,11 @@ impl<'a> InitializerBuilder<'a> {
                 range.first(),
                 "`k::matches!` is a rule and claim condition; initializers cannot contain it",
             )),
+            TermTree::Let { range, .. } => Err(ExpandError::new(
+                expand::LET_OUTSIDE_TERM,
+                range.first(),
+                "`let` blocks (K's #let) are rule terms; initializers cannot contain them",
+            )),
         }
     }
 }

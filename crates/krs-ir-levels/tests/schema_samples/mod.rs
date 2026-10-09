@@ -1069,8 +1069,14 @@ impl Sample for DefinitionTermKind {
                     pattern: sample::<Box<DefinitionTerm>>(),
                     binds: vec![sample::<SemanticId>()],
                 },
+                Self::Let {
+                    pattern: sample::<Box<DefinitionTerm>>(),
+                    value: sample::<Box<DefinitionTerm>>(),
+                    body: sample::<Box<DefinitionTerm>>(),
+                    binds: vec![sample::<SemanticId>()],
+                },
             ],
-            12,
+            13,
             "DefinitionTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1085,6 +1091,7 @@ impl Sample for DefinitionTermKind {
                 Self::As { .. } => 9,
                 Self::Or { .. } => 10,
                 Self::Matches { .. } => 11,
+                Self::Let { .. } => 12,
             },
         )
     }
@@ -1391,6 +1398,10 @@ impl Sample for DescriptorSortRef {
     }
 }
 impl Sample for DescriptorTerm {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One sample per descriptor-term variant."
+    )]
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -1471,8 +1482,22 @@ impl Sample for DescriptorTerm {
                     subject: Box::new(sample::<DescriptorTerm>()),
                     pattern: Box::new(sample::<DescriptorTerm>()),
                 },
+                Self::Let {
+                    key: sample::<ProvenanceKey>(),
+                    pattern: Box::new(sample::<DescriptorTerm>()),
+                    sort: Some(sample::<DescriptorSortReference>()),
+                    value: Box::new(sample::<DescriptorTerm>()),
+                    body: Box::new(sample::<DescriptorTerm>()),
+                },
+                Self::Let {
+                    key: sample::<ProvenanceKey>(),
+                    pattern: Box::new(sample::<DescriptorTerm>()),
+                    sort: None,
+                    value: Box::new(sample::<DescriptorTerm>()),
+                    body: Box::new(sample::<DescriptorTerm>()),
+                },
             ],
-            13,
+            14,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1488,6 +1513,7 @@ impl Sample for DescriptorTerm {
                 Self::As { .. } => 10,
                 Self::Or { .. } => 11,
                 Self::Matches { .. } => 12,
+                Self::Let { .. } => 13,
             },
         )
     }
@@ -2253,8 +2279,14 @@ impl Sample for SemanticTermKind {
                     pattern: sample::<Box<SemanticTerm>>(),
                     binds: vec![sample::<SemanticId>()],
                 },
+                Self::Let {
+                    pattern: sample::<Box<SemanticTerm>>(),
+                    value: sample::<Box<SemanticTerm>>(),
+                    body: sample::<Box<SemanticTerm>>(),
+                    binds: vec![sample::<SemanticId>()],
+                },
             ],
-            12,
+            13,
             "SemanticTermKind",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2269,6 +2301,7 @@ impl Sample for SemanticTermKind {
                 Self::As { .. } => 9,
                 Self::Or { .. } => 10,
                 Self::Matches { .. } => 11,
+                Self::Let { .. } => 12,
             },
         )
     }
@@ -2522,6 +2555,10 @@ impl Sample for WireProductionOwner {
     }
 }
 impl Sample for WireTerm {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One sample per descriptor-term variant."
+    )]
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
@@ -2602,8 +2639,22 @@ impl Sample for WireTerm {
                     subject: Box::new(sample::<WireTerm>()),
                     pattern: Box::new(sample::<WireTerm>()),
                 },
+                Self::Let {
+                    key: sample::<ProvenanceKey>(),
+                    pattern: Box::new(sample::<WireTerm>()),
+                    sort: Some(sample::<WireSortReference>()),
+                    value: Box::new(sample::<WireTerm>()),
+                    body: Box::new(sample::<WireTerm>()),
+                },
+                Self::Let {
+                    key: sample::<ProvenanceKey>(),
+                    pattern: Box::new(sample::<WireTerm>()),
+                    sort: None,
+                    value: Box::new(sample::<WireTerm>()),
+                    body: Box::new(sample::<WireTerm>()),
+                },
             ],
-            13,
+            14,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -2619,6 +2670,7 @@ impl Sample for WireTerm {
                 Self::As { .. } => 10,
                 Self::Or { .. } => 11,
                 Self::Matches { .. } => 12,
+                Self::Let { .. } => 13,
             },
         )
     }

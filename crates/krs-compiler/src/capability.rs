@@ -236,6 +236,16 @@ impl TermUse {
                 self.term(subject);
                 self.term(pattern);
             }
+            DefinitionTermKind::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                self.term(pattern);
+                self.term(value);
+                self.term(body);
+            }
         }
     }
 

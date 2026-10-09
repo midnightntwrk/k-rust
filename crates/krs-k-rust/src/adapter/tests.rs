@@ -1814,3 +1814,67 @@ fn matches_adapt_to_native_k_equals_k_with_the_pattern_first() {
     assert!(matches!(pattern, Term::Variable { name, .. } if name == "X_2"));
     assert!(matches!(subject, Term::Variable { name, .. } if name == "X"));
 }
+
+/// A `let` statement adapts to the AST k-rust's parser builds for
+/// `#let P = A #in B`: `#let(P, A, B)` with no label sort parameter, the
+/// argument order `resolve_fun` reads (KF-032).
+#[test]
+fn lets_adapt_to_native_let_with_pattern_value_body_order() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let local = krs_ir::SemanticId::local("x", 1).unwrap();
+    let pattern =
+        DefinitionTerm::variable(node("let.pattern"), DefinitionSortRef::int(), local.clone());
+    let value = DefinitionTerm::variable(
+        node("let.value"),
+        DefinitionSortRef::int(),
+        semantic_id("x"),
+    );
+    let body = DefinitionTerm::variable(node("let.body"), DefinitionSortRef::int(), local.clone());
+    let binding = DefinitionTerm::let_binding(
+        node("let"),
+        DefinitionSortRef::int(),
+        pattern,
+        value,
+        body,
+        vec![local],
+    );
+    let from =
+        DefinitionTerm::variable(node("let.from"), DefinitionSortRef::int(), semantic_id("x"));
+    let rule = RuleSentence::new(
+        node("let.rule"),
+        LabelIdentity::new(LabelId::new("let.rule").unwrap(), "let-rule").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(
+            node("let.body.rule"),
+            DefinitionSortRef::int(),
+            from,
+            binding,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let Sentence::Rule { body, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    let mut lets = Vec::new();
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, arguments } = term
+            && label.name == "#let"
+        {
+            assert!(label.parameters.is_empty(), "{label:?}");
+            lets.push(arguments.clone());
+        }
+    });
+    let [arguments] = lets.as_slice() else {
+        panic!("one native `#let` term, found {lets:?}")
+    };
+    let [pattern, value, body] = arguments.as_slice() else {
+        panic!("`#let` is ternary, found {arguments:?}")
+    };
+    // The local binder takes a name distinct from the rule's `x`.
+    assert!(matches!(pattern, Term::Variable { name, .. } if name == "X_2"));
+    assert!(matches!(value, Term::Variable { name, .. } if name == "X"));
+    assert!(matches!(body, Term::Variable { name, .. } if name == "X_2"));
+}

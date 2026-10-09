@@ -756,3 +756,61 @@ fn matches_print_as_parenthesised_k_equals_k_in_k_order() {
         "notBool ( X_2:Int +Int X_2:Int :=K X:Int )"
     );
 }
+
+/// A `let` statement is K's `( #let P = A #in B )`, always parenthesised, in
+/// K order; a local binder named like a rule binder takes a distinct name
+/// (KF-032).
+#[test]
+fn lets_print_as_parenthesised_k_let_with_distinct_local_names() {
+    let context = context();
+    let rule_x = krs_ir::SemanticId::new("x".to_owned()).unwrap();
+    let local_x = krs_ir::SemanticId::local("x", 1).unwrap();
+    let local = |name: &str| {
+        DefinitionTerm::variable(node(name), DefinitionSortRef::int(), local_x.clone())
+    };
+    let outer =
+        |name: &str| DefinitionTerm::variable(node(name), DefinitionSortRef::int(), rule_x.clone());
+    let value = DefinitionTerm::application(
+        node("let.value"),
+        DefinitionSortRef::int(),
+        DefinitionApplicationRef::Builtin(BuiltinOperation::IntAdd),
+        vec![outer("let.value.0"), outer("let.value.1")],
+    );
+    let body = DefinitionTerm::application(
+        node("let.body"),
+        DefinitionSortRef::int(),
+        DefinitionApplicationRef::Builtin(BuiltinOperation::IntAdd),
+        vec![local("let.body.0"), outer("let.body.1")],
+    );
+    let binding = DefinitionTerm::let_binding(
+        node("let"),
+        DefinitionSortRef::int(),
+        local("let.pattern"),
+        value,
+        body,
+        vec![local_x],
+    );
+    let rule = krs_ir_levels::RuleSentence::new(
+        node("let.rule"),
+        krs_ir_levels::LabelIdentity::new(
+            krs_ir_levels::LabelId::new("let.rule").unwrap(),
+            "let-rule",
+        )
+        .unwrap(),
+        krs_ir::SentenceKind::Equation,
+        Vec::new(),
+        DefinitionTerm::rewrite(
+            node("let.rewrite"),
+            DefinitionSortRef::int(),
+            outer("let.from"),
+            binding.clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let names = context.naming.rule(&rule);
+    assert_eq!(
+        render_term(&binding, &context, &names, false).unwrap().text,
+        "( #let X_2:Int = X:Int +Int X:Int #in X_2:Int +Int X:Int )"
+    );
+}

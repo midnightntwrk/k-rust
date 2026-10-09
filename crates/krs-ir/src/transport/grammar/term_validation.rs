@@ -23,6 +23,11 @@ pub(super) struct GrammarTermValidation<'a, F> {
     /// Whether the validator is inside a `k::matches!` pattern, whose names
     /// are local binders rather than rule bindings.
     pub(super) in_matches_pattern: bool,
+    /// Whether the validator is inside a `let` pattern, whose names are
+    /// local binders.
+    pub(super) in_let_pattern: bool,
+    /// The names bound by the enclosing `let` statements, innermost last.
+    pub(super) let_scopes: Vec<BTreeSet<String>>,
 }
 
 impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
@@ -44,7 +49,10 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         // A name in a `k::matches!` pattern is a local binder (BIND-1);
         // semantic lowering scopes it and rejects one that shadows a rule
         // binding.
-        if self.in_matches_pattern {
+        if self.in_matches_pattern
+            || self.in_let_pattern
+            || self.let_scopes.iter().any(|scope| scope.contains(name))
+        {
             return Ok(());
         }
         if !self.bindings.contains(name) {
@@ -83,7 +91,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if !self.allow_wildcards && !self.in_matches_pattern {
+        if !self.allow_wildcards && !self.in_matches_pattern && !self.in_let_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
@@ -162,6 +170,11 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     ) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
         require_key(binding_key, self.provenance)?;
+        if self.in_let_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternAsOutsideLeftHandSide,
+            ));
+        }
         if self.in_matches_pattern {
             return if name.trim().is_empty() {
                 Err(GrammarTransportError::InvalidBinding(name.to_owned()))
@@ -183,7 +196,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if !self.allow_wildcards && !self.in_matches_pattern {
+        if self.in_let_pattern || (!self.allow_wildcards && !self.in_matches_pattern) {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternOrOutsideLeftHandSide,
             ));
@@ -193,7 +206,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if self.allow_wildcards || self.in_matches_pattern {
+        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MatchesInPattern,
             ));
@@ -203,6 +216,37 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn matches_pattern(&mut self, inside: bool) {
         self.in_matches_pattern = inside;
+    }
+
+    fn let_binding(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: Option<&DescriptorSortReference>,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::LetInPattern,
+            ));
+        }
+        if let Some(sort) = sort {
+            require_key(&sort.key, self.provenance)?;
+            sort.sort.validate()?;
+        }
+        Ok(())
+    }
+
+    fn let_pattern(&mut self, inside: bool) {
+        self.in_let_pattern = inside;
+    }
+
+    fn let_body(&mut self, names: Option<&BTreeSet<String>>) {
+        match names {
+            Some(names) => self.let_scopes.push(names.clone()),
+            None => {
+                self.let_scopes.pop();
+            }
+        }
     }
 
     fn argument(
@@ -314,6 +358,16 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if self.counters.in_let_pattern {
+            insert_exact(
+                self.keys,
+                key,
+                ProvenanceRole::LetWildcard,
+                self.counters.let_wildcard,
+            )?;
+            self.counters.let_wildcard = increment(self.counters.let_wildcard)?;
+            return Ok(());
+        }
         if self.counters.in_matches_pattern {
             insert_exact(
                 self.keys,
@@ -419,7 +473,9 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         binding_key: &ProvenanceKey,
         _: &str,
     ) -> Result<(), Self::Error> {
-        if !matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
+        if self.counters.in_let_pattern
+            || (!matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern)
+        {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternAsOutsideLeftHandSide,
             ));
@@ -441,7 +497,9 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if !matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
+        if self.counters.in_let_pattern
+            || (!matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern)
+        {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternOrOutsideLeftHandSide,
             ));
@@ -457,7 +515,10 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     }
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left) || self.counters.in_matches_pattern {
+        if matches!(self.side, TermSide::Left)
+            || self.counters.in_matches_pattern
+            || self.counters.in_let_pattern
+        {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MatchesInPattern,
             ));
@@ -475,6 +536,43 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     fn matches_pattern(&mut self, inside: bool) {
         self.counters.in_matches_pattern = inside;
     }
+
+    fn let_binding(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: Option<&DescriptorSortReference>,
+    ) -> Result<(), Self::Error> {
+        if matches!(self.side, TermSide::Left)
+            || self.counters.in_matches_pattern
+            || self.counters.in_let_pattern
+        {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::LetInPattern,
+            ));
+        }
+        if let Some(sort) = sort {
+            insert_exact(
+                self.keys,
+                &sort.key,
+                ProvenanceRole::LetSort,
+                self.counters.let_binding,
+            )?;
+        }
+        insert_exact(
+            self.keys,
+            key,
+            ProvenanceRole::Let,
+            self.counters.let_binding,
+        )?;
+        self.counters.let_binding = increment(self.counters.let_binding)?;
+        Ok(())
+    }
+
+    fn let_pattern(&mut self, inside: bool) {
+        self.counters.in_let_pattern = inside;
+    }
+
+    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
 
     fn argument(
         &mut self,

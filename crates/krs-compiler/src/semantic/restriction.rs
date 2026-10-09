@@ -335,6 +335,7 @@ fn first_untranslatable(
         IrTermKind::As { pattern, .. } => (None, vec![pattern.as_ref()]),
         IrTermKind::Or { alternatives } => (None, alternatives.iter().collect()),
         IrTermKind::Matches { .. } => (Some("`k::matches!` (K's :=K)".to_owned()), Vec::new()),
+        IrTermKind::Let { .. } => (Some("a `let` block (K's #let)".to_owned()), Vec::new()),
         IrTermKind::Variable { .. } | IrTermKind::Token { .. } => (None, Vec::new()),
     };
     unseen.or_else(|| {

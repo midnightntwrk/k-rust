@@ -1979,6 +1979,16 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn matches_pattern(&mut self, _: bool) {}
 
+    fn let_binding(&mut self, _: &ProvenanceKey, _: Option<&S::Sort>) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InitializerLet,
+        ))
+    }
+
+    fn let_pattern(&mut self, _: bool) {}
+
+    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

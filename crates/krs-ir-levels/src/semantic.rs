@@ -1607,6 +1607,10 @@ pub enum SemanticValidationError {
     /// other than Bool, or with local binders that are not exactly its
     /// pattern's named variables or that occur outside it.
     InvalidMatches,
+    /// `let` (#let) outside a post-term or condition, at a sort other than
+    /// its body's, or with local binders that are not exactly its pattern's
+    /// named variables or that occur outside its pattern and body.
+    InvalidLet,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1807,6 +1811,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
+            ),
+            Self::InvalidLet => formatter.write_str(
+                "`let` (#let) occurs only in post-terms and conditions, at its body's sort, its pattern neither aliases nor has alternatives, and its local binders are exactly its pattern's named variables, used only in its pattern and body",
             ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")

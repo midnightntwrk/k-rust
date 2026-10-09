@@ -207,6 +207,7 @@ register_codes! {
         INVALID_PATTERN_AS: "krs::analysis::invalid-pattern-as" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side, or its alias needs a sort its pattern does not have.",
         INVALID_PATTERN_OR: "krs::analysis::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) occurs outside a left-hand side, binds a name at different sorts in its alternatives, or has no least common sort.",
         INVALID_MATCHES: "krs::analysis::invalid-matches" => "A `k::matches!` (K's `:=K`) pattern name shadows a rule binder or is never read, or its pattern's sort cannot meet its subject's sort.",
+        INVALID_LET: "krs::analysis::invalid-let" => "A `let` statement's (K's `#let`) pattern sort cannot meet its value's sort, or its names have no single sort.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -268,6 +269,7 @@ register_codes! {
         INVALID_PATTERN_AS: "krs::syntax::invalid-pattern-as" => "A `name @ pattern` (K's `#as`) is malformed or occurs outside a left-hand side.",
         INVALID_PATTERN_OR: "krs::syntax::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) is malformed, binds different names in its alternatives, or occurs outside a left-hand side.",
         INVALID_MATCHES: "krs::syntax::invalid-matches" => "A `k::matches!` (K's `:=K`) is malformed, has an `if` guard, is written as std's bare `matches!`, or occurs in a left-hand side.",
+        INVALID_LET: "krs::syntax::invalid-let" => "A term block is not `let pattern = term;` statements followed by one result term (K's `#let`), its pattern has alternatives or an alias, or it occurs in a pattern.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",
@@ -334,6 +336,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         PATTERN_AS_OUTSIDE_LHS: "krs::expand::pattern-as-outside-lhs" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side.",
         PATTERN_OR_OUTSIDE_LHS: "krs::expand::pattern-or-outside-lhs" => "An `A | B` or-pattern (K's `#Or`) occurs outside a left-hand side.",
         MATCHES_OUTSIDE_CONDITION: "krs::expand::matches-outside-condition" => "A `k::matches!` (K's `:=K`) occurs in a left-hand side, an initializer, a `cells!` cell value, or a claim.",
+        LET_OUTSIDE_TERM: "krs::expand::let-outside-term" => "A `let` block (K's `#let`) occurs in a left-hand side, an initializer, a `cells!` cell value, or a claim.",
         CLAIM_SUBJECT_ONLY_TERM: "krs::expand::claim-subject-only-term" => "An anonymous term occurrence appears outside a claim subject.",
         CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
         FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",

@@ -3,7 +3,8 @@
   "expand": {
     "krs-patterns-functions-aliases": "0d0e304a40e0387e3db4a4b9e5e9fefdad67209a28c5a76c17293921f5ef589b",
     "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
-    "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494"
+    "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
+    "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -14,17 +15,23 @@
     },
     "krs-patterns-functions-matches": {
       "definition.k": "fc410812c066fb1fb4b609781c05c0160a0cba9af9ccf8611e5a1384a72e362b"
+    },
+    "krs-patterns-functions-lets": {
+      "definition.k": "ca482bee929fafc8bd3581132e72e1d462b9bf98d817e0c8f860b1a70a4d9149"
     }
   },
   "reference_sha256": {
     "krs-patterns-functions-aliases": "5d80bc1131a85c59014927eb1a3c0b24fc060d96926414388e7c9acfee728dfc",
-    "krs-patterns-functions-aliases-reference": "9deded0011ddce82c6d28a4ec7c0cb61533f331a1f1df018ecf5ee8fd560c3db",
+    "krs-patterns-functions-aliases-reference": "964d97c13353a66b38a503384dd1d45a0d350b0a8a7d6182f049cb419e47909c",
     "krs-patterns-functions-alternatives": "ed745b3725c8e07face30b7b8dce7c8ed2a58d7ecc17baf144f94cfd4dfda219",
-    "krs-patterns-functions-alternatives-reference": "73c96183cbb9bb5846890ba49e9cb95fc1e6a76c68ba3917cf6682aacabe4335",
+    "krs-patterns-functions-alternatives-reference": "e3a675e8f7d182151c3a85c9559cdb98975e4fdeece042725e14b5217987a055",
     "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d",
     "krs-patterns-functions-matches": "14e473f378070e603ff6d217fe712043c6dd58eeb5a6d575cb3eeb7f3b9e89c4",
-    "krs-patterns-functions-matches-reference": "b8a8bb9f8ad4589f0ac784c5dc42865b77ea4db1d5b989c21e2eef715a070eb4",
-    "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d"
+    "krs-patterns-functions-matches-reference": "6322edf1798df32311b79d995057d7b7f45e502c176108b5ff2156ea0ccc47ba",
+    "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d",
+    "krs-patterns-functions-lets": "aafe7e56bf6a076cb39669473530b7660ff054639534bd832469eab1366fdd7d",
+    "krs-patterns-functions-lets-reference": "2645b14d118be521a8d99258f09de019196ff14b065978c34cfdd700218e5630",
+    "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -100,6 +107,40 @@
         "parse": "accepted",
         "run": "false"
       }
+    },
+    "krs-patterns-functions-lets": {
+      "swap": {
+        "parse": "accepted",
+        "run": "pair(2, 1)"
+      },
+      "swap-pair": {
+        "parse": "accepted",
+        "run": "pair(2, 1)"
+      },
+      "scale": {
+        "parse": "accepted",
+        "run": "12"
+      },
+      "shadow": {
+        "parse": "accepted",
+        "run": "pair(pair(1, 1), 1)"
+      },
+      "positive": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "scale-refuted": {
+        "parse": "accepted",
+        "run": "undefined"
+      },
+      "swap-refuted": {
+        "parse": "accepted",
+        "run": "undefined"
+      },
+      "swap-pair-refuted": {
+        "parse": "accepted",
+        "run": "undefined"
+      }
     }
   },
   "diagnostics": {
@@ -153,6 +194,41 @@
     ],
     "matches-claim": [
       "error[krs::rust-expansion::uncoded-error]: `k::matches!` is not supported in claims: the pinned native prover cannot resolve K's :=K in a claim; match the shape in the claim's subject instead"
+    ],
+    "let-shape": [
+      "error[krs::rust-expansion::uncoded-error]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
+    ],
+    "let-or": [
+      "error[krs::rust-expansion::uncoded-error]: #let patterns take one alternative"
+    ],
+    "let-alias": [
+      "error[krs::rust-expansion::uncoded-error]: `name @ pattern` cannot bind in a `let` pattern: K accepts #as only on a rule's left-hand side; bind the whole value with its own `let`"
+    ],
+    "let-pattern": [
+      "error[krs::rust-expansion::uncoded-error]: a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern"
+    ],
+    "let-scope": [
+      "error[E0599]: no variant, associated function, or constant named `__krs_variant_type_id_x` found for enum `ExpSyntax` in the current scope"
+    ],
+    "let-sort": [
+      "error[krs::analysis::invalid-let]: the pattern has sort `Bool` and the value has sort `Exp`, which share no subsort, so this `let` is always undefined"
+    ],
+    "let-claim": [
+      "error[krs::rust-expansion::uncoded-error]: `let` blocks are not supported in claims: the pinned native prover cannot resolve K's #let in a claim; bind the value in the claim's subject instead"
     ]
+  },
+  "known_divergences": {
+    "krs-patterns-functions-lets": {
+      "scale-refuted": {
+        "native": {
+          "parse": "accepted",
+          "run": "stuck: #lambdaE__ ( pair(1, 2) ~> .K ) ~> .K"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "undefined"
+        }
+      }
+    }
   }
 }

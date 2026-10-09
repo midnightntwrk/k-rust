@@ -656,6 +656,10 @@ impl StateRuleItem {
     /// # Errors
     ///
     /// Returns endpoint or ordinal-overflow errors only.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One table numbers every anchor role of the sentence in expansion order."
+    )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut output = vec![
             ProvenanceAnchor::new(
@@ -743,6 +747,24 @@ impl StateRuleItem {
                 ensures.nodes(),
                 &mut matches,
                 &mut wildcards,
+            )?;
+        }
+        // `let` statements and their pattern wildcards (KF-032), likewise.
+        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
+        for term in claim_terms(self, None) {
+            crate::term::push_let_anchors(
+                &mut output,
+                term.nodes(),
+                &mut lets,
+                &mut let_wildcards,
+            )?;
+        }
+        if let Some(ensures) = self.existentials.ensures() {
+            crate::term::push_let_anchors(
+                &mut output,
+                ensures.nodes(),
+                &mut lets,
+                &mut let_wildcards,
             )?;
         }
         Ok(output)
@@ -1275,7 +1297,9 @@ fn append_term_provenance(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => continue,
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1429,7 +1453,9 @@ fn append_term_candidates(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => {}
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => {}
         }
     }
     Ok(())
@@ -1462,7 +1488,9 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::As { range, .. }
         | TermNode::Or(range)
         | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range) => Ok(*range),
+        | TermNode::MatchesWildcard(range)
+        | TermNode::Let { range, .. }
+        | TermNode::LetWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1481,7 +1509,9 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         | TermNode::As { range, .. }
         | TermNode::Or(range)
         | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range) => range.first(),
+        | TermNode::MatchesWildcard(range)
+        | TermNode::Let { range, .. }
+        | TermNode::LetWildcard(range) => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1589,7 +1619,10 @@ fn push_claim_ensures_anchors(
     crate::term::push_pattern_or_anchors(output, nodes, &mut alternatives)?;
     let mut matches = count(|node| matches!(node, TermNode::Matches(_)));
     let mut wildcards = count(|node| matches!(node, TermNode::MatchesWildcard(_)));
-    crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)
+    crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)?;
+    let mut lets = count(|node| matches!(node, TermNode::Let { .. }));
+    let mut let_wildcards = count(|node| matches!(node, TermNode::LetWildcard(_)));
+    crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)
 }
 
 fn claim_terms<'a>(
@@ -1688,7 +1721,9 @@ fn append_claim_special_anchors(
                 | TermNode::As { .. }
                 | TermNode::Or(_)
                 | TermNode::Matches(_)
-                | TermNode::MatchesWildcard(_) => {}
+                | TermNode::MatchesWildcard(_)
+                | TermNode::Let { .. }
+                | TermNode::LetWildcard(_) => {}
             }
         }
     }

@@ -109,6 +109,7 @@ macro_rules! validation_error {
             ValidationError::InvalidPatternAs => $public::InvalidPatternAs,
             ValidationError::InvalidPatternOr => $public::InvalidPatternOr,
             ValidationError::InvalidMatches => $public::InvalidMatches,
+            ValidationError::InvalidLet => $public::InvalidLet,
             ValidationError::RuleConditionSortMismatch => $public::RuleConditionSortMismatch,
             ValidationError::SequenceItemSortMismatch => $public::SequenceItemSortMismatch,
             ValidationError::SequenceSortMismatch => $public::SequenceSortMismatch,

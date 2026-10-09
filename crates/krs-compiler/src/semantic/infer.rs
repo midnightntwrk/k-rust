@@ -56,7 +56,20 @@ pub(super) struct LocalBinders {
     /// The identity and sort of each local binder of the pattern being
     /// lowered, if any.
     scope: Option<BTreeMap<String, (SemanticId, SemanticSortRef)>>,
+    /// The sort of each local binder of a `let` pattern (KF-032), per `let`
+    /// key; `None` is the value's sort (`let x = v`), known once lowered.
+    let_sorts: BTreeMap<ProvenanceKey, BTreeMap<String, Option<SemanticSortRef>>>,
+    /// The names bound by the enclosing `let` statements while inferring,
+    /// innermost last.
+    let_names: Vec<BTreeSet<String>>,
+    /// The identity and sort of each name bound by the enclosing `let`
+    /// statements while lowering, innermost last.
+    let_scopes: Vec<BTreeMap<String, (SemanticId, SemanticSortRef)>>,
 }
+
+/// The reason given for a `let` block in a pattern (KF-032).
+const LET_IN_PATTERN: &str =
+    "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern";
 
 impl StructuredTermBuilder<'_> {
     #[expect(
@@ -70,6 +83,10 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         match term {
+            // A name an enclosing `let` binds is local (KF-032): its sort is
+            // checked when it is lowered.
+            DescriptorTerm::Variable { name, .. }
+                if !self.is_inferring_local(name) && self.is_let_local(name) => {}
             DescriptorTerm::Variable { name, .. } => {
                 if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
@@ -235,8 +252,187 @@ impl StructuredTermBuilder<'_> {
                 subject: tested,
                 pattern,
             } => self.infer_matches(key, tested, pattern, expected_sort, subject)?,
+            DescriptorTerm::Let {
+                key,
+                pattern,
+                sort,
+                value,
+                body,
+            } => self.infer_let(
+                key,
+                pattern,
+                sort.as_ref(),
+                value,
+                body,
+                expected_sort,
+                subject,
+            )?,
         }
         Ok(())
+    }
+
+    /// Whether an enclosing `let` statement binds `name` (KF-032).
+    fn is_let_local(&self, name: &str) -> bool {
+        self.locals
+            .let_names
+            .iter()
+            .any(|names| names.contains(name))
+    }
+
+    /// Infers one `let pattern = value;` statement and the rest of its block
+    /// (K's `#let`, KF-032), a term at its body's sort outside every
+    /// pattern. The pattern's names are local binders (BIND-1) scoped over
+    /// the pattern and the body; the value is outside their scope. A bare
+    /// `let x = v` (or `let _ = v`) takes the ascribed sort or the value's;
+    /// a constructor pattern's names take their sorts from the pattern.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "One `let` statement has five parts besides the builder state."
+    )]
+    fn infer_let(
+        &mut self,
+        key: &ProvenanceKey,
+        pattern: &DescriptorTerm,
+        sort: Option<&krs_ir::DescriptorSortReference>,
+        value: &DescriptorTerm,
+        body: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
+            return Err(self.invalid_let(key, LET_IN_PATTERN.to_owned()));
+        }
+        let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
+        let mut occurrences = Vec::new();
+        pattern_names(pattern, &mut occurrences);
+        let names = occurrences
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<BTreeSet<_>>();
+        let mut sorts = BTreeMap::new();
+        if is_bare_let_pattern(pattern) {
+            for name in &names {
+                sorts.insert(name.clone(), ascribed.clone());
+            }
+        } else {
+            let outer = std::mem::take(&mut self.binding_constraints);
+            self.locals.inferring = Some(names.clone());
+            let inferred = self.infer(pattern, ascribed.as_ref(), true);
+            self.locals.inferring = None;
+            let constraints = std::mem::replace(&mut self.binding_constraints, outer);
+            inferred?;
+            for name in &names {
+                let candidates = constraints
+                    .get(name)
+                    .map(|constraints| {
+                        most_specific_common_descendants(constraints, self.sort_parents)
+                    })
+                    .unwrap_or_default();
+                let [sort] = candidates.as_slice() else {
+                    return Err(self.invalid_let(
+                        key,
+                        format!("`{name}` in this `let` pattern has no single sort its occurrences share"),
+                    ));
+                };
+                sorts.insert(name.clone(), Some(sort.clone()));
+            }
+        }
+        self.locals.let_sorts.insert(key.clone(), sorts);
+        self.infer(value, None, false)?;
+        self.locals.let_names.push(names);
+        let inferred = self.infer(body, expected_sort, false);
+        self.locals.let_names.pop();
+        inferred
+    }
+
+    /// Lowers one `let` statement with fresh identities for the pattern's
+    /// local binders, which join the sentence's variables, so a name that
+    /// shadows an outer binder is a distinct variable.
+    fn lower_let(
+        &mut self,
+        key: &ProvenanceKey,
+        pattern: &DescriptorTerm,
+        sort: Option<&krs_ir::DescriptorSortReference>,
+        value: &DescriptorTerm,
+        body: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let value = self.lower(value, None, false)?;
+        let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
+        let sorts = self.locals.let_sorts.get(key).cloned().unwrap_or_default();
+        let mut occurrences = Vec::new();
+        pattern_names(pattern, &mut occurrences);
+        let mut scope = BTreeMap::new();
+        let mut binds = Vec::new();
+        for (name, _) in occurrences {
+            if scope.contains_key(&name) {
+                continue;
+            }
+            let sort = sorts
+                .get(&name)
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| value.sort().clone());
+            let id = SemanticId::local(&name, self.wildcard_offset + self.wildcards.len())?;
+            self.wildcards
+                .push(SemanticVariable::new(id.clone(), sort.clone()));
+            binds.push(id.clone());
+            scope.insert(name, (id, sort));
+        }
+        let pattern_sort =
+            ascribed.or_else(|| is_bare_let_pattern(pattern).then(|| value.sort().clone()));
+        self.locals.scope = Some(scope.clone());
+        let lowered = self.lower(pattern, pattern_sort.as_ref(), true);
+        self.locals.scope = None;
+        let lowered = lowered?;
+        let meets = most_specific_common_descendants(
+            &BTreeSet::from([value.sort().clone(), lowered.sort().clone()]),
+            self.sort_parents,
+        );
+        if meets.is_empty() {
+            return Err(self.invalid_let(
+                key,
+                format!(
+                    "the pattern has sort `{}` and the value has sort `{}`, which share no subsort, so this `let` is always undefined",
+                    super::overload::sort_name(lowered.sort()),
+                    super::overload::sort_name(value.sort())
+                ),
+            ));
+        }
+        self.locals.let_scopes.push(scope);
+        let body = self.lower(body, expected_sort, false);
+        self.locals.let_scopes.pop();
+        let body = body?;
+        Ok(SemanticTerm::let_binding(
+            semantic_origin(self.descriptor, key.clone(), "term-let")?,
+            body.sort().clone(),
+            lowered,
+            value,
+            body,
+            binds,
+        ))
+    }
+
+    /// The identity and sort of `name` if an enclosing `let` binds it.
+    fn let_local(&self, name: &str) -> Option<(SemanticId, SemanticSortRef)> {
+        self.locals
+            .let_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).cloned())
+    }
+
+    fn invalid_let(&self, key: &ProvenanceKey, reason: String) -> DescriptorLoweringError {
+        DescriptorLoweringError::InvalidLet {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        }
     }
 
     fn is_inferring_local(&self, name: &str) -> bool {
@@ -281,7 +477,11 @@ impl StructuredTermBuilder<'_> {
             *counts.entry(name.as_str()).or_default() += 1;
         }
         for (name, occurrence) in &occurrences {
-            if self.binding_names.contains(name) || self.declared_binders.contains_key(name) {
+            if self.binding_names.contains(name)
+                || self.declared_binders.contains_key(name)
+                || self.is_let_local(name)
+                || self.let_local(name).is_some()
+            {
                 return Err(self.invalid_matches(
                     occurrence,
                     format!(
@@ -888,6 +1088,26 @@ impl StructuredTermBuilder<'_> {
                     id,
                 ))
             }
+            DescriptorTerm::Variable { key, name, .. } if self.let_local(name).is_some() => {
+                let (id, sort) = self.let_local(name).expect("checked above");
+                if let Some(expected) = expected_sort
+                    && !semantic_is_subsort(&sort, expected, self.sort_parents)
+                {
+                    return Err(self.invalid_let(
+                        key,
+                        format!(
+                            "`{name}` is bound by a `let` at sort `{}`, which is not admissible at sort `{}`",
+                            super::overload::sort_name(&sort),
+                            super::overload::sort_name(expected)
+                        ),
+                    ));
+                }
+                Ok(SemanticTerm::variable(
+                    semantic_origin(self.descriptor, key.clone(), "term-local-binder")?,
+                    sort,
+                    id,
+                ))
+            }
             DescriptorTerm::Variable { key, name, .. } => {
                 if !self.binding_names.contains(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
@@ -1070,6 +1290,13 @@ impl StructuredTermBuilder<'_> {
                 subject: tested,
                 pattern,
             } => self.lower_matches(key, tested, pattern),
+            DescriptorTerm::Let {
+                key,
+                pattern,
+                sort,
+                value,
+                body,
+            } => self.lower_let(key, pattern, sort.as_ref(), value, body, expected_sort),
         }
     }
 
@@ -1530,6 +1757,15 @@ impl StructuredTermBuilder<'_> {
     }
 }
 
+/// Whether a `let` pattern is one name or `_` (`let x = v`, `let _ = v`),
+/// whose sort is the ascription or the value's (KF-032).
+const fn is_bare_let_pattern(pattern: &DescriptorTerm) -> bool {
+    matches!(
+        pattern,
+        DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
+    )
+}
+
 /// The authored macro of a sort test, for messages.
 /// Every name a `k::matches!` pattern binds, with the provenance key of each
 /// occurrence, in preorder: variables and `name @ ..` aliases.
@@ -1569,7 +1805,8 @@ fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)
         }
         DescriptorTerm::SortTest { operand, .. } => pattern_names(operand, output),
         DescriptorTerm::Matches { subject, .. } => pattern_names(subject, output),
-        DescriptorTerm::Literal { .. }
+        DescriptorTerm::Let { .. }
+        | DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
         | DescriptorTerm::BuiltinToken { .. }
         | DescriptorTerm::Anonymous { .. }

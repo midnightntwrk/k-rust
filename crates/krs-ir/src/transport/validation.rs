@@ -180,6 +180,23 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     /// admitted.
     fn matches_pattern(&mut self, inside: bool);
 
+    /// One `let pattern = value;` statement (K's `#let`), admitted only
+    /// outside left-hand sides and patterns; `sort` is the ascription of
+    /// `let name: Sort = value;`.
+    fn let_binding(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: Option<&S::Sort>,
+    ) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the pattern of a `let` statement,
+    /// where wildcards and local binders are admitted.
+    fn let_pattern(&mut self, inside: bool);
+
+    /// Enters (`Some`) or leaves (`None`) the body of a `let` statement, in
+    /// which the pattern's names are local binders.
+    fn let_body(&mut self, names: Option<&BTreeSet<String>>);
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
@@ -278,6 +295,80 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             context.matches_pattern(false);
             validated
         }
+        Term::Let {
+            key,
+            pattern,
+            sort,
+            value,
+            body,
+        } => validate_let(key, pattern, sort.as_ref(), value, body, context),
+    }
+}
+
+/// Validates one `let` statement in source order: the pattern, the value,
+/// then the body, in which the pattern's names are local binders.
+fn validate_let<S: ValidationStage, C: TermValidation<S>>(
+    key: &ProvenanceKey,
+    pattern: &Term<S>,
+    sort: Option<&S::Sort>,
+    value: &Term<S>,
+    body: &Term<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    context.let_binding(key, sort)?;
+    context.let_pattern(true);
+    let validated = validate_term(pattern, context);
+    context.let_pattern(false);
+    validated?;
+    validate_term(value, context)?;
+    let mut names = BTreeSet::new();
+    let_pattern_names(pattern, &mut names);
+    context.let_body(Some(&names));
+    let validated = validate_term(body, context);
+    context.let_body(None);
+    validated
+}
+
+/// The names a `let` pattern binds: its variables and `name @ ..` aliases.
+pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut BTreeSet<String>) {
+    match term {
+        Term::Variable { name, .. } => {
+            names.insert(name.clone());
+        }
+        Term::As { name, pattern, .. } => {
+            names.insert(name.clone());
+            let_pattern_names(pattern, names);
+        }
+        Term::Application { arguments, .. } => {
+            for argument in arguments {
+                let (crate::TermArgumentRef::Positional { value }
+                | crate::TermArgumentRef::Named { value, .. }) = argument.clone();
+                let_pattern_names(value, names);
+            }
+        }
+        Term::Or { alternatives, .. } => {
+            for alternative in alternatives.iter() {
+                let_pattern_names(alternative, names);
+            }
+        }
+        Term::OrBool { arguments, .. } => {
+            for argument in arguments.iter() {
+                let_pattern_names(argument, names);
+            }
+        }
+        Term::Cell { fields, .. } => {
+            for field in fields {
+                let_pattern_names(&field.value, names);
+            }
+        }
+        Term::SortTest { operand, .. } => let_pattern_names(operand, names),
+        Term::Matches { .. }
+        | Term::Let { .. }
+        | Term::Literal { .. }
+        | Term::Wildcard { .. }
+        | Term::BuiltinToken { .. }
+        | Term::Anonymous { .. }
+        | Term::Lexeme { .. } => {}
     }
 }
 

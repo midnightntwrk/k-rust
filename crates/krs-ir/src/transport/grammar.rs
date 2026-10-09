@@ -1497,6 +1497,22 @@ stage_shape! {
             /// The pattern, a left-hand-side-shaped term.
             pattern: Box<Term<S>> => [box nested],
         },
+        /// One `let pattern = value;` statement of a term block and the rest
+        /// of the block: K's `( #let PATTERN = VALUE #in BODY )`. The
+        /// pattern's names are local binders, visible in the pattern and the
+        /// body only.
+        Let {
+            /// The `let` statement's provenance.
+            key: ProvenanceKey => [keep],
+            /// The pattern, a left-hand-side-shaped term.
+            pattern: Box<Term<S>> => [box nested],
+            /// The exact authored sort of `let name: Sort = value;`.
+            sort: Option<S::Sort> => [option sort],
+            /// The matched term, outside the pattern's scope.
+            value: Box<Term<S>> => [box nested],
+            /// The rest of the block: the next `let`, or the result term.
+            body: Box<Term<S>> => [box nested],
+        },
     }
 }
 
@@ -2209,6 +2225,8 @@ impl DescriptorTerm {
                 seen_variables,
                 allow_wildcards,
                 in_matches_pattern: false,
+                in_let_pattern: false,
+                let_scopes: Vec::new(),
             },
         )
     }
@@ -4027,6 +4045,12 @@ struct TermKeyCounters {
     matches_wildcard: u32,
     /// Whether the validator is inside a `k::matches!` pattern.
     in_matches_pattern: bool,
+    /// `let` statement ordinals, side-neutral.
+    let_binding: u32,
+    /// Wildcard ordinals inside `let` patterns, side-neutral.
+    let_wildcard: u32,
+    /// Whether the validator is inside a `let` pattern.
+    in_let_pattern: bool,
 }
 
 impl TermKeyCounters {
@@ -4047,6 +4071,9 @@ impl TermKeyCounters {
             matches: self.matches,
             matches_wildcard: self.matches_wildcard,
             in_matches_pattern: false,
+            let_binding: self.let_binding,
+            let_wildcard: self.let_wildcard,
+            in_let_pattern: false,
         }
     }
 }

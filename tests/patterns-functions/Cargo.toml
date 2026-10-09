@@ -3,6 +3,7 @@ members = [
     "packages/aliases",
     "packages/alternatives",
     "packages/matches",
+    "packages/lets",
 ]
 resolver = "3"
 

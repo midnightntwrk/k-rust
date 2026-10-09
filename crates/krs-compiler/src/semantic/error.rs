@@ -221,6 +221,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending name or term.
         range: Option<Box<SourceRange>>,
     },
+    /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
+    /// one of its names has no single sort, or a let-bound name is used at a
+    /// sort it does not have (KF-032).
+    InvalidLet {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the offending statement or name.
+        range: Option<Box<SourceRange>>,
+    },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
     InvalidTokenSort {
         /// Item the diagnostic is about.
@@ -432,6 +443,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidPatternAs { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidMatches { reason, .. }
+            | Self::InvalidLet { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
@@ -483,6 +495,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
+            Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -524,6 +537,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidPatternAs { range, .. }
             | Self::InvalidPatternOr { range, .. }
             | Self::InvalidMatches { range, .. }
+            | Self::InvalidLet { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }

@@ -234,6 +234,15 @@ pub(super) struct TermBuilder<'a> {
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
+    /// `let` statement ordinals, side-neutral (KF-032).
+    pub(super) let_ordinal: u32,
+    /// Ordinals of the `_` in `let` patterns, side-neutral.
+    pub(super) let_wildcard_ordinal: u32,
+    /// The local binders of the `let` pattern being expanded, or `None`
+    /// outside one.
+    let_pattern_binders: Option<Vec<Ident>>,
+    /// The local binders of the enclosing `let` statements, innermost last.
+    let_scopes: Vec<Vec<Ident>>,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
@@ -267,6 +276,10 @@ impl<'a> TermBuilder<'a> {
             matches_ordinal: 0,
             matches_wildcard_ordinal: 0,
             local_binders: None,
+            let_ordinal: 0,
+            let_wildcard_ordinal: 0,
+            let_pattern_binders: None,
+            let_scopes: Vec::new(),
             enum_glob: None,
             enum_variant: None,
             lexical_rule_head: false,
@@ -317,14 +330,117 @@ impl<'a> TermBuilder<'a> {
         self.pattern_or_ordinal = previous.pattern_or_ordinal;
         self.matches_ordinal = previous.matches_ordinal;
         self.matches_wildcard_ordinal = previous.matches_wildcard_ordinal;
+        self.let_ordinal = previous.let_ordinal;
+        self.let_wildcard_ordinal = previous.let_wildcard_ordinal;
     }
 
-    /// Whether `path` is a local binder of the `k::matches!` pattern being
-    /// expanded.
+    /// Whether `path` is a local binder of the `k::matches!` or `let`
+    /// pattern being expanded, or of an enclosing `let` statement.
     fn is_local_binder(&self, path: &Path) -> bool {
         self.local_binders
-            .as_ref()
-            .is_some_and(|binders| is_bound_ident_path(path, binders))
+            .iter()
+            .chain(&self.let_pattern_binders)
+            .chain(&self.let_scopes)
+            .any(|binders| is_bound_ident_path(path, binders))
+    }
+
+    /// Whether a `let` pattern is being expanded.
+    const fn in_let_pattern(&self) -> bool {
+        self.let_pattern_binders.is_some()
+    }
+
+    /// Expands one `let pattern = value;` statement and the rest of its
+    /// block (K's `#let`, KF-032): the pattern, whose wildcards and local
+    /// binders are admitted, then the value, then the body, in which the
+    /// pattern's names are local binders.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "One `let` statement has five parts besides the builder state."
+    )]
+    fn expand_let(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        pattern: &TermTree,
+        sort: Option<&Path>,
+        value: &TermTree,
+        body: &TermTree,
+        binders: &[Ident],
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
+            return Err(ExpandError::new(
+                expand::LET_OUTSIDE_TERM,
+                range.first(),
+                "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern",
+            ));
+        }
+        if self.claim {
+            return Err(ExpandError::new(
+                expand::LET_OUTSIDE_TERM,
+                range.first(),
+                "`let` blocks are not supported in claims: the pinned native prover cannot resolve K's #let in a claim; bind the value in the claim's subject instead",
+            ));
+        }
+        let ordinal = self.let_ordinal;
+        self.let_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                range.first(),
+                "too many `let` statements in one sentence",
+            )
+        })?;
+        let sort = sort
+            .map(|sort| self.let_sort_reference(ordinal, sort, slots))
+            .transpose()?;
+        self.let_pattern_binders = Some(binders.to_vec());
+        let pattern = self.expand_wire(pattern, side, slots);
+        self.let_pattern_binders = None;
+        let pattern = pattern?;
+        let value = self.expand_wire(value, side, slots)?;
+        self.let_scopes.push(binders.to_vec());
+        let body = self.expand_wire(body, side, slots);
+        self.let_scopes.pop();
+        Ok(WireTerm::Let {
+            key: wire_key(ProvenanceRole::Let, ordinal),
+            pattern: Box::new(pattern),
+            sort,
+            value: Box::new(value),
+            body: Box::new(body?),
+        })
+    }
+
+    /// The rustc-resolved sort of `let name: Sort = value;`.
+    fn let_sort_reference(
+        &mut self,
+        ordinal: u32,
+        sort: &Path,
+        slots: &mut WireSlots,
+    ) -> crate::Result<krs_ir::wire::WireSortReference> {
+        let generated = call_site_path(sort)?;
+        let key_fn = format_ident!("__krs_let_sort_{:016x}_{}", self.nonce, self.next_key);
+        self.next_key += 1;
+        let cfg = self.cfg;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#generated>()
+            }
+        });
+        let key_reference = if self.associated_keys {
+            quote!(Self::#key_fn)
+        } else {
+            quote!(#key_fn)
+        };
+        let facade = self.facade;
+        Ok(krs_ir::wire::WireSortReference {
+            key: wire_key(ProvenanceRole::LetSort, ordinal),
+            target: krs_ir::wire::WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
+                authored_path: spelling(sort),
+            },
+        })
     }
 
     /// Whether a `k::matches!` pattern is being expanded.
@@ -344,7 +460,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        if matches!(side, TermSide::Left) || self.in_matches_pattern() {
+        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
             return Err(ExpandError::new(
                 expand::MATCHES_OUTSIDE_CONDITION,
                 range.first(),
@@ -495,6 +611,19 @@ impl<'a> TermBuilder<'a> {
                     literal,
                 })
             }
+            TermTree::Wildcard(range) if self.in_let_pattern() => {
+                let ordinal = self.let_wildcard_ordinal;
+                self.let_wildcard_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        range.first(),
+                        "too many `_` in `let` patterns in one sentence",
+                    )
+                })?;
+                Ok(WireTerm::Wildcard {
+                    key: wire_key(ProvenanceRole::LetWildcard, ordinal),
+                })
+            }
             TermTree::Wildcard(range) if self.in_matches_pattern() => {
                 let ordinal = self.matches_wildcard_ordinal;
                 self.matches_wildcard_ordinal = ordinal.checked_add(1).ok_or_else(|| {
@@ -628,6 +757,23 @@ impl<'a> TermBuilder<'a> {
                 pattern,
                 binders,
             } => self.expand_matches(*range, subject, pattern, binders, side, slots),
+            TermTree::Let {
+                range,
+                pattern,
+                sort,
+                value,
+                body,
+                binders,
+            } => self.expand_let(
+                *range,
+                pattern,
+                sort.as_ref(),
+                value,
+                body,
+                binders,
+                side,
+                slots,
+            ),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(

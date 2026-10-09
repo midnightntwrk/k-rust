@@ -682,6 +682,33 @@ mod tests {
         .assert_eq(&actual);
     }
 
+    /// A term block (K's `#let`, KF-032) stays on its clause's line, its
+    /// statements spaced like Rust, and formats idempotently.
+    #[test]
+    fn let_blocks_stay_in_the_table_and_format_idempotently() {
+        let source = r"
+            for Exp;
+            use ExpSyntax::*;
+
+            swap:Swap{e}=>{let Pair(x,y)=e;let z:Int=x;Pair(y,z)};
+            shadow: Shadow { e } => Pair({ let e = Pair(e, e); e }, e);
+        ";
+        let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Exp;
+                use ExpSyntax::*;
+
+                swap  : Swap { e }   => { let Pair(x, y) = e; let z: Int = x; Pair(y, z) };
+                shadow: Shadow { e } => Pair({ let e = Pair(e, e); e }, e);"]]
+        .assert_eq(&actual);
+        let again = format_rule_body(&output, 0, "    ", TrailingCommentStyle::AlignedColumn)
+            .expect("format formatted body");
+        assert_eq!(again, output);
+    }
+
     #[test]
     fn negative_literals_keep_their_sign_attached_and_format_idempotently() {
         let source = r"

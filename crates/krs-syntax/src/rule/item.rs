@@ -491,6 +491,10 @@ impl RuleItem {
         for nodes in &sides {
             crate::term::push_matches_anchors(&mut anchors, nodes, &mut matches, &mut wildcards)?;
         }
+        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
+        for nodes in &sides {
+            crate::term::push_let_anchors(&mut anchors, nodes, &mut lets, &mut let_wildcards)?;
+        }
         let mut sort_tests = 0_usize;
         push_sort_test_anchors(
             &mut anchors,
@@ -564,7 +568,9 @@ impl RuleItem {
                         | TermNode::As { .. }
                         | TermNode::Or(_)
                         | TermNode::Matches(_)
-                        | TermNode::MatchesWildcard(_) => continue,
+                        | TermNode::MatchesWildcard(_)
+                        | TermNode::Let { .. }
+                        | TermNode::LetWildcard(_) => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
@@ -823,6 +829,21 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
             TermExpression::from_expression(expression)
         }
     };
+    // A body with `let` statements is a term block (K's `#let`, KF-032).
+    // A desugar result with wildcards admits no let block.
+    if !wildcards
+        && item
+            .block
+            .stmts
+            .iter()
+            .any(|statement| matches!(statement, Stmt::Local(_)))
+    {
+        return TermExpression::from_expression(Expr::Block(syn::ExprBlock {
+            attrs: Vec::new(),
+            label: None,
+            block: (*item.block).clone(),
+        }));
+    }
     if item.block.stmts.len() != 1 {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedRuleBody {

@@ -1253,6 +1253,16 @@ fn term_contains_variable(term: &DefinitionTerm, variable: &SemanticId) -> bool 
         DefinitionTermKind::Matches {
             subject, pattern, ..
         } => term_contains_variable(subject, variable) || term_contains_variable(pattern, variable),
+        DefinitionTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => {
+            term_contains_variable(pattern, variable)
+                || term_contains_variable(value, variable)
+                || term_contains_variable(body, variable)
+        }
         DefinitionTermKind::Token { .. } => false,
     }
 }

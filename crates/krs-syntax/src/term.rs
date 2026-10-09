@@ -226,6 +226,18 @@ pub enum TermNode {
     /// One `_` of a `k::matches!` pattern; these follow the pattern's other
     /// nodes, in pattern preorder.
     MatchesWildcard(TokenRange),
+    /// One `let pattern = value;` statement (K's `#let`) shell; it precedes
+    /// the nodes of its pattern, then of its value, then of the rest of the
+    /// block.
+    Let {
+        /// The `let` statement's range.
+        range: TokenRange,
+        /// The sort type of `let name: Sort = value;`.
+        sort: Option<Path>,
+    },
+    /// One `_` of a `let` pattern; these follow the pattern's other nodes,
+    /// in pattern preorder.
+    LetWildcard(TokenRange),
 }
 
 impl TermNode {
@@ -244,7 +256,9 @@ impl TermNode {
             | Self::As { .. }
             | Self::Or(_)
             | Self::Matches(_)
-            | Self::MatchesWildcard(_) => None,
+            | Self::MatchesWildcard(_)
+            | Self::Let { .. }
+            | Self::LetWildcard(_) => None,
         }
     }
 
@@ -264,7 +278,9 @@ impl TermNode {
             | Self::As { .. }
             | Self::Or(_)
             | Self::Matches(_)
-            | Self::MatchesWildcard(_) => None,
+            | Self::MatchesWildcard(_)
+            | Self::Let { .. }
+            | Self::LetWildcard(_) => None,
         }
     }
 
@@ -280,7 +296,9 @@ impl TermNode {
             | Self::As { range, .. }
             | Self::Or(range)
             | Self::Matches(range)
-            | Self::MatchesWildcard(range) => Ok(*range),
+            | Self::MatchesWildcard(range)
+            | Self::Let { range, .. }
+            | Self::LetWildcard(range) => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -474,6 +492,24 @@ pub enum TermTree {
         /// root and every `name @ ..` alias.
         binders: Vec<syn::Ident>,
     },
+    /// One `let pattern = value;` statement of a term block and the rest
+    /// of the block: K's `( #let PATTERN = VALUE #in BODY )`, only in
+    /// results and conditions. A block's statements nest to the right.
+    Let {
+        /// The `let` statement's range.
+        range: TokenRange,
+        /// The pattern (a Rust pattern, PAT-1).
+        pattern: Box<TermTree>,
+        /// The sort type of `let name: Sort = value;`.
+        sort: Option<Path>,
+        /// The matched term, outside the pattern's scope.
+        value: Box<TermTree>,
+        /// The rest of the block: the next `let`, or the result term.
+        body: Box<TermTree>,
+        /// The pattern's local binders (BIND-1), in first-occurrence order:
+        /// every unqualified single-identifier reference, the root included.
+        binders: Vec<syn::Ident>,
+    },
 }
 
 impl TermTree {
@@ -494,7 +530,8 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
-            | Self::Matches { .. } => None,
+            | Self::Matches { .. }
+            | Self::Let { .. } => None,
         }
     }
 
@@ -515,7 +552,8 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
-            | Self::Matches { .. } => None,
+            | Self::Matches { .. }
+            | Self::Let { .. } => None,
         }
     }
 
@@ -536,7 +574,8 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
-            | Self::Matches { .. } => None,
+            | Self::Matches { .. }
+            | Self::Let { .. } => None,
         }
     }
 
@@ -557,7 +596,8 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
-            | Self::Matches { .. } => None,
+            | Self::Matches { .. }
+            | Self::Let { .. } => None,
         }
     }
 
@@ -590,6 +630,17 @@ impl TermTree {
             } => {
                 subject.record_field_names_preorder(output);
                 pattern.record_field_names_preorder(output);
+                return;
+            }
+            Self::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                pattern.record_field_names_preorder(output);
+                value.record_field_names_preorder(output);
+                body.record_field_names_preorder(output);
                 return;
             }
             _ => return,
@@ -644,6 +695,11 @@ impl TermTree {
             // A `k::matches!` pattern's wildcards are its own
             // (`TermNode::MatchesWildcard`); only its subject is searched.
             Self::Matches { subject, .. } => subject.wildcard_ranges_preorder(output),
+            // Likewise a `let` pattern's (`TermNode::LetWildcard`).
+            Self::Let { value, body, .. } => {
+                value.wildcard_ranges_preorder(output);
+                body.wildcard_ranges_preorder(output);
+            }
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -732,6 +788,8 @@ impl TermExpression {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
+            // A term block (K's `#let`) applies a generated function.
+            Expr::Block(_) if context == TermExpressionContext::Expression => TermRootKind::Call,
             Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
                 return Err(pattern_or_error(
                     PATTERN_OR_OUTSIDE_LHS.to_owned(),
@@ -788,10 +846,12 @@ impl TermExpression {
             // grammar rejects (such as `-f64::INFINITY`) keeps the
             // expression grammar's specific reason.
             Err(error) => {
-                if let Ok(expression) = syn::parse2::<Expr>(tokens)
-                    && let Err(specific) = Self::from_expression(expression)
-                {
-                    return Err(specific);
+                if let Ok(expression) = syn::parse2::<Expr>(tokens) {
+                    // A term block is no pattern (KF-032).
+                    if let Some(span) = first_block(&expression) {
+                        return Err(let_error(LET_IN_PATTERN.to_owned(), span));
+                    }
+                    Self::from_expression(expression)?;
                 }
                 return Err(error.into());
             }
@@ -929,7 +989,9 @@ impl TermExpression {
                 | TermNode::As { .. }
                 | TermNode::Or(_)
                 | TermNode::Matches(_)
-                | TermNode::MatchesWildcard(_) => {
+                | TermNode::MatchesWildcard(_)
+                | TermNode::Let { .. }
+                | TermNode::LetWildcard(_) => {
                     continue;
                 }
             };
@@ -1063,8 +1125,21 @@ pub(crate) fn reject_pattern_alias_in_fn_body(tokens: &TokenStream) -> Result<()
 
 fn find_pattern_alias(tokens: &TokenStream) -> Option<Span> {
     let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
+    // A `let` statement's pattern (KF-032) is checked by the term-block
+    // validator, which explains why it cannot alias.
+    let mut in_let_pattern = false;
     for (index, token) in tokens.iter().enumerate() {
         match token {
+            proc_macro2::TokenTree::Ident(ident) if ident == "let" => in_let_pattern = true,
+            proc_macro2::TokenTree::Punct(punct)
+                if in_let_pattern
+                    && (punct.as_char() == ';'
+                        || (punct.as_char() == '='
+                            && punct.spacing() == proc_macro2::Spacing::Alone)) =>
+            {
+                in_let_pattern = false;
+            }
+            _ if in_let_pattern => {}
             // `name @ ..` is a remainder, which its own parser reports.
             proc_macro2::TokenTree::Punct(punct)
                 if punct.as_char() == '@'
@@ -1504,6 +1579,10 @@ fn validate_expression(
             Ok(TermTree::Wildcard(TokenRange::for_tokens(infer)?))
         }
         Expr::Macro(value) => validate_special_macro(value, context, symbols, nodes),
+        Expr::Block(block) if context == TermExpressionContext::Expression => {
+            validate_let_block(block, symbols, nodes)
+        }
+        Expr::Block(block) => Err(let_error(LET_IN_PATTERN.to_owned(), block.span())),
         // `A | B` is K's #Or only in a pattern; a result or condition has no
         // alternatives (KF-030).
         Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => Err(pattern_or_error(
@@ -1762,7 +1841,10 @@ pub fn parse_matches_arguments(tokens: TokenStream) -> Result<(Expr, TokenStream
 /// order: every `name @ ..` alias and every unqualified single-identifier
 /// reference below the root (a bare root path is a unit constructor, as in a
 /// rule subject).
-fn matches_binders(pattern: &TermTree) -> Vec<syn::Ident> {
+///
+/// A `let` pattern's bare root is a binder too (`let n = ..`), so
+/// `root_is_constructor` is false for it.
+fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Ident> {
     fn walk(tree: &TermTree, root: bool, output: &mut Vec<syn::Ident>) {
         let mut push = |ident: &syn::Ident| {
             if !output.contains(ident) {
@@ -1808,7 +1890,8 @@ fn matches_binders(pattern: &TermTree) -> Vec<syn::Ident> {
                 }
             }
             TermTree::Matches { subject, .. } => walk(subject, false, output),
-            TermTree::Reference(_)
+            TermTree::Let { .. }
+            | TermTree::Reference(_)
             | TermTree::Literal(_)
             | TermTree::Wildcard(_)
             | TermTree::IdToken { .. }
@@ -1818,7 +1901,7 @@ fn matches_binders(pattern: &TermTree) -> Vec<syn::Ident> {
         }
     }
     let mut output = Vec::new();
-    walk(pattern, true, &mut output);
+    walk(pattern, root_is_constructor, &mut output);
     output
 }
 
@@ -1843,13 +1926,257 @@ fn validate_matches(
     let mut wildcards = Vec::new();
     pattern.wildcard_ranges_preorder(&mut wildcards);
     nodes.extend(wildcards.into_iter().map(TermNode::MatchesWildcard));
-    let binders = matches_binders(&pattern);
+    let binders = local_binders(&pattern, true);
     Ok(TermTree::Matches {
         range,
         subject: Box::new(subject),
         pattern: Box::new(pattern),
         binders,
     })
+}
+
+/// The span of the first block expression in `expression`, if any.
+pub(crate) fn first_block(expression: &Expr) -> Option<Span> {
+    struct Blocks(Option<Span>);
+    impl<'ast> syn::visit::Visit<'ast> for Blocks {
+        fn visit_expr_block(&mut self, block: &'ast syn::ExprBlock) {
+            if self.0.is_none() {
+                self.0 = Some(block.span());
+            }
+        }
+        fn visit_macro(&mut self, _: &'ast syn::Macro) {}
+    }
+    let mut blocks = Blocks(None);
+    syn::visit::Visit::visit_expr(&mut blocks, expression);
+    blocks.0
+}
+
+/// The shape every term block takes (KF-032).
+pub(crate) const LET_BLOCK_SHAPE: &str =
+    "a term block is `let pattern = term;`* followed by one result term (K's #let)";
+
+/// The reason given for a term block in a pattern.
+pub(crate) const LET_IN_PATTERN: &str =
+    "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern";
+
+/// The reason given for `|` in a `let` pattern.
+const LET_PATTERN_OR: &str = "#let patterns take one alternative";
+
+/// The reason given for `name @ pattern` in a `let` pattern.
+const LET_PATTERN_AS: &str = "`name @ pattern` cannot bind in a `let` pattern: K accepts #as only on a rule's left-hand side; bind the whole value with its own `let`";
+
+/// The reason given for an ascribed pattern that is not one name.
+const LET_ASCRIPTION: &str =
+    "a `let` sort ascription names one binder and a plain sort: `let x: Sort = term;`";
+
+fn let_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidLet { reason }, span)
+}
+
+/// Validates a term block `{ let pattern = term; .. result }` (K's `#let`,
+/// KF-032).
+fn validate_let_block(
+    block: &syn::ExprBlock,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    if !block.attrs.is_empty() || block.label.is_some() {
+        return Err(let_error(LET_BLOCK_SHAPE.to_owned(), block.span()));
+    }
+    validate_let_statements(&block.block.stmts, block.span(), symbols, nodes)
+}
+
+/// Validates the statements of a term block: zero or more
+/// `let pattern = term;` statements and one result term without a
+/// semicolon. The statements nest to the right, so each `let` scopes over
+/// the rest of the block; the nodes follow source order.
+pub(crate) fn validate_let_statements(
+    statements: &[syn::Stmt],
+    span: Span,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let Some((tail, lets)) = statements.split_last() else {
+        return Err(let_error(LET_BLOCK_SHAPE.to_owned(), span));
+    };
+    let mut statements = Vec::with_capacity(lets.len());
+    for statement in lets {
+        let syn::Stmt::Local(local) = statement else {
+            return Err(let_error(LET_BLOCK_SHAPE.to_owned(), statement.span()));
+        };
+        statements.push(validate_let_statement(local, symbols, nodes)?);
+    }
+    let syn::Stmt::Expr(tail, None) = tail else {
+        return Err(let_error(LET_BLOCK_SHAPE.to_owned(), tail.span()));
+    };
+    let mut tree = validate_expression(tail, TermExpressionContext::Expression, symbols, nodes)?;
+    for statement in statements.into_iter().rev() {
+        tree = TermTree::Let {
+            range: statement.range,
+            pattern: Box::new(statement.pattern),
+            sort: statement.sort,
+            value: Box::new(statement.value),
+            body: Box::new(tree),
+            binders: statement.binders,
+        };
+    }
+    Ok(tree)
+}
+
+struct LetStatement {
+    range: TokenRange,
+    pattern: TermTree,
+    sort: Option<Path>,
+    value: TermTree,
+    binders: Vec<syn::Ident>,
+}
+
+/// Validates one `let pattern = value;` statement: the shell node, then the
+/// pattern's nodes and wildcards, then the value's nodes.
+fn validate_let_statement(
+    local: &syn::Local,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<LetStatement, SyntaxError> {
+    let shape = || let_error(LET_BLOCK_SHAPE.to_owned(), local.span());
+    if !local.attrs.is_empty() {
+        return Err(shape());
+    }
+    let Some(init) = &local.init else {
+        return Err(shape());
+    };
+    if init.diverge.is_some() {
+        return Err(shape());
+    }
+    let (pattern, sort) = match &local.pat {
+        Pat::Type(typed) => {
+            let Pat::Ident(identifier) = typed.pat.as_ref() else {
+                return Err(let_error(LET_ASCRIPTION.to_owned(), typed.span()));
+            };
+            if identifier.subpat.is_some() || !identifier.attrs.is_empty() {
+                return Err(let_error(LET_ASCRIPTION.to_owned(), typed.span()));
+            }
+            let syn::Type::Path(sort) = typed.ty.as_ref() else {
+                return Err(let_error(LET_ASCRIPTION.to_owned(), typed.ty.span()));
+            };
+            if sort.qself.is_some() || !is_plain_path(&sort.path) {
+                return Err(let_error(LET_ASCRIPTION.to_owned(), typed.ty.span()));
+            }
+            (typed.pat.as_ref(), Some(sort.path.clone()))
+        }
+        pattern => (pattern, None),
+    };
+    if let Pat::Ident(identifier) = pattern
+        && (identifier.by_ref.is_some() || identifier.mutability.is_some())
+    {
+        return Err(shape());
+    }
+    if let Pat::Rest(_) = pattern {
+        return Err(unsupported_pattern_form(pattern));
+    }
+    let range = TokenRange::for_tokens(local)?;
+    nodes.push(TermNode::Let {
+        range,
+        sort: sort.clone(),
+    });
+    let mut signs = crate::rule::NegativeLiteralSpans::scan(pattern.to_token_stream());
+    let pattern = validate_pattern(pattern, &mut signs, symbols, nodes)?;
+    reject_let_pattern_forms(&pattern)?;
+    let mut wildcards = Vec::new();
+    pattern.wildcard_ranges_preorder(&mut wildcards);
+    nodes.extend(wildcards.into_iter().map(TermNode::LetWildcard));
+    let value = validate_expression(
+        &init.expr,
+        TermExpressionContext::Expression,
+        symbols,
+        nodes,
+    )?;
+    let binders = local_binders(&pattern, false);
+    Ok(LetStatement {
+        range,
+        pattern,
+        sort,
+        value,
+        binders,
+    })
+}
+
+/// Rejects `A | B` and `name @ pattern` anywhere in a `let` pattern: K's
+/// `#let` takes one alternative, and K accepts `#as` only on a rule's
+/// left-hand side.
+fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
+    match pattern {
+        TermTree::Or { range, .. } => Err(let_error(LET_PATTERN_OR.to_owned(), range.first())),
+        TermTree::As { binding, .. } => Err(let_error(LET_PATTERN_AS.to_owned(), binding.span())),
+        TermTree::Application(application) => match &application.arguments {
+            TermArguments::Positional(arguments) => {
+                arguments.iter().try_for_each(reject_let_pattern_forms)
+            }
+            TermArguments::Named(arguments) => arguments
+                .iter()
+                .try_for_each(|argument| reject_let_pattern_forms(&argument.value)),
+        },
+        TermTree::Cell(cell) => cell
+            .fields
+            .iter()
+            .try_for_each(|field| reject_let_pattern_forms(&field.value)),
+        TermTree::SortTest { operand, .. } => reject_let_pattern_forms(operand),
+        TermTree::OrBool { arguments, .. } => {
+            arguments.iter().try_for_each(reject_let_pattern_forms)
+        }
+        TermTree::Reference(_)
+        | TermTree::Literal(_)
+        | TermTree::Wildcard(_)
+        | TermTree::IdToken { .. }
+        | TermTree::BytesToken { .. }
+        | TermTree::Anonymous { .. }
+        | TermTree::Lexeme { .. }
+        | TermTree::Matches { .. }
+        | TermTree::Let { .. } => Ok(()),
+    }
+}
+
+/// Appends the `let` (and `let_sort`) anchor of every `let` statement and
+/// the `let_wildcard` anchor of every `_` in a `let` pattern, numbering each
+/// role from its ordinal. Like `matches` roles, both are side-neutral.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn push_let_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    lets: &mut usize,
+    wildcards: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        match node {
+            TermNode::Let { range, sort } => {
+                let current = checked_ordinal(*lets, ProvenanceRole::Let, range.first())?;
+                if let Some(sort) = sort {
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::LetSort,
+                        current,
+                        TokenRange::for_tokens(sort)?,
+                    ));
+                }
+                anchors.push(ProvenanceAnchor::new(ProvenanceRole::Let, current, *range));
+                *lets += 1;
+            }
+            TermNode::LetWildcard(range) => {
+                let current =
+                    checked_ordinal(*wildcards, ProvenanceRole::LetWildcard, range.first())?;
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::LetWildcard,
+                    current,
+                    *range,
+                ));
+                *wildcards += 1;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Appends the `matches` anchor of every `k::matches!` node and the

@@ -903,6 +903,30 @@ impl<L: IrLevel> IrTerm<L> {
             },
         }
     }
+    /// Creates one `let pattern = value;` statement and the rest of its
+    /// block (K's `( #let PATTERN = VALUE #in BODY )`) at the body's sort;
+    /// `binds` lists the pattern's local binders, declared in the
+    /// sentence's variables and referenced only in the pattern and body.
+    #[must_use]
+    pub fn let_binding(
+        origin: NodeOrigin,
+        sort: L::Sort,
+        pattern: Self,
+        value: Self,
+        body: Self,
+        binds: Vec<SemanticId>,
+    ) -> Self {
+        Self {
+            origin,
+            sort,
+            kind: IrTermKind::Let {
+                pattern: Box::new(pattern),
+                value: Box::new(value),
+                body: Box::new(body),
+                binds,
+            },
+        }
+    }
     /// Creates one typed Map-theory operation with an explicit result sort.
     #[must_use]
     pub fn typed_map(origin: NodeOrigin, sort: L::Sort, operands: MapOperands<Self>) -> Self {
@@ -1042,6 +1066,22 @@ pub enum IrTermKind<L: IrLevel> {
         /// The pattern's local binders, in first-occurrence order.
         binds: Vec<SemanticId>,
     },
+    /// One `let pattern = value;` statement and the rest of its block: K's
+    /// `( #let PATTERN = VALUE #in BODY )`, at the body's sort, admitted
+    /// only in post-terms and conditions. The pattern is pre-pattern
+    /// shaped; its named variables are the local binders `binds` (BIND-1),
+    /// declared in the sentence's variables and referenced only in the
+    /// pattern and the body.
+    Let {
+        /// The pattern.
+        pattern: Box<IrTerm<L>>,
+        /// The matched term, outside the pattern's scope.
+        value: Box<IrTerm<L>>,
+        /// The rest of the block.
+        body: Box<IrTerm<L>>,
+        /// The pattern's local binders, in first-occurrence order.
+        binds: Vec<SemanticId>,
+    },
 }
 
 /// Owned decoding form of [`IrTermKind`]; collection operands arrive as one ordered list.
@@ -1099,6 +1139,12 @@ pub(crate) enum IrTermKindWire<L: IrLevel> {
         pattern: Box<IrTerm<L>>,
         binds: Vec<SemanticId>,
     },
+    Let {
+        pattern: Box<IrTerm<L>>,
+        value: Box<IrTerm<L>>,
+        body: Box<IrTerm<L>>,
+        binds: Vec<SemanticId>,
+    },
 }
 
 /// Borrowed encoding form of [`IrTermKind`], field for field the shape of [`IrTermKindWire`].
@@ -1151,6 +1197,12 @@ enum IrTermKindRef<'a, L: IrLevel> {
         pattern: &'a IrTerm<L>,
         binds: &'a [SemanticId],
     },
+    Let {
+        pattern: &'a IrTerm<L>,
+        value: &'a IrTerm<L>,
+        body: &'a IrTerm<L>,
+        binds: &'a [SemanticId],
+    },
 }
 
 impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
@@ -1191,6 +1243,17 @@ impl<L: IrLevel> TryFrom<IrTermKindWire<L>> for IrTermKind<L> {
             } => Self::Matches {
                 subject,
                 pattern,
+                binds,
+            },
+            IrTermKindWire::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => Self::Let {
+                pattern,
+                value,
+                body,
                 binds,
             },
         })
@@ -1235,6 +1298,17 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
             } => IrTermKindRef::Matches {
                 subject,
                 pattern,
+                binds,
+            },
+            Self::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => IrTermKindRef::Let {
+                pattern,
+                value,
+                body,
                 binds,
             },
         }

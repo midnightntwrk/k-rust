@@ -1000,6 +1000,16 @@ fn insert_term(
             insert_term(entries, subject)?;
             insert_term(entries, pattern)?;
         }
+        DefinitionTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => {
+            insert_term(entries, pattern)?;
+            insert_term(entries, value)?;
+            insert_term(entries, body)?;
+        }
         DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
     }
     Ok(())

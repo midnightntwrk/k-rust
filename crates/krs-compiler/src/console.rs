@@ -132,5 +132,15 @@ fn term_mentions(term: &SemanticTerm, variable: &SemanticId) -> bool {
         IrTermKind::Matches {
             subject, pattern, ..
         } => term_mentions(subject, variable) || term_mentions(pattern, variable),
+        IrTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => {
+            term_mentions(pattern, variable)
+                || term_mentions(value, variable)
+                || term_mentions(body, variable)
+        }
     }
 }

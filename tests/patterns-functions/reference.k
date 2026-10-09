@@ -85,3 +85,33 @@ module MATCHES-REFERENCE
   rule twin(E) => pair(X, X) :=K E
   rule known(E) => (pair(_, _) #Or unit()) :=K E
 endmodule
+
+// The let fixture written by hand in K, with `#fun(P => B)(A)`, which K
+// defines `#let P = A #in B` to be.
+module LETS-REFERENCE-SYNTAX
+  imports INT-SYNTAX
+
+  syntax Value ::= Int
+  syntax Exp ::= Value
+               | "swap" "(" Exp ")"
+               | "pair" "(" Exp "," Exp ")"
+               | "shadow" "(" Exp ")"
+               | "positive" "(" Exp ")"
+  syntax Exp ::= "swapPair" "(" Exp ")" [function]
+  syntax Int ::= "scale" "(" Exp ")" [function]
+endmodule
+
+module LETS-REFERENCE
+  imports LETS-REFERENCE-SYNTAX
+  imports INT
+
+  syntax KResult ::= Value
+
+  configuration <k> $PGM:Exp </k>
+
+  rule <k> swap(E) => #fun(pair(X, Y) => pair(Y, X))(E) ... </k>
+  rule <k> shadow(E) => pair(#fun(E2 => E2)(pair(E, E)), E) ... </k>
+  rule <k> positive(E) => 1 ... </k> requires #fun(M:Int => M >Int 0)(E)
+  rule swapPair(P) => #fun(pair(X, Y) => pair(Y, X))(P)
+  rule scale(E) => #fun(M:Int => #fun(N:Int => N *Int M)(M +Int 1))(E)
+endmodule

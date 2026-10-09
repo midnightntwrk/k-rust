@@ -78,6 +78,9 @@ enum Pattern {
         subject: Box<Self>,
         shape: String,
     },
+    /// A `let` block (KF-032) in a guard: opaque, the same as no other
+    /// term, so no guard is complementary to it (conservative).
+    Opaque { sort: SemanticSortRef },
 }
 
 impl Pattern {
@@ -91,7 +94,8 @@ impl Pattern {
             | Self::List { sort, .. }
             | Self::Set { sort, .. }
             | Self::Cell { sort, .. }
-            | Self::Matches { sort, .. } => sort,
+            | Self::Matches { sort, .. }
+            | Self::Opaque { sort } => sort,
         }
     }
 }
@@ -130,6 +134,8 @@ fn subterms(term: &SemanticTerm) -> Vec<&SemanticTerm> {
         // A `k::matches!` pattern binds its own names and is never unified
         // with a rule's patterns.
         SemanticTermKind::Matches { subject, .. } => vec![subject.as_ref()],
+        // Likewise a `let` pattern; its value and body are ordinary terms.
+        SemanticTermKind::Let { value, body, .. } => vec![value.as_ref(), body.as_ref()],
     }
 }
 
@@ -663,7 +669,7 @@ impl<'graph> Unifier<'graph> {
                 .iter()
                 .any(|term| self.occurs(needle, term, visited)),
             Pattern::Matches { subject, .. } => self.occurs(needle, subject, visited),
-            Pattern::Token { .. } => false,
+            Pattern::Opaque { .. } | Pattern::Token { .. } => false,
         }
     }
 }
@@ -739,6 +745,9 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
         SemanticTermKind::Rewrite { .. } => {
             unreachable!("configuration clause pre-patterns are never rewrites")
         }
+        SemanticTermKind::Let { .. } => Pattern::Opaque {
+            sort: term.sort().clone(),
+        },
         SemanticTermKind::Matches {
             subject,
             pattern: matched,

@@ -147,6 +147,20 @@ A pattern whose sort cannot meet the subject's, which would always be false, is 
 K rejects `#as` in a rule's right-hand side, so `name @ pattern` inside `k::matches!` is accepted only in conditions, as in `k::matches!(e, Pair(p @ Pair(_, _), p))`.
 `k::matches!` in a left-hand side or inside a pattern, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `:=K` in a claim).
 
+### Local bindings
+
+A Rust block in a term position is K's `#let`: zero or more `let pattern = term;` statements and one result term.
+`swap: Swap { e } => { let Pair(x, y) = e; Pair(y, x) };` emits `<k> swap ( E:Exp ) => ( #let pair ( X:Exp , Y:Exp ) = E:Exp #in pair ( Y:Exp , X:Exp ) ) ... </k>`, and a rule or equation body may itself be such a block: `fn swap_pair(k::term![SwapPair(p)]: Term<Exp>) -> Term<Exp> { let ExpSyntax::Pair(x, y) = p; ExpSyntax::Pair(y, x) }` emits `rule swapPair ( P:Exp ) => ( #let pair ( X:Exp , Y:Exp ) = P:Exp #in pair ( Y:Exp , X:Exp ) )`.
+A block nests anywhere a term does, `int::mul({ let n: Int = int::div(bytes::length(data), 160); int::mul(n, g1_mul(n)) }, 2)`, and is valid in results and in `#[k::requires]` and `#[k::ensures]` conditions; each `#let` is parenthesised, and several statements nest to the right.
+K defines `#let P = A #in B` as `#fun(P => B)(A)`: a generated function with the one equation `P => B`, applied to `A`.
+Two things differ from Rust.
+First, the pattern may be refutable, and a failed pattern makes the term **undefined**, where rustc would have rejected the program: `swap(3)` aborts on Java K's LLVM backend (the [boundaries](/reference/boundaries) record how the pinned native backend differs).
+`let x: Sort = term;` is a runtime sort test of the same kind, not rustc's static check: `let m: Int = e;` emits `#let M:Int = E:Exp`, which is undefined when `E` is not an `Int`.
+Second, the `let` is a function call, not a statement sequence: `A` is evaluated outside the pattern's scope, and each statement's names are local binders, visible in its pattern and the rest of the block only and emitted under names of their own, so a `let` that shadows a rule binder, `{ let e = Pair(e, e); e }`, leaves the outer `e` as it was.
+A block holds only `let` statements and one result without a semicolon (``a term block is `let pattern = term;`* followed by one result term (K's #let)``): `let .. else`, `mut` and `ref` bindings, expression statements, and items are rejected.
+A `let` pattern takes one alternative (`#let patterns take one alternative`) and no `name @ pattern`, because K accepts `#as` only on a rule's left-hand side; an ascription names one binder.
+A block in a pattern, a let-bound name used outside its block, and a pattern whose sort cannot meet its value's (`krs::analysis::invalid-let`) are rejected, as is a block in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `#let` in a claim).
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

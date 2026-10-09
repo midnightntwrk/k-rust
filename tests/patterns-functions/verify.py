@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patterns-and-functions feature gate: `name @ pattern` (KF-029), `A | B` (KF-030), and `k::matches!` (KF-031).
+"""Patterns-and-functions feature gate: `name @ pattern` (KF-029), `A | B` (KF-030), `k::matches!` (KF-031), and `let` blocks (KF-032).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -35,6 +35,23 @@ the outcomes must agree:
   programs agree natively, on Java K's LLVM backend from the emitted K and
   from `reference.k` (whose negations use `:/=K`), and on Java K's Haskell
   backend;
+- `lets`: a block `{ let P = A; B }` is K's `( #let P = A #in B )`, always
+  parenthesised, which K defines as `#fun(P => B)(A)`. A readable clause
+  `Swap { e } => { let Pair(x, y) = e; Pair(y, x) }` makes `swap(pair(1, 2))`
+  `pair(2, 1)`, and an equation whose body has a `let` statement makes
+  `swapPair(pair(1, 2))` `pair(2, 1)`; two ascribed lets nest to the right,
+  `( #let M:Int = E #in ( #let N:Int = M +Int 1 #in .. ) )`, so `scale(3)` is
+  `12`; a `let` that shadows the rule's `e` takes a distinct name, so
+  `shadow(1)` is `pair(pair(1, 1), 1)`; and a block as a condition makes
+  `positive(5)` `1`. The defined programs agree natively, on Java K's LLVM
+  backend from the emitted K and from `reference.k` (which writes
+  `#fun(P => B)(A)`), and on Java K's Haskell backend. A refutable pattern
+  that fails, `swap(3)` and `swapPair(3)`, and a failed ascription,
+  `scale(pair(1, 2))`, make the term undefined on Java K's LLVM backend from
+  both sources; natively the failed ascription leaves the generated lambda's
+  application stuck (a pinned divergence), and the failed constructor
+  patterns, on which the pinned native backend does not terminate, run on
+  Java K only;
 - negative fixtures: `ref` on an alias, an alias inside its own subpattern,
   an alias of a `..` remainder, `@` in a result, an alias of a whole rule
   subject, alternatives binding different names, alternatives that can bind
@@ -43,7 +60,10 @@ the outcomes must agree:
   once, an `if` guard, std's bare `matches!`, `k::matches!` in a pattern, `@`
   in a `k::matches!` in a result, a pattern whose sort cannot meet its
   subject's, and `k::matches!` in a claim (the pinned native prover cannot
-  resolve `:=K` there), each fail `krs check` with a pinned diagnostic.
+  resolve `:=K` there), a term block whose result ends in a semicolon, `|`
+  and `@` in a `let` pattern, a block in a pattern, a let-bound name used
+  outside its block, a `let` pattern whose sort cannot meet its value's, and
+  a `let` in a claim, each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -63,7 +83,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import (  # noqa: E402
-    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome,
+    ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, java_run_outcome, printed_cells,
 )
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -111,6 +131,30 @@ MATCHES_PROGRAMS = (
 )
 MATCHES_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-matches-reference")
 
+LETS = Fixture(MANIFEST, "krs-patterns-functions-lets")
+LETS_PROGRAMS = (
+    Program("swap", "swap(pair(1, 2))", "accepted", "pair(2, 1)"),
+    Program("swap-pair", "swapPair(pair(1, 2))", "accepted", "pair(2, 1)"),
+    Program("scale", "scale(3)", "accepted", "12"),
+    Program("shadow", "shadow(1)", "accepted", "pair(pair(1, 1), 1)"),
+    Program("positive", "positive(5)", "accepted", "1"),
+    Program("scale-refuted", "scale(pair(1, 2))", "accepted", "undefined"),
+    Program("swap-refuted", "swap(3)", "accepted", "undefined"),
+    Program("swap-pair-refuted", "swapPair(3)", "accepted", "undefined"),
+)
+# The pinned native backend does not terminate on a `#let` whose constructor
+# pattern fails to match a concrete value (its execute request exceeds the
+# session timeout), so these programs run on Java K only; the failed
+# ascription `scale-refuted` is a pinned divergence (native leaves the
+# generated lambda's application stuck).
+LETS_JAVA_ONLY = ("swap-refuted", "swap-pair-refuted")
+# Natively stuck programs, whose native outcome is the stuck computation.
+LETS_STUCK = ("scale-refuted",)
+# Java K's Haskell backend prints an undefined term rather than aborting, so
+# only the defined programs run there.
+LETS_HASKELL_PROGRAMS = tuple(program for program in LETS_PROGRAMS if program.run != "undefined")
+LETS_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-lets-reference")
+
 NEGATIVE = (
     "alias-ref",
     "alias-inside-itself",
@@ -129,6 +173,13 @@ NEGATIVE = (
     "matches-alias-result",
     "matches-sort",
     "matches-claim",
+    "let-shape",
+    "let-or",
+    "let-alias",
+    "let-pattern",
+    "let-scope",
+    "let-sort",
+    "let-claim",
 )
 
 
@@ -271,6 +322,79 @@ def verify_matches(harness: FixtureGate, workspace: Path) -> None:
             )
 
 
+def compare_lets(harness: FixtureGate, emitted: Emitted) -> dict[str, dict[str, object]]:
+    """Run the let programs on Java K, and those that terminate natively also natively.
+
+    This is `FixtureGate.compare` with the programs of `LETS_JAVA_ONLY` kept
+    off the native route; each program's outcome is the agreed one, or its
+    pinned divergence, or (Java only) the expected one.
+    """
+
+    native_programs = tuple(
+        program for program in LETS_PROGRAMS if program.name not in LETS_JAVA_ONLY + LETS_STUCK
+    )
+    native = harness._native_outcomes(emitted, native_programs)  # noqa: SLF001
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        for program in LETS_PROGRAMS:
+            if program.name in LETS_STUCK:
+                printed = session.exec_run(program=program.text, print_style="pretty")["printed"]["text"]
+                native[program.name] = {
+                    "parse": ACCEPTED,
+                    "run": f"stuck: {printed_cells(printed, (('k', ''),))['k']}",
+                }
+    java = harness._java_outcomes(emitted, LETS_PROGRAMS, sort="Exp")  # noqa: SLF001
+    known = harness.divergences.get(LETS.package, {})
+    observed: dict[str, dict[str, object]] = {}
+    for program in LETS_PROGRAMS:
+        expected = {"parse": program.parse, "run": program.run}
+        if program.name in LETS_JAVA_ONLY:
+            if java[program.name] != expected:
+                raise GateError(f"{LETS.package} {program.name}: Java K observed {java[program.name]}, expected {expected}")
+            observed[program.name] = java[program.name]
+            continue
+        routes = {"native": native[program.name], "java": java[program.name]}
+        divergence = known.get(program.name)
+        if divergence is not None:
+            if routes != divergence:
+                raise GateError(
+                    f"{LETS.package} {program.name}: pinned divergence changed: expected {divergence}, observed {routes}"
+                )
+            observed[program.name] = java[program.name]
+            continue
+        if routes["native"] != routes["java"] or routes["native"] != expected:
+            raise GateError(f"{LETS.package} {program.name}: observed {routes}, expected {expected}")
+        observed[program.name] = routes["native"]
+    harness.pins.expect(("outcomes", LETS.package), observed)
+    return observed
+
+
+def verify_lets(harness: FixtureGate, workspace: Path) -> None:
+    """Let blocks run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
+
+    harness.check(LETS)
+    harness.expand(LETS)
+    emitted = harness.emit(LETS)
+    emitted_fragments(emitted, (
+        "<k> swap ( E:Exp ) => ( #let pair ( X:Exp , Y:Exp ) = E:Exp #in pair ( Y:Exp , X:Exp ) ) ... </k>",
+        "rule swapPair ( P:Exp ) => ( #let pair ( X:Exp , Y:Exp ) = P:Exp #in pair ( Y:Exp , X:Exp ) ) [label(",
+        "rule scale ( E:Exp ) => ( #let M:Int = E:Exp #in ( #let N:Int = M:Int +Int 1 #in N:Int *Int M:Int ) ) [label(",
+        "<k> shadow ( E:Exp ) => pair ( ( #let E_2:Exp = pair ( E:Exp , E:Exp ) #in E_2:Exp ) , E:Exp ) ... </k>",
+        "requires ( #let M:Int = E:Exp #in M:Int >Int 0 )",
+    ))
+    observed = compare_lets(harness, emitted)
+    agree_with_reference(
+        harness, workspace, LETS_REFERENCE, "LETS-REFERENCE", LETS_PROGRAMS, observed,
+    )
+    haskell = java_haskell_outcomes(harness, emitted, LETS_HASKELL_PROGRAMS)
+    for program in LETS_HASKELL_PROGRAMS:
+        if haskell[program.name] != observed[program.name]:
+            raise GateError(
+                f"{LETS.package} {program.name}: Java K Haskell observed "
+                f"{haskell[program.name]}, the native and LLVM routes {observed[program.name]}"
+            )
+
+
 def verify_aliases(harness: FixtureGate, workspace: Path) -> None:
     """Aliases run natively, on Java LLVM from the emitted K, and from `reference.k`."""
 
@@ -319,6 +443,9 @@ def main() -> int:
 
         verify_matches(harness, workspace)
         print("PASS matches: isPair, boxed, twin, and known agree natively, on Java LLVM, with reference.k, and on Java Haskell")
+
+        verify_lets(harness, workspace)
+        print("PASS lets: swap, swapPair, scale, shadow, and positive agree natively, on Java LLVM, with reference.k, and on Java Haskell; the refuted lets are undefined on Java LLVM")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

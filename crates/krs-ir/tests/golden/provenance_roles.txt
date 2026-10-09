@@ -215,3 +215,6 @@ PatternAsBinding=pattern_as_binding
 PatternOr=pattern_or
 Matches=matches
 MatchesWildcard=matches_wildcard
+Let=let
+LetSort=let_sort
+LetWildcard=let_wildcard

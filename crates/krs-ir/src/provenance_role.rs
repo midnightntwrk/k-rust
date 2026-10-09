@@ -478,6 +478,14 @@ provenance_roles! {
     /// One `_` in the pattern of a `k::matches!`, numbered across the
     /// sentence.
     MatchesWildcard => "matches_wildcard",
+    /// One `let pattern = value;` statement of a term block (K's `#let`),
+    /// numbered across the sentence.
+    Let => "let",
+    /// The sort type of an ascribed `let name: Sort = value;` statement.
+    LetSort => "let_sort",
+    /// One `_` in the pattern of a `let` statement, numbered across the
+    /// sentence.
+    LetWildcard => "let_wildcard",
 }
 
 impl Serialize for ProvenanceRole {

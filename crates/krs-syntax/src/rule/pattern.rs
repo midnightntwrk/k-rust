@@ -227,7 +227,9 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => continue,
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -289,7 +291,9 @@ impl RuleTermCounters {
                 | TermNode::As { .. }
                 | TermNode::Or(_)
                 | TermNode::Matches(_)
-                | TermNode::MatchesWildcard(_) => {}
+                | TermNode::MatchesWildcard(_)
+                | TermNode::Let { .. }
+                | TermNode::LetWildcard(_) => {}
             }
         }
         counters
@@ -340,7 +344,9 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => continue,
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -885,7 +891,9 @@ pub(super) fn push_term_node_anchors(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => continue,
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -953,7 +961,9 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::As { .. }
             | TermNode::Or(_)
             | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_) => continue,
+            | TermNode::MatchesWildcard(_)
+            | TermNode::Let { .. }
+            | TermNode::LetWildcard(_) => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -981,7 +991,9 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::As { range, .. }
         | TermNode::Or(range)
         | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range) => Ok(*range),
+        | TermNode::MatchesWildcard(range)
+        | TermNode::Let { range, .. }
+        | TermNode::LetWildcard(range) => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

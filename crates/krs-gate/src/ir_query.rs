@@ -267,6 +267,10 @@ impl<'a> Context<'a> {
             DefinitionSortRef::Cell(id) => krs_ir_levels::k_surface::cell_sort_name(self.cells[id]),
         }
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive projection over the closed definition term sum."
+    )]
     fn term(&self, term: &DefinitionTerm) -> Value {
         let mut fact = json!({"sort":self.sort(term.sort())});
         let (kind, arguments) = match term.kind() {
@@ -347,6 +351,23 @@ impl<'a> Context<'a> {
                         .collect::<Vec<_>>()
                 );
                 ("matches", None)
+            }
+            DefinitionTermKind::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => {
+                fact["pattern"] = self.term(pattern);
+                fact["value"] = self.term(value);
+                fact["body"] = self.term(body);
+                fact["binds"] = json!(
+                    binds
+                        .iter()
+                        .map(krs_ir::SemanticId::as_str)
+                        .collect::<Vec<_>>()
+                );
+                ("let", None)
             }
         };
         fact["kind"] = json!(kind);

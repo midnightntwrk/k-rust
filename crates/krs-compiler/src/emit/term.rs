@@ -301,6 +301,22 @@ fn render_term_with_binders(
             output.append(render_term_with_binders(subject, context, false, names)?);
             output.push(" )");
         }
+        // A `let` statement is K's `( #let PATTERN = VALUE #in BODY )`,
+        // always parenthesised (X13); a block's statements nest to the right.
+        DefinitionTermKind::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => {
+            output.push("( #let ");
+            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.push(" = ");
+            output.append(render_term_with_binders(value, context, false, names)?);
+            output.push(" #in ");
+            output.append(render_term_with_binders(body, context, false, names)?);
+            output.push(" )");
+        }
     }
     Ok(output.finish(term.origin().key(), start))
 }
