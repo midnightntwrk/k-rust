@@ -435,7 +435,7 @@ impl Parser<'_> {
 pub(crate) const PRETTY_INDENT_CAP: usize = 100;
 
 /// The JSON text of `root`, compact or pretty-printed with two spaces per level, the
-/// indentation capped at [`PRETTY_INDENT_CAP`] spaces.
+/// indentation capped at `PRETTY_INDENT_CAP` spaces.
 pub fn to_string(root: &Node, pretty: bool) -> String {
     enum Task<'a> {
         Node(&'a Node, usize),

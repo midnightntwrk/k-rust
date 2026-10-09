@@ -1327,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_reference_lexical_errors() {
+    fn rejects_names_and_bytes_values_outside_their_lexical_classes() {
         let cases = [
             (
                 json!({ "tag": "SVar", "name": "X", "sort": sort() }),
@@ -1365,7 +1365,7 @@ mod tests {
         ];
 
         for (term, expected_prefix) in cases {
-            let error = decode(term).expect_err("reference lexical error must be rejected");
+            let error = decode(term).expect_err("a lexical error must be rejected");
             assert!(
                 error.to_string().starts_with(expected_prefix),
                 "expected {expected_prefix:?}, got {error}"
@@ -1413,7 +1413,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_multi_or_as_the_reference_expands_it() {
+    fn decodes_multi_or_into_nested_binary_ors_by_associativity() {
         let multi_or = |assoc: &str, argss: Vec<Value>| json!({ "tag": "MultiOr", "assoc": assoc, "sort": sort(), "argss": argss });
         let left = decode(multi_or("Left", vec![app("a"), app("b"), app("c")])).unwrap();
         let right = decode(multi_or("Right", vec![app("a"), app("b"), app("c")])).unwrap();

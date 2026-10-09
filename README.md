@@ -433,7 +433,8 @@ krust kprove --compiled-definition spec-kompiled --main-module SPEC --load-only
 krust kprove --compiled-definition spec-kompiled --main-module SPEC --timings proof-timings.json
 ```
 
-Bare claims default to all-path semantics, matching the reference Haskell backend. Use
+`kprove` and `kompile --for-proving` read bare claims, with neither `all-path` nor `one-path` on the
+claim or its module, as all-path claims; no option chooses one-path instead. Use
 `--definition-module` (or `--def-module`) when the configuration belongs to an imported semantics
 module rather than the specification module. `kprove` handles one-path and all-path claims,
 trusted claims, guarded claim circularities,
@@ -684,7 +685,7 @@ collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` poin
 backend installation. `K_KOMPILE` may be supplied instead; its sibling LLVM executables will be
 used. Set `K_CHECKOUT` when the ignored reference checkout is not at `k/`.
 
-The WASM execution gate runs the pinned WASM semantics with the in-process backend: it compiles `test.md` with krust, runs `krust krun` on the 28 programs of upstream's `tests/simple` and `krust kprove` on the 6 specs of `tests/proofs`, and compares every exit status, standard error, final configuration (or its digest) and proof verdict with `scripts/wasm-execution-gate.toml`:
+The WASM execution gate runs the pinned WASM semantics with the in-process backend: it compiles `test.md` with krust, runs `krust krun` on the 28 programs of upstream's `tests/simple` and `krust kprove` on the 6 specs of `tests/proofs`, and compares every exit status, standard error, final configuration (or its digest), proof verdict and failed proof output (by its digest) with `scripts/wasm-execution-gate.toml`:
 
 ```console
 scripts/wasm-execution-gate.sh

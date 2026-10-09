@@ -1,6 +1,6 @@
 //! ```toml algorithm
 //! id = "parser.grammar.records"
-//! name = "generation of Scala-compatible record productions"
+//! name = "generation of record-pattern productions"
 //! sites = ["Grammar::add_record_productions", "Grammar::add_record_production"]
 //! variable = "F = record fields"
 //! counters = []
@@ -25,7 +25,9 @@
 //! bound = "O(N + X x F) plus the structural ordering of each ambiguity's alternatives, whose pair comparisons the pass shares"
 //! ```
 //!
-//! Generation and collapse of Scala-compatible record productions.
+//! Generation and collapse of the record-pattern productions of a prefix production: the forms
+//! `f(... a: P, b: Q)` that give some of its named arguments, in declaration order, and leave the
+//! others unconstrained (K user manual, "Record-like KApply Patterns").
 //!
 //! Production generation is O(fields). Packed collapse visits each shared node once through a
 //! pointer memo, while field collection recurses without a memo and multiplies prefix and item

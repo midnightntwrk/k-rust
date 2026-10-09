@@ -675,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_reference_accepted_backslash_identifiers() {
+    fn parses_backslash_identifiers_as_variables_and_symbols() {
         let element = crate::kore::parser::parse_pattern(r"\foo:\S{}").unwrap();
         let set = crate::kore::parser::parse_pattern(r"\@X:\S{}").unwrap();
         let application = crate::kore::parser::parse_pattern(r"\foo{}()").unwrap();
@@ -704,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    fn expands_legacy_associative_or_like_the_reference() {
+    fn expands_associative_or_into_nested_binary_ors() {
         let left =
             crate::kore::parser::parse_pattern(r"\left-assoc{}(\or{S{}}(a{}(), b{}(), c{}()))")
                 .unwrap();

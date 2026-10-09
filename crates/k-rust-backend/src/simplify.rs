@@ -51,7 +51,7 @@
 //! ```
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
-//! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
+//! builtin hooks, and evaluated-attribute memoisation: cost O(rounds x
 //! |term| x candidates per node), rounds that are not determined ground function-theory steps
 //! <= `max_iterations` per lineage (`RootStep`);
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
@@ -4879,7 +4879,7 @@ pub fn with_reads_bound<T>(bound: usize, action: impl FnOnce() -> T) -> T {
 }
 
 /// The number of entries a [`Reads`] lists before it keeps only the sufficient check:
-/// [`READS_BOUND`], except under [`with_reads_bound`].
+/// [`READS_BOUND`], except under `with_reads_bound` (feature `test-switches`).
 #[inline(always)]
 fn reads_bound() -> usize {
     #[cfg(feature = "test-switches")]
@@ -4915,7 +4915,7 @@ fn note_condition_reentry() {
 }
 
 /// Whether evaluations of `Unspecified` applications are reused: always, except under
-/// [`without_unspecified_reuse`].
+/// `without_unspecified_reuse` (feature `test-switches`).
 #[inline(always)]
 fn unspecified_reuse() -> bool {
     #[cfg(feature = "test-switches")]

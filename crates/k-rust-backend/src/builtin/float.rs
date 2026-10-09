@@ -126,7 +126,7 @@ impl KFloat {
     }
 
     /// `rootFloat(x, n)`, "the Nth integer root": IEEE 754 `rootn(x, n)` rounded to nearest in
-    /// `x`'s format ([`root`]). Its special cases (`n = 0`, a NaN, a zero, an infinity, a negative
+    /// `x`'s format ([`root`](mod@root)). Its special cases (`n = 0`, a NaN, a zero, an infinity, a negative
     /// `x` with an even `n`) are IEEE's; degree 1 is `x`, degree -1 the IEEE division `1/x`,
     /// degree 2 IEEE `squareRoot` (the even root of -0 being +0, so `sqrtFloat(-0.0)`, the K rule
     /// `rootFloat(F, 2)`, is +0), and every other degree is rounded exactly.

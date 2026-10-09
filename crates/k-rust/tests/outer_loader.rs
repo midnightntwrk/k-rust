@@ -1172,7 +1172,7 @@ fn deduplicates_mutual_requires_cycles_dependency_first() {
     };
 
     let loaded = load(ResolvedSource::new("main.k", entry), "MAIN", &mut resolver)
-        .expect("requires cycles should be de-duplicated like the reference frontend");
+        .expect("a requires cycle should load each file once");
 
     assert_eq!(
         loaded

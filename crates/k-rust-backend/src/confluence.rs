@@ -63,10 +63,10 @@
 //! step ever happens inside a variable's value.
 //!
 //! The answer is a [`ValueClaims`], stored in the definition. While it is computed the
-//! definition holds [`ValueClaims::withheld`], which admits no claim, so that no claim the check
+//! definition holds `ValueClaims::withheld`, which admits no claim, so that no claim the check
 //! is about to withdraw can contribute to its own verdict (a `requires` refuted through a claim,
 //! a join step through a certified root). Every place that mints a claim asks
-//! [`ValueClaims::admit`] for the index of the term it vouches for.
+//! `ValueClaims::admit` for the index of the term it vouches for.
 
 mod closure;
 mod conditions;

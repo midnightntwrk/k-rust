@@ -233,7 +233,7 @@ impl TermMetadata {
 /// their fields, ignoring annotations.
 ///
 /// A term is dropped with an explicit work list, and copied and compared one level at a time
-/// with stack for one more level ([`crate::stack::guarded`]), so a term nested to any depth is
+/// with stack for one more level (`crate::stack::guarded`), so a term nested to any depth is
 /// dropped, copied and compared on any thread. Because of that `Drop`, a term cannot be
 /// destructured by move: match on [`Term::into_parts`] to take a term apart by value.
 pub enum Term {

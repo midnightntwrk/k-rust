@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys, O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and O(g log m) per key to list the later keys of other groups; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys, O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -379,27 +379,43 @@ impl<'a, 't> KeyGroups<'a, 't> {
         position: usize,
         after: &mut Vec<Predicate>,
     ) {
+        fn later_than(indices: &[usize], position: usize) -> &[usize] {
+            &indices[indices.partition_point(|&index| index <= position)..]
+        }
         let left = self.keys[position];
-        let later = |indices: &[usize]| {
-            let start = indices.partition_point(|&index| index <= position);
-            indices[start..].to_vec()
-        };
+        let later = |indices| later_than(indices, position);
         let undecided = match self.group[position] {
             None => (position + 1..self.keys.len()).collect::<Vec<_>>(),
             Some(own) => {
-                let mut undecided = later(&self.loose);
-                for (group, members) in self.members.iter().enumerate() {
-                    if group != own {
-                        undecided.extend(later(members));
+                let mut equal = Vec::new();
+                let mut next = self.next_equal[position];
+                while let Some(index) = next {
+                    equal.push(index);
+                    next = self.next_equal[index];
+                }
+                // The later keys of the group that differ from this one need no check. When they
+                // are fewer than the later keys that do, scanning every later key and leaving
+                // them out costs less than gathering and sorting the other groups' keys, whose
+                // cost grows with the number of groups.
+                let skipped = later(&self.members[own]).len() - equal.len();
+                if 2 * skipped < self.keys.len() - position - 1 {
+                    let mut equal = equal.into_iter().peekable();
+                    (position + 1..self.keys.len())
+                        .filter(|&index| {
+                            self.group[index] != Some(own) || equal.next_if_eq(&index).is_some()
+                        })
+                        .collect()
+                } else {
+                    let mut undecided = equal;
+                    undecided.extend_from_slice(later(&self.loose));
+                    for (group, members) in self.members.iter().enumerate() {
+                        if group != own {
+                            undecided.extend_from_slice(later(members));
+                        }
                     }
+                    undecided.sort_unstable();
+                    undecided
                 }
-                let mut equal = self.next_equal[position];
-                while let Some(index) = equal {
-                    undecided.push(index);
-                    equal = self.next_equal[index];
-                }
-                undecided.sort_unstable();
-                undecided
             }
         };
         for index in undecided {

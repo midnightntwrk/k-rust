@@ -1,4 +1,4 @@
-//! Deterministic `STRING` hooks implemented by Kore's fallback evaluator.
+//! Deterministic `STRING` hooks: per-call operations on strings.
 
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;

@@ -105,6 +105,8 @@ pub(super) fn select_modules(
         .module_id(configuration)
         .ok_or_else(|| LoadError::MissingConfigurationModule(configuration.into()))?;
     let mut roots = BTreeSet::from([main, syntax, configuration]);
+    // Compilation reads these whether or not a root imports them (`FRONTEND_UTILITY_MODULES` of
+    // `definition::checks::kompile_checks` states where).
     for name in [
         WellKnownModule::KReflection,
         WellKnownModule::StdinStream,

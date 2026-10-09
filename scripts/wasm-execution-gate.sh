@@ -31,7 +31,9 @@ A program's result is its exit status, its standard error, and its standard outp
 `success`, the final configuration of a passing upstream test as krust renders it
 (scripts/wasm-execution-gate.success.kore), or the SHA-256 of another output. A proof's result
 is its exit status, its standard error, and its verdict: the lines of standard output indented
-by at most two spaces (each claim's status and state counts, and where a failed claim stopped).
+by at most two spaces (each claim's status and state counts, and where a failed claim stopped);
+a proof that fails also records the SHA-256 of its whole standard output, which holds the
+configuration each failed claim stopped on.
 
 krust is $KRUST_BIN when set, otherwise the gate binary built as the reference gates build it
 (KRUST_GATE_Z3, KRUST_GATE_TARGET_DIR, KRUST_GATE_INVARIANT_CHECKS). The checkouts are
@@ -88,15 +90,6 @@ for name in selected:
 EOF
 ) || exit 2
 
-if [[ -z "$work" ]]; then
-  work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-wasm-execution.XXXXXX")
-  remove_work=true
-else
-  mkdir -p "$work"
-  work=$(cd "$work" && pwd)
-  remove_work=false
-fi
-
 if [[ -n "${KRUST_BIN:-}" ]]; then
   krust=$KRUST_BIN
 else
@@ -106,6 +99,16 @@ else
   krust=$krust_gate_binary
 fi
 [[ -x "$krust" ]] || die "no krust executable at $krust"
+
+# Created only once the setup has succeeded, so that a setup error leaves nothing behind.
+if [[ -z "$work" ]]; then
+  work=$(mktemp -d "${TMPDIR:-/tmp}/k-rust-wasm-execution.XXXXXX")
+  remove_work=true
+else
+  mkdir -p "$work"
+  work=$(cd "$work" && pwd)
+  remove_work=false
+fi
 
 # Runs one case: TIMEOUT NAME ARGUMENT..., with standard input closed so that a definition that
 # reads $STDIN gets end of file instead of the caller's terminal or pipe.
@@ -158,6 +161,13 @@ cases = [("program", case) for case in loaded["program"]] + [("proof", case) for
 selected = set(selected or [case["name"] for _, case in cases])
 
 
+RESULT_KEYS = ("exit", "stderr", "stdout", "verdict")
+
+
+def digest(stdout):
+    return f"sha256:{hashlib.sha256(stdout).hexdigest()} ({len(stdout)} bytes)"
+
+
 def measure(kind, name):
     def output(suffix):
         return (work / (name.replace("/", "-") + suffix)).read_bytes()
@@ -165,11 +175,14 @@ def measure(kind, name):
     stdout = output(".stdout")
     result = {"exit": int(output(".exit")), "stderr": output(".stderr").decode()}
     if kind == "program":
-        result["stdout"] = "success" if stdout == success else (
-            f"sha256:{hashlib.sha256(stdout).hexdigest()} ({len(stdout)} bytes)")
+        result["stdout"] = "success" if stdout == success else digest(stdout)
     else:
         lines = stdout.decode().splitlines()
         result["verdict"] = "".join(line + "\n" for line in lines if re.match(r"^ {0,2}\S", line))
+        # The verdict says where a failed claim stopped but not on which configuration; the
+        # digest of the whole output pins that too.
+        if result["exit"] != 0:
+            result["stdout"] = digest(stdout)
     seconds = int(output(".milliseconds")) / 1000
     return result, stdout, seconds
 
@@ -189,7 +202,8 @@ if update:
     out = header
     for kind, case in cases:
         if case["name"] in selected:
-            case = {**case, **measure(kind, case["name"])[0]}
+            kept = {key: value for key, value in case.items() if key not in RESULT_KEYS}
+            case = kept | measure(kind, case["name"])[0]
         out.append(f"\n[[{kind}]]\n")
         for key, value in case.items():
             out.append(f"{key} = {value if isinstance(value, int) else toml_string(value)}\n")
@@ -203,7 +217,8 @@ for kind, case in cases:
     if name not in selected:
         continue
     measured, stdout, seconds = measure(kind, name)
-    differing = [key for key in measured if measured[key] != case.get(key)]
+    differing = [key for key in RESULT_KEYS
+                 if (key in measured or key in case) and measured.get(key) != case.get(key)]
     if not differing:
         if kind == "program":
             shown = measured["stdout"]

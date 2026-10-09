@@ -2643,9 +2643,11 @@ impl BackendDefinition {
                 target: Box::new(externalize::sort(target)),
             });
         }
-        // Booster's injection branch records the declared source sort directly and does not run
-        // the ordinary symbol-argument sort check. Preserve that boundary behavior as well as its
-        // precedence over validation performed by an enclosing application.
+        // An injection keeps its declared source and target sorts and its operand is not checked
+        // against the source: only the subsort test above refuses it, and since operands are
+        // internalized first, that refusal comes before any argument error of an enclosing
+        // application. Whether an operand of another sort than the source should be refused is
+        // not decided here.
         if !syntax.is(WellKnownSymbol::Inj) {
             for (index, (expected, argument)) in symbol
                 .argument_sorts
@@ -3209,8 +3211,7 @@ fn attach_collection_metadata(
                 };
                 if !key_arguments.is_empty() || !value_arguments.is_empty() {
                     return Err(DefinitionError::MalformedCollection(
-                        "parametric map element sorts are unsupported by the reference backend"
-                            .into(),
+                        "parametric map element sorts are not supported".into(),
                     ));
                 }
                 let definition = Arc::new(MapDefinition {
@@ -3242,8 +3243,7 @@ fn attach_collection_metadata(
                 };
                 if !arguments.is_empty() {
                     return Err(DefinitionError::MalformedCollection(
-                        "parametric collection element sorts are unsupported by the reference backend"
-                            .into(),
+                        "parametric collection element sorts are not supported".into(),
                     ));
                 }
                 let definition = Arc::new(ListDefinition {

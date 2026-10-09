@@ -1,4 +1,4 @@
-//! Concrete `LIST` hooks implemented by Booster: per-call operations on the internal list
+//! Concrete `LIST` hooks: per-call operations on the internal list
 //! representation; a responsibility, not an algorithm; no counter of its own, no worklist.
 
 use std::sync::Arc;
@@ -611,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn default_list_hooks_use_the_reference_kitem_definition() {
+    fn make_without_a_list_definition_builds_a_kitem_list() {
         let BuiltinResult::Value(made) = make(&[integer(2), item("x")]).unwrap() else {
             panic!("LIST.make should evaluate")
         };

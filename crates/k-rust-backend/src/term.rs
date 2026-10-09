@@ -1650,7 +1650,7 @@ impl Term {
     /// free-constructor application ([`HeadRole::FreeConstructor`]: its declaration admits no
     /// equation that identifies its applications), a sort injection, and
     /// an application of an `anywhere` production that the simplifier certified as a normal form
-    /// by setting its `evaluated` bit ([`Self::with_evaluated_cache`]: every equation that may
+    /// by setting its `evaluated` bit (`Self::with_evaluated_cache`: every equation that may
     /// apply to it was scanned and found inapplicable independently of the path condition, and
     /// its arguments are certified too). Distinct normal forms are distinct values, so two
     /// such heads that differ refute the equality, and equal heads of a free symbol refute it
@@ -1666,7 +1666,7 @@ impl Term {
     /// describe.
     ///
     /// Two injections from different source sorts decide nothing here; see
-    /// [`Self::structurally_distinct_with`] for a caller that can compare the sorts.
+    /// `Self::structurally_distinct_with` for a caller that can compare the sorts.
     pub fn structurally_distinct_after_normalization(&self, other: &Self) -> bool {
         self.structurally_distinct_with(other, &|_, _| InjectionComparison::Undecided)
             .is_some()
@@ -2871,7 +2871,7 @@ fn compare_one_level_deeper<R>(compare: impl FnOnce() -> R, on_work_list: impl F
 /// Two handles of one allocation are equal, and two terms whose stored hashes differ are not
 /// (the hash is a function of the kind). Otherwise the kinds are compared by their derived
 /// equality, which compares children with this one, for the first `RECURSIVE_COMPARISON_LEVELS`
-/// levels; below them by [`equal_terms_on_work_list`], so the comparison takes a bounded native
+/// levels; below them by `equal_terms_on_work_list`, so the comparison takes a bounded native
 /// stack whatever the height of the terms. It is called between two stack checks of the
 /// simplifier (matching, `KEQUAL`, apartness, deduplication) on terms of any height, and a
 /// recursion over two equal, unshared deep terms overran the red zone there.
@@ -3090,7 +3090,7 @@ impl PartialOrd for Term {
 /// A shared term equals itself; without this, comparing two handles of one large term (a
 /// substitution binding copied into several solutions) walks it in full. Otherwise the kinds are
 /// compared by their derived order, which compares children with this one, for the first
-/// `RECURSIVE_COMPARISON_LEVELS` levels; below them by [`order_terms_on_work_list`], so the
+/// `RECURSIVE_COMPARISON_LEVELS` levels; below them by `order_terms_on_work_list`, so the
 /// comparison takes a bounded native stack whatever the height of the terms: it runs between two
 /// stack checks of the simplifier (sorting the entries of a map it rebuilds), and a recursion over
 /// two deep terms with a long common part overran the red zone there.

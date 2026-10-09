@@ -293,7 +293,7 @@ fn resolve_production(
         )?;
         all_positions.extend(positions);
     } else {
-        let components = split_without_trailing_empty_pieces(&attribute, ';');
+        let components = split_keeping_a_first_piece(&attribute, ';');
         if components.len() == 1 {
             let component = components[0].trim();
             let (positions, aliases) = if component
@@ -352,7 +352,7 @@ fn resolve_production(
         let hybrid_sorts = if hybrid.is_empty() {
             vec![FrontendSort::KResult.as_str()]
         } else {
-            split_without_trailing_empty_pieces(&hybrid, ',')
+            split_keeping_a_first_piece(&hybrid, ',')
                 .into_iter()
                 .map(str::trim)
                 .collect()
@@ -541,7 +541,7 @@ fn parse_positions(
     arity: usize,
     attributes: &Attributes,
 ) -> Result<Vec<usize>, Vec<Diagnostic>> {
-    let raw = split_without_trailing_empty_pieces(text, ',');
+    let raw = split_keeping_a_first_piece(text, ',');
     let mut positions = Vec::new();
     for part in &raw {
         let position = part.trim().parse::<usize>().ok();
@@ -569,7 +569,7 @@ fn resolve_aliases(
 ) -> Result<Vec<Alias>, Vec<Diagnostic>> {
     let mut aliases = Vec::<Alias>::new();
     // Invariant: `aliases` holds, without duplicates and in order, the context aliases named by every label of `text` before `raw_label`; each iteration consumes one comma-separated label, and the inner loop over its `sentences` checks each alias against `aliases`, quadratic in the number of aliases.
-    for raw_label in split_without_trailing_empty_pieces(text, ',') {
+    for raw_label in split_keeping_a_first_piece(text, ',') {
         let label = raw_label.trim();
         let Some(sentences) = labeled.get(label) else {
             return Err(vec![error_at(
@@ -704,7 +704,10 @@ fn attribute_text(attributes: &Attributes, key: AttributeKey) -> Option<String> 
     })
 }
 
-fn split_without_trailing_empty_pieces(text: &str, delimiter: char) -> Vec<&str> {
+/// `text` split at `delimiter` without its trailing empty pieces, except that the first piece is
+/// always kept: `";"` and `",,"` give one empty piece, which the callers then report. The
+/// production-shape check's `split_dropping_every_trailing_empty_piece` gives no piece there.
+fn split_keeping_a_first_piece(text: &str, delimiter: char) -> Vec<&str> {
     let mut values = text.split(delimiter).collect::<Vec<_>>();
     // Invariant: `values` is `text` split at `delimiter` with some trailing empty strings removed, and keeps at least one element; each iteration pops one element.
     while values.len() > 1 && values.last() == Some(&"") {

@@ -213,6 +213,7 @@ fn write_counters_if_requested() {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
+    k_rust::inner::DiagnosticWork::environment()?;
     match cli.command {
         Command::Kcompile(options) => kcompile(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Kast(options) => kast(options.into()).map(|()| ExitCode::SUCCESS),
@@ -2091,9 +2092,10 @@ fn parsed_definition_for_json(
     loaded: &k_rust::outer::LoadedDefinition,
     syntax_module: &str,
 ) -> Result<k_rust::definition::Definition, Box<dyn Error>> {
-    // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
-    // import closures, the frontend's always-present utility modules, and entry modules whose
-    // visible sentences contained no bubbles before backend-tag filtering.
+    // The module set compilation works on (`kompile_checks::parsed_definition_modules`, which
+    // states why), plus the syntax module's closure: the semantic and syntax import closures, the
+    // utility modules compilation reads without an import, and entry modules whose visible
+    // sentences contained no bubbles before backend-tag filtering.
     let main = loaded.resolved().main_module();
 
     let mut seeds = BTreeSet::from([
@@ -4033,7 +4035,7 @@ mod tests {
     }
 
     #[test]
-    fn default_search_uses_the_reference_kore_variable_name() {
+    fn default_search_target_is_var_result_named_apart_from_request_variables() {
         let initial = Pattern {
             term: Term::variable(Variable::new(
                 "Initial",

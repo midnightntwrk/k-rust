@@ -559,14 +559,31 @@ impl DiagnosticWork {
     pub const VARIABLE: &'static str = "KRUST_PARSE_DIAGNOSTIC_WORK";
 
     /// The limit [`Self::VARIABLE`] sets, or [`Self::DEFAULT`] when it is unset or holds
-    /// anything [`Self::parse`] does not read. Read once per process.
+    /// anything [`Self::parse`] does not read. Read once per process. `krust` refuses an
+    /// unreadable value before it parses anything ([`Self::environment`]), so this fallback
+    /// serves only an embedder that does not check.
     pub fn from_environment() -> Self {
         static FROM_ENVIRONMENT: OnceLock<DiagnosticWork> = OnceLock::new();
-        *FROM_ENVIRONMENT.get_or_init(|| {
-            std::env::var(Self::VARIABLE)
-                .ok()
-                .and_then(|value| Self::parse(&value))
-                .unwrap_or(Self::DEFAULT)
+        *FROM_ENVIRONMENT
+            .get_or_init(|| Self::environment().ok().flatten().unwrap_or(Self::DEFAULT))
+    }
+
+    /// The limit [`Self::VARIABLE`] sets: `None` when it is unset or empty, and an error naming
+    /// the variable and its value when it holds anything else [`Self::parse`] does not read. A
+    /// value set to change the limit and read as the default would leave a diagnostic other than
+    /// the one asked for, with nothing to say so.
+    pub fn environment() -> Result<Option<Self>, String> {
+        let value = match std::env::var(Self::VARIABLE) {
+            Ok(value) if value.trim().is_empty() => return Ok(None),
+            Ok(value) => value,
+            Err(std::env::VarError::NotPresent) => return Ok(None),
+            Err(std::env::VarError::NotUnicode(value)) => value.to_string_lossy().into_owned(),
+        };
+        Self::parse(&value).map(Some).ok_or_else(|| {
+            format!(
+                "{} must be `unlimited` or a number of chart steps, not `{value}`",
+                Self::VARIABLE
+            )
         })
     }
 
@@ -927,9 +944,10 @@ impl fmt::Display for ParseError {
                     write!(
                         formatter,
                         " No reading of the input that respects the priority and associativity \
-                         relations can be completed past this point; whether one that breaks \
-                         them can was not decided within the diagnostic's limit of {limit} chart \
-                         steps ({} raises it).",
+                         relations and finds later in the input the tokens it still needs (a \
+                         closing parenthesis, say) can be completed past this point; whether one \
+                         that breaks a relation can was not decided within the diagnostic's limit \
+                         of {limit} chart steps ({} raises it).",
                         DiagnosticWork::VARIABLE
                     )?;
                 }
@@ -2501,6 +2519,8 @@ impl Grammar {
                         // waiting in one chart share a few of those, however many origins they
                         // have, so each is filtered and packed once per completion.
                         boundaries.clear();
+                        #[cfg(test)]
+                        update_chart_work_counters(|counters| counters.caller_group_decisions = 0);
                         let mut boundary = |caller: &State| {
                             if let Some((_, _, completed)) =
                                 boundaries.iter().find(|(production, dot, _)| {
@@ -2509,6 +2529,13 @@ impl Grammar {
                             {
                                 return completed.clone();
                             }
+                            #[cfg(test)]
+                            update_chart_work_counters(|counters| {
+                                counters.caller_group_decisions += 1;
+                                counters.most_caller_group_decisions = counters
+                                    .most_caller_group_decisions
+                                    .max(counters.caller_group_decisions);
+                            });
                             let completed = self.filter_associative_boundary(
                                 *caller,
                                 &nodes,
@@ -2518,11 +2545,6 @@ impl Grammar {
                             let completed =
                                 (!completed.is_empty()).then(|| pack_alternatives(&completed));
                             boundaries.push((caller.production, caller.dot, completed.clone()));
-                            #[cfg(test)]
-                            update_chart_work_counters(|counters| {
-                                counters.most_caller_group_decisions =
-                                    counters.most_caller_group_decisions.max(boundaries.len());
-                            });
                             completed
                         };
                         let mut advance = |chart: &mut Chart,

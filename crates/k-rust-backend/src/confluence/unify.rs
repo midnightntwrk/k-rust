@@ -73,7 +73,7 @@ pub enum UnresolvedShape {
     /// A comparison that needs the overload axioms of a family (one of its members) that is not
     /// known confluent, or that has no unique least common overload.
     Family(Name),
-    /// More than [`UNIFIER_BRANCHES`] branch states.
+    /// More than `UNIFIER_BRANCHES` branch states.
     Budget,
     /// A left-hand side that matches one subject in several ways (a map or set pattern with an
     /// entry the rest of the left-hand side does not fix), whose right-hand side or `ensures`

@@ -340,7 +340,7 @@ impl PartialOrd for Sort {
 /// Total order on sorts: variables before applications, variables by name, applications by
 /// name, then arguments left to right, then argument count. This is the order
 /// `#[derive(Ord)]` would give; it is written out because a derived comparison recurses once
-/// per sort level, while this one recurses only [`SORT_RECURSION_LIMIT`] levels and compares
+/// per sort level, while this one recurses only `SORT_RECURSION_LIMIT` levels and compares
 /// the subsorts below them with an explicit work list.
 impl Ord for Sort {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {

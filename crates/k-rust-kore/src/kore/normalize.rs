@@ -4,9 +4,10 @@ use super::ast::{Associativity, Pattern};
 
 /// Converts syntax-preserving KORE into the shape expected at the KAST boundary.
 ///
-/// Empty and unary conjunctions/disjunctions follow scala-kore's builders, and
-/// associative wrappers become binary application trees. Unlike pyk's current
-/// `RightAssoc.pattern`, symbol sort parameters are preserved in both directions.
+/// An empty conjunction becomes its unit `\top` and an empty disjunction its
+/// unit `\bottom`; a unary one becomes its argument, which it denotes. Associative
+/// wrappers become binary application trees, nested to the left or to the right
+/// as the wrapper says, and keep the symbol's sort parameters.
 pub fn for_kast(pattern: &Pattern) -> Pattern {
     use Pattern::*;
     super::walk::rebuild(pattern, |pattern, arguments| match pattern {
