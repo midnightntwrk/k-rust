@@ -1,0 +1,21 @@
+[package]
+name = "krs-configuration-cells-threads"
+description = "A Map cell collection: spawn and join threads (KF-023)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_threads"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-THREADS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

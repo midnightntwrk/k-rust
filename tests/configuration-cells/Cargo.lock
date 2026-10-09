@@ -63,6 +63,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-objects"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-configuration-cells-optional"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-configuration-cells-queue"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-configuration-cells-threads"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-diagnostic"
 version = "0.1.0"
 dependencies = [

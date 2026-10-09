@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Configuration-cells feature gate: rules that leave `k` out (KF-015) and
-whole nested-cell variables (KF-016).
+"""Configuration-cells feature gate: rules that leave `k` out (KF-015),
+whole nested-cell variables (KF-016), and optional cells and cell
+collections (KF-023).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -25,6 +26,19 @@ the outcomes must agree:
   gas 13, each of the three programs ends with pc 3 and gas 10 natively, and
   `report` writes 310 (`100 * pc + gas`) to the computation cell on both
   routes;
+- `optional`: an `Option<Int>` cell and an `Option<Mark>` nested cell,
+  both `multiplicity = "?"` and absent at start. `enable` creates the
+  counter (`None => Some(0)`), `inc`/`dec` update it, `read` reads it,
+  `disable` removes it, and a second `enable` is stuck on both routes;
+- `threads`: K's lesson 1.17-B with a `cell_type = "Map"` collection of
+  threads, `initial` so the first thread exists at start. `spawn` creates a
+  thread, `join` (written with `k::cells!`) removes one, and a search of the
+  race reaches both `return 2;` and `return 3;` on both routes;
+- `objects`: a `cell_type = "Set"` collection whose instances are created
+  with template defaults, updated in place, removed, and matched exactly;
+- `queue`: a `cell_type = "List"` collection where `enqueue` appends at
+  the back and `dequeue` removes the front, so jobs leave first in first
+  out; the emitted back rewrite names the leading instances `_Instances1:Bag`;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -32,7 +46,13 @@ the outcomes must agree:
   (`krs::analysis::group-and-descendant`), a cell declaration that is the
   content of two cell fields (`krs::analysis::ambiguous-cell-sort`), and
   `frame: 3` in a `cells!` entry each fail `krs check` with a pinned
-  diagnostic.
+  diagnostic, as do a cell bag, a collection without `cell_type`, a
+  collection with sibling cells, a `?` cell on a plain field, an `Option`
+  field without `multiplicity = "?"`, a `None` template, `..ghost` naming no
+  labelled instance, braces on a List collection, one List rule changing
+  both ends, and a created Map instance without its key. A `?` template that
+  reads a configuration variable without `initial` is accepted with a
+  pinned warning.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -51,7 +71,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Fixture, FixtureGate, Program  # noqa: E402
+from support.fixture_gate import Fixture, FixtureGate, Program, diagnostic_lines  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
@@ -124,13 +144,147 @@ PUSH_REFERENCE = (
     ") -> crate::Machine {\n"
 )
 
+OPTIONAL = Fixture(MANIFEST, "krs-configuration-cells-optional")
+OPTIONAL_PROGRAMS = (
+    Program("count", "enable inc inc dec read", "accepted", "1"),
+    Program("stuck", "enable enable", "accepted", "enable"),
+    Program("toggle", "enable inc disable enable read", "accepted", "0"),
+    Program("mark", "enable inc inc stamp peek", "accepted", "2"),
+)
+
+OPTIONAL_K = (
+    "    <counter multiplicity=\"?\"> 0 </counter>\n"
+    "    <mark multiplicity=\"?\">\n",
+    "  rule [enable]:\n"
+    "    <k> enable => .K ... </k>\n"
+    "    (.Bag => <counter> 0 </counter>)\n",
+    "  rule [inc]:\n"
+    "    <k> inc => .K ... </k>\n"
+    "    <counter> N:Int => N:Int +Int 1 </counter>\n",
+    "  rule [read]:\n"
+    "    <k> read => N:Int ... </k>\n"
+    "    <counter> N:Int </counter>\n",
+    "  rule [disable]:\n"
+    "    <k> disable => .K ... </k>\n"
+    "    (<counter> _ </counter> => .Bag)\n",
+    "    (.Bag => <mark> <seen> N:Int </seen> </mark>)\n",
+)
+OPTIONAL_REFERENCE = (
+    "    pub counter: Option<k::configuration::Cell<Int>>,\n",
+    "            counter: Some(k::configuration::Cell::new(0)),\n",
+    "        k : k::configuration::KCell(crate ::Cmd::Enable(), tail @ ..), counter : None,\n",
+    "        k : k::configuration::KCell(..tail), counter : Some(k::configuration::Cell(0)),\n",
+    "        k : k::configuration::KCell(..tail), mark : Some(k::fragment![crate ::Mark { seen\n",
+)
+
+THREADS = Fixture(MANIFEST, "krs-configuration-cells-threads")
+THREADS_PROGRAMS = (
+    Program("spawn-join", "a = spawn {return 1 + 2;}; b = join a; return b;", "accepted", "return 3;"),
+    Program(
+        "race",
+        "x = 1; a = spawn {x = 2; return 0;}; x = 3; c = join a; return x;",
+        "accepted",
+        None,
+        search=("return 2;", "return 3;"),
+    ),
+)
+THREADS_K = (
+    "      <thread multiplicity=\"*\" type=\"Map\" initial=\"\">\n",
+    "  rule [spawn]:\n"
+    "    <thread>\n"
+    "        <k> spawn { Body:Stmt } => N:Int ... </k>\n"
+    "        ...\n"
+    "    </thread>\n"
+    "    (.Bag => <thread>\n"
+    "        <id> N:Int </id>\n"
+    "        <k> Body:Stmt </k>\n"
+    "        ...\n"
+    "    </thread>)\n",
+    "    (<thread>\n"
+    "        <id> T:Int </id>\n"
+    "        <k> return I:Int ; ... </k>\n"
+    "        ...\n"
+    "    </thread> => .Bag)\n",
+)
+THREADS_REFERENCE = (
+    "crate ::Threads::thread : { me @ k::fragment![crate ::Thread { k : k::k![crate "
+    "::ExpSyntax::Spawn(body), tail0 @ ..], .. }], instances0 @ .. }",
+    "crate ::Threads::thread : { k::fragment![crate ::Thread { k : k::k![n, ..tail0], "
+    "..me }], k::fragment![crate ::Thread { id : n, k : k::k![body], .. }], ..instances0 }",
+)
+
+OBJECTS = Fixture(MANIFEST, "krs-configuration-cells-objects")
+OBJECTS_PROGRAMS = (
+    Program("count", "mk 1 mk 2 touch 2 touch 2 rm 1 count 2", "accepted", "2"),
+    Program("default", "mk 3 count 3", "accepted", "0"),
+    Program("single", "mk 5 single", "accepted", "5"),
+    Program("single-stuck", "mk 5 mk 6 single", "accepted", "single"),
+)
+OBJECTS_K = (
+    "      <obj multiplicity=\"*\" type=\"Set\">\n",
+    "    (.Bag => <obj>\n"
+    "        <oid> N:Int </oid>\n"
+    "        ...\n"
+    "    </obj>)\n",
+    "    <obj>\n"
+    "        <oid> N:Int </oid>\n"
+    "        <hits> H:Int => H:Int +Int 1 </hits>\n"
+    "    </obj>\n",
+    "    <objects>\n"
+    "        <obj>\n"
+    "            <oid> N:Int </oid>\n"
+    "            ...\n"
+    "        </obj>\n"
+    "    </objects>\n",
+)
+
+QUEUE = Fixture(MANIFEST, "krs-configuration-cells-queue")
+QUEUE_PROGRAMS = (
+    Program("dequeue", "enqueue 1 enqueue 2 enqueue 3 dequeue", "accepted", "1"),
+    Program("fifo", "enqueue 1 enqueue 2 enqueue 3 drop drop dequeue", "accepted", "3"),
+    Program("front", "enqueue 4 enqueue 5 front", "accepted", "4"),
+    Program("pop", "enqueue 4 enqueue 5 enqueue 6 pop", "accepted", "6"),
+)
+QUEUE_K = (
+    "      <job multiplicity=\"*\" type=\"List\">\n",
+    "    <queue>\n"
+    "        (<job>\n"
+    "            <payload> P:Int </payload>\n"
+    "            ...\n"
+    "        </job> => .Bag)\n"
+    "        ...\n"
+    "    </queue>\n",
+    "    <queue>\n"
+    "        _Instances1:Bag\n"
+    "        (.Bag => <job>\n"
+    "            <payload> V:Int </payload>\n"
+    "            ...\n"
+    "        </job>)\n"
+    "    </queue>\n",
+)
+
 NEGATIVE = (
     "unguarded-framed-rule",
     "identity-framed-rule",
     "group-and-leaf",
     "reused-cell-declaration",
     "group-literal",
+    "cell-bag",
+    "collection-without-type",
+    "collection-siblings",
+    "optional-plain-field",
+    "optional-without-multiplicity",
+    "optional-none-template",
+    "unknown-instance-label",
+    "list-braces",
+    "list-both-ends",
+    "map-created-without-key",
 )
+
+# Accepted, with a pinned warning: a `?` template that reads a configuration
+# variable without `initial` starts present in K.
+WARNING = "optional-config-var"
+WARNING_CODE = "warning[krs::analysis::collection-config-var-without-initial]"
 
 
 def materialize(name: str, workspace: Path) -> Path:
@@ -185,6 +339,48 @@ def verify_groups(harness: FixtureGate) -> None:
         final_cells(harness, emitted, program, {"pc": "3", "gas": "10"})
 
 
+def verify_optional(harness: FixtureGate) -> None:
+    harness.check(OPTIONAL)
+    expansion = harness.expand(OPTIONAL)
+    for text in OPTIONAL_REFERENCE:
+        if text not in expansion:
+            raise GateError(f"the reference form lost an optional-cell spelling:\n{text}")
+    emitted = harness.emit(OPTIONAL)
+    source = emitted.source.read_text(encoding="utf-8")
+    for text in OPTIONAL_K:
+        if text not in source:
+            raise GateError(f"emitted K changed an optional-cell form:\n{text}\nin:\n{source}")
+    harness.compare(emitted, OPTIONAL_PROGRAMS, sort="Stmt")
+
+
+def verify_threads(harness: FixtureGate) -> None:
+    harness.check(THREADS)
+    expansion = harness.expand(THREADS)
+    flat = " ".join(expansion.split())
+    for text in THREADS_REFERENCE:
+        if text not in flat:
+            raise GateError(f"the reference form lost a collection spelling:\n{text}\nin:\n{expansion}")
+    emitted = harness.emit(THREADS)
+    source = emitted.source.read_text(encoding="utf-8")
+    for text in THREADS_K:
+        if text not in source:
+            raise GateError(f"emitted K changed a collection form:\n{text}\nin:\n{source}")
+    harness.compare(emitted, THREADS_PROGRAMS, sort="Stmt", search=True)
+
+
+def verify_emitted(harness: FixtureGate, fixture: Fixture, texts: tuple[str, ...]):
+    """Check, expand, and emit a fixture, and require the given emitted K forms."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    source = emitted.source.read_text(encoding="utf-8")
+    for text in texts:
+        if text not in source:
+            raise GateError(f"emitted K changed a collection form:\n{text}\nin:\n{source}")
+    return emitted
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -214,10 +410,30 @@ def main() -> int:
         verify_groups(harness)
         print("PASS groups: push/pop, save/restore and call/ret each end with pc 3 and gas 10, report writes 310")
 
+        verify_optional(harness)
+        print("PASS optional: enable creates, inc/dec update, read reads, disable deletes; a second enable is stuck")
+
+        verify_threads(harness)
+        print("PASS threads: spawn creates and join removes Map instances; the race reaches return 2 and return 3 on both routes")
+
+        harness.compare(verify_emitted(harness, OBJECTS, OBJECTS_K), OBJECTS_PROGRAMS, sort="Stmt")
+        print("PASS objects: Set instances are created with defaults, updated, removed, and matched exactly")
+
+        harness.compare(verify_emitted(harness, QUEUE, QUEUE_K), QUEUE_PROGRAMS, sort="Stmt")
+        print("PASS queue: enqueue appends at the back and dequeue removes the front, first in first out")
+
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-configuration-cells-{name}"))
             print(f"PASS negative {name}: {message.splitlines()[0]}")
+
+        manifest = materialize(WARNING, workspace)
+        process = harness.check(Fixture(manifest, f"krs-configuration-cells-{WARNING}"))
+        warnings = diagnostic_lines(process.stderr)
+        if not any(line.startswith(WARNING_CODE) for line in warnings):
+            raise GateError(f"{WARNING}: krs check did not warn {WARNING_CODE}:\n{process.stderr}")
+        harness.pins.expect(("warnings", WARNING), warnings)
+        print(f"PASS warning {WARNING}: {warnings[0]}")
 
     pins.finish("configuration-cells")
     print("PASS configuration-cells")

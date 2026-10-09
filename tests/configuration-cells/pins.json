@@ -2,7 +2,11 @@
   "schema": 1,
   "expand": {
     "krs-configuration-cells-framing": "1e1446373c43bfd51f86ce84778dc83c274aa89995e7e9b7d5ad0f1e9867f395",
-    "krs-configuration-cells-groups": "d72f732696c7a90ca7f5d9bf23a03043db00e434d98ce3b01f769bd48e04c26f"
+    "krs-configuration-cells-groups": "d72f732696c7a90ca7f5d9bf23a03043db00e434d98ce3b01f769bd48e04c26f",
+    "krs-configuration-cells-optional": "2a0f4e00ab3c89e0f574d3b69dc1b563fccf673506d2a9ba7a57acc47253e077",
+    "krs-configuration-cells-threads": "0406161421bcd9df8543e12f916e8e443c49e59e3b06150e53cee86672da42c3",
+    "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
+    "krs-configuration-cells-queue": "50c9e1085dc5ae0f5fa123af0d56fffc09f3d97d677ca6eef80ebfd7ef34ca1c"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -10,11 +14,27 @@
     },
     "krs-configuration-cells-groups": {
       "definition.k": "fcb18d395d26d4d3ab1c11e8096d33d525671195cbc6e576b9a100e3b9eb0ab4"
+    },
+    "krs-configuration-cells-optional": {
+      "definition.k": "1180b7d16bd83476f522eaac3eb5f84e4fd296dd7d0150678770a0e08012bdde"
+    },
+    "krs-configuration-cells-threads": {
+      "definition.k": "22999d1efe4211030bb0f2943e8e7e80422f9deb9dbd1d520f284b5d495e056b"
+    },
+    "krs-configuration-cells-objects": {
+      "definition.k": "428644451852e54d113d2c1a38693780418f67b7b77d4d07b0c4d62f86d66991"
+    },
+    "krs-configuration-cells-queue": {
+      "definition.k": "61b9b225cdc37f43104154c9280595c74929e4d6a1daa696edf2fc10e7026ba4"
     }
   },
   "reference_sha256": {
     "krs-configuration-cells-framing": "ffccd4fa80d54a99a74602c887277e1598033006f5daf56aed763c8adf0b81e7",
-    "krs-configuration-cells-groups": "74fa3a00535d5e62abf8e925a3cf7c099878f44ba08a85ab64333fd13af0fbdf"
+    "krs-configuration-cells-groups": "74fa3a00535d5e62abf8e925a3cf7c099878f44ba08a85ab64333fd13af0fbdf",
+    "krs-configuration-cells-optional": "4ec221088a6bab08c35092d3ca8b1804ca7f2d2fb7dfaf2d541c699212c843ba",
+    "krs-configuration-cells-threads": "74bfe8aeb94dc55afab8fa71c69cf0c8df1602cdbebc6439fc086d9e3ba2666b",
+    "krs-configuration-cells-objects": "9f14878c0ca218504d9713d4dbda27c0b5ca37ca3940befe55e5656c9ed4aa5f",
+    "krs-configuration-cells-queue": "c72f0a403a4e17402b141a7814d63a38144af3a0769fce10c842483eb07eca27"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -40,6 +60,74 @@
         "parse": "accepted",
         "run": "310"
       }
+    },
+    "krs-configuration-cells-optional": {
+      "count": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "stuck": {
+        "parse": "accepted",
+        "run": "enable"
+      },
+      "toggle": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "mark": {
+        "parse": "accepted",
+        "run": "2"
+      }
+    },
+    "krs-configuration-cells-threads": {
+      "spawn-join": {
+        "parse": "accepted",
+        "run": "return 3;"
+      },
+      "race": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "return 2;",
+          "return 3;"
+        ]
+      }
+    },
+    "krs-configuration-cells-objects": {
+      "count": {
+        "parse": "accepted",
+        "run": "2"
+      },
+      "default": {
+        "parse": "accepted",
+        "run": "0"
+      },
+      "single": {
+        "parse": "accepted",
+        "run": "5"
+      },
+      "single-stuck": {
+        "parse": "accepted",
+        "run": "single"
+      }
+    },
+    "krs-configuration-cells-queue": {
+      "dequeue": {
+        "parse": "accepted",
+        "run": "1"
+      },
+      "fifo": {
+        "parse": "accepted",
+        "run": "3"
+      },
+      "front": {
+        "parse": "accepted",
+        "run": "4"
+      },
+      "pop": {
+        "parse": "accepted",
+        "run": "6"
+      }
     }
   },
   "diagnostics": {
@@ -57,6 +145,42 @@
     ],
     "group-literal": [
       "error[krs::rust-expansion::uncoded-error]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!"
+    ],
+    "cell-bag": [
+      "error[krs::rust-expansion::uncoded-error]: invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\""
+    ],
+    "collection-without-type": [
+      "error[krs::rust-expansion::uncoded-error]: invalid `cell` attribute: a `multiplicity = \"*\"` collection needs `cell_type = \"Set\"`, `\"Map\"`, or `\"List\"`"
+    ],
+    "collection-siblings": [
+      "error[krs::analysis::collection-siblings]: the collection cell `job` shares its parent with other cells; K requires a `multiplicity = \"*\"` cell to be its parent's only child, so give it a `#[k::cell]` struct of its own"
+    ],
+    "optional-plain-field": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported fixed configuration field: a `multiplicity = \"?\"` cell is declared `Option<T>`, T its leaf sort or nested cell struct"
+    ],
+    "optional-without-multiplicity": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported fixed configuration field: an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`"
+    ],
+    "optional-none-template": [
+      "error[E0599]: no associated function or constant named `__krs_initializer_payload` found for struct `Machine` in the current scope",
+      "error[krs::rust-expansion::uncoded-error]: unsupported declarative initializer body: K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present"
+    ],
+    "unknown-instance-label": [
+      "error[krs::analysis::unknown-instance-label]: `..ghost` names no instance of `job` labelled `ghost @` in the pattern"
+    ],
+    "list-braces": [
+      "error[krs::analysis::collection-entry]: List collections are positional: write `job: [ .. ]`, with instances at the front before `..` and at the back after it"
+    ],
+    "list-both-ends": [
+      "error[krs::analysis::collection-entry]: this entry names instances at both ends of the List collection `job`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
+    ],
+    "map-created-without-key": [
+      "error[krs::analysis::map-collection-key]: a new instance of the Map collection `job` states its key: write `id: ..`, its first child"
+    ]
+  },
+  "warnings": {
+    "optional-config-var": [
+      "warning[krs::analysis::collection-config-var-without-initial]: the `multiplicity = \"?\"` cell `counter` reads a configuration variable, so K starts it present although it is not `initial`; add `initial` to say so"
     ]
   }
 }

@@ -2,6 +2,10 @@
 members = [
     "packages/framing",
     "packages/groups",
+    "packages/objects",
+    "packages/optional",
+    "packages/queue",
+    "packages/threads",
 ]
 resolver = "3"
 

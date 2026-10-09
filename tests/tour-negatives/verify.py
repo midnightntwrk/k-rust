@@ -205,6 +205,18 @@ def main() -> None:
             "ExpSyntax",
         ),
         (
+            "cell_bag",
+            "invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; "
+            "use cell_type = \"Set\", \"Map\", or \"List\"",
+            '"Bag"',
+        ),
+        (
+            "optional_plain_field",
+            "unsupported fixed configuration field: a `multiplicity = \"?\"` cell is declared "
+            "`Option<T>`, T its leaf sort or nested cell struct",
+            "renamed_krs",
+        ),
+        (
             "readable_rule_empty_record",
             "a machine rule selects at least one cell",
             "{}",
