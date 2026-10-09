@@ -4,13 +4,20 @@
 //! variants are the sort's only constructors, as K's `List{Elem, "sep"}`
 //! sentence is the whole definition of the list sort. Membership in open
 //! sorts still goes through `k::sorts!` `impl` lines, which make the list a
-//! subsort of another sort, never the reverse.
+//! subsort of another sort.
+//!
+//! One sort may join a list: the value list of a strict list (KF-020), K's
+//! idiom `syntax Vals ::= List{Val, ","}`, `syntax Exps ::= Vals`,
+//! `syntax KResult ::= Vals` for `syntax Exps ::= List{Exp, ","} [strict]`.
+//! Lowering gives the two lists K's `overload` key, so an evaluated `Exps`
+//! is a `Vals` and its strictness stops heating it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{GrammarProductionItemKind, ProductionAttribute, StableItemId};
-use krs_ir_levels::{SemanticModule, SemanticProduction, SemanticSortRef};
+use krs_ir_levels::{SemanticModule, SemanticProduction, SemanticSortRef, SemanticSubsort};
 
+use super::catalog::semantic_is_subsort;
 use super::error::DescriptorLoweringError;
 use super::overload::sort_name;
 use crate::partition::production_display_name;
@@ -19,6 +26,7 @@ use crate::partition::production_display_name;
 /// module and production order.
 pub(super) fn check_syntax_lists(
     modules: &[SemanticModule],
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(), DescriptorLoweringError> {
     let productions = modules
         .iter()
@@ -29,8 +37,42 @@ pub(super) fn check_syntax_lists(
         return Ok(());
     }
     check_closed(&productions, &lists)?;
-    check_subsorts(modules, &lists)?;
+    check_subsorts(modules, &lists, parents)?;
     check_terminators(&productions)
+}
+
+/// The `overload` edges of every value list, member first: the value list's
+/// cons to the strict list's cons, and its terminator to the strict list's
+/// terminator. K relates them through the strict list's overload key, which
+/// both lists carry on both productions; the semantic pass has checked that
+/// every subsort between two list sorts is a value list.
+pub(crate) fn value_list_overloads(
+    modules: &[SemanticModule],
+) -> Vec<(StableItemId, StableItemId)> {
+    let productions = modules
+        .iter()
+        .flat_map(SemanticModule::productions)
+        .collect::<Vec<_>>();
+    let mut lists = BTreeMap::new();
+    for production in &productions {
+        if let (SemanticSortRef::Declared(sort), Some(terminator)) =
+            (production.result_sort(), cons_terminator(production))
+        {
+            lists.insert(sort, (production.id(), terminator));
+        }
+    }
+    let mut edges = Vec::new();
+    for subsort in modules.iter().flat_map(SemanticModule::subsorts) {
+        if let (SemanticSortRef::Declared(member), SemanticSortRef::Declared(list)) =
+            (subsort.subsort(), subsort.supersort())
+            && let (Some((member_cons, member_nil)), Some((list_cons, list_nil))) =
+                (lists.get(member), lists.get(list))
+        {
+            edges.push(((*member_cons).clone(), (*list_cons).clone()));
+            edges.push(((*member_nil).clone(), (*list_nil).clone()));
+        }
+    }
+    edges
 }
 
 /// Maps each list sort to its cons production, rejecting a list whose
@@ -46,8 +88,7 @@ fn list_sorts<'a>(
         let SemanticSortRef::Declared(sort) = production.result_sort() else {
             continue;
         };
-        if let Some(head) = production.items().first()
-            && let GrammarProductionItemKind::NonTerminal { sort: element, .. } = head.kind()
+        if let Some(element) = element(production)
             && element == production.result_sort()
         {
             return Err(fail(
@@ -98,34 +139,110 @@ fn check_closed(
     Ok(())
 }
 
-/// Rejects a subsort into a list sort.
+/// Rejects a subsort into a list sort, except one value list per strict
+/// list (KF-020): a non-strict syntactic list with the strict list's
+/// separator and `non_empty` flag, whose elements are a subsort of the
+/// strict list's elements, and which, with its elements, is a subsort of
+/// the strict list's result sort.
 fn check_subsorts(
     modules: &[SemanticModule],
     lists: &BTreeMap<&StableItemId, &SemanticProduction>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(), DescriptorLoweringError> {
-    for module in modules {
-        for subsort in module.subsorts() {
-            let SemanticSortRef::Declared(sort) = subsort.supersort() else {
-                continue;
-            };
-            if let Some(cons) = lists.get(sort) {
-                return Err(DescriptorLoweringError::InvalidSyntaxList {
-                    item: Box::new(cons.id().clone()),
-                    reason: format!(
-                        "`{}` is declared a subsort of `{}`, a syntactic list: a list sort is closed, so no sort joins it",
-                        sort_name(subsort.subsort()),
-                        list_name(cons)
-                    ),
-                    range: subsort
-                        .origin()
-                        .origin()
-                        .exact_authored_range()
-                        .map(Box::new),
-                });
+    let mut value_lists = BTreeMap::<&StableItemId, &StableItemId>::new();
+    let mut strict_lists = BTreeMap::<&StableItemId, &StableItemId>::new();
+    for subsort in modules.iter().flat_map(SemanticModule::subsorts) {
+        let SemanticSortRef::Declared(sort) = subsort.supersort() else {
+            continue;
+        };
+        let Some(cons) = lists.get(sort) else {
+            continue;
+        };
+        let reject = |reason: String| subsort_error(subsort, cons, reason);
+        let member_name = sort_name(subsort.subsort());
+        let list = list_name(cons);
+        let member = match subsort.subsort() {
+            SemanticSortRef::Declared(member) => {
+                lists.get(member).map(|member_cons| (member, *member_cons))
             }
+            _ => None,
+        };
+        let Some((member, member_cons)) = member else {
+            return Err(reject(format!(
+                "`{member_name}` is declared a subsort of `{list}`, a syntactic list: a list sort is closed, so no sort joins it except the value list of a strict list, itself a `#[k::syntax_list]`"
+            )));
+        };
+        let Some(result) = strictness_result(cons) else {
+            return Err(reject(format!(
+                "`{member_name}` is declared a subsort of `{list}`, a syntactic list that is not strict: only a strict list admits a subsort, its value list"
+            )));
+        };
+        if strictness_result(member_cons).is_some() {
+            return Err(reject(format!(
+                "`{member_name}`, the value list of `{list}`, is strict: a value list holds evaluated elements, so its cons variant takes no strictness attribute"
+            )));
+        }
+        if list_shape(member_cons) != list_shape(cons) {
+            return Err(reject(format!(
+                "`{member_name}`, the value list of `{list}`, needs the separator and `non_empty` flag of `{list}`: K overloads the two lists, so they print alike"
+            )));
+        }
+        let (Some(member_element), Some(list_element)) = (element(member_cons), element(cons))
+        else {
+            continue;
+        };
+        if !semantic_is_subsort(member_element, list_element, parents) {
+            return Err(reject(format!(
+                "the elements of `{member_name}`, the value list of `{list}`, have sort `{}`, which is not a subsort of `{}`, the elements of `{list}`",
+                sort_name(member_element),
+                sort_name(list_element)
+            )));
+        }
+        for (sort, what) in [
+            (subsort.subsort(), format!("`{member_name}`")),
+            (
+                member_element,
+                format!("its elements' sort `{}`", sort_name(member_element)),
+            ),
+        ] {
+            if !semantic_is_subsort(sort, result, parents) {
+                return Err(reject(format!(
+                    "`{member_name}` is the value list of `{list}`, but {what} is not a subsort of `{}`, the strictness result of `{list}`: declare it in `k::sorts!`, as in `impl {} for {member_name};`",
+                    sort_name(result),
+                    sort_name(result)
+                )));
+            }
+        }
+        if let Some(previous) = value_lists.insert(sort, member) {
+            return Err(reject(format!(
+                "`{list}` already has the value list `{}`; a strict list has one value list",
+                previous.item_name()
+            )));
+        }
+        if let Some(previous) = strict_lists.insert(member, sort) {
+            return Err(reject(format!(
+                "`{member_name}` is already the value list of `{}`; a value list serves one strict list",
+                previous.item_name()
+            )));
         }
     }
     Ok(())
+}
+
+fn subsort_error(
+    subsort: &SemanticSubsort,
+    cons: &SemanticProduction,
+    reason: String,
+) -> DescriptorLoweringError {
+    DescriptorLoweringError::InvalidSyntaxList {
+        item: Box::new(cons.id().clone()),
+        reason,
+        range: subsort
+            .origin()
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+    }
 }
 
 /// K generates the terminator `.Sort` as a terminal of the definition, so no
@@ -198,18 +315,63 @@ fn terminal(production: &SemanticProduction) -> Option<&str> {
     }
 }
 
+/// The element sort of a cons production: its first nonterminal.
+fn element(cons: &SemanticProduction) -> Option<&SemanticSortRef> {
+    cons.items().first().and_then(|head| match head.kind() {
+        GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+        _ => None,
+    })
+}
+
+/// The strictness result sort of a cons production, when it is strict.
+fn strictness_result(cons: &SemanticProduction) -> Option<&SemanticSortRef> {
+    cons.attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::Strictness { result_sort, .. } => Some(result_sort.sort()),
+            _ => None,
+        })
+}
+
+/// The separator and `non_empty` flag of a cons production.
+fn list_shape(cons: &SemanticProduction) -> Option<(&str, bool)> {
+    cons.attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::ListCons {
+                separator,
+                non_empty,
+                ..
+            } => Some((separator.as_str(), *non_empty)),
+            _ => None,
+        })
+}
+
+/// The terminator of a cons production.
+fn cons_terminator(production: &SemanticProduction) -> Option<&StableItemId> {
+    production
+        .attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::ListCons { terminator, .. } => Some(terminator),
+            _ => None,
+        })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
     use krs_ir::{
         ItemKind, ModuleId, NodeOrigin, PackageId, ProductionAttribute, ProductionFieldId,
-        StableItemId, testing,
+        ProductionFieldReference, ProductionResultSort, StableItemId, StrictnessKind, testing,
     };
     use krs_ir_levels::{
         SemanticModule, SemanticProduction, SemanticProductionItem, SemanticSort, SemanticSortRef,
         SemanticSubsort,
     };
 
-    use super::check_syntax_lists;
+    use super::{check_syntax_lists, value_list_overloads};
 
     fn package() -> PackageId {
         testing::package("KRS-LISTS", "lists")
@@ -299,13 +461,229 @@ mod tests {
         )
     }
 
-    fn error(modules: &[SemanticModule]) -> String {
-        check_syntax_lists(modules).unwrap_err().to_string()
+    /// The subsort graph of the modules' subsort edges.
+    fn parents(modules: &[SemanticModule]) -> BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>> {
+        let mut parents = BTreeMap::<_, BTreeSet<_>>::new();
+        for subsort in modules.iter().flat_map(SemanticModule::subsorts) {
+            parents
+                .entry(subsort.subsort().clone())
+                .or_default()
+                .insert(subsort.supersort().clone());
+        }
+        parents
     }
+
+    fn check(modules: &[SemanticModule]) -> Result<(), super::DescriptorLoweringError> {
+        check_syntax_lists(modules, &parents(modules))
+    }
+
+    fn error(modules: &[SemanticModule]) -> String {
+        check(modules).unwrap_err().to_string()
+    }
+
+    fn sort(name: &str) -> SemanticSortRef {
+        SemanticSortRef::Declared(item(name, ItemKind::Sort))
+    }
+
+    fn subsort(sub: &str, sup: &str) -> SemanticSubsort {
+        SemanticSubsort::new(origin(&format!("{sub}<{sup}")), sort(sub), sort(sup))
+    }
+
+    /// The list `name` of `element`, strict with result `strict` when given.
+    fn named_list(
+        name: &str,
+        element: SemanticSortRef,
+        separator: &str,
+        strict: Option<&str>,
+    ) -> Vec<SemanticProduction> {
+        let cons = item(&format!("{name}Cons"), ItemKind::Constructor);
+        let nil = item(&format!("{name}Nil"), ItemKind::Constructor);
+        let mut attributes = vec![ProductionAttribute::ListCons {
+            origin: origin(&format!("{name}.list")),
+            separator: separator.to_owned(),
+            non_empty: false,
+            terminator: nil.clone(),
+        }];
+        if let Some(result) = strict {
+            attributes.push(ProductionAttribute::Strictness {
+                origin: origin(&format!("{name}.strict")),
+                kind: StrictnessKind::SeqStrict,
+                using: None,
+                fields: ["head", "tail"]
+                    .into_iter()
+                    .map(|field| {
+                        ProductionFieldReference::new(
+                            origin(&format!("{name}.strict.{field}")),
+                            ProductionFieldId::new(field).unwrap(),
+                        )
+                    })
+                    .collect(),
+                result_sort: ProductionResultSort::new(
+                    origin(&format!("{name}.strict.result")),
+                    sort(result),
+                ),
+            });
+        }
+        vec![
+            SemanticProduction::new(
+                origin(&format!("{name}.cons")),
+                cons.clone(),
+                sort(name),
+                vec![
+                    SemanticProductionItem::non_terminal(
+                        origin(&format!("{name}.head")),
+                        ProductionFieldId::new("head").unwrap(),
+                        element,
+                    ),
+                    SemanticProductionItem::terminal(
+                        origin(&format!("{name}.separator")),
+                        separator,
+                    )
+                    .unwrap(),
+                    SemanticProductionItem::non_terminal(
+                        origin(&format!("{name}.tail")),
+                        ProductionFieldId::new("tail").unwrap(),
+                        sort(name),
+                    ),
+                ],
+                attributes,
+            )
+            .unwrap(),
+            SemanticProduction::new(
+                origin(&format!("{name}.nil")),
+                nil,
+                sort(name),
+                vec![
+                    SemanticProductionItem::terminal(
+                        origin(&format!("{name}.terminator")),
+                        format!(".{name}"),
+                    )
+                    .unwrap(),
+                ],
+                vec![ProductionAttribute::ListTerminator {
+                    origin: origin(&format!("{name}.list-terminator")),
+                    cons,
+                }],
+            )
+            .unwrap(),
+        ]
+    }
+
+    /// K's `Vals` idiom: `Exps ::= List{Exp, ","} [seqstrict]` and its value
+    /// list `Vals ::= List{Val, ","}`, with the given changes.
+    fn value_list(
+        exps_strict: Option<&str>,
+        vals_strict: Option<&str>,
+        vals_separator: &str,
+        subsorts: &[(&str, &str)],
+    ) -> SemanticModule {
+        let mut productions = named_list("Exps", sort("Exp"), ",", exps_strict);
+        productions.extend(named_list("Vals", sort("Val"), vals_separator, vals_strict));
+        module(
+            productions,
+            subsorts
+                .iter()
+                .map(|(sub, sup)| subsort(sub, sup))
+                .collect(),
+        )
+    }
+
+    const IDIOM: &[(&str, &str)] = &[
+        ("Val", "Exp"),
+        ("Val", "KResult"),
+        ("Vals", "Exps"),
+        ("Vals", "KResult"),
+    ];
 
     #[test]
     fn a_well_formed_list_passes() {
-        check_syntax_lists(&[module(list(SemanticSortRef::int()), vec![])]).unwrap();
+        check(&[module(list(SemanticSortRef::int()), vec![])]).unwrap();
+    }
+
+    #[test]
+    fn a_value_list_joins_its_strict_list() {
+        let modules = [value_list(Some("KResult"), None, ",", IDIOM)];
+        check(&modules).unwrap();
+        let name = |id: &StableItemId| id.item_name().to_owned();
+        let edges = value_list_overloads(&modules)
+            .iter()
+            .map(|(member, target)| (name(member), name(target)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            edges,
+            [
+                ("ValsCons".to_owned(), "ExpsCons".to_owned()),
+                ("ValsNil".to_owned(), "ExpsNil".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_strict_list_has_a_value_list() {
+        let message = error(&[value_list(None, None, ",", IDIOM)]);
+        assert!(message.contains("that is not strict"), "{message}");
+    }
+
+    #[test]
+    fn a_value_list_is_not_strict() {
+        let message = error(&[value_list(Some("KResult"), Some("KResult"), ",", IDIOM)]);
+        assert!(message.contains("is strict"), "{message}");
+    }
+
+    #[test]
+    fn a_value_list_has_the_strict_list_separator() {
+        let message = error(&[value_list(Some("KResult"), None, ";", IDIOM)]);
+        assert!(message.contains("separator"), "{message}");
+    }
+
+    #[test]
+    fn value_list_elements_specialise_the_strict_list_elements() {
+        let message = error(&[value_list(
+            Some("KResult"),
+            None,
+            ",",
+            &[("Val", "KResult"), ("Vals", "Exps"), ("Vals", "KResult")],
+        )]);
+        assert!(message.contains("not a subsort of `Exp`"), "{message}");
+    }
+
+    #[test]
+    fn a_value_list_is_a_strictness_result() {
+        let message = error(&[value_list(
+            Some("KResult"),
+            None,
+            ",",
+            &[("Val", "Exp"), ("Val", "KResult"), ("Vals", "Exps")],
+        )]);
+        assert!(message.contains("impl KResult for Vals"), "{message}");
+        let message = error(&[value_list(
+            Some("KResult"),
+            None,
+            ",",
+            &[("Val", "Exp"), ("Vals", "Exps"), ("Vals", "KResult")],
+        )]);
+        assert!(message.contains("its elements' sort `Val`"), "{message}");
+    }
+
+    #[test]
+    fn a_strict_list_has_one_value_list() {
+        let mut productions = named_list("Exps", sort("Exp"), ",", Some("KResult"));
+        productions.extend(named_list("Vals", sort("Val"), ",", None));
+        productions.extend(named_list("Rets", sort("Val"), ",", None));
+        let mut subsorts = IDIOM.to_vec();
+        subsorts.extend([("Rets", "Exps"), ("Rets", "KResult")]);
+        let modules = [module(
+            productions,
+            subsorts
+                .iter()
+                .map(|(sub, sup)| subsort(sub, sup))
+                .collect(),
+        )];
+        let message = error(&modules);
+        assert!(
+            message.contains("`Exps` already has the value list"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -322,6 +700,10 @@ mod tests {
         );
         let message = error(&[module(list(SemanticSortRef::int()), vec![subsort])]);
         assert!(message.contains("a list sort is closed"), "{message}");
+        assert!(
+            message.contains("the value list of a strict list"),
+            "{message}"
+        );
     }
 
     #[test]

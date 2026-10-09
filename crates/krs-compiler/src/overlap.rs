@@ -349,6 +349,11 @@ impl SortGraph {
                 }
             }
         }
+        // A strict list's value list joins its families as K's overload
+        // axioms make it (KF-020).
+        graph
+            .overload_roots
+            .extend(crate::semantic::value_list_overloads(modules));
         graph.build_closure();
         graph.resolve_overload_roots();
         graph

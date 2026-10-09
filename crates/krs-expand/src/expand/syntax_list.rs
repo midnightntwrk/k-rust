@@ -12,7 +12,7 @@ use krs_ir::wire::{
     WireProductionItem, WireProductionOwner, WireSortReference, WireTypeReference,
 };
 use krs_syntax::{KrsSyntax, ProvenanceAnchor, ProvenanceRole, TokenRange};
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Fields, Ident, ItemEnum, Path};
 
@@ -175,9 +175,28 @@ pub(crate) fn syntax_list(
     let cons = context.variant_expansion(Role::Cons)?;
     let terminator = context.variant_expansion(Role::Terminator)?;
     let item = context.rust_item()?;
+    // `k::sorts!` membership lines name a sort through its `<Sort>Sort`
+    // marker trait, so `impl Exps for Vals` (a strict list's value list,
+    // KF-020) and `impl KResult for Vals` need the list to have a marker and
+    // to be a `KItem`. Which lists may join which sorts is a semantic check.
+    let marker = format_ident!(
+        "{}Sort",
+        context.declaration.name(),
+        span = Span::call_site()
+    );
+    let marker_doc = format!(
+        "Membership marker generated for the `{enum_name}` syntactic list: only a strict list's value list may join it."
+    );
 
     Ok(quote! {
         #item
+
+        #(#cfg)*
+        #[doc = #marker_doc]
+        pub trait #marker: #facade::KItemSort {}
+
+        #(#cfg)*
+        impl #facade::KItemSort for #enum_ident {}
 
         #(#cfg)*
         #[doc(hidden)]

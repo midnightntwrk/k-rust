@@ -4,6 +4,9 @@ pub enum Ints {
     Cons { head: Int, tail: ::k::Term<Ints> },
     Nil(),
 }
+///Membership marker generated for the `Ints` syntactic list: only a strict list's value list may join it.
+pub trait IntsSort: ::k::KItemSort {}
+impl ::k::KItemSort for Ints {}
 #[doc(hidden)]
 fn __krs_list_type_f3eabd32da87269e() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Ints>()

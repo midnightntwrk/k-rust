@@ -2435,10 +2435,15 @@ fn lower_term(
 /// Maps every overload family member and root to the root its `overload`
 /// targets lead to. The semantic pass has rejected dangling targets and
 /// cycles; they fail here too rather than loop.
+///
+/// A strict list's value list (KF-020) joins the strict list's families
+/// without an authored `overload`. K writes one key on a `List{..}`
+/// sentence and copies it to the generated terminator, so a list
+/// terminator's key is its cons's root, as on the textual route.
 fn overload_roots(
     theory: &SemanticTheory,
 ) -> Result<BTreeMap<StableItemId, StableItemId>, LoweringError> {
-    let targets = theory
+    let mut targets = theory
         .modules()
         .iter()
         .flat_map(SemanticModule::productions)
@@ -2454,6 +2459,7 @@ fn overload_roots(
                 })
         })
         .collect::<BTreeMap<_, _>>();
+    targets.extend(crate::semantic::value_list_overloads(theory.modules()));
     let mut roots = BTreeMap::new();
     for member in targets.keys() {
         let mut root = member;
@@ -2469,6 +2475,25 @@ fn overload_roots(
         }
         roots.insert(member.clone(), root.clone());
         roots.insert(root.clone(), root.clone());
+    }
+    for production in theory
+        .modules()
+        .iter()
+        .flat_map(SemanticModule::productions)
+    {
+        let cons = production
+            .attributes()
+            .iter()
+            .find_map(|attribute| match attribute {
+                ProductionAttribute::ListTerminator { cons, .. } => Some(cons),
+                _ => None,
+            });
+        if let Some(cons) = cons
+            && roots.contains_key(production.id())
+            && let Some(root) = roots.get(cons).cloned()
+        {
+            roots.insert(production.id().clone(), root);
+        }
     }
     Ok(roots)
 }

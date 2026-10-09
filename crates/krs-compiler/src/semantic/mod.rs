@@ -11,6 +11,7 @@ mod grammar;
 mod infer;
 mod lexicals;
 mod lists;
+pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
 mod origin;
@@ -168,7 +169,7 @@ pub fn lower_descriptor_bundle(
     overload::check_overloads(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     lexicals::check_lexicals(&modules)?;
-    lists::check_syntax_lists(&modules)?;
+    lists::check_syntax_lists(&modules, &semantic_sort_parents)?;
     fresh::check_fresh_generators(&modules)?;
     evaluation::check_evaluation_steps(&modules)?;
     smt::check_smtlib_symbols(&modules)?;
