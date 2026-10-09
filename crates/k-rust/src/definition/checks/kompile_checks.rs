@@ -173,7 +173,14 @@ pub(super) fn check_is_sort_predicates_with_views(
     diagnostics
 }
 
-/// Modules the parsed definition always retains, bubbles or not.
+/// Modules the parsed definition always retains, bubbles or not, because compilation reads them
+/// whether or not the main module imports them: the stream pass (`kompile::passes::resolve_io`)
+/// copies the `stream` rules of `STDIN-STREAM` and `STDOUT-STREAM` into a module that declares a
+/// stream cell and adds imports of `K-IO` and `K-REFLECTION` to it (the stream modules import
+/// both), and the loader, after selecting the modules, imports `MAP`, which declares the sort and
+/// hooks of `type="Map"` cell collections, into every module with a configuration. Each import
+/// must find its module, and a retained module's bubbles are parsed like the main module's, so
+/// the rules a pass copies exist parsed.
 const FRONTEND_UTILITY_MODULES: [&str; 4] = [
     WellKnownModule::KReflection.as_str(),
     WellKnownModule::StdinStream.as_str(),
@@ -183,8 +190,11 @@ const FRONTEND_UTILITY_MODULES: [&str; 4] = [
 
 /// The module set of the parsed definition, which compilation works on: the import closures of the
 /// main module (and of the definition module in proof mode), of the frontend utility modules, and
-/// of every loaded module whose visible sentences held no bubble before inner parsing. Backend-tag
-/// exclusion has already removed modules at load time.
+/// of every loaded module whose visible sentences held no bubble before inner parsing. Bubbles are
+/// parsed with the grammar of a module these closures reach; a module outside them that sees a
+/// bubble would keep it unparsed, so it is left out; one that sees none needs no parse and is kept,
+/// so the set holds every module that is complete without one. Backend-tag exclusion has already
+/// removed modules at load time.
 ///
 /// The parsed definition also retains the syntax module's closure, which the checker does not
 /// know; the CLI's `parsed_definition_for_json` builds the same set with it for `parsed.json`.

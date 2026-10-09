@@ -2091,9 +2091,10 @@ fn parsed_definition_for_json(
     loaded: &k_rust::outer::LoadedDefinition,
     syntax_module: &str,
 ) -> Result<k_rust::definition::Definition, Box<dyn Error>> {
-    // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
-    // import closures, the frontend's always-present utility modules, and entry modules whose
-    // visible sentences contained no bubbles before backend-tag filtering.
+    // The module set compilation works on (`kompile_checks::parsed_definition_modules`, which
+    // states why), plus the syntax module's closure: the semantic and syntax import closures, the
+    // utility modules compilation reads without an import, and entry modules whose visible
+    // sentences contained no bubbles before backend-tag filtering.
     let main = loaded.resolved().main_module();
 
     let mut seeds = BTreeSet::from([
