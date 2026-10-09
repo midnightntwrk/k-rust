@@ -143,7 +143,11 @@ fn rename(predicate: &Predicate, renaming: &BTreeMap<Variable, Variable>) -> Pre
 }
 
 /// The variables of `term` not in `seen`, appended to `order` left to right, depth first.
-fn first_occurrences(term: &Term, seen: &mut FxHashSet<Variable>, order: &mut Vec<Variable>) {
+pub(super) fn first_occurrences(
+    term: &Term,
+    seen: &mut FxHashSet<Variable>,
+    order: &mut Vec<Variable>,
+) {
     if term
         .attributes()
         .variables

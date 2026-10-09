@@ -183,13 +183,16 @@ fn gate_symbol(definition: &BackendDefinition, name: &Name) -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckScope {
     /// Only the pairs one of whose equations is *relevant*: the taint closure seeded by that
-    /// equation alone reaches a symbol some gate site can be asked about. Every value claim, the
-    /// taint of every such symbol and every warned pair are those of [`Self::All`]: the closure's
-    /// rules have one premise each, so the closure of a union of seeds is the union of their
-    /// closures, and a skipped pair's closure holds no symbol the gate is asked about whether or
-    /// not the pair joins (`docs/compatibility.md`, "Anywhere rules"). What differs is the work
-    /// counted and the non-joined pairs that withdraw no claim, which are not computed. The
-    /// scope of every load.
+    /// equation alone reaches a symbol some gate site can be asked about. Each claim this scope
+    /// admits is sound on its own classification: the closure's rules have one premise each, so
+    /// the closure of a union of seeds is the union of their closures, and a skipped pair's
+    /// closure holds no symbol the gate is asked about whether or not the pair joins
+    /// (`docs/compatibility.md`, "Anywhere rules"). When both scopes classify each pair this one
+    /// classifies alike, every value claim, the taint of every such symbol and every warned pair
+    /// are those of [`Self::All`]; classification reads counters that earlier pairs advance (the
+    /// spelling of renamed variables) and a per-condition deadline, so that equality is tested
+    /// (V9), not derived. What differs is the work counted and the non-joined pairs that withdraw
+    /// no claim, which are not computed. The scope of every load.
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
@@ -304,7 +307,8 @@ impl ValueClaims {
     /// different value claims or warn about different pairs: the tainted symbols some gate site
     /// can be asked about, the tainted indexes that are not symbols (the precondition rows), the
     /// gate's answer at every site for every symbol of the definition and every collection
-    /// index, and the pairs that withdraw a claim (equations, position, reason, withdrawn heads).
+    /// index, and the pairs that withdraw a claim (equations, position, reason, overlapped term as
+    /// spelled canonically, withdrawn heads).
     /// Empty when they agree.
     #[must_use]
     pub fn claim_differences(
@@ -369,6 +373,7 @@ impl ValueClaims {
                         format!("{:?}", pair.second),
                         pair.position.clone(),
                         pair.reason.to_string(),
+                        pair.overlap.clone(),
                         pair.withdrawn.clone(),
                     )
                 })
@@ -382,8 +387,8 @@ impl ValueClaims {
                 right_warned.len(),
                 left_warned
                     .symmetric_difference(&right_warned)
-                    .map(|(first, second, position, reason, withdrawn)| format!(
-                        "{first} / {second} at {position:?} ({reason}) withdrawing {withdrawn:?}"
+                    .map(|(first, second, position, reason, overlap, withdrawn)| format!(
+                        "{first} / {second} at {position:?} on {overlap:?} ({reason}) withdrawing {withdrawn:?}"
                     ))
                     .collect::<Vec<_>>()
             ));
@@ -393,10 +398,9 @@ impl ValueClaims {
 
     /// Where this verdict and `other`, two verdicts of one definition in one scope, differ: the
     /// tainted symbols and indexes, the precondition rows (equation and kind), and every
-    /// non-joined pair (equations by unique id, position, reason, withdrawn heads, and whether it
-    /// withdraws a claim). The overlapped terms are not compared: they are spelled with the
-    /// renamed-apart variables of the check that found them. Empty when they agree; the counts
-    /// are compared by the caller ([`Self::counts`]).
+    /// non-joined pair (equations by unique id, position, reason, overlapped term as spelled
+    /// canonically, withdrawn heads, and whether it withdraws a claim). Empty when they agree;
+    /// the counts are compared by the caller ([`Self::counts`]).
     #[must_use]
     pub fn verdict_differences(&self, other: &ValueClaims) -> Vec<String> {
         let (Verdict::Checked(left), Verdict::Checked(right)) = (&*self.0, &*other.0) else {
@@ -453,6 +457,7 @@ impl ValueClaims {
                         unique_id(&pair.second),
                         pair.position.clone(),
                         pair.reason.to_string(),
+                        pair.overlap.clone(),
                         pair.withdrawn.clone(),
                         pair.relevant(),
                     )
@@ -545,6 +550,70 @@ impl UnjoinedPair {
     #[must_use]
     pub fn relevant(&self) -> bool {
         !self.withdrawn.is_empty()
+    }
+
+    /// The pair's terms, in order: the overlap, the two reducts, what the join reached from
+    /// each, the refused subterm.
+    fn terms(&self) -> impl Iterator<Item = &Term> {
+        fn both(terms: &Option<(Option<Term>, Option<Term>)>) -> [Option<&Term>; 2] {
+            terms.as_ref().map_or([None, None], |(left, right)| {
+                [left.as_ref(), right.as_ref()]
+            })
+        }
+        [self.overlap.as_ref()]
+            .into_iter()
+            .chain(both(&self.sides))
+            .chain(both(&self.reached))
+            .chain([self.refused.as_ref()])
+            .flatten()
+    }
+
+    /// Renames every variable the check minted in the pair's terms (a name with `!`, which no
+    /// KORE identifier has: the second equation renamed apart, the unifier's and the join's
+    /// fresh variables) to its base name, its marker and a counter from 0 in order of first
+    /// occurrence over [`Self::terms`]. Those names otherwise carry the thread's counters, which
+    /// every pair classified before this one advanced, so the same pair would be spelled
+    /// differently in the two scopes or after any change to what the check classifies first.
+    /// The renaming is injective (one counter for all), its names meet no variable it keeps
+    /// (those have no `!`), and terms have no binders, so the terms mean what they meant.
+    fn spell_canonically(&mut self) {
+        let mut seen = FxHashSet::default();
+        let mut order = Vec::new();
+        for term in self.terms() {
+            memo::first_occurrences(term, &mut seen, &mut order);
+        }
+        let renaming = order
+            .into_iter()
+            .filter(|variable| variable.name.contains('!'))
+            .enumerate()
+            .map(|(counter, variable)| {
+                let (base, minted) = variable
+                    .name
+                    .split_once('!')
+                    .expect("the filter keeps names with `!`");
+                let marker = minted
+                    .split(|character: char| !character.is_ascii_alphabetic())
+                    .next()
+                    .unwrap_or_default();
+                let name = format!("{base}!{marker}{counter}");
+                let renamed = Term::variable(variable.with_name(name));
+                (variable, renamed)
+            })
+            .collect::<Substitution>();
+        if renaming.is_empty() {
+            return;
+        }
+        let rename = |term: &mut Option<Term>| {
+            if let Some(term) = term {
+                *term = substitute(term, &renaming);
+            }
+        };
+        rename(&mut self.overlap);
+        for terms in [&mut self.sides, &mut self.reached].into_iter().flatten() {
+            rename(&mut terms.0);
+            rename(&mut terms.1);
+        }
+        rename(&mut self.refused);
     }
 }
 
@@ -1904,6 +1973,7 @@ fn check_detached(
         pinned_heads.extend(heads);
     }
     for pair in &mut unjoined {
+        pair.spell_canonically();
         pair.withdrawn = closure
             .taint([&pair.first, &pair.second], [])
             .into_iter()

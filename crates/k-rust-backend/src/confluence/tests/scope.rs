@@ -1,7 +1,8 @@
 //! The load's scope (`CheckScope::Gate`) on the classes review 1 found no test reaching (the
 //! design's "Revision after review 1"): pairs at which the relevance filter's decision matters,
 //! which need an index that is not a taintable symbol (a hooked root, a collection, a bare
-//! variable); the overloaded symbols of `G`; and definitions without an equation head.
+//! variable); the overloaded symbols of `G`; definitions without an equation head; and the
+//! spelling of a reported pair, which must not depend on what the check classified before it.
 
 use super::definition;
 use crate::{
@@ -283,4 +284,106 @@ fn an_overloaded_function_is_withdrawn_without_an_equation_head() {
         ),
     ));
     assert_eq!(plain.value_claims().counts().pairs, 0);
+}
+
+/// `w3(X, Y, z) = m(X)` and `w3(z, Y, Z) = m(s(Y))`, which overlap at `w3(z, Y, z)` and do not
+/// join, beside `count` non-joined pairs of declared functions `f{i}` at `s(N)`, which withdraw
+/// no claim, so that the full check classifies them before (and advances its renaming
+/// counters) and the load does not.
+fn overlapping_heads(count: usize) -> BackendDefinition {
+    let w3 = |patterns: [&str; 3], right: &str, id: &str| {
+        let memberships = patterns.iter().enumerate().rev().fold(
+            r"\top{R}()".to_owned(),
+            |rest, (index, pattern)| {
+                format!(
+                    r"\and{{R}}(\in{{SortNat{{}}, R}}(X{index}:SortNat{{}}, {pattern}), {rest})"
+                )
+            },
+        );
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(\top{{R}}(), {memberships}),
+                \equals{{SortS{{}}, R}}(
+                    w3{{}}(X0:SortNat{{}}, X1:SortNat{{}}, X2:SortNat{{}}),
+                    \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}()))
+            ) [anywhere{{}}(), UNIQUE'Unds'ID{{}}("{id}")]"#
+        )
+    };
+    let mut extra = format!(
+        "symbol w3{{}}(SortNat{{}}, SortNat{{}}, SortNat{{}}) : SortS{{}} [anywhere{{}}()]\n{}\n{}\n",
+        w3(
+            ["X:SortNat{}", "Y:SortNat{}", "z{}()"],
+            "m{}(X:SortNat{})",
+            "w3-one"
+        ),
+        w3(
+            ["z{}()", "Y:SortNat{}", "Z:SortNat{}"],
+            "m{}(s{}(Y:SortNat{}))",
+            "w3-two"
+        ),
+    );
+    for index in 0..count {
+        let name = format!("f{index}");
+        extra.push_str(&format!(
+            "symbol {name}{{}}(SortNat{{}}) : SortNat{{}} [function{{}}()]\n{}\n{}\n",
+            equation(
+                &name,
+                "SortNat{}",
+                "SortNat{}",
+                "s{}(N:SortNat{})",
+                "z{}()",
+                &format!("{name}-z")
+            ),
+            equation(
+                &name,
+                "SortNat{}",
+                "SortNat{}",
+                "s{}(N:SortNat{})",
+                "s{}(N:SortNat{})",
+                &format!("{name}-s")
+            ),
+        ));
+    }
+    definition(&extra)
+}
+
+/// Review 1, F3 and F4: a reported pair is spelled with the variables the check minted
+/// renumbered from 0 in order of first occurrence, so the overlap the warning prints is the same
+/// in both scopes and whatever the check classified before the pair.
+#[test]
+fn a_reported_overlap_is_spelled_alike_in_both_scopes() {
+    let overlap = |claims: &crate::confluence::ValueClaims| {
+        claims
+            .unjoined()
+            .iter()
+            .filter(|pair| pair.relevant())
+            .map(|pair| pair.overlap.clone().expect("a root pair has an overlap"))
+            .collect::<Vec<_>>()
+    };
+    let alone = overlapping_heads(0);
+    let expected = overlap(alone.value_claims());
+    assert_eq!(expected.len(), 1, "one pair of `w3` withdraws it");
+    let minted = expected[0]
+        .attributes()
+        .variables
+        .iter()
+        .filter(|variable| variable.name.contains('!'))
+        .map(|variable| variable.name.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        !minted.is_empty() && minted.iter().all(|name| name.ends_with("!apart0")),
+        "{expected:?}"
+    );
+    for count in [1, 12] {
+        let definition = overlapping_heads(count);
+        let full = definition.value_claims_in_scope(CheckScope::All);
+        assert_eq!(full.counts().unjoined, count + 1);
+        for claims in [definition.value_claims(), &full] {
+            assert_eq!(
+                overlap(claims),
+                expected,
+                "{count} pairs of functions before"
+            );
+        }
+    }
 }
