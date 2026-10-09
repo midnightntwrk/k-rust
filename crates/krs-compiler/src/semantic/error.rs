@@ -315,6 +315,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// A token regex collides with one of K's own tokens, which both routes
+    /// or Java K's configuration parser then reject.
+    TokenCollision {
+        /// The token production.
+        item: Box<StableItemId>,
+        /// Stable reason naming K's token and the fix.
+        reason: String,
+        /// Sole exact authored range of the token attribute.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `#[k::syntax_list]` sort is used in a way K's `List{}` forbids
     /// (KF-020).
     InvalidSyntaxList {
@@ -538,6 +548,7 @@ impl fmt::Display for DescriptorLoweringError {
             ),
             Self::InvalidSpecModule { reason, .. }
             | Self::InvalidTokenSort { reason, .. }
+            | Self::TokenCollision { reason, .. }
             | Self::InvalidSortTest { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
@@ -604,6 +615,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
             Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
+            Self::TokenCollision { .. } => codes::analysis::TOKEN_COLLISION,
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
@@ -658,6 +670,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::GroupAndDescendant { range, .. }
             | Self::AmbiguousCellSort { range, .. }
             | Self::InvalidTokenSort { range, .. }
+            | Self::TokenCollision { range, .. }
             | Self::InvalidSortTest { range, .. }
             | Self::IncompatibleBinder { range, .. }
             | Self::InvalidPatternAs { range, .. }

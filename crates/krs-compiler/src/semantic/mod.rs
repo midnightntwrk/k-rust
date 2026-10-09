@@ -24,6 +24,7 @@ mod rules;
 mod smt;
 mod spec_modules;
 mod statics;
+mod token_collisions;
 mod tokens;
 mod visibility;
 
@@ -169,6 +170,7 @@ pub fn lower_descriptor_bundle(
     overload::check_overloads(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     tokens::check_program_token_fields(&modules)?;
+    token_collisions::check_token_collisions(&modules)?;
     lexicals::check_lexicals(&modules)?;
     lists::check_syntax_lists(&modules, &semantic_sort_parents)?;
     fresh::check_fresh_generators(&modules)?;

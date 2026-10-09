@@ -77,6 +77,8 @@ partition end to end on both routes:
   constructor of a token sort, a lexeme of a sort without tokens or of a
   builtin sort, a token declared twice on one sort, a token alias of `Int`, a
   program production whose token-sort field has only private tokens, a
+  token regex spelled like K's own `#LowerId` at another `prec`, one at
+  `prec(2)` that would lex the cell name `k` of the configuration, a
   lexical declared twice, a regex that refers to an undefined lexical, two
   lexicals that refer to each other, a production whose symbol is a list's
   derived `intsCons`, a constructor of a list sort, a subsort into a list
@@ -293,6 +295,8 @@ NEGATIVE = (
     ("token-duplicate", "token-duplicate", "krs-grammar-token-duplicate", ()),
     ("token-alias-builtin", "token-alias-builtin", "krs-grammar-token-alias-builtin", ()),
     ("token-private-field", "token-private-field", "krs-grammar-token-private-field", ()),
+    ("token-k-regex", "token-k-regex", "krs-grammar-token-k-regex", ()),
+    ("token-cell-name", "token-cell-name", "krs-grammar-token-cell-name", ()),
     ("lexical-duplicate", "lexical-duplicate", "krs-grammar-lexical-duplicate", ()),
     ("lexical-undefined", "lexical-undefined", "krs-grammar-lexical-undefined", ()),
     ("lexical-recursive", "lexical-recursive", "krs-grammar-lexical-recursive", ()),

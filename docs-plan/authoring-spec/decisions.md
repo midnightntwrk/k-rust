@@ -194,6 +194,13 @@ bug — report it, don't guess.
   rejected (`krs::analysis::invalid-token-sort`), since no program could
   spell that field. Generated bracket productions still follow their sort
   and are never private.
+  *Note (2026-10 follow-up, token collisions):* `krs check` rejects a token
+  regex that collides with K's own tokens (`krs::analysis::token-collision`):
+  one spelled exactly like a K 7.1.337 `kast.md` token regex (`#LowerId`,
+  `#UpperId`, `#CellName`, ...) at another `prec`, which Java K and k-rust
+  both reject, and one that matches a whole configuration cell name or cell
+  property name at a `prec` at least as high as K's strongest token for it,
+  which Java K's configuration parser then cannot read.
 
 ## D. Configuration
 

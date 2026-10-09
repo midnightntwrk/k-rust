@@ -366,6 +366,12 @@
     ],
     "token-private-field": [
       "error[krs::analysis::invalid-token-sort]: `StmtSyntax::Call` is program syntax, but every token production of `Name`, the sort of its field `target`, is private, so no program can contain it. Make the `#[k::token]` carrier of `Name` `pub`, or take `StmtSyntax::Call` out of program syntax: make it non-`pub`, or mark it `internal`"
+    ],
+    "token-k-regex": [
+      "error[krs::analysis::token-collision]: the token regex r\"[a-z][a-zA-Z0-9]*\" at `prec(0)` is the regex of K's own `#LowerId` token, which K declares at `prec(2)`; K keys a regex token by its text, so Java K and k-rust both reject the definition. Use a different regex, or `prec = 2`"
+    ],
+    "token-cell-name": [
+      "error[krs::analysis::token-collision]: the token regex r\"[a-z][a-z0-9_]*\" at `prec(2)` lexes `k`, the name of the configuration cell `<k>`, at least as strongly as K's own `#LowerId` token (`prec(2)`), so Java K cannot parse the emitted configuration. Lower its `prec` below 2, or change the regex so it does not match `k`"
     ]
   },
   "format": {

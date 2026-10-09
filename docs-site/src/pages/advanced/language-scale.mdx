@@ -39,7 +39,8 @@ The carrier's Rust visibility is the tokens' visibility: on a carrier that is no
 
 K's scanner is global and takes the longest match; a terminal outranks a regex of the same length, and `prec = N` orders regexes only.
 So `main`, declared with `terminal = "main"`, is a `Name` and never a keyword, while `while`, a terminal of another production, is a keyword: `call while` does not parse.
-The scanner also lexes your rules, so a token regex should not shadow K's own identifiers, such as `#LowerId` (`[a-z][a-zA-Z0-9]*` at `prec(2)`), which lexes cell names like the `k` of `<k>`.
+The scanner also lexes your rules and the configuration, so a token regex should not shadow K's own identifiers, such as `#LowerId` (`[a-z][a-zA-Z0-9]*` at `prec(2)`), which lexes cell names like the `k` of `<k>`.
+`krs check` rejects the two shapes that break a build (`krs::analysis::token-collision`): a regex spelled exactly like one of K's own token regexes at another `prec`, which K reports as inconsistent token precedence, and a regex that matches a whole configuration cell name or cell property name at a `prec` at least as high as K's own token for it, such as `r"[a-z][a-z0-9_]*"` at `prec = 2` against `<k>`, which Java K then cannot parse.
 A literal quote in a regex is written `\"`; an unescaped `"` starts a quoted string in K's regex syntax, so KRS rejects it.
 The regex and precedence determine parsing; they do not cause Rust's regex engine to run when a symbolic token is constructed.
 
