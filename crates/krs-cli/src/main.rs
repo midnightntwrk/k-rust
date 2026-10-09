@@ -20,13 +20,14 @@ KRS definition compiler
 
 Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
-  krs parse  --package P --definition D [--sort SORT] [--output kast|json|kore] [FILE|-]
+  krs parse  --package P --definition D [--sort SORT] [--output kast|program|json|kore] [FILE|-]
   krs run    --package P --definition D [FILE|-] [-c NAME=TEXT]... [--depth N] [--trace]
-             [--output kast|json|kore|none] [--color auto|always|never]
+             [--output pretty|kast|json|kore|none] [--color auto|always|never]
   krs search --package P --definition D [FILE|-] [-c NAME=TEXT]...
              [--mode final|all|one-step|one-or-more-steps] [--depth N] [--max-solutions N]
-             [--trace] [--output kast|json|kore] [--color auto|always|never]
-  krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N] [--output kast|json|kore]
+             [--trace] [--output pretty|kast|json|kore] [--color auto|always|never]
+  krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
+             [--output pretty|kast|json|kore] [--color auto|always|never]
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
 
@@ -1481,5 +1482,56 @@ mod tests {
         assert!(
             matches!(parse(args), Err(UsageError::Message(message)) if message.contains("UTF-8"))
         );
+    }
+
+    /// The synopsis of each run-family command lists exactly the `--output`
+    /// formats the parser accepts for it and every option it accepts.
+    #[test]
+    fn usage_synopsis_matches_the_parser() {
+        let lines: Vec<&str> = USAGE.lines().collect();
+        for kind in [
+            CommandKind::Parse,
+            CommandKind::Run,
+            CommandKind::Search,
+            CommandKind::Prove,
+        ] {
+            let head = format!("  krs {:<6} ", kind.as_str());
+            let start = lines
+                .iter()
+                .position(|line| line.starts_with(&head))
+                .unwrap_or_else(|| panic!("no synopsis for krs {}", kind.as_str()));
+            let synopsis = std::iter::once(lines[start])
+                .chain(
+                    lines[start + 1..]
+                        .iter()
+                        .copied()
+                        .take_while(|line| line.starts_with("             ")),
+                )
+                .collect::<Vec<_>>()
+                .join(" ");
+            let listed: Vec<&str> = synopsis
+                .split("[--output ")
+                .nth(1)
+                .and_then(|rest| rest.split(']').next())
+                .unwrap_or_else(|| panic!("no --output in the krs {} synopsis", kind.as_str()))
+                .split('|')
+                .collect();
+            for format in ["pretty", "program", "kast", "json", "kore", "none"] {
+                assert_eq!(
+                    term_output(kind, Some(PathBuf::from(format))).is_ok(),
+                    listed.contains(&format),
+                    "krs {} synopsis and parser disagree on --output {format}",
+                    kind.as_str()
+                );
+            }
+            for option in exec_options(kind) {
+                let option = if *option == "FILE" { "FILE|-" } else { option };
+                assert!(
+                    synopsis.contains(option),
+                    "krs {} synopsis omits {option}",
+                    kind.as_str()
+                );
+            }
+        }
     }
 }
