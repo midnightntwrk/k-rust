@@ -151,7 +151,8 @@ pub(crate) fn with_depth<T>(depth: usize, work: impl FnOnce() -> T) -> Result<T,
     }
 }
 
-/// The number of terms on the longest path from `term` to a leaf, counted without recursion.
+/// The number of terms on the longest path from `term` to a leaf, counted without recursion,
+/// with a sequence's items counted as the chain the conversion to KORE nests them into.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Term is syntax; only the listed variants have children"
@@ -168,9 +169,18 @@ pub(crate) fn term_depth(term: &crate::kast::Term) -> usize {
             Term::Apply {
                 arguments: children,
                 ..
-            }
-            | Term::Sequence(children) => {
+            } => {
                 pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            // A sequence is a right-nested `kseq` chain once converted to KORE, which emission
+            // walks one level per item: item `i` sits `i + 1` levels below the sequence.
+            Term::Sequence(items) => {
+                pending.extend(
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| (item, depth + 1 + index)),
+                );
             }
             Term::Rewrite { left, right }
             | Term::As {
@@ -230,5 +240,23 @@ mod tests {
             arguments: vec![leaf, chain],
         };
         assert_eq!(term_depth(&pair), 100_001);
+    }
+
+    /// A sequence of `n` items is as deep as the `kseq` chain it becomes: its last item sits
+    /// `n` levels below it.
+    #[test]
+    fn term_depth_counts_a_sequence_as_its_chain() {
+        use crate::kast::{Label, Term};
+        let item = || Term::Apply {
+            label: Label::new("a"),
+            arguments: vec![],
+        };
+        let mut items = vec![item(); 999];
+        items.push(Term::Apply {
+            label: Label::new("s"),
+            arguments: vec![item()],
+        });
+        assert_eq!(term_depth(&Term::Sequence(items)), 1 + 1_000 + 1);
+        assert_eq!(term_depth(&Term::Sequence(vec![])), 1);
     }
 }

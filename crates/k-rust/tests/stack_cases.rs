@@ -116,3 +116,12 @@ fn deeply_nested_cells_load() {
     let close: String = (0..200).rev().map(|cell| format!(" </c{cell}>")).collect();
     loads_on_a_small_stack(definition(&format!("{open}0{close}"), ""), false);
 }
+
+/// A rule whose right-hand side is a `~>` sequence of 4,000 items. Emission turns the sequence
+/// into a `kseq` chain one level per item, which the stack measure of the compile stages once
+/// counted as one level; it overflowed this thread from about 2,000 items.
+#[test]
+fn a_long_k_sequence_in_a_rule_compiles() {
+    let items = vec!["a()"; 4_000].join(" ~> ");
+    loads_on_a_small_stack(definition("", &format!("rule g(0) => {items}")), true);
+}
