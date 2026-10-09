@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use krs_ir::{BuiltinOperation, BuiltinSort, NodeOrigin, NonEmpty};
 use krs_ir_levels::{
@@ -23,7 +23,7 @@ fn node(key: &str) -> NodeOrigin {
 fn context() -> EmitContext<'static> {
     EmitContext {
         index: krs_ir_levels::k_surface::DefinitionIndex::default(),
-        non_associative_groups: BTreeSet::new(),
+        group_relations: super::GroupRelations::default(),
         repeated_ancestors: BTreeMap::new(),
         naming: VariableNaming::default(),
         lexicon: TokenLexicon::default(),

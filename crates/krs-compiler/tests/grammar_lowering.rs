@@ -658,3 +658,342 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(source.contains(r#"PGM:Int +Int #token("1","Int")"#));
     assert!(!source.contains("$PGM:Int +Int"));
 }
+
+/// K's rule parser keeps only the parses its priority and associativity
+/// filters allow at a production's leftmost and rightmost items, so the
+/// emitter parenthesizes a child of a looser group there, and a same-tier
+/// child on the side the group's associativity forbids. Otherwise K reads
+/// `(A ; B) ; C` back as `A ; (B ; C)` under a right-associative `;`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Declares the whole expression grammar the cases share."
+)]
+fn declared_children_are_parenthesized_where_k_filters_would_reassociate_them() {
+    let expr = item("Expr", ItemKind::Sort);
+    let sort = || SemanticSortRef::Declared(expr.clone());
+    let groups = ["unary", "multiplicative", "additive", "sequence", "pair"]
+        .map(|name| ProductionGroupId::new(name).unwrap());
+    let [unary, multiplicative, additive, sequence, pair] = groups;
+    let production = |name: &str, group: &ProductionGroupId, items: &[Option<&str>]| {
+        let mut field = 0;
+        SemanticProduction::new(
+            origin(&format!("production.{name}")),
+            item(name, ItemKind::Constructor),
+            sort(),
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let key = origin(&format!("{name}.item.{index}"));
+                    if let Some(text) = item {
+                        SemanticProductionItem::terminal(key, *text).unwrap()
+                    } else {
+                        field += 1;
+                        SemanticProductionItem::non_terminal(
+                            key,
+                            ProductionFieldId::new(format!("f{field}")).unwrap(),
+                            sort(),
+                        )
+                    }
+                })
+                .collect(),
+            vec![ProductionAttribute::Group {
+                origin: origin(&format!("{name}.group")),
+                group: group.clone(),
+            }],
+        )
+        .unwrap()
+    };
+    let productions = vec![
+        production("Neg", &unary, &[Some("-"), None]),
+        production("Mul", &multiplicative, &[None, Some("*"), None]),
+        production("Add", &additive, &[None, Some("+"), None]),
+        production("Seq", &sequence, &[None, Some(";"), None]),
+        production(
+            "Pair",
+            &pair,
+            &[Some("<"), None, Some(","), None, Some(">")],
+        ),
+    ];
+    let variable_names = ["A", "B", "C"];
+    let variable = |name: &str| SemanticId::new(name).unwrap();
+    let var = |key: &str, name: &str| SemanticTerm::variable(origin(key), sort(), variable(name));
+    let app = |key: &str, name: &str, arguments: Vec<SemanticTerm>| {
+        SemanticTerm::application(
+            origin(key),
+            sort(),
+            ApplicationRef::Declared(item(name, ItemKind::Constructor)),
+            arguments,
+        )
+    };
+    let binary = |key: &str, name: &str, left: SemanticTerm, right: SemanticTerm| {
+        app(key, name, vec![left, right])
+    };
+    // Each case is `rule LHS => A` with LHS built from A, B and C.
+    let cases: Vec<(&str, SemanticTerm, &str)> = vec![
+        (
+            "seq_left",
+            binary(
+                "seq_left.outer",
+                "Seq",
+                binary(
+                    "seq_left.inner",
+                    "Seq",
+                    var("seq_left.a", "A"),
+                    var("seq_left.b", "B"),
+                ),
+                var("seq_left.c", "C"),
+            ),
+            "(A:Expr ; B:Expr) ; C:Expr",
+        ),
+        (
+            "seq_right",
+            binary(
+                "seq_right.outer",
+                "Seq",
+                var("seq_right.a", "A"),
+                binary(
+                    "seq_right.inner",
+                    "Seq",
+                    var("seq_right.b", "B"),
+                    var("seq_right.c", "C"),
+                ),
+            ),
+            "A:Expr ; B:Expr ; C:Expr",
+        ),
+        (
+            "add_right",
+            binary(
+                "add_right.outer",
+                "Add",
+                var("add_right.a", "A"),
+                binary(
+                    "add_right.inner",
+                    "Add",
+                    var("add_right.b", "B"),
+                    var("add_right.c", "C"),
+                ),
+            ),
+            "A:Expr + (B:Expr + C:Expr)",
+        ),
+        (
+            "add_left",
+            binary(
+                "add_left.outer",
+                "Add",
+                binary(
+                    "add_left.inner",
+                    "Add",
+                    var("add_left.a", "A"),
+                    var("add_left.b", "B"),
+                ),
+                var("add_left.c", "C"),
+            ),
+            "A:Expr + B:Expr + C:Expr",
+        ),
+        (
+            "mul_of_add",
+            binary(
+                "mul_of_add.outer",
+                "Mul",
+                binary(
+                    "mul_of_add.inner",
+                    "Add",
+                    var("mul_of_add.a", "A"),
+                    var("mul_of_add.b", "B"),
+                ),
+                var("mul_of_add.c", "C"),
+            ),
+            "(A:Expr + B:Expr) * C:Expr",
+        ),
+        (
+            "mul_of_seq",
+            binary(
+                "mul_of_seq.outer",
+                "Mul",
+                var("mul_of_seq.a", "A"),
+                binary(
+                    "mul_of_seq.inner",
+                    "Seq",
+                    var("mul_of_seq.b", "B"),
+                    var("mul_of_seq.c", "C"),
+                ),
+            ),
+            "A:Expr * (B:Expr ; C:Expr)",
+        ),
+        (
+            "add_of_mul",
+            binary(
+                "add_of_mul.outer",
+                "Add",
+                binary(
+                    "add_of_mul.inner",
+                    "Mul",
+                    var("add_of_mul.a", "A"),
+                    var("add_of_mul.b", "B"),
+                ),
+                var("add_of_mul.c", "C"),
+            ),
+            "A:Expr * B:Expr + C:Expr",
+        ),
+        (
+            "pair_of_seq",
+            binary(
+                "pair_of_seq.outer",
+                "Pair",
+                binary(
+                    "pair_of_seq.inner",
+                    "Seq",
+                    var("pair_of_seq.a", "A"),
+                    var("pair_of_seq.b", "B"),
+                ),
+                var("pair_of_seq.c", "C"),
+            ),
+            "< A:Expr ; B:Expr , C:Expr >",
+        ),
+        (
+            "neg_of_mul",
+            app(
+                "neg_of_mul.outer",
+                "Neg",
+                vec![binary(
+                    "neg_of_mul.inner",
+                    "Mul",
+                    var("neg_of_mul.a", "A"),
+                    var("neg_of_mul.b", "B"),
+                )],
+            ),
+            "- (A:Expr * B:Expr)",
+        ),
+    ];
+    let mut expected = Vec::new();
+    let rules = cases
+        .into_iter()
+        .map(|(name, lhs, text)| {
+            expected.push(format!("rule {text} => A:Expr"));
+            SemanticRule::new(
+                origin(&format!("rule.{name}")),
+                item(name, ItemKind::Rule),
+                SentenceKind::Transition,
+                variable_names
+                    .iter()
+                    .filter(|name| text.contains(&format!("{name}:Expr")))
+                    .map(|name| SemanticVariable::new(variable(name), sort()))
+                    .collect(),
+                SemanticTerm::rewrite(
+                    origin(&format!("rule.{name}.rewrite")),
+                    sort(),
+                    lhs,
+                    var(&format!("rule.{name}.rhs"), "A"),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let module = SemanticModule::new(
+        origin("module"),
+        ModuleId::new("KRS-EMIT-PARENTHESES").unwrap(),
+        vec![],
+        vec![SemanticSort::new(origin("sort.expr"), expr.clone())],
+        vec![],
+        productions,
+        vec![
+            PrecedenceRelation::new(
+                origin("precedence.unary"),
+                vec![unary],
+                vec![multiplicative.clone()],
+            )
+            .unwrap(),
+            PrecedenceRelation::new(
+                origin("precedence.multiplicative"),
+                vec![multiplicative.clone()],
+                vec![additive.clone()],
+            )
+            .unwrap(),
+            PrecedenceRelation::new(
+                origin("precedence.additive"),
+                vec![additive.clone()],
+                vec![sequence.clone()],
+            )
+            .unwrap(),
+        ],
+        vec![
+            GroupAssociativitySentence::new(
+                origin("associativity.left"),
+                GroupAssociativity::Left,
+                vec![multiplicative, additive],
+            )
+            .unwrap(),
+            GroupAssociativitySentence::new(
+                origin("associativity.right"),
+                GroupAssociativity::Right,
+                vec![sequence],
+            )
+            .unwrap(),
+        ],
+        Some(k_configuration(sort())),
+        rules,
+    );
+    let theory = SemanticTheory::new(vec![module]).unwrap();
+    let (_lowered, emitted) = assert_lowering_contract(&theory);
+    let source = emitted.source();
+    for rule in expected {
+        assert!(
+            source
+                .lines()
+                .any(|line| line.trim_start().starts_with(&rule)),
+            "missing `{rule}` in:\n{source}"
+        );
+    }
+}
+
+/// A configuration of one `<k>` cell holding the program of sort `program`.
+fn k_configuration(
+    program: SemanticSortRef,
+) -> FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm> {
+    let pgm = SemanticId::new("PGM").unwrap();
+    let k_cell = SemanticId::new("machine.k").unwrap();
+    FixedConfiguration::new(
+        origin("configuration"),
+        SemanticId::new("machine").unwrap(),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                origin("cell"),
+                k_cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::k_sequence(),
+            )
+            .unwrap(),
+        ],
+        origin("initializer"),
+        SemanticId::new("machine.init").unwrap(),
+        vec![
+            FixedConfigurationVariable::new(
+                origin("initializer.variable"),
+                pgm.clone(),
+                "PGM",
+                program.clone(),
+                true,
+            )
+            .unwrap(),
+        ],
+        vec![FixedInitializerCell::term(
+            origin("initializer.k"),
+            k_cell,
+            SemanticTerm::k_sequence(
+                origin("initializer.sequence"),
+                program.clone(),
+                vec![SemanticTerm::variable(
+                    origin("initializer.program"),
+                    program,
+                    pgm,
+                )],
+            ),
+        )],
+    )
+    .unwrap()
+}

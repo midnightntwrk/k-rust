@@ -193,7 +193,7 @@ fn render_term_with_binders(
                                 continue;
                             }
                             let parenthesize =
-                                parenthesize_declared_child(production, argument, context)?;
+                                parenthesize_declared_child(production, index, argument, context)?;
                             if parenthesize {
                                 output.push("(");
                             }
@@ -438,12 +438,31 @@ fn is_wildcard(term: &DefinitionTerm) -> bool {
     )
 }
 
+/// Whether a declared child at `parent` item `index` needs parentheses for
+/// K's rule parser to read it back as the same tree. K's priority filter
+/// (`PriorityVisitor`) checks only the leftmost and rightmost items of a
+/// production: there it rejects a child whose group binds looser than the
+/// parent's, a child of a left-associative group on the right, and one of a
+/// right-associative group on the left, so the unparenthesized text would
+/// parse as a different tree or not at all. Every grouped child under a
+/// non-associative or prefix-unary production is parenthesized as well.
 fn parenthesize_declared_child(
     parent: &ProductionSentence,
+    index: usize,
     child: &DefinitionTerm,
     context: &EmitContext<'_>,
 ) -> Result<bool, EmitError> {
     let Some(parent_group) = production_group(parent) else {
+        return Ok(false);
+    };
+    let DefinitionTermKind::Application {
+        application: ApplicationRef::Declared(child_symbol),
+        ..
+    } = child.kind()
+    else {
+        return Ok(false);
+    };
+    let Some(child_group) = production_group(context.production(child_symbol)?) else {
         return Ok(false);
     };
     let prefix_unary = matches!(
@@ -455,17 +474,17 @@ fn parenthesize_declared_child(
                     GrammarProductionItemKind::NonTerminal { .. }
                 )
     );
-    if !context.is_non_associative(parent_group) && !prefix_unary {
-        return Ok(false);
+    let relations = context.group_relations();
+    if relations.is_non_associative(parent_group) || prefix_unary {
+        return Ok(true);
     }
-    let DefinitionTermKind::Application {
-        application: ApplicationRef::Declared(child_symbol),
-        ..
-    } = child.kind()
-    else {
-        return Ok(false);
-    };
-    Ok(production_group(context.production(child_symbol)?).is_some())
+    let leftmost = index == 0;
+    let rightmost = index + 1 == parent.items().len();
+    Ok(
+        (leftmost || rightmost) && relations.binds_looser(child_group, parent_group)
+            || leftmost && relations.rejects_left_child(parent_group, child_group)
+            || rightmost && relations.rejects_right_child(parent_group, child_group),
+    )
 }
 
 fn production_group(production: &ProductionSentence) -> Option<&ProductionGroupId> {

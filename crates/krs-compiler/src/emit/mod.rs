@@ -309,7 +309,7 @@ pub fn spec_modules_in_import_order(definition: &DefinitionIr) -> Vec<&Definitio
 
 struct EmitContext<'a> {
     index: DefinitionIndex<'a>,
-    non_associative_groups: BTreeSet<ProductionGroupId>,
+    group_relations: GroupRelations,
     repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
     naming: VariableNaming,
     lexicon: TokenLexicon,
@@ -321,25 +321,21 @@ struct EmitContext<'a> {
 impl<'a> EmitContext<'a> {
     fn new(definition: &'a DefinitionIr) -> Self {
         let index = DefinitionIndex::new(definition);
-        let mut non_associative_groups = BTreeSet::new();
+        let mut group_relations = GroupRelations::default();
         let mut repeated_ancestors = BTreeMap::new();
         for sentence in definition
             .modules()
             .iter()
             .flat_map(DefinitionModule::sentences)
         {
-            if let DefinitionSentence::Associativity(associativity) = sentence
-                && associativity.associativity() == GroupAssociativity::NonAssociative
-            {
-                non_associative_groups.extend(associativity.groups().iter().cloned());
-            }
+            group_relations.add(sentence);
             if let DefinitionSentence::Configuration(configuration) = sentence {
                 collect_repeated_ancestors(configuration.cells(), &mut repeated_ancestors, None);
             }
         }
         Self {
             index,
-            non_associative_groups,
+            group_relations: group_relations.closed(),
             repeated_ancestors,
             naming: VariableNaming::new(definition),
             lexicon: TokenLexicon::new(definition),
@@ -481,8 +477,102 @@ impl<'a> EmitContext<'a> {
             .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id}")))
     }
 
+    fn group_relations(&self) -> &GroupRelations {
+        &self.group_relations
+    }
+}
+
+/// The production-group relations K's rule parser filters parses with
+/// (`PriorityVisitor`): a child whose group binds looser than its parent's,
+/// or that sits on the side its parent's associativity forbids, is rejected
+/// there, so the emitter must parenthesize it.
+#[derive(Debug, Default)]
+struct GroupRelations {
+    /// Every group that binds strictly looser than the key, transitively.
+    looser: BTreeMap<ProductionGroupId, BTreeSet<ProductionGroupId>>,
+    /// `(parent, child)` pairs from one `syntax left` or `syntax non-assoc`
+    /// sentence: the child may not be the parent's rightmost argument.
+    left: BTreeSet<(ProductionGroupId, ProductionGroupId)>,
+    /// `(parent, child)` pairs from one `syntax right` or `syntax non-assoc`
+    /// sentence: the child may not be the parent's leftmost argument.
+    right: BTreeSet<(ProductionGroupId, ProductionGroupId)>,
+    non_associative: BTreeSet<ProductionGroupId>,
+}
+
+impl GroupRelations {
+    fn add(&mut self, sentence: &DefinitionSentence) {
+        match sentence {
+            DefinitionSentence::Precedence(precedence) => {
+                for higher in precedence.higher() {
+                    self.looser
+                        .entry(higher.clone())
+                        .or_default()
+                        .extend(precedence.lower().iter().cloned());
+                }
+            }
+            DefinitionSentence::Associativity(associativity) => {
+                let groups = associativity.groups();
+                let pairs = groups.iter().flat_map(|parent| {
+                    groups
+                        .iter()
+                        .map(move |child| (parent.clone(), child.clone()))
+                });
+                match associativity.associativity() {
+                    GroupAssociativity::Left => self.left.extend(pairs),
+                    GroupAssociativity::Right => self.right.extend(pairs),
+                    GroupAssociativity::NonAssociative => {
+                        let pairs = pairs.collect::<Vec<_>>();
+                        self.left.extend(pairs.iter().cloned());
+                        self.right.extend(pairs);
+                        self.non_associative.extend(groups.iter().cloned());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Closes the priority relation transitively, as K's `POSet` does.
+    fn closed(mut self) -> Self {
+        loop {
+            let mut changed = false;
+            let snapshot = self.looser.clone();
+            for looser in self.looser.values_mut() {
+                let reachable = looser
+                    .iter()
+                    .filter_map(|group| snapshot.get(group))
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for group in reachable {
+                    changed |= looser.insert(group);
+                }
+            }
+            if !changed {
+                return self;
+            }
+        }
+    }
+
     fn is_non_associative(&self, group: &ProductionGroupId) -> bool {
-        self.non_associative_groups.contains(group)
+        self.non_associative.contains(group)
+    }
+
+    /// Whether `child` binds strictly looser than `parent`.
+    fn binds_looser(&self, child: &ProductionGroupId, parent: &ProductionGroupId) -> bool {
+        self.looser
+            .get(parent)
+            .is_some_and(|looser| looser.contains(child))
+    }
+
+    /// Whether K rejects `child` as `parent`'s rightmost argument.
+    fn rejects_right_child(&self, parent: &ProductionGroupId, child: &ProductionGroupId) -> bool {
+        self.left.contains(&(parent.clone(), child.clone()))
+    }
+
+    /// Whether K rejects `child` as `parent`'s leftmost argument.
+    fn rejects_left_child(&self, parent: &ProductionGroupId, child: &ProductionGroupId) -> bool {
+        self.right.contains(&(parent.clone(), child.clone()))
     }
 }
 
