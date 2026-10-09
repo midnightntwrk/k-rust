@@ -292,7 +292,7 @@ fn strict_positions(
     if value.is_empty() {
         return Ok((1..=arity).collect());
     }
-    let components = split_without_trailing_empty_pieces(value, ';');
+    let components = split_dropping_every_trailing_empty_piece(value, ';');
     if components.len() == 1 {
         let component = components[0].trim();
         if component.starts_with(|character: char| character.is_ascii_digit()) {
@@ -319,7 +319,7 @@ fn parse_positions(
     arity: usize,
     sentence: &Sentence,
 ) -> Result<Vec<usize>, Diagnostic> {
-    let values = split_without_trailing_empty_pieces(value, ',');
+    let values = split_dropping_every_trailing_empty_piece(value, ',');
     let display = format!("[{}]", values.join(", "));
     let mut positions = Vec::new();
     for value in values {
@@ -344,7 +344,10 @@ fn parse_positions(
     Ok(positions)
 }
 
-fn split_without_trailing_empty_pieces(value: &str, separator: char) -> Vec<&str> {
+/// `value` split at `separator` without its trailing empty pieces, all of them: `";"` and `",,"`
+/// give no piece (the empty `value` alone gives one empty piece). The strictness pass's
+/// `split_keeping_a_first_piece` keeps one empty piece there instead.
+fn split_dropping_every_trailing_empty_piece(value: &str, separator: char) -> Vec<&str> {
     if value.is_empty() {
         return vec![""];
     }
