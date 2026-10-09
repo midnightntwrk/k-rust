@@ -155,3 +155,54 @@ fn term_construction_is_minimized_in_memory_linear_in_a_rules_depth() {
         "minimizing 2,000 operands allocated {large} bytes, 1,000 allocated {small}"
     );
 }
+
+/// The bytes `kcompile` allocates for `rule bar(z) => hn(s(s(...(z))))` of `n` levels, where
+/// `s` takes an `M` and `N` is a subsort of `M`, so that sort injection places an injection at
+/// every level.
+fn injected_nesting_bytes(n: usize) -> u64 {
+    let source = format!(
+        r#"module MAIN
+  imports INT
+  syntax N ::= "z" [symbol(z)] | s(M) [symbol(s)]
+  syntax M ::= N
+  syntax KItem ::= bar(N) [symbol(bar)] | hn(N) [symbol(hn)]
+  configuration <k> $PGM:K </k>
+  rule bar(z) => hn({})
+endmodule
+"#,
+        numeral(n)
+    );
+    let loaded = load(&source);
+    let allocated = || {
+        let mut totals = Snapshot::default();
+        measure::set_allocation_counters(&mut totals);
+        totals
+    };
+    let before = allocated();
+    let compiled = compile_loaded_definition(&loaded, CompileOptions::default());
+    let bytes = allocated().delta(&before).get(Counter::AllocatedBytes);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    bytes
+}
+
+/// Sort injection gives a subterm it does not wrap back to the level that tried the wrappers,
+/// so a nesting with an injection at every level is compiled in memory linear in its depth. Each
+/// level once copied the whole subterm below it for each wrapper it tried.
+#[test]
+fn a_nesting_injected_at_every_level_compiles_in_memory_linear_in_its_depth() {
+    let _measuring = measuring();
+    let [at_500, at_1000, at_2000] = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(1 << 30)
+            .spawn_scoped(scope, || [500, 1_000, 2_000].map(injected_nesting_bytes))
+            .expect("the worker should spawn")
+            .join()
+            .expect("the worker should finish")
+    });
+    let (first, second) = (at_1000 - at_500, at_2000 - at_1000);
+    println!("injected nesting: {at_500}, {at_1000} and {at_2000} bytes at 500, 1,000 and 2,000");
+    assert!(
+        second <= first * 3,
+        "{at_500}, {at_1000} and {at_2000} bytes at 500, 1,000 and 2,000 levels"
+    );
+}
