@@ -46,7 +46,10 @@ use crate::{
     definition::BackendDefinition,
     matching::lift_to_overload,
     substitution::{Substitution, substitute},
-    term::{HeadRole, ListDefinition, Name, Sort, Symbol, Term, TermKind, Variable, VariableKind},
+    term::{
+        HeadRole, ListDefinition, Name, Sort, Symbol, Term, TermKind, Variable, VariableKind,
+        names::{FreshMarker, with_fresh_marker},
+    },
 };
 
 /// The most branch states one unification explores before it answers
@@ -291,7 +294,7 @@ impl Unifier<'_> {
     }
 
     fn fresh_variable(&mut self, sort: Sort) -> Variable {
-        let name = format!("VarOverlap{}!unify", *self.fresh);
+        let name = with_fresh_marker("VarOverlap", FreshMarker::Unify, *self.fresh);
         *self.fresh += 1;
         Variable::new(name, sort)
     }

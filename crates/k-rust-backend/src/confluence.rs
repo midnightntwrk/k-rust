@@ -99,7 +99,10 @@ use crate::{
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
-    term::{HeadRole, Name, Sort, Symbol, Term, TermKind, Variable},
+    term::{
+        HeadRole, Name, Sort, Symbol, Term, TermKind, Variable,
+        names::{FreshMarker, with_fresh_marker},
+    },
 };
 use unify::{Families, Unifier, computed};
 
@@ -570,10 +573,11 @@ impl UnjoinedPair {
 
     /// Renames every variable the check minted in the pair's terms (a name with `!`, which no
     /// KORE identifier has: the second equation renamed apart, the unifier's and the join's
-    /// fresh variables) to its base name, its marker and a counter from 0 in order of first
-    /// occurrence over [`Self::terms`]. Those names otherwise carry the thread's counters, which
-    /// every pair classified before this one advanced, so the same pair would be spelled
-    /// differently in the two scopes or after any change to what the check classifies first.
+    /// fresh variables, all spelled `{base}!{marker}{counter}`, `FreshMarker`) to its base name,
+    /// its marker and a counter from 0 in order of first occurrence over [`Self::terms`]. Those
+    /// names otherwise carry the thread's counters, which every pair classified before this one
+    /// advanced, so the same pair would be spelled differently in the two scopes or after any
+    /// change to what the check classifies first.
     /// The renaming is injective (one counter for all), its names meet no variable it keeps
     /// (those have no `!`), and terms have no binders, so the terms mean what they meant.
     fn spell_canonically(&mut self) {
@@ -1427,7 +1431,7 @@ impl Context<'_> {
                 // The step of `second` at the position, inside `first`'s left-hand side.
                 second_rhs.map(|rhs| {
                     let marker = Variable::new(
-                        format!("VarOverlapStep{}!unify", self.fresh),
+                        with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
                         inner_sort.clone(),
                     );
                     self.fresh += 1;

@@ -268,6 +268,11 @@ pub enum FreshMarker {
     /// check's memo of condition simplifications, numbered in order of first occurrence; an
     /// answer is renamed back before it is read (`confluence::memo`).
     Memo,
+    /// `{base}!unify{counter}`: the variables the critical-pair check introduces (the unifier's
+    /// overlap variables, the marker of a step below the root, a join's residual placeholders).
+    /// The counter follows the marker, so that the base alone names the source and a pair can
+    /// be spelled without the counters other pairs advanced (`confluence::UnjoinedPair`).
+    Unify,
 }
 
 impl FreshMarker {
@@ -279,6 +284,7 @@ impl FreshMarker {
             Self::Apart => "apart",
             Self::Binder => "binder",
             Self::Memo => "memo",
+            Self::Unify => "unify",
         }
     }
 }
