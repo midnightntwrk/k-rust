@@ -468,12 +468,8 @@ fn prepare(
         .timings
         .try_span("definition.lower", |_| lower_definition(&semantic))?;
     count_definition(&mut measurement.counters, &lowered);
-    let mut raw_k_warnings = raw_k.warnings;
-    raw_k_warnings.extend(krs_compiler::smt_only_function_warnings(
-        lowered.definition(),
-    ));
     Ok(PreparedDefinition {
-        raw_k_warnings,
+        raw_k_warnings: raw_k.warnings,
         sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
             .into_iter()
             .chain(krs_compiler::cell_collection_warnings(lowered.definition()))
@@ -767,10 +763,15 @@ fn build(
     if backend == Backend::Haskell {
         push_trusted_claim_warnings(prepared, &mut warnings);
     }
+    // Only concrete execution needs what these warnings name: `ensures`
+    // conditions it does not assume, and equations for `smt_hook` functions.
     if backend == Backend::Llvm {
-        for diagnostic in
-            krs_compiler::capability::concrete_execution_warnings(prepared.lowered.definition())
+        let definition = prepared.lowered.definition();
+        for diagnostic in krs_compiler::capability::concrete_execution_warnings(definition)
+            .into_iter()
+            .chain(krs_compiler::smt_only_function_warnings(definition))
         {
+            let code = diagnostic.code.to_string();
             let message = diagnostic.message.clone();
             if let Some(envelope) =
                 crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
@@ -778,7 +779,7 @@ fn build(
                 warnings.envelopes.push(envelope);
             } else {
                 warnings.unlocated.push(crate::UnlocatedDiagnostic {
-                    code: krs_diagnostic::codes::capability::IGNORED_ENSURES.to_string(),
+                    code,
                     severity: crate::DiagnosticSeverity::Warning,
                     message,
                     source: None,

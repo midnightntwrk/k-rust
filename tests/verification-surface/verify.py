@@ -57,9 +57,10 @@ SMT translations (KF-044): `hook` declares `myAbs` with
 rule `go(I) => myAbs(I) >=Int 0`, and the claim `abs-nonneg`
 (`go(I) => true`). The emitted K carries `smt-hook((ite (< #1 0) (- 0 #1)
 #1))`, and `clampSub`, whose template names its fields out of order, shows the
-renumbering (`#2` before `#1`). `krs prove` proves the claim with Z3, warns
-`krs::emit::smt-only-function` once per function without equations, and Java
-`kprove` of the emitted spec proves it too. `hook-ablation` gives `myAbs`
+renumbering (`#2` before `#1`). `krs prove` proves the claim with Z3 without
+a warning, `krs build --backend llvm` warns `krs::emit::smt-only-function` once
+per function without equations, and Java `kprove` of the emitted spec proves it
+too. `hook-ablation` gives `myAbs`
 `smtlib = "myAbs"` instead, an uninterpreted symbol: the claim then fails on
 both routes. A negative fixture pins two functions with one `smtlib` symbol;
 the macro tests pin the syntax diagnostics.
@@ -225,7 +226,7 @@ HOOK = Fixture(MANIFEST, "krs-verification-surface-hook")
 HOOK_ABLATION = Fixture(MANIFEST, "krs-verification-surface-hook-ablation")
 HOOK_EXPECTED = {
     # package: (spec module, emitted productions, native statuses, krs prove exit status,
-    #           Java kprove proves, smt-only-function warnings)
+    #           Java kprove proves, smt-only-function warnings of an LLVM build)
     HOOK.package: (
         "KRS-SMT-HOOK-SPEC",
         (
@@ -887,9 +888,16 @@ def verify_hook(harness: FixtureGate, fixture: Fixture) -> None:
     native = native_trusted_proof(harness, fixture, spec_module)
     if native["statuses"] != statuses or native["exit"] != exit_status:
         raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
-    if len(native["warnings"]) != smt_only or not all("[krs::emit::smt-only-function]" in line for line in native["warnings"]):
+    if native["warnings"]:
         raise GateError(f"{fixture.package}: krs prove warned {native['warnings']!r}")
     harness.pins.expect(("smt_proofs", fixture.package), native)
+
+    # Only concrete execution needs equations, so only an LLVM build warns.
+    built = harness._krs(fixture, "build", "--backend", "llvm", "--output", harness.workspace / "llvm" / fixture.package, check=False)
+    warnings = diagnostic_lines(built.stderr)
+    if built.returncode != 0 or len(warnings) != smt_only or not all("[krs::emit::smt-only-function]" in line for line in warnings):
+        raise GateError(f"{fixture.package}: krs build --backend llvm warned {warnings!r}:\n{built.stderr}")
+    harness.pins.expect(("smt_llvm_warnings", fixture.package), warnings)
 
     java = java_trusted_proof(harness, emitted, spec_module)
     if java["proven"] != java_proves or java["top"] != java_proves:

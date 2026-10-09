@@ -408,7 +408,7 @@ Two keys of `#[k::function]` change that, and both are trusted, because nothing 
 `smt_hook = "(ite (< {value} 0) (- 0 {value}) {value})"` gives it a meaning in Z3's language, an SMT-LIB term over the arguments, so a claim such as `go(I) => true` after the rule `go(I) => myAbs(I) >=Int 0` is proved even though `myAbs` has no equation.
 The template is checked like a `#[k::syntax]` template: each `{field}` names a field of the function (a field may occur any number of times, and `{{`/`}}` spell braces), the text is one balanced S-expression, and K's positional `#1` and a `"` are rejected; KRS emits K's `smt-hook(..)` with each placeholder renumbered to its field's position, so `clampSub({low}, {value})` with `(- {value} {low})` emits `(- #2 #1)`.
 The two keys are mutually exclusive, and `smtlib` may be combined with a typed `hook`, so the hook computes concrete values while Z3 sees a symbol (`krs::syntax::invalid-smt-metadata`); two functions with one `smtlib` symbol are rejected, because Z3 would treat them as one function (`krs::analysis::duplicate-smtlib`).
-A function with an `smt_hook` and no equation means something only to Z3: concrete execution leaves its applications unevaluated, and every command warns (`krs::emit::smt-only-function`).
+A function with an `smt_hook` and no equation means something only to Z3: concrete execution leaves its applications unevaluated, and `krs build --backend llvm` warns (`krs::emit::smt-only-function`); `krs prove` and Haskell builds, which hand it to Z3, do not.
 
 ### Concrete, symbolic, and SMT lemmas
 

@@ -672,7 +672,7 @@ pub fn trusted_claim_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
 /// `smt_hook` and no equation, in definition order (KF-044).
 ///
 /// Such a function means something only to Z3 on symbolic paths; concrete
-/// execution leaves its applications unevaluated.
+/// execution leaves its applications unevaluated, so only LLVM builds report it.
 #[must_use]
 pub fn smt_only_function_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
     let defined = definition
