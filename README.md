@@ -680,6 +680,18 @@ collection-cell fixture and links a native interpreter when `K_BACKEND_BIN` poin
 backend installation. `K_KOMPILE` may be supplied instead; its sibling LLVM executables will be
 used. Set `K_CHECKOUT` when the ignored reference checkout is not at `k/`.
 
+The WASM execution gate runs the pinned WASM semantics with the in-process backend: it compiles `test.md` with krust, runs `krust krun` on the 28 programs of upstream's `tests/simple` and `krust kprove` on the 6 specs of `tests/proofs`, and compares every exit status, standard error, final configuration (or its digest) and proof verdict with `scripts/wasm-execution-gate.toml`:
+
+```console
+scripts/wasm-execution-gate.sh
+scripts/wasm-execution-gate.sh simple/arithmetic proofs/loops  # selected cases
+```
+
+It needs only the pinned `wasm-semantics` and `k` checkouts, no reference toolchain, and takes about a minute and a half (each program runs under a 30 s limit and each proof under 60 s).
+krust is resolved as for `scripts/backend-smoke.sh` (`KRUST_BIN`, otherwise the gate build).
+It is the only gate that executes or proves with the WASM definition; run it after a change to the backend's rewriting, matching, simplification or value claims. `--update` rewrites the expected results, and a change in them is to be explained.
+As recorded, 23 programs reach upstream's success configuration (`scripts/wasm-execution-gate.success.kore`); `desugaring`, `functions_call`, `modules` and `fconversions-c` stop on a `trap` and `table` on `#assertTable`; five specs are proven and `wrc20-spec.k` fails at depth 1.
+
 ## Development gates
 
 See [Testing contracts](docs/testing.md) for test placement, subsystem ownership, reference evidence, and the manual conformance acceptance workflow.
