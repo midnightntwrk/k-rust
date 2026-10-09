@@ -54,7 +54,8 @@ pub enum StopCause {
     Deadline(StepTimeoutMode),
     /// Less than `STACK_RED_ZONE` bytes of native stack remained to the simplifier, and the
     /// segments its recursion holds on this thread reached their budget
-    /// (`nesting::SIMPLIFICATION_STACK_BUDGET`).
+    /// (`nesting::SIMPLIFICATION_STACK_BUDGET`), or those of every thread reached the process's
+    /// (`nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`).
     StackExhausted,
     /// The solver's prelude is unsatisfiable or undecided, so none of its answers means anything.
     SolverPrelude(PreludeFailure),
@@ -407,6 +408,22 @@ std::thread_local! {
         const { Cell::new((0, crate::nesting::SIMPLIFICATION_STACK_BUDGET)) };
 }
 
+/// The bytes of the segments [`with_stack_headroom`] holds on every thread of the process, which
+/// stay within `nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`.
+#[cfg(not(target_family = "wasm"))]
+static PROCESS_SEGMENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Count one more segment in `total` if the count stays within `budget`, and say whether it did.
+#[cfg(not(target_family = "wasm"))]
+fn reserve_segment(total: &std::sync::atomic::AtomicUsize, budget: usize) -> bool {
+    total
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+            held.checked_add(SIMPLIFICATION_SEGMENT)
+                .filter(|holding| *holding <= budget)
+        })
+        .is_ok()
+}
+
 /// The budget of the segments the simplifier's recursion may hold on this thread while `work`
 /// runs; see `nesting::with_simplification_stack_budget`.
 pub(crate) fn with_segment_budget<R>(budget: usize, work: impl FnOnce() -> R) -> R {
@@ -429,8 +446,9 @@ pub(crate) fn with_segment_budget<R>(budget: usize, work: impl FnOnce() -> R) ->
 /// native stack. On a thread with that much left it runs inline: the check the simplifier has
 /// always made at each level, and nothing more. Below it, `work` and the recursion under it run on
 /// a new segment of `SIMPLIFICATION_SEGMENT` bytes, while the segments held on this thread stay
-/// within the budget; past the budget, or when the system declines to map the segment, it stops
-/// with [`StopCause::StackExhausted`] without running.
+/// within the thread's budget and those held on every thread within the process's; past either,
+/// or when the system declines to map the segment, it stops with [`StopCause::StackExhausted`]
+/// without running.
 ///
 /// So a recursion takes stack only as deep as it goes: an operation that stays within its
 /// thread's stack maps nothing, and one that recurses deeper pays one mapping per segment.
@@ -460,6 +478,7 @@ fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Resu
     impl Drop for Release {
         fn drop(&mut self) {
             SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((self.0, segments.get().1)));
+            PROCESS_SEGMENTS.fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
         }
     }
     let (held, budget) = SIMPLIFICATION_SEGMENTS.with(Cell::get);
@@ -469,6 +488,12 @@ fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Resu
     else {
         return Err(Stop::mint(StopCause::StackExhausted).into());
     };
+    if !reserve_segment(
+        &PROCESS_SEGMENTS,
+        crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET,
+    ) {
+        return Err(Stop::mint(StopCause::StackExhausted).into());
+    }
     SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((holding, budget)));
     let _release = Release(held);
     // `stacker` maps the segment before it runs the work and panics when the mapping fails. A
@@ -913,7 +938,8 @@ mod tests {
     }
 
     /// Below the red zone, the work runs on a new segment while the budget holds one, and the
-    /// segment is released afterwards; nested past the budget, it stops.
+    /// segment is released afterwards, from the thread's count and the process's; nested past the
+    /// budget, it stops.
     #[test]
     fn a_recursion_below_the_red_zone_goes_on_on_segments_within_the_budget() {
         fn descend(levels: usize) -> Result<usize, Stop> {
@@ -936,15 +962,42 @@ mod tests {
                 let stopped = with_segment_budget(SIMPLIFICATION_SEGMENT, || descend(9_000))
                     .err()
                     .map(Stop::into_cause);
-                (deep.ok(), released, stopped, held())
+                // One segment at a time, more segments in all than the process may hold at once:
+                // each is released from the process's count too.
+                let repeated = (0..=crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET
+                    / SIMPLIFICATION_SEGMENT)
+                    .all(|_| {
+                        with_segment_budget(SIMPLIFICATION_SEGMENT, || descend(200))
+                            .map_err(Stop::into_cause)
+                            .is_ok()
+                    });
+                (deep.ok(), released, stopped, held(), repeated)
             })
             .unwrap()
             .join()
             .unwrap();
         assert_eq!(
             outcome,
-            (Some(9_000), 0, Some(StopCause::StackExhausted), 0)
+            (Some(9_000), 0, Some(StopCause::StackExhausted), 0, true)
         );
+    }
+
+    /// A segment is counted in a total while the total stays within its budget, and a released
+    /// one makes room for another.
+    #[test]
+    fn a_segment_is_reserved_only_within_the_total_budget() {
+        let total = std::sync::atomic::AtomicUsize::new(0);
+        let budget = 2 * SIMPLIFICATION_SEGMENT;
+        assert!(reserve_segment(&total, budget));
+        assert!(reserve_segment(&total, budget));
+        assert!(!reserve_segment(&total, budget));
+        assert_eq!(total.load(Ordering::Relaxed), budget);
+        total.fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
+        assert!(reserve_segment(&total, budget));
+        assert!(!reserve_segment(
+            &total,
+            budget + SIMPLIFICATION_SEGMENT - 1
+        ));
     }
 
     #[test]

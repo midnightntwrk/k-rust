@@ -606,7 +606,8 @@ impl Backend {
     /// [`k_rust_backend::nesting::SIMPLIFICATION_STACK_BUDGET`]. A function recursion deeper than
     /// that stops with [`StopCause::StackExhausted`]. A smaller budget stops a runaway recursion
     /// sooner and commits less memory before it does; 0 confines the simplifier to the stack the
-    /// operation runs on.
+    /// operation runs on. The budget is per thread; the segments of every thread of the process
+    /// together stay within [`k_rust_backend::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET`].
     pub fn set_simplification_stack_budget(&mut self, bytes: usize) {
         self.simplification_stack_budget = bytes;
     }

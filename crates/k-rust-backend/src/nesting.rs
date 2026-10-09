@@ -123,9 +123,24 @@ pub const SIMPLIFICATION_STACK_BUDGET: usize = 1 << 30;
 #[cfg(not(target_pointer_width = "64"))]
 pub const SIMPLIFICATION_STACK_BUDGET: usize = STACK_LIMIT;
 
+/// The most native stack that the simplifier's segments take on all threads of the process
+/// together: [`STACK_LIMIT`], 4 GiB on 64-bit targets, and [`SIMPLIFICATION_STACK_BUDGET`] on
+/// narrower ones.
+///
+/// [`SIMPLIFICATION_STACK_BUDGET`] bounds each thread, and a parallel embedder would otherwise
+/// commit it once per thread: a divergent function that 16 workers reach commits about 1.3 GB on
+/// each before any of them stops, about 21 GB in all. With this bound the process holds at most
+/// 4 GiB of segments, and a recursion that would take more stops with `StackExhausted`. Four
+/// threads at their full budget fit, so a thread stops below its own budget only when several
+/// threads recurse hundreds of thousands of levels at once. The count is one atomic update when a
+/// segment is granted and one when it is released, nothing on a recursion within its thread.
+pub const SIMPLIFICATION_STACK_PROCESS_BUDGET: usize = STACK_LIMIT;
+
 /// Run `work` with `bytes` as the budget of [`SIMPLIFICATION_STACK_BUDGET`] on this thread, and
 /// restore the previous budget afterwards. A smaller budget stops a deep recursion sooner and
-/// commits less memory before it does; 0 confines the simplifier to the stack it starts on.
+/// commits less memory before it does; 0 confines the simplifier to the stack it starts on. The
+/// segments of every thread together stay within [`SIMPLIFICATION_STACK_PROCESS_BUDGET`] whatever
+/// the budget of each.
 pub fn with_simplification_stack_budget<R>(bytes: usize, work: impl FnOnce() -> R) -> R {
     crate::stop::with_segment_budget(bytes, work)
 }
