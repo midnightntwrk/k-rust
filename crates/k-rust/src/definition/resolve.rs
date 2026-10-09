@@ -23,17 +23,21 @@
 //! ```toml algorithm
 //! id = "definition.resolve.sentences"
 //! name = "visible-sentence selection with bucketed equivalence deduplication"
-//! sites = ["ResolvedDefinition::select_sentence_locations", "ResolvedDefinition::sentence_classes", "united_inputs"]
-//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
+//! sites = ["ResolvedDefinition::select_sentence_locations", "ResolvedDefinition::sentence_classes", "ResolvedDefinition::import_closures", "united_inputs"]
+//! variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one module's first sentences or sentence_arcs call"
-//! bound = "O((M + E) log M + n_m + n_m x a x A + u x (z + A)) expected"
+//! bound = "O(v_m + n_m + n_m x a x A + u x (z + A)) expected"
 //!
 //! [[cost]]
 //! mode = "first selection of a resolution (sentence_classes)"
 //! bound = "O(L log L + L x k x eq)"
+//!
+//! [[cost]]
+//! mode = "first selection under an import graph (import_closures, shared by the resolutions updated from it without import changes)"
+//! bound = "O(sum over import edges (m, i) of v_i + sum_m v_m log v_m)"
 //! ```
 //!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
@@ -44,7 +48,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet, HashMap, hash_map::Entry},
+    collections::{BTreeMap, BTreeSet, hash_map::Entry},
     fmt,
     sync::{Arc, OnceLock},
 };
@@ -400,6 +404,10 @@ pub struct ResolvedDefinition {
     // The equivalence class of every local sentence of this graph, per module node, built on the
     // first visible-sentence selection and shared by the selections of every module.
     sentence_classes: OnceLock<Box<[Box<[u32]>]>>,
+    // The transitive imports of every module, a function of the import graph alone, so a
+    // resolution updated without import changes shares them with the one it was updated from.
+    // By module index, each in dependency order.
+    import_closures: Arc<OnceLock<Vec<Box<[ModuleId]>>>>,
     declares_sort_synonyms: OnceLock<bool>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
 }
@@ -490,6 +498,7 @@ impl ResolvedDefinition {
             dependency_order,
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            import_closures: Arc::default(),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
         })
@@ -611,6 +620,7 @@ impl ResolvedDefinition {
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            import_closures: Arc::clone(&self.import_closures),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
         })
@@ -655,26 +665,41 @@ impl ResolvedDefinition {
         imports
     }
 
-    /// All transitively imported modules, sorted by module name.
+    /// All transitively imported modules, in [`ModuleId`] order.
     pub fn transitive_imports(&self, module: ModuleId) -> Vec<ModuleId> {
-        let mut found = BTreeSet::new();
-        let mut pending = self
-            .direct_imports(module)
-            .into_iter()
-            .map(|import| import.module)
-            .collect::<Vec<_>>();
-        // Invariant: `found` contains expanded imports and `pending` contains discovered imports
-        // not yet expanded; a module is expanded only after its first insertion into `found`.
-        while let Some(import) = pending.pop() {
-            if found.insert(import) {
-                pending.extend(
-                    self.direct_imports(import)
-                        .into_iter()
-                        .map(|next| next.module),
-                );
+        let mut imports = self.import_closures()[module.0.index()].to_vec();
+        imports.sort_unstable();
+        imports
+    }
+
+    fn import_closures(&self) -> &[Box<[ModuleId]>] {
+        self.import_closures.get_or_init(|| {
+            let modules = self.graph.node_count();
+            let mut rank = vec![0; modules];
+            for (position, module) in self.dependency_order.iter().enumerate() {
+                rank[module.0.index()] = position;
             }
-        }
-        found.into_iter().collect()
+            let mut imports = vec![Box::<[ModuleId]>::default(); modules];
+            // When the module was last added to the closure being built, so that each is added once.
+            let mut added = vec![usize::MAX; modules];
+            // Invariant: `imports` holds the closure of every module before `module` in dependency
+            // order, which includes every module `module` imports.
+            for (position, &module) in self.dependency_order.iter().enumerate() {
+                let mut closure = Vec::new();
+                for import in self.graph.neighbors_directed(module.0, Outgoing) {
+                    let import = ModuleId(import);
+                    for &found in imports[import.0.index()].iter().chain([&import]) {
+                        if added[found.0.index()] != position {
+                            added[found.0.index()] = position;
+                            closure.push(found);
+                        }
+                    }
+                }
+                closure.sort_unstable_by_key(|id| rank[id.0.index()]);
+                imports[module.0.index()] = closure.into();
+            }
+            imports
+        })
     }
 
     /// Local and transitively imported sentences, with dependencies first.
@@ -756,25 +781,20 @@ impl ResolvedDefinition {
     }
 
     fn select_sentence_locations(&self, module: ModuleId) -> Arc<[VisibleSentence]> {
-        let mut visible = self.transitive_imports(module);
+        // A module follows everything it imports in dependency order.
+        let mut visible = self.import_closures()[module.0.index()].to_vec();
         visible.push(module);
-        let visible = visible.into_iter().collect::<BTreeSet<_>>();
         let classes = self.sentence_classes();
         // The location of the retained sentence of each class seen so far.
-        let mut kept = HashMap::<u32, usize>::new();
+        let mut kept = rustc_hash::FxHashMap::<u32, usize>::default();
         let mut locations = Vec::new();
-        for (owner, index, sentence) in self
-            .dependency_order
-            .iter()
-            .filter(|id| visible.contains(id))
-            .flat_map(|&id| {
-                self.module(id)
-                    .local_sentences
-                    .iter()
-                    .enumerate()
-                    .map(move |(index, sentence)| (id, index, sentence.as_ref()))
-            })
-        {
+        for (owner, index, sentence) in visible.iter().flat_map(|&id| {
+            self.module(id)
+                .local_sentences
+                .iter()
+                .enumerate()
+                .map(move |(index, sentence)| (id, index, sentence.as_ref()))
+        }) {
             match kept.entry(classes[owner.0.index()][index]) {
                 Entry::Vacant(entry) => {
                     entry.insert(locations.len());

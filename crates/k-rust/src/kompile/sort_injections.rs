@@ -1399,14 +1399,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     }))
                 });
         }
-        if let Some(wrapped) =
-            self.collection_wrapper(term, &actual, expected, visited.clone(), is_lhs)?
-        {
-            return Ok(wrapped);
-        }
-        if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
-            return Ok(wrapped);
-        }
+        // Each wrapper gives `visited` back when it does not apply, so the subterm is moved
+        // rather than copied at every level of a nesting.
+        let visited = match self.collection_wrapper(term, &actual, expected, visited, is_lhs)? {
+            Ok(wrapped) => return Ok(wrapped),
+            Err(visited) => visited,
+        };
+        let visited = match self.user_list_wrapper(&actual, expected, visited) {
+            Ok(wrapped) => return Ok(wrapped),
+            Err(visited) => visited,
+        };
         if let Some(plan) = self.placement(&actual, expected) {
             return Ok(self.apply_placement(plan, visited));
         }
@@ -1417,9 +1419,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         })))
     }
 
-    fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
+    /// `visited` wrapped as the one element of a user list of sort `expected`, or `visited` back
+    /// when no such wrapping applies.
+    fn user_list_wrapper(
+        &self,
+        actual: &Sort,
+        expected: &Sort,
+        visited: Term,
+    ) -> Result<Term, Term> {
         if !self.is_user_list_sort(expected) || self.is_user_list_sort(actual) {
-            return None;
+            return Err(visited);
         }
         let mut recursive = self
             .productions
@@ -1477,9 +1486,11 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => None,
             });
-        let (recursive_label, list_first) = recursive.next()?;
+        let Some((recursive_label, list_first)) = recursive.next() else {
+            return Err(visited);
+        };
         if recursive.next().is_some() {
-            return None;
+            return Err(visited);
         }
 
         let mut terminators = self
@@ -1515,9 +1526,11 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => None,
             });
-        let terminator = terminators.next()?;
+        let Some(terminator) = terminators.next() else {
+            return Err(visited);
+        };
         if terminators.next().is_some() {
-            return None;
+            return Err(visited);
         }
         let terminator = Term::Apply {
             label: terminator,
@@ -1528,12 +1541,14 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         } else {
             vec![visited, terminator]
         };
-        Some(Term::Apply {
+        Ok(Term::Apply {
             label: recursive_label,
             arguments,
         })
     }
 
+    /// `visited` wrapped as an element of the collection sort `expected`, or `visited` back when
+    /// no element production wraps its sort.
     fn collection_wrapper(
         &self,
         term: &Term,
@@ -1541,16 +1556,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         expected: &Sort,
         visited: Term,
         is_lhs: bool,
-    ) -> Result<Option<Term>, SortInjectionError> {
+    ) -> Result<Result<Term, Term>, SortInjectionError> {
         let hook = self
             .sorts
             .attributes_for(&SortHead::from(expected))
             .and_then(|attributes| attributes.string(AttributeKey::Hook));
         if !matches!(hook, Some("MAP.Map" | "SET.Set" | "LIST.List")) {
-            return Ok(None);
+            return Ok(Err(visited));
         }
         let Term::Apply { label, arguments } = term.unannotated() else {
-            return Ok(None);
+            return Ok(Err(visited));
         };
         // Invariant: no production before `production` in catalog order carries both `wrapElement` and `element` with a wrapped label of sort `actual`, since the first one that does returns; each candidate scans the productions of its wrapped label once.
         for (_, production) in self.productions.productions() {
@@ -1580,7 +1595,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 && !attributes.has(AttributeKey::Idem)
                 && !attributes.has(AttributeKey::Bag);
             if !is_map {
-                return Ok(Some(Term::apply(element_label, vec![visited])));
+                return Ok(Ok(Term::apply(element_label, vec![visited])));
             }
 
             let element_ids = self
@@ -1621,9 +1636,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 Term::apply(cell_map_key_label(expected), vec![visited.clone()])
             };
             let key = self.unmemoized(|| self.inject_with_position(&key, key_sort, is_lhs))?;
-            return Ok(Some(Term::apply(element_label, vec![key, visited])));
+            return Ok(Ok(Term::apply(element_label, vec![key, visited])));
         }
-        Ok(None)
+        Ok(Err(visited))
     }
 
     #[expect(

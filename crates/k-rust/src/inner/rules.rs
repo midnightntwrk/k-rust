@@ -1610,6 +1610,35 @@ endmodule
         assert!(universe.member(&Sort::new("Array")).is_some());
     }
 
+    /// A flat `~>` sequence written directly against a rule's rewrite keeps a doomed reading for
+    /// every sequence starting after its first item (each `~>` can begin a sequence), and each
+    /// completion of one finds a caller waiting for it for every item before it, all refused by
+    /// the associativity of `~>`. What a completion gives a caller depends on the caller's
+    /// production and dot only, so it is decided once per group of callers sharing them: the
+    /// most decisions one completion makes is bounded by the grammar and does not grow with the
+    /// sequence, where deciding for every caller made it grow with the sequence's length.
+    #[test]
+    fn a_sequence_against_a_rewrite_decides_each_group_of_callers_once() {
+        let [at_30, at_60] = [30, 60].map(|length| {
+            let sequence = (0..length)
+                .map(|number| format!("foo({})", number % 10))
+                .collect::<Vec<_>>()
+                .join(" ~> ");
+            let source = format!(
+                "module MAIN\n  imports INT\n  syntax KItem ::= foo(Int) [symbol(foo)]\n  \
+                 configuration <k> $PGM:K </k>\n  rule <k> {sequence} => .K </k>\nendmodule\n"
+            );
+            crate::inner::parser::take_most_caller_group_decisions();
+            drop(load_with_prelude(&source));
+            crate::inner::parser::take_most_caller_group_decisions()
+        });
+        println!("the most decisions one completion made: {at_30} with 30 items, {at_60} with 60");
+        assert_eq!(
+            at_30, at_60,
+            "the most decisions one completion made: {at_30} with 30 items, {at_60} with 60"
+        );
+    }
+
     /// The rule grammar of `module`, as a rule of that module is parsed with it.
     fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
         let module = resolved.module_id(module).expect("the module is resolved");

@@ -1292,10 +1292,10 @@ impl SortInjector<'_, '_> {
         }
         Ok(self
             .collection_wrapper(term, actual, expected, term.clone(), false)?
-            .is_some()
+            .is_ok()
             || self
                 .user_list_wrapper(actual, expected, term.clone())
-                .is_some())
+                .is_ok())
     }
 }
 
