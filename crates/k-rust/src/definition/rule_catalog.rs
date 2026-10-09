@@ -2,16 +2,16 @@
 //! id = "definition.catalog.rule"
 //! name = "rule-catalog construction"
 //! sites = ["RuleCatalog", "RuleCatalog::new", "RuleCatalog::from_visible", "collect_unique"]
-//! variable = "n = visible rule-like sentences; eq = sentence-equivalence cost"
+//! variable = "n = visible rule-like sentences; l = local sentences; eq = sentence-equivalence cost; k_i = sentences in SentenceKey bucket i"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one catalog"
-//! bound = "O(n^2 x eq + n log n)"
+//! bound = "O((n + l) log (n + l) + sum k_i^2 x eq)"
 //! ```
 //!
 //! Rule catalogs collect unique rule-like sentences and build declaration-order views by kind and label.
-//! Construction costs O(n^2 * eq + n log n); `Counter::KompileSentenceEquivalenceChecks` counts its equivalence calls.
+//! Construction compares a sentence only with those of its `SentenceKey`; `Counter::KompileSentenceEquivalenceChecks` counts its equivalence calls.
 //!
 //! Deterministic rule, claim, and context views for a resolved module.
 
@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ast::Sentence;
 use super::attribute_keys::AttributeKey;
 use super::catalog::{LabelHead, ProductionCatalog};
-use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
+use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{InternalLabel, Label, Term};
 
@@ -61,6 +61,7 @@ impl<'a> RuleCatalog<'a> {
             matches!(sentence, Sentence::Context { .. })
         });
 
+        let local = EquivalenceAccumulator::from_sentences(local);
         let local_rules = local_ids(&rules, &local, RuleId);
         let local_claims = local_ids(&claims, &local, ClaimId);
 
@@ -259,20 +260,17 @@ fn collect_unique<'a>(
     )
 }
 
+/// The ids of the entries of `visible` equivalent to a local sentence. Equivalent sentences
+/// have equal keys, so each entry is compared only with the local sentences of its key.
 fn local_ids<Id: Ord>(
     visible: &[&Sentence],
-    local: &[&Sentence],
+    local: &EquivalenceAccumulator<'_>,
     id: impl Fn(usize) -> Id,
 ) -> BTreeSet<Id> {
     visible
         .iter()
         .enumerate()
-        // Invariant: the collected set holds `id(index)` for every entry of `visible` before the current one that is equivalent to an entry of `local`; the filter scans `local` once per entry of `visible`, O(|visible| * |local|) `sentence_equivalent` calls.
-        .filter(|(_, sentence)| {
-            local
-                .iter()
-                .any(|local| sentence_equivalent(sentence, local))
-        })
+        .filter(|(_, sentence)| local.find(sentence).is_some())
         .map(|(index, _)| id(index))
         .collect()
 }

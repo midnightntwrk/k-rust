@@ -13,7 +13,7 @@
 //! ```toml algorithm
 //! id = "definition.equivalence.deduplicate"
 //! name = "order-preserving deduplication by sentence equivalence"
-//! sites = ["dedup_by_equivalence", "EquivalenceAccumulator", "push_if_inequivalent"]
+//! sites = ["dedup_by_equivalence", "EquivalenceAccumulator", "push_if_inequivalent", "EquivalentSentences"]
 //! variable = "n = sentences; eq = sentence-equivalence cost; k_i = retained sentences in SentenceKey bucket i"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
@@ -411,8 +411,61 @@ impl<'a> EquivalenceAccumulator<'a> {
         None
     }
 
+    /// The index of the retained sentence `sentence` is equivalent to, if any.
+    pub(crate) fn find(&self, sentence: &Sentence) -> Option<usize> {
+        self.by_key
+            .get(&SentenceKey::of(sentence))?
+            .iter()
+            .copied()
+            .find(|&index| sentence_equivalent(self.sentences[index], sentence))
+    }
+
     fn into_sentences(self) -> Vec<&'a Sentence> {
         self.sentences
+    }
+}
+
+/// Owned sentences in the order they were kept, each added only when no kept sentence is
+/// equivalent to it. An index orders the kept sentences by [`SentenceKey`], so that adding one
+/// compares it only with the kept sentences of its key, and the index grows with each sentence
+/// kept rather than being built again for each one added.
+#[derive(Default)]
+pub(crate) struct EquivalentSentences {
+    sentences: Vec<Sentence>,
+    /// Indexes into `sentences` ordered by the sentences' keys; those of one key in the order
+    /// they were kept.
+    by_key: Vec<usize>,
+}
+
+impl EquivalentSentences {
+    pub(crate) fn sentences(&self) -> &[Sentence] {
+        &self.sentences
+    }
+
+    pub(crate) fn into_sentences(self) -> Vec<Sentence> {
+        self.sentences
+    }
+
+    /// Keep `sentence` and return `None`, or return the first kept sentence equivalent to it
+    /// together with `sentence`, which is not kept.
+    pub(crate) fn keep_or_find(&mut self, sentence: Sentence) -> Option<(&mut Sentence, Sentence)> {
+        let key = SentenceKey::of(&sentence);
+        let sentences = &self.sentences;
+        let start = self
+            .by_key
+            .partition_point(|&index| SentenceKey::of(&sentences[index]) < key);
+        let end = start
+            + self.by_key[start..]
+                .partition_point(|&index| SentenceKey::of(&sentences[index]) == key);
+        if let Some(&found) = self.by_key[start..end]
+            .iter()
+            .find(|&&index| sentence_equivalent(&sentences[index], &sentence))
+        {
+            return Some((&mut self.sentences[found], sentence));
+        }
+        self.by_key.insert(end, self.sentences.len());
+        self.sentences.push(sentence);
+        None
     }
 }
 

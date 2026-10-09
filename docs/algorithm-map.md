@@ -88,7 +88,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +7 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
 - [2] parser.lower.term — O(N), each node built from its lowered children… — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
-- [3] definition.configuration.expand — O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
+- [3] definition.configuration.expand — O(N + G x (log G + k x eq) + M^2 + C x D) plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
 - [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles] — at k-rust/inner/rules.rs `resolve_rule_bubbles`
 - [5] = definition.resolve.imports (phase 15)
 - [6] definition.catalog.production — O(n x p + n log n + l x (log n + k x eq)) +1 mode — in: [resolved definition] → out: [production lookup] — at k-rust/definition/catalog.rs `ResolvedDefinition::production_catalog`
@@ -147,7 +147,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.substitution.apply — O(t x v log s), with O(1) skipping of… +1 mode — at backend/substitution.rs `substitute`
 - backend.substitution.extract_output — O(c^2 x t), plus for each solved binding whose… — at backend/search.rs `normalize_match_condition`
 - backend.term.macro_or_alias — O(1) +1 mode — at backend/term.rs `Term::macro_or_alias_symbol`
-- definition.catalog.rule — O(n^2 x eq + n log n) — at k-rust/definition/rule_catalog.rs `RuleCatalog`
+- definition.catalog.rule — O((n + l) log (n + l) + sum k_i^2 x eq) — at k-rust/definition/rule_catalog.rs `RuleCatalog`
 - definition.equivalence.deduplicate — O(n^2 x eq) +1 mode — at k-rust/definition/equivalence.rs `dedup_by_equivalence`
 - definition.equivalence.sentence — O(N) — at k-rust/definition/equivalence.rs `sentence_equivalent`
 - definition.json.encode — O(N + L + A) expected — at k-rust/definition/json.rs `to_string`

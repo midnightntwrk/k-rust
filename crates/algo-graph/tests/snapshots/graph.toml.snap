@@ -3507,7 +3507,7 @@ id = "definition.catalog.rule"
 provenance = "declared"
 area = "definition"
 name = "rule-catalog construction"
-variable = "n = visible rule-like sentences; eq = sentence-equivalence cost"
+variable = "n = visible rule-like sentences; l = local sentences; eq = sentence-equivalence cost; k_i = sentences in SentenceKey bucket i"
 table = "Algorithm::ALL"
 registry_name = "DefinitionCatalogRule"
 
@@ -3538,7 +3538,7 @@ symbol = "collect_unique"
 
 [[node.cost]]
 mode = "one catalog"
-bound = "O(n^2 x eq + n log n)"
+bound = "O((n + l) log (n + l) + sum k_i^2 x eq)"
 
 [[node]]
 kind = "algorithm"
@@ -3638,7 +3638,7 @@ symbol = "expand_configurations_inner"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
+bound = "O(N + G x (log G + k x eq) + M^2 + C x D) plus G^2 word moves of the generated sentences' key index, plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
 
 [[node]]
 kind = "algorithm"
@@ -3669,6 +3669,11 @@ symbol = "EquivalenceAccumulator"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/equivalence.rs"
 symbol = "push_if_inequivalent"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/equivalence.rs"
+symbol = "EquivalentSentences"
 
 [[node.cost]]
 mode = "one sentence collection"

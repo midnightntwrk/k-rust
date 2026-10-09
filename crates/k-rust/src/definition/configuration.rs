@@ -10,11 +10,11 @@
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
+//! bound = "O(N + G x (log G + k x eq) + M^2 + C x D) plus G^2 word moves of the generated sentences' key index, plus one ResolvedDefinition::resolve and C ResolvedDefinition::update calls"
 //! ```
 //!
 //! Configuration expansion recursively generates cells, initializers, and top-cell syntax while resolving newly generated views.
-//! Complexity: O(N + G²) over visited terms and generated-sentence deduplication.
+//! Complexity: O(N + G log G) over visited terms and generated-sentence deduplication, which compares a generated sentence only with the kept ones of its key.
 //! Work is proportional to visited configuration terms plus generated-sentence dedup; enclosing resolve and sentence counters measure it.
 //!
 //! Expansion of parsed configuration declarations into generated sentences.
@@ -28,10 +28,10 @@ use serde_json::{Value, json};
 use super::checks::{LabelParameterError, reject_label_parameters};
 use super::configuration_value;
 use super::{
-    Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, ProductionCatalog,
+    Attributes, Definition, EquivalentSentences, LabelHead, LabelResultSort, ProductionCatalog,
     ProductionItem, ResolveError, ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
-    dedup_by_equivalence, push_if_inequivalent, sentence_equivalent,
+    dedup_by_equivalence,
 };
 use crate::definition::AttributeKey;
 use crate::definition::totality::TotalityWitness;
@@ -248,7 +248,7 @@ fn expand_configurations_inner(
             .filter(|sentence| !matches!(&***sentence, Sentence::Configuration { .. }))
             .cloned()
             .collect::<Vec<_>>();
-        let mut generated = Vec::new();
+        let mut generated = GeneratedSentences::default();
         let module_attributes = transformed.modules[module_index].attributes.clone();
 
         // Invariant: `generated` holds the cell sentences generated from the configurations of `local` before `sentence`, and `diagnostics` their warnings; each iteration consumes one entry of `local`.
@@ -274,7 +274,7 @@ fn expand_configurations_inner(
             generator.generate_top(body, ensures)?;
         }
 
-        output.extend(generated.into_iter().map(Arc::new));
+        output.extend(generated.kept.into_sentences().into_iter().map(Arc::new));
         let previous = transformed.clone();
         transformed.modules[module_index].local_sentences = output;
         resolved = resolved
@@ -352,11 +352,49 @@ struct GeneratedNode {
     initializer_takes_map: bool,
 }
 
+/// The sentences generated from one module's configurations, with what generating more asks
+/// of them indexed: the labels of their productions, and their equivalence classes.
+#[derive(Default)]
+struct GeneratedSentences {
+    kept: EquivalentSentences,
+    production_labels: BTreeSet<String>,
+}
+
+impl GeneratedSentences {
+    /// Keep `sentence` unless an equivalent sentence was kept, which then derives from the
+    /// inputs of both.
+    fn keep(&mut self, sentence: Sentence) {
+        let label = match &sentence {
+            Sentence::Production {
+                label: Some(label), ..
+            } => Some(label.name.clone()),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        };
+        match self.kept.keep_or_find(sentence) {
+            None => self.production_labels.extend(label),
+            Some((kept, sentence)) => kept
+                .attributes_mut()
+                .union_input_addresses(sentence.attributes()),
+        }
+    }
+}
+
 struct Generator<'a, 'catalog> {
     module: &'a str,
     catalog: &'catalog ProductionCatalog<'catalog>,
     existing_labels: BTreeSet<String>,
-    generated: &'a mut Vec<Sentence>,
+    generated: &'a mut GeneratedSentences,
     attributes: &'a Attributes,
     module_attributes: &'a Attributes,
     allow_reserved_cell_names: bool,
@@ -516,23 +554,25 @@ impl Generator<'_, '_> {
                 | Sentence::Bubble { .. } => None,
             })
             .collect::<Vec<_>>();
-        productions.extend(self.generated.iter().filter(|sentence| match sentence {
-            Sentence::Production {
-                label: Some(label), ..
-            } => label.name == init_label,
-            Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-            | Sentence::ContextAlias { .. }
-            | Sentence::Context { .. }
-            | Sentence::Rule { .. }
-            | Sentence::Claim { .. }
-            | Sentence::Configuration { .. }
-            | Sentence::Bubble { .. } => false,
-        }));
+        productions.extend(self.generated.kept.sentences().iter().filter(
+            |sentence| match sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => label.name == init_label,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => false,
+            },
+        ));
         let unique = dedup_by_equivalence(productions);
         let (initializer, initializer_takes_map) = match unique.as_slice() {
             [Sentence::Production { items, .. }] if items.len() == 1 => {
@@ -1038,15 +1078,7 @@ impl Generator<'_, '_> {
     }
 
     fn label_exists(&self, label: &str) -> bool {
-        self.existing_labels.contains(label)
-            // Invariant: no entry of `self.generated` before `sentence` is a production labelled `label`; the scan consumes one generated sentence per step.
-            || self.generated.iter().any(|sentence| {
-                matches!(
-                    sentence,
-                    Sentence::Production { label: Some(existing), .. }
-                        if existing.name == label
-                )
-            })
+        self.existing_labels.contains(label) || self.generated.production_labels.contains(label)
     }
 
     /// Every sentence generated from a configuration derives from that configuration sentence.
@@ -1054,18 +1086,7 @@ impl Generator<'_, '_> {
         sentence
             .attributes_mut()
             .union_input_addresses(self.attributes);
-        let mut generated = EquivalenceAccumulator::from_sentences(self.generated.iter());
-        if push_if_inequivalent(&mut generated, &sentence) {
-            self.generated.push(sentence);
-        } else if let Some(existing) = self
-            .generated
-            .iter_mut()
-            .find(|existing| sentence_equivalent(existing, &sentence))
-        {
-            existing
-                .attributes_mut()
-                .union_input_addresses(sentence.attributes());
-        }
+        self.generated.keep(sentence);
     }
 
     /// [`leaf_initializer`], reporting a configuration variable that cannot be initialized
