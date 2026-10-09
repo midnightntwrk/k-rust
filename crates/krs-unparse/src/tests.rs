@@ -74,9 +74,7 @@ impl Fixture {
         let unparser =
             Unparser::from_kore(&artifacts.syntax_definition_kore, &artifacts.macros_kore)
                 .expect("the compiled artifacts are KORE")
-                .with_program_grammar(loaded.definition())
-                // Adding relations the KORE already records leaves every golden unchanged.
-                .with_syntax_relations(loaded.resolved(), &main);
+                .with_program_grammar(loaded.definition());
         let grammar = ProgramGrammar::new(loaded.definition()).expect("program grammar");
         let variables: BTreeMap<String, KastSort> = artifacts.configuration_variables.clone();
         let mut assembler = ConfigurationAssembler::new(&grammar, main.clone(), syntax, &variables);
