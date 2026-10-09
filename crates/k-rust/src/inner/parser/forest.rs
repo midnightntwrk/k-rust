@@ -576,10 +576,10 @@ pub(super) fn cmp_packed_structurally(
 /// otherwise compare the shared subforests below them again for each ambiguity above.
 #[derive(Default)]
 pub(super) struct StructuralOrder {
-    pairs: std::collections::HashMap<(*const PackedTerm, *const PackedTerm), std::cmp::Ordering>,
+    pairs: rustc_hash::FxHashMap<(*const PackedTerm, *const PackedTerm), std::cmp::Ordering>,
     /// Every node a recorded pair names, kept alive while the pairs are, so that no other node
     /// takes its address meanwhile.
-    nodes: std::collections::HashMap<*const PackedTerm, Rc<PackedTerm>>,
+    nodes: rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
 }
 
 impl StructuralOrder {
