@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn spells_k_float_tokens_like_mpfr_java() {
+    fn spells_float_tokens_with_precision_and_exponent_width_suffixes() {
         assert_eq!(float("0.1").token(), "1.0000000000000001e-01p53x11");
         assert_eq!(float("0.1f").token(), "1.00000001e-01p24x8");
         assert_eq!(float("0").token(), "0e+00p53x11");

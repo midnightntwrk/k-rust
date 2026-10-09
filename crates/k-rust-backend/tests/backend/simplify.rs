@@ -4946,7 +4946,7 @@ fn decomposes_a_symbolic_equality_between_singleton_k_sequences() {
 }
 
 #[test]
-fn returns_user_logs_as_effects_and_the_reference_unit_term() {
+fn returns_user_logs_as_effects_and_dotk_at_the_unit_sort() {
     let syntax = parse_definition(
         r#"[]
             module MAIN
@@ -5339,7 +5339,7 @@ fn unbounded_simplification_completes_a_long_fixed_point_chain() {
     let (definition, input, expected) = long_fixed_point_chain();
 
     let result = simplify(&definition, &input, SimplificationOptions::unbounded())
-        .expect("the complete Kore-style pass should finish finite computations");
+        .expect("the unbounded pass should finish finite computations");
 
     assert_eq!(result.term, expected);
     assert_eq!(result.applied_rules.len(), 129);

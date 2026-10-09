@@ -3444,7 +3444,7 @@ fn folds_mpfr_float_constants_with_their_declared_contexts() {
 }
 
 #[test]
-fn folds_unicode_string_hooks_with_java_token_wrapping() {
+fn folds_string_concat_into_a_token_escaping_non_ascii_code_points() {
     let string_sort = Sentence::SyntaxSort {
         parameters: Vec::new(),
         sort: Sort::new("String"),

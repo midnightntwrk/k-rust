@@ -4034,7 +4034,7 @@ mod tests {
     }
 
     #[test]
-    fn default_search_uses_the_reference_kore_variable_name() {
+    fn default_search_target_is_var_result_named_apart_from_request_variables() {
         let initial = Pattern {
             term: Term::variable(Variable::new(
                 "Initial",

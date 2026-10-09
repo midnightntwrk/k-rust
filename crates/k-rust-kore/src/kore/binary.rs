@@ -1085,7 +1085,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_the_haskell_domain_value_encoding() {
+    fn encodes_a_domain_value_byte_for_byte_at_version_1_1() {
         let encoded =
             encode_term_with_version(&parsed(r#"\dv{SortInt{}}("42")"#), Version::V1_1_0).unwrap();
         assert_eq!(
@@ -1203,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_booster_predicate_wrappers() {
+    fn round_trips_unparameterized_equals_predicate_wrappers() {
         let wrapper = Pattern::Application {
             symbol: Symbol {
                 name: "\\equals".into(),
