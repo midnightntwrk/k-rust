@@ -263,6 +263,13 @@ A K argument can narrow to an item only when it is a canonical singleton with a 
 Dynamic argument sorts select a finite set of witnessed branches, so generated C cannot invent an injection pair at runtime.
 These corrections change previously malformed parser output such as `inj{KItem,K}` and reflexive result injections; ordinary constructor and token encodings retain their existing representation.
 
+## Generated parser locations
+
+A generated parser locates tokens as krust's in-process parser locates rules and diagnostics, in the `#location` wrappers of `[locations]` sorts and in its syntax errors: lines and columns count from 1 on every line, a column is a Unicode scalar value, the end column is the one after the last character, and `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029 each end one line.
+The pinned K's generated parsers number columns from 0 on the first line and from 1 on later lines and end a location at its last character: its `locations` regression test expects the program `5 +\n6` to locate `5` at line 1, columns 0 to 0, and `6` at line 2, columns 1 to 1, where krust gives columns 1 to 2 for both.
+A numbering that changes after the first line puts every rule that prints or compares columns off by one on that line only, and one convention for every location krust produces lets a program's locations be compared with a rule's `Location` attribute.
+The conformance driver therefore compares the four generated-parser cases whose definitions declare a `[locations]` sort, `bison-parser-library`, `locations`, `locations2` and `locations3`, with the line and column arguments of every `#location` removed on both sides (normalisation N46, `comparison = "locations"` in `scripts/conformance/bison-parsers.toml`); the located terms, their file names and the rest of the output are still compared, and krust's numbers are checked by its own CLI location test.
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
@@ -428,6 +435,11 @@ Rust judges each module's grammar in the view its own imports give it: a sentenc
 A module that imports `INT-SYNTAX` and declares `syntax Foo ::= r"[0-9]+" [token]` is rejected; a module that declares the same production and imports nothing is accepted, since `Int`'s `[0-9]+` (with `prec(2)`) is not in its view, and a program or pattern written in it reads `12` as `Foo`.
 The pinned K frontend rejects the second definition as well (`checks/invalidPrec.k`), naming `Int`'s token from domains.md, which reaches the main module only through modules compilation adds to it (configuration support), not through the definition's imports.
 Rust does not count those modules as part of the syntax the definition's author declared; the conformance expectations record that recipe as `compiler-added-grammar`.
+
+A literal terminal is a lexeme as well.
+The manual's default precedence, 0, is the default of regular-expression tokens; a literal without `prec` has the largest precedence, so that a keyword wins over a regular-expression token of the same length (`if` over an identifier), which every grammar with keywords needs.
+A production's `prec(N)` gives its literals precedence `N` as it gives its regular expressions, in the in-process scanner and in generated parsers alike: with `syntax Foo ::= "ab" [token, prec(-1)]` and `syntax Bar ::= r"[a-z]+" [token]`, the text `ab` is a `Bar`.
+Every production that mentions a literal declares its precedence, explicitly or by default, so a literal that one production gives `prec(-1)` and another mentions without `prec` is rejected, whichever comes first, as a regular expression with two precedences is.
 
 ## Compiler-resolved fresh constants
 

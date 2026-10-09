@@ -10615,6 +10615,208 @@ endmodule
     assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
 }
 
+/// Write `definition_source` and generate its Flex/Bison parser for `module` and start sort `Pgm`
+/// (`kast --gen-parser`) with `environment` added to `kast`'s, which reaches the C compiler it
+/// runs; returns the fixture root and the parser.
+#[cfg(unix)]
+fn generate_parser(
+    definition_source: &str,
+    module: &str,
+    environment: &[(&str, &std::ffi::OsStr)],
+) -> (PathBuf, PathBuf) {
+    let (root, definition) = fixture();
+    fs::write(&definition, definition_source).unwrap();
+    let parser = root.join("generated-parser");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .args([
+            "kast",
+            definition.to_str().unwrap(),
+            "--module",
+            module,
+            "--sort",
+            "Pgm",
+            "--gen-parser",
+        ])
+        .arg(&parser)
+        .envs(environment.iter().copied());
+    let generated = command.output().unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    (root, parser)
+}
+
+/// A literal token production's `prec` orders it against regex tokens in both scanners: with
+/// `prec(-1)` the regex `[a-z]+` wins `ab`, and without `prec` the literal does.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_gives_a_literal_token_its_declared_precedence() {
+    for (precedence, regex_wins) in [(", prec(-1)", true), ("", false)] {
+        let definition = format!(
+            r#"
+module PREC-SYNTAX
+  syntax Foo ::= "ab" [token{precedence}]
+  syntax Bar ::= r"[a-z]+" [token]
+  syntax Pgm ::= Foo "!" | Bar "?"
+endmodule
+"#
+        );
+        let programs = [("ab?", regex_wins), ("ab!", !regex_wins), ("abc?", true)];
+        assert_both_scanners_decide(&definition, "PREC-SYNTAX", &owned_programs(&programs));
+    }
+}
+
+/// Generated parsers locate tokens as the in-process parser does (`inner::location`): lines and
+/// columns from 1 on every line, a column per Unicode scalar value, the end column after the last
+/// character, and `\n`, `\r`, `\r\n`, vertical tab, U+0085 and U+2028 each ending one line, also
+/// when two tokens split a `\r\n`.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_locations_number_lines_and_columns_as_the_in_process_parser() {
+    let definition = r#"
+module LOC-SYNTAX
+  syntax Bar [locations]
+  syntax Bar ::= r"[a-z]+" [token] | r"<[^>]*>" [token]
+  syntax Pgm ::= Bar ";" Bar ";" Bar ";" Bar ";" Bar
+endmodule
+"#;
+    let (root, parser) = generate_parser(definition, "LOC-SYNTAX", &[]);
+    let input = root.join("input.pgm");
+    fs::write(
+        &input,
+        "a;\r\n<\u{e9}>;\rbb;<x\ny\u{85}z\u{b}w>;<p\u{2028}q>",
+    )
+    .unwrap();
+    let parsed = Command::new(&parser).arg(&input).output().unwrap();
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    let output = String::from_utf8(parsed.stdout).unwrap();
+    let int = r#"\\dv\{SortInt\{\}\}\("([0-9]+)"\)"#;
+    let locations = Regex::new(&format!(r"{int}, {int}, {int}, {int}\)"))
+        .unwrap()
+        .captures_iter(&output)
+        .map(|captures| {
+            (1..=4)
+                .map(|group| captures[group].parse::<u32>().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        locations,
+        [
+            [1, 1, 1, 2],
+            [2, 1, 2, 4],
+            [3, 1, 3, 3],
+            [3, 4, 6, 3],
+            [6, 4, 7, 3],
+        ],
+        "{output}"
+    );
+
+    let error = root.join("error.pgm");
+    fs::write(&error, "a;\n  b c").unwrap();
+    let rejected = Command::new(&parser).arg(&error).output().unwrap();
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains(":2:5:2:6:syntax error"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A scanner with a `$`-anchored rule scans its whole input with a state buffer of its own
+/// (`bison::scanner::SCAN_WHOLE_INPUT`); a buffer one state too small is written past its end,
+/// which an uninstrumented parser survives. Built with AddressSanitizer, the parser must run the
+/// empty input, short programs and long candidates without a report. Without a C compiler that
+/// can build and run an AddressSanitizer program the test checks nothing.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_anchored_scanner_stays_in_its_buffers_under_address_sanitizer() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Leaks are not checked: the parser frees no node before it exits.
+    const ASAN_OPTIONS: &str = "detect_leaks=0:exitcode=86";
+    let compiler = std::env::var_os("KRUST_CC").unwrap_or_else(|| "cc".into());
+    let (probe_root, _) = fixture();
+    let probe_source = probe_root.join("probe.c");
+    let probe = probe_root.join("probe");
+    fs::write(&probe_source, "int main(void) { return 0; }\n").unwrap();
+    let supported = Command::new(&compiler)
+        .arg("-fsanitize=address")
+        .arg(&probe_source)
+        .arg("-o")
+        .arg(&probe)
+        .output()
+        .is_ok_and(|output| output.status.success())
+        && Command::new(&probe)
+            .env("ASAN_OPTIONS", ASAN_OPTIONS)
+            .output()
+            .is_ok_and(|output| output.status.success());
+    if !supported {
+        eprintln!("skipped: the C compiler cannot build and run an AddressSanitizer program");
+        fs::remove_dir_all(probe_root).unwrap();
+        return;
+    }
+    let wrapper = probe_root.join("asan-cc");
+    fs::write(
+        &wrapper,
+        "#!/bin/sh\nexec \"$KRUST_ASAN_CC\" -fsanitize=address -fno-omit-frame-pointer \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let definition = r#"
+module LOOKAHEAD-SYNTAX
+  syntax Q ::= r"<[a-z ]*>" [token]
+  syntax Foo ::= r"a$" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo
+endmodule
+"#;
+    let (root, parser) = generate_parser(
+        definition,
+        "LOOKAHEAD-SYNTAX",
+        &[
+            ("KRUST_CC", wrapper.as_os_str()),
+            ("KRUST_ASAN_CC", compiler.as_os_str()),
+        ],
+    );
+    let programs = [
+        (String::new(), false),
+        ("a\n".to_owned(), true),
+        ("a".to_owned(), false),
+        (format!("<{}z", " ".repeat(20_000)), true),
+        (format!("<{}", "a".repeat(20_000)), false),
+    ];
+    for (index, (program, accepted)) in programs.iter().enumerate() {
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
+        let parsed = Command::new(&parser)
+            .arg(&input)
+            .env("ASAN_OPTIONS", ASAN_OPTIONS)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&parsed.stderr);
+        assert!(
+            parsed.status.code() != Some(86) && !stderr.contains("AddressSanitizer"),
+            "program {index}: {stderr}"
+        );
+        assert_eq!(
+            parsed.status.success(),
+            *accepted,
+            "program {index}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(probe_root).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_keeps_byte_string_tokens() {

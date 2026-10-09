@@ -221,7 +221,7 @@ impl Scanner {
             return Ok(None);
         };
         if let Some(existing) = self.ids.get(&key).copied() {
-            let candidate = token_precedence(item, precedence, true)?;
+            let candidate = token_precedence(item, precedence)?;
             let lexeme = &self.lexemes[existing];
             if lexeme.precedence != candidate {
                 let mut declarations = vec![
@@ -237,7 +237,7 @@ impl Scanner {
             return Ok(Some(existing));
         }
 
-        let precedence = token_precedence(item, precedence, false)?;
+        let precedence = token_precedence(item, precedence)?;
         let index = self.lexemes.len();
         self.ids.insert(key.clone(), index);
         match item {
@@ -506,23 +506,29 @@ fn lexeme_key(item: &Item) -> Option<LexemeKey> {
     }
 }
 
-fn token_precedence(
-    item: &Item,
-    precedence: Option<&str>,
-    repeated: bool,
-) -> Result<i32, ParseError> {
-    if matches!(item, Item::Terminal(_)) && (!repeated || precedence.is_none()) {
-        return Ok(i32::MAX);
-    }
-    precedence
-        .map(|value| {
-            value
-                .parse()
-                .map_err(|_| ParseError::InvalidTokenPrecedence {
-                    value: value.to_owned(),
-                })
+/// The precedence a production gives its lexeme `item`: the production's `prec(N)` when it
+/// declares one, otherwise the largest precedence (`i32::MAX`) for a literal terminal and 0 for a
+/// regex.
+///
+/// A literal's default makes a keyword win over an equal-length regex token (`if` over an
+/// identifier regex), which every grammar with keywords needs; a declared `prec` is the author
+/// asking for another order (for example a literal that loses to an identifier regex), so it
+/// replaces the default for literals exactly as for regexes. Every production that mentions a
+/// lexeme declares its precedence this way, explicitly or by default, and [`Scanner::register`]
+/// rejects a lexeme two productions order differently, whatever their order in the grammar.
+fn token_precedence(item: &Item, precedence: Option<&str>) -> Result<i32, ParseError> {
+    let Some(value) = precedence else {
+        return Ok(if matches!(item, Item::Terminal(_)) {
+            i32::MAX
+        } else {
+            0
+        });
+    };
+    value
+        .parse()
+        .map_err(|_| ParseError::InvalidTokenPrecedence {
+            value: value.to_owned(),
         })
-        .unwrap_or(Ok(0))
 }
 
 fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {

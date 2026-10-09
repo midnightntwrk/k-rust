@@ -127,6 +127,15 @@ def load_expectations(path):
     return document, budgets, step_budgets, step_wall_budgets
 
 
+# How each comparison policy compares the two parsers' stdout; the comparator test
+# (generated_bison_parser_outputs_match) implements them.
+BISON_COMPARISONS = {
+    "exact": "parser stdout bytes",
+    "amb": "parser KORE modulo same-sort Lblamb flattening and sorting",
+    "locations": "parser KORE modulo #location line and column arguments",
+}
+
+
 def load_bison_parsers(path):
     with open(path, "rb") as source:
         document = tomllib.load(source)
@@ -149,7 +158,7 @@ def load_bison_parsers(path):
             raise ValueError(f"unsafe bison parser case path: {name!r}")
         if row["artifact"] not in ("executable", "shared-library"):
             raise ValueError(f"invalid bison parser artifact for {name}: {row['artifact']!r}")
-        if row.get("comparison", "exact") not in ("exact", "amb"):
+        if row.get("comparison", "exact") not in BISON_COMPARISONS:
             raise ValueError(f"invalid bison parser comparison for {name}")
         inputs = row["inputs"]
         if (not isinstance(inputs, list) or not inputs or
@@ -1147,7 +1156,7 @@ def compare_bison_parser_commands(case, row, input_path, reference_command, rust
         "K_REFERENCE_BISON_PARSER_OUTPUT": reference_output,
         "K_RUST_BISON_PARSER_OUTPUT": rust_output,
         "K_BISON_PARSER_INPUT": f"{case.name}/{input_path}",
-        "K_BISON_PARSER_ALLOW_AMBIGUITY": "1" if row["comparison"] == "amb" else "0",
+        "K_BISON_PARSER_COMPARISON": row["comparison"],
     }
     if case.out_of_budget():
         step.update(verdict="krust-error", reason="case budget exhausted before parser-output comparison")
@@ -1162,7 +1171,7 @@ def compare_bison_parser_commands(case, row, input_path, reference_command, rust
     if comparator_timed_out:
         step.update(verdict="krust-error", reason="parser-output comparator timed out (case budget)")
     elif trc == 0:
-        step.update(verdict="match", comparison="parser stdout bytes" if row["comparison"] == "exact" else "parser KORE modulo same-sort Lblamb flattening and sorting")
+        step.update(verdict="match", comparison=BISON_COMPARISONS[row["comparison"]])
     elif trc == 101:
         message = re.search(r"panicked at[^\n]*\n(.*)", tout + terr, re.S)
         text = (message.group(1) if message else (tout + terr)).strip()
