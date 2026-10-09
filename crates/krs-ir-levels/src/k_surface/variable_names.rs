@@ -37,8 +37,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    CellContentFrame, CellPost, FixedInitializerCell, FixedInitializerContent,
-    GrammarProductionItemKind, SemanticId, SemanticIdKind, ir::RESERVED_MARKER,
+    CellContentFrame, FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
+    SemanticId, SemanticIdKind, ir::RESERVED_MARKER,
 };
 
 use crate::{
@@ -134,19 +134,32 @@ impl VariableNaming {
                 scope.predicate(rewrite.rhs());
             }
             RuleBodyRef::Configuration { body, .. } => {
-                for clause in body.clauses() {
-                    scope.term(clause.before());
-                    let replaced = match clause.after() {
-                        // A single-body clause prints its cell once, with
-                        // the rewrites inside (KF-011).
-                        CellPost::Preserve | CellPost::Local => false,
-                        CellPost::Replace { term } => {
-                            scope.term(term);
-                            true
+                for part in body.parts() {
+                    match part {
+                        krs_ir::ClausePart::Matched {
+                            before,
+                            after,
+                            frame,
+                            ..
+                        } => {
+                            scope.term(before);
+                            let replaced = match after {
+                                // A single-body clause prints its cell once,
+                                // with the rewrites inside (KF-011); a removed
+                                // cell is printed once, before `=> .Bag`.
+                                krs_ir::PartPost::Preserve
+                                | krs_ir::PartPost::Local
+                                | krs_ir::PartPost::Removed => false,
+                                krs_ir::PartPost::Replace(term) => {
+                                    scope.term(term);
+                                    true
+                                }
+                            };
+                            // A named frame is printed on both sides of a replaced cell.
+                            scope.frame(frame, if replaced { 2 } else { 1 });
                         }
-                    };
-                    // A named frame is printed on both sides of a replaced cell.
-                    scope.frame(clause.frame(), if replaced { 2 } else { 1 });
+                        krs_ir::ClausePart::Written { term, .. } => scope.term(term),
+                    }
                 }
             }
         }

@@ -1110,7 +1110,7 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
         unreachable!()
     };
     assert!(matches!(
-        done.clauses()[0].after(),
+        done.clauses()[0].as_fixed().unwrap().after(),
         CellPost::Replace { term }
             if matches!(term.kind(), DefinitionTermKind::KSequence { items, .. }
                 if items.is_empty())
@@ -1119,7 +1119,7 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
         unreachable!()
     };
     assert!(matches!(
-        block.clauses()[0].after(),
+        block.clauses()[0].as_fixed().unwrap().after(),
         CellPost::Replace { term }
             if matches!(term.kind(), DefinitionTermKind::KSequence { items, .. }
                 if items.len() == 2)

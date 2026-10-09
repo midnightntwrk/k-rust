@@ -79,6 +79,7 @@ fn declaration<S: Stage>(reference: S::Cell, sort: S::Sort) -> StageCellDeclarat
             cell_type: None,
             stream: None,
             exit: None,
+            initial: None,
             content: ProtocolCellContent::Leaf {
                 wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                 wrapper: CellWrapper::Cell,

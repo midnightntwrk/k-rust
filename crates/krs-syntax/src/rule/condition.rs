@@ -120,6 +120,20 @@ pub enum RuleExtra {
         /// Complete replacement term after the rewrite.
         after: Box<TermExpression>,
     },
+    /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(p)` or
+    /// `None`, or an instance list, and its result when the record restates
+    /// the cell.
+    RewriteState {
+        /// Named cell, in the subject record.
+        cell: Ident,
+        /// The subject state.
+        before: Box<crate::StateTerm>,
+        /// The same cell in the result record, absent when the result
+        /// leaves it out (the cell is then read only).
+        result_cell: Option<Ident>,
+        /// The result state.
+        after: Option<Box<crate::StateTerm>>,
+    },
 }
 
 impl RuleExtra {
@@ -129,7 +143,8 @@ impl RuleExtra {
         match self {
             Self::HaveMap { cell, .. }
             | Self::UpdateMap { cell, .. }
-            | Self::RewriteCell { cell, .. } => cell,
+            | Self::RewriteCell { cell, .. }
+            | Self::RewriteState { cell, .. } => cell,
         }
     }
 }

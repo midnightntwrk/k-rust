@@ -125,6 +125,7 @@ fn configuration_claim(
             StateRuleBindingKind::KSequenceFrame => ProtocolRuleBindingKind::KSequenceFrame,
             StateRuleBindingKind::MapFrame => ProtocolRuleBindingKind::MapFrame,
             StateRuleBindingKind::ConfigurationFrame => ProtocolRuleBindingKind::ConfigurationFrame,
+            StateRuleBindingKind::InstancesFrame => ProtocolRuleBindingKind::InstancesFrame,
         };
         bindings.push(ProtocolRuleBinding { name, kind });
     }

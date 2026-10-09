@@ -13,8 +13,8 @@
 
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellPost, FixedCell,
-    FixedCellContent, SentenceKind, SourceMapKey,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, FixedCell, FixedCellContent,
+    SentenceKind, SourceMapKey,
 };
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
@@ -162,11 +162,8 @@ pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
             terms.push(rewrite.to());
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                terms.push(clause.before());
-                if let CellPost::Replace { term } = clause.after() {
-                    terms.push(term);
-                }
+            for part in body.parts() {
+                terms.extend(part.terms());
             }
         }
         RuleBodyRef::Predicate(body) => {

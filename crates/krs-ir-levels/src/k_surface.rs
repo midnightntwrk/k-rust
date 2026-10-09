@@ -14,7 +14,7 @@ use crate::{
     DefinitionTermKind, ProductionSentence, RuleBodyRef, SymbolId, SymbolIdentity,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinSort, CellPost, FixedCell, FixedCellContent, FixedInitializerCell,
+    ApplicationRef, BuiltinSort, FixedCell, FixedCellContent, FixedInitializerCell,
     FixedInitializerContent, GrammarProductionItemKind, OperationSort, ProductionAttribute,
     ProductionGroupId, StableItemId,
 };
@@ -27,6 +27,7 @@ pub struct DefinitionIndex<'a> {
     symbols: BTreeMap<SymbolId, &'a str>,
     groups: BTreeMap<ProductionGroupId, &'a str>,
     cells: BTreeMap<SymbolId, &'a str>,
+    cell_parents: BTreeMap<SymbolId, SymbolId>,
     context_aliases: BTreeMap<StableItemId, &'a str>,
 }
 
@@ -114,6 +115,12 @@ impl<'a> DefinitionIndex<'a> {
         self.cells.get(id).copied()
     }
 
+    /// Returns the parent cell of a nested cell; a top-level cell has none.
+    #[must_use]
+    pub fn cell_parent(&self, id: &SymbolId) -> Option<&SymbolId> {
+        self.cell_parents.get(id)
+    }
+
     /// Returns K's generated sort name of a fixed cell, such as `FrameCell`
     /// for `<frame>` (see [`cell_sort_name`]).
     #[must_use]
@@ -131,6 +138,10 @@ impl<'a> DefinitionIndex<'a> {
         for cell in cells {
             self.cells.insert(cell.id().clone(), cell.name());
             if let FixedCellContent::Children { children } = cell.content() {
+                for child in children {
+                    self.cell_parents
+                        .insert(child.id().clone(), cell.id().clone());
+                }
                 self.collect_cells(children);
             }
         }
@@ -246,10 +257,6 @@ pub fn builtin_sorts(module: &DefinitionModule) -> BTreeSet<BuiltinSort> {
         .collect()
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "One walk records the builtin modules every sentence form requires."
-)]
 fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> BuiltinRequirements {
     let mut requirements = BuiltinRequirements::default();
     for sentence in module.sentences() {
@@ -312,9 +319,8 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
                         requirements.term(term.to());
                     }
                     RuleBodyRef::Configuration { body: rewrite, .. } => {
-                        for clause in rewrite.clauses() {
-                            requirements.term(clause.before());
-                            if let CellPost::Replace { term } = clause.after() {
+                        for part in rewrite.parts() {
+                            for term in part.terms() {
                                 requirements.term(term);
                             }
                         }

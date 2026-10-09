@@ -6,8 +6,8 @@ use k_rust::{
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
 };
 use krs_ir::{
-    BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
-    FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
+    BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationClause,
+    ConfigurationRoot, FixedCell, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
     MapOperation, NodeOrigin, SemanticId, SentenceKind, StrictnessKind,
@@ -16,7 +16,7 @@ use krs_ir_levels::{
     ConfigurationSentence, ContextAliasSentence, DefinitionProductionAttribute,
     DefinitionScopedBinder, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
     DefinitionTermKind, ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
-    k_surface::generated_variable_name,
+    k_surface::{cell_sort_name, generated_variable_name},
 };
 use serde_json::json;
 
@@ -603,9 +603,12 @@ impl Adapter<'_> {
                 });
             }
         };
-        let is_main = variables.iter().any(|variable| {
-            variable.is_main() && initializer_contains_variable(initializer, variable.id())
-        });
+        // The main cell is the leaf that holds `$PGM`, also below a nested
+        // cell such as a collection instance (KF-023).
+        let is_main = matches!(cell.content(), FixedCellContent::Term { .. })
+            && variables.iter().any(|variable| {
+                variable.is_main() && initializer_contains_variable(initializer, variable.id())
+            });
         let properties = native_cell_properties(cell.attributes(), is_main);
         Ok(native_config_cell(cell.name(), properties, contents))
     }
@@ -1018,68 +1021,386 @@ impl Adapter<'_> {
         sentence_index: usize,
         sentence: &RuleSentence,
     ) -> Result<NativeTerm, AdapterError> {
-        let mut cells = rewrite
-            .clauses()
-            .iter()
-            .enumerate()
-            .map(|(index, clause)| {
-                let index = u32::try_from(index).unwrap_or(u32::MAX);
-                self.map_sentence_origin(
-                    clause.origin(),
-                    module,
-                    sentence_index,
-                    SentenceNodeRole::ConfigurationRuleCell(index),
-                );
-                if let CellContentFrame::KSequenceTail { origin, .. }
-                | CellContentFrame::MapRemainder { origin, .. }
-                | CellContentFrame::ListRemainder { origin } = clause.frame()
-                {
-                    self.map_sentence_origin(
-                        origin,
+        let mut cells = Vec::new();
+        for (index, clause) in rewrite.clauses().iter().enumerate() {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            match clause {
+                ConfigurationClause::Fixed(clause) => {
+                    cells.push(self.fixed_clause(
+                        clause,
                         module,
                         sentence_index,
-                        SentenceNodeRole::ConfigurationRuleFrame(index),
-                    );
+                        index,
+                        vec![index],
+                    )?);
                 }
-                let before = self.term(
-                    clause.before(),
-                    module,
-                    sentence_index,
-                    vec![index],
-                    TermContext::Normal,
-                )?;
-                let before = if matches!(clause.frame(), CellContentFrame::ListRemainder { .. }) {
-                    stdin_read_item(before)
-                } else {
-                    before
-                };
-                let content = match clause.after() {
-                    // A single-body clause (KF-011) carries its rewrites
-                    // inside `before`; k-rust lifts them as K does.
-                    CellPost::Preserve | CellPost::Local => before,
-                    CellPost::Replace { term } => NativeTerm::Rewrite {
-                        left: Box::new(before),
-                        right: Box::new(self.term(
-                            term,
-                            module,
-                            sentence_index,
-                            vec![index, 1],
-                            TermContext::Normal,
-                        )?),
-                    },
-                };
-                if clause.kind() == krs_ir::CellClauseKind::Whole {
-                    // A whole group cell sits in `#cells` as a term of its
-                    // generated `<Name>Cell` sort, without brackets (KF-016).
-                    return Ok(content);
+                ConfigurationClause::Optional(clause) => {
+                    cells.push(self.optional_clause(clause, module, sentence_index, index)?);
                 }
-                self.framed_cell(clause.cell(), content, clause.frame(), clause.origin())
-            })
-            .collect::<Result<Vec<_>, AdapterError>>()?;
+                ConfigurationClause::Instances(clause) => {
+                    cells.extend(self.instances_clause(clause, module, sentence_index, index)?);
+                }
+            }
+        }
         if sentence.claim().is_some() {
             cells.push(native_claim_counter(sentence_index));
         }
         Ok(native_cells(cells))
+    }
+
+    /// One exactly-once clause (also a kept instance's child): the cell with
+    /// its content, rewritten in place when replaced. `path` places its
+    /// pattern; its replacement is at `path ++ [1]`.
+    fn fixed_clause(
+        &mut self,
+        clause: &krs_ir::FixedCellClause<SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+        index: u32,
+        path: Vec<u32>,
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_sentence_origin(
+            clause.origin(),
+            module,
+            sentence_index,
+            if path.len() == 1 {
+                SentenceNodeRole::ConfigurationRuleCell(index)
+            } else {
+                SentenceNodeRole::Term([path.clone(), vec![u32::MAX]].concat())
+            },
+        );
+        self.map_frame_origin(clause.frame(), module, sentence_index, index, &path);
+        let before = self.term(
+            clause.before(),
+            module,
+            sentence_index,
+            path.clone(),
+            TermContext::Normal,
+        )?;
+        let before = if matches!(clause.frame(), CellContentFrame::ListRemainder { .. }) {
+            stdin_read_item(before)
+        } else {
+            before
+        };
+        let content = match clause.after() {
+            // A single-body clause (KF-011) carries its rewrites
+            // inside `before`; k-rust lifts them as K does.
+            CellPost::Preserve | CellPost::Local => before,
+            CellPost::Replace { term } => NativeTerm::Rewrite {
+                left: Box::new(before),
+                right: Box::new(self.term(
+                    term,
+                    module,
+                    sentence_index,
+                    [path, vec![1]].concat(),
+                    TermContext::Normal,
+                )?),
+            },
+        };
+        if clause.kind() == krs_ir::CellClauseKind::Whole {
+            // A whole group cell sits in `#cells` as a term of its
+            // generated `<Name>Cell` sort, without brackets (KF-016).
+            return Ok(content);
+        }
+        self.framed_cell(clause.cell(), content, clause.frame(), clause.origin())
+    }
+
+    fn map_frame_origin(
+        &mut self,
+        frame: &CellContentFrame,
+        module: &str,
+        sentence_index: usize,
+        index: u32,
+        path: &[u32],
+    ) {
+        if let CellContentFrame::KSequenceTail { origin, .. }
+        | CellContentFrame::MapRemainder { origin, .. }
+        | CellContentFrame::ListRemainder { origin } = frame
+        {
+            self.map_sentence_origin(
+                origin,
+                module,
+                sentence_index,
+                if path.len() == 1 {
+                    SentenceNodeRole::ConfigurationRuleFrame(index)
+                } else {
+                    SentenceNodeRole::Term([path, &[u32::MAX - 1]].concat())
+                },
+            );
+        }
+    }
+
+    /// One side of a cell: the framed cell with `content`, or a whole group.
+    fn cell_image(
+        &mut self,
+        cell: &SymbolId,
+        kind: krs_ir::CellClauseKind,
+        content: NativeTerm,
+        frame: &CellContentFrame,
+        origin: &NodeOrigin,
+    ) -> Result<NativeTerm, AdapterError> {
+        if kind == krs_ir::CellClauseKind::Whole {
+            return Ok(content);
+        }
+        self.framed_cell(cell, content, frame, origin)
+    }
+
+    /// An optional (`?`) cell (KF-023): read or updated in place, created as
+    /// `Rewrite(#cells(), cell)`, deleted as `Rewrite(cell, #cells())`.
+    fn optional_clause(
+        &mut self,
+        clause: &krs_ir::OptionalCellClause<SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+        index: u32,
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_sentence_origin(
+            clause.origin(),
+            module,
+            sentence_index,
+            SentenceNodeRole::ConfigurationRuleCell(index),
+        );
+        self.map_frame_origin(clause.frame(), module, sentence_index, index, &[index]);
+        let term = |adapter: &mut Self, term: &DefinitionTerm, path: Vec<u32>| {
+            adapter.term(term, module, sentence_index, path, TermContext::Normal)
+        };
+        Ok(match (clause.before(), clause.after()) {
+            (krs_ir::Presence::Present { term: before }, after) => {
+                let before = term(self, before, vec![index])?;
+                match after {
+                    None => self.cell_image(
+                        clause.cell(),
+                        clause.kind(),
+                        before,
+                        clause.frame(),
+                        clause.origin(),
+                    )?,
+                    Some(krs_ir::Presence::Present { term: after }) => {
+                        let after = term(self, after, vec![index, 1])?;
+                        self.cell_image(
+                            clause.cell(),
+                            clause.kind(),
+                            NativeTerm::Rewrite {
+                                left: Box::new(before),
+                                right: Box::new(after),
+                            },
+                            clause.frame(),
+                            clause.origin(),
+                        )?
+                    }
+                    Some(krs_ir::Presence::Absent) => NativeTerm::Rewrite {
+                        left: Box::new(self.cell_image(
+                            clause.cell(),
+                            clause.kind(),
+                            before,
+                            clause.frame(),
+                            clause.origin(),
+                        )?),
+                        right: Box::new(native_cells(Vec::new())),
+                    },
+                }
+            }
+            (krs_ir::Presence::Absent, Some(krs_ir::Presence::Present { term: after })) => {
+                let after = term(self, after, vec![index, 1])?;
+                NativeTerm::Rewrite {
+                    left: Box::new(native_cells(Vec::new())),
+                    right: Box::new(self.cell_image(
+                        clause.cell(),
+                        clause.kind(),
+                        after,
+                        &CellContentFrame::Exact,
+                        clause.origin(),
+                    )?),
+                }
+            }
+            (krs_ir::Presence::Absent, _) => {
+                return Err(AdapterError::MissingReference {
+                    key: clause.origin().key().clone(),
+                    kind: "created optional cell",
+                    target: clause.cell().as_str().to_owned(),
+                });
+            }
+        })
+    }
+
+    /// A collection (`*`) clause (KF-023): each matched instance in place,
+    /// a removed one as `Rewrite(cell, #cells())`, a new one as
+    /// `Rewrite(#cells(), cell)` with `open_right` so k-rust fills the
+    /// template defaults. An open Set or Map clause leaves the parent cell
+    /// to k-rust; an exact or List clause is written inside its parent. A
+    /// List clause's back instances rewrite the tail after the other
+    /// instances, named by a variable of the collection sort, since k-rust
+    /// (like Java K) closes a parent cell on the right.
+    fn instances_clause(
+        &mut self,
+        clause: &krs_ir::InstancesClause<SymbolId, DefinitionTerm>,
+        module: &str,
+        sentence_index: usize,
+        index: u32,
+    ) -> Result<Vec<NativeTerm>, AdapterError> {
+        self.map_sentence_origin(
+            clause.origin(),
+            module,
+            sentence_index,
+            SentenceNodeRole::ConfigurationRuleCell(index),
+        );
+        let mut front = Vec::new();
+        for (position, instance) in clause.front().iter().enumerate() {
+            let position = u32::try_from(position).unwrap_or(u32::MAX);
+            front.push(self.instance(
+                instance,
+                clause.cell(),
+                module,
+                sentence_index,
+                index,
+                position,
+            )?);
+        }
+        let list = clause.ordering() == krs_ir::InstanceOrdering::List;
+        if !list && clause.is_open() {
+            return Ok(front);
+        }
+        let mut items = front;
+        if !clause.back().is_empty() {
+            let name = self.cell_name(clause.cell(), clause.origin())?.to_owned();
+            let collection = format!("{}List", cell_sort_name(&name));
+            let rest = NativeTerm::Variable {
+                name: generated_variable_name(&format!("instances{sentence_index}x{index}")),
+                sort: Some(NativeSort::new(collection.clone())),
+            };
+            let concat = format!("_{collection}_");
+            let offset = u32::try_from(clause.front().len()).unwrap_or(u32::MAX);
+            let (mut left, mut right) = (rest.clone(), rest);
+            for (position, instance) in clause.back().iter().enumerate() {
+                let position = offset.saturating_add(u32::try_from(position).unwrap_or(u32::MAX));
+                let image = self.instance(
+                    instance,
+                    clause.cell(),
+                    module,
+                    sentence_index,
+                    index,
+                    position,
+                )?;
+                let NativeTerm::Rewrite {
+                    left: removed,
+                    right: created,
+                } = image
+                else {
+                    return Err(AdapterError::MissingReference {
+                        key: instance.origin().key().clone(),
+                        kind: "back instance of a List collection (created or removed)",
+                        target: clause.cell().as_str().to_owned(),
+                    });
+                };
+                if !is_empty_cells(&removed) {
+                    left = NativeTerm::apply(concat.clone(), vec![left, *removed]);
+                }
+                if !is_empty_cells(&created) {
+                    right = NativeTerm::apply(concat.clone(), vec![right, *created]);
+                }
+            }
+            items.push(NativeTerm::Rewrite {
+                left: Box::new(left),
+                right: Box::new(right),
+            });
+        }
+        let parent = self
+            .index
+            .cell_parent(clause.cell())
+            .cloned()
+            .ok_or_else(|| AdapterError::MissingReference {
+                key: clause.origin().key().clone(),
+                kind: "collection parent cell",
+                target: clause.cell().as_str().to_owned(),
+            })?;
+        let parent_name = self.cell_name(&parent, clause.origin())?.to_owned();
+        let open_right = clause.is_open() && clause.back().is_empty();
+        Ok(vec![incomplete_cell(
+            &parent_name,
+            native_cells(items),
+            open_right,
+        )])
+    }
+
+    /// One instance of a collection clause.
+    fn instance(
+        &mut self,
+        instance: &krs_ir::InstanceClause<SymbolId, DefinitionTerm>,
+        cell: &SymbolId,
+        module: &str,
+        sentence_index: usize,
+        index: u32,
+        position: u32,
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_sentence_origin(
+            instance.origin(),
+            module,
+            sentence_index,
+            SentenceNodeRole::Term(vec![index, 2, position]),
+        );
+        let name = self.cell_name(cell, instance.origin())?.to_owned();
+        match instance {
+            krs_ir::InstanceClause::Kept { children, open, .. } => {
+                let mut cells = Vec::new();
+                for (child_position, child) in children.iter().enumerate() {
+                    let child_position = u32::try_from(child_position).unwrap_or(u32::MAX);
+                    cells.push(self.fixed_clause(
+                        child,
+                        module,
+                        sentence_index,
+                        index,
+                        vec![index, 3, position, child_position],
+                    )?);
+                }
+                Ok(incomplete_cell(&name, native_cells(cells), *open))
+            }
+            krs_ir::InstanceClause::Removed { children, open, .. }
+            | krs_ir::InstanceClause::Created {
+                children,
+                defaults: open,
+                ..
+            } => {
+                let created = matches!(instance, krs_ir::InstanceClause::Created { .. });
+                let mut cells = Vec::new();
+                for (child_position, child) in children.iter().enumerate() {
+                    let child_position = u32::try_from(child_position).unwrap_or(u32::MAX);
+                    let path = vec![index, 3, position, child_position];
+                    self.map_sentence_origin(
+                        child.origin(),
+                        module,
+                        sentence_index,
+                        SentenceNodeRole::Term([path.clone(), vec![u32::MAX]].concat()),
+                    );
+                    self.map_frame_origin(child.frame(), module, sentence_index, index, &path);
+                    let content = self.term(
+                        child.term(),
+                        module,
+                        sentence_index,
+                        path,
+                        TermContext::Normal,
+                    )?;
+                    cells.push(self.cell_image(
+                        child.cell(),
+                        child.kind(),
+                        content,
+                        child.frame(),
+                        child.origin(),
+                    )?);
+                }
+                let image = incomplete_cell(&name, native_cells(cells), *open);
+                Ok(if created {
+                    NativeTerm::Rewrite {
+                        left: Box::new(native_cells(Vec::new())),
+                        right: Box::new(image),
+                    }
+                } else {
+                    NativeTerm::Rewrite {
+                        left: Box::new(image),
+                        right: Box::new(native_cells(Vec::new())),
+                    }
+                })
+            }
+        }
     }
 
     fn configuration_pattern(
@@ -1317,6 +1638,10 @@ fn native_config_cell(name: &str, properties: NativeTerm, contents: NativeTerm) 
     )
 }
 
+fn is_empty_cells(term: &NativeTerm) -> bool {
+    matches!(term, NativeTerm::Apply { label, arguments } if label.name == "#cells" && arguments.is_empty())
+}
+
 fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
     match cells.len() {
         0 => NativeTerm::apply("#cells", Vec::new()),
@@ -1354,6 +1679,7 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
             CellAttribute::CollectionType { value, .. } => ("type", value.as_str()),
             CellAttribute::Stream { value, .. } => ("stream", value.as_str()),
             CellAttribute::Exit { .. } => ("exit", ""),
+            CellAttribute::Initial { .. } => ("initial", ""),
         })
         .collect::<Vec<_>>();
     if main {

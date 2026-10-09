@@ -1498,7 +1498,7 @@ mod tests {
         };
         let krs_ir::CellPost::Replace {
             term: eval_add_result,
-        } = eval_add_body.clauses()[0].after()
+        } = eval_add_body.clauses()[0].as_fixed().unwrap().after()
         else {
             panic!("eval_add must replace its computation-cell head")
         };
@@ -2905,7 +2905,7 @@ mod tests {
         assert_eq!(readable.configuration(), explicit.configuration());
         assert_eq!(readable.omitted_siblings(), explicit.omitted_siblings());
         assert_eq!(readable.clauses().len(), explicit.clauses().len());
-        for (readable, explicit) in readable.clauses().iter().zip(explicit.clauses()) {
+        for (readable, explicit) in readable.fixed_clauses().zip(explicit.fixed_clauses()) {
             assert_eq!(readable.cell(), explicit.cell());
             assert_semantic_term_equivalent(readable.before(), explicit.before());
             match (readable.after(), explicit.after()) {

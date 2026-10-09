@@ -3,10 +3,9 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DisplayPath,
-    FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent,
-    LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, SourceRange,
-    StableItemId,
+    ByteRange, CellAttribute, CellContentFrame, ConfigurationRoot, DisplayPath, FixedCell,
+    FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent, LineIndex,
+    ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, SourceRange, StableItemId,
 };
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
@@ -881,7 +880,8 @@ fn insert_fixed_configuration(
                     | CellAttribute::Multiplicity { origin, .. }
                     | CellAttribute::CollectionType { origin, .. }
                     | CellAttribute::Stream { origin, .. }
-                    | CellAttribute::Exit { origin } => {
+                    | CellAttribute::Exit { origin }
+                    | CellAttribute::Initial { origin } => {
                         insert_origin(entries, origin, SourceMapNodeKind::CellAttribute)?;
                     }
                 }
@@ -991,16 +991,47 @@ fn insert_rule_body(
             )?;
             for clause in body.clauses() {
                 insert_origin(entries, clause.origin(), SourceMapNodeKind::CellClause)?;
-                insert_term(entries, clause.before())?;
-                if let CellPost::Replace { term } = clause.after() {
-                    insert_term(entries, term)?;
+                // A collection clause's instances and their children are
+                // nodes too (KF-023).
+                if let krs_ir::ConfigurationClause::Instances(instances) = clause {
+                    for instance in instances.instances() {
+                        insert_origin(entries, instance.origin(), SourceMapNodeKind::CellClause)?;
+                        match instance {
+                            krs_ir::InstanceClause::Kept { children, .. } => {
+                                for child in children {
+                                    insert_origin(
+                                        entries,
+                                        child.origin(),
+                                        SourceMapNodeKind::CellClause,
+                                    )?;
+                                }
+                            }
+                            krs_ir::InstanceClause::Removed { children, .. }
+                            | krs_ir::InstanceClause::Created { children, .. } => {
+                                for child in children {
+                                    insert_origin(
+                                        entries,
+                                        child.origin(),
+                                        SourceMapNodeKind::CellClause,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
                 }
-                match clause.frame() {
-                    CellContentFrame::Exact => {}
-                    CellContentFrame::KSequenceTail { origin, .. }
-                    | CellContentFrame::MapRemainder { origin, .. }
-                    | CellContentFrame::ListRemainder { origin } => {
-                        insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
+                for part in clause.parts() {
+                    for term in part.terms() {
+                        insert_term(entries, term)?;
+                    }
+                    match part.frame() {
+                        None | Some(CellContentFrame::Exact) => {}
+                        Some(
+                            CellContentFrame::KSequenceTail { origin, .. }
+                            | CellContentFrame::MapRemainder { origin, .. }
+                            | CellContentFrame::ListRemainder { origin },
+                        ) => {
+                            insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
+                        }
                     }
                 }
             }

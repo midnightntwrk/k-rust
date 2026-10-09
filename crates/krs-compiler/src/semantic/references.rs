@@ -342,6 +342,13 @@ fn validate_rule_cells_references(
     for cell in &cells.cells {
         require_cell_field(&cell.field.cell, declarations)?;
         match &cell.value {
+            ProtocolRuleStateTerm::Present { .. }
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_) => {
+                for term in cell.value.terms() {
+                    validate_structured_term_references(term, declarations)?;
+                }
+            }
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
                 validate_structured_term_references(term, declarations)?;
             }

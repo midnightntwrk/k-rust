@@ -68,6 +68,7 @@ fn cell_field(
         cell_type: None,
         stream: None,
         exit: None,
+        initial: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
             wrapper,
@@ -1188,7 +1189,6 @@ fn repeated_cell_collection_spelling_is_closed_at_the_boundary() {
     use krs_ir::transport::configuration::DescriptorCellCollectionType;
 
     for (spelling, collection) in [
-        ("Bag", DescriptorCellCollectionType::Bag),
         ("List", DescriptorCellCollectionType::List),
         ("Map", DescriptorCellCollectionType::Map),
         ("Set", DescriptorCellCollectionType::Set),
@@ -1205,7 +1205,7 @@ fn repeated_cell_collection_spelling_is_closed_at_the_boundary() {
         );
     }
 
-    for spelling in ["", "bag", "sample", "Other"] {
+    for spelling in ["", "Bag", "bag", "sample", "Other"] {
         let expected =
             StateTransportError::InvalidTerm(StateTermReason::UnsupportedRepeatedCellCollection);
         assert_eq!(

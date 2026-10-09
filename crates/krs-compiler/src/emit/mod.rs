@@ -460,6 +460,12 @@ impl<'a> EmitContext<'a> {
         self.repeated_ancestors.get(id)
     }
 
+    /// The parent of a nested cell (KF-023: an exact or List collection
+    /// entry is written inside its parent cell).
+    fn parent_cell(&self, id: &SymbolId) -> Option<&SymbolId> {
+        self.index.cell_parent(id)
+    }
+
     fn context_alias_name(&self, id: &krs_ir::StableItemId) -> Result<&str, EmitError> {
         self.index
             .context_alias_name(id)
@@ -471,17 +477,24 @@ impl<'a> EmitContext<'a> {
     }
 }
 
+/// Every leaf below a collection (`*`) cell, mapped to its nearest
+/// collection: a rule that names such a leaf matches the collection's
+/// implicit single instance.
 fn collect_repeated_ancestors(
     cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     repeated_ancestors: &mut BTreeMap<SymbolId, SymbolId>,
     repeated_ancestor: Option<&SymbolId>,
 ) {
     for cell in cells {
-        let repeated_ancestor = if cell
-            .attributes()
-            .iter()
-            .any(|attribute| matches!(attribute, CellAttribute::Multiplicity { .. }))
-        {
+        let repeated_ancestor = if cell.attributes().iter().any(|attribute| {
+            matches!(
+                attribute,
+                CellAttribute::Multiplicity {
+                    value: krs_ir::CellMultiplicity::Star,
+                    ..
+                }
+            )
+        }) {
             Some(cell.id())
         } else {
             repeated_ancestor

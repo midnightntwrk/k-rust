@@ -307,7 +307,7 @@ impl<
             Self::new(
                 sample::<NodeOrigin>(),
                 sample::<SemanticId>(),
-                sample::<Vec<FixedCellClause<C, T>>>(),
+                sample::<Vec<ConfigurationClause<C, T>>>(),
                 vec![C::other()],
             )
             .unwrap(),

@@ -784,6 +784,9 @@ fn function_context(
             krs_syntax::StateRuleBindingKind::ConfigurationFrame => {
                 unreachable!("the parser rejects a bound configuration remainder")
             }
+            krs_syntax::StateRuleBindingKind::InstancesFrame => {
+                return Err(collection_placement(binding.name().span()));
+            }
         };
         context_bindings.push(krs_ir::ProtocolRuleBinding {
             name: binding.name().to_string(),
@@ -1080,6 +1083,15 @@ fn orphan_result_helper(
 /// `#[k::fresh]` on a sentence other than a transition step: an equation,
 /// simplification, alias, claim, context, context alias, anywhere rule (KF-022), or
 /// heat or cool rule (KF-014).
+/// An optional or collection entry outside a configuration rule or claim.
+pub(super) fn collection_placement(span: Span) -> ExpandError {
+    ExpandError::new(
+        expand::CELL_COLLECTION_PLACEMENT,
+        span,
+        "an equation's function context and a context alias read fixed cells only; optional `Some`/`None` and collection entries belong in rules and claims",
+    )
+}
+
 pub(super) fn misplaced_fresh(span: Span) -> ExpandError {
     ExpandError::new(
         expand::FRESH_PLACEMENT,

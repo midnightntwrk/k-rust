@@ -5,14 +5,16 @@ use crate::ir_level::{
     IrSimplification, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
 };
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellContentFrame, CellPost,
-    CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, FixedCell,
-    FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
-    FixedInitializerCell, FixedInitializerContent, FormatFragment, GeneratedOperation,
-    GrammarProductionItem, GrammarProductionItemKind, HookOperation, HookPointSortSource,
-    HookSignature, HookSortConstraint, ListOperation, MapOperation, OperationSort,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellCollectionType,
+    CellContentFrame, CellMultiplicity, CellPost, ClausePart, CollectionOperandSort,
+    CollectionOperationSpec, CollectionResultSort, ConfigurationClause, FixedCell, FixedCellClause,
+    FixedCellContent, FixedConfiguration, FixedConfigurationRewrite, FixedInitializerCell,
+    FixedInitializerContent, FormatFragment, GeneratedOperation, GrammarProductionItem,
+    GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
+    HookSortConstraint, InstanceClause, InstanceOrdering, InstancesClause, ListOperation,
+    MapOperation, OperationSort, OptionalCellClause, PartPost, PrecedenceRelation, Presence,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -443,87 +445,98 @@ fn configuration_groups<L: Validation>(configuration: &Configuration<L>) -> Grou
     output
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
-)]
-pub(crate) fn validate_configuration_rewrite<L: Validation>(
-    rewrite: &FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
-    configuration: &FixedConfiguration<L::Sort, L::Cell, IrTerm<L>>,
-    scope: &BTreeMap<SemanticId, L::Sort>,
-    declarations: &Declarations<L>,
-    signatures: &Signatures<L>,
-    sort_parents: &SortParents<L>,
-    cell_ids: &BTreeSet<L::Cell>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), L::Error> {
-    let leaf_sorts = configuration_leaf_sorts::<L>(configuration)?;
-    let groups = configuration_groups::<L>(configuration);
-    let omitted = rewrite
-        .omitted_siblings()
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    // Each clause covers its leaf, or every leaf below its whole group cell
-    // (KF-016); covered and omitted leaves partition the configuration.
-    let mut covered = BTreeSet::new();
-    let mut disjoint = omitted.len() == rewrite.omitted_siblings().len();
-    for clause in rewrite.clauses() {
-        let leaves = match clause.kind() {
-            CellClauseKind::Content => leaf_sorts
-                .contains_key(clause.cell())
-                .then(|| vec![clause.cell().clone()]),
-            CellClauseKind::Whole => groups
-                .get(clause.cell())
+/// Every cell of the configuration by identity.
+fn configuration_cell_index<L: Validation>(
+    configuration: &Configuration<L>,
+) -> BTreeMap<L::Cell, &FixedCell<L::Sort, L::Cell>> {
+    fn index<'a, L: Validation>(
+        cells: &'a [FixedCell<L::Sort, L::Cell>],
+        output: &mut BTreeMap<L::Cell, &'a FixedCell<L::Sort, L::Cell>>,
+    ) {
+        for cell in cells {
+            output.insert(cell.id().clone(), cell);
+            if let FixedCellContent::Children { children } = cell.content() {
+                index::<L>(children, output);
+            }
+        }
+    }
+    let mut output = BTreeMap::new();
+    index::<L>(configuration.cells(), &mut output);
+    output
+}
+
+/// The context one configuration-rewrite clause is checked in.
+struct RewriteContext<'a, L: Validation> {
+    leaf_sorts: BTreeMap<L::Cell, L::Sort>,
+    groups: GroupCells<L>,
+    cells: BTreeMap<L::Cell, &'a FixedCell<L::Sort, L::Cell>>,
+    scope: &'a BTreeMap<SemanticId, L::Sort>,
+    declarations: &'a Declarations<L>,
+    signatures: &'a Signatures<L>,
+    sort_parents: &'a SortParents<L>,
+    cell_ids: &'a BTreeSet<L::Cell>,
+}
+
+impl<L: Validation> RewriteContext<'_, L> {
+    /// The leaves a clause over `cell` of `kind` covers.
+    fn covered(&self, cell: &L::Cell, kind: CellClauseKind) -> Result<Vec<L::Cell>, L::Error> {
+        match kind {
+            CellClauseKind::Content => self
+                .leaf_sorts
+                .contains_key(cell)
+                .then(|| vec![cell.clone()]),
+            CellClauseKind::Whole => self
+                .groups
+                .get(cell)
                 .map(|(_, leaves)| leaves.iter().cloned().collect()),
         }
-        .ok_or(L::error(ValidationError::InvalidCellFraming))?;
-        for leaf in leaves {
-            disjoint &= !omitted.contains(&leaf) && covered.insert(leaf);
-        }
+        .ok_or(L::error(ValidationError::InvalidCellFraming))
     }
-    if !disjoint
-        || covered.union(&omitted).cloned().collect::<BTreeSet<_>>()
-            != leaf_sorts.keys().cloned().collect()
-    {
-        return Err(L::error(ValidationError::InvalidCellFraming));
-    }
-    insert_node::<L>(nodes, rewrite.origin().key())?;
-    for clause in rewrite.clauses() {
-        let sort = match clause.kind() {
-            CellClauseKind::Content => leaf_sorts.get(clause.cell()),
-            CellClauseKind::Whole => groups
-                .get(clause.cell())
-                .and_then(|(sort, _)| sort.as_ref())
-                .filter(|_| clause.frame() == &CellContentFrame::Exact),
+
+    /// The sort of a clause's terms over `cell` of `kind`.
+    fn sort(&self, cell: &L::Cell, kind: CellClauseKind) -> Result<&L::Sort, L::Error> {
+        match kind {
+            CellClauseKind::Content => self.leaf_sorts.get(cell),
+            CellClauseKind::Whole => self.groups.get(cell).and_then(|(sort, _)| sort.as_ref()),
         }
-        .ok_or(L::error(ValidationError::InvalidCellFraming))?;
-        insert_node::<L>(nodes, clause.origin().key())?;
+        .ok_or(L::error(ValidationError::InvalidCellFraming))
+    }
+
+    fn term(
+        &self,
+        term: &IrTerm<L>,
+        sort: &L::Sort,
+        nodes: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), L::Error> {
         validate_term::<L>(
-            clause.before(),
-            scope,
-            declarations,
-            signatures,
-            sort_parents,
-            cell_ids,
+            term,
+            self.scope,
+            self.declarations,
+            self.signatures,
+            self.sort_parents,
+            self.cell_ids,
             nodes,
         )?;
-        if clause.before().sort() != sort {
+        if term.sort() != sort {
             return Err(L::error(ValidationError::CellFrameSortMismatch));
         }
+        Ok(())
+    }
+
+    /// Checks one exactly-once clause (also a kept instance's child).
+    fn fixed(
+        &self,
+        clause: &FixedCellClause<L::Cell, IrTerm<L>>,
+        nodes: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), L::Error> {
+        let sort = self.sort(clause.cell(), clause.kind())?;
+        if clause.kind() == CellClauseKind::Whole && clause.frame() != &CellContentFrame::Exact {
+            return Err(L::error(ValidationError::InvalidCellFraming));
+        }
+        insert_node::<L>(nodes, clause.origin().key())?;
+        self.term(clause.before(), sort, nodes)?;
         if let CellPost::Replace { term } = clause.after() {
-            validate_term::<L>(
-                term,
-                scope,
-                declarations,
-                signatures,
-                sort_parents,
-                cell_ids,
-                nodes,
-            )?;
-            if term.sort() != sort {
-                return Err(L::error(ValidationError::CellFrameSortMismatch));
-            }
+            self.term(term, sort, nodes)?;
         }
         // A single-body clause (KF-011) rewrites below its root; every other
         // clause states its pre-pattern and post-state without local rewrites.
@@ -541,7 +554,183 @@ pub(crate) fn validate_configuration_rewrite<L: Validation>(
         if !local_rewrites_hold {
             return Err(L::error(ValidationError::InvalidLocalRewrite));
         }
-        validate_cell_frame::<L>(clause, sort, scope, nodes)?;
+        validate_cell_frame::<L>(clause.frame(), sort, self.scope, nodes)
+    }
+
+    /// Checks an optional (`?`) cell's clause (KF-023): the cell is optional,
+    /// a present state has the cell's sort, and the clause reads, updates,
+    /// creates an absent cell, or deletes a present one.
+    fn optional(
+        &self,
+        clause: &OptionalCellClause<L::Cell, IrTerm<L>>,
+        nodes: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), L::Error> {
+        let cell = self
+            .cells
+            .get(clause.cell())
+            .ok_or(L::error(ValidationError::InvalidCellFraming))?;
+        let leaf = matches!(cell.content(), FixedCellContent::Term { .. });
+        if cell.multiplicity() != Some(CellMultiplicity::Optional)
+            || leaf != (clause.kind() == CellClauseKind::Content)
+        {
+            return Err(L::error(ValidationError::InvalidCellFraming));
+        }
+        let sort = self.sort(clause.cell(), clause.kind())?;
+        insert_node::<L>(nodes, clause.origin().key())?;
+        match (clause.before(), clause.after()) {
+            (Presence::Present { term }, after) => {
+                self.term(term, sort, nodes)?;
+                if term.contains_rewrite() {
+                    return Err(L::error(ValidationError::InvalidLocalRewrite));
+                }
+                if let Some(Presence::Present { term }) = after {
+                    self.term(term, sort, nodes)?;
+                    if term.contains_rewrite() {
+                        return Err(L::error(ValidationError::InvalidLocalRewrite));
+                    }
+                }
+                validate_cell_frame::<L>(clause.frame(), sort, self.scope, nodes)
+            }
+            (Presence::Absent, Some(Presence::Present { term })) => {
+                if clause.frame() != &CellContentFrame::Exact {
+                    return Err(L::error(ValidationError::InvalidCellFraming));
+                }
+                self.term(term, sort, nodes)
+            }
+            (Presence::Absent, None | Some(Presence::Absent)) => {
+                Err(L::error(ValidationError::InvalidCellFraming))
+            }
+        }
+    }
+
+    /// Checks a collection (`*`) cell's clause (KF-023): the cell is a
+    /// collection, each instance's children are its direct children named
+    /// once, and only a List collection has back instances.
+    fn instances(
+        &self,
+        clause: &InstancesClause<L::Cell, IrTerm<L>>,
+        nodes: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), L::Error> {
+        let invalid = || L::error(ValidationError::InvalidCellFraming);
+        let cell = self.cells.get(clause.cell()).ok_or_else(invalid)?;
+        let FixedCellContent::Children { children } = cell.content() else {
+            return Err(invalid());
+        };
+        let list = cell.collection_type() == Some(CellCollectionType::List);
+        if cell.multiplicity() != Some(CellMultiplicity::Star)
+            || list != (clause.ordering() == InstanceOrdering::List)
+            || (!list && !clause.back().is_empty())
+        {
+            return Err(invalid());
+        }
+        let child_ids = children
+            .iter()
+            .map(|child| child.id().clone())
+            .collect::<BTreeSet<_>>();
+        insert_node::<L>(nodes, clause.origin().key())?;
+        for instance in clause.instances() {
+            insert_node::<L>(nodes, instance.origin().key())?;
+            let mut named = BTreeSet::new();
+            let mut name = |cell: &L::Cell| {
+                if child_ids.contains(cell) && named.insert(cell.clone()) {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            };
+            match instance {
+                InstanceClause::Kept { children, .. } => {
+                    for child in children {
+                        name(child.cell())?;
+                        if matches!(child.after(), CellPost::Local) {
+                            return Err(L::error(ValidationError::InvalidLocalRewrite));
+                        }
+                        self.fixed(child, nodes)?;
+                    }
+                }
+                InstanceClause::Removed { children, .. }
+                | InstanceClause::Created { children, .. } => {
+                    let created = matches!(instance, InstanceClause::Created { .. });
+                    for child in children {
+                        name(child.cell())?;
+                        let sort = self.sort(child.cell(), child.kind())?;
+                        insert_node::<L>(nodes, child.origin().key())?;
+                        self.term(child.term(), sort, nodes)?;
+                        if child.term().contains_rewrite()
+                            || (created && child.frame() != &CellContentFrame::Exact)
+                        {
+                            return Err(invalid());
+                        }
+                        validate_cell_frame::<L>(child.frame(), sort, self.scope, nodes)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
+)]
+pub(crate) fn validate_configuration_rewrite<L: Validation>(
+    rewrite: &FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
+    configuration: &FixedConfiguration<L::Sort, L::Cell, IrTerm<L>>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let context = RewriteContext::<L> {
+        leaf_sorts: configuration_leaf_sorts::<L>(configuration)?,
+        groups: configuration_groups::<L>(configuration),
+        cells: configuration_cell_index::<L>(configuration),
+        scope,
+        declarations,
+        signatures,
+        sort_parents,
+        cell_ids,
+    };
+    let omitted = rewrite
+        .omitted_siblings()
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    // Each clause covers its leaf, or every leaf below its whole group cell
+    // (KF-016), optional group, or collection (KF-023); covered and omitted
+    // leaves partition the configuration.
+    let mut covered = BTreeSet::new();
+    let mut disjoint = omitted.len() == rewrite.omitted_siblings().len();
+    for clause in rewrite.clauses() {
+        let leaves = match clause {
+            ConfigurationClause::Fixed(clause) => context.covered(clause.cell(), clause.kind())?,
+            ConfigurationClause::Optional(clause) => {
+                context.covered(clause.cell(), clause.kind())?
+            }
+            ConfigurationClause::Instances(clause) => {
+                context.covered(clause.cell(), CellClauseKind::Whole)?
+            }
+        };
+        for leaf in leaves {
+            disjoint &= !omitted.contains(&leaf) && covered.insert(leaf);
+        }
+    }
+    if !disjoint
+        || covered.union(&omitted).cloned().collect::<BTreeSet<_>>()
+            != context.leaf_sorts.keys().cloned().collect()
+    {
+        return Err(L::error(ValidationError::InvalidCellFraming));
+    }
+    insert_node::<L>(nodes, rewrite.origin().key())?;
+    for clause in rewrite.clauses() {
+        match clause {
+            ConfigurationClause::Fixed(clause) => context.fixed(clause, nodes)?,
+            ConfigurationClause::Optional(clause) => context.optional(clause, nodes)?,
+            ConfigurationClause::Instances(clause) => context.instances(clause, nodes)?,
+        }
     }
     Ok(())
 }
@@ -637,12 +826,12 @@ pub(crate) fn validate_context_alias_frames<L: Validation>(
 }
 
 pub(crate) fn validate_cell_frame<L: Validation>(
-    clause: &FixedCellClause<L::Cell, IrTerm<L>>,
+    frame: &CellContentFrame,
     sort: &L::Sort,
     scope: &BTreeMap<SemanticId, L::Sort>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
-    let (origin, binding, required_sort) = match clause.frame() {
+    let (origin, binding, required_sort) = match frame {
         CellContentFrame::Exact => return Ok(()),
         CellContentFrame::KSequenceTail { origin, binding } => (
             origin,
@@ -948,19 +1137,22 @@ pub(crate) fn validate_rule<L: Validation>(
             collect_predicate_variables::<L>(body.rhs(), &mut used);
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                collect_term_variables::<L>(clause.before(), &mut used);
-                if let CellPost::Replace { term } = clause.after() {
+            for part in body.parts() {
+                for term in part.terms() {
                     collect_term_variables::<L>(term, &mut used);
                 }
-                match clause.frame() {
-                    CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
-                    CellContentFrame::KSequenceTail { binding, .. }
-                    | CellContentFrame::MapRemainder { binding, .. } => {
-                        if let Some(binding) = binding {
-                            used.insert(binding.clone());
-                        }
+                if let Some(
+                    CellContentFrame::KSequenceTail {
+                        binding: Some(binding),
+                        ..
                     }
+                    | CellContentFrame::MapRemainder {
+                        binding: Some(binding),
+                        ..
+                    },
+                ) = part.frame()
+                {
+                    used.insert(binding.clone());
                 }
             }
         }
@@ -1204,8 +1396,8 @@ fn validate_evaluation_step<L: Validation>(
     match rule.body {
         RuleBodyRef::Term(body) => collect_term_variables::<L>(body.from(), &mut left),
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                collect_term_variables::<L>(clause.before(), &mut left);
+            for term in body.parts().iter().filter_map(ClausePart::pre_term) {
+                collect_term_variables::<L>(term, &mut left);
             }
         }
         // A predicate simplification (KF-039) is never a transition.
@@ -1276,19 +1468,25 @@ pub(crate) fn validate_existentials<L: Validation>(
             collect_predicate_variables::<L>(body.rhs(), &mut right_uses);
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                collect_term_variables::<L>(clause.before(), &mut left_uses);
-                if let CellPost::Replace { term } = clause.after() {
+            for part in body.parts() {
+                if let Some(term) = part.pre_term() {
+                    collect_term_variables::<L>(term, &mut left_uses);
+                }
+                if let Some(term) = part.post_term() {
                     collect_term_variables::<L>(term, &mut right_uses);
                 }
-                match clause.frame() {
-                    CellContentFrame::Exact | CellContentFrame::ListRemainder { .. } => {}
-                    CellContentFrame::KSequenceTail { binding, .. }
-                    | CellContentFrame::MapRemainder { binding, .. } => {
-                        if let Some(binding) = binding {
-                            left_uses.insert(binding.clone());
-                        }
+                if let Some(
+                    CellContentFrame::KSequenceTail {
+                        binding: Some(binding),
+                        ..
                     }
+                    | CellContentFrame::MapRemainder {
+                        binding: Some(binding),
+                        ..
+                    },
+                ) = part.frame()
+                {
+                    left_uses.insert(binding.clone());
                 }
             }
         }
@@ -1437,9 +1635,8 @@ pub(crate) fn validate_rule_cell_references<L: Validation>(
             }
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                validate_term_cell_references::<L>(clause.before(), declarations, cell_ids)?;
-                if let CellPost::Replace { term } = clause.after() {
+            for part in body.parts() {
+                for term in part.terms() {
                     validate_term_cell_references::<L>(term, declarations, cell_ids)?;
                 }
             }
@@ -2377,6 +2574,10 @@ fn body_contains_rewrite<L: Validation>(body: RuleBodyRef<'_, L>) -> bool {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One walk visits every term position of every rule body shape, optional and collection clauses included."
+)]
 fn reject_pattern_as_outside_patterns<L: Validation>(
     rule: &RuleView<'_, L>,
 ) -> Result<(), L::Error> {
@@ -2394,16 +2595,29 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
             post.extend(body.rhs().terms());
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
-                match clause.after() {
-                    CellPost::Local => {
-                        images.push((clause.before().pre_pattern(), clause.before().post_term()));
+            for part in body.parts() {
+                match part {
+                    ClausePart::Matched {
+                        before,
+                        after: PartPost::Local,
+                        ..
+                    } => {
+                        images.push((before.pre_pattern(), before.post_term()));
                     }
-                    CellPost::Preserve => pre.push(clause.before()),
-                    CellPost::Replace { term } => {
-                        pre.push(clause.before());
+                    ClausePart::Matched {
+                        before,
+                        after: PartPost::Preserve | PartPost::Removed,
+                        ..
+                    } => pre.push(before),
+                    ClausePart::Matched {
+                        before,
+                        after: PartPost::Replace(term),
+                        ..
+                    } => {
+                        pre.push(before);
                         post.push(term);
                     }
+                    ClausePart::Written { term, .. } => post.push(term),
                 }
             }
         }
@@ -2460,15 +2674,17 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         collect_exists_binders(predicate, &mut binds, &mut outside);
     }
     if let RuleBodyRef::Configuration { body, .. } = rule.body {
-        for clause in body.clauses() {
-            if let CellContentFrame::KSequenceTail {
-                binding: Some(binding),
-                ..
-            }
-            | CellContentFrame::MapRemainder {
-                binding: Some(binding),
-                ..
-            } = clause.frame()
+        for part in body.parts() {
+            if let Some(
+                CellContentFrame::KSequenceTail {
+                    binding: Some(binding),
+                    ..
+                }
+                | CellContentFrame::MapRemainder {
+                    binding: Some(binding),
+                    ..
+                },
+            ) = part.frame()
             {
                 outside.insert(binding.clone());
             }

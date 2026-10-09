@@ -64,6 +64,7 @@ pub struct CellAttributePayload {
     nested: bool,
     stream: Option<LitStr>,
     exit: Option<Ident>,
+    initial: Option<Ident>,
 }
 
 impl CellAttributePayload {
@@ -109,7 +110,15 @@ impl CellAttributePayload {
         self.exit.as_ref()
     }
 
-    /// Returns exact value anchors in stable name, color, multiplicity, type, stream, exit order.
+    /// The bare `initial` flag: an optional or collection cell that starts
+    /// present, built from its template (KF-023).
+    #[must_use]
+    pub const fn initial(&self) -> Option<&Ident> {
+        self.initial.as_ref()
+    }
+
+    /// Returns exact value anchors in stable name, color, multiplicity, type, stream, exit,
+    /// initial order.
     ///
     /// # Errors
     ///
@@ -156,6 +165,13 @@ impl CellAttributePayload {
                 ProvenanceRole::ConfigurationCellExit,
                 0,
                 TokenRange::for_tokens(exit)?,
+            ));
+        }
+        if let Some(initial) = &self.initial {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConfigurationCellInitial,
+                0,
+                TokenRange::for_tokens(initial)?,
             ));
         }
         Ok(anchors)
@@ -273,27 +289,32 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
     let mut nested = false;
     let mut stream = None;
     let mut exit = None;
+    let mut initial = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
-        if key_name == "exit" {
-            if exit.is_some() {
+        if key_name == "exit" || key_name == "initial" {
+            let (slot, name, reason): (&mut Option<Ident>, &'static str, &'static str) =
+                if key_name == "exit" {
+                    (&mut exit, "exit", "exit takes no value")
+                } else {
+                    (&mut initial, "initial", "initial takes no value")
+                };
+            if slot.is_some() {
                 return Err(SyntaxError::new(
-                    SyntaxErrorKind::DuplicateArgument { name: "exit" },
+                    SyntaxErrorKind::DuplicateArgument { name },
                     key.span(),
                 )
                 .into());
             }
             if input.peek(Token![=]) {
                 return Err(SyntaxError::new(
-                    SyntaxErrorKind::InvalidCellAttribute {
-                        reason: "exit takes no value",
-                    },
+                    SyntaxErrorKind::InvalidCellAttribute { reason },
                     input.parse::<Token![=]>()?.span,
                 )
                 .into());
             }
-            exit = Some(key);
+            *slot = Some(key);
             if input.is_empty() {
                 break;
             }
@@ -356,39 +377,12 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
         }
         input.parse::<Token![,]>()?;
     }
-    if let Some(value) = &multiplicity
-        && value.value() != "*"
-    {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::InvalidCellAttribute {
-                reason: "KRS currently supports only repeated-cell multiplicity `*`",
-            },
-            value.span(),
-        )
-        .into());
-    }
-    if let Some(value) = &cell_type
-        && multiplicity.is_none()
-    {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::InvalidCellAttribute {
-                reason: "`cell_type` requires `multiplicity = \"*\"`",
-            },
-            value.span(),
-        )
-        .into());
-    }
-    if let Some(value) = &cell_type
-        && !matches!(value.value().as_str(), "Bag" | "List" | "Map" | "Set")
-    {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::InvalidCellAttribute {
-                reason: "repeated-cell `cell_type` must be Bag, List, Map, or Set",
-            },
-            value.span(),
-        )
-        .into());
-    }
+    validate_multiplicity(
+        multiplicity.as_ref(),
+        cell_type.as_ref(),
+        nested,
+        initial.as_ref(),
+    )?;
     if let Some(value) = &stream
         && !matches!(value.value().as_str(), "stdin" | "stdout")
     {
@@ -408,5 +402,79 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
         nested,
         stream,
         exit,
+        initial,
     })
+}
+
+/// The multiplicity keys (KF-023): `multiplicity` is `"?"` or `"*"`; a `*`
+/// collection names its `cell_type` (Set, Map, or List; K's cell bags are
+/// unsupported by its LLVM and Haskell backends) and is `nested`;
+/// `cell_type` belongs to a `*` cell and `initial` to a `?` or `*` cell.
+fn validate_multiplicity(
+    multiplicity: Option<&LitStr>,
+    cell_type: Option<&LitStr>,
+    nested: bool,
+    initial: Option<&Ident>,
+) -> Result<(), ParseError> {
+    let invalid = |reason: &'static str, span: proc_macro2::Span| -> ParseError {
+        SyntaxError::new(SyntaxErrorKind::InvalidCellAttribute { reason }, span).into()
+    };
+    let star = match multiplicity {
+        None => false,
+        Some(value) => match value.value().as_str() {
+            "*" => true,
+            "?" => false,
+            _ => {
+                return Err(invalid(
+                    "cell `multiplicity` is \"?\" (an optional cell) or \"*\" (a cell collection)",
+                    value.span(),
+                ));
+            }
+        },
+    };
+    if let Some(value) = cell_type {
+        if value.value() == "Bag" {
+            return Err(invalid(
+                "cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\"",
+                value.span(),
+            ));
+        }
+        if !matches!(value.value().as_str(), "List" | "Map" | "Set") {
+            return Err(invalid(
+                "a collection's `cell_type` is \"Set\", \"Map\", or \"List\"",
+                value.span(),
+            ));
+        }
+        if !star {
+            return Err(invalid(
+                "`cell_type` requires `multiplicity = \"*\"`",
+                value.span(),
+            ));
+        }
+    }
+    if let Some(value) = multiplicity
+        && star
+    {
+        if cell_type.is_none() {
+            return Err(invalid(
+                "a `multiplicity = \"*\"` collection needs `cell_type = \"Set\"`, `\"Map\"`, or `\"List\"`",
+                value.span(),
+            ));
+        }
+        if !nested {
+            return Err(invalid(
+                "a `multiplicity = \"*\"` collection holds whole cells: add `nested` and declare its instance as a `#[k::cell]` struct",
+                value.span(),
+            ));
+        }
+    }
+    if let Some(flag) = initial
+        && multiplicity.is_none()
+    {
+        return Err(invalid(
+            "`initial` belongs to an optional (`multiplicity = \"?\"`) or collection (`multiplicity = \"*\"`) cell",
+            flag.span(),
+        ));
+    }
+    Ok(())
 }

@@ -139,6 +139,7 @@ pub struct FixedCellInitializer {
     field: syn::FieldValue,
     name: Ident,
     content: InitializerCellContent,
+    optional: bool,
 }
 
 impl FixedCellInitializer {
@@ -158,6 +159,14 @@ impl FixedCellInitializer {
     #[must_use]
     pub const fn content(&self) -> &InitializerCellContent {
         &self.content
+    }
+
+    /// Whether the value was written `Some(template)`: the template of an
+    /// optional (`?`) cell (KF-023, R7). [`Self::field`] then holds the
+    /// template expression.
+    #[must_use]
+    pub const fn is_optional(&self) -> bool {
+        self.optional
     }
 
     /// Whether a readable plain expression caused its leaf constructor to be inferred.
@@ -768,6 +777,21 @@ fn parse_initializer_cell(
     field: syn::FieldValue,
     name: Ident,
 ) -> Result<FixedCellInitializer, SyntaxError> {
+    // An optional cell's value is `Some(template)`: K's declaration template
+    // (KF-023, R7). The cell starts absent unless it carries `initial`.
+    if let Some(template) = optional_template(&field.expr) {
+        let mut inner = field.clone();
+        inner.expr = template.clone();
+        let mut parsed = parse_initializer_cell(inner, name)?;
+        parsed.optional = true;
+        return Ok(parsed);
+    }
+    if is_option_none(&field.expr) {
+        return Err(unsupported_body(
+            "K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present",
+            field.expr.span(),
+        ));
+    }
     // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
     // `list::empty()`), is a readable plain term, as a path is. A bare call stays a host call.
     let readable_term = match &field.expr {
@@ -789,6 +813,7 @@ fn parse_initializer_cell(
             field,
             name,
             content,
+            optional: false,
         });
     }
     let content = match &field.expr {
@@ -918,7 +943,43 @@ fn parse_initializer_cell(
         field,
         name,
         content,
+        optional: false,
     })
+}
+
+/// Whether `path` is `Some`/`None` alone or under `Option::`.
+pub(crate) fn is_option_variant(path: &syn::Path, variant: &str) -> bool {
+    let segments = path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect::<Vec<_>>();
+    path.segments
+        .iter()
+        .all(|segment| matches!(segment.arguments, PathArguments::None))
+        && segments.last().is_some_and(|last| last == variant)
+        && (segments.len() == 1 || segments[segments.len() - 2] == "Option")
+}
+
+/// The template `t` of an initializer value `Some(t)`.
+fn optional_template(expression: &Expr) -> Option<&Expr> {
+    let Expr::Call(ExprCall {
+        attrs, func, args, ..
+    }) = expression
+    else {
+        return None;
+    };
+    let Expr::Path(ExprPath {
+        qself: None, path, ..
+    }) = &**func
+    else {
+        return None;
+    };
+    (attrs.is_empty() && args.len() == 1 && is_option_variant(path, "Some")).then(|| &args[0])
+}
+
+fn is_option_none(expression: &Expr) -> bool {
+    matches!(expression, Expr::Path(ExprPath { qself: None, path, .. }) if is_option_variant(path, "None"))
 }
 
 /// Whether `func` names a cell constructor, `Cell::new` or `KCell::new` under any prefix.
@@ -1051,6 +1112,8 @@ fn append_state_term_anchors(
     term_ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     match value {
+        // Initializers hold templates only, never `Some`/`None` or instance lists.
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
         StateTerm::Term(term) | StateTerm::Group(term) => {
             append_term_anchors(term, output, term_ordinal)
         }
@@ -1183,6 +1246,7 @@ fn append_state_term_candidates(
     ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     match value {
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
         StateTerm::Term(term) | StateTerm::Group(term) => {
             append_term_candidates(term, variables, output, ordinal)
         }

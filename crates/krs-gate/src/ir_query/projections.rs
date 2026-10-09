@@ -373,6 +373,10 @@ pub(super) fn frame_normalized(
     let mut value = encoded(sentence);
     let mut removed = Vec::new();
     for (i, clause) in body.clauses().iter().enumerate() {
+        // Optional and collection clauses (KF-023) carry no frame binding to normalize.
+        let Some(clause) = clause.as_fixed() else {
+            continue;
+        };
         let cell_name = cells.cells[clause.cell()];
         let binding = match (clause.frame(), clause.after()) {
             (

@@ -41,6 +41,7 @@ pub use attribute::{
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
+    option_content,
 };
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
@@ -66,14 +67,16 @@ pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    BINDER_LIST_CONTRACT, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
-    RuleExistentials, RuleExtra, RuleHeadResult, RuleImport, RuleItem, RuleMapUpdate,
-    RuleNarrowing, RuleParameter, RulePattern, parse_rule_block_source_with_trivia,
+    BINDER_LIST_CONTRACT, ReadableStateCounters, RuleBinder, RuleBlock, RuleClause,
+    RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult, RuleImport,
+    RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{
-    CellsEntry, CellsExpression, KSequence, KSequenceNotation, MapBody, MapExpression, MapItem,
-    StateMacroContext, StateMacroRemainder, StateTerm, parse_cells_expression,
+    CellsEntry, CellsExpression, InstanceField, InstanceItem, InstanceList, InstanceListDelimiter,
+    InstanceRest, KSequence, KSequenceNotation, MapBody, MapExpression, MapItem, StateMacroContext,
+    StateMacroRemainder, StateTerm, parse_cells_expression,
     parse_cells_expression_source_with_trivia, parse_cells_pattern,
     parse_cells_pattern_source_with_trivia, parse_k_sequence_expression, parse_k_sequence_pattern,
     parse_map_expression, parse_map_expression_source_with_trivia, parse_map_pattern,

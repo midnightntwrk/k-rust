@@ -124,6 +124,9 @@ pub(crate) fn context_alias(
                 StateRuleBindingKind::ConfigurationFrame => {
                     ProtocolContextAliasBindingKind::ConfigurationFrame
                 }
+                StateRuleBindingKind::InstancesFrame => {
+                    return Err(super::rules::collection_placement(binding.name().span()));
+                }
             }
         };
         bindings.push(ProtocolContextAliasBinding {
@@ -311,6 +314,7 @@ pub(super) fn configuration_rule(
             StateRuleBindingKind::KSequenceFrame => ProtocolRuleBindingKind::KSequenceFrame,
             StateRuleBindingKind::MapFrame => ProtocolRuleBindingKind::MapFrame,
             StateRuleBindingKind::ConfigurationFrame => ProtocolRuleBindingKind::ConfigurationFrame,
+            StateRuleBindingKind::InstancesFrame => ProtocolRuleBindingKind::InstancesFrame,
         };
         bindings.push(ProtocolRuleBinding { name, kind });
     }
@@ -528,6 +532,9 @@ pub(super) struct StateRuleCounters {
     field: u32,
     wrapper: u32,
     remainder: u32,
+    instance: u32,
+    instance_field: u32,
+    instances_rest: u32,
     k_payload: u32,
     k_item: u32,
     k_tail: u32,
@@ -688,7 +695,67 @@ impl<'a> StateRuleBuilder<'a> {
             StateTerm::Group(term) => Ok(ProtocolRuleStateTerm::Group(
                 self.expand_term(term.tree(), slots)?,
             )),
+            StateTerm::Present(inner) => Ok(ProtocolRuleStateTerm::Present {
+                value: Box::new(self.expand_state(inner, slots)?),
+            }),
+            StateTerm::Absent(_) => Ok(ProtocolRuleStateTerm::Absent),
+            StateTerm::Instances(list) => Ok(ProtocolRuleStateTerm::Instances(
+                self.expand_instances(list, slots)?,
+            )),
         }
+    }
+
+    /// Expands a collection entry (KF-023): instance, child-field, and rest
+    /// keys follow the parser's traversal order.
+    fn expand_instances(
+        &mut self,
+        list: &krs_syntax::InstanceList,
+        slots: &mut WireSlots,
+    ) -> crate::Result<krs_ir::ProtocolRuleInstances<WireTerm>> {
+        let front = list
+            .front()
+            .iter()
+            .map(|item| self.expand_instance(item, slots))
+            .collect::<crate::Result<Vec<_>>>()?;
+        let rest = self.expand_frame(list.rest(), RuleRole::CellsInstancesRest)?;
+        let back = list
+            .back()
+            .iter()
+            .map(|item| self.expand_instance(item, slots))
+            .collect::<crate::Result<Vec<_>>>()?;
+        Ok(krs_ir::ProtocolRuleInstances {
+            delimiter: match list.delimiter() {
+                krs_syntax::InstanceListDelimiter::Brace => krs_ir::InstanceDelimiter::Brace,
+                krs_syntax::InstanceListDelimiter::Bracket => krs_ir::InstanceDelimiter::Bracket,
+            },
+            front,
+            rest,
+            back,
+        })
+    }
+
+    fn expand_instance(
+        &mut self,
+        item: &krs_syntax::InstanceItem,
+        slots: &mut WireSlots,
+    ) -> crate::Result<krs_ir::ProtocolRuleInstance<WireTerm>> {
+        let ordinal = take_counter(&mut self.counters.instance)?;
+        let key = self.key(RuleRole::CellsInstance, ordinal);
+        let mut fields = Vec::new();
+        for field in item.fields() {
+            let ordinal = take_counter(&mut self.counters.instance_field)?;
+            fields.push(krs_ir::ProtocolRuleInstanceField {
+                key: self.key(RuleRole::CellsInstanceField, ordinal),
+                field: field.name().to_string(),
+                value: self.expand_state(field.value(), slots)?,
+            });
+        }
+        Ok(krs_ir::ProtocolRuleInstance {
+            key,
+            label: item.label().map(ToString::to_string),
+            fields,
+            rest: instance_rest(item.rest()),
+        })
     }
 
     fn expand_k(
@@ -792,6 +859,7 @@ impl<'a> StateRuleBuilder<'a> {
         let side_role = self.side_role(role);
         let counter = match role {
             RuleRole::CellsRemainder => &mut self.counters.remainder,
+            RuleRole::CellsInstancesRest => &mut self.counters.instances_rest,
             RuleRole::KSequenceTail => &mut self.counters.k_tail,
             RuleRole::MapRemainder => &mut self.counters.map_remainder,
             _ => unreachable!(),
@@ -1094,5 +1162,16 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
         }
+    }
+}
+
+/// The wire form of an instance record's rest (KF-023).
+pub(super) fn instance_rest(rest: &krs_syntax::InstanceRest) -> krs_ir::ProtocolInstanceRest {
+    match rest {
+        krs_syntax::InstanceRest::Exact => krs_ir::ProtocolInstanceRest::Exact,
+        krs_syntax::InstanceRest::Open(_) => krs_ir::ProtocolInstanceRest::Open,
+        krs_syntax::InstanceRest::Update { label, .. } => krs_ir::ProtocolInstanceRest::Update {
+            label: label.to_string(),
+        },
     }
 }

@@ -69,35 +69,48 @@ pub(crate) fn cells(input: TokenStream) -> crate::Result<TokenStream> {
         .entries()
         .iter()
         .filter_map(krs_syntax::CellsEntry::wrapper);
+    let mut owners = Vec::new();
     for entry in cells.entries() {
-        match entry.value() {
-            StateTerm::Term(term) | StateTerm::Group(term) => expressions.push(term.expression()),
-            StateTerm::KSequence(sequence) => {
-                expressions.extend(sequence.items().iter().map(TermExpression::expression));
-            }
-            StateTerm::Map(map) => match map.body() {
-                MapBody::Empty { .. } => {}
-                MapBody::Items { items, .. } => {
-                    for item in items {
-                        expressions.push(item.key().expression());
-                        expressions.push(item.value().expression());
-                    }
-                }
-                MapBody::Update { base, key, value } => {
-                    expressions.extend([base.expression(), key.expression(), value.expression()]);
-                }
-            },
-        }
+        collect_state_expressions(entry.value(), &mut expressions, &mut owners);
     }
     let wrapper_checks = wrappers.map(wrapper_type_check);
+    let owners = owners
+        .into_iter()
+        .map(call_site_path)
+        .collect::<Result<Vec<_>, _>>()?;
+    let expressions = expressions
+        .into_iter()
+        .map(TermExpression::expression)
+        .collect::<Vec<_>>();
     Ok(quote! {{
         let _krs_typecheck_cells = || {
             #(#wrapper_checks)*
             #(#island_import_checks)*
+            #(let _ = ::core::any::TypeId::of::<#owners>();)*
             #(let _ = #expressions;)*
         };
         ::core::panic!("`cells!` has no runtime value in KRS")
     }})
+}
+
+/// The terms of one `cells!` result state and the cell structs its
+/// collection instances name (KF-023).
+fn collect_state_expressions<'a>(
+    state: &'a StateTerm,
+    expressions: &mut Vec<&'a TermExpression>,
+    owners: &mut Vec<&'a syn::Path>,
+) {
+    if let StateTerm::Instances(list) = state {
+        owners.extend(list.instances().map(krs_syntax::InstanceItem::owner));
+    }
+    match state {
+        StateTerm::Present(_) | StateTerm::Instances(_) => {
+            for nested in state.nested_states() {
+                collect_state_expressions(nested, expressions, owners);
+            }
+        }
+        _ => expressions.extend(state.terms()),
+    }
 }
 
 pub(crate) fn fragment(

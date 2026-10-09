@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
 use krs_ir::{
-    BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
-    FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
-    GroupAssociativity, MapOperation, ProductionAttribute, ProductionGroupId, SemanticId,
-    SentenceKind, SmtFragment, StrictnessKind,
+    BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationClause,
+    ConfigurationRoot, FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
+    GrammarProductionItemKind, GroupAssociativity, MapOperation, ProductionAttribute,
+    ProductionGroupId, SemanticId, SentenceKind, SmtFragment, StrictnessKind,
 };
 use krs_ir_levels::{
     ContextAliasSentence, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
@@ -653,6 +653,11 @@ fn emit_fixed_cell(
                 writer.push(" exit=\"\"");
                 writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
+            CellAttribute::Initial { origin } => {
+                let attribute_start = writer.source.len();
+                writer.push(" initial=\"\"");
+                writer.record(origin.key(), attribute_start, writer.source.len())?;
+            }
         }
     }
     writer.push(">");
@@ -821,10 +826,15 @@ fn emit_configuration_clauses(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let mut emitted_repeated = BTreeSet::new();
-    for clause in body.clauses() {
+    for (index, clause) in body.clauses().iter().enumerate() {
+        if let ConfigurationClause::Instances(instances) = clause {
+            writer.push("\n");
+            emit_instances_clause(instances, index, names, context, 4, writer)?;
+            continue;
+        }
         let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
             writer.push("\n");
-            emit_cell_clause(clause, names, context, 4, writer)?;
+            emit_clause_item(clause, names, context, 4, writer)?;
             continue;
         };
         if !emitted_repeated.insert(ancestor.clone()) {
@@ -839,12 +849,288 @@ fn emit_configuration_clauses(
             .filter(|candidate| context.repeated_ancestor(candidate.cell()) == Some(ancestor))
         {
             writer.push("\n");
-            emit_cell_clause(nested, names, context, 8, writer)?;
+            emit_clause_item(nested, names, context, 8, writer)?;
         }
         writer.push("\n        ...\n    </");
         writer.push(context.cell_name(ancestor)?);
         writer.push(">");
     }
+    Ok(())
+}
+
+/// Emits one exactly-once or optional clause.
+fn emit_clause_item(
+    clause: &ConfigurationClause<SymbolId, DefinitionTerm>,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    indent: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    match clause {
+        ConfigurationClause::Fixed(clause) => {
+            emit_cell_clause(clause, names, context, indent, writer)
+        }
+        ConfigurationClause::Optional(clause) => {
+            emit_optional_clause(clause, names, context, indent, writer)
+        }
+        ConfigurationClause::Instances(_) => Err(EmitError::InvalidReference(
+            "a collection clause is emitted on its own".into(),
+        )),
+    }
+}
+
+/// Emits an optional (`?`) cell (KF-023): read or updated in place,
+/// `(.Bag => <c> V </c>)` when created, `(<c> V </c> => .Bag)` when deleted.
+fn emit_optional_clause(
+    clause: &krs_ir::OptionalCellClause<SymbolId, DefinitionTerm>,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    indent: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    let whole = clause.kind() == krs_ir::CellClauseKind::Whole;
+    match (clause.before(), clause.after()) {
+        (krs_ir::Presence::Present { term }, after) => {
+            let post = match after {
+                None => Some(CellPost::Preserve),
+                Some(krs_ir::Presence::Present { term }) => {
+                    Some(CellPost::Replace { term: term.clone() })
+                }
+                Some(krs_ir::Presence::Absent) => None,
+            };
+            if let Some(post) = post {
+                let fixed = krs_ir::FixedCellClause::new(
+                    clause.origin().clone(),
+                    clause.cell().clone(),
+                    term.clone(),
+                    post,
+                    clause.frame().clone(),
+                )
+                .with_kind(clause.kind());
+                return emit_cell_clause(&fixed, names, context, indent, writer);
+            }
+            writer.push(&" ".repeat(indent));
+            writer.push("(");
+            emit_cell_image(
+                clause.cell(),
+                whole,
+                term,
+                clause.frame(),
+                names,
+                context,
+                writer,
+            )?;
+            writer.push(" => .Bag)");
+        }
+        (krs_ir::Presence::Absent, Some(krs_ir::Presence::Present { term })) => {
+            writer.push(&" ".repeat(indent));
+            writer.push("(.Bag => ");
+            emit_cell_image(
+                clause.cell(),
+                whole,
+                term,
+                &CellContentFrame::Exact,
+                names,
+                context,
+                writer,
+            )?;
+            writer.push(")");
+        }
+        (krs_ir::Presence::Absent, _) => {
+            return Err(EmitError::InvalidReference(
+                "an absent optional cell is matched only by creating it".into(),
+            ));
+        }
+    }
+    writer.record(clause.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+/// One side of a cell: `<c> T [frame] </c>`, or a whole group term.
+fn emit_cell_image(
+    cell: &SymbolId,
+    whole: bool,
+    term: &DefinitionTerm,
+    frame: &CellContentFrame,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    if whole {
+        let mut rendered = render_term(term, context, names, false)?;
+        if let DefinitionTermKind::Variable { variable } = term.kind()
+            && variable.kind() == krs_ir::SemanticIdKind::Wildcard
+        {
+            rendered.text.push(':');
+            rendered.text.push_str(&context.sort_name_ref(term.sort())?);
+        }
+        return writer.append_rendered(rendered);
+    }
+    let name = context.cell_name(cell)?;
+    writer.push("<");
+    writer.push(name);
+    writer.push("> ");
+    writer.append_rendered(render_term(term, context, names, false)?)?;
+    emit_single_frame(frame, names, writer)?;
+    writer.push(" </");
+    writer.push(name);
+    writer.push(">");
+    Ok(())
+}
+
+/// Emits a collection (`*`) clause (KF-023): matched instances in place,
+/// `(<c> .. </c> => .Bag)` for a removed one, `(.Bag => <c> .. </c>)` for a
+/// new one. An open Set or Map entry leaves the parent cell to K; an exact
+/// entry, and a List entry, is written inside its parent cell, and a List
+/// entry's back instances follow the other instances, which a variable
+/// names.
+fn emit_instances_clause(
+    clause: &krs_ir::InstancesClause<SymbolId, DefinitionTerm>,
+    index: usize,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    indent: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    // One emitted item: an instance, `...`, or the rest variable.
+    enum Item<'a> {
+        Instance(&'a krs_ir::InstanceClause<SymbolId, DefinitionTerm>),
+        Dots,
+        Rest,
+    }
+    let start = writer.source.len();
+    let list = clause.ordering() == krs_ir::InstanceOrdering::List;
+    let wrapped = list || !clause.is_open();
+    let item_indent = if wrapped { indent + 4 } else { indent };
+    let parent = if wrapped {
+        let parent = context.parent_cell(clause.cell()).ok_or_else(|| {
+            EmitError::InvalidReference(format!(
+                "collection {} has no parent cell to write it in",
+                clause.cell()
+            ))
+        })?;
+        let name = context.cell_name(parent)?;
+        writer.push(&" ".repeat(indent));
+        writer.push("<");
+        writer.push(name);
+        writer.push(">");
+        Some(name)
+    } else {
+        None
+    };
+    // The items in order: front instances, the other instances (`...`, or
+    // a variable when back instances follow them), back instances.
+    let mut items = clause
+        .front()
+        .iter()
+        .map(Item::Instance)
+        .collect::<Vec<_>>();
+    if clause.is_open() {
+        if !clause.back().is_empty() {
+            items.push(Item::Rest);
+        } else if wrapped {
+            items.push(Item::Dots);
+        }
+    }
+    items.extend(clause.back().iter().map(Item::Instance));
+    for (position, item) in items.into_iter().enumerate() {
+        if wrapped || position > 0 {
+            writer.push("\n");
+        }
+        match item {
+            Item::Instance(instance) => {
+                emit_instance(instance, clause.cell(), names, context, item_indent, writer)?;
+            }
+            Item::Dots => {
+                writer.push(&" ".repeat(item_indent));
+                writer.push("...");
+            }
+            Item::Rest => {
+                writer.push(&" ".repeat(item_indent));
+                writer.push(&format!("_Instances{index}:Bag"));
+            }
+        }
+    }
+    if let Some(name) = parent {
+        writer.push("\n");
+        writer.push(&" ".repeat(indent));
+        writer.push("</");
+        writer.push(name);
+        writer.push(">");
+    }
+    writer.record(clause.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+fn emit_instance(
+    instance: &krs_ir::InstanceClause<SymbolId, DefinitionTerm>,
+    cell: &SymbolId,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    indent: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    let name = context.cell_name(cell)?;
+    // K's cell grammar has no `<c> ... </c>`: an instance that names no
+    // child spells its open contents `.Bag ...`, which Java K reads as a
+    // pattern over any instance and, on creation, as all-default children.
+    let close = |writer: &mut Writer, open: bool, empty: bool| {
+        if open {
+            writer.push("\n");
+            writer.push(&" ".repeat(indent + 4));
+            writer.push(if empty { ".Bag ..." } else { "..." });
+        }
+        writer.push("\n");
+        writer.push(&" ".repeat(indent));
+        writer.push("</");
+        writer.push(name);
+        writer.push(">");
+    };
+    match instance {
+        krs_ir::InstanceClause::Kept { children, open, .. } => {
+            writer.push(&" ".repeat(indent));
+            writer.push("<");
+            writer.push(name);
+            writer.push(">");
+            for child in children {
+                writer.push("\n");
+                emit_cell_clause(child, names, context, indent + 4, writer)?;
+            }
+            close(writer, *open, children.is_empty());
+        }
+        krs_ir::InstanceClause::Removed { children, open, .. }
+        | krs_ir::InstanceClause::Created {
+            children,
+            defaults: open,
+            ..
+        } => {
+            let created = matches!(instance, krs_ir::InstanceClause::Created { .. });
+            writer.push(&" ".repeat(indent));
+            writer.push(if created { "(.Bag => <" } else { "(<" });
+            writer.push(name);
+            writer.push(">");
+            for child in children {
+                writer.push("\n");
+                let child_start = writer.source.len();
+                writer.push(&" ".repeat(indent + 4));
+                emit_cell_image(
+                    child.cell(),
+                    child.kind() == krs_ir::CellClauseKind::Whole,
+                    child.term(),
+                    child.frame(),
+                    names,
+                    context,
+                    writer,
+                )?;
+                writer.record(child.origin().key(), child_start, writer.source.len())?;
+            }
+            close(writer, *open, children.is_empty());
+            writer.push(if created { ")" } else { " => .Bag)" });
+        }
+    }
+    writer.record(instance.origin().key(), start, writer.source.len())?;
     Ok(())
 }
 

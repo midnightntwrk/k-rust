@@ -7,9 +7,9 @@ use krs_ir::wire::{
     WireCellReference, WirePayload, WireSortReference, WireTypeReference,
 };
 use krs_ir::{
-    CellWrapper, DescriptorCellColor, DescriptorCellExit, DescriptorCellMultiplicity,
-    DescriptorCellName, DescriptorCellStream, DescriptorCellType, DescriptorConfigurationRoot,
-    ProtocolCellContent,
+    CellWrapper, DescriptorCellColor, DescriptorCellExit, DescriptorCellInitial,
+    DescriptorCellMultiplicity, DescriptorCellName, DescriptorCellStream, DescriptorCellType,
+    DescriptorConfigurationRoot, ProtocolCellContent,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
@@ -230,11 +230,21 @@ fn inject_inferred_cell_wrappers(
         if !cell.has_inferred_wrapper() {
             continue;
         }
-        let content = field.ty.clone();
-        field.ty = if cell.is_computation_cell() {
+        // An optional cell's field is `Option<T>`; its wrapper goes inside
+        // (KF-023, R7).
+        let content = krs_syntax::option_content(&field.ty)
+            .filter(|_| cell.is_optional())
+            .unwrap_or(&field.ty)
+            .clone();
+        let wrapped: syn::Type = if cell.is_computation_cell() {
             parse_quote!(#facade::configuration::KCell<#content>)
         } else {
             parse_quote!(#facade::configuration::Cell<#content>)
+        };
+        field.ty = if cell.is_optional() {
+            parse_quote!(::core::option::Option<#wrapped>)
+        } else {
+            wrapped
         };
     }
     Ok(())
@@ -257,6 +267,10 @@ fn configuration_root(
         })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each field kind (leaf, nested, optional, collection) maps its metadata to the wire in one place."
+)]
 fn configuration_fields(
     facade: &Path,
     declaration: &krs_syntax::ConfigurationDeclaration,
@@ -332,6 +346,9 @@ fn configuration_fields(
         let exit = field.attribute().exit().map(|_| DescriptorCellExit {
             key: wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
         });
+        let initial = field.attribute().initial().map(|_| DescriptorCellInitial {
+            key: wire_key(ProvenanceRole::ConfigurationCellInitial, ordinal),
+        });
         let content = configuration_content(
             field.cell_content(),
             index,
@@ -360,6 +377,7 @@ fn configuration_fields(
             cell_type,
             stream,
             exit,
+            initial,
             content,
         });
     }

@@ -48,7 +48,8 @@ impl ConsoleCells {
                     CellAttribute::Exit { .. } => self.exit = true,
                     CellAttribute::Color { .. }
                     | CellAttribute::Multiplicity { .. }
-                    | CellAttribute::CollectionType { .. } => {}
+                    | CellAttribute::CollectionType { .. }
+                    | CellAttribute::Initial { .. } => {}
                 }
             }
             if let FixedCellContent::Children { children } = cell.content() {

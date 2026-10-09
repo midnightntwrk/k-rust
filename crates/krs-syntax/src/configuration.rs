@@ -54,6 +54,7 @@ pub struct FixedCellField {
     attribute: CellAttributePayload,
     content: ConfigurationCellContent,
     cell_helper_present: bool,
+    optional: bool,
 }
 
 /// Name of the computation-cell field type in the single-cell configuration surface.
@@ -88,6 +89,13 @@ impl FixedCellField {
     #[must_use]
     pub const fn cell_content(&self) -> &ConfigurationCellContent {
         &self.content
+    }
+
+    /// Whether this is an optional (`?`) cell, declared `Option<T>` (KF-023,
+    /// R7); its content is that of `T`.
+    #[must_use]
+    pub const fn is_optional(&self) -> bool {
+        self.optional
     }
 
     /// Returns the leaf wrapper path, or `None` for a nested cell.
@@ -174,7 +182,7 @@ impl ConfigurationDeclaration {
         }
 
         let explicit_wrapper_surface = named.named.iter().any(|field| {
-            matches!(&field.ty, Type::Path(path)
+            matches!(option_content(&field.ty).unwrap_or(&field.ty), Type::Path(path)
             if path.path.segments.last().is_some_and(|segment| {
                 matches!(segment.ident.to_string().as_str(), "Cell" | "KCell")
             }))
@@ -397,8 +405,27 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
     let emitted_name = attribute
         .name()
         .map_or_else(|| name.unraw().to_string(), syn::LitStr::value);
+    let optional = attribute
+        .multiplicity()
+        .is_some_and(|multiplicity| multiplicity.value() == "?");
+    let ty = match (option_content(&field.ty), optional) {
+        (Some(content), true) => content,
+        (None, false) => &field.ty,
+        (Some(_), false) => {
+            return Err(unsupported_field(
+                "an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`",
+                field.ty.span(),
+            ));
+        }
+        (None, true) => {
+            return Err(unsupported_field(
+                "a `multiplicity = \"?\"` cell is declared `Option<T>`, T its leaf sort or nested cell struct",
+                field.ty.span(),
+            ));
+        }
+    };
     let content = parse_cell_type(
-        &field.ty,
+        ty,
         cell_helper_present && infer_plain_leaf && !attribute.is_nested(),
     )?;
     Ok(FixedCellField {
@@ -408,7 +435,39 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
         attribute,
         content,
         cell_helper_present,
+        optional,
     })
+}
+
+/// The `T` of a field typed `Option<T>`, the declared type of an optional
+/// (`?`) cell (KF-023, R7).
+#[must_use]
+pub fn option_content(ty: &Type) -> Option<&Type> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    if path.qself.is_some() {
+        return None;
+    }
+    let last = path.path.segments.last()?;
+    let prelude = path.path.segments.len() == 1
+        || path
+            .path
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>()
+            .ends_with(&["option".to_owned(), "Option".to_owned()]);
+    if last.ident != "Option" || !prelude {
+        return None;
+    }
+    let PathArguments::AngleBracketed(arguments) = &last.arguments else {
+        return None;
+    };
+    match arguments.args.iter().collect::<Vec<_>>().as_slice() {
+        [GenericArgument::Type(content)] => Some(content),
+        _ => None,
+    }
 }
 
 fn parse_cell_helper(

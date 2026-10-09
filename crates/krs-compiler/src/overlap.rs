@@ -854,6 +854,7 @@ fn group_cells(
 }
 
 /// One clause a transition places on a cell, as the overlap check sees it.
+#[derive(Clone)]
 struct ClauseView<'a> {
     cell: &'a SemanticId,
     before: &'a SemanticTerm,
@@ -1032,68 +1033,134 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
         {
             continue;
         }
-        let (configuration, clauses) = match rule.relational_body() {
-            RuleBodyRef::Configuration { body, .. } => (
-                body.configuration(),
-                body.clauses()
-                    .iter()
-                    .map(|clause| ClauseView {
-                        cell: clause.cell(),
-                        before: clause.before(),
-                        completed_head: false,
-                        framed: !matches!(clause.frame(), krs_ir::CellContentFrame::Exact),
-                        unconstrained: false,
-                    })
-                    .collect::<Vec<_>>(),
-            ),
+        let (configuration, variants) = match rule.relational_body() {
+            RuleBodyRef::Configuration { body, .. } => {
+                (body.configuration(), clause_variants(body.clauses()))
+            }
             RuleBodyRef::Term(body) => {
                 let Some((configuration, cell)) = computation else {
                     continue;
                 };
                 (
                     configuration,
-                    vec![ClauseView {
+                    vec![vec![ClauseView {
                         cell,
                         before: body.from(),
                         completed_head: true,
                         framed: true,
                         unconstrained: false,
-                    }],
+                    }]],
                 )
             }
             // A predicate rewrite is a simplification, never a transition.
             RuleBodyRef::Predicate(_) => continue,
         };
-        let mut clauses = clauses;
-        let read = contexts.reachable_cells(rule_results(rule));
-        add_context_clauses(&mut clauses, read);
-        let head = computation.and_then(|(_, cell)| {
-            clauses
-                .iter()
-                .find(|clause| clause.cell == cell && !clause.unconstrained)
-                .and_then(|clause| head_application(clause.before, clause.completed_head))
-        });
-        views.push(TransitionView {
-            rule,
-            priority: rule
-                .priority()
-                .map_or(DEFAULT_PRIORITY, krs_ir_levels::SemanticRulePriority::value),
-            group: rule
-                .nondet_group()
-                .map(|group| (rule.id().package(), group.name())),
-            configuration,
-            clauses,
-            // A matching-logic condition is a claim's or a simplification's
-            // (KF-039), and neither is an overlap view.
-            requires: rule
-                .requires()
-                .and_then(IrCondition::as_bool)
-                .map(krs_ir_levels::SemanticRuleCondition::term),
-            head,
-        });
+        for mut clauses in variants {
+            let read = contexts.reachable_cells(rule_results(rule));
+            add_context_clauses(&mut clauses, read);
+            let head = computation.and_then(|(_, cell)| {
+                clauses
+                    .iter()
+                    .find(|clause| clause.cell == cell && !clause.unconstrained)
+                    .and_then(|clause| head_application(clause.before, clause.completed_head))
+            });
+            views.push(TransitionView {
+                rule,
+                priority: rule
+                    .priority()
+                    .map_or(DEFAULT_PRIORITY, krs_ir_levels::SemanticRulePriority::value),
+                group: rule
+                    .nondet_group()
+                    .map(|group| (rule.id().package(), group.name())),
+                configuration,
+                clauses,
+                // A matching-logic condition is a claim's or a simplification's
+                // (KF-039), and neither is an overlap view.
+                requires: rule
+                    .requires()
+                    .and_then(IrCondition::as_bool)
+                    .map(krs_ir_levels::SemanticRuleCondition::term),
+                head,
+            });
+        }
     }
     views.sort_by(|left, right| left.id().cmp(right.id()));
     views
+}
+
+/// The clause views of a configuration rule, one list per choice of one
+/// matched instance of each collection it names (X10.6, KF-023): two rules
+/// overlap only if some pair of their instance patterns unifies, since rules
+/// on different instances are K's intended concurrency. A present optional
+/// cell is a clause over its content; an absent or created one constrains no
+/// content.
+fn clause_variants(
+    clauses: &[krs_ir::ConfigurationClause<SemanticId, SemanticTerm>],
+) -> Vec<Vec<ClauseView<'_>>> {
+    fn view<'a>(
+        cell: &'a SemanticId,
+        before: &'a SemanticTerm,
+        frame: &krs_ir::CellContentFrame,
+    ) -> ClauseView<'a> {
+        ClauseView {
+            cell,
+            before,
+            completed_head: false,
+            framed: !matches!(frame, krs_ir::CellContentFrame::Exact),
+            unconstrained: false,
+        }
+    }
+    let mut variants = vec![Vec::new()];
+    for clause in clauses {
+        match clause {
+            krs_ir::ConfigurationClause::Fixed(clause) => {
+                for variant in &mut variants {
+                    variant.push(view(clause.cell(), clause.before(), clause.frame()));
+                }
+            }
+            krs_ir::ConfigurationClause::Optional(clause) => {
+                if let krs_ir::Presence::Present { term } = clause.before() {
+                    for variant in &mut variants {
+                        variant.push(view(clause.cell(), term, clause.frame()));
+                    }
+                }
+            }
+            krs_ir::ConfigurationClause::Instances(clause) => {
+                let choices = clause
+                    .instances()
+                    .filter_map(|instance| match instance {
+                        krs_ir::InstanceClause::Kept { children, .. } => Some(
+                            children
+                                .iter()
+                                .map(|child| view(child.cell(), child.before(), child.frame()))
+                                .collect::<Vec<_>>(),
+                        ),
+                        krs_ir::InstanceClause::Removed { children, .. } => Some(
+                            children
+                                .iter()
+                                .map(|child| view(child.cell(), child.term(), child.frame()))
+                                .collect(),
+                        ),
+                        krs_ir::InstanceClause::Created { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
+                if choices.is_empty() {
+                    continue;
+                }
+                variants = variants
+                    .into_iter()
+                    .flat_map(|variant| {
+                        choices.iter().map(move |choice| {
+                            let mut variant = variant.clone();
+                            variant.extend(choice.iter().cloned());
+                            variant
+                        })
+                    })
+                    .collect();
+            }
+        }
+    }
+    variants
 }
 
 /// The terms a rule's footprint reaches functions through (clause 5): its
@@ -1102,13 +1169,16 @@ fn rule_results(rule: &SemanticRule) -> Vec<&SemanticTerm> {
     let mut terms = match rule.relational_body() {
         RuleBodyRef::Term(body) => vec![body.to()],
         RuleBodyRef::Configuration { body, .. } => body
-            .clauses()
-            .iter()
-            .filter_map(|clause| match clause.after() {
-                krs_ir::CellPost::Replace { term } => Some(term),
+            .parts()
+            .into_iter()
+            .filter_map(|part| match part {
                 // A single-body clause's right sides sit inside `before`.
-                krs_ir::CellPost::Local => Some(clause.before()),
-                krs_ir::CellPost::Preserve => None,
+                krs_ir::ClausePart::Matched {
+                    before,
+                    after: krs_ir::PartPost::Local,
+                    ..
+                } => Some(before),
+                part => part.post_term(),
             })
             .collect(),
         RuleBodyRef::Predicate(body) => body.rhs().terms(),
@@ -1568,7 +1638,8 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
     }
     for (index, left) in rules.iter().enumerate() {
         for right in &rules[index + 1..] {
-            if left.priority != right.priority {
+            // Views of one rule are its instance choices (X10.6).
+            if left.priority != right.priority || left.id() == right.id() {
                 continue;
             }
             if left.group.is_some() && left.group == right.group {
@@ -1608,7 +1679,7 @@ pub(crate) fn first_overlap_violation(modules: &[SemanticModule]) -> Option<Over
         }
         for member in &members {
             let overlaps = members.iter().any(|other| {
-                !std::ptr::eq(*member, *other) && transitions_overlap(member, other, &graph)
+                member.id() != other.id() && transitions_overlap(member, other, &graph)
             });
             if !overlaps {
                 return Some(OverlapViolation::StaleGroupMember {
@@ -1627,9 +1698,9 @@ fn pre_patterns(rule: &SemanticRule) -> Vec<&SemanticTerm> {
         RuleBodyRef::Term(body) => vec![body.from()],
         RuleBodyRef::Predicate(body) => body.lhs().terms(),
         RuleBodyRef::Configuration { body, .. } => body
-            .clauses()
+            .parts()
             .iter()
-            .map(krs_ir::FixedCellClause::before)
+            .filter_map(krs_ir::ClausePart::pre_term)
             .collect(),
     }
 }
@@ -1824,6 +1895,9 @@ mod parametric_tests;
 
 #[cfg(test)]
 mod local_rewrite_tests;
+
+#[cfg(test)]
+mod cell_collection_tests;
 
 #[cfg(test)]
 mod tests {

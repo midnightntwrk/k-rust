@@ -190,6 +190,7 @@ fn field(
         cell_type: None,
         stream: None,
         exit: None,
+        initial: None,
         content,
     }
 }

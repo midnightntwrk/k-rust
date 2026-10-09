@@ -79,10 +79,19 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
                 expected: "a Rust string literal",
             },
         ),
+    ] {
+        let error = krs_syntax::CellAttributePayload::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
+    }
+}
+
+#[test]
+fn optional_and_collection_cell_attributes_are_checked() {
+    for (source, expected_kind) in [
         (
-            r#"multiplicity = "?""#,
+            r#"multiplicity = "+""#,
             SyntaxErrorKind::InvalidCellAttribute {
-                reason: "KRS currently supports only repeated-cell multiplicity `*`",
+                reason: "cell `multiplicity` is \"?\" (an optional cell) or \"*\" (a cell collection)",
             },
         ),
         (
@@ -92,10 +101,44 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
             },
         ),
         (
-            r#"multiplicity = "*", cell_type = "Queue""#,
+            r#"multiplicity = "?", cell_type = "Map""#,
             SyntaxErrorKind::InvalidCellAttribute {
-                reason: "repeated-cell `cell_type` must be Bag, List, Map, or Set",
+                reason: "`cell_type` requires `multiplicity = \"*\"`",
             },
+        ),
+        (
+            r#"multiplicity = "*", cell_type = "Queue", nested"#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "a collection's `cell_type` is \"Set\", \"Map\", or \"List\"",
+            },
+        ),
+        (
+            r#"multiplicity = "*", cell_type = "Bag", nested"#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\"",
+            },
+        ),
+        (
+            r#"multiplicity = "*", nested"#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "a `multiplicity = \"*\"` collection needs `cell_type = \"Set\"`, `\"Map\"`, or `\"List\"`",
+            },
+        ),
+        (
+            r#"multiplicity = "*", cell_type = "Set""#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "a `multiplicity = \"*\"` collection holds whole cells: add `nested` and declare its instance as a `#[k::cell]` struct",
+            },
+        ),
+        (
+            "initial",
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "`initial` belongs to an optional (`multiplicity = \"?\"`) or collection (`multiplicity = \"*\"`) cell",
+            },
+        ),
+        (
+            r#"multiplicity = "?", initial, initial"#,
+            SyntaxErrorKind::DuplicateArgument { name: "initial" },
         ),
     ] {
         let error = krs_syntax::CellAttributePayload::parse_source(source).unwrap_err();
@@ -1153,7 +1196,7 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
         macro_name: "cells",
         reason: "nested cell entries are a binder, `_`, or fragment!",
     };
-    for source in ["frame: 3", "frame: [f]", "frame: crate::f"] {
+    for source in ["frame: 3", "frame: f.x", "frame: crate::f"] {
         let error =
             krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
                 .unwrap_err();

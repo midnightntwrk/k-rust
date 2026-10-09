@@ -191,9 +191,10 @@ fn collect_head_rule_cells(
                 cells.push(head_rule_cell_target(field, cell_fields, Some(*wrapper))?);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
-                if field.multiplicity.is_none() {
-                    cells.push(head_rule_cell_target(field, cell_fields, None)?);
-                }
+                // A group, an optional group, or a collection is named by a
+                // readable record entry; the leaves below a collection stay
+                // reachable as its implicit single instance (KF-023).
+                cells.push(head_rule_cell_target(field, cell_fields, None)?);
                 let key = declaration.declaration.key.resolve();
                 if !visiting.insert(key) {
                     return Err(CollectionError::new(
@@ -1146,6 +1147,7 @@ mod tests {
             cell_type: None,
             stream: None,
             exit: None,
+            initial: None,
             content: krs_ir::ProtocolCellContent::Leaf {
                 wrapper_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 1),
                 wrapper: krs_ir::CellWrapper::Cell,

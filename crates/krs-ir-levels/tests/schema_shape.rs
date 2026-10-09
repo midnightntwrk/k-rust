@@ -80,6 +80,10 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "WireTerm",
     "WireTermArgument",
     "IrMlKind",
+    "ConfigurationClause",
+    "Presence",
+    "InstanceClause",
+    "ProtocolInstanceRest",
 ];
 
 // Flattened fields must remain outside reflection.
@@ -221,6 +225,12 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "WireProduction",
     "WireRuleCondition",
     "WireStructuredRule",
+    "OptionalCellClause",
+    "InstanceChild",
+    "InstancesClause",
+    "ProtocolRuleInstance",
+    "ProtocolRuleInstanceField",
+    "ProtocolRuleInstances",
 ];
 
 const UNTRACEABLE: &[&[&str]] = &[
@@ -681,6 +691,9 @@ fn registry() -> Registry {
     trace!(DescriptorCellMultiplicity: DescriptorCellMultiplicity);
     trace!(DescriptorCellStream: DescriptorCellStream);
     trace!(DescriptorCellExit: DescriptorCellExit);
+    trace!(DescriptorCellInitial: DescriptorCellInitial);
+    trace!(InstanceOrdering: InstanceOrdering);
+    trace!(InstanceDelimiter: InstanceDelimiter);
     trace!(DescriptorCellName: DescriptorCellName);
     trace!(DescriptorCellReference: DescriptorCellReference);
     trace!(DescriptorCellTypeWire: krs_ir::transport::configuration::DescriptorCellTypeWire);
@@ -688,7 +701,7 @@ fn registry() -> Registry {
         let mut probe = Tracer::new(
             TracerConfig::default()
                 .is_human_readable(true)
-                .default_string_value("Bag".to_owned()),
+                .default_string_value("Map".to_owned()),
         );
         probe
             .trace_type::<DescriptorCellCollectionType>(&Samples::new())
@@ -977,6 +990,16 @@ fn registry() -> Registry {
     unsupported!(FixedCellPattern: FixedCellPattern<String,String>);
     unsupported!(FixedConfigurationPattern: FixedConfigurationPattern<String,String>);
     unsupported!(FixedConfigurationRewrite: FixedConfigurationRewrite<String,String>);
+    unsupported!(ConfigurationClause: ConfigurationClause<String,String>);
+    unsupported!(Presence: Presence<String>);
+    unsupported!(OptionalCellClause: OptionalCellClause<String,String>);
+    unsupported!(InstanceChild: InstanceChild<String,String>);
+    unsupported!(InstanceClause: InstanceClause<String,String>);
+    unsupported!(InstancesClause: InstancesClause<String,String>);
+    unsupported!(ProtocolInstanceRest: ProtocolInstanceRest);
+    unsupported!(ProtocolRuleInstance: ProtocolRuleInstance<String>);
+    unsupported!(ProtocolRuleInstanceField: ProtocolRuleInstanceField<String>);
+    unsupported!(ProtocolRuleInstances: ProtocolRuleInstances<String>);
     unsupported!(ProtocolCellContent: ProtocolCellContent<String,String>);
     reaches_refined!(ProtocolCellField: ProtocolCellField<String,String,String>);
     unsupported!(ProtocolMapBody: ProtocolMapBody<String>);

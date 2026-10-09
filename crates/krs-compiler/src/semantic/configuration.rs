@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_diagnostic::codes;
 use krs_ir::{
     BuiltinSort, CellAttribute, CellMultiplicity, CellStream, CellWrapper, ConfigurationRoot,
-    Descriptor, DescriptorCellDeclaration, DescriptorFixedConfiguration, DescriptorIndex,
-    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm, FixedCell,
-    FixedCellClause, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
+    Descriptor, DescriptorCellDeclaration, DescriptorCellField, DescriptorFixedConfiguration,
+    DescriptorIndex, DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm,
+    FixedCell, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, NodeOrigin, ProtocolCellContent, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey, SemanticId, SourceRange,
     StableItemId,
@@ -255,7 +256,8 @@ impl ConsoleCells {
             }
             CellAttribute::Color { .. }
             | CellAttribute::Multiplicity { .. }
-            | CellAttribute::CollectionType { .. } => {}
+            | CellAttribute::CollectionType { .. }
+            | CellAttribute::Initial { .. } => {}
         }
         Ok(())
     }
@@ -297,6 +299,72 @@ impl ConsoleCells {
     }
 }
 
+/// The K attributes of one cell field, with the collection placement check
+/// K needs (KF-023): a `*` cell is its parent's only child.
+fn cell_attributes(
+    descriptor: &Descriptor,
+    declaration: &DescriptorCellDeclaration,
+    field: &DescriptorCellField,
+    name: &str,
+) -> Result<Vec<CellAttribute>, DescriptorLoweringError> {
+    let mut attributes = Vec::with_capacity(5);
+    if let Some(color) = &field.color {
+        attributes.push(CellAttribute::color(
+            semantic_origin(descriptor, color.key.clone(), "cell-color")?,
+            color.value.clone(),
+        )?);
+    }
+    if let Some(multiplicity) = &field.multiplicity {
+        let value = CellMultiplicity::from_k(&multiplicity.value).ok_or_else(|| {
+            DescriptorLoweringError::UnsupportedShape {
+                node: "cell multiplicity",
+                detail: format!("unsupported multiplicity {:?}", multiplicity.value),
+            }
+        })?;
+        if value == CellMultiplicity::Star && declaration.fields.len() != 1 {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                codes::analysis::COLLECTION_SIBLINGS,
+                &multiplicity.key,
+                format!(
+                    "the collection cell `{name}` shares its parent with other cells; K requires a `multiplicity = \"*\"` cell to be its parent's only child, so give it a `#[k::cell]` struct of its own"
+                ),
+            ));
+        }
+        attributes.push(CellAttribute::multiplicity(
+            semantic_origin(descriptor, multiplicity.key.clone(), "cell-multiplicity")?,
+            value,
+        ));
+    }
+    if let Some(cell_type) = &field.cell_type {
+        attributes.push(CellAttribute::collection_type(
+            semantic_origin(descriptor, cell_type.key.clone(), "cell-type")?,
+            cell_type.value.into(),
+        ));
+    }
+    if let Some(stream) = &field.stream {
+        attributes.push(CellAttribute::stream(
+            semantic_origin(descriptor, stream.key.clone(), "cell-stream")?,
+            stream.value,
+        ));
+    }
+    if let Some(exit) = &field.exit {
+        attributes.push(CellAttribute::exit(semantic_origin(
+            descriptor,
+            exit.key.clone(),
+            "cell-exit",
+        )?));
+    }
+    if let Some(initial) = &field.initial {
+        attributes.push(CellAttribute::initial(semantic_origin(
+            descriptor,
+            initial.key.clone(),
+            "cell-initial",
+        )?));
+    }
+    Ok(attributes)
+}
+
 fn lower_cell_declaration(
     descriptor: &Descriptor,
     declaration: &DescriptorCellDeclaration,
@@ -311,39 +379,7 @@ fn lower_cell_declaration(
             .emitted_name
             .as_ref()
             .map_or_else(|| field.rust_field.clone(), |name| name.value.clone());
-        let mut attributes = Vec::with_capacity(5);
-        if let Some(color) = &field.color {
-            attributes.push(CellAttribute::color(
-                semantic_origin(descriptor, color.key.clone(), "cell-color")?,
-                color.value.clone(),
-            )?);
-        }
-        if let Some(multiplicity) = &field.multiplicity {
-            debug_assert_eq!(multiplicity.value, "*");
-            attributes.push(CellAttribute::multiplicity(
-                semantic_origin(descriptor, multiplicity.key.clone(), "cell-multiplicity")?,
-                CellMultiplicity::Star,
-            ));
-        }
-        if let Some(cell_type) = &field.cell_type {
-            attributes.push(CellAttribute::collection_type(
-                semantic_origin(descriptor, cell_type.key.clone(), "cell-type")?,
-                cell_type.value.into(),
-            ));
-        }
-        if let Some(stream) = &field.stream {
-            attributes.push(CellAttribute::stream(
-                semantic_origin(descriptor, stream.key.clone(), "cell-stream")?,
-                stream.value,
-            ));
-        }
-        if let Some(exit) = &field.exit {
-            attributes.push(CellAttribute::exit(semantic_origin(
-                descriptor,
-                exit.key.clone(),
-                "cell-exit",
-            )?));
-        }
+        let attributes = cell_attributes(descriptor, declaration, field, &name)?;
         let repeated = if field.multiplicity.is_some() {
             Some(name.clone())
         } else {
@@ -612,7 +648,7 @@ fn collect_stdin_cells(
 /// Reject a clause over a stdin stream cell in any shape but the read K's stream rules unblock
 /// (`crate::console`).
 pub(super) fn check_stdin_reads(
-    clauses: &[FixedCellClause<SemanticId, SemanticTerm>],
+    clauses: &[krs_ir::ConfigurationClause<SemanticId, SemanticTerm>],
     stdin: &BTreeMap<SemanticId, String>,
 ) -> Result<(), DescriptorLoweringError> {
     for (index, clause) in clauses.iter().enumerate() {

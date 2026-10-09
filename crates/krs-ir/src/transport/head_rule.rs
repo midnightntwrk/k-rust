@@ -111,6 +111,21 @@ protocol_shape! {
             /// Complete replacement cell content.
             after: T => [term_map],
         },
+        /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(..)`,
+        /// `None`, or an instance list, matched and possibly rewritten.
+        RewriteState {
+            /// Selected cell, anchored at the authored subject field.
+            cell: I => [cell_map],
+            /// Authored result-field provenance, absent when the result
+            /// leaves the cell out (it is then read only).
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            result_key: Option<ProvenanceKey> => [keep],
+            /// The matched state.
+            before: crate::ProtocolRuleStateTerm<T> => [nested term_map],
+            /// The rewritten state.
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            after: Option<crate::ProtocolRuleStateTerm<T>> => [option nested term_map],
+        },
     }
 }
 
@@ -374,6 +389,20 @@ fn validate_fresh<S: crate::Stage>(
     Ok(())
 }
 
+/// A readable optional or collection extra pairs states of one family: `Some`
+/// or `None` on both sides, or an instance list on both sides.
+fn readable_state_extra<T>(
+    before: &crate::ProtocolRuleStateTerm<T>,
+    after: Option<&crate::ProtocolRuleStateTerm<T>>,
+) -> bool {
+    use crate::ProtocolRuleStateTerm as State;
+    let optional = |state: &State<T>| matches!(state, State::Present { .. } | State::Absent);
+    match (before, after) {
+        (State::Instances(_), None | Some(State::Instances(_))) => true,
+        (before, after) => optional(before) && after.is_none_or(optional),
+    }
+}
+
 fn validate_bindings<S, I, T>(
     bindings: &[ProtocolHeadRuleBinding<S>],
     extras: &[ProtocolHeadRuleExtra<I, T>],
@@ -391,7 +420,8 @@ fn validate_bindings<S, I, T>(
         let introduced = match extra {
             ProtocolHeadRuleExtra::HaveMap { value_binding, .. } => value_binding,
             ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => base_binding,
-            ProtocolHeadRuleExtra::RewriteCell { .. } => continue,
+            ProtocolHeadRuleExtra::RewriteCell { .. }
+            | ProtocolHeadRuleExtra::RewriteState { .. } => continue,
         };
         if !names.contains(introduced.as_str()) {
             return Err(StateTransportError::InvalidTerm(
@@ -511,6 +541,25 @@ impl HostHeadRule {
                     }
                     cell
                 }
+                ProtocolHeadRuleExtra::RewriteState {
+                    cell,
+                    result_key,
+                    before,
+                    after,
+                } => {
+                    if cell.key.role() != ProvenanceRole::RuleLeftCellsField
+                        || result_key
+                            .as_ref()
+                            .is_some_and(|key| key.role() != ProvenanceRole::RuleRightCellsField)
+                        || result_key.is_some() != after.is_some()
+                        || !readable_state_extra(before, after.as_ref())
+                    {
+                        return Err(StateTransportError::InvalidTerm(
+                            StateTermReason::InvalidReadableStateExtra,
+                        ));
+                    }
+                    cell
+                }
             };
             if cell.name.is_empty() || !cells.insert(cell.name.as_str()) {
                 return Err(StateTransportError::DuplicateValue(
@@ -555,8 +604,11 @@ impl DescriptorHeadRule {
                 StateTermReason::HeadRuleHeaderOwnership,
             ));
         }
+        // The computation cell may sit inside a nested cell, such as the
+        // `<k>` of each `<thread>` instance (KF-023).
         if let Some(computation) = &self.computation_cell
             && computation.cell.owner != self.configuration
+            && computation.cell.owner.item_kind() != ItemKind::Cell
         {
             return Err(StateTransportError::CellOwnerMismatch);
         }
@@ -593,7 +645,8 @@ impl DescriptorHeadRule {
             let cell = match extra {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. }
                 | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
-                | ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
+                | ProtocolHeadRuleExtra::RewriteCell { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteState { cell, .. } => cell,
             };
             if cell.cell.owner != self.configuration
                 && cell.cell.owner.item_kind() != ItemKind::Cell

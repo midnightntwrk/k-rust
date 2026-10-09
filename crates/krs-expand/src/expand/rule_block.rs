@@ -153,6 +153,11 @@ fn expand_head_rule(
     let mut update_ordinal = 0_u32;
     let mut have_extras = Vec::new();
     let mut rewrite_befores = Vec::new();
+    let mut state_befores = Vec::new();
+    // Optional and collection states (KF-023) number their sequence and
+    // instance keys per side, as the parser numbers their anchors.
+    let mut left_states = krs_syntax::ReadableStateCounters::default();
+    let mut right_states = krs_syntax::ReadableStateCounters::after_head(clause.head_result());
     for extra in clause.extras() {
         match extra {
             krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
@@ -190,6 +195,26 @@ fn expand_head_rule(
                 })?;
                 rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
             }
+            krs_syntax::RuleExtra::RewriteState { cell, before, .. } => {
+                let before = readable_state_wire(
+                    before,
+                    &mut ReadableStateContext {
+                        builder: &mut builder,
+                        slots: &mut slots,
+                        counters: &mut left_states,
+                        side: krs_syntax::RuleSide::Left,
+                    },
+                )?;
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell reads",
+                    )
+                })?;
+                state_befores.push((cell.unraw().to_string(), ordinal, before));
+            }
             krs_syntax::RuleExtra::UpdateMap { .. } => {}
         }
     }
@@ -215,8 +240,54 @@ fn expand_head_rule(
         .map(|(subject, result)| krs_ir::wire::WireHeadRuleHead { subject, result });
     let mut update_extras = Vec::new();
     let mut rewrite_index = 0_usize;
+    let mut state_index = 0_usize;
     for extra in clause.extras() {
         match extra {
+            krs_syntax::RuleExtra::RewriteState {
+                cell,
+                result_cell,
+                after,
+                ..
+            } => {
+                let (cell_name, left_ordinal, before) = &state_befores[state_index];
+                state_index += 1;
+                debug_assert_eq!(cell_name, &cell.unraw().to_string());
+                let (result_key, after) = match (result_cell, after) {
+                    (Some(result_cell), Some(after)) => {
+                        let after = readable_state_wire(
+                            after,
+                            &mut ReadableStateContext {
+                                builder: &mut builder,
+                                slots: &mut slots,
+                                counters: &mut right_states,
+                                side: krs_syntax::RuleSide::Right,
+                            },
+                        )?;
+                        let right_ordinal = update_ordinal;
+                        update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                            ExpandError::new(
+                                expand::DESCRIPTOR_CAPACITY,
+                                result_cell.span(),
+                                "too many readable cell updates",
+                            )
+                        })?;
+                        (
+                            Some(rule_right_cells_field_role.key(right_ordinal)),
+                            Some(after),
+                        )
+                    }
+                    _ => (None, None),
+                };
+                update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteState {
+                    cell: krs_ir::wire::WireHeadRuleCellReference {
+                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        name: cell_name.clone(),
+                    },
+                    result_key,
+                    before: before.clone(),
+                    after,
+                });
+            }
             krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
                 let cell_name = cell.unraw().to_string();
                 let base_binding = base.unraw().to_string();
@@ -423,5 +494,176 @@ fn expand_head_rule(
         #(#key_functions)*
 
         #factory_tokens
+    })
+}
+
+struct ReadableStateContext<'a, 'b> {
+    builder: &'a mut TermBuilder<'b>,
+    slots: &'a mut WireSlots,
+    counters: &'a mut krs_syntax::ReadableStateCounters,
+    side: krs_syntax::RuleSide,
+}
+
+impl ReadableStateContext<'_, '_> {
+    fn key(
+        role: krs_syntax::RuleRole,
+        side: krs_syntax::RuleSide,
+        counter: &mut usize,
+    ) -> crate::Result<krs_ir::ProvenanceKey> {
+        let ordinal = u32::try_from(*counter).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                proc_macro2::Span::call_site(),
+                "too many readable state keys",
+            )
+        })?;
+        *counter += 1;
+        Ok(role.on_side(side).key(ordinal))
+    }
+}
+
+/// The wire form of a readable optional or collection state (KF-023): its
+/// terms come from the shared term builder and its sequence and instance keys
+/// follow `krs_syntax::ReadableStateCounters`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One match maps every readable state shape to the wire in the expansion order the anchors follow."
+)]
+fn readable_state_wire(
+    state: &krs_syntax::StateTerm,
+    context: &mut ReadableStateContext<'_, '_>,
+) -> crate::Result<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    use krs_syntax::{RuleRole, StateMacroRemainder, StateTerm};
+    let term_side = match context.side {
+        krs_syntax::RuleSide::Left => TermSide::Left,
+        krs_syntax::RuleSide::Right => TermSide::Right,
+    };
+    let side = context.side;
+    Ok(match state {
+        StateTerm::Present(inner) => State::Present {
+            value: Box::new(readable_state_wire(inner, context)?),
+        },
+        StateTerm::Absent(_) => State::Absent,
+        StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
+            context
+                .builder
+                .expand_wire(term.tree(), term_side, context.slots)?,
+        ),
+        StateTerm::KSequence(sequence) => {
+            let payload_key = if sequence.items().is_empty()
+                && matches!(sequence.tail(), StateMacroRemainder::Exact)
+            {
+                None
+            } else {
+                Some(ReadableStateContext::key(
+                    RuleRole::KSequencePayload,
+                    side,
+                    &mut context.counters.k_payload,
+                )?)
+            };
+            let mut items = Vec::new();
+            for item in sequence.items() {
+                let key = ReadableStateContext::key(
+                    RuleRole::KSequenceItem,
+                    side,
+                    &mut context.counters.k_item,
+                )?;
+                items.push(krs_ir::ProtocolRuleKSequenceItem {
+                    key,
+                    value: context
+                        .builder
+                        .expand_wire(item.tree(), term_side, context.slots)?,
+                });
+            }
+            let tail = match sequence.tail() {
+                StateMacroRemainder::Anonymous(_) => krs_ir::ProtocolRuleFrame::Anonymous {
+                    key: ReadableStateContext::key(
+                        RuleRole::KSequenceTail,
+                        side,
+                        &mut context.counters.k_tail,
+                    )?,
+                },
+                _ => krs_ir::ProtocolRuleFrame::Exact,
+            };
+            State::KSequence(krs_ir::ProtocolRuleKSequence {
+                payload_key,
+                dot_k_key: None,
+                notation: krs_ir::DescriptorKSequenceNotation::Comma,
+                items,
+                tail,
+            })
+        }
+        StateTerm::Map(map) => {
+            let _ = map;
+            return Err(ExpandError::new(
+                expand::CELL_COLLECTION_PLACEMENT,
+                proc_macro2::Span::call_site(),
+                "a readable collection instance holds terms and `[..]` sequences; write a map child with `cells!`",
+            ));
+        }
+        StateTerm::Instances(list) => {
+            let instance = |item: &krs_syntax::InstanceItem,
+                            context: &mut ReadableStateContext<'_, '_>|
+             -> crate::Result<
+                krs_ir::ProtocolRuleInstance<krs_ir::wire::WireTerm>,
+            > {
+                let key = ReadableStateContext::key(
+                    RuleRole::CellsInstance,
+                    side,
+                    &mut context.counters.instance,
+                )?;
+                let mut fields = Vec::new();
+                for field in item.fields() {
+                    let key = ReadableStateContext::key(
+                        RuleRole::CellsInstanceField,
+                        side,
+                        &mut context.counters.instance_field,
+                    )?;
+                    fields.push(krs_ir::ProtocolRuleInstanceField {
+                        key,
+                        field: field.name().to_string(),
+                        value: readable_state_wire(field.value(), context)?,
+                    });
+                }
+                Ok(krs_ir::ProtocolRuleInstance {
+                    key,
+                    label: item.label().map(ToString::to_string),
+                    fields,
+                    rest: super::state_rules::instance_rest(item.rest()),
+                })
+            };
+            let front = list
+                .front()
+                .iter()
+                .map(|item| instance(item, context))
+                .collect::<crate::Result<Vec<_>>>()?;
+            let rest = match list.rest() {
+                StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
+                _ => krs_ir::ProtocolRuleFrame::Anonymous {
+                    key: ReadableStateContext::key(
+                        RuleRole::CellsInstancesRest,
+                        side,
+                        &mut context.counters.instances_rest,
+                    )?,
+                },
+            };
+            let back = list
+                .back()
+                .iter()
+                .map(|item| instance(item, context))
+                .collect::<crate::Result<Vec<_>>>()?;
+            State::Instances(krs_ir::ProtocolRuleInstances {
+                delimiter: match list.delimiter() {
+                    krs_syntax::InstanceListDelimiter::Brace => krs_ir::InstanceDelimiter::Brace,
+                    krs_syntax::InstanceListDelimiter::Bracket => {
+                        krs_ir::InstanceDelimiter::Bracket
+                    }
+                },
+                front,
+                rest,
+                back,
+            })
+        }
     })
 }

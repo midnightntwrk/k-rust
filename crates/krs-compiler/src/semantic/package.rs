@@ -462,6 +462,15 @@ fn collect_head_rule_packages(
                 collect_term_packages(before, packages);
                 collect_term_packages(after, packages);
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                for term in before
+                    .terms()
+                    .into_iter()
+                    .chain(after.iter().flat_map(|after| after.terms()))
+                {
+                    collect_term_packages(term, packages);
+                }
+            }
         }
     }
     if let Some(requires) = &rule.requires {
@@ -579,6 +588,13 @@ fn collect_rule_cells_packages(cells: &DescriptorRuleCells, packages: &mut BTree
     for cell in &cells.cells {
         packages.insert(cell.field.cell.owner.package().clone());
         match &cell.value {
+            ProtocolRuleStateTerm::Present { .. }
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_) => {
+                for term in cell.value.terms() {
+                    collect_term_packages(term, packages);
+                }
+            }
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
                 collect_term_packages(term, packages);
             }

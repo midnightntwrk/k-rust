@@ -243,6 +243,8 @@ protocol_shape! {
         MapFrame,
         /// Named remainder of the complete fixed configuration.
         ConfigurationFrame,
+        /// Named rest of a collection cell's instances (KF-023).
+        InstancesFrame,
     }
 }
 
@@ -404,6 +406,123 @@ protocol_shape! {
         /// A whole nested (group) cell, written without a wrapper: a group
         /// binder, `_`, or a complete `k::fragment!` term (KF-016).
         Group(value: T => [term_map]),
+        /// `Some(..)` of an optional (`?`) cell: the present cell's state
+        /// (KF-023).
+        Present {
+            /// The state inside `Some(..)`.
+            value: Box<ProtocolRuleStateTerm<T>> => [box nested term_map],
+        },
+        /// `None` of an optional (`?`) cell: the cell is absent (KF-023).
+        Absent,
+        /// The instances of a collection (`*`) cell (KF-023).
+        Instances(value: ProtocolRuleInstances<T> => [nested term_map]),
+    }
+}
+
+impl<T> ProtocolRuleStateTerm<T> {
+    /// Every term of the state in traversal order: a term or group, the
+    /// items of a K sequence, the terms of a map, the inside of `Some(..)`,
+    /// and the children of collection instances.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&T> {
+        match self {
+            Self::Term(term) | Self::Group(term) => vec![term],
+            Self::KSequence(sequence) => sequence.items.iter().map(|item| &item.value).collect(),
+            Self::Map(map) => match &map.body {
+                ProtocolRuleMapBody::Empty { .. } => Vec::new(),
+                ProtocolRuleMapBody::Items { items, .. } => items
+                    .iter()
+                    .flat_map(|item| [&item.key, &item.value])
+                    .collect(),
+                ProtocolRuleMapBody::Update {
+                    base, key, value, ..
+                } => vec![base, key, value],
+            },
+            Self::Present { value } => value.terms(),
+            Self::Absent => Vec::new(),
+            Self::Instances(instances) => instances
+                .front
+                .iter()
+                .chain(&instances.back)
+                .flat_map(|instance| &instance.fields)
+                .flat_map(|field| field.value.terms())
+                .collect(),
+        }
+    }
+}
+
+/// The delimiter of a collection-cell entry (KF-023, R8): braces for Set and
+/// Map collections, brackets for List collections.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstanceDelimiter {
+    /// `{ .. }`: some instances of a Set or Map collection.
+    Brace,
+    /// `[ .. ]`: the ends of a List collection.
+    Bracket,
+}
+
+/// The rest of one collection instance record (KF-023).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "instance_rest", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProtocolInstanceRest {
+    /// No rest: the record names every child.
+    Exact,
+    /// `..`: in a pattern the other children are unconstrained; in a result
+    /// they take their template defaults.
+    Open,
+    /// `..label` in a result: the matched instance `label`, updated.
+    Update {
+        /// The pattern instance label.
+        label: String,
+    },
+}
+
+protocol_shape! {
+    /// One child cell named inside a collection instance record (KF-023).
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleInstanceField<T => term_map => T2> {
+        /// Exact child-field provenance.
+        pub key: ProvenanceKey => [keep],
+        /// The child's Rust field name in the instance's cell declaration.
+        pub field: String => [keep],
+        /// The child's state.
+        pub value: ProtocolRuleStateTerm<T> => [nested term_map],
+    }
+}
+
+protocol_shape! {
+    /// One instance record of a collection-cell entry (KF-023).
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleInstance<T => term_map => T2> {
+        /// Exact instance-record provenance.
+        pub key: ProvenanceKey => [keep],
+        /// The authored pattern label (`me @ ..`); a label is not a binder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub label: Option<String> => [keep],
+        /// The named children in authored order.
+        pub fields: Vec<ProtocolRuleInstanceField<T>> => [vec nested term_map],
+        /// The record's rest.
+        pub rest: ProtocolInstanceRest => [keep],
+    }
+}
+
+protocol_shape! {
+    /// The instances one collection-cell entry names (KF-023).
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleInstances<T => term_map => T2> {
+        /// Braces (Set, Map) or brackets (List).
+        pub delimiter: InstanceDelimiter => [keep],
+        /// The instances before the rest (every instance of a braced list).
+        pub front: Vec<ProtocolRuleInstance<T>> => [vec nested term_map],
+        /// The other instances: exact, `..`, `rest @ ..`, or `..rest`.
+        pub rest: ProtocolRuleFrame => [keep],
+        /// The instances after the rest of a bracketed list.
+        #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+        pub back: Vec<ProtocolRuleInstance<T>> => [vec nested term_map],
     }
 }
 
@@ -757,7 +876,11 @@ fn validate_context_alias_frames<I, T, S>(
         .collect::<BTreeSet<_>>();
     let mut discovered = BTreeSet::new();
     for cell in &cells.cells {
-        match &cell.value {
+        let mut value = &cell.value;
+        while let ProtocolRuleStateTerm::Present { value: inner } = value {
+            value = inner;
+        }
+        match value {
             ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => {}
             ProtocolRuleStateTerm::KSequence(sequence) => validate_context_alias_frame(
                 &sequence.tail,
@@ -774,6 +897,14 @@ fn validate_context_alias_frames<I, T, S>(
                         &mut discovered,
                     )?;
                 }
+            }
+            // A context alias is a one-sided pattern over fixed cells.
+            ProtocolRuleStateTerm::Present { .. }
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_) => {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::InvalidOptionalCellEntry,
+                ));
             }
         }
     }
@@ -852,6 +983,15 @@ fn count_here_in_state(state: &ProtocolRuleStateTerm<DescriptorTerm>, here: &str
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
             count_here_in_term(term, here)
         }
+        ProtocolRuleStateTerm::Present { value } => count_here_in_state(value, here),
+        ProtocolRuleStateTerm::Absent => 0,
+        ProtocolRuleStateTerm::Instances(instances) => instances
+            .front
+            .iter()
+            .chain(&instances.back)
+            .flat_map(|instance| &instance.fields)
+            .map(|field| count_here_in_state(&field.value, here))
+            .sum(),
         ProtocolRuleStateTerm::KSequence(sequence) => sequence
             .items
             .iter()
@@ -969,6 +1109,20 @@ fn collect_state_keys(
     match state {
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
             collect_term_keys(term, keys);
+        }
+        ProtocolRuleStateTerm::Present { value } => collect_state_keys(value, keys),
+        ProtocolRuleStateTerm::Absent => {}
+        ProtocolRuleStateTerm::Instances(instances) => {
+            if let Some(key) = frame_key(&instances.rest) {
+                keys.insert(key.clone());
+            }
+            for instance in instances.front.iter().chain(&instances.back) {
+                keys.insert(instance.key.clone());
+                for field in &instance.fields {
+                    keys.insert(field.key.clone());
+                    collect_state_keys(&field.value, keys);
+                }
+            }
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
             keys.extend(sequence.payload_key.iter().cloned());
@@ -1230,6 +1384,7 @@ enum RuleBindingUse {
     KSequenceFrame,
     MapFrame,
     ConfigurationFrame,
+    InstancesFrame,
 }
 
 fn claim_checked_index(index: usize) -> Result<u32, StateTransportError> {
@@ -1316,6 +1471,9 @@ impl TermRole {
 struct RuleCounters {
     path: u32,
     cells_field: u32,
+    cells_instance: u32,
+    cells_instance_field: u32,
+    cells_instances_rest: u32,
     cells_wrapper: u32,
     cells_remainder: u32,
     k_payload: u32,
@@ -2183,12 +2341,30 @@ fn validate_rule_wrapper<T>(
     value: &ProtocolRuleStateTerm<T>,
 ) -> Result<(), StateTransportError> {
     match (wrapper, value) {
+        (_, ProtocolRuleStateTerm::Present { value }) => {
+            if matches!(
+                **value,
+                ProtocolRuleStateTerm::Present { .. }
+                    | ProtocolRuleStateTerm::Absent
+                    | ProtocolRuleStateTerm::Instances(_)
+            ) {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::InvalidOptionalCellEntry,
+                ));
+            }
+            validate_rule_wrapper(wrapper, value)
+        }
         (Some(CellWrapper::KCell), ProtocolRuleStateTerm::KSequence(_))
         | (
             Some(CellWrapper::Cell),
             ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_),
         )
-        | (None, ProtocolRuleStateTerm::Group(_)) => Ok(()),
+        | (
+            None,
+            ProtocolRuleStateTerm::Group(_)
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_),
+        ) => Ok(()),
         _ => Err(StateTransportError::InvalidCellContent(
             StateCellContentReason::RuleWrapperAndStateFamilyDisagree,
         )),
@@ -2210,6 +2386,13 @@ fn validate_rule_state<S: RuleValidationStage>(
     match state {
         ProtocolRuleStateTerm::Term(term) => {
             validate_rule_term::<S>(term, side.into(), bindings, discovered, counters, keys)
+        }
+        ProtocolRuleStateTerm::Present { value } => {
+            validate_rule_state::<S>(value, side, bindings, discovered, counters, keys)
+        }
+        ProtocolRuleStateTerm::Absent => Ok(()),
+        ProtocolRuleStateTerm::Instances(instances) => {
+            validate_rule_instances::<S>(instances, side, bindings, discovered, counters, keys)
         }
         ProtocolRuleStateTerm::Group(term) => {
             if !matches!(
@@ -2358,6 +2541,105 @@ fn validate_rule_state<S: RuleValidationStage>(
             }
         }
     }
+}
+
+/// Validates a collection entry (KF-023): instance keys, child keys, labels
+/// on the subject only, `..label` on the result only, children named once,
+/// back instances only after the rest of a bracketed list, and the rest.
+fn validate_rule_instances<S: RuleValidationStage>(
+    instances: &ProtocolRuleInstances<Term<S>>,
+    side: RuleSide,
+    bindings: &[ProtocolRuleBinding<S::Sort>],
+    discovered: &mut Vec<String>,
+    counters: &mut RuleCounters,
+    keys: &mut BTreeSet<ProvenanceKey>,
+) -> Result<(), StateTransportError> {
+    let invalid =
+        || StateTransportError::InvalidCellContent(StateCellContentReason::InvalidInstanceEntry);
+    if !instances.back.is_empty()
+        && (instances.delimiter != InstanceDelimiter::Bracket
+            || matches!(instances.rest, ProtocolRuleFrame::Exact))
+    {
+        return Err(invalid());
+    }
+    let validate_instance = |instance: &ProtocolRuleInstance<Term<S>>,
+                             discovered: &mut Vec<String>,
+                             counters: &mut RuleCounters,
+                             keys: &mut BTreeSet<ProvenanceKey>|
+     -> Result<(), StateTransportError> {
+        insert_state_exact(
+            keys,
+            &instance.key,
+            side,
+            RuleRole::CellsInstance,
+            counters.cells_instance,
+        )?;
+        counters.cells_instance = rule_increment(counters.cells_instance)?;
+        let rest_valid = match (&instance.rest, side) {
+            (ProtocolInstanceRest::Update { label }, RuleSide::Right) => !label.is_empty(),
+            (ProtocolInstanceRest::Update { .. }, RuleSide::Left) => false,
+            (ProtocolInstanceRest::Exact | ProtocolInstanceRest::Open, _) => true,
+        };
+        if !rest_valid
+            || (side == RuleSide::Right && instance.label.is_some())
+            || instance.label.as_ref().is_some_and(String::is_empty)
+        {
+            return Err(invalid());
+        }
+        let mut names = BTreeSet::new();
+        for field in &instance.fields {
+            if field.field.is_empty() || !names.insert(field.field.as_str()) {
+                return Err(invalid());
+            }
+            insert_state_exact(
+                keys,
+                &field.key,
+                side,
+                RuleRole::CellsInstanceField,
+                counters.cells_instance_field,
+            )?;
+            counters.cells_instance_field = rule_increment(counters.cells_instance_field)?;
+            if matches!(
+                field.value,
+                ProtocolRuleStateTerm::Present { .. }
+                    | ProtocolRuleStateTerm::Absent
+                    | ProtocolRuleStateTerm::Instances(_)
+            ) {
+                return Err(invalid());
+            }
+            validate_rule_state::<S>(&field.value, side, bindings, discovered, counters, keys)?;
+        }
+        Ok(())
+    };
+    for instance in &instances.front {
+        validate_instance(instance, discovered, counters, keys)?;
+    }
+    match (side, &instances.rest) {
+        (RuleSide::Right, ProtocolRuleFrame::Anonymous { key }) => {
+            insert_state_exact(
+                keys,
+                key,
+                side,
+                RuleRole::CellsInstancesRest,
+                counters.cells_instances_rest,
+            )?;
+            counters.cells_instances_rest = rule_increment(counters.cells_instances_rest)?;
+        }
+        (_, rest) => validate_frame(
+            rest,
+            side,
+            RuleRole::CellsInstancesRest,
+            bindings,
+            RuleBindingUse::InstancesFrame,
+            discovered,
+            &mut counters.cells_instances_rest,
+            keys,
+        )?,
+    }
+    for instance in &instances.back {
+        validate_instance(instance, discovered, counters, keys)?;
+    }
+    Ok(())
 }
 
 fn validate_k_shell<T>(
@@ -3121,6 +3403,7 @@ fn binding_kind<S>(kind: &ProtocolRuleBindingKind<S>) -> RuleBindingUse {
         ProtocolRuleBindingKind::KSequenceFrame => RuleBindingUse::KSequenceFrame,
         ProtocolRuleBindingKind::MapFrame => RuleBindingUse::MapFrame,
         ProtocolRuleBindingKind::ConfigurationFrame => RuleBindingUse::ConfigurationFrame,
+        ProtocolRuleBindingKind::InstancesFrame => RuleBindingUse::InstancesFrame,
     }
 }
 

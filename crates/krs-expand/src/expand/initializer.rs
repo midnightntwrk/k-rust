@@ -200,30 +200,62 @@ fn inject_initializer_cell_list(
                 "initializer field disappeared during wrapper injection",
             ));
         };
-        qualify_initializer_state_macro(&mut field.expr, facade)?;
+        // `Some(template)` of an optional cell: the template takes the wrapper
+        // (KF-023, R7).
+        let expression = if cell.is_optional() {
+            match &mut field.expr {
+                syn::Expr::Call(call) if call.args.len() == 1 => {
+                    call.args.first_mut().expect("`Some(..)` has one argument")
+                }
+                other => {
+                    return Err(ExpandError::new(
+                        expand::INITIALIZER_CELL_SHAPE,
+                        other.span(),
+                        "an optional cell's initializer is `Some(template)`",
+                    ));
+                }
+            }
+        } else {
+            &mut field.expr
+        };
+        let has_colon = field.colon_token.is_some();
+        inject_initializer_value(expression, cell, facade)?;
+        if !has_colon {
+            field.colon_token = Some(syn::token::Colon::default());
+        }
+    }
+    Ok(())
+}
+
+fn inject_initializer_value(
+    expression: &mut syn::Expr,
+    cell: &FixedCellInitializer,
+    facade: &Path,
+) -> crate::Result<()> {
+    {
+        qualify_initializer_state_macro(expression, facade)?;
         match cell.content() {
             InitializerCellContent::Leaf {
                 computation,
                 inferred_constructor: true,
                 ..
             } => {
-                let value = if is_ground_initializer_term(&field.expr) {
+                let value = if is_ground_initializer_term(expression) {
                     parse_quote!(#facade::configuration::__term())
                 } else {
-                    field.expr.clone()
+                    expression.clone()
                 };
-                field.expr = if *computation {
+                *expression = if *computation {
                     parse_quote!(#facade::configuration::KCell::new(#value))
                 } else {
                     parse_quote!(#facade::configuration::Cell::new(#value))
                 };
-                field.colon_token = Some(syn::token::Colon::default());
             }
             InitializerCellContent::Leaf {
                 inferred_constructor: false,
                 ..
             } => {
-                if let syn::Expr::Call(call) = &mut field.expr
+                if let syn::Expr::Call(call) = expression
                     && let Some(argument) = call.args.first_mut()
                     && is_ground_initializer_term(argument)
                 {
@@ -231,10 +263,10 @@ fn inject_initializer_cell_list(
                 }
             }
             InitializerCellContent::Nested { children, .. } => {
-                let syn::Expr::Struct(nested) = &mut field.expr else {
+                let syn::Expr::Struct(nested) = expression else {
                     return Err(ExpandError::new(
                         expand::INITIALIZER_CELL_SHAPE,
-                        field.expr.span(),
+                        expression.span(),
                         "a nested fixed-cell initializer must be a struct expression",
                     ));
                 };
@@ -406,6 +438,9 @@ impl<'a> InitializerBuilder<'a> {
         state: &StateTerm,
     ) -> crate::Result<ProtocolInitializerStateTerm<WireTerm>> {
         match state {
+            StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+                unreachable!("initializers hold templates only")
+            }
             StateTerm::Term(term) | StateTerm::Group(term) => {
                 let term = self.expand_term(term, None)?;
                 Ok(ProtocolInitializerStateTerm::Term(term))

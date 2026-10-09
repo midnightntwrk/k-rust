@@ -109,6 +109,7 @@ fn cell_field(
         cell_type: None,
         stream: None,
         exit: None,
+        initial: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
             wrapper,
@@ -510,7 +511,7 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
     };
     assert_eq!(rule.clauses().len(), 2);
     assert!(matches!(
-        rule.clauses()[1].after(),
+        rule.clauses()[1].as_fixed().unwrap().after(),
         krs_ir::CellPost::Preserve
     ));
     let (_lowered, emitted) = assert_lowering_contract(&semantic);
@@ -579,7 +580,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     else {
         panic!("a configuration rule must remain a simultaneous configuration rewrite");
     };
-    let env = &rewrite.clauses()[1];
+    let env = rewrite.clauses()[1].as_fixed().unwrap();
     assert!(matches!(env.frame(), krs_ir::CellContentFrame::Exact));
     assert!(matches!(
         env.before().kind(),
@@ -872,7 +873,7 @@ fn an_exit_cell_must_be_an_int_outside_every_repeated_cell() {
         set_leaf_sort(env, BuiltinSort::Int);
         env.multiplicity = Some(krs_ir::DescriptorCellMultiplicity {
             key: key(ProvenanceRole::ConfigurationCellMultiplicity, 1),
-            value: "*".into(),
+            value: "?".into(),
         });
         env.exit = Some(exit(1));
     });

@@ -2,7 +2,7 @@
 
 use krs_compiler::{MappedIdentity, SourceMap, SymbolMap, definition_module_imports};
 use krs_ir::{
-    ApplicationRef, CellPost, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
+    ApplicationRef, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
     FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, OriginFrame,
     ProductionAttribute, RangedOriginKind, SentenceKind,
 };
@@ -532,24 +532,42 @@ fn rule_body(
             "to": context.term(term.to()),
         }),
         RuleBodyRef::Configuration { body, .. } => {
+            // Each cell-level part: a fixed clause, a present optional cell, or
+            // an instance's child (KF-023); a removed cell has no `to`, a
+            // created one no `from`.
             let clauses = body
-                .clauses()
-                .iter()
-                .map(|clause| {
-                    // A single-body clause (KF-011) projects to its images.
-                    let (from, to) = match clause.after() {
-                        CellPost::Preserve => (clause.before().clone(), clause.before().clone()),
-                        CellPost::Replace { term } => (clause.before().clone(), term.clone()),
-                        CellPost::Local => {
-                            (clause.before().pre_pattern(), clause.before().post_term())
-                        }
-                    };
-                    json!({
-                        "cell": context.cells[clause.cell()],
-                        "from": context.term(&from),
-                        "to": context.term(&to),
-                        "frame": frame_fact(clause.frame()),
-                    })
+                .parts()
+                .into_iter()
+                .map(|part| match part {
+                    krs_ir::ClausePart::Matched {
+                        cell,
+                        before,
+                        after,
+                        frame,
+                        ..
+                    } => {
+                        // A single-body clause (KF-011) projects to its images.
+                        let (from, to) = match after {
+                            krs_ir::PartPost::Preserve => (before.clone(), Some(before.clone())),
+                            krs_ir::PartPost::Replace(term) => (before.clone(), Some(term.clone())),
+                            krs_ir::PartPost::Local => {
+                                (before.pre_pattern(), Some(before.post_term()))
+                            }
+                            krs_ir::PartPost::Removed => (before.clone(), None),
+                        };
+                        json!({
+                            "cell": context.cells[cell],
+                            "from": context.term(&from),
+                            "to": to.map(|to| context.term(&to)),
+                            "frame": frame_fact(frame),
+                        })
+                    }
+                    krs_ir::ClausePart::Written { cell, term, .. } => json!({
+                        "cell": context.cells[cell],
+                        "from": null,
+                        "to": context.term(term),
+                        "frame": frame_fact(&krs_ir::CellContentFrame::Exact),
+                    }),
                 })
                 .collect::<Vec<_>>();
             json!({"kind": "configuration_rewrite", "clauses": clauses})
@@ -701,25 +719,15 @@ fn operations(
                         }
                     }
                     RuleBodyRef::Configuration { body: c, .. } => {
-                        for clause in c.clauses() {
+                        for term in c.parts().iter().flat_map(krs_ir::ClausePart::terms) {
                             context.operation_rows(
-                                clause.before(),
+                                term,
                                 &mut rows,
                                 name,
                                 label,
                                 filter,
                                 include_arguments,
                             );
-                            if let CellPost::Replace { term } = clause.after() {
-                                context.operation_rows(
-                                    term,
-                                    &mut rows,
-                                    name,
-                                    label,
-                                    filter,
-                                    include_arguments,
-                                );
-                            }
                         }
                     }
                 }
@@ -1296,7 +1304,7 @@ mod tests {
     use super::*;
     use krs_ir::testing;
     use krs_ir::{
-        ConfigurationRoot, FixedConfiguration, ItemKind, ModuleId, NodeOrigin, PackageId,
+        CellPost, ConfigurationRoot, FixedConfiguration, ItemKind, ModuleId, NodeOrigin, PackageId,
         SemanticId, StableItemId, TransformationOriginKind,
     };
     use krs_ir_levels::{

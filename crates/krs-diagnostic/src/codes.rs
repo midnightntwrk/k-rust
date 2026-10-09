@@ -107,6 +107,7 @@ register_codes! {
         UNKNOWN_APPLICATION_FIELD: "krs::reference::unknown-application-field" => "A named argument does not belong to its constructor.",
         INVALID_LITERAL: "krs::reference::invalid-literal" => "A canonical integer payload is not valid Rust tokens.",
         UNSUPPORTED_BUILTIN_TOKEN: "krs::reference::unsupported-builtin-token" => "A builtin token sort has no reference spelling.",
+        UNSUPPORTED_STATE: "krs::reference::unsupported-state" => "A readable optional or collection entry has a shape with no reference spelling.",
     }
     /// Diagnostics from native Definition compilation.
     native {
@@ -217,6 +218,14 @@ register_codes! {
         INVALID_LOCAL_REWRITE: "krs::analysis::invalid-local-rewrite" => "A single-body rule (`k::rewrite!`) changes no cell, or a rewrite side has no sort both images admit.",
         INVALID_HEAT_COOL: "krs::analysis::invalid-heat-cool" => "A heat or cool rule's `hole = x` binder does not occur on its left side, or occurs there more than once.",
         INVALID_CONTEXT: "krs::analysis::invalid-context" => "A context's `hole = x` binder is absent, bound twice, or outside the computation cell, or its rewrite is not `HOLE => term-containing-HOLE`; or a context alias's HERE is outside the computation cell.",
+        OPTIONAL_PRESENCE: "krs::analysis::optional-presence" => "An optional (`?`) cell is written without `Some`/`None`, a `Some`/`None` entry names a cell that is not optional, or a rule tests absence other than by creating the cell (`None => Some(..)`).",
+        UNKNOWN_INSTANCE_LABEL: "krs::analysis::unknown-instance-label" => "A result instance updates `..label` without a subject instance `label`, or two result instances update the same label.",
+        MAP_COLLECTION_KEY: "krs::analysis::map-collection-key" => "A created instance of a Map cell collection does not state its key (the first child), or an update changes the key.",
+        NO_CELL_DEFAULT: "krs::analysis::no-cell-default" => "A created instance's `..` defaults a child whose template reads a configuration variable, so K has no default for it.",
+        IMPLICIT_AND_EXPLICIT_INSTANCES: "krs::analysis::implicit-and-explicit-instances" => "A rule names a cell collection's instances and also a cell inside it as the collection's implicit single instance.",
+        COLLECTION_ENTRY: "krs::analysis::collection-entry" => "A collection entry is braced for a List collection or bracketed for a Set or Map collection, names a cell that is not a collection or a child its instance does not declare, or has a shape K cannot express.",
+        COLLECTION_CONFIG_VAR_WITHOUT_INITIAL: "krs::analysis::collection-config-var-without-initial" => "An optional or collection cell's template reads a configuration variable without `initial`, so K starts with the cell present.",
+        COLLECTION_SIBLINGS: "krs::analysis::collection-siblings" => "A `multiplicity = \"*\"` collection cell shares its parent with other cells; K requires it to be the parent's only child.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -365,6 +374,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         TURBOFISH_PLACEMENT: "krs::expand::turbofish-placement" => "A turbofish instance (`Choose::<k::builtin::Int> { .. }`) occurs in an initializer, which builds a concrete value.",
         ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer or a `cells!` cell value.",
         UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",
+        CELL_COLLECTION_PLACEMENT: "krs::expand::cell-collection-placement" => "An optional-cell `Some`/`None` entry or a cell-collection entry occurs in a context alias or an equation's function context, which read fixed cells only.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

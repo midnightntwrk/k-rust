@@ -171,6 +171,9 @@ impl RuleClause {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => written.push(update.term()),
                 RuleExtra::RewriteCell { after, .. } => written.push(after.as_ref()),
+                RuleExtra::RewriteState { after, .. } => {
+                    written.extend(after.iter().flat_map(|after| after.terms()));
+                }
                 RuleExtra::HaveMap { .. } => {}
             }
         }
@@ -354,6 +357,11 @@ impl RuleClause {
         };
         let mut have_cell = 0_usize;
         let mut update_cell = 0_usize;
+        // Optional and collection states (KF-023) number their K-sequence
+        // and instance anchors per side; the right side continues after a
+        // spliced head result's sequence anchors.
+        let mut left_states = ReadableStateCounters::default();
+        let mut right_states = ReadableStateCounters::after_head(self.head_result.as_ref());
         // Wildcards in extra-cell patterns, such as `frame: _`, continue the
         // subject's wildcard ordinals in clause order.
         let mut wildcard = anchors
@@ -420,6 +428,53 @@ impl RuleClause {
                         RuleTermSide::Right,
                         &mut right,
                     )?;
+                }
+                RuleExtra::RewriteState {
+                    cell,
+                    before,
+                    result_cell,
+                    after,
+                } => {
+                    let left_ordinal = checked_ordinal(
+                        have_cell,
+                        ProvenanceRole::RuleLeftCellsField,
+                        cell.span(),
+                    )?;
+                    have_cell += 1;
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::RuleLeftCellsField,
+                        left_ordinal,
+                        TokenRange::for_tokens(cell)?,
+                    ));
+                    append_readable_state_anchors(
+                        &mut anchors,
+                        before,
+                        RuleTermSide::Left,
+                        &mut left,
+                        &mut left_states,
+                        &mut wildcard,
+                    )?;
+                    if let (Some(result_cell), Some(after)) = (result_cell, after) {
+                        let right_ordinal = checked_ordinal(
+                            update_cell,
+                            ProvenanceRole::RuleRightCellsField,
+                            result_cell.span(),
+                        )?;
+                        update_cell += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleRightCellsField,
+                            right_ordinal,
+                            TokenRange::for_tokens(result_cell)?,
+                        ));
+                        append_readable_state_anchors(
+                            &mut anchors,
+                            after,
+                            RuleTermSide::Right,
+                            &mut right,
+                            &mut right_states,
+                            &mut wildcard,
+                        )?;
+                    }
                 }
                 RuleExtra::RewriteCell {
                     cell,
@@ -532,6 +587,9 @@ impl RuleClause {
             match extra {
                 RuleExtra::HaveMap { key, .. } => terms.push(key.nodes()),
                 RuleExtra::RewriteCell { before, .. } => terms.push(before.nodes()),
+                RuleExtra::RewriteState { before, .. } => {
+                    terms.extend(before.terms().into_iter().map(TermExpression::nodes));
+                }
                 RuleExtra::UpdateMap { .. } => {}
             }
         }
@@ -546,6 +604,12 @@ impl RuleClause {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => terms.push(update.term().nodes()),
                 RuleExtra::RewriteCell { after, .. } => terms.push(after.nodes()),
+                RuleExtra::RewriteState { after, .. } => terms.extend(
+                    after
+                        .iter()
+                        .flat_map(|after| after.terms())
+                        .map(TermExpression::nodes),
+                ),
                 RuleExtra::HaveMap { .. } => {}
             }
         }
@@ -557,6 +621,200 @@ impl RuleClause {
         }
         terms
     }
+}
+
+/// Per-side ordinals of the K-sequence and collection anchors of readable
+/// optional and collection states (KF-023). `krs-expand` numbers the keys in
+/// the same traversal order.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReadableStateCounters {
+    /// Next `k` payload ordinal.
+    pub k_payload: usize,
+    /// Next `k` item ordinal.
+    pub k_item: usize,
+    /// Next `k` tail ordinal.
+    pub k_tail: usize,
+    /// Next instance-record ordinal.
+    pub instance: usize,
+    /// Next instance child-field ordinal.
+    pub instance_field: usize,
+    /// Next collection-rest ordinal.
+    pub instances_rest: usize,
+}
+
+impl ReadableStateCounters {
+    /// The right side's counters: a spliced head result owns sequence payload
+    /// `#0` and the first item ordinals.
+    #[must_use]
+    pub fn after_head(head: Option<&RuleHeadResult>) -> Self {
+        match head {
+            Some(RuleHeadResult::Splice { items, .. }) => Self {
+                k_payload: 1,
+                k_item: items.len(),
+                ..Self::default()
+            },
+            _ => Self::default(),
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "Anchors follow the expansion order of every state shape in one walk, matching the wire counters."
+)]
+fn append_readable_state_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    state: &crate::StateTerm,
+    side: RuleTermSide,
+    terms: &mut RuleTermCounters,
+    counters: &mut ReadableStateCounters,
+    wildcard: &mut usize,
+) -> Result<(), SyntaxError> {
+    let left = matches!(side, RuleTermSide::Left);
+    let role = |left_role: ProvenanceRole, right_role: ProvenanceRole| {
+        if left { left_role } else { right_role }
+    };
+    let push = |anchors: &mut Vec<ProvenanceAnchor>,
+                role: ProvenanceRole,
+                counter: &mut usize,
+                range: TokenRange| {
+        anchors.push(ProvenanceAnchor::new(
+            role,
+            checked_ordinal(*counter, role, range.first())?,
+            range,
+        ));
+        *counter += 1;
+        Ok::<_, SyntaxError>(())
+    };
+    match state {
+        crate::StateTerm::Present(inner) => {
+            append_readable_state_anchors(anchors, inner, side, terms, counters, wildcard)?;
+        }
+        crate::StateTerm::Absent(_) => {}
+        crate::StateTerm::Term(term) | crate::StateTerm::Group(term) => {
+            append_readable_term_anchors(anchors, term, side, terms, wildcard)?;
+        }
+        crate::StateTerm::KSequence(sequence) => {
+            for anchor in sequence.provenance()? {
+                let target = match anchor.role() {
+                    ProvenanceRole::KSequencePayload => (
+                        role(
+                            ProvenanceRole::RuleLeftKSequencePayload,
+                            ProvenanceRole::RuleRightKSequencePayload,
+                        ),
+                        &mut counters.k_payload,
+                    ),
+                    ProvenanceRole::KSequenceItem => (
+                        role(
+                            ProvenanceRole::RuleLeftKSequenceItem,
+                            ProvenanceRole::RuleRightKSequenceItem,
+                        ),
+                        &mut counters.k_item,
+                    ),
+                    ProvenanceRole::KSequenceTail => (
+                        role(
+                            ProvenanceRole::RuleLeftKSequenceTail,
+                            ProvenanceRole::RuleRightKSequenceTail,
+                        ),
+                        &mut counters.k_tail,
+                    ),
+                    _ => continue,
+                };
+                push(anchors, target.0, target.1, anchor.range())?;
+            }
+            for item in sequence.items() {
+                append_readable_term_anchors(anchors, item, side, terms, wildcard)?;
+            }
+        }
+        crate::StateTerm::Map(_) => {
+            return Err(SyntaxError::new(
+                crate::SyntaxErrorKind::InvalidStateMacro {
+                    macro_name: "rules",
+                    reason: "a readable collection instance holds terms and `[..]` sequences; write a map child with `cells!`",
+                },
+                proc_macro2::Span::call_site(),
+            ));
+        }
+        crate::StateTerm::Instances(list) => {
+            let instance = |anchors: &mut Vec<ProvenanceAnchor>,
+                            item: &crate::InstanceItem,
+                            counters: &mut ReadableStateCounters,
+                            terms: &mut RuleTermCounters,
+                            wildcard: &mut usize| {
+                push(
+                    anchors,
+                    role(
+                        ProvenanceRole::RuleLeftCellsInstance,
+                        ProvenanceRole::RuleRightCellsInstance,
+                    ),
+                    &mut counters.instance,
+                    item.range(),
+                )?;
+                for field in item.fields() {
+                    push(
+                        anchors,
+                        role(
+                            ProvenanceRole::RuleLeftCellsInstanceField,
+                            ProvenanceRole::RuleRightCellsInstanceField,
+                        ),
+                        &mut counters.instance_field,
+                        TokenRange::for_tokens(field.name())?,
+                    )?;
+                    append_readable_state_anchors(
+                        anchors,
+                        field.value(),
+                        side,
+                        terms,
+                        counters,
+                        wildcard,
+                    )?;
+                }
+                Ok::<_, SyntaxError>(())
+            };
+            for item in list.front() {
+                instance(anchors, item, counters, terms, wildcard)?;
+            }
+            if let Some(range) = list.rest().range() {
+                push(
+                    anchors,
+                    role(
+                        ProvenanceRole::RuleLeftCellsInstancesRest,
+                        ProvenanceRole::RuleRightCellsInstancesRest,
+                    ),
+                    &mut counters.instances_rest,
+                    range,
+                )?;
+            }
+            for item in list.back() {
+                instance(anchors, item, counters, terms, wildcard)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn append_readable_term_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    term: &TermExpression,
+    side: RuleTermSide,
+    terms: &mut RuleTermCounters,
+    wildcard: &mut usize,
+) -> Result<(), SyntaxError> {
+    let left = matches!(side, RuleTermSide::Left);
+    append_rule_term_anchors(anchors, term, side, terms)?;
+    if left {
+        let mut wildcards = Vec::new();
+        term.tree().wildcard_ranges_preorder(&mut wildcards);
+        for range in wildcards {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleLeftWildcard,
+                checked_ordinal(*wildcard, ProvenanceRole::RuleLeftWildcard, range.first())?,
+                range,
+            ));
+            *wildcard += 1;
+        }
+    }
+    Ok(())
 }
 
 /// One block-local enum glob import consumed by `rules!` resolution.

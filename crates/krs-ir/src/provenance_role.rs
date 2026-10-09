@@ -530,6 +530,26 @@ provenance_roles! {
     ContextLabel => "context_label",
     /// Sort path of `result = S` on a `#[k::context_alias]`, K's `result(S)`.
     ContextAliasResult => "context_alias_result",
+    /// Bare `initial` flag of an optional or collection cell (KF-023).
+    ConfigurationCellInitial => "configuration_cell_initial",
+    /// One instance record of a `cells!` collection entry (KF-023).
+    CellsInstance => "cells_instance",
+    /// One child-field name inside a `cells!` collection instance.
+    CellsInstanceField => "cells_instance_field",
+    /// The rest (`..`, `rest @ ..`, `..rest`) of a `cells!` collection entry.
+    CellsInstancesRest => "cells_instances_rest",
+    /// One instance record of a collection entry in a rule subject.
+    RuleLeftCellsInstance => "rule_left_cells_instance",
+    /// One child-field name inside a subject collection instance.
+    RuleLeftCellsInstanceField => "rule_left_cells_instance_field",
+    /// The rest of a collection entry in a rule subject.
+    RuleLeftCellsInstancesRest => "rule_left_cells_instances_rest",
+    /// One instance record of a collection entry in a rule result.
+    RuleRightCellsInstance => "rule_right_cells_instance",
+    /// One child-field name inside a result collection instance.
+    RuleRightCellsInstanceField => "rule_right_cells_instance_field",
+    /// The rest of a collection entry in a rule result.
+    RuleRightCellsInstancesRest => "rule_right_cells_instances_rest",
 }
 
 impl Serialize for ProvenanceRole {
@@ -591,6 +611,12 @@ pub enum RuleRole {
     MapRemainder,
     /// The `MapUpdateBase` standalone role.
     MapUpdateBase,
+    /// The `CellsInstance` standalone role (KF-023).
+    CellsInstance,
+    /// The `CellsInstanceField` standalone role (KF-023).
+    CellsInstanceField,
+    /// The `CellsInstancesRest` standalone role (KF-023).
+    CellsInstancesRest,
 }
 
 impl RuleRole {
@@ -610,6 +636,9 @@ impl RuleRole {
             ProvenanceRole::MapValue => Some(Self::MapValue),
             ProvenanceRole::MapRemainder => Some(Self::MapRemainder),
             ProvenanceRole::MapUpdateBase => Some(Self::MapUpdateBase),
+            ProvenanceRole::CellsInstance => Some(Self::CellsInstance),
+            ProvenanceRole::CellsInstanceField => Some(Self::CellsInstanceField),
+            ProvenanceRole::CellsInstancesRest => Some(Self::CellsInstancesRest),
             _ => None,
         }
     }
@@ -630,6 +659,13 @@ impl RuleRole {
             (RuleSide::Left, Self::MapValue) => ProvenanceRole::RuleLeftMapValue,
             (RuleSide::Left, Self::MapRemainder) => ProvenanceRole::RuleLeftMapRemainder,
             (RuleSide::Left, Self::MapUpdateBase) => ProvenanceRole::RuleLeftMapUpdateBase,
+            (RuleSide::Left, Self::CellsInstance) => ProvenanceRole::RuleLeftCellsInstance,
+            (RuleSide::Left, Self::CellsInstanceField) => {
+                ProvenanceRole::RuleLeftCellsInstanceField
+            }
+            (RuleSide::Left, Self::CellsInstancesRest) => {
+                ProvenanceRole::RuleLeftCellsInstancesRest
+            }
             (RuleSide::Right, Self::CellsPayload) => ProvenanceRole::RuleRightCellsPayload,
             (RuleSide::Right, Self::CellsField) => ProvenanceRole::RuleRightCellsField,
             (RuleSide::Right, Self::CellsWrapper) => ProvenanceRole::RuleRightCellsWrapper,
@@ -642,6 +678,13 @@ impl RuleRole {
             (RuleSide::Right, Self::MapValue) => ProvenanceRole::RuleRightMapValue,
             (RuleSide::Right, Self::MapRemainder) => ProvenanceRole::RuleRightMapRemainder,
             (RuleSide::Right, Self::MapUpdateBase) => ProvenanceRole::RuleRightMapUpdateBase,
+            (RuleSide::Right, Self::CellsInstance) => ProvenanceRole::RuleRightCellsInstance,
+            (RuleSide::Right, Self::CellsInstanceField) => {
+                ProvenanceRole::RuleRightCellsInstanceField
+            }
+            (RuleSide::Right, Self::CellsInstancesRest) => {
+                ProvenanceRole::RuleRightCellsInstancesRest
+            }
         }
     }
 }

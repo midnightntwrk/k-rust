@@ -697,13 +697,13 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
     assert_eq!(step.clauses().len(), 1);
     assert_eq!(step.omitted_siblings().len(), 1);
     assert!(matches!(
-        step.clauses()[0].before().kind(),
+        step.clauses()[0].as_fixed().unwrap().before().kind(),
         krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
             if matches!(items.as_slice(), [item]
                 if matches!(item.kind(), krs_ir_levels::DefinitionTermKind::Application { .. }))
     ));
     assert!(matches!(
-        step.clauses()[0].after(),
+        step.clauses()[0].as_fixed().unwrap().after(),
         CellPost::Replace { term }
             if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
                 if items.len() == 2)
@@ -712,13 +712,16 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         panic!("var must remain a configuration rule")
     };
     assert!(matches!(
-        var_rule.clauses()[1].before().kind(),
+        var_rule.clauses()[1].as_fixed().unwrap().before().kind(),
         krs_ir_levels::DefinitionTermKind::Map(operands)
             if matches!(operands.as_ref(), MapOperands::Items(entries) if entries.len() == 1)
     ));
-    assert!(matches!(var_rule.clauses()[1].after(), CellPost::Preserve));
     assert!(matches!(
-        var_rule.clauses()[1].frame(),
+        var_rule.clauses()[1].as_fixed().unwrap().after(),
+        CellPost::Preserve
+    ));
+    assert!(matches!(
+        var_rule.clauses()[1].as_fixed().unwrap().frame(),
         CellContentFrame::MapRemainder { binding: None, .. }
     ));
     let RuleBodyRef::Configuration {
@@ -728,13 +731,13 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         panic!("assign must remain a configuration rule")
     };
     assert!(matches!(
-        assign_rule.clauses()[0].before().kind(),
+        assign_rule.clauses()[0].as_fixed().unwrap().before().kind(),
         krs_ir_levels::DefinitionTermKind::KSequence { items, .. }
             if matches!(items.as_slice(), [item]
                 if matches!(item.kind(), krs_ir_levels::DefinitionTermKind::Application { .. }))
     ));
     assert!(matches!(
-        assign_rule.clauses()[1].after(),
+        assign_rule.clauses()[1].as_fixed().unwrap().after(),
         CellPost::Replace { term }
             if matches!(term.kind(), krs_ir_levels::DefinitionTermKind::Map(operands)
                 if matches!(operands.as_ref(), MapOperands::Update { .. }))

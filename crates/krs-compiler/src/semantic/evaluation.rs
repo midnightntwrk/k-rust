@@ -101,7 +101,7 @@ fn check_context(
             }
         }
         RuleBodyRef::Configuration { body, .. } => {
-            for clause in body.clauses() {
+            for clause in body.fixed_clauses() {
                 collect_rewrites(clause.before(), &mut rewrites);
             }
         }
@@ -171,9 +171,10 @@ fn left_occurrences(rule: &SemanticRule, hole: &krs_ir::SemanticId) -> usize {
     match rule.relational_body() {
         RuleBodyRef::Term(body) => occurrences(body.from(), hole),
         RuleBodyRef::Configuration { body, .. } => body
-            .clauses()
+            .parts()
             .iter()
-            .map(|clause| occurrences(&clause.before().pre_pattern(), hole))
+            .filter_map(krs_ir::ClausePart::pre_term)
+            .map(|term| occurrences(&term.pre_pattern(), hole))
             .sum(),
         // A predicate simplification (KF-039) binds no object term.
         RuleBodyRef::Predicate(_) => 0,

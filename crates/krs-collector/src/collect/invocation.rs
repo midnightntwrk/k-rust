@@ -1107,7 +1107,9 @@ fn collect_rules_macro(
     for clause in block.clauses() {
         let rule = clause.rule();
         let bindings = clause.bindings().iter().map(ToString::to_string).collect();
-        let extras = clause
+        // The descriptor lists the map reads first, then the writes and
+        // rewrites in clause order.
+        let (mut extras, writes): (Vec<_>, Vec<_>) = clause
             .extras()
             .iter()
             .map(|extra| match extra {
@@ -1120,8 +1122,12 @@ fn collect_rules_macro(
                 krs_syntax::RuleExtra::RewriteCell { cell, .. } => {
                     ("rewrite".to_owned(), cell.to_string())
                 }
+                krs_syntax::RuleExtra::RewriteState { cell, .. } => {
+                    ("state".to_owned(), cell.to_string())
+                }
             })
-            .collect();
+            .partition(|(kind, _)| kind == "have");
+        extras.extend(writes);
         let mut anchors = clause.provenance().map_err(source_syntax)?;
         anchors.extend(clause.attribute().provenance().map_err(source_syntax)?);
         output.push(parsed_invocation(
@@ -1292,6 +1298,9 @@ pub(super) fn validate_reparsed_payload(
                     }
                     krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => {
                         ("rewrite".to_owned(), cell.name.clone())
+                    }
+                    krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } => {
+                        ("state".to_owned(), cell.name.clone())
                     }
                 })
                 .collect::<Vec<_>>();

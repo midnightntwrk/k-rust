@@ -55,7 +55,9 @@ impl StateMacroRemainder {
         }
     }
 
-    fn range(&self) -> Option<TokenRange> {
+    /// Returns the authored range of a non-exact remainder.
+    #[must_use]
+    pub fn range(&self) -> Option<TokenRange> {
         match self {
             Self::Exact => None,
             Self::Anonymous(range) | Self::Bind { range, .. } | Self::Reuse { range, .. } => {
@@ -86,6 +88,21 @@ pub struct KSequence {
 }
 
 impl KSequence {
+    /// A readable `[items.., ..]` sequence (KF-023): `tokens` is the bracket
+    /// payload and `tail` is exact or anonymous.
+    pub(crate) const fn readable(
+        tokens: TokenStream,
+        items: Vec<TermExpression>,
+        tail: StateMacroRemainder,
+    ) -> Self {
+        Self {
+            tokens,
+            items,
+            tail,
+            notation: KSequenceNotation::Comma,
+        }
+    }
+
     /// Ordered K items before the tail.
     #[must_use]
     pub fn items(&self) -> &[TermExpression] {
@@ -356,6 +373,277 @@ pub enum StateTerm {
     /// A whole nested (group) cell written without a wrapper: a group
     /// binder, `_`, or a complete `k::fragment!` term (KF-016).
     Group(TermExpression),
+    /// `Some(..)` of an optional (`?`) cell: the present cell's state; a
+    /// leaf's `Cell(..)` wrapper is the entry's wrapper (KF-023, R7).
+    Present(Box<StateTerm>),
+    /// `None` of an optional (`?`) cell: the cell is absent (KF-023).
+    Absent(TokenRange),
+    /// The instances of a collection (`*`) cell (KF-023, R8).
+    Instances(InstanceList),
+}
+
+impl StateTerm {
+    /// The state inside any `Some(..)` wrappers.
+    #[must_use]
+    pub fn unwrap_present(&self) -> &Self {
+        match self {
+            Self::Present(inner) => inner.unwrap_present(),
+            other => other,
+        }
+    }
+
+    /// Every term of the state in traversal order: a term or group, the
+    /// items of `k!`, the keys and values of `map!`, and the terms nested in
+    /// `Some(..)` and collection instances.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&TermExpression> {
+        match self {
+            Self::Term(term) | Self::Group(term) => vec![term],
+            Self::KSequence(sequence) => sequence.items().iter().collect(),
+            Self::Map(map) => match map.body() {
+                MapBody::Empty { .. } => Vec::new(),
+                MapBody::Items { items, .. } => items
+                    .iter()
+                    .flat_map(|item| [item.key(), item.value()])
+                    .collect(),
+                MapBody::Update { base, key, value } => vec![base, key, value],
+            },
+            Self::Present(_) | Self::Absent(_) | Self::Instances(_) => self
+                .nested_states()
+                .into_iter()
+                .flat_map(Self::terms)
+                .collect(),
+        }
+    }
+
+    /// Every directly nested state: the inside of `Some(..)` and the
+    /// children of collection instances, in source order.
+    #[must_use]
+    pub fn nested_states(&self) -> Vec<&Self> {
+        match self {
+            Self::Present(inner) => vec![inner],
+            Self::Instances(list) => list
+                .instances()
+                .flat_map(|instance| instance.fields().iter().map(InstanceField::value))
+                .collect(),
+            Self::Term(_)
+            | Self::KSequence(_)
+            | Self::Map(_)
+            | Self::Group(_)
+            | Self::Absent(_) => Vec::new(),
+        }
+    }
+}
+
+/// The delimiter of a collection entry (KF-023, R8).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstanceListDelimiter {
+    /// `{ .. }`: some instances of a Set or Map collection.
+    Brace,
+    /// `[ .. ]`: the ends of a List collection.
+    Bracket,
+}
+
+/// The rest of one collection instance record.
+#[derive(Clone, Debug)]
+pub enum InstanceRest {
+    /// No rest: the record names every child.
+    Exact,
+    /// `..`: unconstrained children (pattern) or template defaults (result).
+    Open(TokenRange),
+    /// `..label` in a result: the matched instance `label`, updated.
+    Update {
+        /// The pattern instance label.
+        label: Ident,
+        /// Complete `..label` range.
+        range: TokenRange,
+    },
+}
+
+/// One named child of a collection instance record.
+#[derive(Clone, Debug)]
+pub struct InstanceField {
+    name: Ident,
+    value: StateTerm,
+}
+
+impl InstanceField {
+    pub(crate) const fn new(name: Ident, value: StateTerm) -> Self {
+        Self { name, value }
+    }
+
+    /// The child's Rust field name.
+    #[must_use]
+    pub const fn name(&self) -> &Ident {
+        &self.name
+    }
+
+    /// The child's state: a term, a whole group, `k!`, or `map!`.
+    #[must_use]
+    pub const fn value(&self) -> &StateTerm {
+        &self.value
+    }
+}
+
+/// One instance record of a collection entry: `label @ Decl { .. }` or
+/// `k::fragment![Decl { .. }]` (KF-023).
+#[derive(Clone, Debug)]
+pub struct InstanceItem {
+    range: TokenRange,
+    label: Option<Ident>,
+    owner: Path,
+    fields: Vec<InstanceField>,
+    rest: InstanceRest,
+    fragment: bool,
+}
+
+impl InstanceItem {
+    pub(crate) const fn new(
+        range: TokenRange,
+        label: Option<Ident>,
+        owner: Path,
+        fields: Vec<InstanceField>,
+        rest: InstanceRest,
+    ) -> Self {
+        Self {
+            range,
+            label,
+            owner,
+            fields,
+            rest,
+            fragment: false,
+        }
+    }
+
+    /// The complete instance-record range.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
+    /// The pattern label (`me @ ..`); a label is not a term binder.
+    #[must_use]
+    pub const fn label(&self) -> Option<&Ident> {
+        self.label.as_ref()
+    }
+
+    /// The instance's `#[k::cell]` struct path.
+    #[must_use]
+    pub const fn owner(&self) -> &Path {
+        &self.owner
+    }
+
+    /// The named children in source order.
+    #[must_use]
+    pub fn fields(&self) -> &[InstanceField] {
+        &self.fields
+    }
+
+    /// The record's rest.
+    #[must_use]
+    pub const fn rest(&self) -> &InstanceRest {
+        &self.rest
+    }
+
+    /// Whether the record was written inside `k::fragment![..]`.
+    #[must_use]
+    pub const fn is_fragment(&self) -> bool {
+        self.fragment
+    }
+}
+
+/// A collection entry: instance records and an optional rest (KF-023, R8).
+#[derive(Clone, Debug)]
+pub struct InstanceList {
+    delimiter: InstanceListDelimiter,
+    front: Vec<InstanceItem>,
+    rest: StateMacroRemainder,
+    back: Vec<InstanceItem>,
+}
+
+impl InstanceList {
+    pub(crate) const fn new(
+        delimiter: InstanceListDelimiter,
+        front: Vec<InstanceItem>,
+        rest: StateMacroRemainder,
+        back: Vec<InstanceItem>,
+    ) -> Self {
+        Self {
+            delimiter,
+            front,
+            rest,
+            back,
+        }
+    }
+
+    /// Braces (Set, Map) or brackets (List).
+    #[must_use]
+    pub const fn delimiter(&self) -> InstanceListDelimiter {
+        self.delimiter
+    }
+
+    /// The instances before the rest.
+    #[must_use]
+    pub fn front(&self) -> &[InstanceItem] {
+        &self.front
+    }
+
+    /// The collection rest; [`StateMacroRemainder::Exact`] when absent.
+    #[must_use]
+    pub const fn rest(&self) -> &StateMacroRemainder {
+        &self.rest
+    }
+
+    /// The instances after the rest of a bracketed list.
+    #[must_use]
+    pub fn back(&self) -> &[InstanceItem] {
+        &self.back
+    }
+
+    /// Every instance, front then back.
+    pub fn instances(&self) -> impl Iterator<Item = &InstanceItem> {
+        self.front.iter().chain(&self.back)
+    }
+
+    /// Returns the instance, child-field, and rest anchors in traversal
+    /// order: front instances (each followed by its children), the rest,
+    /// then back instances.
+    ///
+    /// # Errors
+    ///
+    /// Returns endpoint or ordinal-overflow errors only.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = Vec::new();
+        let push_item = |item: &InstanceItem, output: &mut Vec<ProvenanceAnchor>| {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::CellsInstance,
+                0,
+                item.range,
+            ));
+            for field in &item.fields {
+                output.push(ProvenanceAnchor::new(
+                    ProvenanceRole::CellsInstanceField,
+                    0,
+                    TokenRange::for_tokens(&field.name)?,
+                ));
+            }
+            Ok::<_, SyntaxError>(())
+        };
+        for item in &self.front {
+            push_item(item, &mut output)?;
+        }
+        if let Some(range) = self.rest.range() {
+            output.push(ProvenanceAnchor::new(
+                ProvenanceRole::CellsInstancesRest,
+                0,
+                range,
+            ));
+        }
+        for item in &self.back {
+            push_item(item, &mut output)?;
+        }
+        Ok(output)
+    }
 }
 
 /// One selected fixed cell in a `cells!` payload: a leaf with its
@@ -386,7 +674,8 @@ impl CellsEntry {
     }
 
     /// Returns the authored `Cell`/`KCell` wrapper path, absent exactly for a
-    /// whole nested-cell entry ([`StateTerm::Group`]).
+    /// whole nested-cell entry ([`StateTerm::Group`]), `None`, and a
+    /// collection entry; for `Some(Cell(..))` it is the inner wrapper.
     #[must_use]
     pub const fn wrapper(&self) -> Option<&Path> {
         self.wrapper.as_ref()
@@ -854,10 +1143,6 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<TokenStream, SyntaxError
     Ok(tokens)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "One closed cell grammar keeps entry and remainder diagnostics local."
-)]
 fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
@@ -912,44 +1197,11 @@ fn parse_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-                if !starts_wrapped_entry(input) {
-                    entries.push(CellsEntry {
-                        name,
-                        owner,
-                        wrapper: None,
-                        value: parse_group_entry(input, context)?,
-                    });
-                    if input.is_empty() {
-                        break;
-                    }
-                    input.parse::<Token![,]>().map_err(SyntaxError::from)?;
-                    continue;
-                }
-                let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
-                let Some(last) = plain_path_last(&wrapper) else {
-                    return Err(state_error(
-                        "cells",
-                        "cell wrappers must be plain Rust paths",
-                        wrapper.span(),
-                    ));
-                };
-                let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
-                let wrapper_name = last.ident.to_string();
-                let value = match wrapper_name.as_str() {
-                    "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
-                    "Cell" => parse_state_term(value_tokens, context)?,
-                    _ => {
-                        return Err(state_error(
-                            "cells",
-                            "entries require `Cell(...)` or `KCell(...)`",
-                            wrapper.span(),
-                        ));
-                    }
-                };
+                let (wrapper, value) = parse_entry_value(input, context)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
-                    wrapper: Some(wrapper),
+                    wrapper,
                     value,
                 });
                 if input.is_empty() {
@@ -979,6 +1231,388 @@ fn parse_cells(
             )
         },
     )
+}
+
+/// Parses one `cells!` entry value: `None`, `Some(..)` around a leaf or
+/// group entry, an instance list, a wrapped leaf, or a group entry.
+fn parse_entry_value(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Result<(Option<Path>, StateTerm), SyntaxError> {
+    if let Some(range) = parse_option_none(input)? {
+        return Ok((None, StateTerm::Absent(range)));
+    }
+    if starts_option_some(input) {
+        input.parse::<Ident>().map_err(SyntaxError::from)?;
+        let inner = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
+        let span = inner.span();
+        let (wrapper, value) = structured_with(
+            inner,
+            move |inner| {
+                let parsed = parse_entry_value(inner, context)?;
+                if !inner.is_empty() {
+                    return Err(state_error(
+                        "cells",
+                        "`Some(..)` holds one cell entry",
+                        inner.span(),
+                    ));
+                }
+                Ok(parsed)
+            },
+            |error| state_error("cells", "malformed `Some(..)` entry", error.span()),
+        )?;
+        if matches!(
+            value,
+            StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_)
+        ) {
+            return Err(state_error(
+                "cells",
+                "`Some(..)` holds a `Cell(..)` leaf entry or a nested-cell entry",
+                span,
+            ));
+        }
+        return Ok((wrapper, StateTerm::Present(Box::new(value))));
+    }
+    if input.peek(syn::token::Brace) || input.peek(syn::token::Bracket) {
+        let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
+        return Ok((
+            None,
+            StateTerm::Instances(parse_instance_list(&group, context)?),
+        ));
+    }
+    if !starts_wrapped_entry(input) {
+        return Ok((None, parse_group_entry(input, context)?));
+    }
+    let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
+    let Some(last) = plain_path_last(&wrapper) else {
+        return Err(state_error(
+            "cells",
+            "cell wrappers must be plain Rust paths",
+            wrapper.span(),
+        ));
+    };
+    let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
+    let wrapper_name = last.ident.to_string();
+    let value = match wrapper_name.as_str() {
+        "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
+        "Cell" => parse_state_term(value_tokens, context)?,
+        _ => {
+            return Err(state_error(
+                "cells",
+                "entries require `Cell(...)` or `KCell(...)`",
+                wrapper.span(),
+            ));
+        }
+    };
+    Ok((Some(wrapper), value))
+}
+
+/// Parses `None` (optionally `Option::None`) when it is the whole entry value.
+fn parse_option_none(input: ParseStream<'_>) -> Result<Option<TokenRange>, SyntaxError> {
+    let fork = input.fork();
+    let Ok(path) = fork.parse::<Path>() else {
+        return Ok(None);
+    };
+    if !crate::initializer::is_option_variant(&path, "None")
+        || !(fork.is_empty() || fork.peek(Token![,]))
+    {
+        return Ok(None);
+    }
+    let path: Path = input.parse().map_err(SyntaxError::from)?;
+    Ok(Some(TokenRange::for_tokens(&path)?))
+}
+
+/// Whether the entry value is `Some(..)`.
+fn starts_option_some(input: ParseStream<'_>) -> bool {
+    let fork = input.fork();
+    fork.parse::<Ident>()
+        .is_ok_and(|ident| ident == "Some" && fork.peek(syn::token::Paren))
+}
+
+/// Parses the `{ .. }` or `[ .. ]` payload of a collection entry.
+fn parse_instance_list(
+    group: &proc_macro2::Group,
+    context: StateMacroContext,
+) -> Result<InstanceList, SyntaxError> {
+    let delimiter = match group.delimiter() {
+        Delimiter::Brace => InstanceListDelimiter::Brace,
+        Delimiter::Bracket => InstanceListDelimiter::Bracket,
+        _ => {
+            return Err(state_error(
+                "cells",
+                "a collection entry is `{ .. }` (Set, Map) or `[ .. ]` (List)",
+                group.span(),
+            ));
+        }
+    };
+    structured_with(
+        group.stream(),
+        move |input| {
+            let mut front = Vec::new();
+            let mut back = Vec::new();
+            let mut rest = None;
+            while !input.is_empty() {
+                if starts_instance_rest(input) {
+                    if rest.is_some() {
+                        return Err(state_error(
+                            "cells",
+                            "a collection entry has at most one rest",
+                            input.span(),
+                        ));
+                    }
+                    rest = Some(parse_instance_list_rest(input, context)?);
+                } else if rest.is_some() {
+                    if delimiter == InstanceListDelimiter::Brace {
+                        return Err(state_error(
+                            "cells",
+                            "the rest of a Set or Map collection is last",
+                            input.span(),
+                        ));
+                    }
+                    back.push(parse_instance_item(input, context)?);
+                } else {
+                    front.push(parse_instance_item(input, context)?);
+                }
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+            }
+            Ok(InstanceList {
+                delimiter,
+                front,
+                rest: rest.unwrap_or(StateMacroRemainder::Exact),
+                back,
+            })
+        },
+        |error| state_error("cells", "malformed collection entry", error.span()),
+    )
+}
+
+/// Whether the next list item is a collection rest: `..`, `name @ ..`, or `..name`.
+fn starts_instance_rest(input: ParseStream<'_>) -> bool {
+    starts_remainder(input)
+}
+
+/// Parses a collection rest; a result may write a bare `..` as well as `..name`.
+fn parse_instance_list_rest(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Result<StateMacroRemainder, SyntaxError> {
+    if context == StateMacroContext::Expression && input.peek(Token![..]) {
+        let fork = input.fork();
+        fork.parse::<Token![..]>().map_err(SyntaxError::from)?;
+        if !fork.peek(Ident) {
+            let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
+            return Ok(StateMacroRemainder::Anonymous(TokenRange::for_tokens(
+                &dots,
+            )?));
+        }
+    }
+    parse_remainder(input, context, "cells")
+}
+
+/// Parses one instance record: `[label @] Decl { .. }` or
+/// `[label @] k::fragment![Decl { .. }]`.
+fn parse_instance_item(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+) -> Result<InstanceItem, SyntaxError> {
+    let start = input.cursor();
+    let label = if input.peek(Ident) && input.peek2(Token![@]) {
+        let label: Ident = input.parse().map_err(SyntaxError::from)?;
+        input.parse::<Token![@]>().map_err(SyntaxError::from)?;
+        if context == StateMacroContext::Expression {
+            return Err(state_error(
+                "cells",
+                "a result instance has no label; write `..label` inside it to update the matched instance",
+                label.span(),
+            ));
+        }
+        crate::parse::validate_authored_binder(&label.to_string(), label.span())?;
+        Some(label)
+    } else {
+        None
+    };
+    let path: Path = input.parse().map_err(SyntaxError::from)?;
+    let (owner, body, fragment) = if input.peek(Token![!]) {
+        if plain_path_last(&path).is_none_or(|last| last.ident != "fragment") {
+            return Err(state_error(
+                "cells",
+                "a collection instance is a cell record `Decl { .. }` or `k::fragment![Decl { .. }]`",
+                path.span(),
+            ));
+        }
+        input.parse::<Token![!]>().map_err(SyntaxError::from)?;
+        let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
+        let (owner, body) = structured_with(
+            group.stream(),
+            |inner| {
+                let owner: Path = inner.parse().map_err(SyntaxError::from)?;
+                let body: proc_macro2::Group = inner.parse().map_err(SyntaxError::from)?;
+                if !inner.is_empty() || body.delimiter() != Delimiter::Brace {
+                    return Err(state_error(
+                        "cells",
+                        "`k::fragment![..]` holds one cell record `Decl { .. }`",
+                        inner.span(),
+                    ));
+                }
+                Ok((owner, body))
+            },
+            |error| state_error("cells", "malformed fragment! instance", error.span()),
+        )?;
+        (owner, body, true)
+    } else {
+        let body: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
+        if body.delimiter() != Delimiter::Brace {
+            return Err(state_error(
+                "cells",
+                "a collection instance is a cell record `Decl { .. }`",
+                body.span(),
+            ));
+        }
+        (path, body, false)
+    };
+    if !crate::path::is_plain_path(&owner) {
+        return Err(state_error(
+            "cells",
+            "an instance's cell struct is a plain Rust path",
+            owner.span(),
+        ));
+    }
+    let (fields, rest) = parse_instance_record(&body, context)?;
+    let mut tokens = TokenStream::new();
+    let mut cursor = start;
+    while cursor != input.cursor() {
+        let Some((token, next)) = cursor.token_tree() else {
+            break;
+        };
+        tokens.extend([token]);
+        cursor = next;
+    }
+    Ok(InstanceItem {
+        range: TokenRange::for_tokens(&tokens)?,
+        label,
+        owner,
+        fields,
+        rest,
+        fragment,
+    })
+}
+
+/// Parses the braced body of an instance record: `child: value` entries and a
+/// final rest.
+fn parse_instance_record(
+    body: &proc_macro2::Group,
+    context: StateMacroContext,
+) -> Result<(Vec<InstanceField>, InstanceRest), SyntaxError> {
+    structured_with(
+        body.stream(),
+        move |input| {
+            let mut fields: Vec<InstanceField> = Vec::new();
+            let mut rest = InstanceRest::Exact;
+            while !input.is_empty() {
+                if input.peek(Token![..]) {
+                    let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
+                    rest = if input.peek(Ident) {
+                        let label: Ident = input.parse().map_err(SyntaxError::from)?;
+                        if context == StateMacroContext::Pattern {
+                            return Err(state_error(
+                                "cells",
+                                "`..label` updates a matched instance in a result; a pattern instance writes `..`",
+                                label.span(),
+                            ));
+                        }
+                        InstanceRest::Update {
+                            range: TokenRange::for_tokens(&quote!(#dots #label))?,
+                            label,
+                        }
+                    } else {
+                        InstanceRest::Open(TokenRange::for_tokens(&dots)?)
+                    };
+                    if !input.is_empty() {
+                        return Err(state_error(
+                            "cells",
+                            "an instance record's rest is last",
+                            input.span(),
+                        ));
+                    }
+                    break;
+                }
+                let name: Ident = input.parse().map_err(SyntaxError::from)?;
+                if fields.iter().any(|field| field.name == name) {
+                    return Err(state_error(
+                        "cells",
+                        "an instance record names each child once",
+                        name.span(),
+                    ));
+                }
+                input.parse::<Token![:]>().map_err(SyntaxError::from)?;
+                let mut tokens = TokenStream::new();
+                while !input.is_empty() && !input.peek(Token![,]) {
+                    tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
+                }
+                if tokens.is_empty() {
+                    return Err(state_error(
+                        "cells",
+                        "an instance child needs a value",
+                        name.span(),
+                    ));
+                }
+                fields.push(InstanceField {
+                    name,
+                    value: parse_instance_child(tokens, context)?,
+                });
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+            }
+            Ok((fields, rest))
+        },
+        |error| state_error("cells", "malformed instance record", error.span()),
+    )
+}
+
+/// Parses one instance child value: `k::k![..]`, `map![..]`, or a term (a
+/// leaf's content or a whole nested cell, which semantic analysis tells
+/// apart by the declaration).
+fn parse_instance_child(
+    tokens: TokenStream,
+    context: StateMacroContext,
+) -> Result<StateTerm, SyntaxError> {
+    if let Some((name, payload)) = qualified_macro_payload(&tokens) {
+        match name.as_str() {
+            "k" => return Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
+            "map" => return Ok(StateTerm::Map(parse_map(payload, context)?)),
+            _ => {}
+        }
+    }
+    Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
+}
+
+/// The last path segment and payload of `path::name!(..)`.
+fn qualified_macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [
+        prefix @ ..,
+        TokenTree::Ident(name),
+        TokenTree::Punct(bang),
+        TokenTree::Group(group),
+    ] = trees.as_slice()
+    else {
+        return None;
+    };
+    if bang.as_char() != '!' {
+        return None;
+    }
+    let (chunks, remainder) = prefix.as_chunks::<3>();
+    let qualified = remainder.is_empty()
+        && chunks.iter().all(|chunk| {
+            matches!(chunk, [TokenTree::Ident(_), TokenTree::Punct(first), TokenTree::Punct(second)]
+                if first.as_char() == ':' && second.as_char() == ':')
+        });
+    qualified.then(|| (name.to_string(), group.stream()))
 }
 
 /// Whether the next entry value is a wrapper application `Path(..)`, as

@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellDeclaration,
-    DescriptorCellIdentity, DescriptorCellReference, DescriptorFixedConfiguration,
-    DescriptorHeadRuleExtra, DescriptorIndex, DescriptorRuleCondition, DescriptorRuleLabel,
-    DescriptorRulePriority, DescriptorSimplification, DescriptorSortRef, DescriptorSortReference,
-    DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, ProtocolCellContent,
-    ProvenanceKey, SemanticId, StableItemId, StructuredRuleDescriptor,
+    BuiltinSort, CellContentFrame, CellPost, ConfigurationClause, Descriptor,
+    DescriptorCellDeclaration, DescriptorCellIdentity, DescriptorCellReference,
+    DescriptorFixedConfiguration, DescriptorHeadRuleExtra, DescriptorIndex,
+    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
+    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, FixedCellClause,
+    FixedConfigurationRewrite, ItemKind, ProtocolCellContent, ProvenanceKey, SemanticId,
+    StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
     MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
@@ -252,7 +253,8 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
     match extra {
         krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
         | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
-        | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
+        | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. }
+        | krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } => cell,
     }
 }
 
@@ -314,14 +316,16 @@ pub(super) fn lower_head_rule_descriptor(
     let mut clauses = Vec::new();
     let mut selected = BTreeSet::new();
     if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
-        clauses.push(lower_head_rule_computation_clause(
-            &mut builder,
-            rule,
-            head,
-            computation,
-            head_sort.as_ref(),
-            sort_parents,
-        )?);
+        clauses.push(ConfigurationClause::Fixed(
+            lower_head_rule_computation_clause(
+                &mut builder,
+                rule,
+                head,
+                computation,
+                head_sort.as_ref(),
+                sort_parents,
+            )?,
+        ));
         selected.insert(computation.cell.clone());
     }
     for extra in &rule.extras {
@@ -329,12 +333,35 @@ pub(super) fn lower_head_rule_descriptor(
             &mut builder,
             extra,
             declarations,
+            configuration,
             &mut selected,
         )?);
     }
     if rule.head.is_none() {
         check_framed_computation_rule(descriptor, rule, &clauses, &seeds.cell_sorts)?;
     }
+    super::cell_states::check_implicit_and_explicit_instances(
+        descriptor,
+        &rule.pattern_key,
+        declarations,
+        &clauses,
+        &rule
+            .extras
+            .iter()
+            .map(|extra| {
+                (
+                    head_rule_extra_cell(extra).clone(),
+                    matches!(
+                        extra,
+                        krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                            before: krs_ir::ProtocolRuleStateTerm::Instances(_),
+                            ..
+                        }
+                    ),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )?;
     check_group_descendants(
         descriptor,
         &rule.pattern_key,
@@ -498,7 +525,7 @@ fn lower_rule_existentials(
 fn check_framed_computation_rule(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
-    clauses: &[FixedCellClause<SemanticId, SemanticTerm>],
+    clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
     cell_sorts: &BTreeMap<DescriptorCellIdentity, SemanticSortRef>,
 ) -> Result<(), DescriptorLoweringError> {
     let range = || -> Result<Option<Box<krs_ir::SourceRange>>, DescriptorLoweringError> {
@@ -509,11 +536,19 @@ fn check_framed_computation_rule(
                 .map(Box::new),
         )
     };
-    let unchanged = clauses.iter().all(|clause| match clause.after() {
-        CellPost::Preserve => true,
-        CellPost::Local => false,
-        CellPost::Replace { term } => same_term(clause.before(), term),
-    });
+    // An optional or collection clause (KF-023) changes something unless it
+    // only reads; its parts say so.
+    let unchanged = clauses
+        .iter()
+        .flat_map(ConfigurationClause::parts)
+        .all(|part| match part {
+            krs_ir::ClausePart::Matched { before, after, .. } => match after {
+                krs_ir::PartPost::Preserve => true,
+                krs_ir::PartPost::Local | krs_ir::PartPost::Removed => false,
+                krs_ir::PartPost::Replace(term) => same_term(before, term),
+            },
+            krs_ir::ClausePart::Written { .. } => false,
+        });
     if unchanged {
         return Err(DescriptorLoweringError::RuleChangesNoCell {
             rule: Box::new(descriptor.id().clone()),
@@ -522,12 +557,14 @@ fn check_framed_computation_rule(
     }
     let unconstrained = rule.requires.is_none()
         && rule.extras.iter().zip(clauses).all(|(extra, clause)| {
-            matches!(
-                clause.before().kind(),
-                krs_ir_levels::SemanticTermKind::Variable { .. }
-            ) && cell_sorts
-                .get(&head_rule_extra_cell(extra).cell)
-                .is_some_and(|sort| sort == clause.before().sort())
+            clause.as_fixed().is_some_and(|clause| {
+                matches!(
+                    clause.before().kind(),
+                    krs_ir_levels::SemanticTermKind::Variable { .. }
+                ) && cell_sorts
+                    .get(&head_rule_extra_cell(extra).cell)
+                    .is_some_and(|sort| sort == clause.before().sort())
+            })
         });
     if unconstrained {
         return Err(DescriptorLoweringError::AlwaysEnabledRule {
@@ -801,6 +838,21 @@ fn infer_head_rule(
                 builder.infer(before, Some(expected), true)?;
                 builder.infer(after, Some(expected), false)?;
             }
+            krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let declarations = builder
+                    .declarations
+                    .expect("head rules lower with declarations");
+                let field = require_cell_field(&cell.cell, declarations)?;
+                infer_readable_state(builder, declarations, field, before, true)?;
+                if let Some(after) = after {
+                    infer_readable_state(builder, declarations, field, after, false)?;
+                }
+            }
         }
     }
     infer_rule_conditions(
@@ -868,14 +920,127 @@ fn lower_head_rule_computation_clause(
     ))
 }
 
+/// Infers the terms of a readable optional or collection state (KF-023) at
+/// its cell's sort, an instance child's at the child's sort.
+fn infer_readable_state(
+    builder: &mut StructuredTermBuilder<'_>,
+    declarations: &DescriptorIndex<'_>,
+    field: &krs_ir::DescriptorCellField,
+    state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+    subject: bool,
+) -> Result<(), DescriptorLoweringError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let sort = match &field.content {
+        ProtocolCellContent::Leaf { sort, .. } => semantic_sort_ref(&sort.sort),
+        ProtocolCellContent::Nested { declaration } => {
+            SemanticSortRef::Cell(declaration.declaration.clone())
+        }
+    };
+    match state {
+        State::Present { value } => {
+            infer_readable_state(builder, declarations, field, value, subject)?;
+        }
+        State::Absent | State::Map(_) => {}
+        State::Term(term) | State::Group(term) => builder.infer(term, Some(&sort), subject)?,
+        State::KSequence(sequence) => {
+            for item in &sequence.items {
+                builder.infer(&item.value, None, subject)?;
+            }
+        }
+        State::Instances(instances) => {
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                return Ok(());
+            };
+            let children = &declarations.cell(&declaration.declaration)?.fields;
+            for instance in instances.front.iter().chain(&instances.back) {
+                for child in &instance.fields {
+                    if let Some(declared) = children
+                        .iter()
+                        .find(|candidate| candidate.rust_field == child.field)
+                    {
+                        infer_readable_state(
+                            builder,
+                            declarations,
+                            declared,
+                            &child.value,
+                            subject,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// [`super::cell_states::StateLowering`] for readable records: the terms
+/// were inferred with the whole rule and are lowered by its builder.
+struct HeadStateLowering<'a, 'b> {
+    builder: &'a mut StructuredTermBuilder<'b>,
+}
+
+impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
+    fn descriptor(&self) -> &Descriptor {
+        self.builder.descriptor
+    }
+
+    fn lower_state(
+        &mut self,
+        state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        fallback_key: &ProvenanceKey,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        use krs_ir::ProtocolRuleStateTerm as State;
+        let descriptor = self.builder.descriptor;
+        match state {
+            State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
+            State::KSequence(sequence) => {
+                if *sort != SemanticSortRef::k_sequence() {
+                    return Err(DescriptorLoweringError::InvalidTerm {
+                        id: Box::new(descriptor.id().clone()),
+                        detail:
+                            "a `[..]` sequence occurs in a cell that is not the computation cell"
+                                .into(),
+                    });
+                }
+                let items = sequence
+                    .items
+                    .iter()
+                    .map(|item| self.builder.lower(&item.value, None, subject))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let item_sort =
+                    common_sequence_item_sort(descriptor, &items, self.builder.sort_parents)?;
+                let key = sequence.payload_key.as_ref().unwrap_or(fallback_key);
+                Ok(SemanticTerm::k_sequence(
+                    semantic_origin(descriptor, key.clone(), "readable-k-sequence")?,
+                    item_sort,
+                    items,
+                ))
+            }
+            State::Map(_) | State::Present { .. } | State::Absent | State::Instances(_) => {
+                Err(DescriptorLoweringError::InvalidTerm {
+                    id: Box::new(descriptor.id().clone()),
+                    detail: "a readable cell state holds terms and `[..]` sequences".into(),
+                })
+            }
+        }
+    }
+
+    fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
+        same_term(left, right)
+    }
+}
+
 /// Lowers one extra-cell read or write after checking that the cell is
 /// selected once and has the leaf shape the extra requires.
 fn lower_head_rule_extra(
     builder: &mut StructuredTermBuilder<'_>,
     extra: &DescriptorHeadRuleExtra,
     declarations: &DescriptorIndex<'_>,
+    configuration: &DescriptorFixedConfiguration,
     selected: &mut BTreeSet<DescriptorCellIdentity>,
-) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+) -> Result<ConfigurationClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let cell_reference = head_rule_extra_cell(extra);
     if !selected.insert(cell_reference.cell.clone()) {
         return Err(DescriptorLoweringError::UnsupportedShape {
@@ -886,6 +1051,50 @@ fn lower_head_rule_extra(
             ),
         });
     }
+    if let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+        cell,
+        result_key,
+        before,
+        after,
+    } = extra
+    {
+        let mut lowering = HeadStateLowering { builder };
+        return match (before, after) {
+            (krs_ir::ProtocolRuleStateTerm::Instances(before), after) => {
+                let after = match after {
+                    None => None,
+                    Some(krs_ir::ProtocolRuleStateTerm::Instances(after)) => Some(after),
+                    Some(_) => unreachable!("transport pairs instance lists"),
+                };
+                super::cell_states::lower_instances_clause(
+                    &mut lowering,
+                    declarations,
+                    configuration,
+                    cell,
+                    before,
+                    after,
+                    result_key.as_ref(),
+                )
+            }
+            (before, after) => super::cell_states::lower_optional_clause(
+                &mut lowering,
+                declarations,
+                cell,
+                before,
+                after.as_ref(),
+                result_key.as_ref(),
+            ),
+        };
+    }
+    lower_head_rule_fixed_extra(builder, extra, declarations).map(ConfigurationClause::Fixed)
+}
+
+fn lower_head_rule_fixed_extra(
+    builder: &mut StructuredTermBuilder<'_>,
+    extra: &DescriptorHeadRuleExtra,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let cell_reference = head_rule_extra_cell(extra);
     let declared = require_cell_field(&cell_reference.cell, declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
         let (
@@ -930,6 +1139,9 @@ fn lower_head_rule_extra(
             before,
             after,
         } => lower_head_rule_cell_rewrite(builder, cell, result_key, before, after, *wrapper, sort),
+        krs_ir::ProtocolHeadRuleExtra::RewriteState { .. } => {
+            unreachable!("optional and collection extras are lowered by cell_states")
+        }
     }
 }
 
@@ -1144,7 +1356,8 @@ pub(super) fn lower_structured_rule_descriptor(
                 krs_ir::ProtocolRuleBindingKind::KSequenceFrame => SemanticSortRef::k_sequence(),
                 krs_ir::ProtocolRuleBindingKind::MapFrame => SemanticSortRef::map(),
                 krs_ir::ProtocolRuleBindingKind::Term { .. }
-                | krs_ir::ProtocolRuleBindingKind::ConfigurationFrame => return None,
+                | krs_ir::ProtocolRuleBindingKind::ConfigurationFrame
+                | krs_ir::ProtocolRuleBindingKind::InstancesFrame => return None,
             };
             Some((binding.name.clone(), sort))
         })

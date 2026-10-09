@@ -1,6 +1,7 @@
 //! Descriptor-bundle lowering into target-neutral semantic IR.
 
 mod catalog;
+mod cell_states;
 mod configuration;
 mod configuration_rules;
 mod error;

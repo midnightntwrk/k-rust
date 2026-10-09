@@ -4,15 +4,15 @@ use std::fmt;
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
-    FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    GroupAssociativitySentence, IntLiterals, IrIdentityError, LayoutSentence, LexicalSentence,
-    ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
-    ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
-    ProductionResultSort, SentenceKind, SourceMapKey, StableItemId, StableText,
-    TransformationOriginKind, lower_hex,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationClause,
+    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
+    GrammarProductionItemKind, GroupAssociativitySentence, IntLiterals, IrIdentityError,
+    LayoutSentence, LexicalSentence, ModuleId, NodeOrigin, OriginFrame, OriginStack,
+    PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SentenceKind, SourceMapKey,
+    StableItemId, StableText, TransformationOriginKind, lower_hex,
 };
 use krs_ir_levels::ModuleRole;
 use krs_ir_levels::{
@@ -1169,6 +1169,12 @@ fn lower_cell_attributes(
                 None,
                 Some("exit"),
             )?)),
+            CellAttribute::Initial { origin } => Ok(CellAttribute::initial(origins.lower(
+                origin,
+                "cell-attribute",
+                None,
+                Some("initial"),
+            )?)),
         })
         .collect()
 }
@@ -1341,7 +1347,7 @@ fn stdin_read_remainders(
 /// A stdin stream read as K's stream rules unblock it: `ListItem(V) => .List` with an unbound
 /// list remainder (`crate::console`).
 fn lower_stdin_read(
-    clause: &crate::console::SemanticClause,
+    clause: &FixedCellClause<krs_ir::SemanticId, SemanticTerm>,
     item: &SemanticTerm,
     names: &NamingPass,
     origins: &mut OriginPass,
@@ -1392,28 +1398,22 @@ fn lower_configuration_rewrite(
             .map(|(index, clause)| {
                 if stdin.contains(clause.cell())
                     && let Some(read) = crate::console::stdin_read(rewrite.clauses(), index)
+                    && let Some(fixed) = clause.as_fixed()
                 {
-                    return lower_stdin_read(clause, read.item, names, origins);
+                    return lower_stdin_read(fixed, read.item, names, origins)
+                        .map(ConfigurationClause::Fixed);
                 }
-                Ok(FixedCellClause::new(
-                    origins.lower(
-                        clause.origin(),
-                        "cell-clause",
-                        None,
-                        Some(clause.cell().as_str()),
-                    )?,
-                    lower_cell_id(clause.cell(), names)?,
-                    lower_term(clause.before(), names, origins)?,
-                    match clause.after() {
-                        CellPost::Preserve => CellPost::Preserve,
-                        CellPost::Local => CellPost::Local,
-                        CellPost::Replace { term } => CellPost::Replace {
-                            term: lower_term(term, names, origins)?,
-                        },
-                    },
-                    lower_frame(clause.frame(), origins)?,
-                )
-                .with_kind(clause.kind()))
+                match clause {
+                    ConfigurationClause::Fixed(clause) => {
+                        lower_fixed_clause(clause, names, origins).map(ConfigurationClause::Fixed)
+                    }
+                    ConfigurationClause::Optional(clause) => {
+                        lower_optional_clause(clause, names, origins)
+                    }
+                    ConfigurationClause::Instances(clause) => {
+                        lower_instances_clause(clause, names, origins)
+                    }
+                }
             })
             .collect::<Result<Vec<_>, LoweringError>>()?,
         rewrite
@@ -1423,6 +1423,166 @@ fn lower_configuration_rewrite(
             .collect::<Result<Vec<_>, _>>()?,
     )
     .map_err(state_shape_error)
+}
+
+fn lower_fixed_clause(
+    clause: &FixedCellClause<krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedCellClause<SymbolId, DefinitionTerm>, LoweringError> {
+    Ok(FixedCellClause::new(
+        origins.lower(
+            clause.origin(),
+            "cell-clause",
+            None,
+            Some(clause.cell().as_str()),
+        )?,
+        lower_cell_id(clause.cell(), names)?,
+        lower_term(clause.before(), names, origins)?,
+        match clause.after() {
+            CellPost::Preserve => CellPost::Preserve,
+            CellPost::Local => CellPost::Local,
+            CellPost::Replace { term } => CellPost::Replace {
+                term: lower_term(term, names, origins)?,
+            },
+        },
+        lower_frame(clause.frame(), origins)?,
+    )
+    .with_kind(clause.kind()))
+}
+
+fn lower_presence(
+    presence: &krs_ir::Presence<SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<krs_ir::Presence<DefinitionTerm>, LoweringError> {
+    Ok(match presence {
+        krs_ir::Presence::Present { term } => krs_ir::Presence::Present {
+            term: lower_term(term, names, origins)?,
+        },
+        krs_ir::Presence::Absent => krs_ir::Presence::Absent,
+    })
+}
+
+/// Lowers an optional (`?`) cell's clause (KF-023).
+fn lower_optional_clause(
+    clause: &krs_ir::OptionalCellClause<krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<ConfigurationClause<SymbolId, DefinitionTerm>, LoweringError> {
+    Ok(ConfigurationClause::Optional(
+        krs_ir::OptionalCellClause::new(
+            origins.lower(
+                clause.origin(),
+                "optional-cell-clause",
+                None,
+                Some(clause.cell().as_str()),
+            )?,
+            lower_cell_id(clause.cell(), names)?,
+            clause.kind(),
+            lower_presence(clause.before(), names, origins)?,
+            clause
+                .after()
+                .map(|after| lower_presence(after, names, origins))
+                .transpose()?,
+            lower_frame(clause.frame(), origins)?,
+        ),
+    ))
+}
+
+fn lower_instance_children(
+    children: &[krs_ir::InstanceChild<krs_ir::SemanticId, SemanticTerm>],
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<krs_ir::InstanceChild<SymbolId, DefinitionTerm>>, LoweringError> {
+    children
+        .iter()
+        .map(|child| {
+            Ok(krs_ir::InstanceChild::new(
+                origins.lower(
+                    child.origin(),
+                    "instance-child",
+                    None,
+                    Some(child.cell().as_str()),
+                )?,
+                lower_cell_id(child.cell(), names)?,
+                child.kind(),
+                lower_term(child.term(), names, origins)?,
+                lower_frame(child.frame(), origins)?,
+            ))
+        })
+        .collect()
+}
+
+/// Lowers a collection (`*`) cell's clause (KF-023).
+fn lower_instances_clause(
+    clause: &krs_ir::InstancesClause<krs_ir::SemanticId, SemanticTerm>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<ConfigurationClause<SymbolId, DefinitionTerm>, LoweringError> {
+    let lower_segment =
+        |instances: &[krs_ir::InstanceClause<krs_ir::SemanticId, SemanticTerm>],
+         origins: &mut OriginPass| {
+            instances
+                .iter()
+                .map(|instance| {
+                    Ok(match instance {
+                        krs_ir::InstanceClause::Kept {
+                            origin,
+                            label,
+                            children,
+                            open,
+                        } => krs_ir::InstanceClause::Kept {
+                            origin: origins.lower(origin, "instance", None, label.as_deref())?,
+                            label: label.clone(),
+                            children: children
+                                .iter()
+                                .map(|child| lower_fixed_clause(child, names, origins))
+                                .collect::<Result<Vec<_>, LoweringError>>()?,
+                            open: *open,
+                        },
+                        krs_ir::InstanceClause::Removed {
+                            origin,
+                            label,
+                            children,
+                            open,
+                        } => krs_ir::InstanceClause::Removed {
+                            origin: origins.lower(origin, "instance", None, label.as_deref())?,
+                            label: label.clone(),
+                            children: lower_instance_children(children, names, origins)?,
+                            open: *open,
+                        },
+                        krs_ir::InstanceClause::Created {
+                            origin,
+                            children,
+                            defaults,
+                        } => krs_ir::InstanceClause::Created {
+                            origin: origins.lower(origin, "instance", None, None)?,
+                            children: lower_instance_children(children, names, origins)?,
+                            defaults: *defaults,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, LoweringError>>()
+        };
+    let origin = origins.lower(
+        clause.origin(),
+        "instances-clause",
+        None,
+        Some(clause.cell().as_str()),
+    )?;
+    let front = lower_segment(clause.front(), origins)?;
+    let back = lower_segment(clause.back(), origins)?;
+    Ok(ConfigurationClause::Instances(
+        krs_ir::InstancesClause::new(
+            origin,
+            lower_cell_id(clause.cell(), names)?,
+            clause.ordering(),
+            front,
+            back,
+            clause.is_open(),
+        ),
+    ))
 }
 
 #[expect(

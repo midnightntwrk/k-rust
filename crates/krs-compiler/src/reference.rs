@@ -1050,11 +1050,20 @@ fn materialize_configuration_wrappers(
         if !cell.has_inferred_wrapper() {
             continue;
         }
-        let content = field.ty.clone();
-        field.ty = if cell.is_computation_cell() {
+        // An optional cell's wrapper goes inside its `Option` (KF-023, R7).
+        let content = krs_syntax::option_content(&field.ty)
+            .filter(|_| cell.is_optional())
+            .unwrap_or(&field.ty)
+            .clone();
+        let wrapped: syn::Type = if cell.is_computation_cell() {
             syn::parse_quote!(k::configuration::KCell<#content>)
         } else {
             syn::parse_quote!(k::configuration::Cell<#content>)
+        };
+        field.ty = if cell.is_optional() {
+            syn::parse_quote!(Option<#wrapped>)
+        } else {
+            wrapped
         };
     }
     Ok(())
@@ -1128,29 +1137,39 @@ fn materialize_initializer_cells(
                     "initializer field disappeared during reference projection",
                 ))
             })?;
-        qualify_reference_initializer_state_macro(&mut field.expr)?;
+        // An optional cell's template is `Some(template)` (KF-023, R7).
+        let has_colon = field.colon_token.is_some();
+        let expression = match (&mut field.expr, cell.is_optional()) {
+            (syn::Expr::Call(call), true) if call.args.len() == 1 => {
+                call.args.first_mut().expect("`Some(..)` has one argument")
+            }
+            (expression, _) => expression,
+        };
+        qualify_reference_initializer_state_macro(expression)?;
         match cell.content() {
             krs_syntax::InitializerCellContent::Leaf {
                 computation,
                 inferred_constructor: true,
                 ..
             } => {
-                let value = field.expr.clone();
-                field.expr = if *computation {
+                let value = expression.clone();
+                *expression = if *computation {
                     syn::parse_quote!(k::configuration::KCell::new(#value))
                 } else {
                     syn::parse_quote!(k::configuration::Cell::new(#value))
                 };
-                field.colon_token = Some(syn::token::Colon::default());
+                if !has_colon {
+                    field.colon_token = Some(syn::token::Colon::default());
+                }
             }
             krs_syntax::InitializerCellContent::Leaf {
                 inferred_constructor: false,
                 ..
             } => {}
             krs_syntax::InitializerCellContent::Nested { children, .. } => {
-                let syn::Expr::Struct(nested) = &mut field.expr else {
+                let syn::Expr::Struct(nested) = expression else {
                     return Err(ReferenceExpansionError::GeneratedRust(syn::Error::new(
-                        field.expr.span(),
+                        expression.span(),
                         "a nested fixed-cell initializer must be a struct expression",
                     )));
                 };
@@ -1274,8 +1293,31 @@ fn render_rule(
         });
     }
 
+    let mut instance_tails = 0_usize;
     for (ordinal, extra) in rule.extras.iter().enumerate() {
         match extra {
+            ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let (left, right) = render_readable_state(
+                    cell,
+                    before,
+                    after.as_ref(),
+                    &rule.configuration,
+                    &mut StateRendering {
+                        package,
+                        bundle,
+                        reserved: &mut reserved,
+                        tails: &mut instance_tails,
+                        rests: ordinal,
+                    },
+                )?;
+                left_cells.push(left);
+                right_cells.extend(right);
+            }
             ProtocolHeadRuleExtra::HaveMap {
                 cell,
                 key,
@@ -1392,6 +1434,203 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// Fresh names and lookups for rendering readable optional and collection
+/// states in the reference spelling (KF-023).
+struct StateRendering<'a> {
+    package: &'a PackageId,
+    bundle: &'a krs_ir::DescriptorBundle,
+    reserved: &'a mut BTreeSet<String>,
+    /// Instance `k` tails named so far (`tail0`, `tail1`, ..).
+    tails: &'a mut usize,
+    /// The extra's ordinal, which numbers its collection rest.
+    rests: usize,
+}
+
+/// Renders one readable optional or collection entry as its `cells!`
+/// subject and result entries.
+fn render_readable_state(
+    cell: &krs_ir::DescriptorCellReference,
+    before: &krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>,
+    after: Option<&krs_ir::ProtocolRuleStateTerm<krs_ir::DescriptorTerm>>,
+    configuration: &StableItemId,
+    rendering: &mut StateRendering<'_>,
+) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let field = render_rule_cell_field(&cell.cell, configuration, rendering.package)?;
+    let group = is_group_cell(&cell.cell, rendering.bundle);
+    let optional = |state: &State<krs_ir::DescriptorTerm>,
+                    pattern: bool|
+     -> Result<TokenStream, ReferenceExpansionError> {
+        Ok(match state {
+            State::Absent => quote!(None),
+            State::Present { value } => {
+                let term = match &**value {
+                    State::Term(term) | State::Group(term) => {
+                        render_term(term, pattern, rendering.package, rendering.bundle)?
+                    }
+                    _ => return Err(ReferenceExpansionError::UnsupportedState),
+                };
+                if group {
+                    quote!(Some(#term))
+                } else {
+                    quote!(Some(k::configuration::Cell(#term)))
+                }
+            }
+            _ => return Err(ReferenceExpansionError::UnsupportedState),
+        })
+    };
+    match (before, after) {
+        (State::Instances(before), after) => {
+            let rest = fresh_ident(&format!("instances{}", rendering.rests), rendering.reserved);
+            let declaration = collection_declaration(&cell.cell, rendering.bundle)
+                .ok_or(ReferenceExpansionError::UnsupportedState)?;
+            let owner = render_declared_path(&declaration, rendering.package)?;
+            // Each matched instance's `k` tail, by label, reused by the
+            // instance that updates it.
+            let mut tails = BTreeMap::new();
+            let left = render_instances(before, true, &rest, &owner, &mut tails, rendering)?;
+            let right = after
+                .map(|after| {
+                    let State::Instances(after) = after else {
+                        return Err(ReferenceExpansionError::UnsupportedState);
+                    };
+                    render_instances(after, false, &rest, &owner, &mut tails, rendering)
+                })
+                .transpose()?;
+            Ok((
+                quote!(#field: #left),
+                right.map(|right| quote!(#field: #right)),
+            ))
+        }
+        (before, after) => {
+            let left = optional(before, true)?;
+            let right = after.map(|after| optional(after, false)).transpose()?;
+            Ok((
+                quote!(#field: #left),
+                right.map(|right| quote!(#field: #right)),
+            ))
+        }
+    }
+}
+
+/// The instance declaration of a collection cell.
+fn collection_declaration(
+    cell: &krs_ir::DescriptorCellIdentity,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Option<StableItemId> {
+    let index = DescriptorIndex::new(bundle);
+    let owner = index.cell_owner(&cell.owner).ok()?;
+    let field = owner
+        .fields
+        .iter()
+        .find(|field| field.reference.cell == *cell)?;
+    match &field.content {
+        krs_ir::ProtocolCellContent::Nested { declaration } => {
+            Some(declaration.declaration.clone())
+        }
+        krs_ir::ProtocolCellContent::Leaf { .. } => None,
+    }
+}
+
+fn render_instances(
+    instances: &krs_ir::ProtocolRuleInstances<krs_ir::DescriptorTerm>,
+    pattern: bool,
+    rest: &Ident,
+    owner: &TokenStream,
+    tails: &mut BTreeMap<String, Ident>,
+    rendering: &mut StateRendering<'_>,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let mut items = Vec::new();
+    for instance in &instances.front {
+        items.push(render_instance(instance, pattern, owner, tails, rendering)?);
+    }
+    if !matches!(instances.rest, krs_ir::ProtocolRuleFrame::Exact) {
+        items.push(if pattern {
+            quote!(#rest @ ..)
+        } else {
+            quote!(..#rest)
+        });
+    }
+    for instance in &instances.back {
+        items.push(render_instance(instance, pattern, owner, tails, rendering)?);
+    }
+    Ok(match instances.delimiter {
+        krs_ir::InstanceDelimiter::Brace => quote!({ #(#items),* }),
+        krs_ir::InstanceDelimiter::Bracket => quote!([ #(#items),* ]),
+    })
+}
+
+fn render_instance(
+    instance: &krs_ir::ProtocolRuleInstance<krs_ir::DescriptorTerm>,
+    pattern: bool,
+    owner: &TokenStream,
+    tails: &mut BTreeMap<String, Ident>,
+    rendering: &mut StateRendering<'_>,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let mut fields = Vec::new();
+    // The tail of a matched instance's `k`, which its update reuses.
+    let reused = match &instance.rest {
+        krs_ir::ProtocolInstanceRest::Update { label } => tails.get(label).cloned(),
+        _ => None,
+    };
+    for field in &instance.fields {
+        let name = rust_ident(&field.field);
+        let value = match &field.value {
+            State::Term(term) | State::Group(term) => {
+                render_term(term, pattern, rendering.package, rendering.bundle)?
+            }
+            State::KSequence(sequence) => {
+                let items = sequence
+                    .items
+                    .iter()
+                    .map(|item| {
+                        render_term(&item.value, pattern, rendering.package, rendering.bundle)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let tail = match (&sequence.tail, pattern) {
+                    (krs_ir::ProtocolRuleFrame::Exact, _) => None,
+                    (_, true) => {
+                        let tail =
+                            fresh_ident(&format!("tail{}", *rendering.tails), rendering.reserved);
+                        *rendering.tails += 1;
+                        if let Some(label) = &instance.label {
+                            tails.insert(label.clone(), tail.clone());
+                        }
+                        Some(quote!(#tail @ ..))
+                    }
+                    (_, false) => {
+                        let tail = reused
+                            .clone()
+                            .ok_or(ReferenceExpansionError::UnsupportedState)?;
+                        Some(quote!(..#tail))
+                    }
+                };
+                let items = items.into_iter().chain(tail);
+                quote!(k::k![#(#items),*])
+            }
+            _ => return Err(ReferenceExpansionError::UnsupportedState),
+        };
+        fields.push(quote!(#name: #value));
+    }
+    match &instance.rest {
+        krs_ir::ProtocolInstanceRest::Exact => {}
+        krs_ir::ProtocolInstanceRest::Open => fields.push(quote!(..)),
+        krs_ir::ProtocolInstanceRest::Update { label } => {
+            let label = rust_ident(label);
+            fields.push(quote!(..#label));
+        }
+    }
+    let record = quote!(k::fragment![#owner { #(#fields),* }]);
+    Ok(match &instance.label {
+        Some(label) => {
+            let label = rust_ident(label);
+            quote!(#label @ #record)
+        }
+        None => record,
+    })
 }
 
 /// Renders `#[k::rule(..)]` with its keys in the canonical order
@@ -2100,6 +2339,8 @@ pub enum ReferenceExpansionError {
     InvalidLiteral(String),
     /// No reference-surface spelling exists for this builtin token sort.
     UnsupportedBuiltinToken(BuiltinSort),
+    /// A readable optional or collection entry has no reference spelling.
+    UnsupportedState,
 }
 
 impl ToDiagnostic for ReferenceExpansionError {
@@ -2134,6 +2375,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::UnknownApplicationField { .. } => codes::reference::UNKNOWN_APPLICATION_FIELD,
             Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
+            Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
     }
@@ -2226,6 +2468,8 @@ impl fmt::Display for ReferenceExpansionError {
             Self::UnsupportedBuiltinToken(sort) => {
                 write!(formatter, "unsupported builtin token sort {sort}")
             }
+            Self::UnsupportedState => formatter
+                .write_str("a readable optional or collection entry has no reference spelling"),
         }
     }
 }
@@ -2254,7 +2498,8 @@ impl Error for ReferenceExpansionError {
             | Self::MissingApplicationField { .. }
             | Self::UnknownApplicationField { .. }
             | Self::InvalidLiteral(_)
-            | Self::UnsupportedBuiltinToken(_) => None,
+            | Self::UnsupportedBuiltinToken(_)
+            | Self::UnsupportedState => None,
         }
     }
 }

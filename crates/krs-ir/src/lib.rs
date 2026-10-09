@@ -104,16 +104,17 @@ pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
-    CellMultiplicity, CellPost, CellStream, ConfigurationRoot, FixedCell, FixedCellClause,
-    FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationPattern,
-    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell,
-    FixedInitializerContent, ListOperation, MapOperation, SetOperation, StateShapeError,
-    TermMapOperation,
+    CellMultiplicity, CellPost, CellStream, ClausePart, ConfigurationClause, ConfigurationRoot,
+    FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, InstanceChild, InstanceClause, InstanceOrdering,
+    InstancesClause, ListOperation, MapOperation, OptionalCellClause, PartPost, Presence,
+    SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
     DescriptorCellDeclarationReference, DescriptorCellExit, DescriptorCellField,
-    DescriptorCellIdentity, DescriptorCellMultiplicity, DescriptorCellName,
+    DescriptorCellIdentity, DescriptorCellInitial, DescriptorCellMultiplicity, DescriptorCellName,
     DescriptorCellReference, DescriptorCellStream, DescriptorCellType,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
@@ -172,6 +173,10 @@ pub use transport::rule::{
     ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
     ProtocolRuleMapItem, ProtocolRuleStateTerm,
 };
+pub use transport::rule::{
+    InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleInstance, ProtocolRuleInstanceField,
+    ProtocolRuleInstances,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -193,7 +198,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(54);
+    pub const CURRENT: Self = Self(55);
 }
 
 impl Default for SchemaVersion {

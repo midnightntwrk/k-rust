@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    CellContentFrame, CellPost, Descriptor, DescriptorCellReference, DescriptorClaim,
-    DescriptorClaimBinder, DescriptorIndex, DescriptorTerm, FixedCellClause, FixedCellPattern,
-    FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, ProtocolCellContent,
-    ProtocolContextAliasBindingKind, ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame,
-    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticId, StableItemId,
+    CellContentFrame, CellPost, ConfigurationClause, Descriptor, DescriptorCellReference,
+    DescriptorClaim, DescriptorClaimBinder, DescriptorIndex, DescriptorTerm, FixedCellClause,
+    FixedCellPattern, FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind,
+    ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolRuleBindingKind,
+    ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
+    SemanticId, StableItemId,
 };
 use krs_ir_levels::{
     MapEntry, MapOperands, SemanticCondition, SemanticContextAlias, SemanticRule, SemanticSortRef,
@@ -122,6 +123,13 @@ impl StateRuleTerms<'_> {
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let descriptor = self.descriptor;
         match state {
+            ProtocolRuleStateTerm::Present { .. }
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_) => Err(DescriptorLoweringError::InvalidTerm {
+                id: Box::new(descriptor.id().clone()),
+                detail: "an optional or collection entry occurs where a cell's content belongs"
+                    .into(),
+            }),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
                     return Err(DescriptorLoweringError::InvalidTerm {
@@ -231,7 +239,8 @@ fn configuration_rule_bindings(
             ProtocolRuleBindingKind::Term { sort } => semantic_sort_ref(&sort.sort),
             ProtocolRuleBindingKind::KSequenceFrame => SemanticSortRef::k_sequence(),
             ProtocolRuleBindingKind::MapFrame => SemanticSortRef::map(),
-            ProtocolRuleBindingKind::ConfigurationFrame => continue,
+            ProtocolRuleBindingKind::ConfigurationFrame
+            | ProtocolRuleBindingKind::InstancesFrame => continue,
         };
         if matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }) {
             subject_sorts.insert(binding.name.clone(), sort.clone());
@@ -295,8 +304,13 @@ pub(super) fn lower_configuration_rule_descriptor(
         wildcard_ordinal: 0,
         variables,
     };
-    let clauses =
-        lower_configuration_rule_clauses(&mut terms, rule, &subject_sorts, &result_sorts)?;
+    let clauses = lower_configuration_rule_clauses(
+        &mut terms,
+        rule,
+        configuration,
+        &subject_sorts,
+        &result_sorts,
+    )?;
     // A context's hole lies in the computation cell (KF-021).
     if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
         && let Some(step) = &rule.evaluation
@@ -304,7 +318,11 @@ pub(super) fn lower_configuration_rule_descriptor(
         let hole = SemanticId::new(step.hole.clone())?;
         for (cell, clause) in rule.subject.cells.iter().zip(&clauses) {
             if cell.wrapper != Some(krs_ir::CellWrapper::KCell)
-                && super::evaluation::mentions(clause.before(), &hole)
+                && clause
+                    .parts()
+                    .iter()
+                    .filter_map(krs_ir::ClausePart::pre_term)
+                    .any(|term| super::evaluation::mentions(term, &hole))
             {
                 return Err(super::evaluation::outside_computation_cell(
                     "the context's hole",
@@ -323,6 +341,23 @@ pub(super) fn lower_configuration_rule_descriptor(
         check_stdin_reads(&clauses, &stdin)?;
     }
 
+    super::cell_states::check_implicit_and_explicit_instances(
+        descriptor,
+        &rule.pattern_key,
+        declarations,
+        &clauses,
+        &rule
+            .subject
+            .cells
+            .iter()
+            .map(|cell| {
+                (
+                    cell.field.clone(),
+                    matches!(cell.value, ProtocolRuleStateTerm::Instances(_)),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )?;
     let selected = rule
         .subject
         .cells
@@ -415,9 +450,10 @@ pub(super) fn lower_configuration_rule_descriptor(
 fn lower_configuration_rule_clauses(
     terms: &mut StateRuleTerms<'_>,
     rule: &krs_ir::DescriptorConfigurationRule,
+    configuration: &krs_ir::DescriptorFixedConfiguration,
     subject_sorts: &BTreeMap<String, SemanticSortRef>,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<Vec<FixedCellClause<SemanticId, SemanticTerm>>, DescriptorLoweringError> {
+) -> Result<Vec<ConfigurationClause<SemanticId, SemanticTerm>>, DescriptorLoweringError> {
     let subject_cells = rule
         .subject
         .cells
@@ -455,15 +491,30 @@ fn lower_configuration_rule_clauses(
         .iter()
         .map(|subject| {
             let result = result_cells.get(&subject.field.cell).copied();
+            if super::cell_states::is_cell_state(&subject.value)
+                || result.is_some_and(|result| super::cell_states::is_cell_state(&result.value))
+            {
+                return lower_configuration_state_clause(
+                    terms,
+                    subject,
+                    result,
+                    configuration,
+                    subject_sorts,
+                    result_sorts,
+                );
+            }
             lower_configuration_rule_clause(terms, subject, result, subject_sorts, result_sorts)
+                .map(ConfigurationClause::Fixed)
         })
         .collect::<Result<Vec<_>, _>>()?;
     // A context (KF-021) need not rewrite anything.
     if rule.result.is_none()
         && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
-        && !clauses
-            .iter()
-            .any(|clause| matches!(clause.after(), CellPost::Local))
+        && !clauses.iter().any(|clause| {
+            clause
+                .as_fixed()
+                .is_some_and(|clause| matches!(clause.after(), CellPost::Local))
+        })
     {
         return Err(DescriptorLoweringError::InvalidLocalRewrite {
             item: Box::new(terms.descriptor.id().clone()),
@@ -475,6 +526,128 @@ fn lower_configuration_rule_clauses(
         });
     }
     Ok(clauses)
+}
+
+/// Lowers an optional (`?`) or collection (`*`) cell entry of a `cells!`
+/// rule (KF-023): the wrapper of a `Some(..)` leaf agrees with the declared
+/// cell, and a group, `None`, or instance list has none.
+fn lower_configuration_state_clause(
+    terms: &mut StateRuleTerms<'_>,
+    subject: &DescriptorRuleCell,
+    result: Option<&DescriptorRuleCell>,
+    configuration: &krs_ir::DescriptorFixedConfiguration,
+    subject_sorts: &BTreeMap<String, SemanticSortRef>,
+    result_sorts: &BTreeMap<String, SemanticSortRef>,
+) -> Result<ConfigurationClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = terms.descriptor;
+    let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
+    let expected_wrapper = match &declared.content {
+        ProtocolCellContent::Leaf { wrapper, .. } => Some(*wrapper),
+        ProtocolCellContent::Nested { .. } => None,
+    };
+    for cell in std::iter::once(subject).chain(result) {
+        let wrapper_valid = match &cell.value {
+            ProtocolRuleStateTerm::Present { .. } => cell.wrapper == expected_wrapper,
+            _ => cell.wrapper.is_none(),
+        };
+        if !wrapper_valid {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
+                &cell.field.key,
+                format!(
+                    "`{}` is written `Some(k::configuration::Cell(..))` for a leaf cell, `Some(group)` for a nested cell, or `None`",
+                    subject.field.cell.field
+                ),
+            ));
+        }
+    }
+    let declarations = terms.declarations;
+    let mut lowering = CellsStateLowering {
+        terms,
+        subject_sorts,
+        result_sorts,
+    };
+    match &subject.value {
+        ProtocolRuleStateTerm::Instances(before) => {
+            let after = match result.map(|result| &result.value) {
+                None => None,
+                Some(ProtocolRuleStateTerm::Instances(after)) => Some(after),
+                Some(_) => {
+                    return Err(super::cell_states::collection_error(
+                        descriptor,
+                        krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                        &subject.field.key,
+                        format!(
+                            "the collection `{}` is written as an instance list on both sides",
+                            subject.field.cell.field
+                        ),
+                    ));
+                }
+            };
+            super::cell_states::lower_instances_clause(
+                &mut lowering,
+                declarations,
+                configuration,
+                &subject.field,
+                before,
+                after,
+                result.map(|result| &result.field.key),
+            )
+        }
+        before => super::cell_states::lower_optional_clause(
+            &mut lowering,
+            declarations,
+            &subject.field,
+            before,
+            result.map(|result| &result.value),
+            result.map(|result| &result.field.key),
+        ),
+    }
+}
+
+/// [`super::cell_states::StateLowering`] for `cells!` rules: each term is
+/// inferred and lowered on its own against the side's binding sorts.
+struct CellsStateLowering<'a, 'b> {
+    terms: &'a mut StateRuleTerms<'b>,
+    subject_sorts: &'a BTreeMap<String, SemanticSortRef>,
+    result_sorts: &'a BTreeMap<String, SemanticSortRef>,
+}
+
+impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
+    fn descriptor(&self) -> &Descriptor {
+        self.terms.descriptor
+    }
+
+    fn lower_state(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        fallback_key: &ProvenanceKey,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let binding_sorts = if subject {
+            self.subject_sorts
+        } else {
+            self.result_sorts
+        };
+        // An instance child is parsed as a term; a nested child's term is a
+        // whole group.
+        let group;
+        let state = match (state, sort) {
+            (ProtocolRuleStateTerm::Term(term), SemanticSortRef::Cell(_)) => {
+                group = ProtocolRuleStateTerm::Group(term.clone());
+                &group
+            }
+            (state, _) => state,
+        };
+        self.terms
+            .state_term(state, sort, fallback_key, binding_sorts, subject)
+    }
+
+    fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
+        semantic_terms_equivalent(left, right)
+    }
 }
 
 /// The post-state of a cell a rule reads without restating it: rewritten in
@@ -1104,7 +1277,11 @@ fn associative_state_frame(
 
 fn rule_state_frame(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> RuleStateFrame<'_> {
     match state {
-        ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => RuleStateFrame::Exact,
+        ProtocolRuleStateTerm::Term(_)
+        | ProtocolRuleStateTerm::Group(_)
+        | ProtocolRuleStateTerm::Present { .. }
+        | ProtocolRuleStateTerm::Absent
+        | ProtocolRuleStateTerm::Instances(_) => RuleStateFrame::Exact,
         ProtocolRuleStateTerm::KSequence(sequence) => {
             associative_state_frame(AssociativeStateFamily::KSequence, &sequence.tail)
         }

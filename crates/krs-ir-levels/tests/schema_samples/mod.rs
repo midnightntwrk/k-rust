@@ -112,12 +112,96 @@ impl Sample for BuiltinSort {
 }
 impl Sample for CellCollectionType {
     fn samples() -> Vec<Self> {
-        vec![Self::Bag]
+        vec![Self::Map, Self::List, Self::Set]
     }
 }
 impl Sample for CellMultiplicity {
     fn samples() -> Vec<Self> {
-        vec![Self::Star]
+        vec![Self::Star, Self::Optional]
+    }
+}
+impl Sample for InstanceOrdering {
+    fn samples() -> Vec<Self> {
+        vec![Self::Unordered, Self::List]
+    }
+}
+impl Sample for InstanceDelimiter {
+    fn samples() -> Vec<Self> {
+        vec![Self::Brace, Self::Bracket]
+    }
+}
+impl Sample for DescriptorCellInitial {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+        }]
+    }
+}
+impl Sample for ProtocolInstanceRest {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::Exact,
+                Self::Open,
+                Self::Update {
+                    label: sample::<String>(),
+                },
+            ],
+            3,
+            "ProtocolInstanceRest",
+            |value| match value {
+                Self::Exact => 0,
+                Self::Open => 1,
+                Self::Update { .. } => 2,
+            },
+        )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleInstanceField<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            field: sample::<String>(),
+            value: ProtocolRuleStateTerm::Term(sample::<T>()),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleInstance<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            label: Some(sample::<String>()),
+            fields: sample::<Vec<ProtocolRuleInstanceField<T>>>(),
+            rest: sample::<ProtocolInstanceRest>(),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleInstances<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            delimiter: sample::<InstanceDelimiter>(),
+            front: sample::<Vec<ProtocolRuleInstance<T>>>(),
+            rest: sample::<ProtocolRuleFrame>(),
+            back: sample::<Vec<ProtocolRuleInstance<T>>>(),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for Presence<T> {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::Present {
+                    term: sample::<T>(),
+                },
+                Self::Absent,
+            ],
+            2,
+            "Presence",
+            |value| match value {
+                Self::Present { .. } => 0,
+                Self::Absent => 1,
+            },
+        )
     }
 }
 impl Sample for CellClauseKind {
@@ -313,7 +397,7 @@ impl Sample for DescriptorCellType {
     fn samples() -> Vec<Self> {
         vec![Self {
             key: sample::<ProvenanceKey>(),
-            value: DescriptorCellCollectionType::Bag,
+            value: DescriptorCellCollectionType::Map,
         }]
     }
 }
@@ -890,8 +974,11 @@ impl Sample for CellAttribute {
                 Self::Exit {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::Initial {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            5,
+            6,
             "CellAttribute",
             |value| match value {
                 Self::Color { .. } => 0,
@@ -899,6 +986,7 @@ impl Sample for CellAttribute {
                 Self::CollectionType { .. } => 2,
                 Self::Stream { .. } => 3,
                 Self::Exit { .. } => 4,
+                Self::Initial { .. } => 5,
             },
         )
     }
@@ -2005,13 +2093,22 @@ impl<
                     before: sample::<T>(),
                     after: sample::<T>(),
                 },
+                Self::RewriteState {
+                    cell: sample::<I>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
+                    before: ProtocolRuleStateTerm::Absent,
+                    after: Some(ProtocolRuleStateTerm::Present {
+                        value: Box::new(ProtocolRuleStateTerm::Term(sample::<T>())),
+                    }),
+                },
             ],
-            3,
+            4,
             "ProtocolHeadRuleExtra",
             |value| match value {
                 Self::HaveMap { .. } => 0,
                 Self::UpdateMap { .. } => 1,
                 Self::RewriteCell { .. } => 2,
+                Self::RewriteState { .. } => 3,
             },
         )
     }
@@ -2135,14 +2232,16 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleBi
                 Self::KSequenceFrame,
                 Self::MapFrame,
                 Self::ConfigurationFrame,
+                Self::InstancesFrame,
             ],
-            4,
+            5,
             "ProtocolRuleBindingKind",
             |value| match value {
                 Self::Term { .. } => 0,
                 Self::KSequenceFrame => 1,
                 Self::MapFrame => 2,
                 Self::ConfigurationFrame => 3,
+                Self::InstancesFrame => 4,
             },
         )
     }
@@ -2213,14 +2312,22 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleSt
                 Self::KSequence(sample::<ProtocolRuleKSequence<T>>()),
                 Self::Map(sample::<ProtocolRuleMap<T>>()),
                 Self::Group(sample::<T>()),
+                Self::Present {
+                    value: Box::new(Self::Term(sample::<T>())),
+                },
+                Self::Absent,
+                Self::Instances(sample::<ProtocolRuleInstances<T>>()),
             ],
-            4,
+            7,
             "ProtocolRuleStateTerm",
             |value| match value {
                 Self::Term(..) => 0,
                 Self::KSequence(..) => 1,
                 Self::Map(..) => 2,
                 Self::Group(..) => 3,
+                Self::Present { .. } => 4,
+                Self::Absent => 5,
+                Self::Instances(..) => 6,
             },
         )
     }
@@ -3243,6 +3350,149 @@ impl<
 impl<
     C: Sample + Clone + Serialize + DeserializeOwned,
     T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for OptionalCellClause<C, T>
+{
+    fn samples() -> Vec<Self> {
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                CellClauseKind::Content,
+                Presence::Present {
+                    term: sample::<T>(),
+                },
+                Some(Presence::Absent),
+                sample::<CellContentFrame>(),
+            ),
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                CellClauseKind::Whole,
+                Presence::Absent,
+                Some(Presence::Present {
+                    term: sample::<T>(),
+                }),
+                CellContentFrame::Exact,
+            ),
+        ]
+    }
+}
+impl<
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for InstanceChild<C, T>
+{
+    fn samples() -> Vec<Self> {
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                CellClauseKind::Content,
+                sample::<T>(),
+                sample::<CellContentFrame>(),
+            ),
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                CellClauseKind::Whole,
+                sample::<T>(),
+                CellContentFrame::Exact,
+            ),
+        ]
+    }
+}
+impl<
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for InstanceClause<C, T>
+{
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![
+                Self::Kept {
+                    origin: sample::<NodeOrigin>(),
+                    label: Some(sample::<String>()),
+                    children: sample::<Vec<FixedCellClause<C, T>>>(),
+                    open: true,
+                },
+                Self::Removed {
+                    origin: sample::<NodeOrigin>(),
+                    label: None,
+                    children: sample::<Vec<InstanceChild<C, T>>>(),
+                    open: false,
+                },
+                Self::Created {
+                    origin: sample::<NodeOrigin>(),
+                    children: sample::<Vec<InstanceChild<C, T>>>(),
+                    defaults: true,
+                },
+            ],
+            3,
+            "InstanceClause",
+            |value| match value {
+                Self::Kept { .. } => 0,
+                Self::Removed { .. } => 1,
+                Self::Created { .. } => 2,
+            },
+        )
+    }
+}
+impl<
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for InstancesClause<C, T>
+{
+    fn samples() -> Vec<Self> {
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                InstanceOrdering::Unordered,
+                sample::<Vec<InstanceClause<C, T>>>(),
+                Vec::new(),
+                true,
+            ),
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                InstanceOrdering::List,
+                Vec::new(),
+                sample::<Vec<InstanceClause<C, T>>>(),
+                true,
+            ),
+        ]
+    }
+}
+impl<
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for ConfigurationClause<C, T>
+{
+    fn samples() -> Vec<Self> {
+        let mut values = sample::<Vec<FixedCellClause<C, T>>>()
+            .into_iter()
+            .map(Self::Fixed)
+            .collect::<Vec<_>>();
+        values.extend(
+            sample::<Vec<OptionalCellClause<C, T>>>()
+                .into_iter()
+                .map(Self::Optional),
+        );
+        values.extend(
+            sample::<Vec<InstancesClause<C, T>>>()
+                .into_iter()
+                .map(Self::Instances),
+        );
+        checked_samples(values, 3, "ConfigurationClause", |value| match value {
+            Self::Fixed(_) => 0,
+            Self::Optional(_) => 1,
+            Self::Instances(_) => 2,
+        })
+    }
+}
+impl<
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
 > Sample for FixedCellPattern<C, T>
 {
     fn samples() -> Vec<Self> {
@@ -3348,6 +3598,7 @@ impl<
             cell_type: sample::<Option<DescriptorCellType>>(),
             stream: sample::<Option<DescriptorCellStream>>(),
             exit: sample::<Option<DescriptorCellExit>>(),
+            initial: sample::<Option<DescriptorCellInitial>>(),
             content: sample::<ProtocolCellContent<S, N>>(),
         }]
     }
@@ -3923,6 +4174,16 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
         "FixedConfigurationRewrite",
     );
     insert::<FixedConfigurationVariable<SemanticSortRef>>(corpus, "FixedConfigurationVariable");
+    insert::<ConfigurationClause<SemanticId, SemanticTerm>>(corpus, "ConfigurationClause");
+    insert::<Presence<SemanticTerm>>(corpus, "Presence");
+    insert::<OptionalCellClause<SemanticId, SemanticTerm>>(corpus, "OptionalCellClause");
+    insert::<InstanceChild<SemanticId, SemanticTerm>>(corpus, "InstanceChild");
+    insert::<InstanceClause<SemanticId, SemanticTerm>>(corpus, "InstanceClause");
+    insert::<InstancesClause<SemanticId, SemanticTerm>>(corpus, "InstancesClause");
+    insert::<ProtocolInstanceRest>(corpus, "ProtocolInstanceRest");
+    insert::<ProtocolRuleInstance<DescriptorTerm>>(corpus, "ProtocolRuleInstance");
+    insert::<ProtocolRuleInstanceField<DescriptorTerm>>(corpus, "ProtocolRuleInstanceField");
+    insert::<ProtocolRuleInstances<DescriptorTerm>>(corpus, "ProtocolRuleInstances");
     insert::<FixedInitializerCell<SemanticId, SemanticTerm>>(corpus, "FixedInitializerCell");
     insert::<GeneratedOperation<SemanticSortRef>>(corpus, "GeneratedOperation");
     insert::<GroupAssociativitySentence>(corpus, "GroupAssociativitySentence");

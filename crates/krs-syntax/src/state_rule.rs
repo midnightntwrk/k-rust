@@ -35,6 +35,8 @@ pub enum StateRuleBindingKind {
     MapFrame,
     /// A named remainder of the complete fixed configuration.
     ConfigurationFrame,
+    /// A named rest of a collection cell's instances (KF-023).
+    InstancesFrame,
 }
 
 /// One typed or structurally classified configuration-rule binding.
@@ -1505,6 +1507,11 @@ fn count_term_binding_occurrences_in_cells(cells: &CellsExpression, binding: &Id
 
 fn count_term_binding_occurrences_in_state(state: &StateTerm, binding: &Ident) -> usize {
     match state {
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => state
+            .nested_states()
+            .into_iter()
+            .map(|nested| count_term_binding_occurrences_in_state(nested, binding))
+            .sum(),
         StateTerm::Term(term) | StateTerm::Group(term) => {
             count_term_binding_occurrences(term, binding)
         }
@@ -1542,6 +1549,22 @@ fn collect_state_term_bindings(
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
     match term {
+        StateTerm::Present(inner) => collect_state_term_bindings(inner, output),
+        StateTerm::Absent(_) => Ok(()),
+        StateTerm::Instances(list) => {
+            for instance in list.front() {
+                for field in instance.fields() {
+                    collect_state_term_bindings(field.value(), output)?;
+                }
+            }
+            collect_remainder_binding(list.rest(), StateRuleBindingKind::InstancesFrame, output)?;
+            for instance in list.back() {
+                for field in instance.fields() {
+                    collect_state_term_bindings(field.value(), output)?;
+                }
+            }
+            Ok(())
+        }
         StateTerm::Term(term) | StateTerm::Group(term) => collect_term_bindings(term, output),
         StateTerm::KSequence(sequence) => {
             for item in sequence.items() {
@@ -1682,7 +1705,29 @@ fn validate_result_reuses(
         bindings,
     )?;
     for entry in cells.entries() {
-        match entry.value() {
+        validate_state_reuses(entry.value(), bindings)?;
+    }
+    Ok(())
+}
+
+fn validate_state_reuses(
+    state: &StateTerm,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    {
+        match state {
+            StateTerm::Present(inner) => validate_state_reuses(inner, bindings)?,
+            StateTerm::Absent(_) => {}
+            StateTerm::Instances(list) => {
+                for nested in state.nested_states() {
+                    validate_state_reuses(nested, bindings)?;
+                }
+                validate_remainder_reuse(
+                    list.rest(),
+                    StateRuleBindingKind::InstancesFrame,
+                    bindings,
+                )?;
+            }
             StateTerm::Term(term) | StateTerm::Group(term) => {
                 validate_term_reuses(term, bindings)?;
             }
@@ -1766,6 +1811,17 @@ fn append_state_term_provenance(
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     match term {
+        StateTerm::Present(inner) => append_state_term_provenance(inner, side, counters, output),
+        StateTerm::Absent(_) => Ok(()),
+        StateTerm::Instances(list) => {
+            // The instance, child-field, and rest roles each count in
+            // traversal order; the children's own anchors follow.
+            append_remapped(list.provenance()?, side, counters, output)?;
+            for nested in term.nested_states() {
+                append_state_term_provenance(nested, side, counters, output)?;
+            }
+            Ok(())
+        }
         StateTerm::Term(term) | StateTerm::Group(term) => {
             append_term_provenance(term, side, counters, output)
         }
@@ -1908,6 +1964,12 @@ fn append_state_term_candidates(
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     match state {
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            for nested in state.nested_states() {
+                append_state_term_candidates(nested, side, bindings, counters, output)?;
+            }
+            Ok(())
+        }
         StateTerm::Term(term) | StateTerm::Group(term) => {
             append_term_candidates(term, side, bindings, counters, output)
         }
@@ -2197,10 +2259,19 @@ fn claim_terms<'a>(
 
 fn append_cells_terms<'a>(cells: &'a CellsExpression, output: &mut Vec<&'a TermExpression>) {
     for entry in cells.entries() {
-        match entry.value() {
-            StateTerm::Term(term) | StateTerm::Group(term) => output.push(term),
-            StateTerm::KSequence(sequence) => output.extend(sequence.items().iter()),
-            StateTerm::Map(map) => output.extend(map_terms(map)),
+        append_state_terms(entry.value(), output);
+    }
+}
+
+fn append_state_terms<'a>(state: &'a StateTerm, output: &mut Vec<&'a TermExpression>) {
+    match state {
+        StateTerm::Term(term) | StateTerm::Group(term) => output.push(term),
+        StateTerm::KSequence(sequence) => output.extend(sequence.items().iter()),
+        StateTerm::Map(map) => output.extend(map_terms(map)),
+        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
+            for nested in state.nested_states() {
+                append_state_terms(nested, output);
+            }
         }
     }
 }

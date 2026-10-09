@@ -1,7 +1,8 @@
 //! Target-neutral fixed-configuration and state-rewrite contracts.
 //!
-//! These types describe declaration-led cell trees, including repeated
-//! collection cells. Optional cells deliberately remain outside this schema slice.
+//! These types describe declaration-led cell trees, including optional (`?`)
+//! cells and repeated (`*`) collection cells, and the configuration rewrites
+//! over them (KF-023).
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -132,6 +133,13 @@ pub enum CellAttribute {
         /// Provenance for the authored flag.
         origin: NodeOrigin,
     },
+    /// `initial=""` on an optional or collection cell: the initial
+    /// configuration holds the cell (one instance of it) built from its
+    /// declaration template (KF-023).
+    Initial {
+        /// Provenance for the authored flag.
+        origin: NodeOrigin,
+    },
 }
 
 /// Standard streams K connects a stream cell to (K 7.1.337 has no stderr stream cell).
@@ -171,6 +179,8 @@ impl CellStream {
 pub enum CellMultiplicity {
     /// Zero or more cells.
     Star,
+    /// Zero or one cell (KF-023).
+    Optional,
 }
 
 impl CellMultiplicity {
@@ -179,16 +189,26 @@ impl CellMultiplicity {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Star => "*",
+            Self::Optional => "?",
+        }
+    }
+
+    /// Parses the exact K attribute spelling.
+    #[must_use]
+    pub fn from_k(value: &str) -> Option<Self> {
+        match value {
+            "*" => Some(Self::Star),
+            "?" => Some(Self::Optional),
+            _ => None,
         }
     }
 }
 
-/// Supported collection types for repeated cells.
+/// Supported collection types for repeated cells. K's cell bags are
+/// unsupported by its LLVM and Haskell backends, so KRS rejects them.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellCollectionType {
-    /// Commutative bag collection.
-    Bag,
     /// Ordered list collection.
     List,
     /// Keyed map collection.
@@ -202,7 +222,6 @@ impl CellCollectionType {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Bag => "Bag",
             Self::List => "List",
             Self::Map => "Map",
             Self::Set => "Set",
@@ -247,6 +266,12 @@ impl CellAttribute {
         Self::Exit { origin }
     }
 
+    /// Creates the `initial` flag of an optional or collection cell.
+    #[must_use]
+    pub const fn initial(origin: NodeOrigin) -> Self {
+        Self::Initial { origin }
+    }
+
     /// Returns provenance for this metadata value.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
@@ -255,7 +280,8 @@ impl CellAttribute {
             | Self::Multiplicity { origin, .. }
             | Self::CollectionType { origin, .. }
             | Self::Stream { origin, .. }
-            | Self::Exit { origin } => origin,
+            | Self::Exit { origin }
+            | Self::Initial { origin } => origin,
         }
     }
 }
@@ -369,6 +395,36 @@ impl<S, C> FixedCell<S, C> {
     #[must_use]
     pub const fn declaration(&self) -> Option<&StableItemId> {
         self.declaration.as_ref()
+    }
+
+    /// Returns the cell's multiplicity, `None` for an exactly-once cell.
+    #[must_use]
+    pub fn multiplicity(&self) -> Option<CellMultiplicity> {
+        self.attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                CellAttribute::Multiplicity { value, .. } => Some(*value),
+                _ => None,
+            })
+    }
+
+    /// Returns the collection type of a repeated cell.
+    #[must_use]
+    pub fn collection_type(&self) -> Option<CellCollectionType> {
+        self.attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                CellAttribute::CollectionType { value, .. } => Some(*value),
+                _ => None,
+            })
+    }
+
+    /// Whether an optional or collection cell carries `initial`.
+    #[must_use]
+    pub fn is_initial(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attribute| matches!(attribute, CellAttribute::Initial { .. }))
     }
 }
 
@@ -949,13 +1005,531 @@ impl<C, T> FixedCellClause<C, T> {
     }
 }
 
+/// Whether an optional cell is present, and its content when it is.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "presence", rename_all = "snake_case")]
+pub enum Presence<T> {
+    /// The cell is present with this content.
+    Present {
+        /// The cell's content (a whole group term for a group cell).
+        term: T,
+    },
+    /// The cell is absent (K's `.Bag`).
+    Absent,
+}
+
+impl<T> Presence<T> {
+    /// Returns the content of a present cell.
+    #[must_use]
+    pub const fn term(&self) -> Option<&T> {
+        match self {
+            Self::Present { term } => Some(term),
+            Self::Absent => None,
+        }
+    }
+}
+
+/// One optional (`?`) cell in a simultaneous configuration rewrite (KF-023):
+/// read, updated, created (absent before), or deleted (absent after).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OptionalCellClause<C, T> {
+    origin: NodeOrigin,
+    cell: C,
+    before: Presence<T>,
+    /// `None` when the rule leaves the cell as it matched it.
+    after: Option<Presence<T>>,
+    frame: CellContentFrame,
+    /// Leaf content or a whole group cell; omitted when it is leaf content.
+    #[serde(default, skip_serializing_if = "CellClauseKind::is_content")]
+    kind: CellClauseKind,
+}
+
+impl<C, T> OptionalCellClause<C, T> {
+    /// Creates an optional-cell clause; IR validation checks that a present
+    /// state precedes a preserved post-state and that an absent pre-state is
+    /// followed by a present one.
+    #[must_use]
+    pub const fn new(
+        origin: NodeOrigin,
+        cell: C,
+        kind: CellClauseKind,
+        before: Presence<T>,
+        after: Option<Presence<T>>,
+        frame: CellContentFrame,
+    ) -> Self {
+        Self {
+            origin,
+            cell,
+            before,
+            after,
+            frame,
+            kind,
+        }
+    }
+
+    /// Returns clause provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the optional cell.
+    #[must_use]
+    pub const fn cell(&self) -> &C {
+        &self.cell
+    }
+
+    /// Returns leaf content or a whole group cell.
+    #[must_use]
+    pub const fn kind(&self) -> CellClauseKind {
+        self.kind
+    }
+
+    /// Returns the matched state.
+    #[must_use]
+    pub const fn before(&self) -> &Presence<T> {
+        &self.before
+    }
+
+    /// Returns the rewritten state, `None` when the cell is only read.
+    #[must_use]
+    pub const fn after(&self) -> Option<&Presence<T>> {
+        self.after.as_ref()
+    }
+
+    /// Returns the content frame of a present matched cell.
+    #[must_use]
+    pub const fn frame(&self) -> &CellContentFrame {
+        &self.frame
+    }
+}
+
+/// How the instances of a collection cell are ordered (KF-023, R8).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstanceOrdering {
+    /// A Set or Map collection: the clause matches *some* instances.
+    Unordered,
+    /// A List collection: `front` instances sit at the front, `back` ones at the back.
+    List,
+}
+
+/// One child cell of a matched-and-removed or created collection instance.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceChild<C, T> {
+    origin: NodeOrigin,
+    cell: C,
+    term: T,
+    frame: CellContentFrame,
+    /// Leaf content or a whole group cell; omitted when it is leaf content.
+    #[serde(default, skip_serializing_if = "CellClauseKind::is_content")]
+    kind: CellClauseKind,
+}
+
+impl<C, T> InstanceChild<C, T> {
+    /// Creates one instance child.
+    #[must_use]
+    pub const fn new(
+        origin: NodeOrigin,
+        cell: C,
+        kind: CellClauseKind,
+        term: T,
+        frame: CellContentFrame,
+    ) -> Self {
+        Self {
+            origin,
+            cell,
+            term,
+            frame,
+            kind,
+        }
+    }
+
+    /// Returns child provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the child cell.
+    #[must_use]
+    pub const fn cell(&self) -> &C {
+        &self.cell
+    }
+
+    /// Returns the child's matched or created content.
+    #[must_use]
+    pub const fn term(&self) -> &T {
+        &self.term
+    }
+
+    /// Returns the child's content frame.
+    #[must_use]
+    pub const fn frame(&self) -> &CellContentFrame {
+        &self.frame
+    }
+
+    /// Returns leaf content or a whole group cell.
+    #[must_use]
+    pub const fn kind(&self) -> CellClauseKind {
+        self.kind
+    }
+}
+
+/// One instance of a collection cell in a configuration rewrite (KF-023).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "instance_kind", rename_all = "snake_case")]
+pub enum InstanceClause<C, T> {
+    /// A matched instance that stays, its children read or rewritten in
+    /// place (`label @ Decl { .. }` and `Decl { .., ..label }`).
+    Kept {
+        /// Instance provenance.
+        origin: NodeOrigin,
+        /// The authored instance label.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// The mentioned children, in authored order.
+        children: Vec<FixedCellClause<C, T>>,
+        /// Whether the other children are unconstrained (`..`).
+        open: bool,
+    },
+    /// A matched instance the rule removes (K's `(<c> .. </c> => .Bag)`).
+    Removed {
+        /// Instance provenance.
+        origin: NodeOrigin,
+        /// The authored instance label.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// The mentioned children, in authored order.
+        children: Vec<InstanceChild<C, T>>,
+        /// Whether the other children are unconstrained (`..`).
+        open: bool,
+    },
+    /// A new instance (K's `(.Bag => <c> .. </c>)`).
+    Created {
+        /// Instance provenance.
+        origin: NodeOrigin,
+        /// The given children, in authored order.
+        children: Vec<InstanceChild<C, T>>,
+        /// Whether the other children take their template defaults (`..`).
+        defaults: bool,
+    },
+}
+
+impl<C, T> InstanceClause<C, T> {
+    /// Returns instance provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        match self {
+            Self::Kept { origin, .. }
+            | Self::Removed { origin, .. }
+            | Self::Created { origin, .. } => origin,
+        }
+    }
+
+    /// Returns the authored label of a matched instance.
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Self::Kept { label, .. } | Self::Removed { label, .. } => label.as_deref(),
+            Self::Created { .. } => None,
+        }
+    }
+}
+
+/// The instances of one collection (`*`) cell that a rewrite names (KF-023).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstancesClause<C, T> {
+    origin: NodeOrigin,
+    cell: C,
+    ordering: InstanceOrdering,
+    front: Vec<InstanceClause<C, T>>,
+    #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+    back: Vec<InstanceClause<C, T>>,
+    open: bool,
+}
+
+impl<C, T> InstancesClause<C, T> {
+    /// Creates a collection clause. `front` and `back` are in emission order;
+    /// an unordered collection has no `back`. `open` frames every other
+    /// instance; an exact clause names every instance.
+    #[must_use]
+    pub const fn new(
+        origin: NodeOrigin,
+        cell: C,
+        ordering: InstanceOrdering,
+        front: Vec<InstanceClause<C, T>>,
+        back: Vec<InstanceClause<C, T>>,
+        open: bool,
+    ) -> Self {
+        Self {
+            origin,
+            cell,
+            ordering,
+            front,
+            back,
+            open,
+        }
+    }
+
+    /// Returns clause provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+
+    /// Returns the collection cell.
+    #[must_use]
+    pub const fn cell(&self) -> &C {
+        &self.cell
+    }
+
+    /// Returns how the collection is ordered.
+    #[must_use]
+    pub const fn ordering(&self) -> InstanceOrdering {
+        self.ordering
+    }
+
+    /// Returns the front (or, unordered, every) instance in emission order.
+    #[must_use]
+    pub fn front(&self) -> &[InstanceClause<C, T>] {
+        &self.front
+    }
+
+    /// Returns the back instances of a List collection in emission order.
+    #[must_use]
+    pub fn back(&self) -> &[InstanceClause<C, T>] {
+        &self.back
+    }
+
+    /// Returns every instance, front then back.
+    pub fn instances(&self) -> impl Iterator<Item = &InstanceClause<C, T>> {
+        self.front.iter().chain(&self.back)
+    }
+
+    /// Whether the other instances are framed.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
+/// One clause of a simultaneous configuration rewrite.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "clause_kind", rename_all = "snake_case")]
+pub enum ConfigurationClause<C, T> {
+    /// One exactly-once cell: leaf content or a whole group.
+    Fixed(FixedCellClause<C, T>),
+    /// One optional (`?`) cell (KF-023).
+    Optional(OptionalCellClause<C, T>),
+    /// Instances of one collection (`*`) cell (KF-023).
+    Instances(InstancesClause<C, T>),
+}
+
+impl<C, T> ConfigurationClause<C, T> {
+    /// Returns the selected cell.
+    #[must_use]
+    pub const fn cell(&self) -> &C {
+        match self {
+            Self::Fixed(clause) => clause.cell(),
+            Self::Optional(clause) => clause.cell(),
+            Self::Instances(clause) => clause.cell(),
+        }
+    }
+
+    /// Returns clause provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        match self {
+            Self::Fixed(clause) => clause.origin(),
+            Self::Optional(clause) => clause.origin(),
+            Self::Instances(clause) => clause.origin(),
+        }
+    }
+
+    /// Returns the exactly-once clause, if this is one.
+    #[must_use]
+    pub const fn as_fixed(&self) -> Option<&FixedCellClause<C, T>> {
+        match self {
+            Self::Fixed(clause) => Some(clause),
+            Self::Optional(_) | Self::Instances(_) => None,
+        }
+    }
+}
+
+/// The post-state of one matched cell in a [`ClausePart`].
+#[derive(Clone, Copy, Debug)]
+pub enum PartPost<'a, T> {
+    /// Matched and unchanged.
+    Preserve,
+    /// Replaced by this term.
+    Replace(&'a T),
+    /// Rewritten in place by the `k::rewrite!` below its pattern (KF-011).
+    Local,
+    /// Removed: an optional cell or a collection instance the rule deletes.
+    Removed,
+}
+
+/// One cell-level part of a configuration clause (KF-023): a matched cell
+/// (a fixed clause, a present optional cell, a child of a matched instance)
+/// or a cell the rule creates (an optional cell absent before, a child of a
+/// created instance).
+#[derive(Clone, Copy, Debug)]
+pub enum ClausePart<'a, C, T> {
+    /// A matched cell with its pattern, post-state, and frame.
+    Matched {
+        /// The cell.
+        cell: &'a C,
+        /// Leaf content or a whole group.
+        kind: CellClauseKind,
+        /// The pattern.
+        before: &'a T,
+        /// What the rule does to it.
+        after: PartPost<'a, T>,
+        /// The pattern's content frame.
+        frame: &'a CellContentFrame,
+    },
+    /// A cell the rule creates, with its content.
+    Written {
+        /// The cell.
+        cell: &'a C,
+        /// Leaf content or a whole group.
+        kind: CellClauseKind,
+        /// The created content.
+        term: &'a T,
+    },
+}
+
+impl<'a, C, T> ClausePart<'a, C, T> {
+    /// The terms the part matches (left side).
+    #[must_use]
+    pub fn pre_term(&self) -> Option<&'a T> {
+        match self {
+            Self::Matched { before, .. } => Some(before),
+            Self::Written { .. } => None,
+        }
+    }
+
+    /// The term the part writes (right side), if any.
+    #[must_use]
+    pub fn post_term(&self) -> Option<&'a T> {
+        match self {
+            Self::Matched {
+                after: PartPost::Replace(term),
+                ..
+            }
+            | Self::Written { term, .. } => Some(term),
+            Self::Matched { .. } => None,
+        }
+    }
+
+    /// Every term of the part, pattern first.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&'a T> {
+        self.pre_term()
+            .into_iter()
+            .chain(self.post_term())
+            .collect()
+    }
+
+    /// The pattern's frame of a matched part.
+    #[must_use]
+    pub fn frame(&self) -> Option<&'a CellContentFrame> {
+        match self {
+            Self::Matched { frame, .. } => Some(frame),
+            Self::Written { .. } => None,
+        }
+    }
+}
+
+impl<C, T> ConfigurationClause<C, T> {
+    /// The clause's cell-level parts in authored order: one for a fixed or
+    /// optional clause, one per mentioned child of each instance for a
+    /// collection clause (KF-023).
+    #[must_use]
+    pub fn parts(&self) -> Vec<ClausePart<'_, C, T>> {
+        fn fixed<C, T>(clause: &FixedCellClause<C, T>) -> ClausePart<'_, C, T> {
+            ClausePart::Matched {
+                cell: clause.cell(),
+                kind: clause.kind(),
+                before: clause.before(),
+                after: match clause.after() {
+                    CellPost::Preserve => PartPost::Preserve,
+                    CellPost::Replace { term } => PartPost::Replace(term),
+                    CellPost::Local => PartPost::Local,
+                },
+                frame: clause.frame(),
+            }
+        }
+        match self {
+            Self::Fixed(clause) => vec![fixed(clause)],
+            Self::Optional(clause) => match (clause.before(), clause.after()) {
+                (Presence::Present { term }, after) => vec![ClausePart::Matched {
+                    cell: clause.cell(),
+                    kind: clause.kind(),
+                    before: term,
+                    after: match after {
+                        None => PartPost::Preserve,
+                        Some(Presence::Present { term }) => PartPost::Replace(term),
+                        Some(Presence::Absent) => PartPost::Removed,
+                    },
+                    frame: clause.frame(),
+                }],
+                (Presence::Absent, Some(Presence::Present { term })) => {
+                    vec![ClausePart::Written {
+                        cell: clause.cell(),
+                        kind: clause.kind(),
+                        term,
+                    }]
+                }
+                (Presence::Absent, _) => Vec::new(),
+            },
+            Self::Instances(clause) => clause
+                .instances()
+                .flat_map(|instance| match instance {
+                    InstanceClause::Kept { children, .. } => {
+                        children.iter().map(fixed).collect::<Vec<_>>()
+                    }
+                    InstanceClause::Removed { children, .. } => children
+                        .iter()
+                        .map(|child| ClausePart::Matched {
+                            cell: child.cell(),
+                            kind: child.kind(),
+                            before: child.term(),
+                            after: PartPost::Removed,
+                            frame: child.frame(),
+                        })
+                        .collect(),
+                    InstanceClause::Created { children, .. } => children
+                        .iter()
+                        .map(|child| ClausePart::Written {
+                            cell: child.cell(),
+                            kind: child.kind(),
+                            term: child.term(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<C, T> From<FixedCellClause<C, T>> for ConfigurationClause<C, T> {
+    fn from(clause: FixedCellClause<C, T>) -> Self {
+        Self::Fixed(clause)
+    }
+}
+
 /// One simultaneous fixed-configuration rewrite.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FixedConfigurationRewrite<C, T> {
     origin: NodeOrigin,
     configuration: SemanticId,
-    clauses: Vec<FixedCellClause<C, T>>,
+    clauses: Vec<ConfigurationClause<C, T>>,
     omitted_siblings: Vec<C>,
 }
 
@@ -972,9 +1546,10 @@ where
     pub fn new(
         origin: NodeOrigin,
         configuration: SemanticId,
-        clauses: Vec<FixedCellClause<C, T>>,
+        clauses: Vec<impl Into<ConfigurationClause<C, T>>>,
         omitted_siblings: Vec<C>,
     ) -> Result<Self, StateShapeError> {
+        let clauses = clauses.into_iter().map(Into::into).collect::<Vec<_>>();
         if clauses.is_empty() {
             return Err(StateShapeError::EmptyCollection(
                 crate::IrField::ConfigurationRewriteClauses,
@@ -982,7 +1557,7 @@ where
         }
         let mut mentioned = BTreeSet::new();
         for clause in &clauses {
-            if !mentioned.insert(clause.cell.clone()) {
+            if !mentioned.insert(clause.cell().clone()) {
                 return Err(StateShapeError::DuplicateCell);
             }
         }
@@ -1017,8 +1592,24 @@ where
 
     /// Returns mentioned cells in authored order.
     #[must_use]
-    pub fn clauses(&self) -> &[FixedCellClause<C, T>] {
+    pub fn clauses(&self) -> &[ConfigurationClause<C, T>] {
         &self.clauses
+    }
+
+    /// Returns the exactly-once clauses in authored order.
+    pub fn fixed_clauses(&self) -> impl Iterator<Item = &FixedCellClause<C, T>> {
+        self.clauses
+            .iter()
+            .filter_map(ConfigurationClause::as_fixed)
+    }
+
+    /// Returns every cell-level part of every clause in authored order.
+    #[must_use]
+    pub fn parts(&self) -> Vec<ClausePart<'_, C, T>> {
+        self.clauses
+            .iter()
+            .flat_map(ConfigurationClause::parts)
+            .collect()
     }
 
     /// Returns explicitly framed unmentioned leaf cells.

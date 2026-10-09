@@ -10,12 +10,14 @@
 
 use std::collections::BTreeSet;
 
-use krs_ir::{CellAttribute, CellContentFrame, CellPost, CellStream, FixedCell, FixedCellClause};
+use krs_ir::{
+    CellAttribute, CellContentFrame, CellPost, CellStream, ConfigurationClause, FixedCell,
+};
 use krs_ir::{FixedCellContent, SemanticId};
 use krs_ir_levels::{IrTermKind, ListOperands, SemanticTerm, SemanticTheory};
 
 /// One semantic fixed-cell clause.
-pub(crate) type SemanticClause = FixedCellClause<SemanticId, SemanticTerm>;
+pub(crate) type SemanticClause = ConfigurationClause<SemanticId, SemanticTerm>;
 
 /// A read of a stdin stream cell in the shape K unblocks.
 pub(crate) struct StdinRead<'a> {
@@ -28,7 +30,7 @@ pub(crate) struct StdinRead<'a> {
 /// The read `list::concat(list::item(v), rest) => rest` in `clauses[index]`, with `v` a variable
 /// and `rest` used by no other clause.
 pub(crate) fn stdin_read(clauses: &[SemanticClause], index: usize) -> Option<StdinRead<'_>> {
-    let clause = &clauses[index];
+    let clause = clauses[index].as_fixed()?;
     let (CellPost::Replace { term: after }, CellContentFrame::Exact) =
         (clause.after(), clause.frame())
     else {
@@ -89,14 +91,18 @@ fn collect_stdin_cells<S>(cells: &[FixedCell<S, SemanticId>], output: &mut BTree
 }
 
 fn clause_mentions(clause: &SemanticClause, variable: &SemanticId) -> bool {
-    term_mentions(clause.before(), variable)
-        || matches!(clause.after(), CellPost::Replace { term } if term_mentions(term, variable))
-        || matches!(
-            clause.frame(),
-            CellContentFrame::KSequenceTail { binding: Some(binding), .. }
-                | CellContentFrame::MapRemainder { binding: Some(binding), .. }
-                if binding == variable
-        )
+    clause.parts().iter().any(|part| {
+        part.terms()
+            .into_iter()
+            .any(|term| term_mentions(term, variable))
+            || matches!(
+                part.frame(),
+                Some(
+                    CellContentFrame::KSequenceTail { binding: Some(binding), .. }
+                        | CellContentFrame::MapRemainder { binding: Some(binding), .. }
+                ) if binding == variable
+            )
+    })
 }
 
 fn term_mentions(term: &SemanticTerm, variable: &SemanticId) -> bool {

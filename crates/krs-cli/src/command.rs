@@ -252,7 +252,9 @@ struct PreparedDefinition {
     /// Allowed quoted hooks and `raw_k!` sentences, and functions only Z3
     /// can evaluate (`smt_hook` without equations), reported on every command.
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
-    /// `k::is!` and `k::project!` terms that test nothing, reported on every build.
+    /// `k::is!` and `k::project!` terms that test nothing, and optional or
+    /// collection cells K starts present without `initial`, reported on every
+    /// build.
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
@@ -472,7 +474,10 @@ fn prepare(
     ));
     Ok(PreparedDefinition {
         raw_k_warnings,
-        sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition()),
+        sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
+            .into_iter()
+            .chain(krs_compiler::cell_collection_warnings(lowered.definition()))
+            .collect(),
         bundle,
         semantic,
         lowered,
@@ -551,7 +556,8 @@ fn push_trusted_claim_warnings(
 
 /// Returns the `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of
 /// the package's allowed raw K, then the `krs::analysis::trivial-sort-test`
-/// warnings; every command reports them.
+/// and `krs::analysis::collection-config-var-without-initial` warnings;
+/// every command reports them.
 fn raw_k_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports::default();
     for diagnostic in prepared

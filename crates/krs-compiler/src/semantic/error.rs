@@ -398,6 +398,15 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending attribute.
         range: Option<Box<SourceRange>>,
     },
+    /// An optional or collection cell entry K cannot express (KF-023).
+    CellCollection {
+        /// The diagnostic code of the specific check.
+        code: krs_diagnostic::Code,
+        /// Stable reason naming the cell.
+        reason: String,
+        /// Sole exact authored range of the offending entry.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
     /// Whole-theory validation rejected the constructed graph.
@@ -551,7 +560,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidStaticClause { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
-            | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
+            | Self::InvalidConsoleCell { reason, .. }
+            | Self::CellCollection { reason, .. } => formatter.write_str(reason),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
         }
@@ -616,6 +626,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 LexicalProblem::Recursive => codes::analysis::RECURSIVE_LEXICAL,
             },
             Self::InvalidConsoleCell { .. } => codes::analysis::CONSOLE_CELL,
+            Self::CellCollection { code, .. } => code.clone(),
             Self::InvalidFresh { problem, .. } => match problem {
                 FreshProblem::NoGenerator => codes::analysis::NO_FRESH_GENERATOR,
                 FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
@@ -669,7 +680,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidMatchRestriction { range, .. }
             | Self::InvalidStaticClause { range, .. }
             | Self::SmtLemmaUntranslatable { range, .. }
-            | Self::InvalidConsoleCell { range, .. } => range
+            | Self::InvalidConsoleCell { range, .. }
+            | Self::CellCollection { range, .. } => range
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),

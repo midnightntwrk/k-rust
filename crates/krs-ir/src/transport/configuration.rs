@@ -141,8 +141,6 @@ pub struct DescriptorCellMultiplicity {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum DescriptorCellCollectionType {
-    /// Commutative bag collection.
-    Bag,
     /// Ordered list collection.
     List,
     /// Keyed map collection.
@@ -156,7 +154,6 @@ impl TryFrom<String> for DescriptorCellCollectionType {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.as_str() {
-            "Bag" => Ok(Self::Bag),
             "List" => Ok(Self::List),
             "Map" => Ok(Self::Map),
             "Set" => Ok(Self::Set),
@@ -170,7 +167,6 @@ impl TryFrom<String> for DescriptorCellCollectionType {
 impl From<DescriptorCellCollectionType> for crate::CellCollectionType {
     fn from(value: DescriptorCellCollectionType) -> Self {
         match value {
-            DescriptorCellCollectionType::Bag => Self::Bag,
             DescriptorCellCollectionType::List => Self::List,
             DescriptorCellCollectionType::Map => Self::Map,
             DescriptorCellCollectionType::Set => Self::Set,
@@ -208,6 +204,14 @@ pub struct DescriptorCellStream {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DescriptorCellExit {
+    /// Exact flag-identifier provenance.
+    pub key: ProvenanceKey,
+}
+
+/// Optional bare `initial` flag of an optional or collection cell (KF-023).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellInitial {
     /// Exact flag-identifier provenance.
     pub key: ProvenanceKey,
 }
@@ -288,10 +292,13 @@ protocol_shape! {
         /// Optional exit flag; absent for an ordinary cell.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub exit: Option<DescriptorCellExit> => [keep],
+        /// Optional `initial` flag of an optional or collection cell (KF-023).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub initial: Option<DescriptorCellInitial> => [keep],
         /// Typed leaf or nested content.
         pub content: ProtocolCellContent<S, N> => [nested sort_map nominal_map],
     }
-    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type, stream, exit];
+    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type, stream, exit, initial];
 }
 
 /// Stable fixed-cell field.
@@ -1305,7 +1312,7 @@ fn validate_cell_metadata<I, S, N>(
         )?;
     }
     if let Some(multiplicity) = &field.multiplicity {
-        if multiplicity.value != "*" {
+        if crate::CellMultiplicity::from_k(&multiplicity.value).is_none() {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::UnsupportedCellMultiplicity,
             ));
@@ -1317,8 +1324,17 @@ fn validate_cell_metadata<I, S, N>(
             ordinal,
         )?;
     }
+    let star = field
+        .multiplicity
+        .as_ref()
+        .is_some_and(|multiplicity| multiplicity.value == "*");
+    if star && field.cell_type.is_none() {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::CellTypeRequiresRepeatedMultiplicity,
+        ));
+    }
     if let Some(cell_type) = &field.cell_type {
-        if field.multiplicity.is_none() {
+        if !star {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::CellTypeRequiresRepeatedMultiplicity,
             ));
@@ -1343,6 +1359,19 @@ fn validate_cell_metadata<I, S, N>(
             keys,
             &exit.key,
             ProvenanceRole::ConfigurationCellExit,
+            ordinal,
+        )?;
+    }
+    if let Some(initial) = &field.initial {
+        if field.multiplicity.is_none() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InitialRequiresMultiplicity,
+            ));
+        }
+        insert_exact(
+            keys,
+            &initial.key,
+            ProvenanceRole::ConfigurationCellInitial,
             ordinal,
         )?;
     }

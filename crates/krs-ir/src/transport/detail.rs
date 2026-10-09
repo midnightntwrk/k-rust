@@ -102,6 +102,8 @@ details! {
         MissingConfigurationHostOwner => "fixed configuration lacks a nominal host owner",
         MissingNestedCellHostOwner => "nested cell declaration lacks a nominal host owner",
         InvalidGroupCellEntry => "a nested cell entry is a binder, `_`, or fragment!",
+        InvalidOptionalCellEntry => "an optional cell entry is `Some(..)` around a leaf or group entry, or `None`",
+        InvalidInstanceEntry => "a collection instance is a cell record whose children are named once and whose rest is valid on its side",
     }
 }
 
@@ -186,6 +188,8 @@ details! {
         EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
         SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
         InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
+        InitialRequiresMultiplicity => "`initial` requires an optional or collection multiplicity",
+        InvalidReadableStateExtra => "a readable optional or collection extra names its cell once, with a subject state and an optional result",
     }
 }
 
