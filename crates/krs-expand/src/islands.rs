@@ -75,6 +75,15 @@ pub(crate) fn matches(input: TokenStream) -> crate::Result<TokenStream> {
     Ok(quote!(::core::panic!("matches! has no runtime value")))
 }
 
+/// `k::rewrite!` outside the subject of a single-body rule (KF-011). Inside
+/// one, the enclosing `#[k::rule]` expansion consumes it; anywhere it reaches
+/// rustc it is misplaced.
+pub(crate) fn rewrite() -> TokenStream {
+    quote!(::core::compile_error!(
+        "`k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`)"
+    ))
+}
+
 /// Compiler-owned associative object-Bool disjunction.
 pub(crate) fn or_bool() -> TokenStream {
     quote!(::core::panic!("or_bool! has no runtime value"))

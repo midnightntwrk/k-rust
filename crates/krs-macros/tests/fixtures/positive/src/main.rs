@@ -2438,7 +2438,7 @@ mod tests {
         let HostDescriptorPayload::StructuredRule(record_rule) = &record_rule.payload else {
             panic!("enum_record must be structured")
         };
-        let HostTerm::Application { arguments, .. } = &record_rule.result else {
+        let Some(HostTerm::Application { arguments, .. }) = &record_rule.result else {
             panic!("enum record result must be an application")
         };
         let krs_ir::Arguments::Named(arguments) = arguments else {
@@ -2467,13 +2467,13 @@ mod tests {
             panic!("boolean_literal must be structured")
         };
         assert!(matches!(literal_rule.subject, HostTerm::Literal { .. }));
-        assert!(matches!(literal_rule.result, HostTerm::Literal { .. }));
+        assert!(matches!(literal_rule.result, Some(HostTerm::Literal { .. })));
 
         let builtin_rule = descriptor(&descriptors, "builtin_application", ItemKind::Rule);
         let HostDescriptorPayload::StructuredRule(builtin_rule) = &builtin_rule.payload else {
             panic!("builtin_application must be structured")
         };
-        let HostTerm::Application { reference, .. } = &builtin_rule.result else {
+        let Some(HostTerm::Application { reference, .. }) = &builtin_rule.result else {
             panic!("builtin result must be an application")
         };
         assert_eq!(

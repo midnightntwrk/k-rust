@@ -974,7 +974,11 @@ fn insert_rule_body(
             insert_predicate(entries, body.lhs())?;
             insert_predicate(entries, body.rhs())
         }
+        // A single-body rule (KF-011) maps its authored term once.
         RuleBodyRef::Term(body) => {
+            if let Some(local) = body.local_term() {
+                return insert_term(entries, local);
+            }
             insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
             insert_term(entries, body.from())?;
             insert_term(entries, body.to())

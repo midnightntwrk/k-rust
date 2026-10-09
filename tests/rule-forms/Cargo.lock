@@ -115,6 +115,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-rule-forms-local-rewrite"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-rule-forms-local-term"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-rule-forms-macros"
 version = "0.1.0"
 dependencies = [
@@ -130,6 +144,13 @@ dependencies = [
 
 [[package]]
 name = "krs-rule-forms-priority"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-rule-forms-restating-imp"
 version = "0.1.0"
 dependencies = [
  "krs",

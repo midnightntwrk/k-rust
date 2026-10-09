@@ -115,6 +115,17 @@ impl WireSlots {
     }
 }
 
+/// The wire term of `k::rewrite!` number `ordinal` (KF-011).
+pub(super) fn rewrite_wire(ordinal: u32, from: WireTerm, to: Option<Box<WireTerm>>) -> WireTerm {
+    WireTerm::Rewrite {
+        key: wire_key(ProvenanceRole::RuleLocalRewrite, ordinal),
+        from_key: wire_key(ProvenanceRole::RuleLocalRewriteFrom, ordinal),
+        to_key: wire_key(ProvenanceRole::RuleLocalRewriteTo, ordinal),
+        from: Box::new(from),
+        to,
+    }
+}
+
 pub(super) fn wire_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     ProvenanceKey::new(role, ordinal)
 }
@@ -204,7 +215,7 @@ struct TermCounters {
 
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "Each flag selects one independent sentence-kind policy of the shared term builder."
+    reason = "Each flag selects one independent sentence-kind policy or records one mode or nesting context of the shared term builder."
 )]
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
@@ -258,6 +269,13 @@ pub(super) struct TermBuilder<'a> {
     enum_variant: Option<&'a Ident>,
     lexical_rule_head: bool,
     pub(super) tooling_binding_references: Vec<Path>,
+    /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
+    /// (KF-011).
+    allow_rewrite: bool,
+    /// Whether a `k::rewrite!` is being expanded.
+    in_rewrite: bool,
+    /// `k::rewrite!` ordinals, side-neutral.
+    pub(super) rewrite_ordinal: u32,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -298,7 +316,72 @@ impl<'a> TermBuilder<'a> {
             enum_variant: None,
             lexical_rule_head: false,
             tooling_binding_references: Vec::new(),
+            allow_rewrite: false,
+            in_rewrite: false,
+            rewrite_ordinal: 0,
         }
+    }
+
+    /// Admits `k::rewrite!` (KF-011) in the terms expanded next: `true` for
+    /// the subject of a single-body rule.
+    pub(super) fn set_rewrites(&mut self, allowed: bool) {
+        self.allow_rewrite = allowed;
+    }
+
+    /// Starts one `k::rewrite!` (K's local `=>`, KF-011) on `side` and
+    /// returns its ordinal; [`Self::leave_rewrite`] ends it.
+    pub(super) fn enter_rewrite(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        left_side: bool,
+    ) -> crate::Result<u32> {
+        if !self.allow_rewrite
+            || !left_side
+            || self.in_rewrite
+            || self.in_matches_pattern()
+            || self.in_let_pattern()
+        {
+            return Err(ExpandError::new(
+                expand::LOCAL_REWRITE_OUTSIDE_SUBJECT,
+                range.first(),
+                "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`); it cannot appear in a result, a condition, a pattern island, another rewrite, or another sentence",
+            ));
+        }
+        let ordinal = self.rewrite_ordinal;
+        self.rewrite_ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                range.first(),
+                "too many `k::rewrite!` islands in one sentence",
+            )
+        })?;
+        self.in_rewrite = true;
+        Ok(ordinal)
+    }
+
+    /// Ends the `k::rewrite!` [`Self::enter_rewrite`] started.
+    pub(super) fn leave_rewrite(&mut self) {
+        self.in_rewrite = false;
+    }
+
+    /// Expands `k::rewrite!(from => to)` (K's local `=>`, KF-011): the left
+    /// side, then the right side, both numbered with the subject's ordinals.
+    fn expand_rewrite(
+        &mut self,
+        range: krs_syntax::TokenRange,
+        from: &TermTree,
+        to: Option<&TermTree>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        let ordinal = self.enter_rewrite(range, matches!(side, TermSide::Left))?;
+        let from = self.expand_wire(from, side, slots);
+        let to = match (from.is_ok(), to) {
+            (true, Some(to)) => Some(self.expand_wire(to, side, slots).map(Box::new)).transpose(),
+            _ => Ok(None),
+        };
+        self.leave_rewrite();
+        Ok(rewrite_wire(ordinal, from?, to?))
     }
 
     pub(super) fn with_associated_keys(mut self) -> Self {
@@ -368,6 +451,7 @@ impl<'a> TermBuilder<'a> {
         self.let_ordinal = previous.let_ordinal;
         self.let_wildcard_ordinal = previous.let_wildcard_ordinal;
         self.ml_binder_ordinal = previous.ml_binder_ordinal;
+        self.rewrite_ordinal = previous.rewrite_ordinal;
     }
 
     /// Whether `path` is a local binder of the `k::matches!` or `let`
@@ -837,6 +921,9 @@ impl<'a> TermBuilder<'a> {
                 pattern,
                 binders,
             } => self.expand_matches(*range, subject, pattern, binders, side, slots),
+            TermTree::Rewrite {
+                range, from, to, ..
+            } => self.expand_rewrite(*range, from, to.as_deref(), side, slots),
             TermTree::Let {
                 range,
                 pattern,

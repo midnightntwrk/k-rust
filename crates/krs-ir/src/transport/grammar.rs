@@ -1557,6 +1557,24 @@ stage_shape! {
             /// The quantified predicate.
             body: Box<Term<S>> => [box nested],
         },
+        /// `k::rewrite!(from => to)` in the subject of a single-body rule
+        /// (KF-011): K's local `( FROM => TO )`. The rest of the subject is
+        /// the unchanged frame; `from` binds like the subject, `to` only uses
+        /// its bindings.
+        Rewrite {
+            /// Complete macro-shell provenance.
+            key: ProvenanceKey => [keep],
+            /// The left side's provenance.
+            from_key: ProvenanceKey => [keep],
+            /// The right side's provenance.
+            to_key: ProvenanceKey => [keep],
+            /// The left side, a pattern.
+            from: Box<Term<S>> => [box nested],
+            /// The right side; `None` is `()`, K's `.K`, admitted only as a
+            /// whole K-sequence item (the item is removed).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            to: Option<Box<Term<S>>> => [option box nested],
+        },
     }
 }
 
@@ -2003,18 +2021,23 @@ stage_shape! {
         /// when the fn declares none and every binder sort is inferred.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub typed_bindings: Vec<ProtocolTypedBinding<S::Sort>> => [vec protocol sort],
-        /// Complete result-expression provenance.
-        pub result_key: ProvenanceKey => [keep],
+        /// Complete result-expression provenance; absent exactly for a
+        /// single-body rule (KF-011).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result_key: Option<ProvenanceKey> => [keep],
         /// Exact authored subject sort.
         pub subject_sort: S::Sort => [sort],
-        /// Exact authored result sort.
-        pub result_sort: S::Sort => [sort],
+        /// Exact authored result sort; absent exactly for a single-body rule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result_sort: Option<S::Sort> => [option sort],
         /// Bound names in deterministic pattern preorder.
         pub bindings: Vec<String> => [keep],
-        /// Structured left pattern.
+        /// Structured left pattern; in a single-body rule it contains the
+        /// `k::rewrite!` islands that mark what changes.
         pub subject: Term<S> => [nested],
-        /// Structured right result.
-        pub result: Term<S> => [nested],
+        /// Structured right result; absent exactly for a single-body rule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result: Option<Term<S>> => [option nested],
         /// Result-scoped existential binders of a transition (`#[k::exists]`).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub existentials: Vec<crate::transport::rule::ClaimBinder<S>> => [vec nested],
@@ -2297,6 +2320,42 @@ impl DescriptorTerm {
                 in_matches_pattern: false,
                 in_let_pattern: false,
                 let_scopes: Vec::new(),
+                allow_rewrite: false,
+                in_rewrite_right: false,
+            },
+        )
+    }
+
+    /// Validates the subject of a single-body rule (KF-011): like a rule
+    /// subject, and its `k::rewrite!` islands are admitted; their right
+    /// sides use the subject's bindings without binding them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::validate`], plus a nested rewrite or a `()` right side.
+    pub fn validate_single_body_subject(
+        &self,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+        bindings: &BTreeSet<String>,
+        seen_variables: &mut BTreeSet<String>,
+    ) -> Result<(), GrammarTransportError> {
+        if super::validation::misplaced_empty_rewrite(self, false) {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::EmptyRewriteOutsideKSequence,
+            ));
+        }
+        super::validation::validate_term(
+            self,
+            &mut term_validation::GrammarTermValidation {
+                provenance,
+                bindings,
+                seen_variables,
+                allow_wildcards: true,
+                in_matches_pattern: false,
+                in_let_pattern: false,
+                let_scopes: Vec::new(),
+                allow_rewrite: true,
+                in_rewrite_right: false,
             },
         )
     }
@@ -2371,18 +2430,53 @@ impl StructuredRuleDescriptor {
             result_wildcards = unbound.lists_wildcard();
         }
         let mut result_variables = BTreeSet::new();
-        self.result.validate(
-            provenance,
-            &right_bindings,
-            &mut result_variables,
-            result_wildcards,
-        )?;
+        if let Some(result) = &self.result {
+            result.validate(
+                provenance,
+                &right_bindings,
+                &mut result_variables,
+                result_wildcards,
+            )?;
+        }
         if let Some(unbound) = &self.unbound_variables
             && unbound.names().any(|name| !result_variables.contains(name))
         {
             return Err(invalid());
         }
         Ok(())
+    }
+
+    /// Validates the result keys and sort, or a single-body rule's lack of
+    /// them (KF-011): a transition that is not an anywhere rule, whose
+    /// subject holds a `k::rewrite!`, with no result binders, function
+    /// context, or clause metadata. Returns whether the rule is single-body.
+    fn validate_result_shape(
+        &self,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<bool, GrammarTransportError> {
+        match (&self.result_key, &self.result_sort, &self.result) {
+            (Some(result_key), Some(result_sort), Some(_)) => {
+                require_key(&result_sort.key, provenance)?;
+                require_key(result_key, provenance)?;
+                result_sort.sort.validate()?;
+                Ok(false)
+            }
+            (None, None, None)
+                if self.sentence_kind == SentenceKind::Transition
+                    && self.anywhere.is_none()
+                    && self.existentials.is_empty()
+                    && self.ensures.is_none()
+                    && self.fresh.is_empty()
+                    && self.unbound_variables.is_none()
+                    && self.function_context.is_none()
+                    && super::validation::contains_rewrite(&self.subject) =>
+            {
+                Ok(true)
+            }
+            _ => Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::SingleBodyRuleWithoutRewrite,
+            )),
+        }
     }
 
     /// Validates an equation's function context and returns the subject's
@@ -2518,7 +2612,7 @@ impl StructuredRuleDescriptor {
     /// bindings, terms, literals, or missing provenance.
     #[expect(
         clippy::too_many_lines,
-        reason = "One validator checks every rule field against one provenance table."
+        reason = "One validator checks every rule field, in order, against one provenance table."
     )]
     pub fn validate(
         &self,
@@ -2584,11 +2678,9 @@ impl StructuredRuleDescriptor {
             ));
         }
         require_key(&self.subject_sort.key, provenance)?;
-        require_key(&self.result_sort.key, provenance)?;
         require_key(&self.pattern_key, provenance)?;
-        require_key(&self.result_key, provenance)?;
         self.subject_sort.sort.validate()?;
-        self.result_sort.sort.validate()?;
+        let single_body = self.validate_result_shape(provenance)?;
         let bindings = self.bindings.iter().cloned().collect::<BTreeSet<_>>();
         if bindings.len() != self.bindings.len()
             || self
@@ -2602,8 +2694,16 @@ impl StructuredRuleDescriptor {
         }
         self.validate_typed_bindings(provenance)?;
         let mut subject_variables = BTreeSet::new();
-        self.subject
-            .validate(provenance, &bindings, &mut subject_variables, true)?;
+        if single_body {
+            self.subject.validate_single_body_subject(
+                provenance,
+                &bindings,
+                &mut subject_variables,
+            )?;
+        } else {
+            self.subject
+                .validate(provenance, &bindings, &mut subject_variables, true)?;
+        }
         if subject_variables != bindings {
             let missing = bindings
                 .difference(&subject_variables)
@@ -4022,20 +4122,25 @@ impl StructuredRuleDescriptor {
             ProvenanceRole::RuleType,
             0,
         )?;
-        insert_exact(
-            &mut keys,
-            &self.result_sort.key,
-            ProvenanceRole::RuleResultType,
-            0,
-        )?;
-        insert_exact(&mut keys, &self.result_key, ProvenanceRole::RuleResult, 0)?;
+        if let Some(result_sort) = &self.result_sort {
+            insert_exact(
+                &mut keys,
+                &result_sort.key,
+                ProvenanceRole::RuleResultType,
+                0,
+            )?;
+        }
+        if let Some(result_key) = &self.result_key {
+            insert_exact(&mut keys, result_key, ProvenanceRole::RuleResult, 0)?;
+        }
         let mut subject = TermKeyCounters::default();
         self.subject
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
         self.collect_function_context_keys(&mut keys, &mut subject);
         let mut result = subject.next_side();
-        self.result
-            .collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
+        if let Some(result_term) = &self.result {
+            result_term.collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
+        }
         self.collect_condition_keys(&mut keys, &result)?;
         Ok(keys)
     }
@@ -4243,6 +4348,8 @@ struct TermKeyCounters {
     in_let_pattern: bool,
     /// `ml::exists` closure ordinals, side-neutral (KF-039).
     ml_binder: u32,
+    /// `k::rewrite!` ordinals, side-neutral (KF-011).
+    rewrite: u32,
 }
 
 impl TermKeyCounters {
@@ -4268,6 +4375,7 @@ impl TermKeyCounters {
             let_wildcard: self.let_wildcard,
             in_let_pattern: false,
             ml_binder: self.ml_binder,
+            rewrite: self.rewrite,
         }
     }
 }
@@ -4607,12 +4715,12 @@ mod traversal_tests {
             simplification: None,
             pattern_key: key(1),
             typed_bindings: vec![],
-            result_key: key(2),
+            result_key: Some(key(2)),
             subject_sort: sort(),
-            result_sort: sort(),
+            result_sort: Some(sort()),
             bindings: vec!["bound".to_owned()],
             subject: anonymous(),
-            result: anonymous(),
+            result: Some(anonymous()),
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),

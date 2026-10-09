@@ -659,20 +659,32 @@ impl Adapter<'_> {
         self.variable_names = self.naming.rule(sentence);
         let body = match sentence.relational_body() {
             RuleBodyRef::Term(term) => {
-                self.map_sentence_origin(
-                    term.origin(),
-                    module,
-                    sentence_index,
-                    SentenceNodeRole::Term(Vec::new()),
-                );
-                let rewrite = self.rewrite(
-                    term.from(),
-                    term.to(),
-                    module,
-                    sentence_index,
-                    Vec::new(),
-                    TermContext::Normal,
-                )?;
+                // A single-body rule (KF-011) keeps its rewrites in place;
+                // k-rust lifts them as K does. Its term is the body's root.
+                let rewrite = if let Some(local) = term.local_term() {
+                    self.term(
+                        local,
+                        module,
+                        sentence_index,
+                        Vec::new(),
+                        TermContext::Normal,
+                    )?
+                } else {
+                    self.map_sentence_origin(
+                        term.origin(),
+                        module,
+                        sentence_index,
+                        SentenceNodeRole::Term(Vec::new()),
+                    );
+                    self.rewrite(
+                        term.from(),
+                        term.to(),
+                        module,
+                        sentence_index,
+                        Vec::new(),
+                        TermContext::Normal,
+                    )?
+                };
                 match sentence.function_context() {
                     // K's `[[ F => R ]] <cells>`: k-rust adds the hidden
                     // configuration argument and threads it to callers (KF-025).
@@ -967,7 +979,9 @@ impl Adapter<'_> {
                     before
                 };
                 let content = match clause.after() {
-                    CellPost::Preserve => before,
+                    // A single-body clause (KF-011) carries its rewrites
+                    // inside `before`; k-rust lifts them as K does.
+                    CellPost::Preserve | CellPost::Local => before,
                     CellPost::Replace { term } => NativeTerm::Rewrite {
                         left: Box::new(before),
                         right: Box::new(self.term(

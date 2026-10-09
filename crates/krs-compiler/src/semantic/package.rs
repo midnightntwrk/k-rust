@@ -316,9 +316,13 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
             }
             DescriptorPayload::StructuredRule(rule) => {
                 collect_sort_ref_package(&rule.subject_sort.sort, &mut packages);
-                collect_sort_ref_package(&rule.result_sort.sort, &mut packages);
+                if let Some(result_sort) = &rule.result_sort {
+                    collect_sort_ref_package(&result_sort.sort, &mut packages);
+                }
                 collect_term_packages(&rule.subject, &mut packages);
-                collect_term_packages(&rule.result, &mut packages);
+                if let Some(result) = &rule.result {
+                    collect_term_packages(result, &mut packages);
+                }
             }
             DescriptorPayload::FixedConfiguration(configuration) => {
                 collect_fixed_configuration_packages(configuration, &mut packages);
@@ -328,14 +332,18 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
             }
             DescriptorPayload::ConfigurationRule(rule) => {
                 collect_item_package(&rule.subject_configuration.configuration, &mut packages);
-                collect_item_package(&rule.result_configuration.configuration, &mut packages);
+                if let Some(result_configuration) = &rule.result_configuration {
+                    collect_item_package(&result_configuration.configuration, &mut packages);
+                }
                 for binding in &rule.bindings {
                     if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
                         collect_sort_ref_package(&sort.sort, &mut packages);
                     }
                 }
                 collect_rule_cells_packages(&rule.subject, &mut packages);
-                collect_rule_cells_packages(&rule.result, &mut packages);
+                if let Some(result) = &rule.result {
+                    collect_rule_cells_packages(result, &mut packages);
+                }
             }
             DescriptorPayload::HeadRule(rule) => collect_head_rule_packages(rule, &mut packages),
             DescriptorPayload::ContextAlias(alias) => {

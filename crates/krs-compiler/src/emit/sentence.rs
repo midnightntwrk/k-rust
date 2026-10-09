@@ -789,10 +789,14 @@ fn emit_rule(
                 // configuration cells the equation reads.
                 writer.push("[[ ");
             }
-            writer.append_rendered(
-                render_rewrite(body.from(), body.to(), context, true, &names)?
+            // A single-body rule (KF-011) is K's local form: the rewrites
+            // sit inside the term, `pair((A => B), B)`.
+            let rendered = match body.local_term() {
+                Some(local) => render_term(local, context, &names, false)?,
+                None => render_rewrite(body.from(), body.to(), context, true, &names)?
                     .finish(body.origin().key(), 0),
-            )?;
+            };
+            writer.append_rendered(rendered)?;
             if let Some(function_context) = function_context {
                 writer.push(" ]]");
                 let start = writer.source.len();
@@ -1128,7 +1132,8 @@ fn emit_cell_clause(
         // bare (KF-016): `F:FrameCell` or `(_Gen0:FrameCell => F:FrameCell)`.
         writer.push(&" ".repeat(indent));
         match clause.after() {
-            CellPost::Preserve => {
+            // A single-body clause (KF-011) writes its rewrites in place.
+            CellPost::Preserve | CellPost::Local => {
                 writer.append_rendered(render_term(clause.before(), context, names, false)?)?;
             }
             CellPost::Replace { term } => {
@@ -1160,7 +1165,9 @@ fn emit_cell_clause(
     writer.push("> ");
     writer.append_rendered(render_term(clause.before(), context, names, false)?)?;
     match clause.after() {
-        CellPost::Preserve => emit_single_frame(clause.frame(), names, writer)?,
+        // A single-body clause (KF-011) is K's local form: the rewrites sit
+        // inside the cell, framed once, `<k> (S => .K) ... </k>`.
+        CellPost::Preserve | CellPost::Local => emit_single_frame(clause.frame(), names, writer)?,
         CellPost::Replace { term } => {
             match clause.frame() {
                 CellContentFrame::KSequenceTail {

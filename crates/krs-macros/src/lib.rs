@@ -447,3 +447,13 @@ pub fn spec_module(attributes: TokenStream, item: TokenStream) -> TokenStream {
 pub fn matches(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Matches, input)
 }
+
+/// K's local rewrite: `k::rewrite!(from => to)` marks what changes inside
+/// the subject of a single-body `#[k::rule]` fn, one that returns `()`; the
+/// rest of the subject is the frame, as in K's `<k> (X = V ; => .K) ... </k>`.
+/// `()` on the right is K's `.K` and removes a whole K-sequence item. Used
+/// anywhere else it is a compile error.
+#[proc_macro]
+pub fn rewrite(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Rewrite, input)
+}

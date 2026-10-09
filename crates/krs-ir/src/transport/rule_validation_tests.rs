@@ -624,19 +624,19 @@ fn empty_rule<S: RuleValidationStage>(
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern),
         subject_configuration,
-        result_key: key(ProvenanceRole::RuleResult),
-        result_configuration,
+        result_key: Some(key(ProvenanceRole::RuleResult)),
+        result_configuration: Some(result_configuration),
         bindings: Vec::new(),
         subject: ProtocolRuleCells {
             key: key(ProvenanceRole::RuleLeftCellsPayload),
             cells: Vec::new(),
             remainder: ProtocolRuleFrame::Exact,
         },
-        result: ProtocolRuleCells {
+        result: Some(ProtocolRuleCells {
             key: key(ProvenanceRole::RuleRightCellsPayload),
             cells: Vec::new(),
             remainder: ProtocolRuleFrame::Exact,
-        },
+        }),
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
@@ -705,15 +705,22 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
             configuration: host_type::<ConfigAlias>(),
         },
     );
-    host.result_configuration.configuration.authored_path = "ConfigAlias".to_owned();
+    host.result_configuration
+        .as_mut()
+        .unwrap()
+        .configuration
+        .authored_path = "ConfigAlias".to_owned();
     assert_eq!(host.validate(ItemKind::Rule), Ok(()));
     let mismatch = Err(StateTransportError::InvalidCellContent(
         StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
     ));
     assert_eq!(descriptor.validate(ItemKind::Rule), mismatch);
-    descriptor.result_configuration.configuration =
-        descriptor.subject_configuration.configuration.clone();
+    descriptor
+        .result_configuration
+        .as_mut()
+        .unwrap()
+        .configuration = descriptor.subject_configuration.configuration.clone();
     assert_eq!(descriptor.validate(ItemKind::Rule), Ok(()));
-    host.result_configuration.configuration = host_type::<bool>();
+    host.result_configuration.as_mut().unwrap().configuration = host_type::<bool>();
     assert_eq!(host.validate(ItemKind::Rule), mismatch);
 }

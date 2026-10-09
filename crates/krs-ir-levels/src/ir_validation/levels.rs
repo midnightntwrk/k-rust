@@ -112,6 +112,7 @@ macro_rules! validation_error {
             ValidationError::InvalidMatches => $public::InvalidMatches,
             ValidationError::InvalidLet => $public::InvalidLet,
             ValidationError::InvalidMlPredicate => $public::InvalidMlPredicate,
+            ValidationError::InvalidLocalRewrite => $public::InvalidLocalRewrite,
             ValidationError::RuleConditionSortMismatch => $public::RuleConditionSortMismatch,
             ValidationError::SequenceItemSortMismatch => $public::SequenceItemSortMismatch,
             ValidationError::SequenceSortMismatch => $public::SequenceSortMismatch,

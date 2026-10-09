@@ -197,6 +197,9 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidLet,
     /// A misplaced or malformed matching-logic predicate (KF-039).
     InvalidMlPredicate,
+    /// A local rewrite (KF-011) outside a single-body clause's subject,
+    /// nested in another rewrite, or a single-body clause without one.
+    InvalidLocalRewrite,
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -520,6 +523,22 @@ pub(crate) fn validate_configuration_rewrite<L: Validation>(
                 return Err(L::error(ValidationError::CellFrameSortMismatch));
             }
         }
+        // A single-body clause (KF-011) rewrites below its root; every other
+        // clause states its pre-pattern and post-state without local rewrites.
+        let local_rewrites_hold = match clause.after() {
+            CellPost::Local => {
+                clause.before().contains_rewrite()
+                    && !matches!(clause.before().kind(), IrTermKind::Rewrite { .. })
+                    && local_rewrites_valid(clause.before(), false)
+            }
+            CellPost::Preserve => !clause.before().contains_rewrite(),
+            CellPost::Replace { term } => {
+                !clause.before().contains_rewrite() && !term.contains_rewrite()
+            }
+        };
+        if !local_rewrites_hold {
+            return Err(L::error(ValidationError::InvalidLocalRewrite));
+        }
         validate_cell_frame::<L>(clause, sort, scope, nodes)?;
     }
     Ok(())
@@ -689,26 +708,46 @@ pub(crate) fn validate_rule<L: Validation>(
     let scope = variable_scope::<L>(rule.variables, declarations)?;
     match rule.body {
         RuleBodyRef::Term(body) => {
-            insert_node::<L>(nodes, body.origin().key())?;
             require_sort::<L>(declarations, body.sort())?;
-            validate_term::<L>(
-                body.from(),
-                &scope,
-                declarations,
-                signatures,
-                sort_parents,
-                cell_ids,
-                nodes,
-            )?;
-            validate_term::<L>(
-                body.to(),
-                &scope,
-                declarations,
-                signatures,
-                sort_parents,
-                cell_ids,
-                nodes,
-            )?;
+            if let Some(local) = body.local_term() {
+                // A single-body rule (KF-011): one transition whose
+                // rewrites sit below the root, validated once as authored.
+                if rule.kind != SentenceKind::Transition
+                    || matches!(local.kind(), IrTermKind::Rewrite { .. })
+                    || !local_rewrites_valid(local, false)
+                {
+                    return Err(L::error(ValidationError::InvalidLocalRewrite));
+                }
+                validate_term::<L>(
+                    local,
+                    &scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            } else {
+                insert_node::<L>(nodes, body.origin().key())?;
+                validate_term::<L>(
+                    body.from(),
+                    &scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+                validate_term::<L>(
+                    body.to(),
+                    &scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
+            }
             if !is_subsort::<L>(body.from().sort(), body.sort(), sort_parents)
                 || !is_subsort::<L>(body.to().sort(), body.sort(), sort_parents)
             {
@@ -1687,8 +1726,12 @@ pub(crate) fn validate_term<L: Validation>(
                 cell_ids,
                 nodes,
             )?;
+            // A K-sequence item that rewrites to `.K` keeps its own sort
+            // (KF-011); the item is removed.
+            let removes_item = matches!(to.kind(), IrTermKind::KSequence { items, .. } if items.is_empty())
+                && from.sort() == term.sort();
             if !is_subsort::<L>(from.sort(), term.sort(), sort_parents)
-                || !is_subsort::<L>(to.sort(), term.sort(), sort_parents)
+                || (!removes_item && !is_subsort::<L>(to.sort(), term.sort(), sort_parents))
             {
                 return Err(L::error(ValidationError::RewriteSortMismatch));
             }
@@ -2230,11 +2273,49 @@ pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
 /// conditions (outside `k::matches!` patterns), `k::matches!` in its
 /// pre-patterns, and a `k::matches!` local binder that is listed twice or
 /// occurs outside its pattern (BIND-1).
+/// Whether the local rewrites of a single-body term are well placed
+/// (KF-011): none inside another rewrite, and a right side `.K` (an empty K
+/// sequence) only on a whole K-sequence item.
+fn local_rewrites_valid<L: Validation>(term: &IrTerm<L>, item: bool) -> bool {
+    match term.kind() {
+        IrTermKind::Rewrite { from, to } => {
+            let empty =
+                matches!(to.kind(), IrTermKind::KSequence { items, .. } if items.is_empty());
+            (!empty || item) && !from.contains_rewrite() && !to.contains_rewrite()
+        }
+        IrTermKind::KSequence { items, .. } => {
+            items.iter().all(|child| local_rewrites_valid(child, true))
+        }
+        _ => term
+            .children()
+            .into_iter()
+            .all(|child| local_rewrites_valid(child, false)),
+    }
+}
+
+/// Whether a two-sided rule body holds a local rewrite (KF-011), which only
+/// a single-body clause may: a term rewrite's sides, or a predicate
+/// rewrite's object terms.
+fn body_contains_rewrite<L: Validation>(body: RuleBodyRef<'_, L>) -> bool {
+    match body {
+        RuleBodyRef::Term(body) => body.from().contains_rewrite() || body.to().contains_rewrite(),
+        RuleBodyRef::Predicate(body) => body
+            .lhs()
+            .terms()
+            .into_iter()
+            .chain(body.rhs().terms())
+            .any(IrTerm::contains_rewrite),
+        RuleBodyRef::Configuration { .. } => false,
+    }
+}
+
 fn reject_pattern_as_outside_patterns<L: Validation>(
     rule: &RuleView<'_, L>,
 ) -> Result<(), L::Error> {
     let mut pre = Vec::new();
     let mut post = Vec::new();
+    // A single-body clause (KF-011) is read through its images.
+    let mut images = Vec::new();
     match rule.body {
         RuleBodyRef::Term(body) => {
             pre.push(body.from());
@@ -2246,15 +2327,33 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         }
         RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
-                pre.push(clause.before());
-                if let CellPost::Replace { term } = clause.after() {
-                    post.push(term);
+                match clause.after() {
+                    CellPost::Local => {
+                        images.push((clause.before().pre_pattern(), clause.before().post_term()));
+                    }
+                    CellPost::Preserve => pre.push(clause.before()),
+                    CellPost::Replace { term } => {
+                        pre.push(clause.before());
+                        post.push(term);
+                    }
                 }
             }
         }
     }
-    post.extend(rule.requires.into_iter().flat_map(IrCondition::terms));
-    post.extend(rule.ensures.into_iter().flat_map(IrCondition::terms));
+    for (left, right) in &images {
+        pre.push(left);
+        post.push(right);
+    }
+    let conditions = rule
+        .requires
+        .into_iter()
+        .chain(rule.ensures)
+        .flat_map(IrCondition::terms)
+        .collect::<Vec<_>>();
+    if body_contains_rewrite(rule.body) || conditions.iter().any(|term| term.contains_rewrite()) {
+        return Err(L::error(ValidationError::InvalidLocalRewrite));
+    }
+    post.extend(conditions);
     if post.iter().copied().any(contains_pattern_as) {
         return Err(L::error(ValidationError::InvalidPatternAs));
     }

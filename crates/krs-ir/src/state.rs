@@ -704,6 +704,10 @@ pub enum CellPost<T> {
         /// Complete replacement content term.
         term: T,
     },
+    /// Cell content is rewritten in place by a single-body rule (KF-011):
+    /// the clause's `before` contains `Rewrite` nodes below its root, its
+    /// left image is the pre-pattern and its right image the post-state.
+    Local,
 }
 
 /// What a configuration-rewrite clause matches and rewrites.

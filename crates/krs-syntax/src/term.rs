@@ -248,6 +248,21 @@ pub enum TermNode {
         /// The binder's authored sort path.
         sort: Path,
     },
+    /// `k::rewrite!(from => to)` (K's local `=>`, KF-011) shell in a
+    /// single-body rule's subject; it precedes the `from_nodes` nodes of its
+    /// left side, then the `to_nodes` nodes of its right side.
+    Rewrite {
+        /// Complete macro invocation range.
+        range: TokenRange,
+        /// The left side's range.
+        from: TokenRange,
+        /// The right side's range (`()` for `.K`).
+        to: TokenRange,
+        /// How many nodes the left side has.
+        from_nodes: usize,
+        /// How many nodes the right side has.
+        to_nodes: usize,
+    },
 }
 
 impl TermNode {
@@ -269,7 +284,8 @@ impl TermNode {
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
             | Self::Closure { .. }
-            | Self::LetWildcard(_) => None,
+            | Self::LetWildcard(_)
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -292,7 +308,8 @@ impl TermNode {
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
             | Self::Closure { .. }
-            | Self::LetWildcard(_) => None,
+            | Self::LetWildcard(_)
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -311,7 +328,8 @@ impl TermNode {
             | Self::MatchesWildcard(range)
             | Self::Let { range, .. }
             | Self::Closure { range, .. }
-            | Self::LetWildcard(range) => Ok(*range),
+            | Self::LetWildcard(range)
+            | Self::Rewrite { range, .. } => Ok(*range),
             Self::Lexeme { text, .. } => TokenRange::for_tokens(text),
         }
     }
@@ -620,6 +638,22 @@ pub enum TermTree {
         /// The quantified predicate.
         body: Box<TermTree>,
     },
+    /// `k::rewrite!(from => to)`: K's local `( FROM => TO )`, only in the
+    /// subject of a single-body rule (KF-011). The left side is a pattern;
+    /// the right side is a term over the subject's bindings.
+    Rewrite {
+        /// Complete macro invocation range.
+        range: TokenRange,
+        /// The left side's range.
+        from_range: TokenRange,
+        /// The right side's range.
+        to_range: TokenRange,
+        /// The left side, a pattern.
+        from: Box<TermTree>,
+        /// The right side; `None` is `()`, K's `.K`, which removes a whole
+        /// K-sequence item.
+        to: Option<Box<TermTree>>,
+    },
 }
 
 impl TermTree {
@@ -642,7 +676,8 @@ impl TermTree {
             | Self::Or { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
-            | Self::Closure { .. } => None,
+            | Self::Closure { .. }
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -665,7 +700,8 @@ impl TermTree {
             | Self::Or { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
-            | Self::Closure { .. } => None,
+            | Self::Closure { .. }
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -688,7 +724,8 @@ impl TermTree {
             | Self::Or { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
-            | Self::Closure { .. } => None,
+            | Self::Closure { .. }
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -711,7 +748,8 @@ impl TermTree {
             | Self::Or { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
-            | Self::Closure { .. } => None,
+            | Self::Closure { .. }
+            | Self::Rewrite { .. } => None,
         }
     }
 
@@ -759,6 +797,13 @@ impl TermTree {
             }
             Self::Closure { body, .. } => {
                 body.record_field_names_preorder(output);
+                return;
+            }
+            Self::Rewrite { from, to, .. } => {
+                from.record_field_names_preorder(output);
+                if let Some(to) = to {
+                    to.record_field_names_preorder(output);
+                }
                 return;
             }
             _ => return,
@@ -819,6 +864,8 @@ impl TermTree {
                 body.wildcard_ranges_preorder(output);
             }
             Self::Closure { body, .. } => body.wildcard_ranges_preorder(output),
+            // The right side of a rewrite is a term and has no wildcard.
+            Self::Rewrite { from, .. } => from.wildcard_ranges_preorder(output),
             Self::Reference(_)
             | Self::Literal(_)
             | Self::IdToken { .. }
@@ -1111,7 +1158,8 @@ impl TermExpression {
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
                 | TermNode::Closure { .. }
-                | TermNode::LetWildcard(_) => {
+                | TermNode::LetWildcard(_)
+                | TermNode::Rewrite { .. } => {
                     continue;
                 }
             };
@@ -1573,6 +1621,17 @@ fn validate_pattern(
         {
             validate_cell_pattern(value, signs, symbols, nodes)
         }
+        Pat::Macro(value)
+            if matches!(
+                special_macro_kind(&value.mac.path),
+                Some(TermMacroKind::Rewrite)
+            ) =>
+        {
+            // The rewrite parses its own sides; their negative literals
+            // leave the enclosing pattern's queue.
+            signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
+            validate_rewrite(value, symbols, nodes)
+        }
         Pat::Macro(value) => {
             validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
         }
@@ -1738,14 +1797,18 @@ enum TermMacroKind {
     Is,
     Project,
     Matches,
+    Rewrite,
 }
 
 impl TermMacroKind {
     const fn root_kind(self) -> TermRootKind {
         match self {
-            Self::OrBool | Self::Fragment | Self::Is | Self::Project | Self::Matches => {
-                TermRootKind::Call
-            }
+            Self::OrBool
+            | Self::Fragment
+            | Self::Is
+            | Self::Project
+            | Self::Matches
+            | Self::Rewrite => TermRootKind::Call,
             Self::Id | Self::Bytes | Self::Anonymous | Self::Lexeme => TermRootKind::Literal,
         }
     }
@@ -1763,6 +1826,7 @@ fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
         "is" => Some(TermMacroKind::Is),
         "project" => Some(TermMacroKind::Project),
         "matches" => Some(TermMacroKind::Matches),
+        "rewrite" => Some(TermMacroKind::Rewrite),
         _ => None,
     }
 }
@@ -1875,6 +1939,15 @@ fn validate_special_macro(
                 ));
             }
             validate_matches(value, symbols, nodes)
+        }
+        Some(TermMacroKind::Rewrite) => {
+            if context == TermExpressionContext::Expression {
+                return Err(local_rewrite_error(
+                    REWRITE_OUTSIDE_SUBJECT.to_owned(),
+                    value.mac.path.span(),
+                ));
+            }
+            validate_rewrite(value, symbols, nodes)
         }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
@@ -2020,6 +2093,7 @@ fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Iden
                 }
             }
             TermTree::Matches { subject, .. } => walk(subject, false, output),
+            TermTree::Rewrite { from, .. } => walk(from, false, output),
             TermTree::Let { .. }
             | TermTree::Closure { .. }
             | TermTree::Reference(_)
@@ -2064,6 +2138,213 @@ fn validate_matches(
         pattern: Box::new(pattern),
         binders,
     })
+}
+
+/// The reason given for `k::rewrite!` outside a single-body rule's subject.
+pub(crate) const REWRITE_OUTSIDE_SUBJECT: &str = "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`); it cannot appear in a result, a condition, or another sentence";
+
+/// The reason given for `k::rewrite!` in a readable clause.
+pub(crate) const REWRITE_IN_READABLE: &str = "`k::rewrite!` is reference-only: a readable clause restates the before and after of each cell; write a single-body `#[k::rule]` fn that returns `()` instead";
+
+/// The reason given for a rewrite inside another rewrite.
+const NESTED_REWRITE: &str =
+    "`k::rewrite!` cannot occur inside another rewrite; K rewrites do not nest";
+
+/// The expected `k::rewrite!` arguments.
+const REWRITE_SHAPE: &str =
+    "`k::rewrite!` expects `from => to`: `k::rewrite!(Assign(x, v) => ())`, where `()` is K's `.K`";
+
+pub(crate) fn local_rewrite_error(reason: String, span: Span) -> SyntaxError {
+    SyntaxError::new(SyntaxErrorKind::InvalidLocalRewrite { reason }, span)
+}
+
+/// Splits `k::rewrite!` arguments at the top-level `=>`.
+fn split_rewrite_arguments(tokens: &TokenStream) -> Option<(TokenStream, TokenStream)> {
+    let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
+    let arrow = tokens.windows(2).position(|pair| {
+        matches!(&pair[0], proc_macro2::TokenTree::Punct(first)
+            if first.as_char() == '=' && first.spacing() == proc_macro2::Spacing::Joint)
+            && matches!(&pair[1], proc_macro2::TokenTree::Punct(second) if second.as_char() == '>')
+    })?;
+    let from = tokens[..arrow].iter().cloned().collect::<TokenStream>();
+    let to = tokens[arrow + 2..].iter().cloned().collect::<TokenStream>();
+    (!from.is_empty() && !to.is_empty()).then_some((from, to))
+}
+
+/// Whether `tokens` is exactly `()`, K's `.K` on the right of a rewrite.
+fn is_unit_tokens(tokens: &TokenStream) -> bool {
+    let mut tokens = tokens.clone().into_iter();
+    matches!(
+        (tokens.next(), tokens.next()),
+        (Some(proc_macro2::TokenTree::Group(group)), None)
+            if group.delimiter() == proc_macro2::Delimiter::Parenthesis && group.stream().is_empty()
+    )
+}
+
+/// Validates `k::rewrite!(from => to)` (K's local `=>`, KF-011): the shell
+/// node precedes the left side's nodes (a pattern), then the right side's
+/// (a term; `()` is `.K` and has none).
+fn validate_rewrite(
+    value: &ExprMacro,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let range = TokenRange::for_tokens(value)?;
+    let (from_tokens, to_tokens) = split_rewrite_arguments(&value.mac.tokens)
+        .ok_or_else(|| local_rewrite_error(REWRITE_SHAPE.to_owned(), value.span()))?;
+    let from_range = TokenRange::for_tokens(&from_tokens)?;
+    let to_range = TokenRange::for_tokens(&to_tokens)?;
+    let shell = nodes.len();
+    nodes.push(TermNode::Rewrite {
+        range,
+        from: from_range,
+        to: to_range,
+        from_nodes: 0,
+        to_nodes: 0,
+    });
+    let mut signs = crate::rule::NegativeLiteralSpans::scan(from_tokens.clone());
+    let pattern = Pat::parse_multi.parse2(from_tokens)?;
+    if let Pat::Rest(_) = pattern {
+        return Err(unsupported_pattern_form(&pattern));
+    }
+    let start = nodes.len();
+    let from = validate_pattern(&pattern, &mut signs, symbols, nodes)?;
+    let middle = nodes.len();
+    let to = if is_unit_tokens(&to_tokens) {
+        None
+    } else {
+        let expression = syn::parse2::<Expr>(to_tokens)?;
+        Some(Box::new(validate_expression(
+            &expression,
+            TermExpressionContext::Expression,
+            symbols,
+            nodes,
+        )?))
+    };
+    let end = nodes.len();
+    if let Some(nested) = nodes[shell + 1..]
+        .iter()
+        .find(|node| matches!(node, TermNode::Rewrite { .. }))
+    {
+        return Err(local_rewrite_error(
+            NESTED_REWRITE.to_owned(),
+            nested.range()?.first(),
+        ));
+    }
+    nodes[shell] = TermNode::Rewrite {
+        range,
+        from: from_range,
+        to: to_range,
+        from_nodes: middle - start,
+        to_nodes: end - middle,
+    };
+    Ok(TermTree::Rewrite {
+        range,
+        from_range,
+        to_range,
+        from: Box::new(from),
+        to,
+    })
+}
+
+/// Splits nodes into those of the left image (KF-011), every node outside
+/// the right side of a `k::rewrite!` (the rewrite shells excluded), and
+/// those of the right sides.
+#[must_use]
+pub(crate) fn split_rewrite_images(nodes: &[TermNode]) -> (Vec<&TermNode>, Vec<&TermNode>) {
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    let mut index = 0;
+    while index < nodes.len() {
+        if let TermNode::Rewrite {
+            from_nodes,
+            to_nodes,
+            ..
+        } = &nodes[index]
+        {
+            let from_end = index + 1 + from_nodes;
+            left.extend(&nodes[index + 1..from_end]);
+            right.extend(&nodes[from_end..from_end + to_nodes]);
+            index = from_end + to_nodes;
+            continue;
+        }
+        left.push(&nodes[index]);
+        index += 1;
+    }
+    (left, right)
+}
+
+/// The reason given for a rewrite in a map key.
+pub(crate) const REWRITE_IN_MAP_KEY: &str = "`k::rewrite!` in a map changes a value: write `key -> k::rewrite!(old => new)`; a rewrite never adds or removes an entry (use `map::update` in a result to add one)";
+
+/// Checks that every unqualified bare name on the right side of a
+/// `k::rewrite!` is one of `bindings`, the left image's term bindings
+/// (KF-011): the right side is part of the subject, where a bare name is a
+/// variable.
+///
+/// # Errors
+///
+/// Returns [`SyntaxErrorKind::InvalidLocalRewrite`] at the first unbound name.
+pub(crate) fn check_rewrite_right_bindings(
+    nodes: &[TermNode],
+    bindings: &[syn::Ident],
+) -> Result<(), SyntaxError> {
+    let (_, right) = split_rewrite_images(nodes);
+    for node in right {
+        if let TermNode::Reference(path) = node
+            && path.leading_colon.is_none()
+            && let Some(name) = path.get_ident()
+            && !bindings.iter().any(|binding| binding == name)
+        {
+            return Err(local_rewrite_error(
+                format!(
+                    "`{name}` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
+                ),
+                name.span(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Appends the `rule_local_rewrite`, `rule_local_rewrite_from`, and
+/// `rule_local_rewrite_to` anchors of every `k::rewrite!` in `nodes`,
+/// numbering them from `*ordinal` (KF-011).
+///
+/// # Errors
+///
+/// Returns an occurrence-overflow error.
+pub(crate) fn push_rewrite_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    nodes: &[TermNode],
+    ordinal: &mut usize,
+) -> Result<(), SyntaxError> {
+    for node in nodes {
+        let TermNode::Rewrite {
+            range, from, to, ..
+        } = node
+        else {
+            continue;
+        };
+        let current = checked_ordinal(*ordinal, ProvenanceRole::RuleLocalRewrite, range.first())?;
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLocalRewrite,
+            current,
+            *range,
+        ));
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLocalRewriteFrom,
+            current,
+            *from,
+        ));
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLocalRewriteTo,
+            current,
+            *to,
+        ));
+        *ordinal += 1;
+    }
+    Ok(())
 }
 
 /// The span of the first block expression in `expression`, if any.
@@ -2255,6 +2536,10 @@ fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
         TermTree::OrBool { arguments, .. } => {
             arguments.iter().try_for_each(reject_let_pattern_forms)
         }
+        TermTree::Rewrite { range, .. } => Err(local_rewrite_error(
+            REWRITE_OUTSIDE_SUBJECT.to_owned(),
+            range.first(),
+        )),
         TermTree::Reference(_)
         | TermTree::Literal(_)
         | TermTree::Wildcard(_)

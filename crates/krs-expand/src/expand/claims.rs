@@ -57,9 +57,12 @@ fn configuration_claim(
     let result_key = format_ident!("__krs_claim_configuration_right_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
     let subject_type = call_site_path(rule.subject_type())?;
-    let result_type = call_site_path(rule.result_type())?;
+    let declared_result_type = rule
+        .result_type()
+        .expect("a claim parses only with a result");
+    let result_type = call_site_path(declared_result_type)?;
     let subject_spelling = spelling(rule.subject_type());
-    let result_spelling = spelling(rule.result_type());
+    let result_spelling = spelling(declared_result_type);
 
     let universal_idents = rule
         .bindings()
@@ -178,7 +181,11 @@ fn configuration_claim(
     right.counters.anonymous = left.counters.anonymous;
     right.counters.or_bool = left.counters.or_bool;
     right.terms.continue_ordinals(&left.terms);
-    let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
+    let result = right.expand_cells(
+        rule.result().expect("a claim parses only with a result"),
+        &result_type,
+        &mut slots,
+    )?;
     let mut condition_builder = TermBuilder::new(
         &facade,
         nonce ^ 0x4000_0000_0000_0000,
@@ -293,17 +300,17 @@ fn configuration_claim(
                 authored_path: subject_spelling,
             },
         },
-        result_key: wire_key(ProvenanceRole::RuleResult, 0),
-        result_configuration: WireConfigurationReference {
+        result_key: Some(wire_key(ProvenanceRole::RuleResult, 0)),
+        result_configuration: Some(WireConfigurationReference {
             key: wire_key(ProvenanceRole::RuleResultType, 0),
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                 authored_path: result_spelling,
             },
-        },
+        }),
         bindings,
         subject,
-        result,
+        result: Some(result),
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),

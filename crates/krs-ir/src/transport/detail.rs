@@ -180,6 +180,10 @@ details! {
         InitializerApplicationInstance => "a turbofish instance (`Choose::<Int> { .. }`) is not allowed in initializers",
         ClosureInPattern => "an `ml::exists` closure (#Exists) is a predicate, allowed only in conditions and predicate simplifications",
         InitializerClosure => "an `ml::exists` closure (#Exists) is not allowed in initializers",
+        RewriteOutsideSingleBodyRule => "`k::rewrite!` (K's local =>) is allowed only in the subject of a single-body rule",
+        NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
+        EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
+        SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
     }
 }
 
@@ -270,6 +274,10 @@ details! {
         InvalidFunctionContext => "a function context is allowed only on an equation that declares every binder, framed by an anonymous configuration remainder, with distinct context binders",
         ClosureInPattern => "an `ml::exists` closure (#Exists) is a predicate, allowed only in conditions and predicate simplifications",
         InvalidPredicateRule => "a predicate rule (`ml::Predicate` subject and result) is allowed only on a simplification",
+        RewriteOutsideSingleBodyRule => "`k::rewrite!` (K's local =>) is allowed only in the subject of a single-body rule",
+        NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
+        EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
+        SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
     }
 }
 

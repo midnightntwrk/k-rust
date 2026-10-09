@@ -873,6 +873,10 @@ pub struct IrRewrite<L: IrLevel> {
     sort: L::Sort,
     from: Box<IrTerm<L>>,
     to: Box<IrTerm<L>>,
+    /// The authored term of a single-body rule (KF-011), whose `Rewrite`
+    /// nodes sit below its root; `from` and `to` are its left and right
+    /// images.
+    local: Option<Box<IrTerm<L>>>,
 }
 
 impl<L: IrLevel> IrRewrite<L> {
@@ -884,7 +888,28 @@ impl<L: IrLevel> IrRewrite<L> {
             sort,
             from: Box::new(from),
             to: Box::new(to),
+            local: None,
         }
+    }
+    /// Creates the body of a single-body rule (KF-011) from its authored
+    /// term, whose local rewrites sit below its root. The rewrite has the
+    /// term's origin and sort; its endpoints are the term's left and right
+    /// images.
+    #[must_use]
+    pub fn local(term: IrTerm<L>) -> Self {
+        Self {
+            origin: term.origin.clone(),
+            sort: term.sort.clone(),
+            from: Box::new(term.pre_pattern()),
+            to: Box::new(term.post_term()),
+            local: Some(Box::new(term)),
+        }
+    }
+    /// Returns the authored term of a single-body rule (KF-011), or `None`
+    /// for an ordinary rewrite.
+    #[must_use]
+    pub fn local_term(&self) -> Option<&IrTerm<L>> {
+        self.local.as_deref()
     }
     /// Returns rewrite provenance.
     #[must_use]
@@ -896,12 +921,12 @@ impl<L: IrLevel> IrRewrite<L> {
     pub const fn sort(&self) -> &L::Sort {
         &self.sort
     }
-    /// Returns the pre-pattern.
+    /// Returns the pre-pattern; for a single-body rule, the left image.
     #[must_use]
     pub fn from(&self) -> &IrTerm<L> {
         &self.from
     }
-    /// Returns the post-term.
+    /// Returns the post-term; for a single-body rule, the right image.
     #[must_use]
     pub fn to(&self) -> &IrTerm<L> {
         &self.to
@@ -917,7 +942,10 @@ impl<L: IrLevel> TryFrom<IrTerm<L>> for IrRewrite<L> {
                 sort: term.sort,
                 from,
                 to,
+                local: None,
             }),
+            // A single-body rule (KF-011): rewrites below the root.
+            _ if term.contains_rewrite() => Ok(Self::local(term)),
             _ => Err("rule body must be a rewrite"),
         }
     }
@@ -925,6 +953,9 @@ impl<L: IrLevel> TryFrom<IrTerm<L>> for IrRewrite<L> {
 
 impl<L: IrLevel> From<IrRewrite<L>> for IrTerm<L> {
     fn from(value: IrRewrite<L>) -> Self {
+        if let Some(local) = value.local {
+            return *local;
+        }
         Self {
             origin: value.origin,
             sort: value.sort,
@@ -1272,6 +1303,150 @@ impl<L: IrLevel> IrTerm<L> {
     #[must_use]
     pub const fn kind(&self) -> &IrTermKind<L> {
         &self.kind
+    }
+    /// Returns the direct subterms, in source order.
+    #[must_use]
+    pub fn children(&self) -> Vec<&Self> {
+        match &self.kind {
+            IrTermKind::Variable { .. } | IrTermKind::Token { .. } => Vec::new(),
+            IrTermKind::Application { arguments, .. } => arguments.iter().collect(),
+            IrTermKind::KSequence { items, .. } => items.iter().collect(),
+            IrTermKind::Map(operands) => operands.operands().collect(),
+            IrTermKind::List(operands) => operands.operands().collect(),
+            IrTermKind::Set(operands) => operands.operands().collect(),
+            IrTermKind::Cell { children, .. } => children.iter().collect(),
+            IrTermKind::Rewrite { from, to } => vec![&**from, &**to],
+            IrTermKind::As { pattern, .. } => vec![&**pattern],
+            IrTermKind::Or { alternatives } => alternatives.iter().collect(),
+            IrTermKind::Matches {
+                subject, pattern, ..
+            } => vec![&**subject, &**pattern],
+            IrTermKind::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => vec![&**pattern, &**value, &**body],
+        }
+    }
+    /// Whether a `Rewrite` node occurs at or below this term: a local
+    /// rewrite of a single-body rule (KF-011).
+    #[must_use]
+    pub fn contains_rewrite(&self) -> bool {
+        matches!(self.kind, IrTermKind::Rewrite { .. })
+            || self.children().into_iter().any(Self::contains_rewrite)
+    }
+    /// Returns the left image of a single-body term (KF-011): every
+    /// `Rewrite` node replaced by its pre-pattern. Inference, the overlap
+    /// check, and validation read a local rewrite through its images.
+    #[must_use]
+    pub fn pre_pattern(&self) -> Self {
+        self.image(false)
+    }
+    /// Returns the right image of a single-body term (KF-011): every
+    /// `Rewrite` node replaced by its post-term; a K-sequence item that
+    /// rewrites to `.K` is removed.
+    #[must_use]
+    pub fn post_term(&self) -> Self {
+        self.image(true)
+    }
+    fn image(&self, right: bool) -> Self {
+        let image =
+            |term: &Self| -> Result<Self, std::convert::Infallible> { Ok(term.image(right)) };
+        let kind = match &self.kind {
+            IrTermKind::Rewrite { from, to } => {
+                return if right {
+                    to.image(right)
+                } else {
+                    from.image(right)
+                };
+            }
+            IrTermKind::Variable { .. } | IrTermKind::Token { .. } => self.kind.clone(),
+            IrTermKind::Application {
+                application,
+                arguments,
+                instance,
+                head_instance_fixed,
+            } => IrTermKind::Application {
+                application: application.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| argument.image(right))
+                    .collect(),
+                instance: instance.clone(),
+                head_instance_fixed: *head_instance_fixed,
+            },
+            IrTermKind::KSequence { item_sort, items } => {
+                let mut images = Vec::with_capacity(items.len());
+                for item in items {
+                    if right
+                        && let IrTermKind::Rewrite { to, .. } = &item.kind
+                        && let IrTermKind::KSequence { items: spliced, .. } = &to.kind
+                    {
+                        images.extend(spliced.iter().map(|item| item.image(right)));
+                    } else {
+                        images.push(item.image(right));
+                    }
+                }
+                IrTermKind::KSequence {
+                    item_sort: item_sort.clone(),
+                    items: images,
+                }
+            }
+            IrTermKind::Map(operands) => {
+                IrTermKind::Map(Box::new(infallible(operands.try_map_ref(image))))
+            }
+            IrTermKind::List(operands) => {
+                IrTermKind::List(Box::new(infallible(operands.try_map_ref(image))))
+            }
+            IrTermKind::Set(operands) => {
+                IrTermKind::Set(Box::new(infallible(operands.try_map_ref(image))))
+            }
+            IrTermKind::Cell { cell, children } => IrTermKind::Cell {
+                cell: cell.clone(),
+                children: children.iter().map(|child| child.image(right)).collect(),
+            },
+            IrTermKind::As { alias, pattern } => IrTermKind::As {
+                alias: alias.clone(),
+                pattern: Box::new(pattern.image(right)),
+            },
+            IrTermKind::Or { alternatives } => IrTermKind::Or {
+                alternatives: infallible(alternatives.try_map_ref(image)),
+            },
+            IrTermKind::Matches {
+                subject,
+                pattern,
+                binds,
+            } => IrTermKind::Matches {
+                subject: Box::new(subject.image(right)),
+                pattern: Box::new(pattern.image(right)),
+                binds: binds.clone(),
+            },
+            IrTermKind::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => IrTermKind::Let {
+                pattern: Box::new(pattern.image(right)),
+                value: Box::new(value.image(right)),
+                body: Box::new(body.image(right)),
+                binds: binds.clone(),
+            },
+        };
+        Self {
+            origin: self.origin.clone(),
+            sort: self.sort.clone(),
+            kind,
+        }
+    }
+}
+
+/// Unwraps a mapping that cannot fail.
+fn infallible<T>(result: Result<T, std::convert::Infallible>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
 }
 

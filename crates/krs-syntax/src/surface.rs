@@ -186,6 +186,8 @@ entry_points! {
         Project = "project",
         /// `k::matches!`.
         Matches = "matches",
+        /// `k::rewrite!`.
+        Rewrite = "rewrite",
     }
 }
 

@@ -601,11 +601,11 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 key: key(ProvenanceRole::RuleType, 0),
                 configuration: configuration.clone(),
             },
-            result_key: key(ProvenanceRole::RuleResult, 0),
-            result_configuration: DescriptorConfigurationReference {
+            result_key: Some(key(ProvenanceRole::RuleResult, 0)),
+            result_configuration: Some(DescriptorConfigurationReference {
                 key: key(ProvenanceRole::RuleResultType, 0),
                 configuration,
-            },
+            }),
             bindings: vec![
                 term_rule_binding("X", 0, DescriptorSortRef::Builtin(BuiltinSort::Id)),
                 frame_rule_binding("tail", ProtocolRuleBindingKind::KSequenceFrame),
@@ -618,7 +618,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 frame_rule_binding("state", ProtocolRuleBindingKind::ConfigurationFrame),
             ],
             subject,
-            result,
+            result: Some(result),
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
@@ -854,7 +854,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     ));
 
     let mut unbound_reuse = rule.clone();
-    unbound_reuse.result.remainder = ProtocolRuleFrame::Reuse {
+    unbound_reuse.result.as_mut().unwrap().remainder = ProtocolRuleFrame::Reuse {
         key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "missing".into(),
     };
@@ -864,7 +864,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     ));
 
     let mut wrong_result_kind = rule.clone();
-    wrong_result_kind.result.remainder = ProtocolRuleFrame::Reuse {
+    wrong_result_kind.result.as_mut().unwrap().remainder = ProtocolRuleFrame::Reuse {
         key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "rest".into(),
     };
@@ -874,7 +874,8 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     ));
 
     let mut wrong_side = rule;
-    wrong_side.result.cells[0].field.key = key(ProvenanceRole::RuleLeftCellsField, 0);
+    wrong_side.result.as_mut().unwrap().cells[0].field.key =
+        key(ProvenanceRole::RuleLeftCellsField, 0);
     assert!(matches!(
         wrong_side.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -895,11 +896,11 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
             key: key(ProvenanceRole::RuleType, 0),
             configuration: configuration.clone(),
         },
-        result_key: key(ProvenanceRole::RuleResult, 0),
-        result_configuration: DescriptorConfigurationReference {
+        result_key: Some(key(ProvenanceRole::RuleResult, 0)),
+        result_configuration: Some(DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType, 0),
             configuration: configuration.clone(),
-        },
+        }),
         bindings: Vec::new(),
         subject: DescriptorRuleCells {
             key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
@@ -915,7 +916,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
-        result: DescriptorRuleCells {
+        result: Some(DescriptorRuleCells {
             key: key(ProvenanceRole::RuleRightCellsPayload, 0),
             cells: vec![rule_cell(
                 &configuration,
@@ -929,7 +930,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
                 }),
             )],
             remainder: ProtocolRuleFrame::Exact,
-        },
+        }),
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
@@ -955,9 +956,10 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     ));
 
     let mut result_wildcard = rule;
-    result_wildcard.result.cells[0].value = ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
-        key: key(ProvenanceRole::RuleLeftWildcard, 0),
-    });
+    result_wildcard.result.as_mut().unwrap().cells[0].value =
+        ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
+            key: key(ProvenanceRole::RuleLeftWildcard, 0),
+        });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
         Err(StateTransportError::InvalidTerm(_))
@@ -1020,11 +1022,11 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
         claim: None,
         pattern_key: key(ProvenanceRole::RulePattern, 0),
         subject_configuration: configuration(),
-        result_key: key(ProvenanceRole::RuleResult, 0),
-        result_configuration: HostConfigurationReference {
+        result_key: Some(key(ProvenanceRole::RuleResult, 0)),
+        result_configuration: Some(HostConfigurationReference {
             key: key(ProvenanceRole::RuleResultType, 0),
             ..configuration()
-        },
+        }),
         bindings: Vec::new(),
         subject: HostRuleCells {
             key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
@@ -1036,7 +1038,7 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
-        result: HostRuleCells {
+        result: Some(HostRuleCells {
             key: key(ProvenanceRole::RuleRightCellsPayload, 0),
             cells: vec![host_cell(
                 "right",
@@ -1046,7 +1048,7 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
                 },
             )],
             remainder: ProtocolRuleFrame::Exact,
-        },
+        }),
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
@@ -1072,11 +1074,12 @@ fn host_typed_configuration_rule() -> HostConfigurationRule {
         path_key: key(ProvenanceRole::RuleLeftReference, 0),
         name: "X".into(),
     });
-    rule.result.cells[0].value = ProtocolRuleStateTerm::Term(HostTerm::Variable {
-        key: key(ProvenanceRole::RuleRightReference, 0),
-        path_key: key(ProvenanceRole::RuleRightReference, 0),
-        name: "X".into(),
-    });
+    rule.result.as_mut().unwrap().cells[0].value =
+        ProtocolRuleStateTerm::Term(HostTerm::Variable {
+            key: key(ProvenanceRole::RuleRightReference, 0),
+            path_key: key(ProvenanceRole::RuleRightReference, 0),
+            name: "X".into(),
+        });
     rule
 }
 
@@ -1098,9 +1101,10 @@ fn host_configuration_rule_accepts_only_exact_subject_wildcards() {
     ));
 
     let mut result_wildcard = rule;
-    result_wildcard.result.cells[0].value = ProtocolRuleStateTerm::Term(HostTerm::Wildcard {
-        key: key(ProvenanceRole::RuleLeftWildcard, 0),
-    });
+    result_wildcard.result.as_mut().unwrap().cells[0].value =
+        ProtocolRuleStateTerm::Term(HostTerm::Wildcard {
+            key: key(ProvenanceRole::RuleLeftWildcard, 0),
+        });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
         Err(StateTransportError::InvalidTerm(_))
@@ -1133,7 +1137,12 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
 #[test]
 fn simultaneous_k_and_map_update_is_structured() {
     let (_, mut rule) = var_configuration_rule();
-    let configuration = rule.result_configuration.configuration.clone();
+    let configuration = rule
+        .result_configuration
+        .as_ref()
+        .unwrap()
+        .configuration
+        .clone();
     rule.bindings.insert(
         4,
         term_rule_binding("E", 2, DescriptorSortRef::Builtin(BuiltinSort::Map)),
@@ -1146,7 +1155,7 @@ fn simultaneous_k_and_map_update_is_structured() {
         CellWrapper::Cell,
         ProtocolRuleStateTerm::Term(rule_variable("left", 3, "E")),
     ));
-    rule.result.cells.push(rule_cell(
+    rule.result.as_mut().unwrap().cells.push(rule_cell(
         &configuration,
         "right",
         1,

@@ -14,7 +14,9 @@ use crate::parse::{
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
-use crate::term::{push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors};
+use crate::term::{
+    local_rewrite_error, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+};
 use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
@@ -85,12 +87,19 @@ pub struct StateRuleItem {
     subject_macro: PatMacro,
     subject_type: Path,
     subject: CellsExpression,
-    result_macro: Macro,
-    result_type: Path,
-    result: CellsExpression,
+    /// The result, absent exactly for a single-body rule (KF-011).
+    result: Option<StateRuleResult>,
     bindings: Vec<StateRuleBinding>,
     requires: Option<RuleCondition>,
     existentials: RuleExistentials,
+}
+
+/// The `-> Machine { cells!{..} }` result of a two-sided configuration rule.
+#[derive(Clone, Debug)]
+struct StateRuleResult {
+    result_macro: Macro,
+    result_type: Path,
+    result: CellsExpression,
 }
 
 /// Object-language Boolean postcondition consumed only by a claim.
@@ -145,7 +154,7 @@ impl StateClaimItem {
     pub fn from_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
         let exists = take_exists_helper(&mut item.attrs)?;
         let ensures = take_ensures_helper(&mut item.attrs)?;
-        let rule = StateRuleItem::from_item(item)?;
+        let rule = StateRuleItem::from_item_with(item, false)?;
         let universal = rule
             .bindings
             .iter()
@@ -529,7 +538,17 @@ impl StateRuleItem {
     /// Rejects non-rule signature features, non-configuration types, any
     /// subject/result shell other than `cells!`, and result frame reuses that
     /// were not introduced in the complete subject pattern.
-    pub fn from_item(mut item: ItemFn) -> Result<Self, SyntaxError> {
+    pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with(item, true)
+    }
+
+    /// Parses a configuration rule; a unit-returning fn is a single-body
+    /// rule (KF-011) only when `single_body` admits one.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The signature, subject, result or single body, bindings, and helpers are validated in one ordered pass."
+    )]
+    fn from_item_with(mut item: ItemFn, single_body: bool) -> Result<Self, SyntaxError> {
         validate_signature(&item)?;
         let Some(argument) = item.sig.inputs.last() else {
             return Err(signature_error(
@@ -560,39 +579,86 @@ impl StateRuleItem {
         let subject = parse_cells_pattern(subject_macro.mac.tokens.clone())?;
         let subject_type = parse_configuration_type(&argument.ty)?;
 
-        let ReturnType::Type(_, result_type) = &item.sig.output else {
-            return Err(signature_error(
-                "a configuration rule must declare its configuration result type",
-                item.sig.ident.span(),
-            ));
+        // A unit-returning rule is a single-body rule (KF-011): its
+        // subject's `k::rewrite!` islands mark what changes.
+        let result = match &item.sig.output {
+            ReturnType::Type(_, result_type) if !is_unit_type(result_type) => {
+                let result_type = parse_configuration_type(result_type)?;
+                let result_macro = parse_result_macro(&item)?;
+                validate_cells_path(&result_macro.path, result_macro.span())?;
+                let result = parse_cells_expression(result_macro.tokens.clone())?;
+                Some(StateRuleResult {
+                    result_macro,
+                    result_type,
+                    result,
+                })
+            }
+            // A fn with statements and no rewrite meant to return a result.
+            _ if !single_body
+                || (!item.block.stmts.is_empty() && cells_rewrite_spans(&subject).is_empty()) =>
+            {
+                return Err(signature_error(
+                    "a configuration rule must declare its configuration result type",
+                    item.sig.ident.span(),
+                ));
+            }
+            _ => {
+                if !item.block.stmts.is_empty() {
+                    return Err(local_rewrite_error(
+                        SINGLE_BODY_BODY.to_owned(),
+                        item.block.span(),
+                    ));
+                }
+                None
+            }
         };
-        let result_type = parse_configuration_type(result_type)?;
-        let result_macro = parse_result_macro(&item)?;
-        validate_cells_path(&result_macro.path, result_macro.span())?;
-        let result = parse_cells_expression(result_macro.tokens.clone())?;
+        let rewrites = cells_rewrite_spans(&subject);
+        match (&result, rewrites.first()) {
+            (None, None) => {
+                return Err(local_rewrite_error(
+                    SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
+                    item.sig.ident.span(),
+                ));
+            }
+            (Some(_), Some(span)) => {
+                return Err(local_rewrite_error(REWRITE_WITH_RESULT.to_owned(), *span));
+            }
+            _ => {}
+        }
 
         let typed_bindings = parse_typed_bindings(&item)?;
         let mut bindings = Vec::new();
         collect_cells_bindings(&subject, &mut bindings)?;
+        validate_rewrite_right_sides(&subject, &bindings)?;
         attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
-        validate_result_reuses(&result, &bindings)?;
+        if let Some(result) = &result {
+            validate_result_reuses(&result.result, &bindings)?;
+        }
         let requires = take_requires_helper(&mut item.attrs)?;
         let existentials = RuleExistentials::take(&mut item.attrs)?;
+        if result.is_none()
+            && let Some(helper) = existentials.attributes().first()
+        {
+            return Err(local_rewrite_error(
+                SINGLE_BODY_BINDERS.to_owned(),
+                helper.path().span(),
+            ));
+        }
         let subject_names = bindings
             .iter()
             .map(|binding| binding.name.clone())
             .collect::<Vec<_>>();
         existentials.check_shadowing(&subject_names)?;
         let mut result_terms = Vec::new();
-        append_cells_terms(&result, &mut result_terms);
+        if let Some(result) = &result {
+            append_cells_terms(&result.result, &mut result_terms);
+        }
         existentials.check_scope(requires.as_ref().map(RuleCondition::term), &result_terms)?;
         Ok(Self {
             item,
             subject_macro,
             subject_type,
             subject,
-            result_macro,
-            result_type,
             result,
             bindings,
             requires,
@@ -618,16 +684,18 @@ impl StateRuleItem {
         &self.subject
     }
 
-    /// Returns the result configuration type path.
+    /// Returns the result configuration type path, or `None` for a
+    /// single-body rule (KF-011).
     #[must_use]
-    pub const fn result_type(&self) -> &Path {
-        &self.result_type
+    pub fn result_type(&self) -> Option<&Path> {
+        self.result.as_ref().map(|result| &result.result_type)
     }
 
-    /// Returns the complete result `cells!` AST.
+    /// Returns the complete result `cells!` AST, or `None` for a single-body
+    /// rule (KF-011).
     #[must_use]
-    pub const fn result(&self) -> &CellsExpression {
-        &self.result
+    pub fn result(&self) -> Option<&CellsExpression> {
+        self.result.as_ref().map(|result| &result.result)
     }
 
     /// Returns subject bindings in first-occurrence structural preorder.
@@ -677,17 +745,19 @@ impl StateRuleItem {
                 0,
                 TokenRange::for_tokens(&self.subject_type)?,
             ),
-            ProvenanceAnchor::new(
+        ];
+        if let Some(result) = &self.result {
+            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleResultType,
                 0,
-                TokenRange::for_tokens(&self.result_type)?,
-            ),
-            ProvenanceAnchor::new(
+                TokenRange::for_tokens(&result.result_type)?,
+            ));
+            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleResult,
                 0,
-                TokenRange::for_tokens(&self.result_macro)?,
-            ),
-        ];
+                TokenRange::for_tokens(&result.result_macro)?,
+            ));
+        }
         for (ordinal, sort) in self
             .bindings
             .iter()
@@ -701,11 +771,18 @@ impl StateRuleItem {
             ));
         }
         append_cells_provenance(&self.subject, RuleSide::Left, &mut output)?;
-        append_cells_provenance(&self.result, RuleSide::Right, &mut output)?;
+        if let Some(result) = &self.result {
+            append_cells_provenance(&result.result, RuleSide::Right, &mut output)?;
+        }
         if let Some(requires) = &self.requires {
             output.extend(requires.provenance()?);
         }
         output.extend(self.existentials.provenance()?);
+        // `k::rewrite!` shells and sides (KF-011), in subject order.
+        let mut rewrites = 0_usize;
+        for term in claim_terms(self, None) {
+            crate::term::push_rewrite_anchors(&mut output, term.nodes(), &mut rewrites)?;
+        }
         let mut lexemes = 0_usize;
         let mut sort_tests = 0_usize;
         for term in claim_terms(self, None) {
@@ -828,20 +905,22 @@ impl StateRuleItem {
                 })
             })
             .collect::<Result<Vec<_>, SyntaxError>>()?;
-        output.extend([
-            ReferenceCandidate {
-                key: key(ProvenanceRole::RuleType, 0),
-                path: self.subject_type.clone(),
-                kind: StateRuleReferenceKind::Configuration,
-            },
-            ReferenceCandidate {
+        output.extend([ReferenceCandidate {
+            key: key(ProvenanceRole::RuleType, 0),
+            path: self.subject_type.clone(),
+            kind: StateRuleReferenceKind::Configuration,
+        }]);
+        if let Some(result) = &self.result {
+            output.push(ReferenceCandidate {
                 key: key(ProvenanceRole::RuleResultType, 0),
-                path: self.result_type.clone(),
+                path: result.result_type.clone(),
                 kind: StateRuleReferenceKind::Configuration,
-            },
-        ]);
+            });
+        }
         append_cells_candidates(&self.subject, RuleSide::Left, &self.bindings, &mut output)?;
-        append_cells_candidates(&self.result, RuleSide::Right, &self.bindings, &mut output)?;
+        if let Some(result) = &self.result {
+            append_cells_candidates(&result.result, RuleSide::Right, &self.bindings, &mut output)?;
+        }
         Ok(output)
     }
 }
@@ -1122,6 +1201,76 @@ pub fn parse_state_context_alias_item(
     StateContextAliasItem::from_item(syn::parse2(tokens)?, here)
 }
 
+/// The reason given for a single-body rule with statements in its body.
+pub(crate) const SINGLE_BODY_BODY: &str = "a single-body rule (one that returns `()`) has an empty body `{}`; its subject's `k::rewrite!` islands say what changes";
+
+/// The reason given for a single-body rule without a rewrite.
+pub(crate) const SINGLE_BODY_WITHOUT_REWRITE: &str = "a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result";
+
+/// The reason given for result binders on a single-body rule.
+pub(crate) const SINGLE_BODY_BINDERS: &str = "a single-body rule takes no `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`: write a rule with a result to introduce new values";
+
+/// The reason given for a rewrite in a rule that has a result.
+pub(crate) const REWRITE_WITH_RESULT: &str = "`k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state";
+
+/// Whether `ty` is `()`.
+pub(crate) fn is_unit_type(ty: &Type) -> bool {
+    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
+}
+
+/// The spans of the `k::rewrite!` islands of a `cells!` pattern, in order.
+fn cells_rewrite_spans(cells: &CellsExpression) -> Vec<proc_macro2::Span> {
+    let mut terms = Vec::new();
+    append_cells_terms(cells, &mut terms);
+    terms
+        .into_iter()
+        .flat_map(TermExpression::nodes)
+        .filter_map(|node| match node {
+            TermNode::Rewrite { range, .. } => Some(range.first()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Checks the right side of every `k::rewrite!` (KF-011): each bare name
+/// there is a term binding of the left image, and a map key holds no
+/// rewrite.
+fn validate_rewrite_right_sides(
+    cells: &CellsExpression,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    for entry in cells.entries() {
+        if let StateTerm::Map(map) = entry.value()
+            && let MapBody::Items { items, .. } = map.body()
+        {
+            for item in items {
+                if let Some(TermNode::Rewrite { range, .. }) = item
+                    .key()
+                    .nodes()
+                    .iter()
+                    .find(|node| matches!(node, TermNode::Rewrite { .. }))
+                {
+                    return Err(local_rewrite_error(
+                        crate::term::REWRITE_IN_MAP_KEY.to_owned(),
+                        range.first(),
+                    ));
+                }
+            }
+        }
+    }
+    let mut terms = Vec::new();
+    append_cells_terms(cells, &mut terms);
+    let names = bindings
+        .iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| binding.name.clone())
+        .collect::<Vec<_>>();
+    for term in terms {
+        crate::term::check_rewrite_right_bindings(term.nodes(), &names)?;
+    }
+    Ok(())
+}
+
 fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
     let signature = &item.sig;
     if signature.inputs.is_empty() {
@@ -1333,7 +1482,10 @@ fn collect_term_bindings(
     term: &TermExpression,
     output: &mut Vec<StateRuleBinding>,
 ) -> Result<(), SyntaxError> {
-    for node in term.nodes() {
+    // Only the left image binds (KF-011): the right side of a `k::rewrite!`
+    // uses the subject's bindings.
+    let (left, _) = crate::term::split_rewrite_images(term.nodes());
+    for node in left {
         let binding = match node {
             TermNode::Reference(path) => bare_ident(path),
             TermNode::As { binding, .. } => Some(binding),
@@ -1582,7 +1734,8 @@ fn append_term_provenance(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => continue,
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
         };
         output.push(ProvenanceAnchor::new(
             role,
@@ -1739,7 +1892,8 @@ fn append_term_candidates(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => {}
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => {}
         }
     }
     Ok(())
@@ -1775,7 +1929,8 @@ fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
         | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range) => Ok(*range),
+        | TermNode::LetWildcard(range)
+        | TermNode::Rewrite { range, .. } => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
@@ -1797,7 +1952,8 @@ fn node_span(node: &TermNode) -> proc_macro2::Span {
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
         | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range) => range.first(),
+        | TermNode::LetWildcard(range)
+        | TermNode::Rewrite { range, .. } => range.first(),
         TermNode::Lexeme { text, .. } => text.span(),
     }
 }
@@ -1938,7 +2094,9 @@ fn claim_terms<'a>(
 ) -> Vec<&'a TermExpression> {
     let mut output = Vec::new();
     append_cells_terms(rule.subject(), &mut output);
-    append_cells_terms(rule.result(), &mut output);
+    if let Some(result) = rule.result() {
+        append_cells_terms(result, &mut output);
+    }
     if let Some(requires) = rule.requires() {
         output.push(requires.term());
     }
@@ -2031,7 +2189,8 @@ fn append_claim_special_anchors(
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
                 | TermNode::Closure { .. }
-                | TermNode::LetWildcard(_) => {}
+                | TermNode::LetWildcard(_)
+                | TermNode::Rewrite { .. } => {}
             }
         }
     }

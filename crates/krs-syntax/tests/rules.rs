@@ -19,7 +19,7 @@ fn term_macro_rule_preserves_signature_references_and_roles() {
         "model :: Expr"
     );
     assert!(rule.parameter().term_sort.is_dynamic());
-    assert_eq!(rule.result().symbols().len(), 2);
+    assert_eq!(rule.result().unwrap().symbols().len(), 2);
 
     let anchors = rule.provenance().unwrap();
     let roles = anchors

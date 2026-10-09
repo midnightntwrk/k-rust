@@ -15,6 +15,10 @@ use crate::{
     StableItemId,
 };
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag records one independent context of the term walk."
+)]
 pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) provenance: F,
     pub(super) bindings: &'a BTreeSet<String>,
@@ -28,6 +32,11 @@ pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) in_let_pattern: bool,
     /// The names bound by the enclosing `let` statements, innermost last.
     pub(super) let_scopes: Vec<BTreeSet<String>>,
+    /// Whether `k::rewrite!` is admitted: a single-body subject (KF-011).
+    pub(super) allow_rewrite: bool,
+    /// Whether the validator is inside the right side of a `k::rewrite!`,
+    /// whose names use bindings without binding them.
+    pub(super) in_rewrite_right: bool,
 }
 
 impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
@@ -58,7 +67,9 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         if !self.bindings.contains(name) {
             return Err(GrammarTransportError::InvalidBinding(name.to_owned()));
         }
-        self.seen_variables.insert(name.to_owned());
+        if !self.in_rewrite_right {
+            self.seen_variables.insert(name.to_owned());
+        }
         Ok(())
     }
 
@@ -91,7 +102,10 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if !self.allow_wildcards && !self.in_matches_pattern && !self.in_let_pattern {
+        if (!self.allow_wildcards || self.in_rewrite_right)
+            && !self.in_matches_pattern
+            && !self.in_let_pattern
+        {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
@@ -269,6 +283,33 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
                 self.let_scopes.pop();
             }
         }
+    }
+
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        nested: bool,
+    ) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        require_key(from_key, self.provenance)?;
+        require_key(to_key, self.provenance)?;
+        if !self.allow_rewrite || self.in_matches_pattern || self.in_let_pattern {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::RewriteOutsideSingleBodyRule,
+            ));
+        }
+        if nested || self.in_rewrite_right {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::NestedRewrite,
+            ));
+        }
+        Ok(())
+    }
+
+    fn rewrite_right(&mut self, inside: bool) {
+        self.in_rewrite_right = inside;
     }
 
     fn argument(
@@ -626,6 +667,26 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         self.counters.ml_binder = increment(ordinal)?;
         Ok(())
     }
+
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        _: bool,
+    ) -> Result<(), Self::Error> {
+        for (actual, role) in [
+            (key, ProvenanceRole::RuleLocalRewrite),
+            (from_key, ProvenanceRole::RuleLocalRewriteFrom),
+            (to_key, ProvenanceRole::RuleLocalRewriteTo),
+        ] {
+            insert_exact(self.keys, actual, role, self.counters.rewrite)?;
+        }
+        self.counters.rewrite = increment(self.counters.rewrite)?;
+        Ok(())
+    }
+
+    fn rewrite_right(&mut self, _: bool) {}
 
     fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
 

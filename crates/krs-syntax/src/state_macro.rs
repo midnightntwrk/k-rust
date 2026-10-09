@@ -214,10 +214,11 @@ pub(crate) struct MapPatternBindings {
 
 impl MapPatternBindings {
     fn from_items(items: &[MapItem], remainder: &StateMacroRemainder) -> Self {
+        // Only the left image binds (KF-011).
         let terms = items
             .iter()
             .flat_map(|item| [item.key(), item.value()])
-            .flat_map(TermExpression::nodes)
+            .flat_map(|term| crate::term::split_rewrite_images(term.nodes()).0)
             .filter_map(|node| match node {
                 TermNode::Reference(path) => unqualified_path_ident(path).cloned(),
                 TermNode::As { binding, .. } => Some(binding.clone()),

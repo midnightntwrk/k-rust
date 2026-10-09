@@ -861,6 +861,7 @@ fn rule_records_preserve_field_identity_on_both_sides() {
 
     let right_names = rule
         .result()
+        .unwrap()
         .tree()
         .application()
         .unwrap()

@@ -255,6 +255,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction, naming the fix.
         reason: String,
     },
+    /// A `k::rewrite!` (K's local `=>`) is malformed or misplaced, or a
+    /// single-body rule has none (KF-011).
+    InvalidLocalRewrite {
+        /// Specific restriction.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -400,6 +406,7 @@ impl SyntaxErrorKind {
             Self::InvalidFunctionContext { .. } => codes::syntax::INVALID_FUNCTION_CONTEXT,
             Self::InvalidSortParameter { .. } => codes::syntax::INVALID_SORT_PARAMETER,
             Self::InvalidTurbofish { .. } => codes::syntax::INVALID_TURBOFISH,
+            Self::InvalidLocalRewrite { .. } => codes::syntax::INVALID_LOCAL_REWRITE,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -659,7 +666,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidMlExists { reason }
             | SyntaxErrorKind::InvalidFunctionContext { reason }
             | SyntaxErrorKind::InvalidSortParameter { reason }
-            | SyntaxErrorKind::InvalidTurbofish { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidTurbofish { reason }
+            | SyntaxErrorKind::InvalidLocalRewrite { reason } => formatter.write_str(reason),
         }
     }
 }

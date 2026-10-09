@@ -653,6 +653,11 @@ impl<'a> InitializerBuilder<'a> {
                 range.first(),
                 "an `ml::exists` closure is a predicate; initializers cannot contain it",
             )),
+            TermTree::Rewrite { range, .. } => Err(ExpandError::new(
+                expand::LOCAL_REWRITE_OUTSIDE_SUBJECT,
+                range.first(),
+                "`k::rewrite!` (K's local =>) marks a change in a single-body rule's subject; initializers cannot contain it",
+            )),
         }
     }
 }

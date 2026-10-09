@@ -255,6 +255,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending node.
         range: Option<Box<SourceRange>>,
     },
+    /// A single-body rule (`k::rewrite!`, KF-011) changes no cell, or a
+    /// rewrite's sides have no sort in common.
+    InvalidLocalRewrite {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the offending rewrite or rule.
+        range: Option<Box<SourceRange>>,
+    },
     /// An equation's function context names a cell shape it cannot read, or
     /// declares a binder at a sort its cell does not have (KF-025).
     InvalidFunctionContext {
@@ -510,6 +520,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
             | Self::InvalidMlPredicate { reason, .. }
+            | Self::InvalidLocalRewrite { reason, .. }
             | Self::InvalidFunctionContext { reason, .. }
             | Self::InvalidParametricProduction { reason, .. }
             | Self::ParametricInstance { reason, .. }
@@ -572,6 +583,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,
+            Self::InvalidLocalRewrite { .. } => codes::analysis::INVALID_LOCAL_REWRITE,
             Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,
             Self::InvalidParametricProduction { .. } => {
                 codes::analysis::INVALID_PARAMETRIC_PRODUCTION
@@ -622,6 +634,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidLet { range, .. }
             | Self::MlPlacement { range, .. }
             | Self::InvalidMlPredicate { range, .. }
+            | Self::InvalidLocalRewrite { range, .. }
             | Self::InvalidFunctionContext { range, .. }
             | Self::InvalidParametricProduction { range, .. }
             | Self::ParametricInstance { range, .. }

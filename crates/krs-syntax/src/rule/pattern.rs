@@ -51,6 +51,19 @@ impl NegativeLiteralSpans {
     fn next(&mut self) -> Option<(Span, Span)> {
         self.0.pop_front()
     }
+
+    /// The number of negative literals left.
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Drops the next `count` negative literals, which a nested island
+    /// parses from its own tokens.
+    pub(crate) fn skip(&mut self, count: usize) {
+        for _ in 0..count {
+            self.0.pop_front();
+        }
+    }
 }
 
 /// Parses one pattern with the spans of its negative literals.
@@ -230,7 +243,8 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => continue,
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
         };
         let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -295,7 +309,8 @@ impl RuleTermCounters {
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
                 | TermNode::Closure { .. }
-                | TermNode::LetWildcard(_) => {}
+                | TermNode::LetWildcard(_)
+                | TermNode::Rewrite { .. } => {}
             }
         }
         counters
@@ -349,7 +364,8 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => continue,
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
         };
         let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
@@ -683,6 +699,19 @@ fn validate_native_pattern(
         {
             Err(crate::term::matched_matches(&macro_pattern.mac.path))
         }
+        Pat::Macro(macro_pattern)
+            if macro_pattern
+                .mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "rewrite") =>
+        {
+            Err(crate::term::local_rewrite_error(
+                crate::term::REWRITE_IN_READABLE.to_owned(),
+                macro_pattern.mac.path.span(),
+            ))
+        }
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
             "nested pattern macros other than `k::lexeme!` are not supported",
             macro_pattern.span(),
@@ -822,7 +851,10 @@ fn term_pattern_bindings(term: &TermExpression) -> Result<Vec<Ident>, SyntaxErro
     // The root path names the matched constructor or function; every later
     // bare reference and every `name @ pattern` alias binds, in preorder.
     let mut root = true;
-    for binding in term.nodes().iter().filter_map(|node| match node {
+    // Only the left image binds (KF-011): the right side of a `k::rewrite!`
+    // uses the subject's bindings.
+    let (left, _) = crate::term::split_rewrite_images(term.nodes());
+    for binding in left.into_iter().filter_map(|node| match node {
         TermNode::ApplicationHead(_) | TermNode::Reference(_) if std::mem::take(&mut root) => None,
         TermNode::Reference(path) => bare_path_ident(path).cloned(),
         TermNode::As { binding, .. } => Some(binding.clone()),
@@ -899,7 +931,8 @@ pub(super) fn push_term_node_anchors(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => continue,
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
         };
         let range = term_node_range(node)?;
         anchors.push(ProvenanceAnchor::new(
@@ -970,7 +1003,8 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_) => continue,
+            | TermNode::LetWildcard(_)
+            | TermNode::Rewrite { .. } => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
         candidates.push(ReferenceCandidate {
@@ -1001,7 +1035,8 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
         | TermNode::MatchesWildcard(range)
         | TermNode::Let { range, .. }
         | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range) => Ok(*range),
+        | TermNode::LetWildcard(range)
+        | TermNode::Rewrite { range, .. } => Ok(*range),
         TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }

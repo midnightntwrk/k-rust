@@ -329,11 +329,11 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
             key: key(ProvenanceRole::RuleType, 0),
             configuration: owner.clone(),
         },
-        result_key: key(ProvenanceRole::RuleResult, 0),
-        result_configuration: DescriptorConfigurationReference {
+        result_key: Some(key(ProvenanceRole::RuleResult, 0)),
+        result_configuration: Some(DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType, 0),
             configuration: owner.clone(),
-        },
+        }),
         bindings: vec![
             term_binding("X", 0, DescriptorSortRef::Builtin(BuiltinSort::Id)),
             frame_binding("tail", ProtocolRuleBindingKind::KSequenceFrame),
@@ -391,7 +391,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
                 binding: "state".into(),
             },
         },
-        result: DescriptorRuleCells {
+        result: Some(DescriptorRuleCells {
             key: key(ProvenanceRole::RuleRightCellsPayload, 0),
             cells: vec![rule_cell(
                 owner,
@@ -412,7 +412,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
                 key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
                 binding: "state".into(),
             },
-        },
+        }),
         existentials: Vec::new(),
         ensures: None,
         fresh: Vec::new(),
@@ -536,12 +536,14 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
         body: ProtocolRuleMapBody::Empty { explicit_dot: true },
     });
-    let ProtocolRuleStateTerm::KSequence(result_k) = &mut rule.result.cells[0].value else {
+    let ProtocolRuleStateTerm::KSequence(result_k) =
+        &mut rule.result.as_mut().unwrap().cells[0].value
+    else {
         unreachable!();
     };
     result_k.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");
     let owner = rule.subject_configuration.configuration.clone();
-    rule.result.cells.push(rule_cell(
+    rule.result.as_mut().unwrap().cells.push(rule_cell(
         &owner,
         RuleSide::Right,
         1,
@@ -610,8 +612,10 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
         })
         .unwrap();
     rule.subject.cells.truncate(1);
-    rule.result.cells[0].field.cell.field = "env".into();
-    let ProtocolRuleStateTerm::KSequence(sequence) = &mut rule.result.cells[0].value else {
+    rule.result.as_mut().unwrap().cells[0].field.cell.field = "env".into();
+    let ProtocolRuleStateTerm::KSequence(sequence) =
+        &mut rule.result.as_mut().unwrap().cells[0].value
+    else {
         unreachable!();
     };
     sequence.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");
@@ -664,7 +668,9 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     rule.subject.cells[1].value = ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
         key: key(ProvenanceRole::RuleLeftWildcard, 0),
     });
-    let ProtocolRuleStateTerm::KSequence(sequence) = &mut rule.result.cells[0].value else {
+    let ProtocolRuleStateTerm::KSequence(sequence) =
+        &mut rule.result.as_mut().unwrap().cells[0].value
+    else {
         unreachable!();
     };
     sequence.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");

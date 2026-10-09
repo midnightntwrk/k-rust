@@ -506,6 +506,28 @@ fn twin(k::term![Twin(e)]: Term<Bool>) -> Term<Bool> {
 ",
     ),
     (
+        "rule_local_rewrite",
+        r#"
+#[k::rule(label = "assign")]
+fn assign(
+    name: Term<Id>,
+    value: Value,
+    k::cells! {
+        k: k::configuration::KCell(k::rewrite!(StmtSyntax::Assign(name, value) => ()), ..),
+        env: k::configuration::Cell(map![name -> k::rewrite!(_ => value), ..]),
+        state @ ..
+    }: Machine,
+) {}
+"#,
+    ),
+    (
+        "rule_local_term",
+        r"
+#[k::rule]
+fn unmark(k::term![ExpSyntax::Pair(k::rewrite!(ExpSyntax::Marked(v) => v), _)]: Term<Exp>) {}
+",
+    ),
+    (
         "rule_let",
         r"
 #[k::equation]
@@ -1033,6 +1055,7 @@ k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
     ("is", "k::is!(Value, e);"),
     ("project", "k::project!(Int, e);"),
     ("matches", "k::matches!(e, Pair(_, _) | Unit());"),
+    ("rewrite", "k::rewrite!(a => b);"),
     (
         "syntax_list",
         r#"

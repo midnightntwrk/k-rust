@@ -1375,6 +1375,7 @@ fn lower_configuration_rewrite(
                     lower_term(clause.before(), names, origins)?,
                     match clause.after() {
                         CellPost::Preserve => CellPost::Preserve,
+                        CellPost::Local => CellPost::Local,
                         CellPost::Replace { term } => CellPost::Replace {
                             term: lower_term(term, names, origins)?,
                         },
@@ -2068,6 +2069,10 @@ fn lower_rule_rewrite(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionTerm, LoweringError> {
+    // A single-body rule (KF-011) lowers its authored term.
+    if let Some(local) = body.local_term() {
+        return lower_term(local, names, origins);
+    }
     let origin = origins.lower(body.origin(), "term", None, None)?;
     Ok(DefinitionTerm::rewrite(
         origin,

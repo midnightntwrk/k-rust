@@ -225,3 +225,6 @@ ApplicationInstance=application_instance
 MlConnective=ml_connective
 MlBinder=ml_binder
 MlBinderSort=ml_binder_sort
+RuleLocalRewrite=rule_local_rewrite
+RuleLocalRewriteFrom=rule_local_rewrite_from
+RuleLocalRewriteTo=rule_local_rewrite_to

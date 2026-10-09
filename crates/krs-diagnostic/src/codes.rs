@@ -214,6 +214,7 @@ register_codes! {
         NATIVE_INSTANCE: "krs::analysis::native-instance" => "The least instance K and k-rust solve from an equation or rule head's argument sorts differs from its turbofish, so the head would not be the equation the author wrote.",
         ML_PLACEMENT: "krs::analysis::ml-placement" => "A matching-logic predicate (`k::ml`) occurs in the condition of a transition or equation; predicates are allowed on claims and simplifications.",
         INVALID_ML_PREDICATE: "krs::analysis::invalid-ml-predicate" => "A matching-logic predicate (`k::ml`) is an operand of an object function, a Bool term stands where a predicate is expected, `ml::equals` operands share no sort, a predicate simplification's left side is not rooted at `ml::equals` or `ml::ceil`, a connective has the wrong arity, or an `ml::exists` binder shadows a rule binder.",
+        INVALID_LOCAL_REWRITE: "krs::analysis::invalid-local-rewrite" => "A single-body rule (`k::rewrite!`) changes no cell, or a rewrite side has no sort both images admit.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -277,6 +278,7 @@ register_codes! {
         INVALID_MATCHES: "krs::syntax::invalid-matches" => "A `k::matches!` (K's `:=K`) is malformed, has an `if` guard, is written as std's bare `matches!`, or occurs in a left-hand side.",
         INVALID_LET: "krs::syntax::invalid-let" => "A term block is not `let pattern = term;` statements followed by one result term (K's `#let`), its pattern has alternatives or an alias, or it occurs in a pattern.",
         INVALID_FUNCTION_CONTEXT: "krs::syntax::invalid-function-context" => "A function context (K's `[[ .. ]]` configuration context) is not a final `k::cells! { .., .. }` parameter of an `#[k::equation]` typed by the configuration struct and framed by an anonymous `..`.",
+        INVALID_LOCAL_REWRITE: "krs::syntax::invalid-local-rewrite" => "A `k::rewrite!` (K's local `=>`) occurs outside the subject of a single-body `#[k::rule]` fn, inside another rewrite, in a map key, or with a right-side name the left image does not bind, or a single-body rule has no rewrite.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",
@@ -347,6 +349,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         PATTERN_OR_OUTSIDE_LHS: "krs::expand::pattern-or-outside-lhs" => "An `A | B` or-pattern (K's `#Or`) occurs outside a left-hand side.",
         MATCHES_OUTSIDE_CONDITION: "krs::expand::matches-outside-condition" => "A `k::matches!` (K's `:=K`) occurs in a left-hand side, an initializer, a `cells!` cell value, or a claim.",
         LET_OUTSIDE_TERM: "krs::expand::let-outside-term" => "A `let` block (K's `#let`) occurs in a left-hand side, an initializer, a `cells!` cell value, or a claim.",
+        LOCAL_REWRITE_OUTSIDE_SUBJECT: "krs::expand::local-rewrite-outside-subject" => "A `k::rewrite!` (K's local `=>`) occurs outside the subject of a single-body rule.",
         CLAIM_SUBJECT_ONLY_TERM: "krs::expand::claim-subject-only-term" => "An anonymous term occurrence appears outside a claim subject.",
         CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
         FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",

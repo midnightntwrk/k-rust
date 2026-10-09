@@ -119,9 +119,14 @@ impl VariableNaming {
             scope.declare(variable.id());
         }
         match sentence.relational_body() {
+            // A single-body rule (KF-011) prints its authored term once.
             RuleBodyRef::Term(rewrite) => {
-                scope.term(rewrite.from());
-                scope.term(rewrite.to());
+                if let Some(local) = rewrite.local_term() {
+                    scope.term(local);
+                } else {
+                    scope.term(rewrite.from());
+                    scope.term(rewrite.to());
+                }
             }
             RuleBodyRef::Predicate(rewrite) => {
                 scope.predicate(rewrite.lhs());
@@ -131,7 +136,9 @@ impl VariableNaming {
                 for clause in body.clauses() {
                     scope.term(clause.before());
                     let replaced = match clause.after() {
-                        CellPost::Preserve => false,
+                        // A single-body clause prints its cell once, with
+                        // the rewrites inside (KF-011).
+                        CellPost::Preserve | CellPost::Local => false,
                         CellPost::Replace { term } => {
                             scope.term(term);
                             true

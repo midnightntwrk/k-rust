@@ -210,6 +210,22 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     /// which the pattern's names are local binders.
     fn let_body(&mut self, names: Option<&BTreeSet<String>>);
 
+    /// `k::rewrite!(from => to)` (K's local `=>`, KF-011), admitted only in
+    /// the subject of a single-body rule; `nested` says a side holds another
+    /// rewrite.
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        nested: bool,
+    ) -> Result<(), Self::Error>;
+
+    /// Enters (`true`) or leaves (`false`) the right side of a
+    /// `k::rewrite!`, whose names use the subject's bindings and which
+    /// admits no wildcard.
+    fn rewrite_right(&mut self, inside: bool);
+
     fn argument(
         &mut self,
         argument: crate::TermArgumentRef<'_, S>,
@@ -336,6 +352,24 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             context.let_body(None);
             validated
         }
+        Term::Rewrite {
+            key,
+            from_key,
+            to_key,
+            from,
+            to,
+        } => {
+            let nested = contains_rewrite(from) || to.as_deref().is_some_and(contains_rewrite);
+            context.rewrite(key, from_key, to_key, nested)?;
+            validate_term(from, context)?;
+            let Some(to) = to else {
+                return Ok(());
+            };
+            context.rewrite_right(true);
+            let validated = validate_term(to, context);
+            context.rewrite_right(false);
+            validated
+        }
     }
 }
 
@@ -396,6 +430,7 @@ pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut 
             }
         }
         Term::SortTest { operand, .. } => let_pattern_names(operand, names),
+        Term::Rewrite { from, .. } => let_pattern_names(from, names),
         Term::Matches { .. }
         | Term::Let { .. }
         | Term::Closure { .. }
@@ -405,6 +440,61 @@ pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut 
         | Term::Anonymous { .. }
         | Term::Lexeme { .. } => {}
     }
+}
+
+/// The direct subterms of `term`, in source order.
+pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
+    match term {
+        Term::Application { arguments, .. } => arguments
+            .into_iter()
+            .map(|argument| match argument {
+                crate::TermArgumentRef::Positional { value }
+                | crate::TermArgumentRef::Named { value, .. } => value,
+            })
+            .collect(),
+        Term::OrBool { arguments, .. } => arguments.iter().collect(),
+        Term::Or { alternatives, .. } => alternatives.iter().collect(),
+        Term::Cell { fields, .. } => fields.iter().map(|field| &*field.value).collect(),
+        Term::SortTest { operand, .. } => vec![&**operand],
+        Term::As { pattern, .. } => vec![&**pattern],
+        Term::Matches {
+            subject, pattern, ..
+        } => vec![&**subject, &**pattern],
+        Term::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![&**pattern, &**value, &**body],
+        Term::Closure { body, .. } => vec![&**body],
+        Term::Rewrite { from, to, .. } => std::iter::once(&**from)
+            .chain(to.as_ref().map(|to| &**to))
+            .collect(),
+        Term::Variable { .. }
+        | Term::Literal { .. }
+        | Term::Wildcard { .. }
+        | Term::BuiltinToken { .. }
+        | Term::Anonymous { .. }
+        | Term::Lexeme { .. } => Vec::new(),
+    }
+}
+
+/// Whether `term` contains a `k::rewrite!` (KF-011).
+pub(crate) fn contains_rewrite<S: Stage>(term: &Term<S>) -> bool {
+    matches!(term, Term::Rewrite { .. }) || term_children(term).into_iter().any(contains_rewrite)
+}
+
+/// Whether a `k::rewrite!` whose right side is `()` (`.K`) occurs anywhere
+/// but at the root of `term` (a whole K-sequence item when `root_allowed`).
+pub(crate) fn misplaced_empty_rewrite<S: Stage>(term: &Term<S>, root_allowed: bool) -> bool {
+    if let Term::Rewrite { to: None, .. } = term
+        && !root_allowed
+    {
+        return true;
+    }
+    term_children(term)
+        .into_iter()
+        .any(|child| misplaced_empty_rewrite(child, false))
 }
 
 fn validate_arguments<S: ValidationStage, C: TermValidation<S>>(

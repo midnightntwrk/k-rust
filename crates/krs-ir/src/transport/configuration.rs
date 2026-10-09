@@ -2007,6 +2007,20 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
 
+    fn rewrite(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &ProvenanceKey,
+        _: &ProvenanceKey,
+        _: bool,
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::RewriteOutsideSingleBodyRule,
+        ))
+    }
+
+    fn rewrite_right(&mut self, _: bool) {}
+
     fn or_bool(
         &mut self,
         _: &ProvenanceKey,

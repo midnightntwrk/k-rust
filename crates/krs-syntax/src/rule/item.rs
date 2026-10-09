@@ -72,8 +72,10 @@ pub struct RuleItem {
     pub(super) item: ItemFn,
     pub(super) binders: Vec<RuleBinder>,
     pub(super) parameter: RuleParameter,
-    result_sort: TermSort,
-    result: TermExpression,
+    /// The result sort and term; both absent exactly for a single-body rule
+    /// (KF-011), whose subject's `k::rewrite!` islands say what changes.
+    result_sort: Option<TermSort>,
+    result: Option<TermExpression>,
     subject_tree: TermTree,
     requires: Option<RuleCondition>,
     existentials: RuleExistentials,
@@ -82,8 +84,20 @@ pub struct RuleItem {
     function_context: Option<FunctionContext>,
 }
 
+/// Which fn sentence a rule item is parsed as.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClauseForm {
+    /// A readable clause, desugar clause, or other result-returning fn.
+    Plain,
+    /// An equation, which may end with a function context (KF-025).
+    Equation,
+    /// A `#[k::rule]` fn, which may be a single-body rule (KF-011).
+    Transition,
+}
+
 impl RuleItem {
-    /// Validates a previously parsed Rust function as a rule clause.
+    /// Validates a previously parsed Rust function as a rule clause; a
+    /// unit-returning fn is a single-body rule (KF-011).
     ///
     /// # Errors
     ///
@@ -91,7 +105,11 @@ impl RuleItem {
     /// types, unsupported patterns, binder lists that break the binder-list
     /// contract, and bodies other than one named term.
     pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), false)
+        Self::from_item_with_signs(
+            item,
+            NegativeLiteralSpans::default(),
+            ClauseForm::Transition,
+        )
     }
 
     /// Validates a previously parsed Rust function as an equation, which may
@@ -101,7 +119,7 @@ impl RuleItem {
     ///
     /// The errors of [`Self::from_item`], plus a malformed function context.
     pub fn from_equation_item(item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), true)
+        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), ClauseForm::Equation)
     }
 
     /// Parses an equation's tokens, which may end with a function context.
@@ -112,7 +130,7 @@ impl RuleItem {
     pub fn parse_equation_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
         crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
-        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, true)
+        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, ClauseForm::Equation)
     }
 
     /// Parses an equation's source text, which may end with a function context.
@@ -128,7 +146,7 @@ impl RuleItem {
     fn from_item_with_signs(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
-        allow_context: bool,
+        form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
         Self::from_item_with_sort_parser(
             &mut item,
@@ -137,7 +155,7 @@ impl RuleItem {
             false,
             signs,
             false,
-            allow_context,
+            form,
         )
     }
 
@@ -185,7 +203,7 @@ impl RuleItem {
             false,
             signs,
             wildcards,
-            false,
+            ClauseForm::Plain,
         )?
         .apply_unbound_variables(attribute)
     }
@@ -201,13 +219,13 @@ impl RuleItem {
             true,
             signs,
             false,
-            false,
+            ClauseForm::Plain,
         )
     }
 
     #[expect(
-        clippy::fn_params_excessive_bools,
-        reason = "Each flag selects one independent clause form: readable rest, readable head, desugar wildcards, function context."
+        clippy::too_many_lines,
+        reason = "The signature, subject, result or single body, and helpers are validated in one ordered pass."
     )]
     fn from_item_with_sort_parser(
         item: &mut ItemFn,
@@ -216,10 +234,10 @@ impl RuleItem {
         root_identifier_is_binding: bool,
         signs: NegativeLiteralSpans,
         result_wildcards: bool,
-        allow_context: bool,
+        form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
-        let function_context = parse_function_context(item, allow_context)?;
+        let function_context = parse_function_context(item, form == ClauseForm::Equation)?;
         let binders = parse_rule_binders(item, usize::from(function_context.is_some()))?;
         let subject_index = item
             .sig
@@ -250,6 +268,37 @@ impl RuleItem {
             root_identifier_is_binding,
             signs,
         )?;
+        // A unit-returning `#[k::rule]` fn is a single-body rule (KF-011):
+        // its subject's `k::rewrite!` islands say what changes.
+        let rewrite = pattern
+            .nodes()
+            .iter()
+            .find(|node| matches!(node, TermNode::Rewrite { .. }));
+        // A fn with statements and no rewrite meant to return a result.
+        let single_body = form == ClauseForm::Transition
+            && match &item.sig.output {
+                ReturnType::Default => true,
+                ReturnType::Type(_, ty) => crate::state_rule::is_unit_type(ty),
+            }
+            && (item.block.stmts.is_empty() || rewrite.is_some());
+        match (single_body, rewrite) {
+            (false, Some(rewrite)) => {
+                return Err(crate::term::local_rewrite_error(
+                    crate::state_rule::REWRITE_WITH_RESULT.to_owned(),
+                    rewrite.range()?.first(),
+                ));
+            }
+            (true, None) => {
+                return Err(crate::term::local_rewrite_error(
+                    crate::state_rule::SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
+                    item.sig.ident.span(),
+                ));
+            }
+            (true, Some(_)) => {
+                crate::term::check_rewrite_right_bindings(pattern.nodes(), pattern.bindings())?;
+            }
+            (false, None) => {}
+        }
         let parameter_sort = sort_parser((*argument.ty).clone())?;
         let mut function_context = function_context;
         if let Some(context) = &mut function_context {
@@ -263,25 +312,45 @@ impl RuleItem {
             validate_binder_list(&binders, pattern.bindings())?;
         }
 
-        let ReturnType::Type(_, result_type) = &item.sig.output else {
-            return Err(unsupported_signature(
-                "a rule must declare a `Term<SortPath>` result",
-                item.sig.ident.span(),
-            ));
-        };
-        let result_sort = sort_parser((**result_type).clone())?;
-        let result = if result_wildcards {
-            parse_rule_body_with_wildcards(item)?
+        let (result_sort, result) = if single_body {
+            if !item.block.stmts.is_empty() {
+                return Err(crate::term::local_rewrite_error(
+                    crate::state_rule::SINGLE_BODY_BODY.to_owned(),
+                    item.block.span(),
+                ));
+            }
+            (None, None)
         } else {
-            parse_rule_body(item)?
+            let ReturnType::Type(_, result_type) = &item.sig.output else {
+                return Err(unsupported_signature(
+                    "a rule must declare a `Term<SortPath>` result",
+                    item.sig.ident.span(),
+                ));
+            };
+            let result_sort = sort_parser((**result_type).clone())?;
+            let result = if result_wildcards {
+                parse_rule_body_with_wildcards(item)?
+            } else {
+                parse_rule_body(item)?
+            };
+            (Some(result_sort), Some(result))
         };
         let requires = take_requires_helper(&mut item.attrs)?;
         let existentials = RuleExistentials::take(&mut item.attrs)?;
+        if single_body && let Some(helper) = existentials.attributes().first() {
+            return Err(crate::term::local_rewrite_error(
+                crate::state_rule::SINGLE_BODY_BINDERS.to_owned(),
+                helper.path().span(),
+            ));
+        }
         // A readable clause checks its existentials against every cell it
         // writes (`RuleClause::check_existentials`); its item has only the head.
         if !root_identifier_is_binding {
             existentials.check_shadowing(pattern.bindings())?;
-            existentials.check_scope(requires.as_ref().map(RuleCondition::term), &[&result])?;
+            existentials.check_scope(
+                requires.as_ref().map(RuleCondition::term),
+                &result.iter().collect::<Vec<_>>(),
+            )?;
         }
 
         Ok(Self {
@@ -310,9 +379,12 @@ impl RuleItem {
         let Some(unbound) = attribute.unbound_variables() else {
             return Ok(self);
         };
+        let Some(result) = &self.result else {
+            return Ok(self);
+        };
         if let Some(wildcard) = unbound.wildcard() {
             let mut ranges = Vec::new();
-            self.result.tree().wildcard_ranges_preorder(&mut ranges);
+            result.tree().wildcard_ranges_preorder(&mut ranges);
             if ranges.is_empty() {
                 return Err(unbound_variables_error(
                     "`_` is listed in `unbound_variables`, but the result has no `_`; list `_` only for a result with wildcards",
@@ -336,7 +408,7 @@ impl RuleItem {
                     name.span(),
                 ));
             }
-            if !super::existentials::references(&self.result, name) {
+            if !super::existentials::references(result, name) {
                 return Err(unbound_variables_error(
                     &format!(
                         "`{}` does not occur in the result; `unbound_variables` lists result names the pattern does not bind",
@@ -375,16 +447,18 @@ impl RuleItem {
         &self.binders
     }
 
-    /// Returns the rule's result sort.
+    /// Returns the rule's result sort, or `None` for a single-body rule
+    /// (KF-011).
     #[must_use]
-    pub const fn result_sort(&self) -> &TermSort {
-        &self.result_sort
+    pub const fn result_sort(&self) -> Option<&TermSort> {
+        self.result_sort.as_ref()
     }
 
-    /// Returns the validated right-hand term payload.
+    /// Returns the validated right-hand term payload, or `None` for a
+    /// single-body rule (KF-011).
     #[must_use]
-    pub const fn result(&self) -> &TermExpression {
-        &self.result
+    pub const fn result(&self) -> Option<&TermExpression> {
+        self.result.as_ref()
     }
 
     /// Returns the structured argument-preserving rule-subject tree.
@@ -452,17 +526,19 @@ impl RuleItem {
                 0,
                 TokenRange::for_tokens(self.parameter.term_sort.ty())?,
             ),
-            ProvenanceAnchor::new(
+        ];
+        if let (Some(result_sort), Some(result)) = (&self.result_sort, &self.result) {
+            anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleResultType,
                 0,
-                TokenRange::for_tokens(self.result_sort.ty())?,
-            ),
-            ProvenanceAnchor::new(
+                TokenRange::for_tokens(result_sort.ty())?,
+            ));
+            anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleResult,
                 0,
-                TokenRange::for_tokens(self.result.expression())?,
-            ),
-        ];
+                TokenRange::for_tokens(result.expression())?,
+            ));
+        }
         for (ordinal, binder) in self.binders.iter().enumerate() {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleBindingParameter,
@@ -496,7 +572,12 @@ impl RuleItem {
                 range,
             ));
         }
-        for (ordinal, symbol) in self.result.symbols().iter().enumerate() {
+        for (ordinal, symbol) in self
+            .result
+            .iter()
+            .flat_map(TermExpression::symbols)
+            .enumerate()
+        {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleRightPath,
                 checked_ordinal(ordinal, ProvenanceRole::RuleRightPath, symbol.path().span())?,
@@ -546,23 +627,26 @@ impl RuleItem {
             .as_ref()
             .map(FunctionContext::terms)
             .unwrap_or_default();
+        let result_nodes = self.result.as_ref().map_or(&[][..], TermExpression::nodes);
         push_term_node_anchors(
             &mut anchors,
-            self.result.nodes(),
+            result_nodes,
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
         )?;
-        push_record_field_anchors(
-            &mut anchors,
-            self.result.tree(),
-            ProvenanceRole::RuleRightRecordFieldName,
-        )?;
-        push_wildcard_anchors(
-            &mut anchors,
-            self.result.tree(),
-            ProvenanceRole::RuleRightWildcard,
-        )?;
+        if let Some(result) = &self.result {
+            push_record_field_anchors(
+                &mut anchors,
+                result.tree(),
+                ProvenanceRole::RuleRightRecordFieldName,
+            )?;
+            push_wildcard_anchors(
+                &mut anchors,
+                result.tree(),
+                ProvenanceRole::RuleRightWildcard,
+            )?;
+        }
         if let Some(requires) = &self.requires {
             anchors.extend(requires.provenance()?);
         }
@@ -572,7 +656,7 @@ impl RuleItem {
         for term in &context_terms {
             push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexemes)?;
         }
-        push_lexeme_anchors(&mut anchors, self.result.nodes(), &mut lexemes)?;
+        push_lexeme_anchors(&mut anchors, result_nodes, &mut lexemes)?;
         if let Some(requires) = &self.requires {
             push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
         }
@@ -586,7 +670,7 @@ impl RuleItem {
         // ensures condition.
         let mut sides = vec![self.parameter.pattern.nodes()];
         sides.extend(context_terms.iter().map(|term| term.nodes()));
-        sides.push(self.result.nodes());
+        sides.push(result_nodes);
         if let Some(requires) = &self.requires {
             sides.push(requires.term().nodes());
         }
@@ -622,7 +706,14 @@ impl RuleItem {
         for term in &context_terms {
             push_sort_test_anchors(&mut anchors, term.nodes(), &mut sort_tests)?;
         }
-        push_sort_test_anchors(&mut anchors, self.result.nodes(), &mut sort_tests)?;
+        push_sort_test_anchors(&mut anchors, result_nodes, &mut sort_tests)?;
+        // `k::rewrite!` shells and sides of a single-body rule (KF-011).
+        let mut rewrites = 0_usize;
+        crate::term::push_rewrite_anchors(
+            &mut anchors,
+            self.parameter.pattern.nodes(),
+            &mut rewrites,
+        )?;
         if let Some(requires) = &self.requires {
             push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
         }
@@ -632,7 +723,7 @@ impl RuleItem {
         let mut instances = 0_usize;
         let instance_sides = std::iter::once(self.parameter.pattern.nodes())
             .chain(context_terms.iter().map(|term| term.nodes()))
-            .chain(std::iter::once(self.result.nodes()))
+            .chain(self.result.iter().map(TermExpression::nodes))
             .chain(self.requires.iter().map(|requires| requires.term().nodes()))
             .chain(self.existentials.ensures().map(TermExpression::nodes));
         for nodes in instance_sides {
@@ -653,18 +744,18 @@ impl RuleItem {
     /// Returns a structured overflow error if one path role has more than
     /// `u32::MAX` occurrences.
     pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
-        let mut candidates = vec![
-            ReferenceCandidate {
-                key: canonical_key(ProvenanceRole::RuleType, 0),
-                path: self.parameter.term_sort.sort().clone(),
-                kind: (),
-            },
-            ReferenceCandidate {
+        let mut candidates = vec![ReferenceCandidate {
+            key: canonical_key(ProvenanceRole::RuleType, 0),
+            path: self.parameter.term_sort.sort().clone(),
+            kind: (),
+        }];
+        if let Some(result_sort) = &self.result_sort {
+            candidates.push(ReferenceCandidate {
                 key: canonical_key(ProvenanceRole::RuleResultType, 0),
-                path: self.result_sort.sort().clone(),
+                path: result_sort.sort().clone(),
                 kind: (),
-            },
-        ];
+            });
+        }
 
         match &self.parameter.pattern {
             RulePattern::Native {
@@ -701,7 +792,8 @@ impl RuleItem {
                         | TermNode::MatchesWildcard(_)
                         | TermNode::Let { .. }
                         | TermNode::Closure { .. }
-                        | TermNode::LetWildcard(_) => continue,
+                        | TermNode::LetWildcard(_)
+                        | TermNode::Rewrite { .. } => continue,
                     };
                     push_candidate(&mut candidates, ProvenanceRole::RuleLeftPath, ordinal, path)?;
                     ordinal += 1;
@@ -723,7 +815,12 @@ impl RuleItem {
         }
 
         let bindings = self.result_bindings();
-        for (ordinal, symbol) in self.result.symbols().iter().enumerate() {
+        for (ordinal, symbol) in self
+            .result
+            .iter()
+            .flat_map(TermExpression::symbols)
+            .enumerate()
+        {
             if is_bound_reference(symbol, &bindings) {
                 continue;
             }
@@ -769,7 +866,7 @@ impl RuleItem {
         let result_bindings = self.result_bindings();
         push_term_reference_candidates(
             &mut candidates,
-            self.result.nodes(),
+            self.result.as_ref().map_or(&[][..], TermExpression::nodes),
             &result_bindings,
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
@@ -786,7 +883,11 @@ impl KrsSyntax for RuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
         crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
-        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, false)
+        Self::from_item_with_signs(
+            syn::parse2::<ItemFn>(tokens)?,
+            signs,
+            ClauseForm::Transition,
+        )
     }
 }
 

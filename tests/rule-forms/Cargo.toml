@@ -3,9 +3,12 @@ members = [
     "packages/anywhere",
     "packages/casts",
     "packages/fresh",
+    "packages/local-rewrite",
+    "packages/local-term",
     "packages/macros",
     "packages/nondet",
     "packages/priority",
+    "packages/restating-imp",
 ]
 resolver = "3"
 

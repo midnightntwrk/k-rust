@@ -166,7 +166,8 @@ impl StructuredTermBuilder<'_> {
             | DescriptorTerm::Or { key, .. }
             | DescriptorTerm::Matches { key, .. }
             | DescriptorTerm::Let { key, .. }
-            | DescriptorTerm::Closure { key, .. } => key,
+            | DescriptorTerm::Closure { key, .. }
+            | DescriptorTerm::Rewrite { key, .. } => key,
         }
     }
 

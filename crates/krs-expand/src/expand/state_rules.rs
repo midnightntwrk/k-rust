@@ -228,9 +228,10 @@ pub(super) fn configuration_rule(
     let result_key = format_ident!("__krs_rule_configuration_right_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
     let subject_type = call_site_path(rule.subject_type())?;
-    let result_type = call_site_path(rule.result_type())?;
+    // A single-body rule (KF-011) has no result; its fn returns `()`.
+    let result_type = rule.result_type().map(call_site_path).transpose()?;
     let subject_spelling = spelling(rule.subject_type());
-    let result_spelling = spelling(rule.result_type());
+    let result_spelling = rule.result_type().map(spelling);
     let binding_idents = rule
         .bindings()
         .iter()
@@ -295,6 +296,7 @@ pub(super) fn configuration_rule(
     let (fresh, fresh_key_functions) =
         fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
     let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
+    left.terms.set_rewrites(rule.result().is_none());
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
@@ -304,7 +306,12 @@ pub(super) fn configuration_rule(
         RuleSide::Right,
     );
     right.terms.continue_ordinals(&left.terms);
-    let result = right.expand_cells(rule.result(), &result_type, &mut slots)?;
+    let result = match (rule.result(), &result_type) {
+        (Some(result), Some(result_type)) => {
+            Some(right.expand_cells(result, result_type, &mut slots)?)
+        }
+        _ => None,
+    };
     let mut condition_builder = TermBuilder::new(
         &facade,
         nonce ^ 0x4000_0000_0000_0000,
@@ -390,14 +397,16 @@ pub(super) fn configuration_rule(
                 authored_path: subject_spelling,
             },
         },
-        result_key: wire_key(ProvenanceRole::RuleResult, 0),
-        result_configuration: WireConfigurationReference {
+        result_key: result
+            .is_some()
+            .then(|| wire_key(ProvenanceRole::RuleResult, 0)),
+        result_configuration: result_spelling.map(|authored_path| WireConfigurationReference {
             key: wire_key(ProvenanceRole::RuleResultType, 0),
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
-                authored_path: result_spelling,
+                authored_path,
             },
-        },
+        }),
         bindings,
         subject,
         result,
@@ -424,12 +433,25 @@ pub(super) fn configuration_rule(
     }
     .render();
 
+    let (output_type, result_key_function) = match &result_type {
+        Some(result_type) => (
+            quote!(-> #result_type),
+            quote! {
+                #(#cfg)*
+                #[doc(hidden)]
+                fn #result_key() -> ::core::any::TypeId {
+                    ::core::any::TypeId::of::<#result_type>()
+                }
+            },
+        ),
+        None => (TokenStream::new(), TokenStream::new()),
+    };
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(
             #(#ordinary_inputs,)*
             __krs_symbolic_configuration: #subject_type,
-        ) -> #result_type {
+        ) #output_type {
             let _krs_path_check = || {
                 #(#wrapper_checks)*
                 #(#island_import_checks)*
@@ -445,11 +467,7 @@ pub(super) fn configuration_rule(
             ::core::any::TypeId::of::<#subject_type>()
         }
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #result_key() -> ::core::any::TypeId {
-            ::core::any::TypeId::of::<#result_type>()
-        }
+        #result_key_function
 
         #(#key_functions)*
 
@@ -977,6 +995,20 @@ impl<'a> StateRuleBuilder<'a> {
                 range.first(),
                 "an `ml::exists` closure is a predicate (K's #Exists); it belongs in a claim's requires or ensures condition, not in a cell value",
             )),
+            TermTree::Rewrite {
+                range, from, to, ..
+            } => {
+                let ordinal = self
+                    .terms
+                    .enter_rewrite(*range, matches!(self.side, RuleSide::Left))?;
+                let from = self.expand_term(from, slots);
+                let to = match (from.is_ok(), to) {
+                    (true, Some(to)) => Some(self.expand_term(to, slots).map(Box::new)).transpose(),
+                    _ => Ok(None),
+                };
+                self.terms.leave_rewrite();
+                Ok(super::terms::rewrite_wire(ordinal, from?, to?))
+            }
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
                     return Err(ExpandError::new(

@@ -51,7 +51,9 @@ pub(super) fn validate_all_stable_references(
             }
             DescriptorPayload::ConfigurationRule(rule) => {
                 declarations.configuration(&rule.subject_configuration.configuration)?;
-                declarations.configuration(&rule.result_configuration.configuration)?;
+                if let Some(result_configuration) = &rule.result_configuration {
+                    declarations.configuration(&result_configuration.configuration)?;
+                }
                 validate_configuration_rule_references(rule, declarations)?;
             }
             DescriptorPayload::HeadRule(rule) => {
@@ -163,9 +165,13 @@ fn validate_structured_rule_references(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     validate_sort_ref(&rule.subject_sort.sort, declarations)?;
-    validate_sort_ref(&rule.result_sort.sort, declarations)?;
+    if let Some(result_sort) = &rule.result_sort {
+        validate_sort_ref(&result_sort.sort, declarations)?;
+    }
     validate_structured_term_references(&rule.subject, declarations)?;
-    validate_structured_term_references(&rule.result, declarations)?;
+    if let Some(result) = &rule.result {
+        validate_structured_term_references(result, declarations)?;
+    }
     if let Some(requires) = &rule.requires {
         validate_structured_term_references(&requires.term, declarations)?;
     }
@@ -320,7 +326,9 @@ fn validate_configuration_rule_references(
         }
     }
     validate_rule_cells_references(&rule.subject, declarations)?;
-    validate_rule_cells_references(&rule.result, declarations)?;
+    if let Some(result) = &rule.result {
+        validate_rule_cells_references(result, declarations)?;
+    }
     if let Some(requires) = &rule.requires {
         validate_structured_term_references(&requires.term, declarations)?;
     }

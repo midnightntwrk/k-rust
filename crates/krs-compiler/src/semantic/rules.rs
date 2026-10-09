@@ -482,6 +482,7 @@ fn check_framed_computation_rule(
     };
     let unchanged = clauses.iter().all(|clause| match clause.after() {
         CellPost::Preserve => true,
+        CellPost::Local => false,
         CellPost::Replace { term } => same_term(clause.before(), term),
     });
     if unchanged {
@@ -1197,7 +1198,12 @@ pub(super) fn lower_structured_rule_descriptor(
         return lower_predicate_rule(descriptor, rule, builder, &binding_names_in_order(rule));
     }
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
-    let result_sort = semantic_sort_ref(&rule.result_sort.sort);
+    // A single-body rule (KF-011) has no result: its subject's rewrites
+    // say what changes, and the rule's sort is the subject's.
+    let result_sort = rule.result_sort.as_ref().map_or_else(
+        || subject_sort.clone(),
+        |sort| semantic_sort_ref(&sort.sort),
+    );
     builder.infer(&rule.subject, Some(&subject_sort), true)?;
     infer_rule_conditions(
         &mut builder,
@@ -1205,7 +1211,9 @@ pub(super) fn lower_structured_rule_descriptor(
         rule.requires.as_ref(),
         None,
     )?;
-    builder.infer(&rule.result, Some(&result_sort), false)?;
+    if let Some(result) = &rule.result {
+        builder.infer(result, Some(&result_sort), false)?;
+    }
     infer_rule_conditions(
         &mut builder,
         rule.sentence_kind,
@@ -1235,7 +1243,11 @@ pub(super) fn lower_structured_rule_descriptor(
         })
         .transpose()?;
     let (function_context, context_wildcards) = function_context.unzip();
-    let result = builder.lower(&rule.result, Some(&result_sort), false)?;
+    let result = rule
+        .result
+        .as_ref()
+        .map(|result| builder.lower(result, Some(&result_sort), false))
+        .transpose()?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
@@ -1270,12 +1282,17 @@ pub(super) fn lower_structured_rule_descriptor(
     }
     variables.extend(builder.wildcards);
     variables.extend(context_wildcards.into_iter().flatten());
-    let rewrite = SemanticTerm::rewrite(
-        semantic_origin_from_primary(descriptor, "rule-rewrite")?,
-        result_sort,
-        subject,
-        result,
-    )?;
+    // A single-body rule's body is its subject, whose rewrites sit below the
+    // root (KF-011); the rule body reads it through its images.
+    let rewrite = match result {
+        Some(result) => SemanticTerm::rewrite(
+            semantic_origin_from_primary(descriptor, "rule-rewrite")?,
+            result_sort,
+            subject,
+            result,
+        )?,
+        None => subject,
+    };
     let rule_origin_role = match rule.sentence_kind {
         krs_ir::SentenceKind::Alias => ProvenanceRole::AliasClause,
         krs_ir::SentenceKind::Desugar => ProvenanceRole::DesugarClause,
@@ -1338,6 +1355,14 @@ fn lower_predicate_rule(
         };
         return Err(builder.invalid_ml(&rule.pattern_key, reason.to_owned()));
     }
+    // A single-body rule (KF-011) has no result, so it is never a
+    // predicate simplification.
+    let Some(result) = rule.result.as_ref() else {
+        return Err(builder.invalid_ml(
+            &rule.pattern_key,
+            "a predicate simplification states its ml::Predicate result; a single-body rule (`k::rewrite!`) rewrites object terms".to_owned(),
+        ));
+    };
     builder.infer_predicate(&rule.subject, true)?;
     infer_rule_conditions(
         &mut builder,
@@ -1345,10 +1370,10 @@ fn lower_predicate_rule(
         rule.requires.as_ref(),
         None,
     )?;
-    builder.infer_predicate(&rule.result, false)?;
+    builder.infer_predicate(result, false)?;
     builder.resolve_binding_sorts()?;
     let lhs = builder.lower_predicate(&rule.subject, true)?;
-    let rhs = builder.lower_predicate(&rule.result, false)?;
+    let rhs = builder.lower_predicate(result, false)?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let restriction = super::restriction::lower_rule_restriction(descriptor, rule)?;

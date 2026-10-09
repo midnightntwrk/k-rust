@@ -146,6 +146,15 @@ fn subterms(term: &SemanticTerm) -> Vec<&SemanticTerm> {
     }
 }
 
+/// The direct subterms of a pre-pattern's left image: a local rewrite
+/// (KF-011) contributes only its left side.
+fn pattern_subterms(term: &SemanticTerm) -> Vec<&SemanticTerm> {
+    match term.kind() {
+        SemanticTermKind::Rewrite { from, .. } => vec![from.as_ref()],
+        _ => subterms(term),
+    }
+}
+
 /// The canonical shape of a `k::matches!` pattern: its structure with each
 /// local binder renamed by first occurrence and each wildcard written `_`.
 fn matches_shape(term: &SemanticTerm, names: &mut BTreeMap<SemanticId, usize>) -> String {
@@ -197,7 +206,7 @@ fn or_nodes<'a>(term: &'a SemanticTerm, output: &mut Vec<(&'a SemanticTerm, usiz
     if let SemanticTermKind::Or { alternatives } = term.kind() {
         output.push((term, alternatives.len()));
     }
-    for child in subterms(term) {
+    for child in pattern_subterms(term) {
         or_nodes(child, output);
     }
 }
@@ -234,7 +243,7 @@ fn named_occurrences(term: &SemanticTerm, output: &mut BTreeMap<SemanticId, usiz
         }
         _ => {}
     }
-    for child in subterms(term) {
+    for child in pattern_subterms(term) {
         named_occurrences(child, output);
     }
 }
@@ -767,9 +776,8 @@ fn pattern(term: &SemanticTerm, rule: usize, catalog: &mut VariableCatalog) -> P
                 .map(|child| pattern(child, rule, catalog))
                 .collect(),
         },
-        SemanticTermKind::Rewrite { .. } => {
-            unreachable!("configuration clause pre-patterns are never rewrites")
-        }
+        // A single-body clause (KF-011) unifies through its left image.
+        SemanticTermKind::Rewrite { from, .. } => pattern(from, rule, catalog),
         SemanticTermKind::Let { .. } => Pattern::Opaque {
             sort: term.sort().clone(),
         },
@@ -1002,6 +1010,8 @@ fn head_application(term: &SemanticTerm, completed: bool) -> Option<&SemanticApp
     };
     match head.kind() {
         SemanticTermKind::Application { application, .. } => Some(application),
+        // A local rewrite of the head (KF-011) matches its left side.
+        SemanticTermKind::Rewrite { from, .. } => head_application(from, true),
         _ => None,
     }
 }
@@ -1091,6 +1101,8 @@ fn rule_results(rule: &SemanticRule) -> Vec<&SemanticTerm> {
             .iter()
             .filter_map(|clause| match clause.after() {
                 krs_ir::CellPost::Replace { term } => Some(term),
+                // A single-body clause's right sides sit inside `before`.
+                krs_ir::CellPost::Local => Some(clause.before()),
                 krs_ir::CellPost::Preserve => None,
             })
             .collect(),
@@ -1804,6 +1816,9 @@ mod function_context_tests;
 
 #[cfg(test)]
 mod parametric_tests;
+
+#[cfg(test)]
+mod local_rewrite_tests;
 
 #[cfg(test)]
 mod tests {

@@ -523,9 +523,13 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             simplification: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             typed_bindings: vec![],
-            result_key: key(ProvenanceRole::RuleResult, 0),
+            result_key: Some(key(ProvenanceRole::RuleResult, 0)),
             subject_sort: declared_sort(ProvenanceRole::RuleType, 0, expr.clone()),
-            result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr.clone()),
+            result_sort: Some(declared_sort(
+                ProvenanceRole::RuleResultType,
+                0,
+                expr.clone(),
+            )),
             bindings: vec!["x".into()],
             subject: DescriptorTerm::Application {
                 instance: Vec::new(),
@@ -556,7 +560,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 .try_into()
                 .unwrap(),
             },
-            result: DescriptorTerm::Application {
+            result: Some(DescriptorTerm::Application {
                 instance: Vec::new(),
                 head_class: DescriptorApplicationHeadClass::BareReference,
                 reference: DescriptorApplicationReference {
@@ -565,7 +569,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 },
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
                 arguments: vec![].try_into().unwrap(),
-            },
+            }),
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
@@ -692,7 +696,7 @@ fn replace_rule_result_with_builtin(
             }),
         });
     }
-    rule.result = DescriptorTerm::Application {
+    rule.result = Some(DescriptorTerm::Application {
         instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
@@ -701,7 +705,7 @@ fn replace_rule_result_with_builtin(
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: arguments.try_into().unwrap(),
-    };
+    });
     bundle.descriptors = descriptors;
 }
 
@@ -986,7 +990,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         .try_into()
         .unwrap(),
     };
-    rule.result = DescriptorTerm::Application {
+    rule.result = Some(DescriptorTerm::Application {
         instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
@@ -1004,7 +1008,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInput
         ]
         .try_into()
         .unwrap(),
-    };
+    });
     bundle.descriptors = descriptors;
 }
 
@@ -1042,9 +1046,9 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundleInputs) {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptor.payload else {
         unreachable!()
     };
-    let DescriptorTerm::Application {
+    let Some(DescriptorTerm::Application {
         arguments: outer, ..
-    } = &mut rule.result
+    }) = &mut rule.result
     else {
         unreachable!()
     };

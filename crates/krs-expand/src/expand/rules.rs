@@ -259,6 +259,19 @@ fn expand_ordinary_rule(
         simplification,
         desugar,
     } = keys;
+    // A single-body rule (KF-011) is a transition that is not an anywhere
+    // rule: its subject's `k::rewrite!` islands say what changes.
+    if rule.result().is_none()
+        && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
+    {
+        return Err(krs_syntax::SyntaxError::new(
+            krs_syntax::SyntaxErrorKind::InvalidLocalRewrite {
+                reason: "a single-body rule (one that returns `()`) is a `#[k::rule]` transition, never an anywhere rule, an equation, a simplification, an alias, or a desugar clause; return the result instead".to_owned(),
+            },
+            rule.item().sig.ident.span(),
+        )
+        .into());
+    }
     if let Some(binder) = rule.existentials().fresh().first()
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
@@ -327,14 +340,18 @@ fn expand_ordinary_rule(
     let parameter_key = format_ident!("__krs_rule_subject_sort_{nonce:016x}");
     let result_key = format_ident!("__krs_rule_result_sort_{nonce:016x}");
     let parameter_sort_path = call_site_path(rule.parameter().term_sort.sort())?;
-    let result_sort_path = call_site_path(rule.result_sort().sort())?;
+    let result_sort_path = rule
+        .result_sort()
+        .map(|sort| call_site_path(sort.sort()))
+        .transpose()?;
     // A predicate simplification's `ml::Predicate` types are no sorts: the
     // descriptor carries Bool placeholders, and rustc checks that both
-    // types are the facade's `ml::Predicate` (KF-039).
+    // types are the facade's `ml::Predicate` (KF-039). A single-body rule
+    // (KF-011) has no result type.
     let (parameter_sort_type, result_sort_type, predicate_checks) = if predicate {
         (
             quote!(#facade::builtin::Bool),
-            quote!(#facade::builtin::Bool),
+            Some(quote!(#facade::builtin::Bool)),
             quote! {
                 #(#cfg)*
                 const _: fn(#parameter_sort_path) -> #facade::ml::Predicate = |predicate| predicate;
@@ -348,7 +365,9 @@ fn expand_ordinary_rule(
                 &parameter_sort_path,
                 rule.parameter().term_sort.is_dynamic(),
             ),
-            sort_type_tokens(&result_sort_path, rule.result_sort().is_dynamic()),
+            rule.result_sort()
+                .zip(result_sort_path.as_ref())
+                .map(|(sort, path)| sort_type_tokens(path, sort.is_dynamic())),
             TokenStream::new(),
         )
     };
@@ -359,14 +378,16 @@ fn expand_ordinary_rule(
     let fn_token = original.sig.fn_token;
     let name_ident = &original.sig.ident;
     let parameter_type = rule.parameter().term_sort.ty();
-    let result_type = rule.result_sort().ty();
+    let result_type = rule.result_sort().map(krs_syntax::TermSort::ty);
     let name = name_ident.unraw().to_string();
     let label = attribute.label().map(|label| DescriptorRuleLabel {
         key: wire_key(ProvenanceRole::RuleLabel, 0),
         name: label.value().clone(),
     });
     let parameter_sort_spelling = rule.parameter().term_sort.sort_token_text();
-    let result_sort_spelling = rule.result_sort().sort_token_text();
+    let result_sort_spelling = rule
+        .result_sort()
+        .map(krs_syntax::TermSort::sort_token_text);
     let bindings = rule
         .parameter()
         .pattern
@@ -405,16 +426,18 @@ fn expand_ordinary_rule(
             authored_path: parameter_sort_spelling,
         },
     };
-    let result_sort = WireSortReference {
+    let result_sort = result_sort_spelling.map(|authored_path| WireSortReference {
         key: wire_key(ProvenanceRole::RuleResultType, 0),
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
-            authored_path: result_sort_spelling,
+            authored_path,
         },
-    };
+    });
     let (typed_bindings, binder_key_functions) =
         typed_binders(rule, &facade, nonce, &cfg, &mut slots)?;
+    term_builder.set_rewrites(rule.result().is_none());
     let subject = term_builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
+    term_builder.set_rewrites(false);
     let context_bindings = rule.condition_bindings();
     let function_context = rule
         .function_context()
@@ -435,7 +458,10 @@ fn expand_ordinary_rule(
         .transpose()?;
     let (function_context, context_tokens) = function_context.unzip();
     term_builder.reset_side();
-    let result = term_builder.expand_wire(rule.result().tree(), TermSide::Right, &mut slots)?;
+    let result = rule
+        .result()
+        .map(|result| term_builder.expand_wire(result.tree(), TermSide::Right, &mut slots))
+        .transpose()?;
     term_builder.reset_side();
     let requires = if let Some(condition) = rule.requires() {
         let term =
@@ -493,7 +519,7 @@ fn expand_ordinary_rule(
         simplification,
         pattern_key: wire_key(rule_pattern_role, 0),
         typed_bindings,
-        result_key: wire_key(rule_result_role, 0),
+        result_key: result.is_some().then(|| wire_key(rule_result_role, 0)),
         subject_sort,
         result_sort,
         bindings,
@@ -533,12 +559,22 @@ fn expand_ordinary_rule(
         checks: context_checks,
         items: context_items,
     } = context_tokens.unwrap_or_default();
+    let output_type = result_type.map(|result_type| quote!(-> #result_type));
+    let result_key_function = result_sort_type.map(|result_sort_type| {
+        quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #result_key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#result_sort_type>()
+            }
+        }
+    });
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(
             __krs_symbolic_subject: #parameter_type,
             #context_parameter
-        ) -> #result_type {
+        ) #output_type {
             let _krs_binding_check = || {
                 #(#binding_checks)*
                 #(#context_checks)*
@@ -553,11 +589,7 @@ fn expand_ordinary_rule(
             ::core::any::TypeId::of::<#parameter_sort_type>()
         }
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #result_key() -> ::core::any::TypeId {
-            ::core::any::TypeId::of::<#result_sort_type>()
-        }
+        #result_key_function
 
         #predicate_checks
 
@@ -579,7 +611,17 @@ fn predicate_rule(
     sentence_kind: krs_ir::SentenceKind,
 ) -> crate::Result<bool> {
     let subject = &rule.parameter().term_sort;
-    let result = rule.result_sort();
+    // A single-body rule (KF-011) has no result type.
+    let Some(result) = rule.result_sort() else {
+        if subject.is_predicate() {
+            return Err(ExpandError::new(
+                expand::ML_PLACEMENT,
+                syn::spanned::Spanned::span(subject.ty()),
+                "a predicate simplification states its `ml::Predicate` result; a single-body rule (`k::rewrite!`) rewrites object terms, `Term<S>`",
+            ));
+        }
+        return Ok(false);
+    };
     if !subject.is_predicate() && !result.is_predicate() {
         return Ok(false);
     }

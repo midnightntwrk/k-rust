@@ -400,10 +400,12 @@ fn lower_configuration_rule_clauses(
         .iter()
         .map(|cell| &cell.field.cell)
         .collect::<BTreeSet<_>>();
+    // A single-body rule (KF-011) has no result: each cell that holds a
+    // `k::rewrite!` is rewritten in place, every other cell is read.
     let result_cells = rule
         .result
-        .cells
         .iter()
+        .flat_map(|result| &result.cells)
         .map(|cell| (&cell.field.cell, cell))
         .collect::<BTreeMap<_, _>>();
     if result_cells
@@ -415,20 +417,48 @@ fn lower_configuration_rule_clauses(
             detail: "the result selects a fixed cell absent from the subject".into(),
         });
     }
-    validate_frame_pair(
-        terms.descriptor,
-        &rule.subject.remainder,
-        &rule.result.remainder,
-        "configuration remainder",
-    )?;
-    rule.subject
+    if let Some(result) = &rule.result {
+        validate_frame_pair(
+            terms.descriptor,
+            &rule.subject.remainder,
+            &result.remainder,
+            "configuration remainder",
+        )?;
+    }
+    let clauses = rule
+        .subject
         .cells
         .iter()
         .map(|subject| {
             let result = result_cells.get(&subject.field.cell).copied();
             lower_configuration_rule_clause(terms, subject, result, subject_sorts, result_sorts)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if rule.result.is_none()
+        && !clauses
+            .iter()
+            .any(|clause| matches!(clause.after(), CellPost::Local))
+    {
+        return Err(DescriptorLoweringError::InvalidLocalRewrite {
+            item: Box::new(terms.descriptor.id().clone()),
+            reason: "a single-body rule must change something: no cell of its subject holds a `k::rewrite!`".to_owned(),
+            range: semantic_origin(terms.descriptor, rule.pattern_key.clone(), "rule-pattern")?
+                .origin()
+                .exact_authored_range()
+                .map(Box::new),
+        });
+    }
+    Ok(clauses)
+}
+
+/// The post-state of a cell a rule reads without restating it: rewritten in
+/// place when it holds a `k::rewrite!` (KF-011), otherwise unchanged.
+fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
+    if before.contains_rewrite() {
+        CellPost::Local
+    } else {
+        CellPost::Preserve
+    }
 }
 
 fn lower_configuration_rule_clause(
@@ -513,7 +543,7 @@ fn lower_configuration_rule_clause(
             CellPost::Replace { term: after }
         }
     } else {
-        CellPost::Preserve
+        unrestated_post(&before)
     };
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
@@ -566,7 +596,7 @@ fn lower_configuration_group_clause(
                 CellPost::Replace { term: after }
             }
         }
-        None => CellPost::Preserve,
+        None => unrestated_post(&before),
     };
     Ok(FixedCellClause::whole(
         semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,

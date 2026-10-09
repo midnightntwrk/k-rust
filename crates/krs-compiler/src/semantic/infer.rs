@@ -279,6 +279,23 @@ impl StructuredTermBuilder<'_> {
                     "closures introduce quantified binders only inside ml::exists".to_owned(),
                 ));
             }
+            DescriptorTerm::Rewrite { key, from, to, .. } => {
+                if !subject {
+                    return Err(self.invalid_local_rewrite(
+                        key,
+                        "`k::rewrite!` (K's local =>) occurs only in a single-body rule's subject"
+                            .to_owned(),
+                    ));
+                }
+                // Both images are inferred: the left side binds like the
+                // subject, the right side uses its bindings (KF-011).
+                let (from_sort, to_sort) =
+                    self.rewrite_side_sorts(expected_sort, from, to.as_deref());
+                self.infer(from, from_sort.as_ref(), true)?;
+                if let Some(to) = to {
+                    self.infer(to, to_sort.as_ref(), false)?;
+                }
+            }
         }
         Ok(())
     }
@@ -311,6 +328,141 @@ impl StructuredTermBuilder<'_> {
     /// Leaves the innermost scope [`Self::push_let_scope`] entered.
     pub(super) fn pop_let_scope(&mut self) {
         self.locals.let_scopes.pop();
+    }
+
+    /// The sorts the sides of a `k::rewrite!` are inferred at (KF-011): the
+    /// position's when it has one; otherwise each side has its own sort, and
+    /// a bare `_` on the left takes the sort the right side states, as in
+    /// `name -> k::rewrite!(_ => value)`.
+    fn rewrite_side_sorts(
+        &self,
+        expected_sort: Option<&SemanticSortRef>,
+        from: &DescriptorTerm,
+        to: Option<&DescriptorTerm>,
+    ) -> (Option<SemanticSortRef>, Option<SemanticSortRef>) {
+        if let Some(expected) = expected_sort {
+            return (Some(expected.clone()), Some(expected.clone()));
+        }
+        let from_sort = matches!(from, DescriptorTerm::Wildcard { .. })
+            .then(|| to.and_then(|to| self.stated_sort(to)))
+            .flatten();
+        (from_sort, None)
+    }
+
+    /// The sort a term states without inference: a binder's declared or
+    /// already-resolved sort, a declared constructor's result, or a literal's.
+    fn stated_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+        match term {
+            DescriptorTerm::Variable { name, .. } => self
+                .declared_binders
+                .get(name)
+                .map(|(sort, _)| sort.clone())
+                .or_else(|| self.binding_sorts.get(name).cloned())
+                .or_else(|| {
+                    self.binding_constraints
+                        .get(name)
+                        .filter(|sorts| sorts.len() == 1)
+                        .and_then(|sorts| sorts.first().cloned())
+                }),
+            DescriptorTerm::Literal { literal, .. } => {
+                Some(SemanticSortRef::Builtin(match literal {
+                    krs_ir::DescriptorLiteral::Int(_) => BuiltinSort::Int,
+                    krs_ir::DescriptorLiteral::Bool(_) => BuiltinSort::Bool,
+                    krs_ir::DescriptorLiteral::String(_) => BuiltinSort::String,
+                    krs_ir::DescriptorLiteral::Float(_) => BuiltinSort::Float,
+                }))
+            }
+            _ => self.pattern_head_sort(term),
+        }
+    }
+
+    /// Lowers `k::rewrite!(from => to)` (KF-011) at the join of its sides'
+    /// sorts; `()` on the right is `.K`, which removes a K-sequence item and
+    /// keeps the item's sort.
+    fn lower_rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        from: &DescriptorTerm,
+        to: Option<&DescriptorTerm>,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let (from_sort, to_sort) = self.rewrite_side_sorts(expected_sort, from, to);
+        let from = self.lower(from, from_sort.as_ref(), true)?;
+        let (sort, to) = match to {
+            Some(to) => {
+                let to = self.lower(to, to_sort.as_ref(), false)?;
+                let sort = match expected_sort {
+                    Some(expected) => expected.clone(),
+                    None => self.join_sort(from.sort(), to.sort()).ok_or_else(|| {
+                        self.invalid_local_rewrite(
+                            key,
+                            format!(
+                                "the sides of `k::rewrite!` have sorts `{}` and `{}`, which share no sort",
+                                super::overload::sort_name(from.sort()),
+                                super::overload::sort_name(to.sort())
+                            ),
+                        )
+                    })?,
+                };
+                (sort, to)
+            }
+            None => (
+                from.sort().clone(),
+                SemanticTerm::k_sequence(
+                    semantic_origin(self.descriptor, to_key.clone(), "rule-local-rewrite-dot-k")?,
+                    SemanticSortRef::k_sequence(),
+                    Vec::new(),
+                ),
+            ),
+        };
+        Ok(SemanticTerm::rewrite(
+            semantic_origin(self.descriptor, key.clone(), "rule-local-rewrite")?,
+            sort,
+            from,
+            to,
+        )?)
+    }
+
+    /// The least sort both `left` and `right` inject into, if there is one.
+    fn join_sort(
+        &self,
+        left: &SemanticSortRef,
+        right: &SemanticSortRef,
+    ) -> Option<SemanticSortRef> {
+        let mut common = semantic_sort_closure(left, self.sort_parents);
+        let right = semantic_sort_closure(right, self.sort_parents);
+        common.retain(|sort| right.contains(sort));
+        let least = common
+            .iter()
+            .filter(|candidate| {
+                !common.iter().any(|other| {
+                    other != *candidate && semantic_is_subsort(other, candidate, self.sort_parents)
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        match least.as_slice() {
+            [sort] => Some(sort.clone()),
+            _ => None,
+        }
+    }
+
+    fn invalid_local_rewrite(
+        &self,
+        key: &ProvenanceKey,
+        reason: String,
+    ) -> DescriptorLoweringError {
+        DescriptorLoweringError::InvalidLocalRewrite {
+            item: Box::new(self.descriptor.id().clone()),
+            reason,
+            range: self
+                .descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        }
     }
 
     /// Whether an enclosing `let` statement binds `name` (KF-032).
@@ -1370,6 +1522,13 @@ impl StructuredTermBuilder<'_> {
                 key,
                 "closures introduce quantified binders only inside ml::exists".to_owned(),
             )),
+            DescriptorTerm::Rewrite {
+                key,
+                to_key,
+                from,
+                to,
+                ..
+            } => self.lower_rewrite(key, to_key, from, to.as_deref(), expected_sort),
         }
     }
 
@@ -2281,6 +2440,7 @@ fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)
         }
         DescriptorTerm::SortTest { operand, .. } => pattern_names(operand, output),
         DescriptorTerm::Matches { subject, .. } => pattern_names(subject, output),
+        DescriptorTerm::Rewrite { from, .. } => pattern_names(from, output),
         DescriptorTerm::Let { .. }
         | DescriptorTerm::Closure { .. }
         | DescriptorTerm::Literal { .. }

@@ -309,9 +309,9 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
             simplification: None,
             pattern_key: key(ProvenanceRole::RulePattern, 0),
             typed_bindings: vec![],
-            result_key: key(ProvenanceRole::RuleResult, 0),
+            result_key: Some(key(ProvenanceRole::RuleResult, 0)),
             subject_sort: declared_sort(ProvenanceRole::RuleType, 0, expr.clone()),
-            result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr),
+            result_sort: Some(declared_sort(ProvenanceRole::RuleResultType, 0, expr)),
             bindings: vec!["x".into()],
             subject: DescriptorTerm::Application {
                 instance: Vec::new(),
@@ -338,11 +338,11 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
                 .try_into()
                 .unwrap(),
             },
-            result: DescriptorTerm::Variable {
+            result: Some(DescriptorTerm::Variable {
                 key: key(ProvenanceRole::RuleRightReference, 0),
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
                 name: "x".into(),
-            },
+            }),
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
@@ -523,7 +523,7 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     let DescriptorPayload::StructuredRule(rule) = &mut post_only.payload else {
         unreachable!()
     };
-    let DescriptorTerm::Variable { name, .. } = &mut rule.result else {
+    let Some(DescriptorTerm::Variable { name, .. }) = &mut rule.result else {
         unreachable!()
     };
     *name = "post_only".into();
@@ -636,7 +636,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
         unreachable!()
     };
-    rule.result = DescriptorTerm::Application {
+    rule.result = Some(DescriptorTerm::Application {
         instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::BareReference,
         reference: DescriptorApplicationReference {
@@ -645,7 +645,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![].try_into().unwrap(),
-    };
+    });
     descriptors[1].build().unwrap();
     let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     testing::assert_canonical_contract(&bundle);
@@ -656,7 +656,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
         unreachable!()
     };
-    rule.result = DescriptorTerm::Application {
+    rule.result = Some(DescriptorTerm::Application {
         instance: Vec::new(),
         head_class: DescriptorApplicationHeadClass::BareReference,
         reference: DescriptorApplicationReference {
@@ -672,7 +672,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         }]
         .try_into()
         .unwrap(),
-    };
+    });
     assert!(matches!(
         descriptors[1].build(),
         Err(krs_ir::DescriptorError::Grammar(
@@ -1273,10 +1273,10 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
         unreachable!()
     };
-    rule.result = DescriptorTerm::Literal {
+    rule.result = Some(DescriptorTerm::Literal {
         key: key(ProvenanceRole::ClaimIdToken, 0),
         literal: DescriptorLiteral::Int("1_000".into()),
-    };
+    });
     assert!(matches!(
         descriptors[1].build(),
         Err(krs_ir::DescriptorError::Grammar(
@@ -1288,9 +1288,9 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
         unreachable!()
     };
-    rule.result = DescriptorTerm::Wildcard {
+    rule.result = Some(DescriptorTerm::Wildcard {
         key: key(ProvenanceRole::RuleLeftWildcard, 0),
-    };
+    });
     assert!(matches!(
         descriptors[1].build(),
         Err(krs_ir::DescriptorError::Grammar(
@@ -1715,9 +1715,9 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
         unreachable!()
     };
-    let DescriptorTerm::Variable {
+    let Some(DescriptorTerm::Variable {
         key: variable_key, ..
-    } = &mut rule.result
+    }) = &mut rule.result
     else {
         unreachable!()
     };

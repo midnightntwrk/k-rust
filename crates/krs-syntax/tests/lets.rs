@@ -43,7 +43,7 @@ fn a_rule_body_with_let_statements_is_a_term_block() {
          let ExpSyntax::Pair(x, y) = p; ExpSyntax::Pair(y, x) }",
     )
     .unwrap();
-    let (pattern, sort, value, body, binders) = let_parts(rule.result().tree());
+    let (pattern, sort, value, body, binders) = let_parts(rule.result().unwrap().tree());
     assert!(matches!(pattern, TermTree::Application(_)));
     assert_eq!(sort, None);
     assert!(matches!(value, TermTree::Reference(_)));
@@ -51,7 +51,10 @@ fn a_rule_body_with_let_statements_is_a_term_block() {
     assert_eq!(binders, ["x", "y"]);
     // The shell precedes the pattern's nodes, then the value's, then the
     // result's.
-    assert!(matches!(rule.result().nodes()[0], TermNode::Let { .. }));
+    assert!(matches!(
+        rule.result().unwrap().nodes()[0],
+        TermNode::Let { .. }
+    ));
 }
 
 #[test]

@@ -791,6 +791,10 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
         DescriptorTerm::Matches {
             subject, pattern, ..
         } => count_here_in_term(subject, here) + count_here_in_term(pattern, here),
+        DescriptorTerm::Rewrite { from, to, .. } => {
+            count_here_in_term(from, here)
+                + to.as_ref().map_or(0, |to| count_here_in_term(to, here))
+        }
         DescriptorTerm::Let {
             pattern,
             value,
@@ -891,6 +895,10 @@ fn collect_state_keys(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Exhaustive key collection over the closed descriptor term sum."
+)]
 fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) {
     match term {
         DescriptorTerm::Variable { key, path_key, .. } => {
@@ -963,6 +971,19 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
             keys.insert(key.clone());
             collect_term_keys(subject, keys);
             collect_term_keys(pattern, keys);
+        }
+        DescriptorTerm::Rewrite {
+            key,
+            from_key,
+            to_key,
+            from,
+            to,
+        } => {
+            keys.extend([key.clone(), from_key.clone(), to_key.clone()]);
+            collect_term_keys(from, keys);
+            if let Some(to) = to {
+                collect_term_keys(to, keys);
+            }
         }
         DescriptorTerm::Let {
             key,
@@ -1037,16 +1058,23 @@ stage_shape! {
         pub pattern_key: ProvenanceKey => [keep],
         /// Exact subject configuration type.
         pub subject_configuration: S::Configuration => [configuration],
-        /// Complete result-expression provenance.
-        pub result_key: ProvenanceKey => [keep],
-        /// Exact result configuration type.
-        pub result_configuration: S::Configuration => [configuration],
+        /// Complete result-expression provenance; absent exactly for a
+        /// single-body rule (KF-011).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result_key: Option<ProvenanceKey> => [keep],
+        /// Exact result configuration type; absent exactly for a single-body
+        /// rule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result_configuration: Option<S::Configuration> => [option configuration],
         /// Typed subject bindings in first-occurrence structural preorder.
         pub bindings: Vec<ProtocolRuleBinding<S::Sort>> => [vec protocol sort],
-        /// Complete left `cells!` pattern.
+        /// Complete left `cells!` pattern; in a single-body rule it contains
+        /// the `k::rewrite!` islands that mark what changes.
         pub subject: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
-        /// Complete right `cells!` expression.
-        pub result: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+        /// Complete right `cells!` expression; absent exactly for a
+        /// single-body rule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub result: Option<ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>>> => [option protocol cell nested],
         /// Result-scoped existential binders of a transition (`#[k::exists]`); a claim keeps its own in [`Claim`].
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub existentials: Vec<ClaimBinder<S>> => [vec nested],
@@ -1159,6 +1187,10 @@ impl TermRole {
 }
 
 #[derive(Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag records one independent nesting context of the term walk."
+)]
 struct RuleCounters {
     path: u32,
     cells_field: u32,
@@ -1195,6 +1227,15 @@ struct RuleCounters {
     in_let_pattern: bool,
     /// `ml::exists` closure ordinals, side-neutral (KF-039).
     ml_binder: u32,
+    /// `k::rewrite!` ordinals, side-neutral (KF-011).
+    rewrite: u32,
+    /// Whether `k::rewrite!` is admitted: the subject of a single-body rule.
+    allow_rewrite: bool,
+    /// Whether the validator is inside the right side of a `k::rewrite!`.
+    in_rewrite_right: bool,
+    /// Whether the term being validated is a whole K-sequence item, whose
+    /// root rewrite may remove it (`k::rewrite!(x => ())`).
+    k_item_root: bool,
 }
 
 impl RuleCounters {
@@ -1215,6 +1256,7 @@ impl RuleCounters {
             let_binding: self.let_binding,
             let_wildcard: self.let_wildcard,
             ml_binder: self.ml_binder,
+            rewrite: self.rewrite,
             ..Self::default()
         }
     }
@@ -1572,10 +1614,29 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         }
     }
     S::validate_configuration(&rule.subject_configuration)?;
-    S::validate_configuration(&rule.result_configuration)?;
-    if !S::same_configuration(&rule.subject_configuration, &rule.result_configuration) {
-        return Err(StateTransportError::InvalidCellContent(
-            StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
+    // A single-body rule (KF-011) has no result: its subject's `k::rewrite!`
+    // islands mark what changes.
+    let result = match (&rule.result_key, &rule.result_configuration, &rule.result) {
+        (Some(result_key), Some(result_configuration), Some(result)) => {
+            Some((result_key, result_configuration, result))
+        }
+        (None, None, None) => None,
+        _ => {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::SingleBodyRuleWithoutRewrite,
+            ));
+        }
+    };
+    if let Some((_, result_configuration, _)) = result {
+        S::validate_configuration(result_configuration)?;
+        if !S::same_configuration(&rule.subject_configuration, result_configuration) {
+            return Err(StateTransportError::InvalidCellContent(
+                StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
+            ));
+        }
+    } else if rule.sentence_kind != crate::ConfigurationSentenceKind::Transition {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::RewriteOutsideSingleBodyRule,
         ));
     }
     insert_rule_exact(keys, &rule.pattern_key, ProvenanceRole::RulePattern, 0)?;
@@ -1585,18 +1646,23 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ProvenanceRole::RuleType,
         0,
     )?;
-    insert_rule_exact(keys, &rule.result_key, ProvenanceRole::RuleResult, 0)?;
-    insert_rule_exact(
-        keys,
-        S::configuration_key(&rule.result_configuration),
-        ProvenanceRole::RuleResultType,
-        0,
-    )?;
+    if let Some((result_key, result_configuration, _)) = result {
+        insert_rule_exact(keys, result_key, ProvenanceRole::RuleResult, 0)?;
+        insert_rule_exact(
+            keys,
+            S::configuration_key(result_configuration),
+            ProvenanceRole::RuleResultType,
+            0,
+        )?;
+    }
     S::insert_rule_declaration(keys, rule.sentence_kind.into());
     validate_rule_binding_catalog::<S>(&rule.bindings, keys)?;
 
     let mut discovered = Vec::new();
-    let mut left_counters = RuleCounters::default();
+    let mut left_counters = RuleCounters {
+        allow_rewrite: result.is_none(),
+        ..RuleCounters::default()
+    };
     validate_rule_cells::<S>(
         &rule.subject,
         &rule.subject_configuration,
@@ -1609,6 +1675,11 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     if !binding_names_match(&rule.bindings, &discovered) {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::BindingCatalogOrder,
+        ));
+    }
+    if result.is_none() && left_counters.rewrite == 0 {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::SingleBodyRuleWithoutRewrite,
         ));
     }
     let mut ignored = Vec::new();
@@ -1645,15 +1716,17 @@ fn validate_configuration_rule<S: RuleValidationStage>(
             });
         }
     }
-    validate_rule_cells::<S>(
-        &rule.result,
-        &rule.result_configuration,
-        RuleSide::Right,
-        &right_bindings,
-        &mut ignored,
-        &mut right_counters,
-        keys,
-    )?;
+    if let Some((_, result_configuration, result)) = result {
+        validate_rule_cells::<S>(
+            result,
+            result_configuration,
+            RuleSide::Right,
+            &right_bindings,
+            &mut ignored,
+            &mut right_counters,
+            keys,
+        )?;
+    }
     let mut claim_counters = right_counters.next_side();
     if let Some(requires) = &rule.requires {
         insert_rule_exact(keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
@@ -1985,14 +2058,17 @@ fn validate_rule_state<S: RuleValidationStage>(
                     counters.k_item,
                 )?;
                 counters.k_item = rule_increment(counters.k_item)?;
-                validate_rule_term::<S>(
+                counters.k_item_root = true;
+                let validated = validate_rule_term::<S>(
                     &item.value,
                     side.into(),
                     bindings,
                     discovered,
                     counters,
                     keys,
-                )?;
+                );
+                counters.k_item_root = false;
+                validated?;
             }
             if sequence.notation == DescriptorKSequenceNotation::DotK {
                 Ok(())
@@ -2031,6 +2107,13 @@ fn validate_rule_state<S: RuleValidationStage>(
                             counters.map_value,
                         )?;
                         counters.map_value = rule_increment(counters.map_value)?;
+                        // A map rewrite changes a value; it never adds or
+                        // removes an entry (KF-011).
+                        if super::validation::contains_rewrite(&item.key) {
+                            return Err(StateTransportError::InvalidTerm(
+                                StateTermReason::RewriteOutsideSingleBodyRule,
+                            ));
+                        }
                         validate_rule_term::<S>(
                             &item.key,
                             side.into(),
@@ -2215,6 +2298,12 @@ fn validate_rule_term<S: ValidationStage>(
     counters: &mut RuleCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
+    // `k::rewrite!(x => ())` removes a whole K-sequence item (KF-011).
+    if super::validation::misplaced_empty_rewrite(term, counters.k_item_root) {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::EmptyRewriteOutsideKSequence,
+        ));
+    }
     validate_term(
         term,
         &mut RuleTermValidation {
@@ -2257,7 +2346,9 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.reference,
         )?;
         self.counters.reference = rule_increment(self.counters.reference)?;
-        if !local {
+        // The right side of a `k::rewrite!` uses the subject's bindings; the
+        // binding order is the left image's.
+        if !local && !self.counters.in_rewrite_right {
             discover_binding(self.side, name, self.discovered);
         }
         Ok(())
@@ -2332,7 +2423,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             self.counters.matches_wildcard = rule_increment(self.counters.matches_wildcard)?;
             return Ok(());
         }
-        if !matches!(self.side, ValidationSide::Left) {
+        if !matches!(self.side, ValidationSide::Left) || self.counters.in_rewrite_right {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
@@ -2521,6 +2612,43 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
                 self.let_scopes.pop();
             }
         }
+    }
+
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        nested: bool,
+    ) -> Result<(), Self::Error> {
+        if !self.counters.allow_rewrite
+            || !matches!(self.side, ValidationSide::Left)
+            || self.counters.in_matches_pattern
+            || self.counters.in_let_pattern
+            || !self.let_scopes.is_empty()
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::RewriteOutsideSingleBodyRule,
+            ));
+        }
+        if nested || self.counters.in_rewrite_right {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::NestedRewrite,
+            ));
+        }
+        for (actual, role) in [
+            (key, ProvenanceRole::RuleLocalRewrite),
+            (from_key, ProvenanceRole::RuleLocalRewriteFrom),
+            (to_key, ProvenanceRole::RuleLocalRewriteTo),
+        ] {
+            insert_rule_exact(self.keys, actual, role, self.counters.rewrite)?;
+        }
+        self.counters.rewrite = rule_increment(self.counters.rewrite)?;
+        Ok(())
+    }
+
+    fn rewrite_right(&mut self, inside: bool) {
+        self.counters.in_rewrite_right = inside;
     }
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {

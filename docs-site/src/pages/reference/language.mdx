@@ -222,6 +222,33 @@ K's own `#if` (`kequal::ite`) is a hooked parametric function.
 
 A lifetime, const, defaulted, otherwise bounded, or unused parameter, a where clause, generics on an enum family (a parameter belongs to one production), on a sort trait (K and k-rust have no user parametric sorts), or on a rule fn (``K rules never quantify over sorts``), and a turbofish with a lifetime, a const, or the wrong arity are rejected; so are a parameter named like a sort, strictness, an alias or desugar marker, a hook, a token, or a bracket on a parametric production (`krs::analysis::invalid-parametric-production`), and an equation or rule head without a turbofish, with one that disagrees with its declared sort, or with a non-variable argument below the instance (`krs::analysis::parametric-instance`).
 
+### Local rewrites
+
+K writes a rule as one pattern with `=>` inside it, around exactly what changes; the rest of the pattern is the frame.
+A `#[k::rule]` fn that returns `()` is such a single-body rule: its `k::cells!` or `k::term!` subject is the whole rule, and `k::rewrite!(from => to)` marks each change.
+
+```rust
+#[k::rule(label = "assign")]
+pub fn assign(
+    name: Term<Id>,
+    value: Value,
+    k::cells! {
+        k: k::configuration::KCell(k::rewrite!(StmtSyntax::Assign(name, value) => ()), ..),
+        env: k::configuration::Cell(map![name -> k::rewrite!(_ => value), ..]),
+        state @ ..
+    }: Machine,
+) {}
+```
+
+emits `rule [assign]: <k> (Name:Id = Value:Value ; => .K) ... </k> <env> Name:Id |-> (_ => Value:Value) ... </env>`, and the term-shaped `fn unmark_left(k::term![ExpSyntax::Pair(k::rewrite!(ExpSyntax::Marked(value) => value), _)]: Term<Exp>) {}` emits `rule pair ( (marked ( Value:Exp ) => Value:Exp) , _ )`, completed at the head of the computation cell like any term rule.
+A readable rule, or a reference rule with a result, restates the before and after of each cell it touches, which is the same rule; the single-body form is reference-only.
+The left side of a rewrite is a pattern and binds like the rest of the subject; the right side is a term over those bindings, and `()` on the right is `.K`, which removes a whole K-sequence item.
+The binder list of a `cells!` rule declares the left image's binders (the subject with each rewrite replaced by its left side), in first-occurrence order.
+In a map a rewrite changes a value: `name -> k::rewrite!(_ => value)` requires the key to exist, while `map::update` in a result would add it, so assigning an undeclared variable is stuck in the local form and proceeds in the restating one.
+A frame variable written once is a variable K sees once; write `_` for it.
+The syntax rejects `k::rewrite!` outside the subject of a single-body rule (in ordinary code it is a compile error), in a rule with a result, in a readable clause, inside another rewrite, in a map key, with a right-side name the left image does not bind, and a single-body rule without a rewrite, with statements in its body, or with `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]` (`krs::syntax::invalid-local-rewrite`).
+A single-body rule is a transition; the overlap check and inference read each rewrite through its left and right images.
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.
@@ -356,6 +383,7 @@ Builtin operations such as `+Int` and `andBool` are never program syntax, becaus
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | framed builtin Map pattern or value |
 | `k::cells![...]` | explicit multi-cell rule body |
+| `k::rewrite!(from => to)` | K's local `( FROM => TO )` inside the subject of a single-body `#[k::rule]` fn; `()` on the right is `.K` ([Local rewrites](#local-rewrites)) |
 
 K generates `isS` and `project:S` for every sort `S`.
 `where v: Value` and a typed binder restrict what a rule matches; `k::is!(Value, v)` is a Bool the rule computes with.

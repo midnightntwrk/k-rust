@@ -535,14 +535,18 @@ fn rule_body(
                 .clauses()
                 .iter()
                 .map(|clause| {
-                    let after = match clause.after() {
-                        CellPost::Preserve => clause.before(),
-                        CellPost::Replace { term } => term,
+                    // A single-body clause (KF-011) projects to its images.
+                    let (from, to) = match clause.after() {
+                        CellPost::Preserve => (clause.before().clone(), clause.before().clone()),
+                        CellPost::Replace { term } => (clause.before().clone(), term.clone()),
+                        CellPost::Local => {
+                            (clause.before().pre_pattern(), clause.before().post_term())
+                        }
                     };
                     json!({
                         "cell": context.cells[clause.cell()],
-                        "from": context.term(clause.before()),
-                        "to": context.term(after),
+                        "from": context.term(&from),
+                        "to": context.term(&to),
                         "frame": frame_fact(clause.frame()),
                     })
                 })

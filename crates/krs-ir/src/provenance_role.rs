@@ -504,6 +504,13 @@ provenance_roles! {
     MlBinder => "ml_binder",
     /// The sort type of one `ml::exists` closure's binder.
     MlBinderSort => "ml_binder_sort",
+    /// Complete `k::rewrite!(from => to)` shell (K's local `=>`) in the
+    /// subject of a single-body rule (KF-011), numbered across the sentence.
+    RuleLocalRewrite => "rule_local_rewrite",
+    /// The left side (`from`) of one `k::rewrite!`.
+    RuleLocalRewriteFrom => "rule_local_rewrite_from",
+    /// The right side (`to`) of one `k::rewrite!`; `()` in a K sequence is `.K`.
+    RuleLocalRewriteTo => "rule_local_rewrite_to",
 }
 
 impl Serialize for ProvenanceRole {

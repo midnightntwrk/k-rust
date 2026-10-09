@@ -1628,6 +1628,16 @@ fn render_term(
             let matched = render_term(matched, true, package, bundle)?;
             Ok(quote!(k::matches!(#subject, #matched)))
         }
+        // K's local rewrite (KF-011): `()` on the right is `.K`.
+        DescriptorTerm::Rewrite { from, to, .. } => {
+            let from = render_term(from, true, package, bundle)?;
+            let to = to
+                .as_ref()
+                .map(|to| render_term(to, false, package, bundle))
+                .transpose()?
+                .unwrap_or_else(|| quote!(()));
+            Ok(quote!(k::rewrite!(#from => #to)))
+        }
         // A block's `let` statements nest to the right; they print as one
         // Rust block.
         DescriptorTerm::Let { .. } => {

@@ -1,0 +1,5 @@
+use renamed_krs as k;
+
+fn main() {
+    k::rewrite!(a => b); //~ ERROR `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn
+}

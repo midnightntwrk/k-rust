@@ -1718,6 +1718,9 @@ pub enum SemanticValidationError {
     /// `#Exists` binder is not a sentence variable of its sort used only in
     /// its body.
     InvalidMlPredicate,
+    /// A local rewrite (KF-011) outside the subject of a single-body rule,
+    /// nested in another rewrite, or a single-body clause without one.
+    InvalidLocalRewrite,
     /// A K sequence node did not carry the builtin computation sort.
     SequenceSortMismatch,
     /// A K sequence item is not a subsort of the declared item sort.
@@ -1930,6 +1933,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidLet => formatter.write_str(
                 "`let` (#let) occurs only in post-terms and conditions, at its body's sort, its pattern neither aliases nor has alternatives, and its local binders are exactly its pattern's named variables, used only in its pattern and body",
+            ),
+            Self::InvalidLocalRewrite => formatter.write_str(
+                "a local rewrite occurs only below the root of a single-body rule's subject, never inside another rewrite, and removes a whole K-sequence item when its right side is `.K`",
             ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")

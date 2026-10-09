@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), local rewrites (KF-011), nondet (KF-012), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -55,6 +55,19 @@ the outcomes must agree:
   (K's `unboundVariables(N, Rest)` and `unboundVariables(_)`): `twin`
   matches `pair(3, pair(3, 7))` but not `pair(3, pair(4, 7))`, and `anyPair`
   matches `pair(1, nil)` but not `5`;
+- `local-rewrite`: IMP whose `var` and `assign` are single-body
+  `#[k::rule]` fns (`k::rewrite!`, K's local `=>`), and `restating-imp`,
+  `tests/imp`'s readable IMP. Each runs the IMP corpus natively and on Java
+  LLVM, from an initial environment that declares every variable a program
+  assigns, and both reach the same final computation and environment on
+  every program; the emitted K writes `<k> (Name:Id = Value:Value ; => .K)
+  ... </k>` and `<env> Name:Id |-> (_ => Value:Value) ... </env>`. Assigning
+  an undeclared variable is the one pinned difference between the two
+  definitions: the local form requires the key and is stuck, `map::update`
+  adds it; `local-term`'s term-shaped single-body rule
+  `pair(k::rewrite!(marked(v) => v), _)` emits `rule pair ( (marked (
+  Value:Exp ) => Value:Exp) , _ )` and unmarks `pair(marked(marked(3)),
+  marked(4))` to `pair(3, marked(4))` on both routes;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -64,7 +77,10 @@ the outcomes must agree:
   binders, or binders out of order, or a declared sort an occurrence cannot
   accept, a desugar clause on an alias production, a desugar production
   without a clause, `requires` on a desugar clause, and `recursive` on a
-  desugar clause, each fail `krs check` with a pinned diagnostic.
+  desugar clause, and a nested `k::rewrite!`, a right-side name the left
+  image does not bind, `k::rewrite!` outside a rule's subject or in a rule
+  with a result, and a single-body rule without a rewrite, each fail
+  `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -195,6 +211,52 @@ MACROS_PROGRAMS = (
     Program("ispair-int", "ispair b = 5;", "accepted", "ispair b = 5;"),
 )
 
+LOCAL_REWRITE = Fixture(MANIFEST, "krs-rule-forms-local-rewrite")
+RESTATING_IMP = Fixture(MANIFEST, "krs-rule-forms-restating-imp")
+EXPRESSION_WRAPPER = "result = {expression};"
+# The IMP corpus: (program, initial environment, final environment). The
+# initial environment declares every variable the program assigns, which
+# the local `assign` requires.
+LOCAL_REWRITE_CORPUS = (
+    ("tests/imp/corpus/expr/accepted/arithmetic-precedence.expr", "result |-> 0", "result |-> 7"),
+    ("tests/imp/corpus/expr/accepted/boolean-precedence.expr", "result |-> 0", "result |-> true"),
+    ("tests/imp/corpus/expr/accepted/comparison-equality.expr", "result |-> 0", "result |-> true"),
+    ("tests/imp/corpus/expr/accepted/division-left.expr", "result |-> 0", "result |-> 1"),
+    ("tests/imp/corpus/expr/accepted/division-parenthesized.expr", "result |-> 0", "result |-> 4"),
+    ("tests/imp/corpus/expr/accepted/parentheses-override.expr", "result |-> 0", "result |-> 9"),
+    ("tests/imp/corpus/expr/accepted/short-circuit-precedence.expr", "result |-> 0", "result |-> true"),
+    ("tests/imp/corpus/expr/accepted/subtraction-left.expr", "result |-> 0", "result |-> 3"),
+    ("tests/imp/corpus/expr/accepted/unary-binding.expr", "result |-> 0", "result |-> 1"),
+    ("tests/imp/corpus/accepted/iterated-unary.expr", "result |-> 0", "result |-> true"),
+    ("tests/imp-state/corpus/accepted/initial-environment.calc", "x |-> 41 y |-> 0", "x |-> 41 y |-> 42"),
+    ("tests/imp-state/corpus/accepted/lookup-evaluation-order.calc", "x |-> 0 y |-> 0", "x |-> 2 y |-> 8"),
+    ("tests/imp-state/corpus/accepted/right-associated-sequence.calc", "x |-> 0 y |-> 0 z |-> 0", "x |-> 1 y |-> 2 z |-> 3"),
+    ("tests/imp-state/corpus/accepted/single-assignment.calc", "x |-> 0", "x |-> 1"),
+    ("tests/imp-state/corpus/accepted/update-existing.calc", "x |-> 0", "x |-> 5"),
+    ("tests/imp-control-flow/corpus/accepted/block-sequence.imp", "x |-> 0 y |-> 0 z |-> 0", "x |-> 1 y |-> 2 z |-> 3"),
+    ("tests/imp-control-flow/corpus/accepted/dangling-else.imp", "x |-> 0 y |-> 0", "x |-> 1 y |-> 0"),
+    ("tests/imp-control-flow/corpus/accepted/empty-block.imp", ".Map", ".Map"),
+    ("tests/imp-control-flow/corpus/accepted/explicit-else.imp", "x |-> 0", "x |-> 2"),
+    ("tests/imp-control-flow/corpus/accepted/if-false.imp", "x |-> 0", "x |-> 0"),
+    ("tests/imp-control-flow/corpus/accepted/if-true.imp", "x |-> 0", "x |-> 1"),
+    ("tests/imp-control-flow/corpus/accepted/nested-control.imp", "x |-> 0", "x |-> 0"),
+    ("tests/imp-control-flow/corpus/accepted/while-followed.imp", "x |-> 0 y |-> 0", "x |-> 0 y |-> 1"),
+)
+# Assigning an undeclared variable: the one difference between the two
+# definitions (the register's X14 known divergence, between definitions).
+UNDECLARED = "tests/imp-state/corpus/accepted/single-assignment.calc"
+UNDECLARED_OUTCOMES = {
+    "local-rewrite": ("x = 1;", ".Map"),
+    "restating-imp": (".K", "x |-> 1"),
+}
+
+LOCAL_TERM = Fixture(MANIFEST, "krs-rule-forms-local-term")
+LOCAL_TERM_PROGRAMS = (
+    Program("unmark", "pair(marked(1), 2)", "accepted", "pair(1, 2)"),
+    Program("unmark-twice", "pair(marked(marked(3)), marked(4))", "accepted", "pair(3, marked(4))"),
+    Program("unmarked", "pair(1, 2)", "accepted", "pair(1, 2)"),
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -228,6 +290,11 @@ NEGATIVE = (
     "desugar-without-clause",
     "desugar-requires",
     "desugar-clause-payload",
+    "local-rewrite-nested",
+    "local-rewrite-unbound",
+    "local-rewrite-outside",
+    "local-rewrite-with-result",
+    "local-rewrite-unchanged",
 )
 
 
@@ -322,6 +389,63 @@ def verify_macros(harness: FixtureGate) -> None:
     harness.compare(emitted, MACROS_PROGRAMS, sort="Stmt")
 
 
+def corpus_text(path: str) -> str:
+    text = (ROOT / path).read_text(encoding="utf-8").strip()
+    return EXPRESSION_WRAPPER.format(expression=text) if path.endswith(".expr") else text
+
+
+def local_rewrite_programs(definition: str) -> tuple[Program, ...]:
+    """The IMP corpus, and the undeclared assignment, with `definition`'s outcome."""
+
+    programs = [
+        Program(
+            Path(path).stem, corpus_text(path), "accepted", ".K",
+            variables=(("ENV", initial),), cells=(("env", final),),
+        )
+        for path, initial, final in LOCAL_REWRITE_CORPUS
+    ]
+    run, environment = UNDECLARED_OUTCOMES[definition]
+    programs.append(Program(
+        "undeclared-assignment", corpus_text(UNDECLARED), "accepted", run,
+        variables=(("ENV", ".Map"),), cells=(("env", environment),),
+    ))
+    return tuple(programs)
+
+
+def verify_local_rewrite(harness: FixtureGate, pins: Ledger) -> None:
+    """Single-body var and assign run the IMP corpus like the restating IMP, except an undeclared assignment."""
+
+    harness.check(LOCAL_REWRITE)
+    harness.expand(LOCAL_REWRITE)
+    emitted = harness.emit(LOCAL_REWRITE)
+    emitted_attributes(emitted, (
+        "  rule [assign]:\n"
+        "    <k> (Name:Id = Value:Value ; => .K) ... </k>\n"
+        "    <env> Name:Id |-> (_ => Value:Value) ... </env>\n",
+        "  rule [var]:\n"
+        "    <k> (Name:Id => Value:Value) ... </k>\n"
+        "    <env> Name:Id |-> Value:Value ... </env>\n",
+    ))
+    local = harness.compare(emitted, local_rewrite_programs("local-rewrite"), sort="Stmt")
+    harness.check(RESTATING_IMP)
+    restating = harness.emit(RESTATING_IMP)
+    restated = harness.compare(restating, local_rewrite_programs("restating-imp"), sort="Stmt")
+    differing = sorted(name for name in local if local[name] != restated[name])
+    if differing != ["undeclared-assignment"]:
+        raise GateError(f"local and restating IMP differ on {differing}, expected only the undeclared assignment")
+    pins.expect(("definition_divergences", "local-rewrite", "undeclared-assignment"), {
+        "local-rewrite": local["undeclared-assignment"],
+        "restating-imp": restated["undeclared-assignment"],
+    })
+    harness.check(LOCAL_TERM)
+    harness.expand(LOCAL_TERM)
+    term = harness.emit(LOCAL_TERM)
+    emitted_attributes(term, (
+        "  rule pair ( (marked ( Value:Exp ) => Value:Exp) , _ ) [label(unmark-left)]\n",
+    ))
+    harness.compare(term, LOCAL_TERM_PROGRAMS, sort="Exp")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -384,6 +508,9 @@ def main() -> int:
 
         verify_fresh(harness)
         print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")
+
+        verify_local_rewrite(harness, pins)
+        print("PASS local-rewrite: single-body var and assign run the IMP corpus like the restating IMP natively and on Java LLVM; an undeclared assignment is stuck in the local form; a term-shaped single-body rule unmarks a pair")
 
         verify_macros(harness)
         print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards, unboundVariables desugars match as patterns on both routes")
