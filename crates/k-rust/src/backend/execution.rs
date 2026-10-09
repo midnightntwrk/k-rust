@@ -1421,8 +1421,6 @@ fn describe_incomplete_search(incomplete: &IncompleteSearch) -> String {
     )
 }
 
-/// A simplification failure with the term or predicate it names printed in KORE; a predicate is
-/// printed at the sort of the pattern it constrains.
 /// The text `krun` prints for a leaf whose halt fails the run, after `in-process backend halted
 /// at depth <n>: `: a stop's own text (`StopCause`'s `Display`), and a simplification error or an
 /// indeterminate outcome with the term it concerns.
@@ -1442,6 +1440,8 @@ fn describe_failed_halt(reason: &HaltReason, result_sort: &Sort) -> String {
     }
 }
 
+/// A simplification failure with the term or predicate it names printed in KORE; a predicate is
+/// printed at the sort of the pattern it constrains.
 fn describe_simplification_error(error: &SimplificationError, sort: &Sort) -> String {
     match error {
         SimplificationError::UnsupportedHook { term, .. } => format!(
