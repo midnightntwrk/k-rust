@@ -363,17 +363,26 @@ impl<'a> EmitContext<'a> {
                 pending.extend(module.imports());
             }
         }
+        // K's private syntax is visible only in its own module, so an
+        // imported private token production lexes nothing here.
         self.spec_identifiers = Some(crate::spec_tokens::IdLexicon::new(
             visible
                 .into_iter()
-                .flat_map(DefinitionModule::sentences)
-                .filter_map(|sentence| match sentence {
+                .flat_map(|seen| {
+                    let own = seen.id() == module.id();
+                    seen.sentences().iter().map(move |sentence| (own, sentence))
+                })
+                .filter_map(|(own, sentence)| match sentence {
                     DefinitionSentence::Production(production)
                         if production.result_sort()
                             == &DefinitionSortRef::Builtin(krs_ir::BuiltinSort::Id)
                             && production.attributes().iter().any(|attribute| {
                                 matches!(attribute, krs_ir::ProductionAttribute::Token { .. })
-                            }) =>
+                            })
+                            && (own
+                                || !production.attributes().iter().any(|attribute| {
+                                    matches!(attribute, krs_ir::ProductionAttribute::Private { .. })
+                                })) =>
                     {
                         Some(
                             production

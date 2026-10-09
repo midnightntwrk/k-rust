@@ -626,7 +626,9 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let (_lowered, emitted) = assert_lowering_contract(&theory);
     let source = emitted.source().to_owned();
     assert!(source.contains("  imports INT\n"));
-    assert!(source.contains("r\"[a-z]+\" [token, prec(2)]"));
+    // Built without Rust visibility, the token production is not `pub`, so
+    // like every other production here it is K `private`.
+    assert!(source.contains("r\"[a-z]+\" [private, token, prec(2)]"));
     assert!(
         !source.contains("symbol(idToken)"),
         "a token production denotes domain values and must not declare a constructor symbol"

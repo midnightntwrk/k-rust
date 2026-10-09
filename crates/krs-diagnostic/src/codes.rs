@@ -187,7 +187,7 @@ register_codes! {
         RULE_CHANGES_NO_CELL: "krs::analysis::rule-changes-no-cell" => "A rule without the computation cell changes no cell.",
         GROUP_AND_DESCENDANT: "krs::analysis::group-and-descendant" => "A rule selects a nested cell together with a cell inside it.",
         AMBIGUOUS_CELL_SORT: "krs::analysis::ambiguous-cell-sort" => "One cell declaration is the content of two cell fields, so its K cell sort is ambiguous.",
-        INVALID_TOKEN_SORT: "krs::analysis::invalid-token-sort" => "A token sort has constructors or a repeated token, a token alias names a sort that cannot take tokens, or `k::lexeme!` names a sort that is not a token sort.",
+        INVALID_TOKEN_SORT: "krs::analysis::invalid-token-sort" => "A token sort has constructors or a repeated token, a token alias names a sort that cannot take tokens, a program production needs a token sort whose tokens are all private, or `k::lexeme!` names a sort that is not a token sort.",
         DUPLICATE_LEXICAL: "krs::analysis::duplicate-lexical" => "A `k::lexical!` name is declared more than once in the definition.",
         UNDEFINED_LEXICAL: "krs::analysis::undefined-lexical" => "A token, layout, or lexical regex refers to a `{Name}` that no `k::lexical!` declares.",
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",

@@ -168,6 +168,7 @@ pub fn lower_descriptor_bundle(
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
+    tokens::check_program_token_fields(&modules)?;
     lexicals::check_lexicals(&modules)?;
     lists::check_syntax_lists(&modules, &semantic_sort_parents)?;
     fresh::check_fresh_generators(&modules)?;

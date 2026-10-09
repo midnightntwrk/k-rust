@@ -35,6 +35,7 @@ Each `#[k::token(regex = r"...")]` or `#[k::token(terminal = "...")]` attribute 
 On `struct Name(String);` they declare a closed token sort: its values are its tokens, its `String` field stores nothing at runtime, and no constructor may target it, because a sort with domain values has no constructors.
 On a type alias they add token productions to the sort it names, a token sort or the builtin `Id`, and declare no sort.
 Membership in open sorts still goes through the `k::sorts!` line `impl KItem for Name;`.
+The carrier's Rust visibility is the tokens' visibility: on a carrier that is not `pub` they are K `private`, so programs cannot contain them while the package's own rules can, as in the grammar-lexing gate's `visibility` package, where `goto #done` is rejected but a rule rewrites `goto done` to it.
 
 K's scanner is global and takes the longest match; a terminal outranks a regex of the same length, and `prec = N` orders regexes only.
 So `main`, declared with `terminal = "main"`, is a `Name` and never a keyword, while `while`, a terminal of another production, is a keyword: `call while` does not parse.

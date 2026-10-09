@@ -5,6 +5,11 @@
 //! or to the builtin `Id`. K's Haskell backend rejects a constructor on a
 //! sort that has domain values, so a sort with token productions has no
 //! constructor productions, and one sort never declares the same token twice.
+//!
+//! Token productions take their carrier's Rust visibility (KF-045): a
+//! non-`pub` carrier makes them K `private`, so they lex only in their own
+//! package's `<NS>`. A program production therefore needs at least one
+//! non-private token production for each token sort among its fields.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +18,7 @@ use krs_ir_levels::{SemanticModule, SemanticProduction, SemanticSortRef};
 
 use super::error::DescriptorLoweringError;
 use super::overload::sort_name;
-use crate::partition::production_display_name;
+use crate::partition::{is_private, is_program_syntax, production_display_name};
 
 /// Checks every token production and every constructor of a token sort, in
 /// stable production order.
@@ -74,6 +79,55 @@ pub(super) fn check_token_sorts(modules: &[SemanticModule]) -> Result<(), Descri
                     sort_name(sort)
                 ),
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Rejects a program production, one placed in `<NS>-SYNTAX`, with a field
+/// whose sort is a token sort with only private token productions: K's
+/// program grammar then lexes no token of that sort, so no program can
+/// contain the production.
+pub(super) fn check_program_token_fields(
+    modules: &[SemanticModule],
+) -> Result<(), DescriptorLoweringError> {
+    let definition = || {
+        modules
+            .iter()
+            .filter(|module| !module.is_spec())
+            .flat_map(SemanticModule::productions)
+    };
+    // Each user token sort, and whether any of its token productions is public.
+    let mut public = BTreeMap::<&SemanticSortRef, bool>::new();
+    for production in definition().filter(|production| is_token(production)) {
+        if matches!(production.result_sort(), SemanticSortRef::Declared(_)) {
+            *public.entry(production.result_sort()).or_default() |= !is_private(production);
+        }
+    }
+    for production in definition().filter(|production| is_program_syntax(production)) {
+        for item in production.items() {
+            let GrammarProductionItemKind::NonTerminal { field, sort } = item.kind() else {
+                continue;
+            };
+            if public.get(sort) == Some(&false) {
+                return Err(DescriptorLoweringError::InvalidTokenSort {
+                    item: Box::new(production.id().clone()),
+                    reason: format!(
+                        "`{}` is program syntax, but every token production of `{}`, the sort of its field `{}`, is private, so no program can contain it. Make the `#[k::token]` carrier of `{}` `pub`, or take `{}` out of program syntax: make it non-`pub`, or mark it `internal`",
+                        production_display_name(production.id()),
+                        sort_name(sort),
+                        field.as_str(),
+                        sort_name(sort),
+                        production_display_name(production.id()),
+                    ),
+                    range: item
+                        .origin()
+                        .origin()
+                        .exact_authored_range()
+                        .or_else(|| production.origin().origin().exact_authored_range())
+                        .map(Box::new),
+                });
+            }
         }
     }
     Ok(())

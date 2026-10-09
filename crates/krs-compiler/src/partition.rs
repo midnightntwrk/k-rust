@@ -337,13 +337,11 @@ fn needs_full_module(production: &SemanticProduction) -> Option<PlacementReason>
         })
 }
 
-fn is_generated_syntax(production: &SemanticProduction) -> bool {
-    production.attributes().iter().any(|attribute| {
-        matches!(
-            attribute,
-            ProductionAttribute::Bracket { .. } | ProductionAttribute::Token { .. }
-        )
-    })
+fn is_bracket(production: &SemanticProduction) -> bool {
+    production
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Bracket { .. }))
 }
 
 fn attribute_origin(
@@ -366,10 +364,16 @@ fn is_program(attribute: &krs_ir_levels::SemanticProductionAttribute) -> bool {
 }
 
 /// Whether a production is K `private`: its Rust item is not `pub`
-/// (`pub(crate)` and `pub(in ..)` included). Generated token and bracket
-/// productions follow their sort and are never private.
+/// (`pub(crate)` and `pub(in ..)` included). A token production follows its
+/// `#[k::token]` carrier, the struct or the type alias. A generated bracket
+/// production follows its sort and is never private.
 pub(crate) fn is_private(production: &SemanticProduction) -> bool {
-    production.visibility() != &RustVisibility::Public && !is_generated_syntax(production)
+    production.visibility() != &RustVisibility::Public && !is_bracket(production)
+}
+
+/// Whether a production is program syntax, placed in `<NS>-SYNTAX`.
+pub(crate) fn is_program_syntax(production: &SemanticProduction) -> bool {
+    production_placement(production).is_none()
 }
 
 fn production_placement(production: &SemanticProduction) -> Option<PlacementReason> {

@@ -467,19 +467,25 @@ fn token_stack(
         .map_err(source_syntax)
 }
 
+/// Records the token productions of one carrier. They take the carrier's
+/// Rust visibility: a non-`pub` struct or alias makes them K `private`.
 fn push_token_invocation(
     token: &TokenDeclaration,
     stack: &krs_syntax::TokenStack,
+    visibility: &syn::Visibility,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
     let mut anchors = stack.provenance().map_err(source_syntax)?;
     anchors.extend(token.provenance().map_err(source_syntax)?);
-    output.push(parsed_invocation(
-        ProvenanceRole::TokenDeclaration,
-        token.name().to_string(),
-        anchors,
-        ParsedInvocationPayload::Declaration,
-    )?);
+    output.push(with_visibility(
+        parsed_invocation(
+            ProvenanceRole::TokenDeclaration,
+            token.name().to_string(),
+            anchors,
+            ParsedInvocationPayload::Declaration,
+        )?,
+        rust_visibility(visibility)?,
+    ));
     Ok(())
 }
 
@@ -492,7 +498,7 @@ fn collect_type_invocations(
 ) -> Result<(), CollectionError> {
     if let Some(stack) = token_stack(&item_type.attrs, resolver)? {
         let token = TokenDeclaration::from_alias(item_type.clone()).map_err(source_syntax)?;
-        push_token_invocation(&token, &stack, output)?;
+        push_token_invocation(&token, &stack, &item_type.vis, output)?;
     }
     Ok(())
 }
@@ -514,7 +520,7 @@ fn collect_struct_remaining(
             )],
             ParsedInvocationPayload::Declaration,
         )?);
-        push_token_invocation(&token, &stack, output)?;
+        push_token_invocation(&token, &stack, &item_struct.vis, output)?;
     }
     for attribute in item_struct
         .attrs

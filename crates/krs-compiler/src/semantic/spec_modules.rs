@@ -454,12 +454,15 @@ pub(super) fn check_spec_identifiers(
         .collect::<BTreeMap<_, _>>();
     for module in modules.iter().filter(|module| module.is_spec()) {
         let visible = visible_modules(module, &by_id);
-        let lexicon = crate::spec_tokens::IdLexicon::new(visible.iter().flat_map(|module| {
-            module
-                .productions()
+        // K's private syntax is visible only in its own module, so an
+        // imported private token production lexes nothing here.
+        let lexicon = crate::spec_tokens::IdLexicon::new(visible.iter().flat_map(|seen| {
+            let own = seen.id() == module.id();
+            seen.productions()
                 .iter()
-                .filter(|production| {
-                    production.result_sort() == &SemanticSortRef::Builtin(BuiltinSort::Id)
+                .filter(move |production| {
+                    (own || !crate::partition::is_private(production))
+                        && production.result_sort() == &SemanticSortRef::Builtin(BuiltinSort::Id)
                         && production
                             .attributes()
                             .iter()

@@ -32,7 +32,9 @@ partition end to end on both routes:
   runs to `2` through it on both routes, a program `helper(1)` is rejected on
   both, and a module importing the definition cannot use `helper(..)` in a
   rule: Java `kompile` and k-rust's outer loader both reject
-  `fixtures/visibility-induced/induced.k`;
+  `fixtures/visibility-induced/induced.k`; the non-`pub` token alias `Hidden`
+  is emitted `private` too, so `goto done` runs to `7` through its `#done`
+  token while a program `goto #done` is rejected on both routes;
 - `memo`: the memoized `square(3)` evaluates to `9` on both routes, and both
   KOREs carry `memo{}()` on its symbol;
 - `format`: `color`, `colors`, `%c`, and `%r`, with terminals printed by
@@ -74,6 +76,7 @@ partition end to end on both routes:
   that names a private production (E0603), a claim that names one, a
   constructor of a token sort, a lexeme of a sort without tokens or of a
   builtin sort, a token declared twice on one sort, a token alias of `Int`, a
+  program production whose token-sort field has only private tokens, a
   lexical declared twice, a regex that refers to an undefined lexical, two
   lexicals that refer to each other, a production whose symbol is a list's
   derived `intsCons`, a constructor of a list sort, a subsort into a list
@@ -120,6 +123,8 @@ VISIBILITY = Fixture(MANIFEST, "krs-grammar-visibility")
 VISIBILITY_PROGRAMS = (
     Program("inc", "inc 1", "accepted", "2"),
     Program("helper", "helper(1)", "rejected"),
+    Program("goto", "goto done", "accepted", "7"),
+    Program("goto-hidden", "goto #done", "rejected"),
 )
 VISIBILITY_ATTRIBUTES = (("inc", "wrap"), ("private",))
 INDUCED_MODULE = "KRS-VISIBILITY-INDUCED"
@@ -287,6 +292,7 @@ NEGATIVE = (
     ("lexeme-builtin", "lexeme-builtin", "krs-grammar-lexeme-builtin", ()),
     ("token-duplicate", "token-duplicate", "krs-grammar-token-duplicate", ()),
     ("token-alias-builtin", "token-alias-builtin", "krs-grammar-token-alias-builtin", ()),
+    ("token-private-field", "token-private-field", "krs-grammar-token-private-field", ()),
     ("lexical-duplicate", "lexical-duplicate", "krs-grammar-lexical-duplicate", ()),
     ("lexical-undefined", "lexical-undefined", "krs-grammar-lexical-undefined", ()),
     ("lexical-recursive", "lexical-recursive", "krs-grammar-lexical-recursive", ()),

@@ -186,6 +186,14 @@ bug — report it, don't guess.
   tables don't need it). [16 §H; r round-2 item 4]
 - **C10 — `avoid`** (dangling-else) and production doc comments are
   layer-1 constructs carried to layer 2 and the emitted `.k`. [r2a]
+  *Note (2026-10 follow-up, token visibility):* token productions take the
+  Rust visibility of their `#[k::token]` carrier, struct or type alias, like
+  every other production: a carrier that is not `pub` emits its tokens K
+  `private` in `<NS>`, so only the package's own rules lex them. A program
+  production whose field sort is a token sort with only private tokens is
+  rejected (`krs::analysis::invalid-token-sort`), since no program could
+  spell that field. Generated bracket productions still follow their sort
+  and are never private.
 
 ## D. Configuration
 

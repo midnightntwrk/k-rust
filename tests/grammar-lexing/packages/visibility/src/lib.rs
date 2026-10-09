@@ -5,6 +5,11 @@
 //! use it. A program cannot contain `helper(1)`, a dependent cannot name
 //! `Helper::Wrap` (E0603), and a module importing this one cannot use it in a
 //! rule, on either route.
+//!
+//! Token productions follow the same rule. `Label` is `pub`, so its regex is
+//! program syntax and `goto done` parses; the alias `Hidden` is not, so its
+//! `#`-prefixed token is K `private`: the rules below use `#done`, but a
+//! program `goto #done` does not parse on either route.
 
 use k::KResult;
 use k::builtin::{Int, KSequence, int};
@@ -13,14 +18,26 @@ k::sorts! {
     Exp;
     Value: Exp + KResult;
     impl Value for Int;
+    impl k::KItem for Label;
 }
 
+/// Jump targets.
+#[k::token(regex = r"[a-z]+")]
+pub struct Label(pub String);
+
+/// Targets only this package's rules may use.
+#[allow(dead_code)]
+#[k::token(regex = r"#[a-z]+")]
+type Hidden = Label;
+
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((Inc))]
+#[k::precedence((Inc, Goto))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("inc {value}")]
     Inc { value: Exp },
+    #[k::syntax("goto {target}")]
+    Goto { target: Label },
 }
 
 /// Rule machinery private to this package. Only K rules construct it, so
@@ -51,7 +68,9 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    inc: Inc { value } => Helper::Wrap { value };
+    inc        : Inc { value }                    => Helper::Wrap { value };
+    goto_done  : Goto(k::lexeme!(Label, "done"))  => Goto(k::lexeme!(Label, "#done"));
+    goto_hidden: Goto(k::lexeme!(Label, "#done")) => 7;
 }
 
 k::rules! {

@@ -221,6 +221,9 @@
     ],
     "ml-predicate-rule": [
       "error[krs::rust-expansion::uncoded-error]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
+    ],
+    "spec-module-private-id": [
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-PRIVATE-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
     ]
   },
   "trusted_proofs": {
