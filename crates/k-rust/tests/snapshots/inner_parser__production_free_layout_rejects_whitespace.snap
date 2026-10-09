@@ -14,5 +14,6 @@ Err(
         },
         previous: None,
         span: None,
+        work_limit: None,
     },
 )

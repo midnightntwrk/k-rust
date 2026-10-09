@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.earley.recognize"
 //! name = "agenda-driven Earley recognition"
-//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "Grammar::priority_admits", "RemainingTokens::new", "Reach::rest_follows", "InstanceNodes::intern"]
+//! sites = ["Grammar::parse_attempt", "Grammar::recognize", "Grammar::explain_violation", "Grammar::lower_inferred", "Grammar::parse", "Grammar::parse_with_context_and_diagnostic_provenance", "Grammar::parse_in_context", "Grammar::diagnose", "Grammar::explain", "Grammar::advanced_item_useful", "Grammar::completion_useful", "Grammar::node_reaches_root", "Grammar::priority_admits", "RemainingTokens::new", "Reach::rest_follows", "InstanceNodes::intern"]
 //! variable = "p = chart-agenda pops; d = dispatch cost and derivations read; B = input bytes; s = interned sorts; P = distinct lexemes among the input's tokens; u = nodes (chart, production, and the production of the node it is in the forest, which differs only for a production that passes its child through) whose usefulness the completion lookahead decides once per next token and count of deferred-scope witnesses before the position, and whose root reachability it searches, each again only when asked with a later earliest end than the bounds already known for it, each search over the waiting items of the charts it reaches, each item judged by the associativity and priority relations at its edge (a priority violation, where a rewrite, sequence or #let could defer a scope error, only against the first witness token after the caller's origin) and by where the input's next token its rest can begin with lies (O(P log B))"
 //! counters = ["ParserParseAttempts", "ParserChartAgendaPops", "ParserChartRevisitPops", "ParserChartDerivationsRead", "ParserChartPredictionAttempts", "ParserChartCompletionCandidates", "ParserTerminalPredictionsSkipped", "ParserNonterminalPredictionsSkipped"]
 //! span = "per problem"
@@ -16,11 +16,11 @@
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
+//! bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
 //!
 //! [[cost]]
-//! mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-//! bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
+//! mode = "filtered attempt with retry (parse_in_context, diagnose)"
+//! bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
 //! ```
 //!
 //! ```toml algorithm
@@ -117,6 +117,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
+use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -190,6 +191,8 @@ struct ParseContext {
     is_anywhere: bool,
     provenance: ParseProvenance,
     diagnostic_provenance: bool,
+    /// The work the diagnostic of a failure may take after the first attempt.
+    diagnostic_work: DiagnosticWork,
 }
 
 /// Which work a recognition may skip because it cannot contribute to a parse.
@@ -201,7 +204,7 @@ struct ParseContext {
 /// so the forest and every error computed from it, as it is; it does change what the
 /// diagnostic of an attempt that finds no derivation reads (the items of its last chart), so
 /// such an attempt that skipped anything is retried with `Retry`
-/// (`Grammar::parse_with_context_and_diagnostic_provenance`).
+/// (`Grammar::diagnose`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PredictionMode {
     /// Skip predictions and completions that cannot contribute to a parse.
@@ -522,10 +525,141 @@ pub(super) struct Pruning {
     pub(super) furthest: Option<usize>,
 }
 
+/// How much chart work the diagnostic of a failed parse may take after the parse's first
+/// attempt.
+///
+/// A failed parse is reported by the diagnostic of its context-free grammar: a relation that a
+/// derivation of the input breaks, or where the grammar's longest viable prefix ends. Finding it
+/// means recognizing the input again without the pruning the relations allow, and possibly
+/// without the relations, which is cubic in the length of an associativity-disambiguated chain
+/// (the chart of an ambiguous grammar). Under a limit, a diagnostic that would take more chart
+/// steps than the limit is abandoned and the failure is reported by the first attempt's own
+/// error, read from the recognition under the relations, which then says that it was not
+/// explained (`ParseError::NoParse::work_limit`). The limit is the larger of `floor` and
+/// [`DiagnosticWork::FACTOR`] times the steps of the first attempt, so a failed parse costs at
+/// most a constant factor of its first attempt, plus `floor`, and a diagnostic whose work is
+/// within that factor of the first attempt's is never abandoned. A chart step is one item taken
+/// from a chart's agenda, one derivation it reads, or one caller a completion advances.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DiagnosticWork {
+    /// At most the larger of `floor` chart steps and `FACTOR` times the first attempt's.
+    Limited { floor: u64 },
+    /// Always the context-free diagnostic, whatever it costs.
+    Unlimited,
+}
+
+impl DiagnosticWork {
+    /// The factor of the first attempt's chart steps that a diagnostic may always take.
+    pub const FACTOR: u64 = 16;
+    /// The default limit: a floor of 2^20 chart steps, from about a tenth of a second of chart
+    /// work in a release build (a chain's relation-free chart) to about half a second (a
+    /// relation-free forest and the passes over it).
+    pub const DEFAULT: Self = Self::Limited { floor: 1 << 20 };
+    /// The environment variable that sets the limit: `unlimited`, or the floor in chart steps.
+    pub const VARIABLE: &'static str = "KRUST_PARSE_DIAGNOSTIC_WORK";
+
+    /// The limit [`Self::VARIABLE`] sets, or [`Self::DEFAULT`] when it is unset or holds
+    /// anything [`Self::parse`] does not read. Read once per process.
+    pub fn from_environment() -> Self {
+        static FROM_ENVIRONMENT: OnceLock<DiagnosticWork> = OnceLock::new();
+        *FROM_ENVIRONMENT.get_or_init(|| {
+            std::env::var(Self::VARIABLE)
+                .ok()
+                .and_then(|value| Self::parse(&value))
+                .unwrap_or(Self::DEFAULT)
+        })
+    }
+
+    /// `unlimited`, or a decimal number of chart steps for the floor (`_` separators allowed).
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("unlimited") {
+            Some(Self::Unlimited)
+        } else {
+            value
+                .replace('_', "")
+                .parse()
+                .ok()
+                .map(|floor| Self::Limited { floor })
+        }
+    }
+
+    /// The chart steps the diagnostic may take after a first attempt of `first` steps, at least
+    /// one.
+    fn limit(self, first: u64) -> NonZeroU64 {
+        match self {
+            Self::Limited { floor } => NonZeroU64::MIN.saturating_add(
+                floor
+                    .max(first.saturating_mul(Self::FACTOR))
+                    .saturating_sub(1),
+            ),
+            Self::Unlimited => NonZeroU64::MAX,
+        }
+    }
+}
+
+/// The chart steps recognitions took, against a limit (`DiagnosticWork`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WorkMeter {
+    spent: u64,
+    limit: u64,
+}
+
+impl WorkMeter {
+    pub(super) const fn unlimited() -> Self {
+        Self::limited(u64::MAX)
+    }
+
+    const fn limited(limit: u64) -> Self {
+        Self { spent: 0, limit }
+    }
+
+    /// Counts `steps`; whether the total is still within the limit.
+    fn charge(&mut self, steps: usize) -> bool {
+        #[cfg(test)]
+        update_chart_work_counters(|counters| counters.chart_steps += steps);
+        self.spent = self
+            .spent
+            .saturating_add(u64::try_from(steps).unwrap_or(u64::MAX));
+        self.spent <= self.limit
+    }
+}
+
+/// A diagnostic recognition ran past its work limit (`DiagnosticWork`).
+struct WorkLimitReached;
+
+/// Why one parse attempt failed, before a violation it met is explained.
+enum Failure {
+    /// The attempt's error, final.
+    Error(ParseError),
+    /// The attempt found no derivation of the input.
+    NoDerivation(Box<NoDerivation>),
+    /// The attempt's recognition ran past its work limit.
+    WorkLimit,
+}
+
+impl From<ParseError> for Failure {
+    fn from(error: ParseError) -> Self {
+        Self::Error(error)
+    }
+}
+
+/// An attempt that found no derivation of the input.
+struct NoDerivation {
+    /// The no-parse diagnostic of the attempt's own chart.
+    no_parse: ParseError,
+    /// The violation the recognition met first, when it is to be explained: an attempt that
+    /// skipped an edge to a doomed node (`DoomedEdges`) is made again keeping them instead.
+    violation: Option<ParseError>,
+    start_id: usize,
+    start_position: usize,
+    prediction_mode: PredictionMode,
+}
+
 /// Whether recognition drops the derivations that the priority and associativity relations rule
 /// out. A violation explains a failed parse only when the input has a derivation that the
 /// violation rules out, so a failed parse that recorded one is recognized once more with the
-/// relations ignored to tell the two apart (`Grammar::parse_attempt`).
+/// relations ignored to tell the two apart (`Grammar::explain_violation`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum PriorityFilter {
     Enforced,
@@ -545,7 +679,7 @@ pub(super) enum PriorityFilter {
 /// So in an input with one such token in all, no doomed node is read by the preference, and
 /// skipping the edges to them leaves every reading that can be the parse. What it changes is
 /// the forest a failed parse is explained from: an attempt that skipped one and failed is made
-/// again keeping them (`Grammar::parse_with_context_and_diagnostic_provenance`).
+/// again keeping them (`Grammar::diagnose`).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) enum DoomedEdges {
     /// Keep every edge the filter could keep for the preference.
@@ -565,6 +699,9 @@ struct Recognition {
     first_violation: Option<ParseError>,
     /// Whether an edge that `DoomedEdges::Kept` keeps was skipped.
     doomed_pruned: bool,
+    /// Whether the recognition stopped at its work limit; its charts and parses are then
+    /// incomplete and say nothing about the input.
+    work_limit_reached: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -622,10 +759,15 @@ pub enum ParseError {
     EmptyLayout,
     NoParse {
         position: usize,
-        expected: Vec<String>,
+        expected: Box<[String]>,
         input: NoParseInput,
         previous: Option<String>,
         span: Option<TermSpan>,
+        /// The chart steps the diagnostic was limited to, when it was abandoned there
+        /// (`DiagnosticWork`): the position is then where the recognition under the priority
+        /// and associativity relations stopped, and whether the input breaks one of them was
+        /// not decided. `None` for the diagnostic of the context-free grammar.
+        work_limit: Option<NonZeroU64>,
     },
     InvalidParseShape {
         expected: String,
@@ -756,27 +898,43 @@ impl fmt::Display for ParseError {
                 formatter.write_str("a `#Layout` regular expression must not match empty input")
             }
             Self::NoParse {
-                input, previous, ..
-            } => match input {
-                NoParseInput::Token { value } => {
-                    write!(formatter, "Parse error: unexpected token '{value}'")?;
-                    if let Some(previous) = previous {
-                        write!(formatter, " following token '{previous}'")?;
+                input,
+                previous,
+                work_limit,
+                ..
+            } => {
+                match input {
+                    NoParseInput::Token { value } => {
+                        write!(formatter, "Parse error: unexpected token '{value}'")?;
+                        if let Some(previous) = previous {
+                            write!(formatter, " following token '{previous}'")?;
+                        }
+                        formatter.write_str(".")?;
                     }
-                    formatter.write_str(".")
-                }
-                NoParseInput::EndOfInput => {
-                    formatter.write_str("Parse error: unexpected end of file")?;
-                    if let Some(previous) = previous {
-                        write!(formatter, " following token '{previous}'")?;
+                    NoParseInput::EndOfInput => {
+                        formatter.write_str("Parse error: unexpected end of file")?;
+                        if let Some(previous) = previous {
+                            write!(formatter, " following token '{previous}'")?;
+                        }
+                        formatter.write_str(".")?;
                     }
-                    formatter.write_str(".")
+                    NoParseInput::UnrecognizedInput { value } => write!(
+                        formatter,
+                        "Scanner error: unexpected character sequence '{value}'."
+                    )?,
                 }
-                NoParseInput::UnrecognizedInput { value } => write!(
-                    formatter,
-                    "Scanner error: unexpected character sequence '{value}'."
-                ),
-            },
+                if let Some(limit) = work_limit {
+                    write!(
+                        formatter,
+                        " No reading of the input that respects the priority and associativity \
+                         relations can be completed past this point; whether one that breaks \
+                         them can was not decided within the diagnostic's limit of {limit} chart \
+                         steps ({} raises it).",
+                        DiagnosticWork::VARIABLE
+                    )?;
+                }
+                Ok(())
+            }
             Self::InvalidParseShape { expected } => {
                 write!(
                     formatter,
@@ -1435,63 +1593,199 @@ impl Grammar {
         base_offset: usize,
         diagnostic_provenance: bool,
     ) -> Result<Term, ParseError> {
+        self.parse_in_context(
+            start,
+            input,
+            ParseContext {
+                is_anywhere,
+                provenance: ParseProvenance {
+                    source,
+                    base_offset,
+                },
+                diagnostic_provenance,
+                diagnostic_work: DiagnosticWork::from_environment(),
+            },
+        )
+    }
+
+    /// Parse `input` from the sort `start` denotes, with the diagnostic of a failure limited to
+    /// `diagnostic_work` after the first attempt (`DiagnosticWork`).
+    pub fn parse_with_diagnostic_work(
+        &self,
+        start: &Sort,
+        input: &str,
+        diagnostic_work: DiagnosticWork,
+    ) -> Result<Term, ParseError> {
+        self.parse_in_context(
+            start,
+            input,
+            ParseContext {
+                is_anywhere: false,
+                provenance: ParseProvenance {
+                    source: SourceId(0),
+                    base_offset: 0,
+                },
+                diagnostic_provenance: false,
+                diagnostic_work,
+            },
+        )
+    }
+
+    /// A parse: one filtered attempt and, when it fails, the diagnostic of the failure, within
+    /// `context.diagnostic_work` (`DiagnosticWork`). A diagnostic abandoned at its limit
+    /// reports the first attempt's error unexplained: for an attempt that found no derivation,
+    /// its own no-parse diagnostic, marked with the limit.
+    fn parse_in_context(
+        &self,
+        start: &Sort,
+        input: &str,
+        context: ParseContext,
+    ) -> Result<Term, ParseError> {
         let start = self.sort_denotations.denote(start);
-        let provenance = ParseProvenance {
-            source,
-            base_offset,
-        };
-        let context = ParseContext {
-            is_anywhere,
-            provenance,
-            diagnostic_provenance,
-        };
         let mut pruning = Pruning {
             doomed: DoomedEdges::SkippedBesideOneScope,
             ..Pruning::default()
         };
-        let mut result = self.parse_attempt(
+        let mut first_work = WorkMeter::unlimited();
+        let failure = match self.parse_attempt(
             start,
             input,
             context,
             PredictionMode::Filtered,
             &mut pruning,
-        );
-        // Skipping the edges to doomed nodes keeps every reading that can be the parse, but not
-        // the forest a failure is computed from (`DoomedEdges`): such a failure is computed
-        // again keeping them.
-        if result.is_err() && pruning.doomed_pruned {
+            &mut first_work,
+        ) {
+            Ok(term) => return Ok(term),
+            Err(failure) => failure,
+        };
+        let unexplained = match &failure {
+            Failure::Error(error) => error.clone(),
+            Failure::NoDerivation(failure) => failure.no_parse.clone(),
+            Failure::WorkLimit => unreachable!("the first attempt has no work limit"),
+        };
+        let limit = context.diagnostic_work.limit(first_work.spent);
+        match self.diagnose(
+            start,
+            input,
+            context,
+            failure,
+            pruning,
+            &mut WorkMeter::limited(limit.get()),
+        ) {
+            Ok(result) => result,
+            Err(WorkLimitReached) => Err(match unexplained {
+                ParseError::NoParse {
+                    position,
+                    expected,
+                    input,
+                    previous,
+                    span,
+                    work_limit: _,
+                } => ParseError::NoParse {
+                    position,
+                    expected,
+                    input,
+                    previous,
+                    span,
+                    work_limit: Some(limit),
+                },
+                error => error,
+            }),
+        }
+    }
+
+    /// The outcome of a parse whose first attempt failed with `failure`, after `pruning`.
+    ///
+    /// Skipping the edges to doomed nodes keeps every reading that can be the parse, but not the
+    /// forest a failure is computed from (`DoomedEdges`): such a failure is computed again
+    /// keeping them. A failure without a derivation is explained from the chart, whose items the
+    /// skipped work changes: it is retried with the skipped work restored where the diagnostic
+    /// reads it. A failure after recognition (an ambiguity, sort inference, a relation error of
+    /// the forest, a cycle) is computed from the forest, which skipping leaves as it is
+    /// (`PredictionMode`), so it is already the error of an unfiltered recognition.
+    /// Invariant: a retry occurs exactly when the filtered recognizer, or the recognition
+    /// explaining its violation, pruned at least one prediction or completion and found no
+    /// derivation of the input, and it reruns the complete pipeline with the same context,
+    /// skipping completions only before the last chart the filtered recognition reached. An
+    /// explanation a retry would replace is not computed.
+    fn diagnose(
+        &self,
+        start: &Sort,
+        input: &str,
+        context: ParseContext,
+        mut failure: Failure,
+        mut pruning: Pruning,
+        work: &mut WorkMeter,
+    ) -> Result<Result<Term, ParseError>, WorkLimitReached> {
+        if pruning.doomed_pruned {
             pruning = Pruning::default();
-            result = self.parse_attempt(
+            failure = match self.parse_attempt(
                 start,
                 input,
                 context,
                 PredictionMode::Filtered,
                 &mut pruning,
-            );
+                work,
+            ) {
+                Ok(term) => return Ok(Ok(term)),
+                Err(failure) => failure,
+            };
         }
-        // A failure without a derivation is explained from the chart, whose items the skipped
-        // work changes: retry it with the skipped work restored where the diagnostic reads it.
-        // A failure after recognition (an ambiguity, sort inference, a relation error of the
-        // forest, a cycle) is computed from the forest, which skipping leaves as it is
-        // (`PredictionMode`), so it is already the error of an unfiltered recognition.
-        // Invariant: a retry occurs exactly when the filtered recognizer pruned at least one
-        // prediction or completion and found no derivation of the input, and it reruns the
-        // complete pipeline with the same context, skipping completions only before the last
-        // chart the filtered recognition reached.
-        if let (Err(_), true, Some(horizon)) = (&result, pruning.pruned, pruning.furthest) {
-            self.parse_attempt(
+        let error = if pruning.pruned && pruning.furthest.is_some() {
+            None
+        } else {
+            Some(self.explain(failure, input, context, &mut pruning.pruned, work)?)
+        };
+        if let (true, Some(horizon)) = (pruning.pruned, pruning.furthest) {
+            return match self.parse_attempt(
                 start,
                 input,
                 context,
                 PredictionMode::Retry { horizon },
                 &mut Pruning::default(),
-            )
-        } else {
-            result
+                work,
+            ) {
+                Ok(term) => Ok(Ok(term)),
+                Err(failure) => Ok(Err(self.explain(failure, input, context, &mut false, work)?)),
+            };
+        }
+        Ok(Err(
+            error.expect("a failure that is not retried is explained")
+        ))
+    }
+
+    /// The error of a failed attempt: its violation explained (`Grammar::explain_violation`),
+    /// or its own error.
+    fn explain(
+        &self,
+        failure: Failure,
+        input: &str,
+        context: ParseContext,
+        pruned: &mut bool,
+        work: &mut WorkMeter,
+    ) -> Result<ParseError, WorkLimitReached> {
+        match failure {
+            Failure::Error(error) => Ok(error),
+            Failure::WorkLimit => Err(WorkLimitReached),
+            Failure::NoDerivation(failure) => match failure.violation {
+                None => Ok(failure.no_parse),
+                Some(violation) => self.explain_violation(
+                    violation,
+                    failure.start_id,
+                    failure.start_position,
+                    input,
+                    context,
+                    failure.prediction_mode,
+                    pruned,
+                    work,
+                ),
+            },
         }
     }
 
-    fn parse_attempt(
+    /// One parse attempt, with its violation explained and no work limit.
+    #[cfg(test)]
+    fn parse_attempt_explained(
         &self,
         start: &Sort,
         input: &str,
@@ -1499,10 +1793,31 @@ impl Grammar {
         prediction_mode: PredictionMode,
         pruning: &mut Pruning,
     ) -> Result<Term, ParseError> {
+        let mut work = WorkMeter::unlimited();
+        self.parse_attempt(start, input, context, prediction_mode, pruning, &mut work)
+            .map_err(|failure| {
+                self.explain(failure, input, context, &mut pruning.pruned, &mut work)
+                    .unwrap_or_else(|WorkLimitReached| unreachable!("no work limit"))
+            })
+    }
+
+    /// One parse attempt. A failure without a derivation of the input is returned with the
+    /// attempt's no-parse diagnostic and the violation to explain, if any; explaining it is the
+    /// caller's (`Grammar::explain`).
+    fn parse_attempt(
+        &self,
+        start: &Sort,
+        input: &str,
+        context: ParseContext,
+        prediction_mode: PredictionMode,
+        pruning: &mut Pruning,
+        work: &mut WorkMeter,
+    ) -> Result<Term, Failure> {
         let ParseContext {
             is_anywhere,
             provenance,
             diagnostic_provenance,
+            ..
         } = context;
         let _span = measure::algorithm_span(Algorithm::ParserEarleyRecognize);
         measure::bump(Counter::ParserParseAttempts);
@@ -1513,19 +1828,20 @@ impl Grammar {
             let charts = (0..=input.len())
                 .map(|_| Chart::new(self.sorts.len()))
                 .collect::<Vec<_>>();
-            return Err(self.no_parse(
+            return Err(Failure::Error(self.no_parse(
                 input,
                 provenance,
                 diagnostic_provenance,
                 &charts,
                 &mut scanner_cache,
-            ));
+            )));
         };
         let Recognition {
             charts,
             parses,
             first_violation,
             doomed_pruned,
+            work_limit_reached,
         } = self.recognize(
             start_id,
             start_position,
@@ -1537,9 +1853,13 @@ impl Grammar {
             matches!(prediction_mode, PredictionMode::Retry { .. }),
             pruning.doomed,
             &mut pruning.pruned,
+            work,
             &mut scanner_cache,
             &priority_memos,
         )?;
+        if work_limit_reached {
+            return Err(Failure::WorkLimit);
+        }
         pruning.doomed_pruned = doomed_pruned;
         if parses.is_empty() {
             pruning.furthest = Some(
@@ -1548,39 +1868,22 @@ impl Grammar {
                     .rposition(|chart| !chart.states.is_empty())
                     .unwrap_or(0),
             );
-            // An attempt that skipped edges to doomed nodes and failed is made again keeping
-            // them, which explains the failure; this one is not explained.
-            if doomed_pruned {
-                return Err(self.no_parse(
-                    input,
-                    provenance,
-                    diagnostic_provenance,
-                    &charts,
-                    &mut scanner_cache,
-                ));
-            }
-            return Err(match first_violation {
-                None => self.no_parse(
-                    input,
-                    provenance,
-                    diagnostic_provenance,
-                    &charts,
-                    &mut scanner_cache,
-                ),
-                Some(first_violation) => {
-                    drop(charts);
-                    self.explain_violation(
-                        first_violation,
-                        start_id,
-                        start_position,
-                        input,
-                        context,
-                        prediction_mode,
-                        &mut pruning.pruned,
-                        &mut scanner_cache,
-                    )
-                }
-            });
+            let no_parse = self.no_parse(
+                input,
+                provenance,
+                diagnostic_provenance,
+                &charts,
+                &mut scanner_cache,
+            );
+            return Err(Failure::NoDerivation(Box::new(NoDerivation {
+                no_parse,
+                // An attempt that skipped edges to doomed nodes and failed is made again keeping
+                // them, which explains the failure; this one is not explained.
+                violation: first_violation.filter(|_| !doomed_pruned),
+                start_id,
+                start_position,
+                prediction_mode,
+            })));
         }
         // The chart can retain the whole packed forest through its states. Release it before any
         // post-parse allocation, then apply the root priority preference while alternatives still
@@ -1605,11 +1908,12 @@ impl Grammar {
                     self.lower_inferred(tree, start)
                 })
         {
-            return checked;
+            return checked.map_err(Failure::Error);
         }
         self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
             self.lower_inferred(tree, start)
         })
+        .map_err(Failure::Error)
     }
 
     /// Why a parse whose recognition removed a derivation for `first_violation` failed.
@@ -1636,6 +1940,9 @@ impl Grammar {
     /// forest-building recognition. Only a derivation of the whole input needs the forest. A
     /// grammar with a production on a same-span cycle, whose detection reads node structure,
     /// always builds it.
+    ///
+    /// Both recognitions count their chart steps against `work`; past its limit the explanation
+    /// is abandoned (`DiagnosticWork`).
     #[allow(clippy::too_many_arguments)]
     fn explain_violation(
         &self,
@@ -1646,8 +1953,9 @@ impl Grammar {
         context: ParseContext,
         prediction_mode: PredictionMode,
         pruned: &mut bool,
-        scanner_cache: &mut [ScanCacheEntry],
-    ) -> ParseError {
+        work: &mut WorkMeter,
+    ) -> Result<ParseError, WorkLimitReached> {
+        let scanner_cache = &mut vec![None; input.len() + 1][..];
         let priority_memos = RefCell::new(PackedPriorityMemos::default());
         let cycles = self
             .same_span_cycles
@@ -1659,7 +1967,12 @@ impl Grammar {
             });
             // A recognition error (a cycle) that only the ignored relations let through says
             // nothing about this input's failure.
-            let Ok(Recognition { charts, parses, .. }) = self.recognize(
+            let Ok(Recognition {
+                charts,
+                parses,
+                work_limit_reached,
+                ..
+            }) = self.recognize(
                 start_id,
                 start_position,
                 input,
@@ -1670,22 +1983,33 @@ impl Grammar {
                 false,
                 DoomedEdges::Kept,
                 pruned,
+                work,
                 scanner_cache,
                 &priority_memos,
-            ) else {
-                return first_violation;
+            )
+            else {
+                return Ok(first_violation);
             };
+            if work_limit_reached {
+                return Err(WorkLimitReached);
+            }
             if parses.is_empty() {
-                return self.no_parse(
+                return Ok(self.no_parse(
                     input,
                     context.provenance,
                     context.diagnostic_provenance,
                     &charts,
                     scanner_cache,
-                );
+                ));
             }
         }
-        let Ok(Recognition { charts, parses, .. }) = self.recognize(
+        let before = work.spent;
+        let Ok(Recognition {
+            charts,
+            parses,
+            work_limit_reached,
+            ..
+        }) = self.recognize(
             start_id,
             start_position,
             input,
@@ -1696,27 +2020,38 @@ impl Grammar {
             true,
             DoomedEdges::Kept,
             pruned,
+            work,
             scanner_cache,
             &priority_memos,
-        ) else {
+        )
+        else {
             // Only a recognition error other than a repetition (which this recognition cuts)
             // ends here; the violation met first is then the only one known.
-            return first_violation;
+            return Ok(first_violation);
         };
+        if work_limit_reached {
+            return Err(WorkLimitReached);
+        }
         if parses.is_empty() {
-            return self.no_parse(
+            return Ok(self.no_parse(
                 input,
                 context.provenance,
                 context.diagnostic_provenance,
                 &charts,
                 scanner_cache,
-            );
+            ));
         }
         drop(charts);
-        match self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos) {
-            Err(violation) => violation,
-            Ok(_) => first_violation,
+        // The passes over the forest are charged as many steps as the recognition that built it
+        // took, which bounds the forest they read.
+        let forest_steps = work.spent - before;
+        if !work.charge(usize::try_from(forest_steps).unwrap_or(usize::MAX)) {
+            return Err(WorkLimitReached);
         }
+        Ok(self
+            .check_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)
+            .err()
+            .unwrap_or(first_violation))
     }
 
     /// The recognition phase of a parse attempt: the Earley chart of `input` from the start sort
@@ -1746,6 +2081,7 @@ impl Grammar {
         cut_repetitions: bool,
         doomed: DoomedEdges,
         pruned: &mut bool,
+        work: &mut WorkMeter,
         scanner_cache: &mut [ScanCacheEntry],
         priority_memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Recognition, ParseError> {
@@ -1841,6 +2177,25 @@ impl Grammar {
                     derivation_count
                 };
                 let production = &self.productions[state.production];
+                // The work of this item: itself, the derivations it reads and, for a
+                // completion, the callers it advances.
+                let callers = if state.dot == production.items.len() {
+                    charts[state.origin]
+                        .waiting
+                        .get(&production.result_id)
+                        .map_or(0, Vec::len)
+                } else {
+                    0
+                };
+                if !work.charge(1 + derivations.len() + callers) {
+                    return Ok(Recognition {
+                        charts,
+                        parses: BTreeSet::new(),
+                        first_violation: None,
+                        doomed_pruned: doomed_pruned.get(),
+                        work_limit_reached: true,
+                    });
+                }
                 let canonical = *canonical_position
                     .get_or_insert_with(|| self.canonical_position(input, position, scanner_cache));
                 if state.dot < production.items.len() && canonical != position {
@@ -2238,6 +2593,7 @@ impl Grammar {
             parses,
             first_violation,
             doomed_pruned: doomed_pruned.get(),
+            work_limit_reached: false,
         })
     }
 
@@ -2735,13 +3091,23 @@ impl Grammar {
         forest: Rc<PackedTerm>,
         priority_memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        let reserved_names = packed_variable_names(&forest);
-        let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
-        let forest = self.filter_packed_priority(forest, priority_memos)?;
-        let forest = self.resolve_packed_applications(forest)?;
+        let forest = self.check_packed_forest(forest, priority_memos)?;
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
         Ok(forest)
+    }
+
+    /// The passes of `prepare_packed_forest` that can report an error, which are all that the
+    /// explanation of a failed parse reads (`Grammar::explain_violation`).
+    fn check_packed_forest(
+        &self,
+        forest: Rc<PackedTerm>,
+        priority_memos: &RefCell<PackedPriorityMemos>,
+    ) -> Result<Rc<PackedTerm>, ParseError> {
+        let reserved_names = packed_variable_names(&forest);
+        let forest = self.collapse_packed_record_productions(forest, reserved_names)?;
+        let forest = self.filter_packed_priority(forest, priority_memos)?;
+        self.resolve_packed_applications(forest)
     }
 
     #[cfg(test)]
@@ -2887,6 +3253,7 @@ impl Grammar {
                 start: provenance.base_offset + position,
                 end: provenance.base_offset + end,
             }),
+            work_limit: None,
         }
     }
 }
@@ -3096,7 +3463,7 @@ mod chart_tests {
         }
 
         fn unfiltered(grammar: &Grammar, start: &str, input: &str) -> Result<Term, ParseError> {
-            grammar.parse_attempt(
+            grammar.parse_attempt_explained(
                 &Sort::new(start),
                 input,
                 ParseContext {
@@ -3106,6 +3473,7 @@ mod chart_tests {
                         base_offset: 0,
                     },
                     diagnostic_provenance: false,
+                    diagnostic_work: DiagnosticWork::Unlimited,
                 },
                 PredictionMode::Unfiltered,
                 &mut Pruning::default(),
@@ -3181,10 +3549,11 @@ mod chart_tests {
                     baseline,
                     Err(ParseError::NoParse {
                         position: 0,
-                        expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()],
+                        expected: vec!["\"a\"".into(), "\"b\"".into(), "Choice".into()].into(),
                         input: input_kind,
                         previous: None,
                         span: None,
+                        work_limit: None,
                     })
                 );
                 PARSE_ATTEMPTS.set(0);
@@ -3196,10 +3565,11 @@ mod chart_tests {
                 grammar.parse(&Sort::new("Missing"), "?"),
                 Err(ParseError::NoParse {
                     position: 0,
-                    expected: vec![],
+                    expected: vec![].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: None,
                     span: None,
+                    work_limit: None,
                 })
             );
             assert_eq!(PARSE_ATTEMPTS.get(), 1);
@@ -3261,10 +3631,11 @@ mod chart_tests {
                 baseline,
                 Err(ParseError::NoParse {
                     position: 2,
-                    expected: vec!["\"z\"".into()],
+                    expected: vec!["\"z\"".into()].into(),
                     input: NoParseInput::UnrecognizedInput { value: "?".into() },
                     previous: Some("ab".into()),
                     span: None,
+                    work_limit: None,
                 })
             );
             PARSE_ATTEMPTS.set(0);
@@ -3333,7 +3704,7 @@ mod chart_tests {
             // the resulting root stops short of EOF, so this whole input is correctly rejected.
             let mut pruning = Pruning::default();
             CHART_PREDICTION_ATTEMPTS.set(0);
-            let result = grammar.parse_attempt(
+            let result = grammar.parse_attempt_explained(
                 &Sort::new("Start"),
                 "p?",
                 ParseContext {
@@ -3343,6 +3714,7 @@ mod chart_tests {
                         base_offset: 0,
                     },
                     diagnostic_provenance: false,
+                    diagnostic_work: DiagnosticWork::Unlimited,
                 },
                 PredictionMode::Filtered,
                 &mut pruning,
@@ -5097,6 +5469,163 @@ mod chart_tests {
             grammar.parse(&k, "a ~> b ~> c").unwrap().unannotated(),
             &Term::sequence([atom("a"), atom("b"), atom("c")])
         );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_work_tests {
+    use super::*;
+
+    /// `S ::= "x" | S "+" S`, with the sum left-associative, or neither way when
+    /// `non_associative`.
+    fn sums(non_associative: bool) -> Grammar {
+        let sort = Sort::new("S");
+        let operand = || ProductionItem::NonTerminal {
+            sort: sort.clone(),
+            name: None,
+        };
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                sort.clone(),
+                vec![ProductionItem::Terminal("x".to_owned())],
+                Some(Label::new("x")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar
+            .add(
+                sort.clone(),
+                vec![
+                    operand(),
+                    ProductionItem::Terminal("+".to_owned()),
+                    operand(),
+                ],
+                Some(Label::new("plus")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.add_left_associative("plus");
+        if non_associative {
+            grammar.add_right_associative("plus");
+        }
+        grammar
+    }
+
+    /// `operands` operands joined by `+`, then `suffix`.
+    fn chain(operands: usize, suffix: &str) -> String {
+        vec!["x"; operands].join("+") + suffix
+    }
+
+    /// The outcome of parsing `input` as `S` under `work`, and the chart steps it took.
+    fn parse(grammar: &Grammar, input: &str, work: DiagnosticWork) -> (ParseError, usize) {
+        reset_chart_work_counters();
+        let error = grammar
+            .parse_with_diagnostic_work(&Sort::new("S"), input, work)
+            .unwrap_err();
+        (error, chart_work_counters().chart_steps)
+    }
+
+    const NO_FLOOR: DiagnosticWork = DiagnosticWork::Limited { floor: 0 };
+
+    /// A chain with a syntax error at its end is located where its longest viable prefix ends
+    /// within the limit, and where the recognition under the relations stops past it: here the
+    /// same place, which the error marks as not explained.
+    #[test]
+    fn a_syntax_error_is_located_within_the_limit_and_past_it() {
+        let grammar = sums(false);
+        let input = chain(60, "+");
+        let (explained, _) = parse(&grammar, &input, DiagnosticWork::Unlimited);
+        let ParseError::NoParse {
+            position,
+            input: NoParseInput::EndOfInput,
+            previous,
+            work_limit: None,
+            ..
+        } = &explained
+        else {
+            panic!("expected the grammar's diagnostic: {explained:?}")
+        };
+        assert_eq!(
+            explained,
+            parse(&grammar, &input, DiagnosticWork::DEFAULT).0
+        );
+        let (unexplained, _) = parse(&grammar, &input, NO_FLOOR);
+        let ParseError::NoParse {
+            position: unexplained_position,
+            input: NoParseInput::EndOfInput,
+            previous: unexplained_previous,
+            work_limit: Some(_),
+            ..
+        } = &unexplained
+        else {
+            panic!("expected the first attempt's diagnostic: {unexplained:?}")
+        };
+        assert_eq!(
+            (unexplained_position, unexplained_previous),
+            (position, previous)
+        );
+        let message = unexplained.to_string();
+        assert!(
+            message.starts_with("Parse error: unexpected end of file following token '+'. ")
+                && message.contains(DiagnosticWork::VARIABLE),
+            "{message}"
+        );
+    }
+
+    /// An input that the grammar derives, but whose every derivation breaks a relation, is
+    /// reported by the relation within the limit; past it, by where the recognition under the
+    /// relations stops, which is the operator the relation forbids there.
+    #[test]
+    fn a_broken_relation_is_reported_within_the_limit_and_located_past_it() {
+        let grammar = sums(true);
+        let (error, _) = parse(&grammar, &chain(3, ""), DiagnosticWork::DEFAULT);
+        assert!(
+            matches!(&error, ParseError::Associativity { .. }),
+            "{error:?}"
+        );
+        let long = chain(20, "");
+        assert!(matches!(
+            parse(&grammar, &long, DiagnosticWork::Unlimited).0,
+            ParseError::Associativity { .. }
+        ));
+        let (unexplained, _) = parse(&grammar, &long, NO_FLOOR);
+        assert!(
+            matches!(
+                &unexplained,
+                ParseError::NoParse {
+                    position: 3,
+                    input: NoParseInput::Token { value },
+                    previous: Some(previous),
+                    work_limit: Some(_),
+                    ..
+                } if value == "+" && previous == "x"
+            ),
+            "{unexplained:?}"
+        );
+    }
+
+    /// The diagnostic of a failed chain takes chart steps linear in its length under a limit
+    /// proportional to the first attempt's, while without one it recognizes the chain's
+    /// ambiguous relation-free grammar, whose chart is cubic in its length.
+    #[test]
+    fn a_failed_chain_is_diagnosed_in_work_linear_in_its_length() {
+        let grammar = sums(false);
+        let steps = |operands: usize, work: DiagnosticWork| {
+            let (error, steps) = parse(&grammar, &chain(operands, "+"), work);
+            assert!(matches!(error, ParseError::NoParse { .. }), "{error:?}");
+            steps
+        };
+        let unlimited = [40, 80].map(|operands| steps(operands, DiagnosticWork::Unlimited));
+        let limited = [200, 400, 800].map(|operands| steps(operands, NO_FLOOR));
+        eprintln!("unlimited at 40 and 80 operands: {unlimited:?}");
+        eprintln!("limited at 200, 400 and 800 operands: {limited:?}");
+        assert!(unlimited[1] > 4 * unlimited[0], "{unlimited:?}");
+        for pair in limited.windows(2) {
+            assert!(pair[1] <= 3 * pair[0], "{limited:?}");
+        }
     }
 }
 

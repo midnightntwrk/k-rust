@@ -6988,6 +6988,21 @@ symbol = "Grammar::parse_with_context_and_diagnostic_provenance"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::parse_in_context"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::diagnose"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::explain"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::advanced_item_useful"
 
 [[node.sites]]
@@ -7030,11 +7045,11 @@ bound = "recognition plus the post-recognition passes called at the end of parse
 
 [[node.cost]]
 mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
-bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks"
+bound = "two recognitions, the second with the relations ignored and every node one stand-in (each item processed once, no forest), plus either one no-parse diagnostic or, when the second finds a derivation of the whole input, a third, forest-building recognition with the relations ignored and the error-reporting passes of prepare_packed_forest over its complete derivations; a grammar with a same-span cycle builds that forest instead of the second; the forest-building recognition cuts a node that repeats itself over one span, so the violation reported is one a derivation of the input breaks; every recognition charges its chart steps (an item, the derivations it reads, the callers a completion advances) and the forest passes as many again as the recognition that built the forest against the diagnostic's work limit (DiagnosticWork), and stops when it is reached"
 
 [[node.cost]]
-mode = "filtered attempt with retry (parse_with_context_and_diagnostic_provenance)"
-bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain takes the cubic recognition of that chain's relation-free grammar"
+mode = "filtered attempt with retry (parse_in_context, diagnose)"
+bound = "at most two parse attempts, after a first that skipped edges to doomed readings (DoomedEdges) and failed, which is then made again keeping them; the second only when the first found no derivation of the input (its error is read from the chart; an error computed from the forest is the first attempt's); the retry makes every prediction and, before the last chart the first attempt reached, skips only the completions the input cannot continue, judged without the priority and associativity relations, and cuts a node that repeats itself over one span instead of reporting a cycle, so a failed parse of an associativity-disambiguated chain would take the cubic recognition of that chain's relation-free grammar; every attempt and explanation after the first shares one work limit (DiagnosticWork), the larger of a floor and 16 times the first attempt's chart steps, past which the first attempt's own error is reported, so a failed parse takes chart work linear in its first attempt's plus the floor"
 
 [[node]]
 kind = "algorithm"

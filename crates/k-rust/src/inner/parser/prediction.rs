@@ -483,10 +483,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::{
-        CHART_COMPLETION_CANDIDATES, DoomedEdges, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput,
-        PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext,
-        ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition,
-        SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata,
+        CHART_COMPLETION_CANDIDATES, DiagnosticWork, DoomedEdges, NONTERMINAL_PREDICTIONS_SKIPPED,
+        NoParseInput, PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm,
+        ParseContext, ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning,
+        Recognition, SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata, WorkMeter,
     };
     use super::*;
     use crate::definition::{
@@ -533,7 +533,7 @@ mod tests {
     }
 
     fn unfiltered(grammar: &Grammar, input: &str) -> Result<Term, ParseError> {
-        grammar.parse_attempt(
+        grammar.parse_attempt_explained(
             &Sort::new("Start"),
             input,
             ParseContext {
@@ -543,6 +543,7 @@ mod tests {
                     base_offset: 100,
                 },
                 diagnostic_provenance: true,
+                diagnostic_work: DiagnosticWork::Unlimited,
             },
             PredictionMode::Unfiltered,
             &mut Pruning::default(),
@@ -625,7 +626,7 @@ mod tests {
         mode: PredictionMode,
         pruning: &mut Pruning,
     ) -> Result<Term, ParseError> {
-        grammar.parse_attempt(
+        grammar.parse_attempt_explained(
             &Sort::new("Start"),
             input,
             ParseContext {
@@ -635,6 +636,7 @@ mod tests {
                     base_offset: 100,
                 },
                 diagnostic_provenance: true,
+                diagnostic_work: DiagnosticWork::Unlimited,
             },
             mode,
             pruning,
@@ -1063,6 +1065,7 @@ mod tests {
                     false,
                     DoomedEdges::Kept,
                     &mut false,
+                    &mut WorkMeter::unlimited(),
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),
                 )
@@ -1273,7 +1276,7 @@ mod tests {
         assert!(
             matches!(
                 &no_parse,
-                Err(ParseError::NoParse { expected, .. }) if expected == &["\"c\"".to_owned()]
+                Err(ParseError::NoParse { expected, .. }) if **expected == ["\"c\"".to_owned()]
             ),
             "{no_parse:?}"
         );
@@ -1456,6 +1459,7 @@ mod tests {
                     false,
                     DoomedEdges::Kept,
                     &mut false,
+                    &mut WorkMeter::unlimited(),
                     &mut scanner_cache,
                     &std::cell::RefCell::new(PackedPriorityMemos::default()),
                 )

@@ -139,7 +139,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
         error.error,
         ParseError::NoParse {
             position: 3,
-            expected: vec!["\"done\"".into()],
+            expected: vec!["\"done\"".into()].into(),
             input: NoParseInput::Token {
                 value: "bad".into(),
             },
@@ -157,6 +157,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
                     .unwrap()
                     + 6,
             }),
+            work_limit: None,
         }
     );
 }
