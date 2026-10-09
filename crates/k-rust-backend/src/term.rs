@@ -827,9 +827,13 @@ impl Drop for Term {
         if Arc::strong_count(&self.0) != 1 || !self.0.kind.owns_deep_subterm() {
             return;
         }
+        let leaf = DETACHED
+            .try_with(|leaf| Arc::clone(&leaf.0))
+            .unwrap_or_else(|_| Arc::clone(&DETACHED_AT_EXIT.0));
         let mut work = Detached {
-            next: Some(self.take_node()),
+            next: Some(self.take_node(&leaf)),
             rest: Vec::new(),
+            leaf,
         };
         while let Some(node) = work.next.take().or_else(|| work.rest.pop()) {
             if let Some(TermData { kind, .. }) = Arc::into_inner(node) {
@@ -841,9 +845,11 @@ impl Drop for Term {
 
 /// The nodes [`Term`]'s `Drop` has taken out and not yet freed: the next one, and the rest. A
 /// node with one such subterm, the usual case, passes it on through `next` without allocating.
+/// `leaf` is this thread's [`DETACHED`], read once per drop.
 struct Detached {
     next: Option<Arc<TermData>>,
     rest: Vec<Arc<TermData>>,
+    leaf: Arc<TermData>,
 }
 
 std::thread_local! {
@@ -851,7 +857,7 @@ std::thread_local! {
     /// handle's drop then releases without descending. Each thread has its own, so that every
     /// node a drop frees through its work list counts a reference on a node of its own thread:
     /// with one leaf for the process, concurrent deep drops contended on its count and ran 4-5
-    /// times slower at 16 threads.
+    /// times slower at 16 threads. A drop reads it once and clones it for each node it takes.
     static DETACHED: Term = detached_leaf();
 }
 
@@ -869,12 +875,9 @@ impl Term {
         Arc::strong_count(&self.0) == 1 && self.0.kind.has_subterms()
     }
 
-    /// This handle's node, the handle left on this thread's [`DETACHED`].
-    fn take_node(&mut self) -> Arc<TermData> {
-        let leaf = DETACHED
-            .try_with(|leaf| Arc::clone(&leaf.0))
-            .unwrap_or_else(|_| Arc::clone(&DETACHED_AT_EXIT.0));
-        std::mem::replace(&mut self.0, leaf)
+    /// This handle's node, the handle left on `leaf`.
+    fn take_node(&mut self, leaf: &Arc<TermData>) -> Arc<TermData> {
+        std::mem::replace(&mut self.0, Arc::clone(leaf))
     }
 }
 
@@ -922,7 +925,7 @@ impl TermKind {
     fn into_deep_subterms(self, work: &mut Detached) {
         let mut take = |mut term: Term| {
             if term.is_last_deep_handle() {
-                let node = term.take_node();
+                let node = term.take_node(&work.leaf);
                 if work.next.is_none() {
                     work.next = Some(node);
                 } else {
