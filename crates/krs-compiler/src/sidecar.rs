@@ -299,6 +299,8 @@ pub enum SourceMapNodeKind {
     ClaimTrusted,
     /// `concrete`, `symbolic`, or `smt_lemma` key of an equation or simplification, or one binder it names.
     MatchRestriction,
+    /// The `[[ .. ]]` configuration context of an equation (KF-025).
+    FunctionContext,
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
@@ -562,6 +564,31 @@ impl SourceMap {
                                     origin,
                                     SourceMapNodeKind::MatchRestriction,
                                 )?;
+                            }
+                        }
+                        if let Some(context) = sentence.function_context() {
+                            insert_origin(
+                                &mut entries,
+                                context.origin(),
+                                SourceMapNodeKind::FunctionContext,
+                            )?;
+                            for cell in context.cells().cells() {
+                                insert_origin(
+                                    &mut entries,
+                                    cell.origin(),
+                                    SourceMapNodeKind::CellClause,
+                                )?;
+                                insert_term(&mut entries, cell.pattern())?;
+                                if let CellContentFrame::KSequenceTail { origin, .. }
+                                | CellContentFrame::MapRemainder { origin, .. }
+                                | CellContentFrame::ListRemainder { origin } = cell.frame()
+                                {
+                                    insert_origin(
+                                        &mut entries,
+                                        origin,
+                                        SourceMapNodeKind::CellFrame,
+                                    )?;
+                                }
                             }
                         }
                         if let Some(condition) = sentence.requires() {

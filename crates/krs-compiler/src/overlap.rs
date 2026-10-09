@@ -11,7 +11,9 @@
 //! (clause 7c). An `A | B` or-pattern contributes the cross product of its
 //! alternatives (clause 7b), and in any sentence two of its alternatives
 //! that bind variables must not match one term with different bindings
-//! (clause 8, KF-030).
+//! (clause 8, KF-030). A rule's footprint includes the cells read by the
+//! function contexts of the equations reachable from its requires and result
+//! (clause 5, KF-025); such a cell is unified as an unconstrained variable.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -103,6 +105,8 @@ impl Pattern {
 #[derive(Default)]
 struct VariableCatalog {
     by_rule: [BTreeMap<SemanticId, VariableKey>; 2],
+    /// Variables standing for cells read only through a function context.
+    unconstrained: [usize; 2],
     /// Each `alias @ pattern` met so far: the alias denotes the term its
     /// pattern matches (clause 7b), so it is unified with that pattern.
     aliases: Vec<(VariableKey, SemanticSortRef, Pattern)>,
@@ -231,6 +235,16 @@ fn named_occurrences(term: &SemanticTerm, output: &mut BTreeMap<SemanticId, usiz
 }
 
 impl VariableCatalog {
+    /// A variable no named binder shares: a cell in a footprint only
+    /// through a function context (clause 5, KF-025).
+    fn unconstrained(&mut self, rule: usize) -> VariableKey {
+        self.unconstrained[rule] += 1;
+        VariableKey {
+            rule,
+            ordinal: usize::MAX - self.unconstrained[rule],
+        }
+    }
+
     fn key(&mut self, rule: usize, id: &SemanticId) -> VariableKey {
         if let Some(key) = self.by_rule[rule].get(id) {
             return *key;
@@ -827,6 +841,104 @@ struct ClauseView<'a> {
     completed_head: bool,
     /// The cell content is a prefix: its omitted tail may hold more items.
     framed: bool,
+    /// The cell is in the footprint only through a function context
+    /// (clause 5, KF-025): its content is an unconstrained variable, and
+    /// `before` is the context's pattern, used only for its sort.
+    unconstrained: bool,
+}
+
+/// The cells each function's equations read through their function contexts,
+/// and the functions they call (clause 5, R5, KF-025).
+#[derive(Default)]
+struct FunctionContexts<'a> {
+    functions: BTreeMap<&'a StableItemId, FunctionReads<'a>>,
+}
+
+/// One function's context cells and callees, over all its equations.
+#[derive(Default)]
+struct FunctionReads<'a> {
+    cells: Vec<(&'a SemanticId, &'a SemanticTerm)>,
+    callees: BTreeSet<&'a StableItemId>,
+}
+
+impl<'a> FunctionContexts<'a> {
+    fn from_rules(rules: impl IntoIterator<Item = &'a SemanticRule>) -> Self {
+        let mut functions = BTreeMap::<_, FunctionReads<'a>>::new();
+        for rule in rules {
+            if rule.kind() != krs_ir::SentenceKind::Equation {
+                continue;
+            }
+            let RuleBodyRef::Term(body) = rule.relational_body() else {
+                continue;
+            };
+            let SemanticTermKind::Application {
+                application: ApplicationRef::Declared(function),
+                ..
+            } = body.from().kind()
+            else {
+                continue;
+            };
+            let reads = functions.entry(function).or_default();
+            if let Some(context) = rule.function_context() {
+                for cell in context.cells().cells() {
+                    reads.cells.push((cell.cell(), cell.pattern()));
+                }
+            }
+            declared_applications(body.to(), &mut reads.callees);
+            if let Some(condition) = rule.requires() {
+                declared_applications(condition.term(), &mut reads.callees);
+            }
+        }
+        Self { functions }
+    }
+
+    /// The cells read by the function contexts of every equation reachable
+    /// from `terms`, each with one context pattern: the closure over the
+    /// functions applied in `terms`, then in those functions' equations'
+    /// requires and right-hand sides.
+    fn reachable_cells(
+        &self,
+        terms: impl IntoIterator<Item = &'a SemanticTerm>,
+    ) -> BTreeMap<&'a SemanticId, &'a SemanticTerm> {
+        let mut pending = BTreeSet::new();
+        for term in terms {
+            declared_applications(term, &mut pending);
+        }
+        let mut visited = BTreeSet::new();
+        let mut cells = BTreeMap::new();
+        while let Some(function) = pending.pop_first() {
+            if !visited.insert(function) {
+                continue;
+            }
+            let Some(reads) = self.functions.get(function) else {
+                continue;
+            };
+            for (cell, pattern) in &reads.cells {
+                cells.entry(*cell).or_insert(*pattern);
+            }
+            pending.extend(
+                reads
+                    .callees
+                    .iter()
+                    .filter(|callee| !visited.contains(*callee)),
+            );
+        }
+        cells
+    }
+}
+
+/// Every declared production applied in `term`.
+fn declared_applications<'a>(term: &'a SemanticTerm, output: &mut BTreeSet<&'a StableItemId>) {
+    if let SemanticTermKind::Application {
+        application: ApplicationRef::Declared(production),
+        ..
+    } = term.kind()
+    {
+        output.insert(production);
+    }
+    for child in subterms(term) {
+        declared_applications(child, output);
+    }
 }
 
 /// One transition in the scope of the overlap check (F2 amendment, clause 1).
@@ -888,6 +1000,7 @@ fn head_application(term: &SemanticTerm, completed: bool) -> Option<&SemanticApp
 /// simplifications, aliases, claims, and anywhere rules are outside its scope.
 fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
     let computation = computation_cell(modules);
+    let contexts = FunctionContexts::from_rules(modules.iter().flat_map(SemanticModule::rules));
     let mut views = Vec::new();
     for rule in modules.iter().flat_map(SemanticModule::rules) {
         if rule.kind() != krs_ir::SentenceKind::Transition || rule.anywhere().is_some() {
@@ -903,6 +1016,7 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
                         before: clause.before(),
                         completed_head: false,
                         framed: !matches!(clause.frame(), krs_ir::CellContentFrame::Exact),
+                        unconstrained: false,
                     })
                     .collect::<Vec<_>>(),
             ),
@@ -917,14 +1031,18 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
                         before: body.from(),
                         completed_head: true,
                         framed: true,
+                        unconstrained: false,
                     }],
                 )
             }
         };
+        let mut clauses = clauses;
+        let read = contexts.reachable_cells(rule_results(rule));
+        add_context_clauses(&mut clauses, read);
         let head = computation.and_then(|(_, cell)| {
             clauses
                 .iter()
-                .find(|clause| clause.cell == cell)
+                .find(|clause| clause.cell == cell && !clause.unconstrained)
                 .and_then(|clause| head_application(clause.before, clause.completed_head))
         });
         views.push(TransitionView {
@@ -947,10 +1065,57 @@ fn transitions(modules: &[SemanticModule]) -> Vec<TransitionView<'_>> {
     views
 }
 
+/// The terms a rule's footprint reaches functions through (clause 5): its
+/// result and its requires condition.
+fn rule_results(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    let mut terms = match rule.relational_body() {
+        RuleBodyRef::Term(body) => vec![body.to()],
+        RuleBodyRef::Configuration { body, .. } => body
+            .clauses()
+            .iter()
+            .filter_map(|clause| match clause.after() {
+                krs_ir::CellPost::Replace { term } => Some(term),
+                krs_ir::CellPost::Preserve => None,
+            })
+            .collect(),
+    };
+    if let Some(condition) = rule.requires() {
+        terms.push(condition.term());
+    }
+    terms
+}
+
+/// Adds a clause for each cell `read` through a function context that the
+/// rule does not already name: the cell joins its footprint as an
+/// unconstrained variable (clause 5, R5).
+fn add_context_clauses<'a>(
+    clauses: &mut Vec<ClauseView<'a>>,
+    read: BTreeMap<&'a SemanticId, &'a SemanticTerm>,
+) {
+    for (cell, pattern) in read {
+        if clauses.iter().any(|clause| clause.cell == cell) {
+            continue;
+        }
+        clauses.push(ClauseView {
+            cell,
+            before: pattern,
+            completed_head: false,
+            framed: true,
+            unconstrained: true,
+        });
+    }
+}
+
 /// K's default rule priority.
 const DEFAULT_PRIORITY: u32 = 50;
 
 fn clause_pattern(clause: &ClauseView<'_>, rule: usize, catalog: &mut VariableCatalog) -> Pattern {
+    if clause.unconstrained {
+        return Pattern::Variable {
+            key: catalog.unconstrained(rule),
+            sort: clause.before.sort().clone(),
+        };
+    }
     let before = pattern(clause.before, rule, catalog);
     if clause.completed_head {
         Pattern::KSequence {
@@ -1228,8 +1393,9 @@ fn transitions_overlap(
 
 /// Whether two transitions' clauses over one configuration can match the same
 /// configuration. Disjoint footprints are independent: the rules commute (F2
-/// amendment, clause 5, without the function-context part). Otherwise only the
-/// shared cells are unified.
+/// amendment, clause 5; a cell read through a function context is in the
+/// footprint as an unconstrained clause). Otherwise only the shared cells are
+/// unified.
 fn clauses_overlap(
     left: &[ClauseView<'_>],
     left_requires: Option<&SemanticTerm>,
@@ -1254,11 +1420,11 @@ fn clauses_overlap(
     // An or-pattern contributes the cross product of its alternatives
     // (clause 7b): the rules overlap when some combination unifies.
     let mut left_nodes = Vec::new();
-    for clause in left {
+    for clause in left.iter().filter(|clause| !clause.unconstrained) {
         or_nodes(clause.before, &mut left_nodes);
     }
     let mut right_nodes = Vec::new();
-    for clause in right {
+    for clause in right.iter().filter(|clause| !clause.unconstrained) {
         or_nodes(clause.before, &mut right_nodes);
     }
     let right_choices = choices(&right_nodes);
@@ -1605,6 +1771,9 @@ mod pattern_as_tests;
 
 #[cfg(test)]
 mod pattern_or_tests;
+
+#[cfg(test)]
+mod function_context_tests;
 
 #[cfg(test)]
 mod tests {

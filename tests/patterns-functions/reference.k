@@ -115,3 +115,30 @@ module LETS-REFERENCE
   rule swapPair(P) => #fun(pair(X, Y) => pair(Y, X))(P)
   rule scale(E) => #fun(M:Int => #fun(N:Int => N *Int M)(M +Int 1))(E)
 endmodule
+
+// The function-context fixture written by hand in K: `barPlus` reads the
+// configuration with `[[ .. ]]`, and `barTwice` reads it through `barPlus`.
+module CONTEXTS-REFERENCE-SYNTAX
+  imports INT-SYNTAX
+
+  syntax Value ::= Int
+  syntax Exp ::= Value
+               | "readBar" "(" ")"
+               | "readTwice" "(" ")"
+  syntax Int ::= "barPlus" "(" Int ")" [function, total]
+  syntax Int ::= "barTwice" "(" Int ")" [function, total]
+endmodule
+
+module CONTEXTS-REFERENCE
+  imports CONTEXTS-REFERENCE-SYNTAX
+  imports INT
+
+  syntax KResult ::= Value
+
+  configuration <k> $PGM:Exp </k> <bar> 42 </bar> <baz> 0 </baz>
+
+  rule [[ barPlus(N) => B +Int N ]] <bar> B </bar> <baz> 0 </baz> requires 0 <=Int B
+  rule barTwice(N) => barPlus(N) +Int barPlus(N)
+  rule <k> readBar() => barPlus(1) ... </k>
+  rule <k> readTwice() => barTwice(1) ... </k>
+endmodule

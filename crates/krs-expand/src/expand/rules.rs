@@ -19,10 +19,13 @@ use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
 use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
-use super::state_rules::configuration_rule;
+use super::state_rules::{StateRuleBuilder, configuration_rule};
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
-use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
+use super::tokens::{
+    call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
+};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -48,6 +51,20 @@ pub(crate) fn rule(
             .is_some_and(|segment| segment.ident == "cells")
     });
     if is_cells_rule {
+        // A term subject followed by `cells!` is an equation's function
+        // context (KF-025), which K rejects on a transition.
+        let inputs = parsed.sig.inputs.iter().collect::<Vec<_>>();
+        if let [.., FnArg::Typed(subject), last] = inputs.as_slice()
+            && !matches!(&*subject.pat, Pat::Ident(_))
+        {
+            return Err(krs_syntax::SyntaxError::new(
+                krs_syntax::SyntaxErrorKind::InvalidFunctionContext {
+                    reason: krs_syntax::FUNCTION_CONTEXT_ONLY_ON_EQUATIONS.to_owned(),
+                },
+                syn::spanned::Spanned::span(last),
+            )
+            .into());
+        }
         if let Some(anywhere) = attribute.anywhere() {
             return Err(krs_syntax::SyntaxError::new(
                 krs_syntax::SyntaxErrorKind::InvalidRuleKey {
@@ -195,7 +212,11 @@ fn ordinary_rule(
     equation: Option<&krs_syntax::EquationAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
 ) -> crate::Result<TokenStream> {
-    let rule = krs_syntax::RuleItem::parse_tokens(item)?;
+    let rule = if sentence_kind == krs_ir::SentenceKind::Equation {
+        krs_syntax::RuleItem::parse_equation_tokens(item)?
+    } else {
+        krs_syntax::RuleItem::parse_tokens(item)?
+    };
     expand_ordinary_rule(
         env,
         &rule,
@@ -334,7 +355,7 @@ fn expand_ordinary_rule(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     let mut binding_checks = Vec::new();
-    for binding in rule.parameter().pattern.bindings() {
+    for binding in &rule.condition_bindings() {
         let generated = call_site_ident(binding)?;
         binding_checks.push(quote! {
             let #binding = ();
@@ -374,6 +395,25 @@ fn expand_ordinary_rule(
     let (typed_bindings, binder_key_functions) =
         typed_binders(rule, &facade, nonce, &cfg, &mut slots)?;
     let subject = term_builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
+    let context_bindings = rule.condition_bindings();
+    let function_context = rule
+        .function_context()
+        .map(|context| {
+            function_context(
+                rule,
+                context,
+                &mut term_builder,
+                &context_bindings,
+                FunctionContextExpansion {
+                    facade: &facade,
+                    nonce,
+                    cfg: &cfg,
+                },
+                &mut slots,
+            )
+        })
+        .transpose()?;
+    let (function_context, context_tokens) = function_context.unzip();
     term_builder.reset_side();
     let result = term_builder.expand_wire(rule.result().tree(), TermSide::Right, &mut slots)?;
     term_builder.reset_side();
@@ -446,6 +486,7 @@ fn expand_ordinary_rule(
         unbound_variables: desugar
             .and_then(krs_syntax::DesugarAttribute::unbound_variables)
             .map(unbound_variables),
+        function_context,
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -466,13 +507,20 @@ fn expand_ordinary_rule(
     }
     .render();
 
+    let ContextTokens {
+        parameter: context_parameter,
+        checks: context_checks,
+        items: context_items,
+    } = context_tokens.unwrap_or_default();
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(
             __krs_symbolic_subject: #parameter_type,
+            #context_parameter
         ) -> #result_type {
             let _krs_binding_check = || {
                 #(#binding_checks)*
+                #(#context_checks)*
             };
             let _ = __krs_symbolic_subject;
             ::core::panic!("KRS rule declarations have no runtime implementation")
@@ -494,8 +542,129 @@ fn expand_ordinary_rule(
 
         #(#term_key_functions)*
 
+        #(#context_items)*
+
         #factory_tokens
     })
+}
+
+/// The shared expansion inputs of an equation's function context.
+#[derive(Clone, Copy)]
+struct FunctionContextExpansion<'a> {
+    facade: &'a Path,
+    nonce: u64,
+    cfg: &'a [Attribute],
+}
+
+/// The generated Rust of an equation's function context: its parameter of
+/// the generated fn, its path checks, and its key functions.
+#[derive(Default)]
+struct ContextTokens {
+    parameter: TokenStream,
+    checks: Vec<TokenStream>,
+    items: Vec<TokenStream>,
+}
+
+/// Expands an equation's function context (KF-025): its configuration
+/// reference, its bindings the subject does not bind, and its one-sided cells,
+/// whose left-hand ordinals continue after the subject's.
+fn function_context(
+    rule: &krs_syntax::RuleItem,
+    context: &krs_syntax::FunctionContext,
+    term_builder: &mut TermBuilder<'_>,
+    bindings: &[syn::Ident],
+    expansion: FunctionContextExpansion<'_>,
+    slots: &mut WireSlots,
+) -> crate::Result<(krs_ir::wire::WireFunctionContext, ContextTokens)> {
+    let FunctionContextExpansion { facade, nonce, cfg } = expansion;
+    let configuration_type = call_site_path(context.configuration_type())?;
+    let configuration_key = format_ident!("__krs_function_context_configuration_{nonce:016x}");
+    let subject = rule.parameter().pattern.bindings();
+    let mut context_bindings = Vec::new();
+    for binding in context.bindings() {
+        if subject.contains(binding.name()) {
+            continue;
+        }
+        let kind = match binding.kind() {
+            krs_syntax::StateRuleBindingKind::Term => {
+                let index = rule
+                    .binders()
+                    .iter()
+                    .position(|binder| binder.name() == binding.name())
+                    .expect("the binder list declares every context term binder");
+                let ordinal = u32::try_from(index).map_err(|_| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        binding.name().span(),
+                        "too many typed binders",
+                    )
+                })?;
+                let sort = rule.binders()[index].term_sort();
+                let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{ordinal}");
+                krs_ir::ProtocolRuleBindingKind::Term {
+                    sort: wire_sort_reference(
+                        slots,
+                        facade,
+                        ProvenanceRole::RuleBindingType,
+                        ordinal,
+                        &key_fn,
+                        &sort.sort_token_text(),
+                    ),
+                }
+            }
+            krs_syntax::StateRuleBindingKind::KSequenceFrame => {
+                krs_ir::ProtocolRuleBindingKind::KSequenceFrame
+            }
+            krs_syntax::StateRuleBindingKind::MapFrame => krs_ir::ProtocolRuleBindingKind::MapFrame,
+            krs_syntax::StateRuleBindingKind::ConfigurationFrame => {
+                unreachable!("the parser rejects a bound configuration remainder")
+            }
+        };
+        context_bindings.push(krs_ir::ProtocolRuleBinding {
+            name: binding.name().to_string(),
+            kind,
+        });
+    }
+    let mut builder =
+        StateRuleBuilder::new(facade, nonce, cfg, bindings, krs_syntax::RuleSide::Left);
+    builder.continue_subject(term_builder);
+    let cells = builder.expand_cells(context.pattern(), &configuration_type, slots)?;
+    term_builder.continue_ordinals(&builder.terms);
+    term_builder.next_key = builder.terms.next_key;
+    let mut items = std::mem::take(&mut builder.terms.key_functions);
+    items.push(quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        fn #configuration_key() -> ::core::any::TypeId {
+            ::core::any::TypeId::of::<#configuration_type>()
+        }
+    });
+    let mut checks = context
+        .wrapper_paths()
+        .into_iter()
+        .map(|path| call_site_path(path).map(|path| wrapper_type_check(&path)))
+        .collect::<crate::Result<Vec<_>>>()?;
+    checks.extend(consumed_state_island_import_checks(rule.item()));
+    let wire = krs_ir::wire::WireFunctionContext {
+        key: wire_key(ProvenanceRole::FunctionContext, 0),
+        configuration: krs_ir::wire::WireConfigurationReference {
+            key: wire_key(ProvenanceRole::FunctionContextType, 0),
+            configuration: WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#configuration_key))),
+                authored_path: spelling(context.configuration_type()),
+            },
+        },
+        bindings: context_bindings,
+        cells,
+    };
+    Ok((
+        wire,
+        ContextTokens {
+            parameter: quote!(__krs_function_context: #configuration_type,),
+            checks,
+            items,
+        },
+    ))
 }
 
 /// Transports the declared typed binders of a term-shaped rule fn (KF-009):

@@ -1081,6 +1081,7 @@ pub struct RuleSentence {
     fresh: Vec<DefinitionScopedBinder>,
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
+    function_context: Option<crate::IrFunctionContext<crate::DefinitionLevel>>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1101,6 +1102,7 @@ impl Serialize for RuleSentence {
             fresh: Cow::Borrowed(&self.fresh),
             restriction: self.restriction.as_ref().map(Cow::Borrowed),
             unbound_variables: self.unbound_variables.as_ref().map(Cow::Borrowed),
+            function_context: self.function_context.as_ref().map(Cow::Borrowed),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1134,6 +1136,8 @@ struct RuleSentenceWire<'a, B> {
     restriction: Option<Cow<'a, crate::IrMatchRestriction>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     unbound_variables: Option<Cow<'a, crate::IrUnboundVariables>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    function_context: Option<Cow<'a, crate::IrFunctionContext<crate::DefinitionLevel>>>,
     body: B,
 }
 
@@ -1170,6 +1174,7 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             fresh: value.fresh.into_owned(),
             restriction: value.restriction.map(Cow::into_owned),
             unbound_variables: value.unbound_variables.map(Cow::into_owned),
+            function_context: value.function_context.map(Cow::into_owned),
             content,
         })
     }
@@ -1177,6 +1182,9 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
 
 /// Structured relational body of one ordinary labeled Definition rule.
 pub type DefinitionRuleBody = crate::IrRuleBody<crate::DefinitionLevel>;
+
+/// The read-only configuration context of a definition equation (KF-025).
+pub type DefinitionFunctionContext = crate::IrFunctionContext<crate::DefinitionLevel>;
 impl RuleSentence {
     /// Creates a sentence whose body must be a structured rewrite.
     ///
@@ -1207,6 +1215,7 @@ impl RuleSentence {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
@@ -1233,6 +1242,7 @@ impl RuleSentence {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
@@ -1381,6 +1391,24 @@ impl RuleSentence {
         }
         variables.retain(|id| id.kind() == krs_ir::SemanticIdKind::Wildcard);
         variables
+    }
+
+    /// Records an equation's read-only configuration context (KF-025).
+    #[must_use]
+    pub fn with_function_context(
+        mut self,
+        function_context: Option<crate::IrFunctionContext<crate::DefinitionLevel>>,
+    ) -> Self {
+        self.function_context = function_context;
+        self
+    }
+
+    /// Returns an equation's read-only configuration context (KF-025).
+    #[must_use]
+    pub const fn function_context(
+        &self,
+    ) -> Option<&crate::IrFunctionContext<crate::DefinitionLevel>> {
+        self.function_context.as_ref()
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1617,6 +1645,9 @@ pub enum DefinitionValidationError {
     /// `unbound_variables` occurred on a sentence other than a term-shaped desugar clause,
     /// or listed a variable the left-hand side binds or the right-hand side does not use.
     InvalidUnboundVariables(LabelId),
+    /// A function context occurred on a sentence other than an equation, or
+    /// selects another configuration (KF-025).
+    InvalidFunctionContext(LabelId),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1849,6 +1880,10 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidUnboundVariables(id) => write!(
                 formatter,
                 "unbound_variables is allowed only on desugar clauses, naming right-hand variables the left-hand side does not bind, not on {id}"
+            ),
+            Self::InvalidFunctionContext(id) => write!(
+                formatter,
+                "a function context is allowed only on an equation, over the fixed configuration, not on {id}"
             ),
             Self::FreshScopeViolation(id) => write!(
                 formatter,
@@ -2204,6 +2239,7 @@ mod tests {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             content: crate::ir_level::RuleContent::Configuration {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,

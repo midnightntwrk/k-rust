@@ -715,6 +715,177 @@ pub(super) fn lower_context_alias_descriptor(
     ))
 }
 
+/// Lowers an equation's function context (KF-025): its leaf cells as a
+/// one-sided pattern over the fixed configuration, whose term binders have
+/// the sorts in `binding_sorts`. Returns the context and its wildcards, which
+/// continue after the first `wildcard_ordinal` of the sentence.
+pub(super) fn lower_function_context(
+    descriptor: &Descriptor,
+    context: &krs_ir::DescriptorFunctionContext,
+    tables: StateRuleTables<'_>,
+    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    wildcard_ordinal: usize,
+) -> Result<
+    (
+        krs_ir_levels::SemanticFunctionContext,
+        Vec<SemanticVariable>,
+    ),
+    DescriptorLoweringError,
+> {
+    let StateRuleTables {
+        declarations,
+        sort_parents,
+        catalog,
+    } = tables;
+    let configuration = require_fixed_configuration(
+        &context.configuration.configuration,
+        declarations,
+        "function context",
+        "a function context reads the fixed configuration",
+    )?;
+    let mut terms = StateRuleTerms {
+        descriptor,
+        declarations,
+        sort_parents,
+        catalog,
+        wildcard_ordinal,
+        variables: Vec::new(),
+    };
+    let cells = context
+        .cells
+        .cells
+        .iter()
+        .map(|cell| lower_function_context_cell(&mut terms, cell, binding_sorts))
+        .collect::<Result<Vec<_>, _>>()?;
+    let selected = context
+        .cells
+        .cells
+        .iter()
+        .map(|cell| cell.field.cell.clone())
+        .collect::<BTreeSet<_>>();
+    let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
+    let body = FixedConfigurationPattern::new(
+        semantic_origin(
+            descriptor,
+            context.cells.key.clone(),
+            "function-context-cells",
+        )?,
+        generated_semantic_id("configuration", &context.configuration.configuration, None)?,
+        cells,
+        omitted_siblings,
+    )?;
+    Ok((
+        krs_ir_levels::SemanticFunctionContext::new(
+            semantic_origin(descriptor, context.key.clone(), "function-context")?,
+            body,
+        ),
+        terms.variables,
+    ))
+}
+
+/// The declaration tables a `cells!` pattern is lowered against.
+#[derive(Clone, Copy)]
+pub(super) struct StateRuleTables<'a> {
+    pub(super) declarations: &'a DescriptorIndex<'a>,
+    pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+}
+
+fn lower_function_context_cell(
+    terms: &mut StateRuleTerms<'_>,
+    pattern: &DescriptorRuleCell,
+    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+) -> Result<FixedCellPattern<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = terms.descriptor;
+    let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
+    let invalid =
+        |key: &ProvenanceKey, reason: String| DescriptorLoweringError::InvalidFunctionContext {
+            item: Box::new(descriptor.id().clone()),
+            reason,
+            range: descriptor
+                .provenance()
+                .origin_for(key)
+                .and_then(krs_ir::OriginStack::exact_authored_range)
+                .map(Box::new),
+        };
+    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
+        return Err(invalid(
+            &pattern.field.key,
+            format!(
+                "a function context reads leaf cells, not the whole nested cell `{}`; name the cells inside it",
+                pattern.field.cell.field
+            ),
+        ));
+    };
+    let cell_sort = semantic_sort_ref(&sort.sort);
+    if let ProtocolRuleStateTerm::Term(DescriptorTerm::Variable { key, name, .. }) = &pattern.value
+        && let Some(declared) = binding_sorts.get(name)
+        && !is_subsort_or_equal(declared, &cell_sort, terms.sort_parents)
+    {
+        return Err(invalid(
+            key,
+            format!(
+                "the function-context binder `{name}` is declared `{}`, but the cell `{}` holds `{}`",
+                super::overload::sort_name(declared),
+                pattern.field.cell.field,
+                super::overload::sort_name(&cell_sort),
+            ),
+        ));
+    }
+    if pattern.wrapper.is_none() {
+        return Err(DescriptorLoweringError::InvalidTerm {
+            id: Box::new(descriptor.id().clone()),
+            detail: format!(
+                "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
+                pattern.field.cell.field
+            ),
+        });
+    }
+    if pattern.wrapper != Some(*wrapper) {
+        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
+            id: Box::new(pattern.field.cell.owner.clone()),
+            detail: "function-context wrapper disagrees with its cell declaration".into(),
+        });
+    }
+    let term = terms.state_term(
+        &pattern.value,
+        &cell_sort,
+        &pattern.field.key,
+        binding_sorts,
+        true,
+    )?;
+    Ok(FixedCellPattern::new(
+        semantic_origin(
+            descriptor,
+            pattern.field.key.clone(),
+            "function-context-cell",
+        )?,
+        semantic_cell_id(&pattern.field.cell)?,
+        term,
+        lower_subject_cell_frame(descriptor, &pattern.value)?,
+    ))
+}
+
+/// Whether `sort` is `expected` or one of its subsorts, by the declared
+/// subsort relation.
+fn is_subsort_or_equal(
+    sort: &SemanticSortRef,
+    expected: &SemanticSortRef,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> bool {
+    let mut pending = vec![sort];
+    let mut visited = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        if current == expected {
+            return true;
+        }
+        if visited.insert(current) {
+            pending.extend(sort_parents.get(current).into_iter().flatten());
+        }
+    }
+    false
+}
+
 fn lower_context_alias_cell(
     terms: &mut StateRuleTerms<'_>,
     pattern: &DescriptorRuleCell,

@@ -198,6 +198,7 @@ fn lower_module_descriptor(
             sentences.rules.push(lower_structured_rule_descriptor(
                 descriptor,
                 rule,
+                declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
             )?);

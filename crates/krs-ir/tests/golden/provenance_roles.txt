@@ -218,3 +218,5 @@ MatchesWildcard=matches_wildcard
 Let=let
 LetSort=let_sort
 LetWildcard=let_wildcard
+FunctionContext=function_context
+FunctionContextType=function_context_type

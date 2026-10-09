@@ -508,6 +508,21 @@ impl<'a> StateRuleBuilder<'a> {
         }
     }
 
+    /// Continues the left-hand side of `previous`, a term subject expanded
+    /// before this `cells!` pattern (an equation's function context, KF-025):
+    /// the per-side term ordinals, the sentence-wide ordinals, and the key
+    /// function numbering all carry on.
+    pub(super) fn continue_subject(&mut self, previous: &TermBuilder<'_>) {
+        let [application, reference, literal, record_field, wildcard] = previous.side_ordinals();
+        self.counters.application = application;
+        self.counters.reference = reference;
+        self.counters.literal = literal;
+        self.counters.record_field = record_field;
+        self.counters.wildcard = wildcard;
+        self.terms.continue_ordinals(previous);
+        self.terms.next_key = previous.next_key;
+    }
+
     pub(super) fn for_claim(mut self) -> Self {
         self.claim = true;
         self.terms = self.terms.for_claim();

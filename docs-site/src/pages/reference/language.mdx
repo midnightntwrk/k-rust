@@ -161,6 +161,33 @@ A block holds only `let` statements and one result without a semicolon (``a term
 A `let` pattern takes one alternative (`#let patterns take one alternative`) and no `name @ pattern`, because K accepts `#as` only on a rule's left-hand side; an ascription names one binder.
 A block in a pattern, a let-bound name used outside its block, and a pattern whose sort cannot meet its value's (`krs::analysis::invalid-let`) are rejected, as is a block in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `#let` in a claim).
 
+### Function contexts
+
+A K function can read the configuration it is evaluated in.
+An `#[k::equation]` may end with a second parameter, its **function context**: a `k::cells!` pattern over the configuration struct, framed by an anonymous `..`.
+
+```rust
+#[k::requires(int::le(0, b))]
+#[k::equation]
+fn bar_plus(
+    n: Term<Int>,
+    b: Term<Int>,
+    k::term![BarPlus(n)]: Term<Int>,
+    k::cells! { bar: k::configuration::Cell(b), baz: k::configuration::Cell(0), .. }: Machine,
+) -> Term<Int> {
+    int::add(b, n)
+}
+```
+
+It emits K's function-context rule, the rewrite in `[[ .. ]]` and the cells it reads on the following lines: `rule [[ barPlus ( N:Int ) => B:Int +Int N:Int ]]`, then `<bar> B:Int </bar>` and `<baz> 0 </baz>`, then `requires 0 <=Int B:Int`.
+The caller never passes the configuration: `read: ReadBar() => crate::BarPlus(1);` stays `barPlus ( 1 )`, and K adds a hidden configuration argument to `barPlus` and threads it through every function that needs it, including a function such as `barTwice`, whose own equation has no context but calls `barPlus`.
+K's warning for a total function whose context may not match shows that argument: `Non exhaustive match detected: barPlus(_,<generatedTop>(_,<bar>(_),<baz>(#token("1","Int")),_))`; KRS does not diagnose it.
+The context is read-only: an equation returns a term, never the configuration, so this is not a multi-cell rule, which is a transition.
+Because a rule that calls such a function reads those cells, the overlap check counts them in the rule's footprint (as unconstrained cells): a rule that writes `<bar>` and a rule on `<k>` that calls `barPlus` are reported as overlapping.
+
+The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
+A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
+
 ### Anywhere rules
 
 Most rules act at the head of the computation cell, and equations act wherever their function appears.

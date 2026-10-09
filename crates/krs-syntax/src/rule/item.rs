@@ -13,6 +13,7 @@ use super::pattern::{
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
 };
+use crate::state_rule::{FUNCTION_CONTEXT_ONLY_ON_EQUATIONS, FunctionContext, is_cells_parameter};
 use crate::term::{
     is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
     unexpected_macro,
@@ -78,6 +79,7 @@ pub struct RuleItem {
     existentials: RuleExistentials,
     /// Result names a desugar clause's `unbound_variables` lists (KF-046).
     unbound: Vec<Ident>,
+    function_context: Option<FunctionContext>,
 }
 
 impl RuleItem {
@@ -89,15 +91,54 @@ impl RuleItem {
     /// types, unsupported patterns, binder lists that break the binder-list
     /// contract, and bodies other than one named term.
     pub fn from_item(item: ItemFn) -> Result<Self, SyntaxError> {
-        Self::from_item_with_signs(item, NegativeLiteralSpans::default())
+        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), false)
+    }
+
+    /// Validates a previously parsed Rust function as an equation, which may
+    /// end with a function context (KF-025).
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::from_item`], plus a malformed function context.
+    pub fn from_equation_item(item: ItemFn) -> Result<Self, SyntaxError> {
+        Self::from_item_with_signs(item, NegativeLiteralSpans::default(), true)
+    }
+
+    /// Parses an equation's tokens, which may end with a function context.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::from_equation_item`].
+    pub fn parse_equation_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
+        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, true)
+    }
+
+    /// Parses an equation's source text, which may end with a function context.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::parse_equation_tokens`], plus Rust lexing errors.
+    pub fn parse_equation_source(source: &str) -> Result<Self, SyntaxError> {
+        Self::parse_equation_tokens(crate::parse::tokens_from_source(source)?)
     }
 
     /// [`Self::from_item`] with the negative-literal spans of the item's source tokens.
     fn from_item_with_signs(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
+        allow_context: bool,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_term_sort, false, false, signs, false)
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_term_sort,
+            false,
+            false,
+            signs,
+            false,
+            allow_context,
+        )
     }
 
     /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
@@ -144,6 +185,7 @@ impl RuleItem {
             false,
             signs,
             wildcards,
+            false,
         )?
         .apply_unbound_variables(attribute)
     }
@@ -152,9 +194,21 @@ impl RuleItem {
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_readable_sort, true, true, signs, false)
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_readable_sort,
+            true,
+            true,
+            signs,
+            false,
+            false,
+        )
     }
 
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "Each flag selects one independent clause form: readable rest, readable head, desugar wildcards, function context."
+    )]
     fn from_item_with_sort_parser(
         item: &mut ItemFn,
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
@@ -162,10 +216,17 @@ impl RuleItem {
         root_identifier_is_binding: bool,
         signs: NegativeLiteralSpans,
         result_wildcards: bool,
+        allow_context: bool,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
-        let binders = parse_rule_binders(item)?;
-        let argument = item.sig.inputs.last().ok_or_else(|| {
+        let function_context = parse_function_context(item, allow_context)?;
+        let binders = parse_rule_binders(item, usize::from(function_context.is_some()))?;
+        let subject_index = item
+            .sig
+            .inputs
+            .len()
+            .saturating_sub(1 + usize::from(function_context.is_some()));
+        let argument = item.sig.inputs.iter().nth(subject_index).ok_or_else(|| {
             unsupported_signature(
                 "a rule must end with one subject parameter",
                 item.sig.span(),
@@ -190,7 +251,17 @@ impl RuleItem {
             signs,
         )?;
         let parameter_sort = sort_parser((*argument.ty).clone())?;
-        validate_binder_list(&binders, pattern.bindings())?;
+        let mut function_context = function_context;
+        if let Some(context) = &mut function_context {
+            validate_context_binder_list(item, &binders, pattern.bindings(), context)?;
+            let declared = binders
+                .iter()
+                .map(|binder| (binder.name.clone(), binder.term_sort.clone()))
+                .collect::<Vec<_>>();
+            context.attach_sorts(pattern.bindings(), &declared)?;
+        } else {
+            validate_binder_list(&binders, pattern.bindings())?;
+        }
 
         let ReturnType::Type(_, result_type) = &item.sig.output else {
             return Err(unsupported_signature(
@@ -226,6 +297,7 @@ impl RuleItem {
             requires,
             existentials,
             unbound: Vec::new(),
+            function_context,
         })
     }
 
@@ -278,6 +350,12 @@ impl RuleItem {
         Ok(self)
     }
 
+    /// Returns the equation's read-only configuration context (KF-025).
+    #[must_use]
+    pub const fn function_context(&self) -> Option<&FunctionContext> {
+        self.function_context.as_ref()
+    }
+
     /// Returns the original Rust function with authored spans.
     #[must_use]
     pub const fn item(&self) -> &ItemFn {
@@ -327,13 +405,28 @@ impl RuleItem {
         &self.existentials
     }
 
-    /// Subject bindings followed by the existentials: every name the result
-    /// and the ensures condition may reference.
+    /// Subject and function-context bindings followed by the existentials:
+    /// every name the result and the ensures condition may reference.
     #[must_use]
     pub fn result_bindings(&self) -> Vec<syn::Ident> {
-        let mut bindings = self.parameter.pattern.bindings().to_vec();
+        let mut bindings = self.condition_bindings();
         bindings.extend(self.existentials.names());
         bindings.extend(self.unbound.iter().cloned());
+        bindings
+    }
+
+    /// The subject's bindings followed by the function context's new ones:
+    /// every name the requires condition may reference.
+    #[must_use]
+    pub fn condition_bindings(&self) -> Vec<syn::Ident> {
+        let mut bindings = self.parameter.pattern.bindings().to_vec();
+        if let Some(context) = &self.function_context {
+            for binding in context.bindings() {
+                if !bindings.contains(binding.name()) {
+                    bindings.push(binding.name().clone());
+                }
+            }
+        }
         bindings
     }
 
@@ -419,6 +512,10 @@ impl RuleItem {
     /// # Errors
     ///
     /// Returns endpoint or occurrence-overflow errors.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One pass over the subject, function context, result, and conditions in provenance order."
+    )]
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.provenance()?;
         push_term_node_anchors(
@@ -438,6 +535,17 @@ impl RuleItem {
             &self.subject_tree,
             ProvenanceRole::RuleLeftWildcard,
         )?;
+        // A function context's cells continue the subject's left-hand
+        // ordinals: they are expanded right after it (KF-025).
+        if let Some(context) = &self.function_context {
+            let context_anchors = context.provenance(&anchors)?;
+            anchors.extend(context_anchors);
+        }
+        let context_terms = self
+            .function_context
+            .as_ref()
+            .map(FunctionContext::terms)
+            .unwrap_or_default();
         push_term_node_anchors(
             &mut anchors,
             self.result.nodes(),
@@ -461,6 +569,9 @@ impl RuleItem {
         anchors.extend(self.existentials.provenance()?);
         let mut lexemes = 0_usize;
         push_lexeme_anchors(&mut anchors, self.parameter.pattern.nodes(), &mut lexemes)?;
+        for term in &context_terms {
+            push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexemes)?;
+        }
         push_lexeme_anchors(&mut anchors, self.result.nodes(), &mut lexemes)?;
         if let Some(requires) = &self.requires {
             push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
@@ -468,11 +579,14 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
         }
-        // `name @ ..` and `A | B` occur in the subject and in `k::matches!`
-        // patterns; with `k::matches!` shells and pattern wildcards (KF-031)
-        // they are numbered in expansion order: the subject, the result, the
-        // condition, then the ensures condition.
-        let mut sides = vec![self.parameter.pattern.nodes(), self.result.nodes()];
+        // `name @ ..` and `A | B` occur in the subject, the function context,
+        // and in `k::matches!` patterns; with `k::matches!` shells and pattern
+        // wildcards (KF-031) they are numbered in expansion order: the
+        // subject, the function context, the result, the condition, then the
+        // ensures condition.
+        let mut sides = vec![self.parameter.pattern.nodes()];
+        sides.extend(context_terms.iter().map(|term| term.nodes()));
+        sides.push(self.result.nodes());
         if let Some(requires) = &self.requires {
             sides.push(requires.term().nodes());
         }
@@ -501,6 +615,9 @@ impl RuleItem {
             self.parameter.pattern.nodes(),
             &mut sort_tests,
         )?;
+        for term in &context_terms {
+            push_sort_test_anchors(&mut anchors, term.nodes(), &mut sort_tests)?;
+        }
         push_sort_test_anchors(&mut anchors, self.result.nodes(), &mut sort_tests)?;
         if let Some(requires) = &self.requires {
             push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
@@ -655,7 +772,7 @@ impl KrsSyntax for RuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
         crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
-        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs)
+        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, false)
     }
 }
 
@@ -710,10 +827,44 @@ fn binder_error(reason: String, span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidBinderList { reason }, span)
 }
 
-/// Parses the typed binder parameters before the subject (KF-009, X5).
-fn parse_rule_binders(item: &ItemFn) -> Result<Vec<RuleBinder>, SyntaxError> {
+/// Parses an equation's final function-context parameter (KF-025), or
+/// rejects one on another sentence.
+///
+/// A final `k::cells! { .. }` parameter after a subject is a function context;
+/// on an equation, so is any final parameter that follows a subject pattern
+/// (a parameter that is not a plain binder).
+fn parse_function_context(
+    item: &ItemFn,
+    allow_context: bool,
+) -> Result<Option<FunctionContext>, SyntaxError> {
+    let inputs = item.sig.inputs.iter().collect::<Vec<_>>();
+    let [.., previous, last] = inputs.as_slice() else {
+        return Ok(None);
+    };
+    let follows_subject =
+        matches!(previous, FnArg::Typed(previous) if !matches!(&*previous.pat, Pat::Ident(_)));
+    if is_cells_parameter(last) {
+        if !allow_context {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidFunctionContext {
+                    reason: FUNCTION_CONTEXT_ONLY_ON_EQUATIONS.to_owned(),
+                },
+                last.span(),
+            ));
+        }
+        return FunctionContext::parse(last).map(Some);
+    }
+    if allow_context && follows_subject {
+        return FunctionContext::parse(last).map(Some);
+    }
+    Ok(None)
+}
+
+/// Parses the typed binder parameters before the subject (KF-009, X5), and
+/// before the function context when there is one (`trailing` is then 1).
+fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>, SyntaxError> {
     let mut binders = Vec::<RuleBinder>::new();
-    let count = item.sig.inputs.len().saturating_sub(1);
+    let count = item.sig.inputs.len().saturating_sub(1 + trailing);
     for argument in item.sig.inputs.iter().take(count) {
         let FnArg::Typed(argument) = argument else {
             return Err(unsupported_signature(
@@ -815,6 +966,56 @@ fn unbound_variables_error(reason: &str, span: proc_macro2::Span) -> SyntaxError
 /// `unbound_variables`: the result may contain wildcards.
 fn parse_rule_body_with_wildcards(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
     parse_rule_body_context(item, true)
+}
+
+/// Checks the binder-list contract of a sentence with a function context
+/// (X5.1): mandatory and exhaustive, the subject's binders then the context's
+/// new term binders, each in first-occurrence order.
+fn validate_context_binder_list(
+    item: &ItemFn,
+    binders: &[RuleBinder],
+    subject: &[Ident],
+    context: &FunctionContext,
+) -> Result<(), SyntaxError> {
+    let mut expected = subject.iter().map(Ident::unraw).collect::<Vec<_>>();
+    for binding in context.term_bindings() {
+        let binding = binding.unraw();
+        if !expected.contains(&binding) {
+            expected.push(binding);
+        }
+    }
+    for binder in binders {
+        if !expected.contains(&binder.name.unraw()) {
+            return Err(binder_error(
+                format!(
+                    "binder `{}` is declared but does not occur in the subject or function context",
+                    binder.name.unraw()
+                ),
+                binder.name.span(),
+            ));
+        }
+    }
+    let mismatch = binders
+        .iter()
+        .zip(&expected)
+        .find(|(binder, expected)| binder.name.unraw() != **expected)
+        .map(|(binder, _)| binder.name.span());
+    if binders.len() != expected.len() || mismatch.is_some() {
+        let listed = expected
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(binder_error(
+            format!(
+                "{BINDER_LIST_CONTRACT}; a sentence with a function context declares every binder, here `{listed}`"
+            ),
+            mismatch
+                .or_else(|| binders.first().map(|binder| binder.name.span()))
+                .unwrap_or_else(|| item.sig.ident.span()),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {

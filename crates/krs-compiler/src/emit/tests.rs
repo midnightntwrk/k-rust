@@ -814,3 +814,54 @@ fn lets_print_as_parenthesised_k_let_with_distinct_local_names() {
         "( #let X_2:Int = X:Int +Int X:Int #in X_2:Int +Int X:Int )"
     );
 }
+
+/// A binder that occurs only in an equation's function context is named like
+/// any rule binder, so `[[ f ( N ) => B ]] <bar> B </bar>` prints `B:Int`
+/// (KF-025).
+#[test]
+fn function_context_binders_are_named_with_the_rule() {
+    let context = context();
+    let b = krs_ir::SemanticId::new("b".to_owned()).unwrap();
+    let read = DefinitionTerm::variable(node("context.read"), DefinitionSortRef::int(), b.clone());
+    let rule = krs_ir_levels::RuleSentence::new(
+        node("context.rule"),
+        krs_ir_levels::LabelIdentity::new(
+            krs_ir_levels::LabelId::new("context.rule").unwrap(),
+            "context-rule",
+        )
+        .unwrap(),
+        krs_ir::SentenceKind::Equation,
+        vec![krs_ir_levels::DefinitionVariable::new(
+            b.clone(),
+            DefinitionSortRef::int(),
+        )],
+        DefinitionTerm::rewrite(
+            node("context.body"),
+            DefinitionSortRef::int(),
+            int("context.left", "0"),
+            DefinitionTerm::variable(node("context.right"), DefinitionSortRef::int(), b),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .with_function_context(Some(krs_ir_levels::DefinitionFunctionContext::new(
+        node("context.parameter"),
+        krs_ir::FixedConfigurationPattern::new(
+            node("context.cells"),
+            krs_ir::SemanticId::new("configuration.machine".to_owned()).unwrap(),
+            vec![krs_ir::FixedCellPattern::new(
+                node("context.cell"),
+                krs_ir_levels::SymbolId::new("cell.bar").unwrap(),
+                read.clone(),
+                krs_ir::CellContentFrame::Exact,
+            )],
+            Vec::new(),
+        )
+        .unwrap(),
+    )));
+    let names = context.naming.rule(&rule);
+    assert_eq!(
+        render_term(&read, &context, &names, false).unwrap().text,
+        "B:Int"
+    );
+}

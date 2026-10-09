@@ -80,8 +80,10 @@ pub use state_macro::{
     parse_map_pattern_source_with_trivia,
 };
 pub use state_rule::{
-    ClaimEnsures, ClaimSortCandidate, StateClaimItem, StateContextAliasItem, StateRuleBinding,
-    StateRuleBindingKind, StateRuleItem, StateRuleReferenceKind, parse_state_context_alias_item,
+    ClaimEnsures, ClaimSortCandidate, FUNCTION_CONTEXT_ONLY_ON_EQUATIONS,
+    FUNCTION_CONTEXT_REMAINDER, FUNCTION_CONTEXT_SHAPE, FunctionContext, StateClaimItem,
+    StateContextAliasItem, StateRuleBinding, StateRuleBindingKind, StateRuleItem,
+    StateRuleReferenceKind, is_cells_parameter, parse_state_context_alias_item,
 };
 pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,

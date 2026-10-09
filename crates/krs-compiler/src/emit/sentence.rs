@@ -772,10 +772,25 @@ fn emit_rule(
         }
         RuleBodyRef::Term(body) => {
             writer.push("rule ");
+            let function_context = sentence.function_context();
+            if function_context.is_some() {
+                // K's function context (KF-025): `[[ F => R ]]` and then the
+                // configuration cells the equation reads.
+                writer.push("[[ ");
+            }
             writer.append_rendered(
                 render_rewrite(body.from(), body.to(), context, true, &names)?
                     .finish(body.origin().key(), 0),
             )?;
+            if let Some(function_context) = function_context {
+                writer.push(" ]]");
+                let start = writer.source.len();
+                for cell in function_context.cells().cells() {
+                    writer.push("\n");
+                    emit_function_context_cell(cell, &names, context, writer)?;
+                }
+                writer.record(function_context.origin().key(), start, writer.source.len())?;
+            }
             emit_requires(sentence, &names, context, writer)?;
             emit_ensures(sentence, &names, context, writer)?;
             emit_term_rule_attributes(sentence, &names, writer)?;
@@ -1247,6 +1262,28 @@ fn emit_context_alias_cell(
         context,
         names,
     )?)?;
+    emit_single_frame(cell.frame(), names, writer)?;
+    writer.push(" </");
+    writer.push(name);
+    writer.push(">");
+    writer.record(cell.origin().key(), start, writer.source.len())?;
+    Ok(())
+}
+
+/// One cell an equation's function context reads (KF-025):
+/// `<bar> B:Int </bar>`, framed like a configuration rule's cell.
+fn emit_function_context_cell(
+    cell: &FixedCellPattern<SymbolId, DefinitionTerm>,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    let name = context.cell_name(cell.cell())?;
+    writer.push("    <");
+    writer.push(name);
+    writer.push("> ");
+    writer.append_rendered(render_term(cell.pattern(), context, names, false)?)?;
     emit_single_frame(cell.frame(), names, writer)?;
     writer.push(" </");
     writer.push(name);

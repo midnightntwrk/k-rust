@@ -1878,3 +1878,71 @@ fn lets_adapt_to_native_let_with_pattern_value_body_order() {
     assert!(matches!(value, Term::Variable { name, .. } if name == "X"));
     assert!(matches!(body, Term::Variable { name, .. } if name == "X_2"));
 }
+
+/// An equation's function context adapts to k-rust's
+/// `#withConfig(F => R, #cells(..))`, the structure its parser builds for
+/// `[[ F => R ]] <cells>`; KRS adds no argument to the function (KF-025).
+#[test]
+fn function_contexts_adapt_to_native_with_config() {
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let b = semantic_id("b");
+    let body = DefinitionTerm::rewrite(
+        node("context.body"),
+        DefinitionSortRef::int(),
+        DefinitionTerm::token(node("context.left"), DefinitionSortRef::int(), "0").unwrap(),
+        DefinitionTerm::variable(node("context.right"), DefinitionSortRef::int(), b.clone()),
+    )
+    .unwrap();
+    let rule = RuleSentence::new(
+        node("context.rule"),
+        LabelIdentity::new(LabelId::new("context.rule").unwrap(), "context").unwrap(),
+        SentenceKind::Equation,
+        Vec::new(),
+        body,
+    )
+    .unwrap()
+    .with_function_context(Some(krs_ir_levels::DefinitionFunctionContext::new(
+        node("context.parameter"),
+        FixedConfigurationPattern::new(
+            node("context.cells"),
+            semantic_id("configuration.machine"),
+            vec![FixedCellPattern::new(
+                node("context.cell.k"),
+                SymbolId::new("cell.k").unwrap(),
+                DefinitionTerm::variable(node("context.cell.read"), DefinitionSortRef::int(), b),
+                CellContentFrame::KSequenceTail {
+                    origin: node("context.frame"),
+                    binding: None,
+                },
+            )],
+            Vec::new(),
+        )
+        .unwrap(),
+    )));
+    let Sentence::Rule { body, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("an equation adapts to a native rule")
+    };
+    let Term::Apply {
+        label, arguments, ..
+    } = body.unannotated()
+    else {
+        panic!("a function context wraps the body: {body:?}")
+    };
+    assert_eq!(label.name, "#withConfig");
+    assert_eq!(arguments.len(), 2);
+    assert!(matches!(arguments[0].unannotated(), Term::Rewrite { .. }));
+    assert!(matches!(
+        arguments[1].unannotated(),
+        Term::Apply { label, .. } if label.name == "#cells" || label.name == "<k>"
+    ));
+    for role in [
+        SentenceNodeRole::FunctionContext,
+        SentenceNodeRole::FunctionContextCell(0),
+        SentenceNodeRole::FunctionContextFrame(0),
+    ] {
+        assert!(adapter.origins.iter().any(|mapping| {
+            matches!(&mapping.place, NativeNodePlace::Sentence { role: mapped_role, .. } if mapped_role == &role)
+        }));
+    }
+}

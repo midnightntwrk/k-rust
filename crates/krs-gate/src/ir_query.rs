@@ -538,6 +538,25 @@ fn rule_body(
         }
     }
 }
+/// The cells an equation's function context reads (KF-025).
+fn function_context_cells(
+    context: &Context<'_>,
+    function_context: &krs_ir_levels::DefinitionFunctionContext,
+) -> Value {
+    function_context
+        .cells()
+        .cells()
+        .iter()
+        .map(|cell| {
+            json!({
+                "cell": context.cells[cell.cell()],
+                "pattern": context.term(cell.pattern()),
+                "frame": frame_fact(cell.frame()),
+            })
+        })
+        .collect()
+}
+
 fn initializer_rows(
     context: &Context<'_>,
     initializers: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
@@ -658,6 +677,19 @@ fn operations(
                             }
                         }
                     }
+                }
+                for cell in rule
+                    .function_context()
+                    .map_or(&[][..], |context| context.cells().cells())
+                {
+                    context.operation_rows(
+                        cell.pattern(),
+                        &mut rows,
+                        name,
+                        label,
+                        filter,
+                        include_arguments,
+                    );
                 }
                 if let Some(condition) = rule.requires() {
                     context.operation_rows(
@@ -1069,10 +1101,12 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                                 continue;
                             }
                             let (rule_kind, body) = if let DefinitionSentence::Rule(r) = s {
-                                (
-                                    Some(enum_name(&r.kind())),
-                                    rule_body(&context, r.relational_body()),
-                                )
+                                let mut body = rule_body(&context, r.relational_body());
+                                if let Some(function_context) = r.function_context() {
+                                    body["function_context"] =
+                                        function_context_cells(&context, function_context);
+                                }
+                                (Some(enum_name(&r.kind())), body)
                             } else {
                                 (None, Value::Null)
                             };

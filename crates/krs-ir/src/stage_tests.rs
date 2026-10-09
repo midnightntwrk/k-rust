@@ -712,6 +712,7 @@ fn structured_rule() -> StructuredRuleDescriptor {
         fresh: Vec::new(),
         equation: None,
         unbound_variables: None,
+        function_context: None,
     }
 }
 

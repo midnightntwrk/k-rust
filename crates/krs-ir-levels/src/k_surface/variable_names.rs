@@ -138,6 +138,13 @@ impl VariableNaming {
                 }
             }
         }
+        // An equation's function context reads its cells beside the rewrite (KF-025).
+        if let Some(context) = sentence.function_context() {
+            for cell in context.cells().cells() {
+                scope.term(cell.pattern());
+                scope.frame(cell.frame(), 1);
+            }
+        }
         if let Some(condition) = sentence.requires() {
             scope.term(condition.term());
         }

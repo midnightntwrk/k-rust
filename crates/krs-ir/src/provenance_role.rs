@@ -486,6 +486,11 @@ provenance_roles! {
     /// One `_` in the pattern of a `let` statement, numbered across the
     /// sentence.
     LetWildcard => "let_wildcard",
+    /// The `k::cells! { .. }` function-context parameter of an equation
+    /// (K's `[[ .. ]]` configuration context, KF-025).
+    FunctionContext => "function_context",
+    /// The configuration type path of an equation's function context.
+    FunctionContextType => "function_context_type",
 }
 
 impl Serialize for ProvenanceRole {

@@ -128,6 +128,9 @@ macro_rules! validation_error {
             ValidationError::InvalidUnboundVariables(id) => {
                 $public::InvalidUnboundVariables($identity(id))
             }
+            ValidationError::InvalidFunctionContext(id) => {
+                $public::InvalidFunctionContext($identity(id))
+            }
             ValidationError::FreshScopeViolation(id) => $public::FreshScopeViolation(id),
             ValidationError::VariableClosure => $public::VariableClosure,
             ValidationError::VariableSortMismatch(id) => $public::VariableSortMismatch(id),
@@ -162,6 +165,7 @@ impl Validation for SemanticLevel {
             fresh: rule.fresh(),
             restriction: rule.restriction(),
             unbound_variables: rule.unbound_variables(),
+            function_context: rule.function_context(),
             anywhere: rule.anywhere().is_some(),
         }
     }
@@ -311,6 +315,7 @@ impl Validation for DefinitionLevel {
             fresh: rule.fresh(),
             restriction: rule.restriction(),
             unbound_variables: rule.unbound_variables(),
+            function_context: rule.function_context(),
             anywhere: rule.anywhere().is_some(),
         }
     }

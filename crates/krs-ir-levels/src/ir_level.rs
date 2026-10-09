@@ -1384,6 +1384,36 @@ impl<L: IrLevel> IrSubsort<L> {
     }
 }
 
+/// The read-only configuration context of an equation (KF-025): K's
+/// `[[ .. ]]` cells, a one-sided fixed-configuration pattern.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, bound = "")]
+pub struct IrFunctionContext<L: IrLevel> {
+    origin: NodeOrigin,
+    cells: FixedConfigurationPattern<L::Cell, IrTerm<L>>,
+}
+
+impl<L: IrLevel> IrFunctionContext<L> {
+    /// Creates a function context from its parameter provenance and cells.
+    #[must_use]
+    pub const fn new(
+        origin: NodeOrigin,
+        cells: FixedConfigurationPattern<L::Cell, IrTerm<L>>,
+    ) -> Self {
+        Self { origin, cells }
+    }
+    /// Returns the `k::cells! { .. }` parameter provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the one-sided cells pattern.
+    #[must_use]
+    pub const fn cells(&self) -> &FixedConfigurationPattern<L::Cell, IrTerm<L>> {
+        &self.cells
+    }
+}
+
 /// One source-level, one-sided reusable fixed-configuration context template.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound = "")]

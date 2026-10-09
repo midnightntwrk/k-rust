@@ -823,7 +823,7 @@ fn collect_fn_rules(
             krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
                 .map_err(source_syntax)?;
         }
-        let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
+        let rule = RuleItem::from_equation_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
             .pattern

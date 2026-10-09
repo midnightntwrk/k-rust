@@ -4,7 +4,8 @@
     "krs-patterns-functions-aliases": "0d0e304a40e0387e3db4a4b9e5e9fefdad67209a28c5a76c17293921f5ef589b",
     "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
     "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
-    "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6"
+    "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
+    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -18,20 +19,26 @@
     },
     "krs-patterns-functions-lets": {
       "definition.k": "ca482bee929fafc8bd3581132e72e1d462b9bf98d817e0c8f860b1a70a4d9149"
+    },
+    "krs-patterns-functions-contexts": {
+      "definition.k": "c4e1cb2341ab0d800988f0ef968118ca6c376cfcf34fc0071d7065bcff0784c0"
     }
   },
   "reference_sha256": {
     "krs-patterns-functions-aliases": "5d80bc1131a85c59014927eb1a3c0b24fc060d96926414388e7c9acfee728dfc",
-    "krs-patterns-functions-aliases-reference": "964d97c13353a66b38a503384dd1d45a0d350b0a8a7d6182f049cb419e47909c",
+    "krs-patterns-functions-aliases-reference": "9a975a22f4eee36cedd871b9df5faff076809c214a53ff79b758a8b040b5a6a1",
     "krs-patterns-functions-alternatives": "ed745b3725c8e07face30b7b8dce7c8ed2a58d7ecc17baf144f94cfd4dfda219",
-    "krs-patterns-functions-alternatives-reference": "e3a675e8f7d182151c3a85c9559cdb98975e4fdeece042725e14b5217987a055",
+    "krs-patterns-functions-alternatives-reference": "3145e8c0f545cd877e4b12990233676f6181a07de30fba7fe4d97c061b6af7e4",
     "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d",
     "krs-patterns-functions-matches": "14e473f378070e603ff6d217fe712043c6dd58eeb5a6d575cb3eeb7f3b9e89c4",
-    "krs-patterns-functions-matches-reference": "6322edf1798df32311b79d995057d7b7f45e502c176108b5ff2156ea0ccc47ba",
+    "krs-patterns-functions-matches-reference": "c4a5e1108b5807aa9101369670cafe128b6e76ed18d08ac61202bdaf2fa3ef3a",
     "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d",
-    "krs-patterns-functions-lets": "aafe7e56bf6a076cb39669473530b7660ff054639534bd832469eab1366fdd7d",
-    "krs-patterns-functions-lets-reference": "2645b14d118be521a8d99258f09de019196ff14b065978c34cfdd700218e5630",
-    "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d"
+    "krs-patterns-functions-lets": "b690910eb72544cd441005a3774c88d1e894378ffb1e96839a0babab38d6f0a2",
+    "krs-patterns-functions-lets-reference": "51657221dfe78451b7222228edbb03eb2070b55375a791e7c9e7a4e131fd259e",
+    "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d",
+    "krs-patterns-functions-contexts": "0db1d665dbc2da044716b5e874a76edbe1c34c4cf63ec09bbb18dc37e5d78d66",
+    "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
+    "krs-patterns-functions-contexts-haskell": "3ff30966ab124bd753fa73e653485e138e3f4b2c92211df69e8240f0875c4e74"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
@@ -141,6 +148,16 @@
         "parse": "accepted",
         "run": "undefined"
       }
+    },
+    "krs-patterns-functions-contexts": {
+      "read-bar": {
+        "parse": "accepted",
+        "run": "43"
+      },
+      "read-twice": {
+        "parse": "accepted",
+        "run": "86"
+      }
     }
   },
   "diagnostics": {
@@ -215,6 +232,33 @@
     ],
     "let-claim": [
       "error[krs::rust-expansion::uncoded-error]: `let` blocks are not supported in claims: the pinned native prover cannot resolve K's #let in a claim; bind the value in the claim's subject instead"
+    ],
+    "context-remainder": [
+      "error[krs::rust-expansion::uncoded-error]: a function context frames the rest of the configuration with an anonymous `..`"
+    ],
+    "context-bound-rest": [
+      "error[krs::rust-expansion::uncoded-error]: a function context frames the rest of the configuration with an anonymous `..`"
+    ],
+    "context-on-rule": [
+      "error[krs::rust-expansion::uncoded-error]: a configuration context belongs only on #[k::equation] (K's [[ ]] function context)"
+    ],
+    "context-on-simplification": [
+      "error[krs::rust-expansion::uncoded-error]: a configuration context belongs only on #[k::equation] (K's [[ ]] function context)"
+    ],
+    "context-shape": [
+      "error[krs::rust-expansion::uncoded-error]: a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct"
+    ],
+    "context-binders": [
+      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a sentence with a function context declares every binder, here `n, b`"
+    ],
+    "context-sort": [
+      "error[krs::analysis::invalid-function-context]: the function-context binder `b` is declared `Bool`, but the cell `bar` holds `Int`"
+    ],
+    "context-group": [
+      "error[krs::analysis::invalid-function-context]: a function context reads leaf cells, not the whole nested cell `frame`; name the cells inside it"
+    ],
+    "context-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `bump` and `read` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
     ]
   },
   "known_divergences": {

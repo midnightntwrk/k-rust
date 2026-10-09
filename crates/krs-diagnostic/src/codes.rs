@@ -208,6 +208,7 @@ register_codes! {
         INVALID_PATTERN_OR: "krs::analysis::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) occurs outside a left-hand side, binds a name at different sorts in its alternatives, or has no least common sort.",
         INVALID_MATCHES: "krs::analysis::invalid-matches" => "A `k::matches!` (K's `:=K`) pattern name shadows a rule binder or is never read, or its pattern's sort cannot meet its subject's sort.",
         INVALID_LET: "krs::analysis::invalid-let" => "A `let` statement's (K's `#let`) pattern sort cannot meet its value's sort, or its names have no single sort.",
+        INVALID_FUNCTION_CONTEXT: "krs::analysis::invalid-function-context" => "An equation's function context (K's `[[ .. ]]`) reads a whole nested cell, or declares a binder at a sort its cell does not have.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -270,6 +271,7 @@ register_codes! {
         INVALID_PATTERN_OR: "krs::syntax::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) is malformed, binds different names in its alternatives, or occurs outside a left-hand side.",
         INVALID_MATCHES: "krs::syntax::invalid-matches" => "A `k::matches!` (K's `:=K`) is malformed, has an `if` guard, is written as std's bare `matches!`, or occurs in a left-hand side.",
         INVALID_LET: "krs::syntax::invalid-let" => "A term block is not `let pattern = term;` statements followed by one result term (K's `#let`), its pattern has alternatives or an alias, or it occurs in a pattern.",
+        INVALID_FUNCTION_CONTEXT: "krs::syntax::invalid-function-context" => "A function context (K's `[[ .. ]]` configuration context) is not a final `k::cells! { .., .. }` parameter of an `#[k::equation]` typed by the configuration struct and framed by an anonymous `..`.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",

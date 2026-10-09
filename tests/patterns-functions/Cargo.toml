@@ -4,6 +4,7 @@ members = [
     "packages/alternatives",
     "packages/matches",
     "packages/lets",
+    "packages/contexts",
 ]
 resolver = "3"
 

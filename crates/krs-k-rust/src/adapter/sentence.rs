@@ -658,14 +658,26 @@ impl Adapter<'_> {
                     sentence_index,
                     SentenceNodeRole::Term(Vec::new()),
                 );
-                self.rewrite(
+                let rewrite = self.rewrite(
                     term.from(),
                     term.to(),
                     module,
                     sentence_index,
                     Vec::new(),
                     TermContext::Normal,
-                )?
+                )?;
+                match sentence.function_context() {
+                    // K's `[[ F => R ]] <cells>`: k-rust adds the hidden
+                    // configuration argument and threads it to callers (KF-025).
+                    Some(context) => NativeTerm::apply(
+                        "#withConfig",
+                        vec![
+                            rewrite,
+                            self.function_context(context, module, sentence_index)?,
+                        ],
+                    ),
+                    None => rewrite,
+                }
             }
             RuleBodyRef::Configuration { body: rewrite, .. } => {
                 self.configuration_rewrite(rewrite, module, sentence_index, sentence)?
@@ -986,6 +998,57 @@ impl Adapter<'_> {
                 let cell_content =
                     self.term(cell.pattern(), module, sentence_index, vec![index], context)?;
                 self.framed_cell(cell.cell(), cell_content, cell.frame(), cell.origin())
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+        Ok(native_cells(cells))
+    }
+
+    /// The `#cells` an equation's function context reads (KF-025); its term
+    /// paths start at `2`, after the rewrite's endpoints.
+    fn function_context(
+        &mut self,
+        context: &krs_ir_levels::DefinitionFunctionContext,
+        module: &str,
+        sentence_index: usize,
+    ) -> Result<NativeTerm, AdapterError> {
+        self.map_sentence_origin(
+            context.origin(),
+            module,
+            sentence_index,
+            SentenceNodeRole::FunctionContext,
+        );
+        let cells = context
+            .cells()
+            .cells()
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| {
+                let index = u32::try_from(index).unwrap_or(u32::MAX);
+                self.map_sentence_origin(
+                    cell.origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::FunctionContextCell(index),
+                );
+                if let CellContentFrame::KSequenceTail { origin, .. }
+                | CellContentFrame::MapRemainder { origin, .. }
+                | CellContentFrame::ListRemainder { origin } = cell.frame()
+                {
+                    self.map_sentence_origin(
+                        origin,
+                        module,
+                        sentence_index,
+                        SentenceNodeRole::FunctionContextFrame(index),
+                    );
+                }
+                let pattern = self.term(
+                    cell.pattern(),
+                    module,
+                    sentence_index,
+                    vec![2, index],
+                    TermContext::Normal,
+                )?;
+                self.framed_cell(cell.cell(), pattern, cell.frame(), cell.origin())
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
         Ok(native_cells(cells))

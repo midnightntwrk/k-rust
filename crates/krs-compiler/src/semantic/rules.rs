@@ -1081,14 +1081,39 @@ fn collect_declared_leaf_identities(
 
 #[expect(
     clippy::too_many_lines,
-    reason = "The rewrite, its conditions, and its existential and fresh binders are lowered in one ordered pass."
+    reason = "The rewrite, its conditions, its function context, and its existential and fresh binders are lowered in one ordered pass."
 )]
 pub(super) fn lower_structured_rule_descriptor(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
+    // A function context's bindings are visible to the result and requires
+    // like the subject's (KF-025); its frames have their family's sort and its
+    // term binders their declared sort.
+    let context_frames = rule
+        .function_context
+        .iter()
+        .flat_map(|context| &context.bindings)
+        .filter_map(|binding| {
+            let sort = match &binding.kind {
+                krs_ir::ProtocolRuleBindingKind::KSequenceFrame => SemanticSortRef::k_sequence(),
+                krs_ir::ProtocolRuleBindingKind::MapFrame => SemanticSortRef::map(),
+                krs_ir::ProtocolRuleBindingKind::Term { .. }
+                | krs_ir::ProtocolRuleBindingKind::ConfigurationFrame => return None,
+            };
+            Some((binding.name.clone(), sort))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let context_names = rule
+        .function_context
+        .iter()
+        .flat_map(|context| &context.bindings)
+        .map(|binding| &binding.name)
+        .cloned()
+        .collect::<Vec<_>>();
     // Existentials are declared at their authored sort and are visible only
     // to the result and the ensures condition (transport checks the scope).
     // A desugar clause's `unbound_variables` names occur only in the result,
@@ -1102,6 +1127,7 @@ pub(super) fn lower_structured_rule_descriptor(
     let binding_names = rule
         .bindings
         .iter()
+        .chain(&context_names)
         .chain(
             rule.existentials
                 .iter()
@@ -1116,6 +1142,7 @@ pub(super) fn lower_structured_rule_descriptor(
         .iter()
         .chain(&rule.fresh)
         .map(|binder| (binder.name.clone(), semantic_sort_ref(&binder.sort.sort)))
+        .chain(context_frames)
         .collect::<BTreeMap<_, _>>();
     let declared_binders = rule
         .typed_bindings
@@ -1166,6 +1193,24 @@ pub(super) fn lower_structured_rule_descriptor(
     }
     builder.resolve_binding_sorts()?;
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
+    let function_context = rule
+        .function_context
+        .as_ref()
+        .map(|context| {
+            super::configuration_rules::lower_function_context(
+                descriptor,
+                context,
+                super::configuration_rules::StateRuleTables {
+                    declarations,
+                    sort_parents,
+                    catalog,
+                },
+                &builder.binding_sorts,
+                builder.wildcards.len(),
+            )
+        })
+        .transpose()?;
+    let (function_context, context_wildcards) = function_context.unzip();
     let result = builder.lower(&rule.result, Some(&result_sort), false)?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
     let (existentials, ensures) =
@@ -1179,6 +1224,7 @@ pub(super) fn lower_structured_rule_descriptor(
     for binding in rule
         .bindings
         .iter()
+        .chain(&context_names)
         .chain(
             rule.existentials
                 .iter()
@@ -1199,6 +1245,7 @@ pub(super) fn lower_structured_rule_descriptor(
         ));
     }
     variables.extend(builder.wildcards);
+    variables.extend(context_wildcards.into_iter().flatten());
     let rewrite = SemanticTerm::rewrite(
         semantic_origin_from_primary(descriptor, "rule-rewrite")?,
         result_sort,
@@ -1229,6 +1276,7 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_simplification(simplification)
     .with_restriction(restriction)
     .with_unbound_variables(unbound_variables)
+    .with_function_context(function_context)
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)

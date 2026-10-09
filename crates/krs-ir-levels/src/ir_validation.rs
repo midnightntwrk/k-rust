@@ -41,6 +41,7 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub fresh: &'a [crate::IrScopedBinder<L>],
     pub restriction: Option<&'a crate::IrMatchRestriction>,
     pub unbound_variables: Option<&'a crate::IrUnboundVariables>,
+    pub function_context: Option<&'a crate::IrFunctionContext<L>>,
     pub anywhere: bool,
 }
 
@@ -194,6 +195,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidRuleFresh(L::RuleId),
     InvalidMatchRestriction(L::RuleId),
     InvalidUnboundVariables(L::RuleId),
+    InvalidFunctionContext(L::RuleId),
     FreshScopeViolation(SemanticId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
@@ -796,6 +798,19 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(unbound) = rule.unbound_variables {
         validate_unbound_variables::<L>(&rule, unbound, nodes)?;
     }
+    if let Some(context) = rule.function_context {
+        validate_function_context::<L>(
+            &rule,
+            context,
+            configuration,
+            &scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+    }
     if let Some(priority) = rule.priority {
         if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
             return Err(L::error(ValidationError::InvalidRulePriority(
@@ -865,8 +880,94 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(ensures) = rule.ensures {
         collect_term_variables::<L>(ensures.term(), &mut used);
     }
+    if let Some(context) = rule.function_context {
+        for cell in context.cells().cells() {
+            collect_term_variables::<L>(cell.pattern(), &mut used);
+            if let CellContentFrame::KSequenceTail {
+                binding: Some(binding),
+                ..
+            }
+            | CellContentFrame::MapRemainder {
+                binding: Some(binding),
+                ..
+            } = cell.frame()
+            {
+                used.insert(binding.clone());
+            }
+        }
+    }
     if used != scope.keys().cloned().collect() {
         return Err(L::error(ValidationError::VariableClosure));
+    }
+    Ok(())
+}
+
+/// Checks an equation's function context (KF-025): only on a term-shaped
+/// equation, over the fixed configuration, its cells declared, its terms
+/// valid pre-patterns, and its frames typed like a context alias's.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The context is validated against the same tables as the rule body."
+)]
+fn validate_function_context<L: Validation>(
+    rule: &RuleView<'_, L>,
+    context: &crate::IrFunctionContext<L>,
+    configuration: Option<&FixedConfiguration<L::Sort, L::Cell, IrTerm<L>>>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let invalid = || L::error(ValidationError::InvalidFunctionContext(rule.id.clone()));
+    if rule.kind != SentenceKind::Equation || !matches!(rule.body, RuleBodyRef::Term(_)) {
+        return Err(invalid());
+    }
+    let configuration = configuration.ok_or_else(invalid)?;
+    if context.cells().configuration() != configuration.id() {
+        return Err(invalid());
+    }
+    let leaf_sorts = configuration_leaf_sorts::<L>(configuration)?;
+    insert_node::<L>(nodes, context.origin().key())?;
+    insert_node::<L>(nodes, context.cells().origin().key())?;
+    for cell in context.cells().cells() {
+        L::require_cell(declarations, cell_ids, cell.cell())?;
+        insert_node::<L>(nodes, cell.origin().key())?;
+        validate_term::<L>(
+            cell.pattern(),
+            scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+        let (origin, binding, required_sort) = match cell.frame() {
+            CellContentFrame::Exact => continue,
+            CellContentFrame::KSequenceTail { origin, binding } => (
+                origin,
+                binding.as_ref(),
+                L::builtin_sort(BuiltinSort::KSequence),
+            ),
+            CellContentFrame::MapRemainder { origin, binding } => {
+                (origin, binding.as_ref(), L::builtin_sort(BuiltinSort::Map))
+            }
+            CellContentFrame::ListRemainder { origin } => {
+                (origin, None, L::builtin_sort(BuiltinSort::List))
+            }
+        };
+        insert_node::<L>(nodes, origin.key())?;
+        if leaf_sorts.get(cell.cell()) != Some(&required_sort) {
+            return Err(L::error(ValidationError::CellFrameSortMismatch));
+        }
+        if let Some(binding) = binding
+            && scope.get(binding) != Some(&required_sort)
+        {
+            return Err(L::error(ValidationError::CellFrameBindingMismatch(
+                binding.clone(),
+            )));
+        }
     }
     Ok(())
 }

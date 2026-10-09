@@ -72,6 +72,7 @@ fn overlap(left: &SemanticTerm, right: &SemanticTerm) -> bool {
         before,
         completed_head: false,
         framed: false,
+        unconstrained: false,
     };
     clauses_overlap(&[view(left)], None, &[view(right)], None, &graph())
 }

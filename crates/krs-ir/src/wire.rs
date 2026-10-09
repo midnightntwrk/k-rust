@@ -14,8 +14,8 @@ use crate::transport::grammar::{
 };
 use crate::transport::head_rule::HeadRule;
 use crate::transport::rule::{
-    Claim, ClaimBinder, ConfigurationRule, ContextAlias, ProtocolRuleCells, ProtocolRuleKSequence,
-    ProtocolRuleMap, ProtocolRuleStateTerm,
+    Claim, ClaimBinder, ConfigurationRule, ContextAlias, FunctionContext, ProtocolRuleCells,
+    ProtocolRuleKSequence, ProtocolRuleMap, ProtocolRuleStateTerm,
 };
 use crate::{
     ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult,
@@ -138,6 +138,8 @@ pub type WireClaim = Claim<WireStage>;
 pub type WireClaimBinder = ClaimBinder<WireStage>;
 /// Static wire-stage context alias.
 pub type WireContextAlias = ContextAlias<WireStage>;
+/// Equation function context before host type-slot resolution (KF-025).
+pub type WireFunctionContext = FunctionContext<WireStage>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -424,6 +426,7 @@ mod tests {
                 fresh: Vec::new(),
                 equation: None,
                 unbound_variables: None,
+                function_context: None,
             },
             "sort",
             4,

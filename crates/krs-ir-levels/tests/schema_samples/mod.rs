@@ -2934,6 +2934,42 @@ impl Sample for DescriptorContextAlias {
         }]
     }
 }
+impl Sample for DescriptorFunctionContext {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            configuration: sample::<DescriptorConfigurationReference>(),
+            bindings: sample::<Vec<ProtocolRuleBinding<DescriptorSortReference>>>(),
+            cells: sample::<DescriptorRuleCells>(),
+        }]
+    }
+}
+impl Sample for WireFunctionContext {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            configuration: sample::<WireConfigurationReference>(),
+            bindings: sample::<Vec<ProtocolRuleBinding<WireSortReference>>>(),
+            cells: sample::<WireRuleCells>(),
+        }]
+    }
+}
+impl Sample for SemanticFunctionContext {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<FixedConfigurationPattern<SemanticId, SemanticTerm>>(),
+        )]
+    }
+}
+impl Sample for DefinitionFunctionContext {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<FixedConfigurationPattern<SymbolId, DefinitionTerm>>(),
+        )]
+    }
+}
 impl Sample for DescriptorFixedConfiguration {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -3369,6 +3405,7 @@ impl Sample for StructuredRuleDescriptor {
             fresh: sample(),
             equation: sample::<Option<DescriptorEquationAttributes>>(),
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
+            function_context: sample(),
         }]
     }
 }
@@ -3561,6 +3598,7 @@ impl Sample for WireStructuredRule {
             fresh: sample(),
             equation: sample::<Option<DescriptorEquationAttributes>>(),
             unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
+            function_context: sample(),
         }]
     }
 }
@@ -3697,6 +3735,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorClaimBinder>(corpus, "DescriptorClaimBinder");
     insert::<DescriptorConfigurationRule>(corpus, "DescriptorConfigurationRule");
     insert::<DescriptorContextAlias>(corpus, "DescriptorContextAlias");
+    insert::<DescriptorFunctionContext>(corpus, "DescriptorFunctionContext");
     insert::<DescriptorDeclaration>(corpus, "DescriptorDeclaration");
     insert::<DescriptorFixedConfiguration>(corpus, "DescriptorFixedConfiguration");
     insert::<DescriptorFormatFragment>(corpus, "DescriptorFormatFragment");
@@ -3769,6 +3808,8 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<SemanticClaim>(corpus, "SemanticClaim");
     insert::<SemanticScopedBinder>(corpus, "SemanticScopedBinder");
     insert::<SemanticContextAlias>(corpus, "SemanticContextAlias");
+    insert::<SemanticFunctionContext>(corpus, "SemanticFunctionContext");
+    insert::<DefinitionFunctionContext>(corpus, "DefinitionFunctionContext");
     insert::<SemanticModule>(corpus, "SemanticModule");
     insert::<SemanticProduction>(corpus, "SemanticProduction");
     insert::<SemanticRule>(corpus, "SemanticRule");
@@ -3789,6 +3830,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<WireClaim>(corpus, "WireClaim");
     insert::<WireConfigurationRule>(corpus, "WireConfigurationRule");
     insert::<WireContextAlias>(corpus, "WireContextAlias");
+    insert::<WireFunctionContext>(corpus, "WireFunctionContext");
     insert::<WireHeadRule>(corpus, "WireHeadRule");
     insert::<WirePayload>(corpus, "WirePayload");
     // The original payload samples must remain byte-identical; new kinds are pinned through their wire aliases.

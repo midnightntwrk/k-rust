@@ -123,6 +123,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ConstructorFieldDescriptor",
     "ContextAliasSentence",
     "DefinitionClaim",
+    "DefinitionFunctionContext",
     "DefinitionScopedBinder",
     "DefinitionModule",
     "DefinitionRuleCondition",
@@ -138,6 +139,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorContextAlias",
     "DescriptorDeclaration",
     "DescriptorFixedConfiguration",
+    "DescriptorFunctionContext",
     "DescriptorFormatFragment",
     "DescriptorHeadRule",
     "DescriptorNodeOrigin",
@@ -179,6 +181,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "SemanticClaim",
     "SemanticScopedBinder",
     "SemanticContextAlias",
+    "SemanticFunctionContext",
     "SemanticModule",
     "SemanticNondetGroup",
     "SemanticProduction",
@@ -199,6 +202,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "WireConfigurationRule",
     "WireContextAlias",
     "WireFixedConfiguration",
+    "WireFunctionContext",
     "WireHeadRule",
     "WirePayload",
     "WireProduction",
@@ -846,6 +850,8 @@ fn registry() -> Registry {
     unsupported!(DescriptorConfigurationRoot: DescriptorConfigurationRoot);
     unsupported!(DescriptorConfigurationRule: DescriptorConfigurationRule);
     unsupported!(DescriptorContextAlias: DescriptorContextAlias);
+    unsupported!(DescriptorFunctionContext: DescriptorFunctionContext);
+    unsupported!(DefinitionFunctionContext: DefinitionFunctionContext);
     unsupported!(DescriptorDeclaration: DescriptorDeclaration);
     unsupported!(DescriptorFixedConfiguration: DescriptorFixedConfiguration);
     unsupported!(DescriptorFormatFragment: DescriptorFormatFragment);
@@ -884,6 +890,7 @@ fn registry() -> Registry {
     unsupported!(SemanticClaim: SemanticClaim);
     unsupported!(SemanticScopedBinder: SemanticScopedBinder);
     unsupported!(SemanticContextAlias: SemanticContextAlias);
+    unsupported!(SemanticFunctionContext: SemanticFunctionContext);
     unsupported!(SemanticModule: SemanticModule);
     unsupported!(SemanticNondetGroup: SemanticNondetGroup);
     unsupported!(SemanticProduction: SemanticProduction);
@@ -911,6 +918,7 @@ fn registry() -> Registry {
     trace!(WireClaimBinder: WireClaimBinder);
     unsupported!(WireConfigurationRule: WireConfigurationRule);
     unsupported!(WireContextAlias: WireContextAlias);
+    unsupported!(WireFunctionContext: WireFunctionContext);
     unsupported!(WireFixedConfiguration: WireFixedConfiguration);
     unsupported!(WireHeadRule: WireHeadRule);
     unsupported!(WirePayload: WirePayload);

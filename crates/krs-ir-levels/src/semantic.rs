@@ -1086,6 +1086,7 @@ pub struct SemanticRule {
     fresh: Vec<SemanticScopedBinder>,
     restriction: Option<crate::IrMatchRestriction>,
     unbound_variables: Option<crate::IrUnboundVariables>,
+    function_context: Option<crate::IrFunctionContext<crate::SemanticLevel>>,
     variables: Vec<SemanticVariable>,
     content: crate::ir_level::RuleContent<crate::SemanticLevel>,
 }
@@ -1108,6 +1109,7 @@ impl Serialize for SemanticRule {
             fresh: Cow::Borrowed(&self.fresh),
             restriction: self.restriction.as_ref().map(Cow::Borrowed),
             unbound_variables: self.unbound_variables.as_ref().map(Cow::Borrowed),
+            function_context: self.function_context.as_ref().map(Cow::Borrowed),
             variables: Cow::Borrowed(&self.variables),
             body: self.relational_body(),
         }
@@ -1145,6 +1147,8 @@ struct SemanticRuleWire<'a, B> {
     restriction: Option<Cow<'a, crate::IrMatchRestriction>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     unbound_variables: Option<Cow<'a, crate::IrUnboundVariables>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    function_context: Option<Cow<'a, crate::IrFunctionContext<crate::SemanticLevel>>>,
     variables: Cow<'a, [SemanticVariable]>,
     body: B,
 }
@@ -1185,6 +1189,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
             fresh: value.fresh.into_owned(),
             restriction: value.restriction.map(Cow::into_owned),
             unbound_variables: value.unbound_variables.map(Cow::into_owned),
+            function_context: value.function_context.map(Cow::into_owned),
             variables: value.variables.into_owned(),
             content,
         })
@@ -1193,6 +1198,9 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
 
 /// One source-level, one-sided reusable fixed-configuration context template.
 pub type SemanticContextAlias = crate::IrContextAlias<crate::SemanticLevel>;
+
+/// The read-only configuration context of a semantic equation (KF-025).
+pub type SemanticFunctionContext = crate::IrFunctionContext<crate::SemanticLevel>;
 
 /// Structured relational body of one ordinary labeled semantic rule.
 pub type SemanticRuleBody = crate::IrRuleBody<crate::SemanticLevel>;
@@ -1228,6 +1236,7 @@ impl SemanticRule {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             variables,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
@@ -1276,6 +1285,7 @@ impl SemanticRule {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             variables,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
@@ -1402,6 +1412,24 @@ impl SemanticRule {
     #[must_use]
     pub const fn unbound_variables(&self) -> Option<&crate::IrUnboundVariables> {
         self.unbound_variables.as_ref()
+    }
+
+    /// Records an equation's read-only configuration context (KF-025).
+    #[must_use]
+    pub fn with_function_context(
+        mut self,
+        function_context: Option<crate::IrFunctionContext<crate::SemanticLevel>>,
+    ) -> Self {
+        self.function_context = function_context;
+        self
+    }
+
+    /// Returns an equation's read-only configuration context (KF-025).
+    #[must_use]
+    pub const fn function_context(
+        &self,
+    ) -> Option<&crate::IrFunctionContext<crate::SemanticLevel>> {
+        self.function_context.as_ref()
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1649,6 +1677,9 @@ pub enum SemanticValidationError {
     /// `unbound_variables` occurred on a sentence other than a term-shaped desugar clause,
     /// or listed a variable the left-hand side binds or the right-hand side does not use.
     InvalidUnboundVariables(Box<StableItemId>),
+    /// A function context occurred on a sentence other than an equation, or
+    /// selects another configuration (KF-025).
+    InvalidFunctionContext(Box<StableItemId>),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1893,6 +1924,11 @@ impl fmt::Display for SemanticValidationError {
                 "unbound_variables is allowed only on desugar clauses, naming right-hand variables the left-hand side does not bind, not on `{}`",
                 id.item_name()
             ),
+            Self::InvalidFunctionContext(id) => write!(
+                formatter,
+                "a function context is allowed only on an equation, over the fixed configuration, not on `{}`",
+                id.item_name()
+            ),
             Self::FreshScopeViolation(id) => write!(
                 formatter,
                 "fresh binder {id} must occur in the right-hand side or ensures condition, and never in the left-hand side or requires condition"
@@ -2120,6 +2156,7 @@ mod tests {
             fresh: Vec::new(),
             restriction: None,
             unbound_variables: None,
+            function_context: None,
             claim: Some(SemanticClaim::new(
                 node("modality"),
                 ClaimModality::AllPaths,

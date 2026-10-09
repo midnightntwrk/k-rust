@@ -822,6 +822,264 @@ impl StateRuleItem {
     }
 }
 
+/// The diagnostic for a function context on a sentence other than an
+/// equation (KF-025).
+pub const FUNCTION_CONTEXT_ONLY_ON_EQUATIONS: &str =
+    "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)";
+
+/// The diagnostic for a function context that is not a `cells!` pattern typed
+/// by the configuration struct (KF-025).
+pub const FUNCTION_CONTEXT_SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct";
+
+/// The diagnostic for a function context without its trailing anonymous `..`
+/// (KF-025).
+pub const FUNCTION_CONTEXT_REMAINDER: &str =
+    "a function context frames the rest of the configuration with an anonymous `..`";
+
+fn function_context_error(reason: &str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidFunctionContext {
+            reason: reason.to_owned(),
+        },
+        span,
+    )
+}
+
+/// Whether a fn parameter is written `k::cells! { .. }`, the shape of a
+/// function context (or of a `cells!` rule's subject).
+#[must_use]
+pub fn is_cells_parameter(argument: &FnArg) -> bool {
+    let FnArg::Typed(argument) = argument else {
+        return false;
+    };
+    let Pat::Macro(pattern) = &*argument.pat else {
+        return false;
+    };
+    pattern
+        .mac
+        .path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "cells")
+}
+
+/// The read-only configuration context of an equation (KF-025): a final
+/// `k::cells! { cell: .., .. }: Machine` parameter, K's `[[ .. ]]` cells.
+#[derive(Clone, Debug)]
+pub struct FunctionContext {
+    parameter: syn::PatType,
+    pattern_macro: PatMacro,
+    configuration_type: Path,
+    pattern: CellsExpression,
+    bindings: Vec<StateRuleBinding>,
+}
+
+impl FunctionContext {
+    /// Parses the final parameter of an equation as a function context.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a parameter that is not `k::cells! { .. }` typed by a plain
+    /// configuration path, a context without its trailing anonymous `..`, and
+    /// malformed cell patterns.
+    pub(crate) fn parse(argument: &FnArg) -> Result<Self, SyntaxError> {
+        let FnArg::Typed(argument) = argument else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.span(),
+            ));
+        };
+        if !argument.attrs.is_empty() {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.attrs[0].span(),
+            ));
+        }
+        let Pat::Macro(pattern_macro) = &*argument.pat else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.pat.span(),
+            ));
+        };
+        if !is_plain_path(&pattern_macro.mac.path)
+            || pattern_macro
+                .mac
+                .path
+                .segments
+                .last()
+                .is_none_or(|segment| segment.ident != "cells")
+        {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                pattern_macro.span(),
+            ));
+        }
+        let Type::Path(path) = &*argument.ty else {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.ty.span(),
+            ));
+        };
+        if path.qself.is_some() || !is_plain_path(&path.path) {
+            return Err(function_context_error(
+                FUNCTION_CONTEXT_SHAPE,
+                argument.ty.span(),
+            ));
+        }
+        let pattern = parse_cells_pattern(pattern_macro.mac.tokens.clone())?;
+        match pattern.remainder() {
+            StateMacroRemainder::Anonymous(_) => {}
+            StateMacroRemainder::Bind { range, .. } | StateMacroRemainder::Reuse { range, .. } => {
+                return Err(function_context_error(
+                    FUNCTION_CONTEXT_REMAINDER,
+                    range.first(),
+                ));
+            }
+            StateMacroRemainder::Exact => {
+                return Err(function_context_error(
+                    FUNCTION_CONTEXT_REMAINDER,
+                    pattern_macro.mac.delimiter.span().close(),
+                ));
+            }
+        }
+        let mut bindings = Vec::new();
+        collect_cells_bindings(&pattern, &mut bindings)?;
+        Ok(Self {
+            parameter: argument.clone(),
+            pattern_macro: pattern_macro.clone(),
+            configuration_type: path.path.clone(),
+            pattern,
+            bindings,
+        })
+    }
+
+    /// Returns the complete authored `k::cells! { .. }: Machine` parameter.
+    #[must_use]
+    pub const fn parameter(&self) -> &syn::PatType {
+        &self.parameter
+    }
+
+    /// Returns the configuration type path.
+    #[must_use]
+    pub const fn configuration_type(&self) -> &Path {
+        &self.configuration_type
+    }
+
+    /// Returns the one-sided `cells!` pattern.
+    #[must_use]
+    pub const fn pattern(&self) -> &CellsExpression {
+        &self.pattern
+    }
+
+    /// Returns the context's bindings in first-occurrence preorder; a term
+    /// binding carries its declared sort.
+    #[must_use]
+    pub fn bindings(&self) -> &[StateRuleBinding] {
+        &self.bindings
+    }
+
+    /// The context's term bindings in first-occurrence preorder.
+    pub(crate) fn term_bindings(&self) -> impl Iterator<Item = &Ident> {
+        self.bindings
+            .iter()
+            .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+            .map(|binding| &binding.name)
+    }
+
+    /// Rejects a structural frame name that is also a subject binder, and
+    /// attaches each term binding's declared sort.
+    pub(crate) fn attach_sorts(
+        &mut self,
+        subject: &[Ident],
+        declared: &[(Ident, TermSort)],
+    ) -> Result<(), SyntaxError> {
+        for binding in &mut self.bindings {
+            if binding.kind != StateRuleBindingKind::Term {
+                if subject.iter().any(|name| name == &binding.name) {
+                    return Err(pattern_error(
+                        "a configuration-rule binding cannot be reused as a different frame or term kind",
+                        binding.name.span(),
+                    ));
+                }
+                continue;
+            }
+            binding.sort = declared
+                .iter()
+                .find(|(name, _)| name == &binding.name)
+                .map(|(_, sort)| sort.clone());
+        }
+        Ok(())
+    }
+
+    /// The context's cell terms in expansion order.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&TermExpression> {
+        let mut output = Vec::new();
+        append_cells_terms(&self.pattern, &mut output);
+        output
+    }
+
+    /// The `Cell`/`KCell` wrapper paths, which rustc resolves.
+    #[must_use]
+    pub fn wrapper_paths(&self) -> Vec<&Path> {
+        self.pattern
+            .entries()
+            .iter()
+            .filter_map(crate::CellsEntry::wrapper)
+            .collect()
+    }
+
+    /// The parameter anchors (`function_context`, `function_context_type`)
+    /// and the cell anchors, whose left-hand term ordinals continue after
+    /// the subject's in `existing`.
+    ///
+    /// # Errors
+    ///
+    /// Returns endpoint or ordinal-overflow errors only.
+    pub(crate) fn provenance(
+        &self,
+        existing: &[ProvenanceAnchor],
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut output = vec![
+            ProvenanceAnchor::new(
+                ProvenanceRole::FunctionContext,
+                0,
+                TokenRange::for_tokens(&self.pattern_macro)?,
+            ),
+            ProvenanceAnchor::new(
+                ProvenanceRole::FunctionContextType,
+                0,
+                TokenRange::for_tokens(&self.configuration_type)?,
+            ),
+        ];
+        let mut counters = ProvenanceAnchors::continuing(
+            existing,
+            &[
+                ProvenanceRole::RuleLeftApplicationHead,
+                ProvenanceRole::RuleLeftReference,
+                ProvenanceRole::RuleLeftLiteral,
+                ProvenanceRole::RuleLeftRecordFieldName,
+                ProvenanceRole::RuleLeftWildcard,
+            ],
+        );
+        append_remapped(
+            self.pattern.provenance()?,
+            RuleSide::Left,
+            &mut counters,
+            &mut output,
+        )?;
+        for entry in self.pattern.entries() {
+            append_state_term_provenance(
+                entry.value(),
+                RuleSide::Left,
+                &mut counters,
+                &mut output,
+            )?;
+        }
+        Ok(output)
+    }
+}
+
 impl KrsSyntax for StateRuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         Self::from_item(syn::parse2(tokens)?)

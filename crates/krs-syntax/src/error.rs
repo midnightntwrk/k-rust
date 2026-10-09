@@ -232,6 +232,12 @@ pub enum SyntaxErrorKind {
         /// Specific restriction.
         reason: String,
     },
+    /// An equation's function context (`k::cells! { .., .. }: Machine`,
+    /// K's `[[ .. ]]`) is malformed or placed on another sentence (KF-025).
+    InvalidFunctionContext {
+        /// Specific restriction.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -373,6 +379,7 @@ impl SyntaxErrorKind {
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::syntax::INVALID_LET,
+            Self::InvalidFunctionContext { .. } => codes::syntax::INVALID_FUNCTION_CONTEXT,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
@@ -628,7 +635,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidPatternAs { reason }
             | SyntaxErrorKind::InvalidPatternOr { reason }
             | SyntaxErrorKind::InvalidMatches { reason }
-            | SyntaxErrorKind::InvalidLet { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidLet { reason }
+            | SyntaxErrorKind::InvalidFunctionContext { reason } => formatter.write_str(reason),
         }
     }
 }

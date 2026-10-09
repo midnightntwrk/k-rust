@@ -88,6 +88,13 @@ pub enum SentenceNodeRole {
     Requires,
     /// A claim postcondition.
     Ensures,
+    /// An equation's function context (KF-025), the `#cells` argument of
+    /// `#withConfig`.
+    FunctionContext,
+    /// One cell pattern in an equation's function context.
+    FunctionContextCell(u32),
+    /// One explicit associative frame in an equation's function context.
+    FunctionContextFrame(u32),
     /// Structured term. Child indices form a deterministic preorder path from
     /// the sentence body (`0`/`1` for rewrite endpoints and application or
     /// sequence argument indices otherwise).

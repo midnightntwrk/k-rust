@@ -76,6 +76,7 @@ fn exact<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
         before,
         completed_head: false,
         framed: false,
+        unconstrained: false,
     }
 }
 
@@ -85,6 +86,7 @@ fn framed<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> 
         before,
         completed_head: false,
         framed: true,
+        unconstrained: false,
     }
 }
 

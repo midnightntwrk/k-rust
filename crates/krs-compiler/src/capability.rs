@@ -148,6 +148,15 @@ pub(crate) fn sentence_terms(sentence: &RuleSentence) -> Vec<&DefinitionTerm> {
             }
         }
     }
+    if let Some(context) = sentence.function_context() {
+        terms.extend(
+            context
+                .cells()
+                .cells()
+                .iter()
+                .map(krs_ir::FixedCellPattern::pattern),
+        );
+    }
     if let Some(condition) = sentence.requires() {
         terms.push(condition.term());
     }

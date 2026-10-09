@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patterns-and-functions feature gate: `name @ pattern` (KF-029), `A | B` (KF-030), `k::matches!` (KF-031), and `let` blocks (KF-032).
+"""Patterns-and-functions feature gate: `name @ pattern` (KF-029), `A | B` (KF-030), `k::matches!` (KF-031), `let` blocks (KF-032), and function contexts (KF-025).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -52,6 +52,16 @@ the outcomes must agree:
   application stuck (a pinned divergence), and the failed constructor
   patterns, on which the pinned native backend does not terminate, run on
   Java K only;
+- `contexts`: an equation whose last parameter is
+  `k::cells! { bar: Cell(b), baz: Cell(0), .. }: Machine` reads the
+  configuration it is evaluated in, K's function context
+  `rule [[ barPlus ( N ) => B +Int N ]] <bar> B </bar> <baz> 0 </baz>`.
+  A readable rule calling `barPlus(1)` makes `readBar()` `43` from
+  `<bar> 42 </bar>`, and `barTwice`, whose equation has no context but calls
+  `barPlus` twice, makes `readTwice()` `86`: K threads the hidden
+  configuration argument through every caller. The programs agree natively,
+  on Java K's LLVM backend from the emitted K and from `reference.k`, and on
+  Java K's Haskell backend;
 - negative fixtures: `ref` on an alias, an alias inside its own subpattern,
   an alias of a `..` remainder, `@` in a result, an alias of a whole rule
   subject, alternatives binding different names, alternatives that can bind
@@ -62,8 +72,14 @@ the outcomes must agree:
   subject's, and `k::matches!` in a claim (the pinned native prover cannot
   resolve `:=K` there), a term block whose result ends in a semicolon, `|`
   and `@` in a `let` pattern, a block in a pattern, a let-bound name used
-  outside its block, a `let` pattern whose sort cannot meet its value's, and
-  a `let` in a claim, each fail `krs check` with a pinned diagnostic.
+  outside its block, a `let` pattern whose sort cannot meet its value's, a
+  `let` in a claim, a function context without its anonymous `..`, one
+  binding `state @ ..`, a context on a `#[k::rule]` or a
+  `#[k::simplification]`, a context that is not `k::cells!`, a binder list
+  that omits a context binder, a context binder at a sort its cell does not
+  have, a context that reads a whole nested cell, and a rule that writes a
+  cell a function context reads, beside a rule calling that function (F2
+  clause 5), each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -155,6 +171,13 @@ LETS_STUCK = ("scale-refuted",)
 LETS_HASKELL_PROGRAMS = tuple(program for program in LETS_PROGRAMS if program.run != "undefined")
 LETS_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-lets-reference")
 
+CONTEXTS = Fixture(MANIFEST, "krs-patterns-functions-contexts")
+CONTEXTS_PROGRAMS = (
+    Program("read-bar", "readBar()", "accepted", "43"),
+    Program("read-twice", "readTwice()", "accepted", "86"),
+)
+CONTEXTS_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-contexts-reference")
+
 NEGATIVE = (
     "alias-ref",
     "alias-inside-itself",
@@ -180,6 +203,15 @@ NEGATIVE = (
     "let-scope",
     "let-sort",
     "let-claim",
+    "context-remainder",
+    "context-bound-rest",
+    "context-on-rule",
+    "context-on-simplification",
+    "context-shape",
+    "context-binders",
+    "context-sort",
+    "context-group",
+    "context-overlap",
 )
 
 
@@ -395,6 +427,32 @@ def verify_lets(harness: FixtureGate, workspace: Path) -> None:
             )
 
 
+def verify_contexts(harness: FixtureGate, workspace: Path) -> None:
+    """Function contexts run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
+
+    harness.check(CONTEXTS)
+    harness.expand(CONTEXTS)
+    emitted = harness.emit(CONTEXTS)
+    emitted_fragments(emitted, (
+        "rule [[ barPlus ( N:Int ) => B:Int +Int N:Int ]]\n"
+        "    <bar> B:Int </bar>\n"
+        "    <baz> 0 </baz>\n"
+        "    requires 0 <=Int B:Int [label(",
+        "rule barTwice ( N:Int ) => barPlus ( N:Int ) +Int barPlus ( N:Int ) [label(",
+    ))
+    observed = harness.compare(emitted, CONTEXTS_PROGRAMS, sort="Exp")
+    agree_with_reference(
+        harness, workspace, CONTEXTS_REFERENCE, "CONTEXTS-REFERENCE", CONTEXTS_PROGRAMS, observed,
+    )
+    haskell = java_haskell_outcomes(harness, emitted, CONTEXTS_PROGRAMS)
+    for program in CONTEXTS_PROGRAMS:
+        if haskell[program.name] != observed[program.name]:
+            raise GateError(
+                f"{CONTEXTS.package} {program.name}: Java K Haskell observed "
+                f"{haskell[program.name]}, the native and LLVM routes {observed[program.name]}"
+            )
+
+
 def verify_aliases(harness: FixtureGate, workspace: Path) -> None:
     """Aliases run natively, on Java LLVM from the emitted K, and from `reference.k`."""
 
@@ -446,6 +504,9 @@ def main() -> int:
 
         verify_lets(harness, workspace)
         print("PASS lets: swap, swapPair, scale, shadow, and positive agree natively, on Java LLVM, with reference.k, and on Java Haskell; the refuted lets are undefined on Java LLVM")
+
+        verify_contexts(harness, workspace)
+        print("PASS contexts: readBar and readTwice agree natively, on Java LLVM, with reference.k, and on Java Haskell")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

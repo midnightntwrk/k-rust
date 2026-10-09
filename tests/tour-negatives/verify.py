@@ -302,6 +302,11 @@ def main() -> None:
             "a term block is `let pattern = term;`* followed by one result term (K's #let)",
             "y",
         ),
+        (
+            "function_context_on_rule",
+            "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)",
+            "cells",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

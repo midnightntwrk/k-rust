@@ -108,6 +108,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-patterns-functions-contexts"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-patterns-functions-lets"
 version = "0.1.0"
 dependencies = [

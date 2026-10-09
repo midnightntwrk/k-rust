@@ -423,6 +423,81 @@ stage_shape! {
 /// Stable descriptor-stage form of [`ContextAlias`].
 pub type DescriptorContextAlias = ContextAlias<DescriptorStage>;
 
+stage_shape! {
+    /// The read-only configuration context of an equation (KF-025): K's
+    /// `[[ .. ]]` cells, a one-sided pattern framed by an anonymous remainder.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorFunctionContext",
+        bound(
+            serialize = "
+                S::Sort: Serialize,
+                S::Configuration: Serialize,
+                S::Cell: Serialize,
+                S::Application: Serialize,
+                S::Nominal: Serialize
+            ",
+            deserialize = "
+                S::Sort: Deserialize<'de>,
+                S::Configuration: Deserialize<'de>,
+                S::Cell: Deserialize<'de>,
+                S::Application: Deserialize<'de>,
+                S::Nominal: Deserialize<'de>
+            "
+        )
+    )]
+    pub struct FunctionContext<S: Stage> {
+        /// Complete `k::cells! { .. }` parameter provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Exact fixed-configuration reference.
+        pub configuration: S::Configuration => [configuration],
+        /// The context's bindings that the subject does not bind, in
+        /// first-occurrence preorder; a term binding carries its declared sort.
+        pub bindings: Vec<ProtocolRuleBinding<S::Sort>> => [vec protocol sort],
+        /// Complete one-sided cells pattern.
+        pub cells: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+    }
+}
+
+/// Stable descriptor-stage form of [`FunctionContext`].
+pub type DescriptorFunctionContext = FunctionContext<DescriptorStage>;
+
+impl DescriptorFunctionContext {
+    /// The context's parser-owned keys: the parameter, the configuration
+    /// type, and every cell, frame, and term key.
+    pub(crate) fn collect_keys(&self, keys: &mut BTreeSet<ProvenanceKey>) {
+        keys.insert(self.key.clone());
+        keys.insert(self.configuration.key.clone());
+        keys.insert(self.cells.key.clone());
+        for binding in &self.bindings {
+            if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
+                keys.insert(sort.key.clone());
+            }
+        }
+        collect_cells_keys(&self.cells, keys);
+    }
+
+    /// The names the context binds that the subject does not: every name
+    /// the result and the requires condition may reference besides the
+    /// subject's.
+    #[must_use]
+    pub fn binding_names(&self) -> BTreeSet<String> {
+        self.bindings
+            .iter()
+            .map(|binding| binding.name.clone())
+            .collect()
+    }
+
+    /// The context's term bindings in first-occurrence preorder.
+    pub(crate) fn term_binding_names(&self) -> impl Iterator<Item = &str> {
+        self.bindings.iter().filter_map(|binding| {
+            matches!(binding.kind, ProtocolRuleBindingKind::Term { .. })
+                .then_some(binding.name.as_str())
+        })
+    }
+}
+
 /// Build-local host-stage form of [`ContextAlias`].
 pub type HostContextAlias = ContextAlias<HostStage>;
 

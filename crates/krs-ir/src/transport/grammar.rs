@@ -1926,8 +1926,8 @@ stage_shape! {
     #[serde(
         rename = "StructuredRuleDescriptor",
         bound(
-            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
-            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize, S::Configuration: Serialize, S::Cell: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>, S::Configuration: Deserialize<'de>, S::Cell: Deserialize<'de>"
         ),
         deny_unknown_fields
     )]
@@ -1986,6 +1986,10 @@ stage_shape! {
         /// `unbound_variables = [..]` of a desugar clause (KF-046).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub unbound_variables: Option<DescriptorUnboundVariables> => [keep],
+        /// The read-only configuration context of an equation (KF-025), K's
+        /// `[[ .. ]]` cells.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub function_context: Option<crate::transport::rule::FunctionContext<S>> => [option nested],
     }
 }
 
@@ -2315,6 +2319,53 @@ impl StructuredRuleDescriptor {
         Ok(())
     }
 
+    /// Validates an equation's function context and returns the subject's
+    /// bindings extended by the context's (KF-025).
+    fn validate_function_context(
+        &self,
+        mut bindings: BTreeSet<String>,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<BTreeSet<String>, GrammarTransportError> {
+        let Some(context) = &self.function_context else {
+            return Ok(bindings);
+        };
+        let invalid =
+            || GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidFunctionContext);
+        if self.sentence_kind != SentenceKind::Equation
+            || context.configuration.configuration.item_kind() != ItemKind::Configuration
+            || !matches!(
+                context.cells.remainder,
+                crate::ProtocolRuleFrame::Anonymous { .. }
+            )
+        {
+            return Err(invalid());
+        }
+        require_key(&context.key, provenance)?;
+        require_key(&context.configuration.key, provenance)?;
+        require_key(&context.cells.key, provenance)?;
+        for binding in &context.bindings {
+            if let crate::ProtocolRuleBindingKind::Term { sort } = &binding.kind {
+                require_key(&sort.key, provenance)?;
+                sort.sort.validate()?;
+            }
+            if binding.name.trim().is_empty()
+                || matches!(
+                    binding.kind,
+                    crate::ProtocolRuleBindingKind::ConfigurationFrame
+                )
+                || !bindings.insert(binding.name.clone())
+            {
+                return Err(invalid());
+            }
+        }
+        let mut keys = BTreeSet::new();
+        context.collect_keys(&mut keys);
+        for key in &keys {
+            require_key(key, provenance)?;
+        }
+        Ok(bindings)
+    }
+
     /// Validates the priority, nondet, and anywhere keys of a rule.
     fn validate_rule_keys(
         &self,
@@ -2358,21 +2409,32 @@ impl StructuredRuleDescriptor {
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
     ) -> Result<(), GrammarTransportError> {
+        // With a function context the list is mandatory and also declares
+        // the context's term binders, after the subject's (X5.1).
+        let mut expected = self.bindings.iter().map(String::as_str).collect::<Vec<_>>();
+        if let Some(context) = &self.function_context {
+            if self.typed_bindings.is_empty() {
+                return Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::InvalidFunctionContext,
+                ));
+            }
+            expected.extend(context.term_binding_names());
+        }
         if self.typed_bindings.is_empty() {
             return Ok(());
         }
-        if self.typed_bindings.len() != self.bindings.len() {
+        if self.typed_bindings.len() != expected.len() {
             return Err(GrammarTransportError::InvalidBinding(
-                self.bindings
+                expected
                     .iter()
-                    .find(|name| !self.typed_bindings.iter().any(|typed| &typed.name == *name))
-                    .or_else(|| self.bindings.last())
-                    .cloned()
+                    .find(|name| !self.typed_bindings.iter().any(|typed| typed.name == **name))
+                    .or_else(|| expected.last())
+                    .map(|name| (*name).to_owned())
                     .unwrap_or_default(),
             ));
         }
-        for (binding, name) in self.typed_bindings.iter().zip(&self.bindings) {
-            if &binding.name != name {
+        for (binding, name) in self.typed_bindings.iter().zip(&expected) {
+            if binding.name != *name {
                 return Err(GrammarTransportError::InvalidBinding(binding.name.clone()));
             }
             require_key(&binding.key, provenance)?;
@@ -2475,6 +2537,9 @@ impl StructuredRuleDescriptor {
                 .unwrap_or_default();
             return Err(GrammarTransportError::InvalidBinding(missing));
         }
+        // The function context's bindings are visible to the result and
+        // the requires condition, like the subject's (KF-025).
+        let bindings = self.validate_function_context(bindings, provenance)?;
         let right_bindings = self.validate_existentials(&bindings, provenance)?;
         self.validate_result(&bindings, right_bindings.clone(), provenance)?;
         if let Some(requires) = &self.requires {
@@ -3871,11 +3936,38 @@ impl StructuredRuleDescriptor {
         let mut subject = TermKeyCounters::default();
         self.subject
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
+        self.collect_function_context_keys(&mut keys, &mut subject);
         let mut result = subject.next_side();
         self.result
             .collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
         self.collect_condition_keys(&mut keys, &result)?;
         Ok(keys)
+    }
+
+    /// The keys of an equation's function context (KF-025). Its cells are
+    /// expanded after the subject, so the side-neutral ordinals of the result
+    /// continue after the context's.
+    fn collect_function_context_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+        subject: &mut TermKeyCounters,
+    ) {
+        let Some(context) = &self.function_context else {
+            return;
+        };
+        let mut context_keys = BTreeSet::new();
+        context.collect_keys(&mut context_keys);
+        for key in &context_keys {
+            let counter = match key.role() {
+                ProvenanceRole::LexemeText => &mut subject.lexeme,
+                ProvenanceRole::SortTest => &mut subject.sort_test,
+                ProvenanceRole::PatternAs => &mut subject.pattern_as,
+                ProvenanceRole::PatternOr => &mut subject.pattern_or,
+                _ => continue,
+            };
+            *counter = (*counter).max(key.ordinal().saturating_add(1));
+        }
+        keys.extend(context_keys);
     }
 
     /// The keys of a rule's requires condition, then of a transition's
@@ -4422,6 +4514,7 @@ mod traversal_tests {
             fresh: Vec::new(),
             equation: None,
             unbound_variables: None,
+            function_context: None,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

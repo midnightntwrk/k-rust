@@ -167,6 +167,23 @@ fn occurrence_overflow(role: ProvenanceRole, span: Span) -> SyntaxError {
 pub struct ProvenanceAnchors(BTreeMap<ProvenanceRole, u32>);
 
 impl ProvenanceAnchors {
+    /// Counters for `roles` that continue after the anchors already in
+    /// `existing`, so a later part of a sentence numbers on from an earlier one.
+    #[must_use]
+    pub fn continuing(existing: &[crate::ProvenanceAnchor], roles: &[ProvenanceRole]) -> Self {
+        let mut counters = BTreeMap::new();
+        for role in roles {
+            let next = existing
+                .iter()
+                .filter(|anchor| anchor.role() == *role)
+                .map(|anchor| anchor.ordinal().saturating_add(1))
+                .max()
+                .unwrap_or(0);
+            counters.insert(*role, next);
+        }
+        Self(counters)
+    }
+
     /// Returns the next ordinal for a role, reporting overflow at its node.
     ///
     /// # Errors

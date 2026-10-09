@@ -530,6 +530,25 @@ k::rules! {
 ",
     ),
     (
+        "equation_function_context",
+        r"
+#[k::requires(int::le(0, b))]
+#[k::equation]
+fn bar_plus(
+    n: Term<Int>,
+    b: Term<Int>,
+    k::term![BarPlus(n)]: Term<Int>,
+    k::cells! {
+        bar: k::configuration::Cell(b),
+        baz: k::configuration::Cell(0),
+        ..
+    }: Machine,
+) -> Term<Int> {
+    int::add(b, n)
+}
+",
+    ),
+    (
         "rule_pattern_or",
         r"
 #[k::equation]

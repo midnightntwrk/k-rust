@@ -264,6 +264,7 @@ details! {
         PatternOrOutsideLeftHandSide => "`A | B` or-patterns (#Or) are allowed only in left-hand sides",
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
         LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
+        InvalidFunctionContext => "a function context is allowed only on an equation that declares every binder, framed by an anonymous configuration remainder, with distinct context binders",
     }
 }
 

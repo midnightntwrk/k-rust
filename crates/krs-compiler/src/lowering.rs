@@ -1485,6 +1485,11 @@ fn lower_rule_metadata(
             rule.unbound_variables()
                 .map(|unbound| lower_unbound_variables(unbound, rule.id(), origins))
                 .transpose()?,
+        )
+        .with_function_context(
+            rule.function_context()
+                .map(|context| lower_function_context(context, rule.id(), names, origins))
+                .transpose()?,
         );
     Ok(sentence)
 }
@@ -1514,6 +1519,20 @@ fn lower_unbound_variables(
         })
         .collect::<Result<Vec<_>, LoweringError>>()?;
     Ok(krs_ir_levels::IrUnboundVariables::new(origin, variables))
+}
+
+/// Lowers an equation's function context (KF-025): its parameter origin and
+/// its one-sided cells.
+fn lower_function_context(
+    context: &krs_ir_levels::SemanticFunctionContext,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::DefinitionFunctionContext, LoweringError> {
+    Ok(krs_ir_levels::IrFunctionContext::new(
+        origins.lower(context.origin(), "function-context", Some(item), None)?,
+        lower_configuration_pattern(context.cells(), names, origins)?,
+    ))
 }
 
 /// Lowers the `concrete`, `symbolic`, and `smt_lemma` keys (KF-043); binder

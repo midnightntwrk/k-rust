@@ -232,6 +232,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending statement or name.
         range: Option<Box<SourceRange>>,
     },
+    /// An equation's function context names a cell shape it cannot read, or
+    /// declares a binder at a sort its cell does not have (KF-025).
+    InvalidFunctionContext {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the offending cell or binder.
+        range: Option<Box<SourceRange>>,
+    },
     /// A token sort, token alias, or `k::lexeme!` term is not well formed (KF-003).
     InvalidTokenSort {
         /// Item the diagnostic is about.
@@ -444,6 +454,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidMatches { reason, .. }
             | Self::InvalidLet { reason, .. }
+            | Self::InvalidFunctionContext { reason, .. }
             | Self::InvalidLexical { reason, .. }
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
@@ -468,6 +479,10 @@ fn quoted_fields(fields: &[String]) -> String {
 }
 
 impl ToDiagnostic for DescriptorLoweringError {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One code and note per lowering error variant keeps the mapping exhaustive."
+    )]
     fn to_diagnostic(&self) -> Diagnostic {
         let code = match self {
             Self::BuiltinSortNameCollision { .. } => codes::analysis::BUILTIN_SORT_NAME_COLLISION,
@@ -496,6 +511,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
+            Self::InvalidFunctionContext { .. } => codes::analysis::INVALID_FUNCTION_CONTEXT,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
@@ -538,6 +554,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidPatternOr { range, .. }
             | Self::InvalidMatches { range, .. }
             | Self::InvalidLet { range, .. }
+            | Self::InvalidFunctionContext { range, .. }
             | Self::InvalidSyntaxList { range, .. }
             | Self::InvalidLexical { range, .. }
             | Self::InvalidFresh { range, .. }

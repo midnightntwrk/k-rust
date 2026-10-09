@@ -317,6 +317,19 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
+    /// The per-side ordinals of this side so far, as `[application,
+    /// reference, literal, record field, wildcard]`, for a `cells!` pattern
+    /// that continues the side (an equation's function context, KF-025).
+    pub(super) const fn side_ordinals(&self) -> [u32; 5] {
+        [
+            self.counters.application,
+            self.counters.reference,
+            self.counters.literal,
+            self.counters.field,
+            self.counters.wildcard,
+        ]
+    }
+
     pub(super) fn reset_side(&mut self) {
         self.counters = TermCounters::default();
     }
