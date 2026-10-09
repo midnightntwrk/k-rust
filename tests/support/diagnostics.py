@@ -197,6 +197,22 @@ class CargoPrimarySpan:
     column_end: int
 
 
+_KRS_CODE_TAG = re.compile(r"\[(krs::[a-z0-9-]+::[a-z0-9-]+)\] ")
+
+
+def split_krs_code(message: str) -> tuple[str | None, str]:
+    """Split a KRS proc macro's rustc message, `[code] text`, into its code and text.
+
+    A KRS macro can report a failure only as a `compile_error!` message, so its
+    registered code travels in front of the text; any other message has no code.
+    """
+
+    match = _KRS_CODE_TAG.match(message)
+    if match is None:
+        return None, message
+    return match.group(1), message[match.end():]
+
+
 def cargo_primary_span(
     stream: str | bytes, level: str = "error", *, message_contains: str | None = None
 ) -> CargoPrimarySpan:

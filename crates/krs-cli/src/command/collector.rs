@@ -3,7 +3,7 @@ use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
     GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
 };
-use krs_diagnostic::{Code, Diagnostic, Location, codes};
+use krs_diagnostic::{Code, Diagnostic, Location, codes, untag_rustc_message};
 use krs_ir::measure::{
     COLLECTOR_DIAGNOSTIC_ENV, COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV,
     CollectorMeasureDocument, CollectorReadSet, Measurement, unix_seconds,
@@ -315,18 +315,22 @@ fn rust_diagnostics(
         let Some(manifest) = message.manifest_path.as_deref() else {
             continue;
         };
-        let code = diagnostic.code.as_ref().map_or_else(
-            || codes::rust_expansion::UNCODED_ERROR,
-            |code| Code::foreign(code.code.clone()),
-        );
+        // A KRS proc macro's `compile_error!` carries its code in the message.
+        let (code, text) = match (&diagnostic.code, untag_rustc_message(&diagnostic.message)) {
+            (Some(code), _) => (
+                Code::foreign(code.code.clone()),
+                diagnostic.message.as_str(),
+            ),
+            (None, Some((code, text))) => (code, text),
+            (None, None) => (
+                codes::rust_expansion::UNCODED_ERROR,
+                diagnostic.message.as_str(),
+            ),
+        };
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
                 let view = diagnostic_envelope(
-                    Diagnostic::error(
-                        code.clone(),
-                        diagnostic.message.clone(),
-                        Location::Source(range),
-                    ),
+                    Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range)),
                     DiagnosticStage::RustExpansion,
                     None,
                 );
@@ -403,12 +407,11 @@ mod tests {
     use super::*;
     use crate::{DefinitionRequest, FacetSelector, PackageSelector};
 
-    #[test]
-    fn rust_spans_use_validated_facet_identity_and_do_not_hide_selected_source_errors() {
+    /// Plans the one-package `language` definition whose `src/lib.rs` is `source`.
+    fn language_plan(source: &str) -> (tempfile::TempDir, PathBuf, CollectorPlan) {
         let directory = tempfile::tempdir().unwrap();
         let manifest = directory.path().join("Cargo.toml");
         fs::create_dir(directory.path().join("src")).unwrap();
-        let source = "pub trait Expr {}\n";
         fs::write(directory.path().join("src/lib.rs"), source).unwrap();
         let metadata = CargoMetadata::from_json(&serde_json::to_vec(&serde_json::json!({
             "packages": [{
@@ -437,6 +440,13 @@ mod tests {
             },
         )
         .unwrap();
+        (directory, manifest, plan)
+    }
+
+    #[test]
+    fn rust_spans_use_validated_facet_identity_and_do_not_hide_selected_source_errors() {
+        let source = "pub trait Expr {}\n";
+        let (_directory, manifest, plan) = language_plan(source);
         let mut span = RustDiagnosticSpan {
             file_name: "src/lib.rs".to_owned(),
             byte_start: 10,
@@ -468,6 +478,53 @@ mod tests {
             rust_source_range(&plan, manifest.to_str().unwrap(), &span),
             Err(CommandError::Io { .. })
         ));
+    }
+
+    #[test]
+    fn tagged_proc_macro_errors_recover_their_registered_code() {
+        let (_directory, manifest, plan) = language_plan("pub trait Expr {}\n");
+        let message = |text: &str, code: Option<&str>| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "manifest_path": manifest,
+                "message": {
+                    "level": "error",
+                    "message": text,
+                    "code": code.map(|code| serde_json::json!({ "code": code })),
+                    "spans": [{
+                        "file_name": "src/lib.rs", "byte_start": 10, "byte_end": 14,
+                        "is_primary": true,
+                    }],
+                    "rendered": null,
+                },
+            })
+            .to_string()
+        };
+        let stdout = [
+            message("[krs::syntax::invalid-color] bad colours", None),
+            message("[krs::syntax::no-such-code] kept", None),
+            message("mismatched types", Some("E0308")),
+        ]
+        .join("\n");
+        let reported: Vec<_> = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .into_iter()
+            .map(|envelope| (envelope.code, envelope.message))
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                ("E0308".to_owned(), "mismatched types".to_owned()),
+                (
+                    "krs::rust-expansion::uncoded-error".to_owned(),
+                    "[krs::syntax::no-such-code] kept".to_owned()
+                ),
+                (
+                    "krs::syntax::invalid-color".to_owned(),
+                    "bad colours".to_owned()
+                ),
+            ]
+        );
     }
 
     #[test]

@@ -62,6 +62,30 @@ fn registered_spellings_are_available_in_const_contexts() {
 }
 
 #[test]
+fn rustc_message_tags_round_trip_only_registered_codes() {
+    let tagged = tag_rustc_message(&codes::syntax::INVALID_COLOR, "bad [colours] here");
+    assert_eq!(tagged, "[krs::syntax::invalid-color] bad [colours] here");
+    assert_eq!(
+        untag_rustc_message(&tagged),
+        Some((codes::syntax::INVALID_COLOR, "bad [colours] here"))
+    );
+    for message in [
+        "KRS CLI oracle induced Cargo failure",
+        "[krs::syntax::no-such-code] message",
+        "[E0308] mismatched types",
+        "[krs::syntax::invalid-color]message",
+        "krs::syntax::invalid-color message",
+    ] {
+        assert_eq!(untag_rustc_message(message), None, "{message}");
+    }
+    assert_eq!(
+        Code::registered_spelling("krs::syntax::invalid-color"),
+        Some(codes::syntax::INVALID_COLOR)
+    );
+    assert_eq!(Code::registered_spelling("E0308"), None);
+}
+
+#[test]
 fn foreign_codes_preserve_borrowed_and_owned_spellings_without_registration() {
     let borrowed = Code::foreign("E0412");
     let owned = Code::foreign(String::from("E0412"));

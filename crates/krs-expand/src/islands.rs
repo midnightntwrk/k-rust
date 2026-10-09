@@ -79,9 +79,11 @@ pub(crate) fn matches(input: TokenStream) -> crate::Result<TokenStream> {
 /// one, the enclosing `#[k::rule]` expansion consumes it; anywhere it reaches
 /// rustc it is misplaced.
 pub(crate) fn rewrite() -> TokenStream {
-    quote!(::core::compile_error!(
-        "`k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
-    ))
+    let message = krs_diagnostic::tag_rustc_message(
+        &krs_diagnostic::codes::syntax::INVALID_LOCAL_REWRITE,
+        "`k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn",
+    );
+    quote!(::core::compile_error!(#message))
 }
 
 /// Compiler-owned associative object-Bool disjunction.

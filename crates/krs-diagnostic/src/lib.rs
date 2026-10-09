@@ -43,6 +43,34 @@ impl Code {
             Cow::Owned(spelling) => spelling.as_str(),
         }
     }
+
+    /// Returns the KRS-registered code with this spelling, if there is one.
+    #[must_use]
+    pub fn registered_spelling(spelling: &str) -> Option<Self> {
+        codes::REGISTRY
+            .iter()
+            .find(|info| info.code.as_str() == spelling)
+            .map(|info| info.code.clone())
+    }
+}
+
+/// Spells a diagnostic message for rustc so that its code survives the trip.
+///
+/// A proc macro can report a failure only as a `compile_error!` message, which
+/// has no code of its own, so the code travels in front of the message as
+/// `[code] message`. [`untag_rustc_message`] recovers it.
+#[must_use]
+pub fn tag_rustc_message(code: &Code, message: &str) -> String {
+    format!("[{code}] {message}")
+}
+
+/// Splits a rustc message spelled by [`tag_rustc_message`] into its code and
+/// message. Only a KRS-registered code is recognised, so any other message,
+/// bracketed or not, returns `None`.
+#[must_use]
+pub fn untag_rustc_message(message: &str) -> Option<(Code, &str)> {
+    let (spelling, rest) = message.strip_prefix('[')?.split_once("] ")?;
+    Some((Code::registered_spelling(spelling)?, rest))
 }
 
 impl fmt::Display for Code {

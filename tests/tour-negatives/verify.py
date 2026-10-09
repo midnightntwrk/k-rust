@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
-from support.diagnostics import cargo_primary_span, envelopes, krs_diagnostics  # noqa: E402
+from support.diagnostics import cargo_primary_span, envelopes, krs_diagnostics, split_krs_code  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
@@ -53,7 +53,9 @@ UNBOUND_VARIABLES_OUTSIDE_DESUGAR = (
 )
 
 
-def check_rust_negative(binary: str, message: str, token: str) -> None:
+def check_rust_negative(binary: str, message: str, token: str) -> str:
+    """Require the rustc message and its authored token; return the KRS code a macro carried, or `rustc`."""
+
     result = run_failing(
         [
             executable("cargo"),
@@ -69,12 +71,14 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
         ],
     )
     span = cargo_primary_span(result.stdout)
-    if span.message != message:
+    code, text = split_krs_code(span.message)
+    if text != message:
         raise GateError(f"{binary}: diagnostic changed: {span.message!r}")
     source = MACRO_NEGATIVES / span.file_name
     selected = source.read_bytes()[span.byte_start:span.byte_end].decode()
     if selected != token:
         raise GateError(f"{binary}: expected authored token {token!r}, got {selected!r}")
+    return code or "rustc"
 
 
 def check_overlap(binary: Path) -> None:
@@ -370,8 +374,8 @@ def main() -> None:
         ),
     )
     for binary, message, token in cases:
-        check_rust_negative(binary, message, token)
-        print(f"PASS {binary}: pinned message and authored token {token!r}")
+        code = check_rust_negative(binary, message, token)
+        print(f"PASS {binary}: pinned message, code {code}, and authored token {token!r}")
 
 
 if __name__ == "__main__":

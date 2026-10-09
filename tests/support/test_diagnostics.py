@@ -14,6 +14,7 @@ from support.diagnostics import (
     cargo_primary_span,
     envelopes,
     krs_diagnostics,
+    split_krs_code,
 )
 
 
@@ -138,6 +139,15 @@ class CargoSpanTests(unittest.TestCase):
         first = cargo_primary_span(stream)
         self.assertEqual((first.message, first.byte_start, first.column_end), ("first error", 2, 9))
         self.assertEqual(cargo_primary_span(stream, message_contains="target").message, "target error")
+
+    def test_split_krs_code(self) -> None:
+        self.assertEqual(
+            split_krs_code("[krs::syntax::invalid-let] a [bracketed] text"),
+            ("krs::syntax::invalid-let", "a [bracketed] text"),
+        )
+        for message in ("mismatched types", "[E0308] mismatched types", "[krs::syntax::invalid-let]text"):
+            with self.subTest(message=message):
+                self.assertEqual(split_krs_code(message), (None, message))
 
     def test_filter_counts_primary_spans_across_messages(self) -> None:
         stream = "\n".join(json.dumps(self.envelope("target error", [self.span()])) for _ in range(2))
