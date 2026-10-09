@@ -7131,6 +7131,61 @@ mod tests {
         assert!(under(&with_top, &made_under_none, false));
     }
 
+    /// Of an application's records under the same assumptions, a lookup serves the first one
+    /// made that holds: one that does not hold is passed over, and a later one that also holds
+    /// is not served. Every record that holds gives the outcome a fresh evaluation would, so the
+    /// order decides only which is served, and this pins the one the index documents
+    /// ([`RecordTable`]). The records differ in the contingency they hand on, which tells them
+    /// apart; the first read a rule-condition key that is not active now.
+    #[test]
+    fn the_first_record_that_holds_is_served() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let application = term(&definition, r#"\dv{SortString{}}("a")"#);
+        let path_condition = PathConditionReplacements::new(&[]);
+        let assumptions = TermAssumptions {
+            predicates: &[],
+            path_condition: &path_condition,
+        };
+        let active = BTreeSet::new();
+        let given = EvaluationGiven {
+            assumptions: &assumptions,
+            options: SimplificationOptions::default(),
+            active: &active,
+            console: None,
+            solver: &NoSolver,
+        };
+        let inactive = Reads {
+            active: std::iter::once(("other".to_owned(), application.clone())).collect(),
+            ..Reads::default()
+        };
+        let _scope = UnspecifiedValues::open();
+        for (contingent, reads) in [(1, inactive), (2, Reads::default()), (3, Reads::default())] {
+            UnspecifiedValues::record(
+                &application,
+                RecordedOutcome::Failed {
+                    excluded: Vec::new(),
+                    contingent: Some(contingent),
+                },
+                reads,
+                0,
+                &given,
+            );
+        }
+        let served = match UnspecifiedValues::recorded(&application, &given) {
+            Some((RecordedOutcome::Failed { contingent, .. }, _)) => contingent,
+            _ => None,
+        };
+        assert_eq!(served, Some(2));
+    }
+
     /// A record is served only under the same path condition as well as the same predicates:
     /// the path condition is given beside the predicates, not computed from them. A `\ceil`
     /// conjunct is simplified with its sibling conjuncts among the predicates but under the path
