@@ -29,6 +29,11 @@
 //!   a term that every model makes undefined, nor on a generalization of one by a subterm every
 //!   model makes defined ([`forced`]). This is the test of property (B) that reads neither the
 //!   closure nor `M_NF`, so a closure, vacuity or join rule that misses a class shows here.
+//! - **V9.** On every definition, the load's verdict (`CheckScope::Gate`, which classifies only
+//!   the pairs that can change a claim) and the full check's (`CheckScope::All`) admit the same
+//!   claims at every gate site and warn about the same pairs. The expectations above (acceptance,
+//!   V4's one normal form, the tainted set of V6) are read from the full check, the claims from
+//!   the loaded definition.
 //!
 //! Preconditions are measured, never assumed away: a query whose evaluation does not end within
 //! the bounds is outside P0 and counted (ceiling 10 % of queries), a definition that reaches a

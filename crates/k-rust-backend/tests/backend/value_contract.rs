@@ -10,7 +10,7 @@
 //! whose pairs join keep the claims the contract makes.
 
 use k_rust_backend::{
-    confluence::{UnjoinedReason, UnresolvedShape},
+    confluence::{CheckScope, UnjoinedReason, UnresolvedShape},
     definition::BackendDefinition,
     rule::Predicate,
     simplify::SimplificationOptions,
@@ -812,14 +812,17 @@ fn review_1_n1_through_a_constructor() {
 /// Where `A` has an element in every model (a constant constructor `a0`), the model collapses
 /// `u`'s applications holding a new element into it, and `v` keeps its claims. (This definition
 /// has no model at all, `g(a0)` being both `c1` and `c2`; the claim is vacuously true, and the
-/// test pins that the collapse is still taken where it is valid.)
+/// test pins that the collapse is still taken where it is valid.) The pair of the function `g`
+/// then reaches no symbol the gate is asked about, so the load's scope does not classify it:
+/// the full check names it and taints `g`, and neither verdict taints `v`.
 #[test]
 fn n1_through_a_total_function_into_a_surely_inhabited_sort_keeps_the_claims() {
     let definition = n1_through(
         "function{}(), total{}()",
         "symbol a0{}() : SortA{} [constructor{}(), functional{}(), injective{}()]",
     );
-    let tainted = definition.value_claims().tainted_symbols();
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    let tainted = full.tainted_symbols();
     assert!(
         tainted.iter().any(|symbol| symbol.as_ref() == "g"),
         "{tainted:?}"
@@ -827,6 +830,15 @@ fn n1_through_a_total_function_into_a_surely_inhabited_sort_keeps_the_claims() {
     assert!(
         !tainted.iter().any(|symbol| symbol.as_ref() == "v"),
         "{tainted:?}"
+    );
+    let loaded = definition.value_claims();
+    assert!(loaded.unjoined().is_empty(), "{:?}", loaded.unjoined());
+    assert!(loaded.tainted_symbols().is_empty());
+    assert_eq!(loaded.counts().skipped, 1);
+    assert!(
+        loaded.claim_differences(&full, &definition).is_empty(),
+        "{:?}",
+        loaded.claim_differences(&full, &definition)
     );
 }
 

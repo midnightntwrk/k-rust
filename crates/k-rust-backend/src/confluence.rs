@@ -2,13 +2,13 @@
 //! id = "backend.confluence.critical_pairs"
 //! name = "load-time critical-pair check by order-sorted unification and an innermost join"
 //! sites = ["check", "Context::classify", "Context::conditions"]
-//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family; b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
+//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
 //! counters = ["ConfluencePairs", "ConfluenceUnifierBranches", "ConfluenceJoinSteps", "ConfluenceSimplifierCalls"]
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise, for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head is declared; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -44,7 +44,10 @@
 //!    pair (an equation `e1`, a non-variable position `q` strictly below the root of its
 //!    left-hand side, and an equation `e2` offered at the head of `l1|q`, at a member of its
 //!    overload family, or at a bare variable), unified over normal-form instances with the
-//!    overload axioms of confluent families (`unify.rs`);
+//!    overload axioms of confluent families (`unify.rs`). Under the load's scope
+//!    ([`CheckScope::Gate`]) only the pairs with a *relevant* equation, one whose closure alone
+//!    reaches a symbol some gate site can be asked about, are classified: the others change no
+//!    claim, whether they join or not;
 //! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
@@ -95,7 +98,7 @@ use crate::{
     simplify::{SimplificationOptions, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
-    term::{HeadRole, Name, Sort, Term, TermKind, Variable},
+    term::{HeadRole, Name, Sort, Symbol, Term, TermKind, Variable},
 };
 use unify::{Families, Unifier, computed};
 
@@ -134,6 +137,64 @@ pub(crate) enum GateSite {
     Certificate,
 }
 
+impl GateSite {
+    const ALL: [Self; 3] = [Self::EquationHead, Self::Collection, Self::Certificate];
+
+    /// Whether this site can be asked about `index`: the class of indexes it vouches for. The
+    /// union over the sites is the set `G` of the relevance filter ([`CheckScope::Gate`]): the
+    /// gate's answers are a function of the tainted indexes in `G`, so a pair whose closure
+    /// reaches no symbol of `G` changes no answer. [`ValueClaims::admit_at`] asserts in debug
+    /// builds that each site asks only within its class, so a site that starts asking about
+    /// another class fails until this function, and with it the filter, includes that class.
+    pub(crate) fn asks_about(self, definition: &BackendDefinition, index: &TermIndex) -> bool {
+        match (self, index) {
+            (Self::EquationHead, TermIndex::Symbol(name)) => definition
+                .symbols()
+                .get(name)
+                .is_some_and(|symbol| symbol.attributes.head_role() == HeadRole::EquationHead),
+            (Self::Certificate, TermIndex::Symbol(name)) => definition
+                .symbols()
+                .get(name)
+                .is_some_and(|symbol| certified_root(definition, symbol)),
+            (Self::Collection, TermIndex::Map | TermIndex::List | TermIndex::Set) => true,
+            _ => false,
+        }
+    }
+}
+
+/// Whether the simplifier's normal-form certificate can be asked for an application rooted at
+/// `symbol` (`simplify::cacheable_equation_head`): an equation head, or an overloaded symbol.
+pub(crate) fn certified_root(definition: &BackendDefinition, symbol: &Symbol) -> bool {
+    symbol.attributes.head_role() == HeadRole::EquationHead
+        || definition.overloads().is_overloaded(&symbol.name)
+}
+
+/// Whether some gate site can be asked about the index of `name`: the symbols of `G`. The other
+/// indexes of `G` (collections) are tainted only by the precondition rows, never by the closure.
+fn gate_symbol(definition: &BackendDefinition, name: &Name) -> bool {
+    let index = TermIndex::Symbol(name.clone());
+    GateSite::ALL
+        .iter()
+        .any(|site| site.asks_about(definition, &index))
+}
+
+/// Which candidate pairs stage 2 classifies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckScope {
+    /// Only the pairs one of whose equations is *relevant*: the taint closure seeded by that
+    /// equation alone reaches a symbol some gate site can be asked about. Every value claim, the
+    /// taint of every such symbol and every warned pair are those of [`Self::All`]: the closure's
+    /// rules have one premise each, so the closure of a union of seeds is the union of their
+    /// closures, and a skipped pair's closure holds no symbol the gate is asked about whether or
+    /// not the pair joins (`docs/compatibility.md`, "Anywhere rules"). What differs is the work
+    /// counted and the non-joined pairs that withdraw no claim, which are not computed. The
+    /// scope of every load.
+    Gate,
+    /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
+    /// symbol the gate is asked about (a finding about the definition, independent of claims).
+    All,
+}
+
 /// Evidence that an index may carry value claims: minted only by [`ValueClaims::admit`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct UntaintedIndex(());
@@ -157,8 +218,21 @@ impl ValueClaims {
     }
 
     /// [`Self::admit`] at one of the gate's sites, unless a test switch admits every index there.
+    /// `definition` is the definition whose verdict this is.
     #[must_use]
-    pub(crate) fn admit_at(&self, index: &TermIndex, site: GateSite) -> Option<UntaintedIndex> {
+    pub(crate) fn admit_at(
+        &self,
+        definition: &BackendDefinition,
+        index: &TermIndex,
+        site: GateSite,
+    ) -> Option<UntaintedIndex> {
+        // A symbol the definition does not declare is in none of its equations, so no closure
+        // taints it, in any scope.
+        debug_assert!(
+            site.asks_about(definition, index)
+                || matches!(index, TermIndex::Symbol(name) if !definition.symbols().contains_key(name)),
+            "the gate site {site:?} is asked about {index:?}, outside its class (GateSite::asks_about)"
+        );
         let switches = switches::active();
         let forced = match site {
             GateSite::EquationHead => switches.admit_equation_heads,
@@ -214,6 +288,97 @@ impl ValueClaims {
             Verdict::Checked(checked) => checked.counts,
         }
     }
+
+    /// Where this verdict and `other`, two verdicts of `definition` (in two scopes), would make
+    /// different value claims or warn about different pairs: the tainted symbols some gate site
+    /// can be asked about, the tainted indexes that are not symbols (the precondition rows), the
+    /// gate's answer at every site for every symbol of the definition and every collection
+    /// index, and the pairs that withdraw a claim (equations, position, reason, withdrawn heads).
+    /// Empty when they agree.
+    #[must_use]
+    pub fn claim_differences(
+        &self,
+        other: &ValueClaims,
+        definition: &BackendDefinition,
+    ) -> Vec<String> {
+        let (Verdict::Checked(left), Verdict::Checked(right)) = (&*self.0, &*other.0) else {
+            return vec!["a verdict is withheld".into()];
+        };
+        let mut differences = Vec::new();
+        let gate_tainted = |checked: &Checked| {
+            checked
+                .tainted_symbols
+                .iter()
+                .filter(|name| gate_symbol(definition, name))
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        let (left_gate, right_gate) = (gate_tainted(left), gate_tainted(right));
+        if left_gate != right_gate {
+            differences.push(format!(
+                "tainted symbols the gate is asked about: {left_gate:?} against {right_gate:?}"
+            ));
+        }
+        let rows = |checked: &Checked| {
+            checked
+                .tainted_indexes
+                .iter()
+                .filter(|index| !matches!(index, TermIndex::Symbol(_)))
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        let (left_rows, right_rows) = (rows(left), rows(right));
+        if left_rows != right_rows {
+            differences.push(format!(
+                "tainted indexes of the rows: {left_rows:?} against {right_rows:?}"
+            ));
+        }
+        let indexes = definition
+            .symbols()
+            .keys()
+            .map(|name| TermIndex::Symbol(name.clone()))
+            .chain([TermIndex::Map, TermIndex::List, TermIndex::Set]);
+        for index in indexes {
+            for site in GateSite::ALL {
+                if site.asks_about(definition, &index)
+                    && self.admit(&index).is_some() != other.admit(&index).is_some()
+                {
+                    differences.push(format!("the gate's answer at {site:?} for {index:?}"));
+                }
+            }
+        }
+        let warned = |checked: &Checked| {
+            checked
+                .unjoined
+                .iter()
+                .filter(|pair| pair.relevant())
+                .map(|pair| {
+                    (
+                        format!("{:?}", pair.first),
+                        format!("{:?}", pair.second),
+                        pair.position.clone(),
+                        pair.reason.to_string(),
+                        pair.withdrawn.clone(),
+                    )
+                })
+                .collect::<BTreeSet<_>>()
+        };
+        let (left_warned, right_warned) = (warned(left), warned(right));
+        if left_warned != right_warned {
+            differences.push(format!(
+                "warned pairs: {} against {}, differing in {:?}",
+                left_warned.len(),
+                right_warned.len(),
+                left_warned
+                    .symmetric_difference(&right_warned)
+                    .map(|(first, second, position, reason, withdrawn)| format!(
+                        "{first} / {second} at {position:?} ({reason}) withdrawing {withdrawn:?}"
+                    ))
+                    .collect::<Vec<_>>()
+            ));
+        }
+        differences
+    }
 }
 
 /// What the check counted.
@@ -246,6 +411,12 @@ pub struct CheckCounts {
     /// Overload families, and those found confluent by stage 1.
     pub families: usize,
     pub confluent_families: usize,
+    /// Executable equations whose taint closure alone reaches a symbol some gate site can be
+    /// asked about ([`CheckScope::Gate`]).
+    pub relevant_equations: usize,
+    /// Stage-2 candidate pairs not classified because neither equation is relevant (zero under
+    /// [`CheckScope::All`]); `pairs` does not count them.
+    pub skipped: usize,
 }
 
 /// A critical pair that does not provably join, or an executable equation that the evaluator
@@ -685,6 +856,9 @@ fn right_hand_side(rule: &RewriteRule) -> Result<Option<Term>, ()> {
     }
 }
 
+/// Executable equations by index and priority.
+type Groups = BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>;
+
 /// The state of one check.
 pub(crate) struct Context<'d> {
     definition: &'d BackendDefinition,
@@ -693,7 +867,7 @@ pub(crate) struct Context<'d> {
     /// (`symbols.rs`).
     sorts: symbols::Sorts,
     /// The executable equations, by index and priority, as equation selection offers them.
-    groups: BTreeMap<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>,
+    groups: Groups,
     /// Each executable equation renamed apart, every variable to a fresh `!apart` name, made on
     /// its first use as a pair's second equation and shared by all its pairs (keyed by the
     /// equation's address; the equations live in `groups` for the whole check).
@@ -878,6 +1052,34 @@ pub(crate) fn unify_for_tests(
         branches: 0,
     }
     .unify(left, right)
+}
+
+/// Test builds: relevance computed by the backward pass (`Closure::relevant`) against its
+/// definition, the closure seeded by each executable equation alone meeting `G`
+/// (`Closure::taint`), under the switches in force: the number of equations, the number found
+/// relevant, and a description of each equation on which the two differ.
+#[cfg(test)]
+pub(crate) fn relevance_disagreements(
+    definition: &BackendDefinition,
+) -> (usize, usize, Vec<String>) {
+    let (_, equations) = executable_equations(definition);
+    let sorts = symbols::Sorts::of(definition);
+    let mut closure = closure::Closure::new(definition, &sorts, &equations);
+    let gate = |symbol: &Name| gate_symbol(definition, symbol);
+    let relevant = closure.relevant(&gate);
+    let mut disagreements = Vec::new();
+    for (equation, relevant) in equations.iter().zip(&relevant) {
+        let tainted = closure.taint([&equation.rule], []);
+        let expected = tainted.iter().any(gate);
+        if expected != *relevant {
+            disagreements.push(format!(
+                "{:?}: relevant {relevant}, its closure {tainted:?}",
+                equation.rule.lhs
+            ));
+        }
+    }
+    let found = relevant.iter().filter(|relevant| **relevant).count();
+    (equations.len(), found, disagreements)
 }
 
 /// Test builds: one candidate pair's unification, as [`recording_overlaps`] records it.
@@ -1211,19 +1413,19 @@ fn flatten(predicate: Predicate, into: &mut BTreeSet<Predicate>) {
     }
 }
 
-/// Run the check on `definition`, which must hold [`ValueClaims::withheld`].
-pub(crate) fn check(definition: &BackendDefinition) -> ValueClaims {
+/// Run the check on `definition`, which must hold [`ValueClaims::withheld`], classifying the
+/// stage-2 pairs `scope` names.
+pub(crate) fn check(definition: &BackendDefinition, scope: CheckScope) -> ValueClaims {
     // The verdict is cached with the definition, so it must not depend on the request that loads
     // it: the check reads no request cancellation and no outer step deadline, only the deadline
     // it arms for each condition (R1.6).
-    crate::stop::detached(|| check_detached(definition))
+    crate::stop::detached(|| check_detached(definition, scope))
 }
 
-fn check_detached(definition: &BackendDefinition) -> ValueClaims {
-    let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
-    let _apart = ApartScope::enter();
-    let mut checked = Checked::default();
-    let mut groups = BTreeMap::<TermIndex, BTreeMap<u8, Vec<Arc<RewriteRule>>>>::new();
+/// The executable equations the check reads (every equation of the function theory but the
+/// `symbolic` ones), by index and priority as equation selection offers them, and in one list.
+fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation>) {
+    let mut groups = Groups::new();
     let mut equations = Vec::new();
     for (index, priorities) in definition.function_theory() {
         for (priority, rules) in priorities {
@@ -1244,6 +1446,18 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
             }
         }
     }
+    (groups, equations)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the check's stages in their order, each a short loop"
+)]
+fn check_detached(definition: &BackendDefinition, scope: CheckScope) -> ValueClaims {
+    let _span = measure::algorithm_span(measure::Algorithm::BackendConfluenceCheck);
+    let _apart = ApartScope::enter();
+    let mut checked = Checked::default();
+    let (groups, equations) = executable_equations(definition);
     checked.counts.equations = equations.len();
 
     // P5: one lookup per equation.
@@ -1469,13 +1683,24 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
         }
     }
 
-    // Stage 2: every other root pair, and every inner pair.
+    // Stage 2: every other root pair, and every inner pair, of which `Gate` classifies those
+    // with a relevant equation (`CheckScope::Gate`).
+    let mut closure = closure::Closure::new(definition, &context.sorts, &equations);
+    let relevant = closure.relevant(&|symbol| gate_symbol(definition, symbol));
+    context.counts.relevant_equations = relevant.iter().filter(|relevant| **relevant).count();
+    let classified = |first: &Arc<RewriteRule>, second: &Arc<RewriteRule>| {
+        scope == CheckScope::All || relevant[closure.id(first)] || relevant[closure.id(second)]
+    };
     for (family, rules) in &root_groups {
         if family.is_some() {
             continue;
         }
         for (position, first) in rules.iter().enumerate() {
             for second in &rules[position + 1..] {
+                if !classified(first, second) {
+                    context.counts.skipped += 1;
+                    continue;
+                }
                 let candidate = Candidate {
                     first,
                     second,
@@ -1501,6 +1726,10 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
                 {
                     continue;
                 }
+                if !classified(&equation.rule, &second) {
+                    context.counts.skipped += 1;
+                    continue;
+                }
                 let candidate = Candidate {
                     first: &equation.rule,
                     second: &second,
@@ -1520,7 +1749,6 @@ fn check_detached(definition: &BackendDefinition) -> ValueClaims {
     {
         checked.families = Some(context.families.clone());
     }
-    let mut closure = closure::Closure::new(definition, &context.sorts, &equations);
     let is_head = |symbol: &Name| {
         definition
             .symbols()

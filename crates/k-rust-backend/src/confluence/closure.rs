@@ -35,7 +35,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use k_rust_kore::names::WellKnownSymbol;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
     Equation,
@@ -60,6 +60,8 @@ pub(super) struct Closure<'e> {
     equations: &'e [Equation],
     id_of: FxHashMap<*const RewriteRule, usize>,
     lhs_index: FxHashMap<Name, Vec<usize>>,
+    /// The taintable symbols of each equation's left-hand side: the reverse of `lhs_index`.
+    lhs_symbols: Vec<Vec<Name>>,
     reach: SortReach,
 }
 
@@ -75,6 +77,7 @@ impl<'e> Closure<'e> {
             .map(|(id, equation)| (std::sync::Arc::as_ptr(&equation.rule), id))
             .collect();
         let mut lhs_index = FxHashMap::<Name, Vec<usize>>::default();
+        let mut lhs_symbols = Vec::with_capacity(equations.len());
         for (id, equation) in equations.iter().enumerate() {
             let mut lhs = BTreeSet::new();
             equation.rule.lhs.visit_symbols(&mut |symbol| {
@@ -82,16 +85,92 @@ impl<'e> Closure<'e> {
                     lhs.insert(symbol.name.clone());
                 }
             });
-            for symbol in lhs {
-                lhs_index.entry(symbol).or_default().push(id);
+            for symbol in &lhs {
+                lhs_index.entry(symbol.clone()).or_default().push(id);
             }
+            lhs_symbols.push(lhs.into_iter().collect());
         }
         Self {
             equations,
             id_of,
             lhs_index,
+            lhs_symbols,
             reach: SortReach::new(definition, sorts),
         }
+    }
+
+    /// The position of the executable equation `rule` in the check's list.
+    pub(super) fn id(&self, rule: &std::sync::Arc<RewriteRule>) -> usize {
+        *self
+            .id_of
+            .get(&std::sync::Arc::as_ptr(rule))
+            .expect("a pair's equations are executable equations of the check")
+    }
+
+    /// For each equation, by position, whether it is *relevant*: the closure seeded by that
+    /// equation alone ([`Self::taint`] of it, with no symbol) holds a symbol of `gate` (the
+    /// symbols some gate site can be asked about).
+    ///
+    /// Read backwards over the edges [`Self::taint`] follows, with its switches: a tainted
+    /// equation pushes the symbols it mentions (T-sym) and the heads its variables' sorts reach
+    /// (T-obs), and a pushed symbol taints the equations whose left-hand side mentions it (T1).
+    /// So the relevant equations are the least set holding every equation that pushes a symbol
+    /// of `gate`, and every equation that pushes a symbol in the left-hand side of a relevant
+    /// equation: one pass marks the first kind, and a worklist propagates through the left-hand
+    /// side symbols of each newly relevant equation, visiting each equation and marking each
+    /// symbol once. Under `seed_heads_only`, where a seed taints its root symbol only, an
+    /// equation is relevant when that symbol is in `gate`.
+    pub(super) fn relevant(&mut self, gate: &dyn Fn(&Name) -> bool) -> Vec<bool> {
+        let switches = super::switches::active();
+        let mut relevant = vec![false; self.equations.len()];
+        if switches.seed_heads_only {
+            for (id, equation) in self.equations.iter().enumerate() {
+                if let crate::term::TermKind::Application { symbol, .. } = equation.rule.lhs.kind()
+                {
+                    relevant[id] = gate(&symbol.name);
+                }
+            }
+            return relevant;
+        }
+        let observes = !switches.drop_tobs && !switches.relevance_ignores_tobs;
+        // The equations not yet relevant, by the symbols they push.
+        let mut pushing = FxHashMap::<Name, Vec<usize>>::default();
+        let mut queue = VecDeque::new();
+        for (id, equation) in self.equations.iter().enumerate() {
+            let rule = &equation.rule;
+            let mut pushed = mentioned_symbols(rule, !switches.drop_tsym_rhs);
+            if observes {
+                for variable in &rule.computed_attributes.variables {
+                    pushed.extend(self.reach.heads(&variable.sort));
+                }
+            }
+            if pushed.iter().any(gate) {
+                relevant[id] = true;
+                queue.push_back(id);
+            } else {
+                for symbol in pushed {
+                    pushing.entry(symbol).or_default().push(id);
+                }
+            }
+        }
+        if switches.drop_t1 {
+            return relevant;
+        }
+        let mut marked = FxHashSet::<Name>::default();
+        while let Some(id) = queue.pop_front() {
+            for symbol in &self.lhs_symbols[id] {
+                if !marked.insert(symbol.clone()) {
+                    continue;
+                }
+                for &other in pushing.get(symbol).into_iter().flatten() {
+                    if !relevant[other] {
+                        relevant[other] = true;
+                        queue.push_back(other);
+                    }
+                }
+            }
+        }
+        relevant
     }
 
     /// The equation heads the pinned symbols withdraw (R1.4), with the symbols that pin them.

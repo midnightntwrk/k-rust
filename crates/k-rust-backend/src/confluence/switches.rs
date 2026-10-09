@@ -80,6 +80,9 @@ pub(crate) struct Switches {
     /// Self pairs: read a right-hand side the check does not read (a disjunction, `\top`,
     /// predicates) as reading no variable (review 3's seed S5).
     pub(crate) self_pair_reads_opaque_rhs_as_nothing: bool,
+    /// Relevance (`CheckScope::Gate`): ignore T-obs, so that an equation is relevant only through
+    /// the symbols it mentions.
+    pub(crate) relevance_ignores_tobs: bool,
 }
 
 #[cfg(test)]
@@ -115,6 +118,7 @@ thread_local! {
             drop_injected_inner: false,
             self_pair_ignores_ensures: false,
             self_pair_reads_opaque_rhs_as_nothing: false,
+            relevance_ignores_tobs: false,
         })
     };
 }

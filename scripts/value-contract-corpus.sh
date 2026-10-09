@@ -108,7 +108,8 @@ with open(log_path) as log:
             measured[row["name"]] = row
 keys = ["equations", "pairs", "overlaps", "separated", "refuted", "joined", "unjoined",
         "relevant", "violations", "heads", "tainted_heads", "tainted_symbols", "several_matches",
-        "families", "confluent_families"]
+        "families", "confluent_families", "relevant_equations", "skipped", "full_pairs",
+        "full_unjoined", "full_tainted_symbols"]
 if update:
     for case in cases:
         row = measured[case["name"]]

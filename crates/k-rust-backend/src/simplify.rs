@@ -100,7 +100,7 @@ use crate::{
     stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{
-        FunctionType, HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         head::{
             CertifiedOnly, Head, NormalFormCertificate, RootComparison, classify_value,
             compare_roots,
@@ -4507,9 +4507,11 @@ fn simplify_root(
                 selection,
                 function_scan,
                 simplification_scan,
-                definition
-                    .value_claims()
-                    .admit_at(&term_index(term), crate::confluence::GateSite::Certificate),
+                definition.value_claims().admit_at(
+                    definition,
+                    &term_index(term),
+                    crate::confluence::GateSite::Certificate,
+                ),
             ),
         )
     } else {
@@ -5567,8 +5569,7 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
         && arguments
             .iter()
             .all(|argument| argument.attributes().evaluated)
-        && (symbol.attributes.head_role() == HeadRole::EquationHead
-            || definition.overloads().is_overloaded(&symbol.name))
+        && crate::confluence::certified_root(definition, symbol)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -5,7 +5,9 @@
 //! in the oracle's `->E` (and, at the root, `rho1` applies too, `rho2` another equation), the
 //! check must have unified `(rho1, q, rho2)` (either order at the root) with a unifier that
 //! generalizes `theta`, or have answered an unresolved shape. Positions are positions of `l1`,
-//! fixed by construction, so no instance can hide a position.
+//! fixed by construction, so no instance can hide a position. The check read is the full one
+//! (`CheckScope::All`); the load's scope skips the pairs that can change no claim, and V9
+//! (`checks.rs`) shows that it admits the same claims.
 //!
 //! A position whose pattern is an application of a greater overload production also gets
 //! *lowered* instances: the lesser production's application `h(a)` (under its injection), which
@@ -27,7 +29,7 @@ use super::{
     language::{Definition, Pat, equation_index, pattern_variables},
 };
 use crate::{
-    confluence::{RecordedOverlap, recording_overlaps},
+    confluence::{CheckScope, RecordedOverlap, recording_overlaps},
     definition::BackendDefinition,
     term::{Term, TermKind},
 };
@@ -240,14 +242,18 @@ pub(super) fn check_completeness(
         result.failures.push(format!("{label}: does not parse"));
         return result;
     };
-    let (backend, recorded) =
-        recording_overlaps(|| BackendDefinition::internalize(&syntax, "MAIN"));
-    if let Err(error) = backend {
-        result
-            .failures
-            .push(format!("{label}: does not internalize: {error:?}"));
-        return result;
-    }
+    let backend = match BackendDefinition::internalize(&syntax, "MAIN") {
+        Ok(backend) => backend,
+        Err(error) => {
+            result
+                .failures
+                .push(format!("{label}: does not internalize: {error:?}"));
+            return result;
+        }
+    };
+    // V3 is about the enumeration of every candidate pair, which the full check classifies; the
+    // load's scope skips the pairs that can change no claim (V9 shows it admits the same claims).
+    let (_, recorded) = recording_overlaps(|| backend.value_claims_in_scope(CheckScope::All));
     let mut by_pair = BTreeMap::<(usize, Vec<usize>, usize), Vec<&RecordedOverlap>>::new();
     for record in &recorded {
         let (Some(first), Some(second)) = (

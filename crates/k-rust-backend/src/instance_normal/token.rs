@@ -81,9 +81,11 @@ impl InstanceNormal {
                     Self::of_free_constructor(term, NormalSubterms::of(term, subterm))
                 }
                 HeadRole::EquationHead => {
-                    let untainted = definition
-                        .value_claims()
-                        .admit_at(&term_index(term), GateSite::EquationHead)?;
+                    let untainted = definition.value_claims().admit_at(
+                        definition,
+                        &term_index(term),
+                        GateSite::EquationHead,
+                    )?;
                     let arguments = NormalSubterms::of(term, subterm)?;
                     let reach = no_equation_reaches(&arguments)?;
                     Self::of_equation_head(term, &arguments, reach, untainted)
@@ -93,9 +95,11 @@ impl InstanceNormal {
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => None,
             },
             Shape::Collection(_) => {
-                let untainted = definition
-                    .value_claims()
-                    .admit_at(&term_index(term), GateSite::Collection)?;
+                let untainted = definition.value_claims().admit_at(
+                    definition,
+                    &term_index(term),
+                    GateSite::Collection,
+                )?;
                 let elements = NormalSubterms::of(term, subterm)?;
                 let reach = no_equation_reaches(&elements)?;
                 Self::of_collection(term, &elements, reach, untainted)

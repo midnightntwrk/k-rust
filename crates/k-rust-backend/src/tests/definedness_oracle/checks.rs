@@ -34,6 +34,10 @@ const FORCED_INSTANCES: usize = 8;
 
 /// The mark of a V6 (d) failure, which the mutation tests of review 1's classes look for.
 pub(super) const FORCED: &str = "V6 (d)";
+
+/// The tag of V9's failures: the load's scope and the full check differ on a claim or a warning.
+pub(super) const SCOPES: &str = "V9";
+
 const VALUES_PER_SORT: usize = 8;
 const VALUATIONS_PER_EQUATION: usize = 4;
 
@@ -966,7 +970,18 @@ pub(super) fn check_definition(
             return (tally, verdict);
         }
     };
-    let value_claims = backend.value_claims();
+    // V9: the load's verdict (`CheckScope::Gate`) and the full check's admit the same claims and
+    // warn about the same pairs. The oracle's own expectations (acceptance, V4's one normal form,
+    // the tainted set of V6) are statements about the full check, so they are read from its
+    // verdict; the claims are read from the loaded definition below.
+    let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+    for difference in backend.value_claims().claim_differences(&full, &backend) {
+        tally.failures.push(format!(
+            "{label}: {SCOPES}: the load's scope and the full check differ: {difference}\n{}",
+            describe()
+        ));
+    }
+    let value_claims = &full;
     let has_head = definition.symbols.iter().any(|symbol| symbol.is_head());
     // Without an equation head the check stops after the precondition rows: it accepts nothing.
     verdict.accepted =

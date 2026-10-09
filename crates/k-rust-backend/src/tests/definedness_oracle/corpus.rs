@@ -254,6 +254,82 @@ fn the_preludes_hooked_equations_agree_with_their_hooks() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Relevance, the filter of the load's scope (`CheckScope::Gate`), is what it is defined as: an
+/// equation is relevant exactly when the taint closure seeded by it alone holds a symbol some
+/// gate site can be asked about, on every executable equation of the oracle's templates and of
+/// the FUN list fixture, with the closure's rules intact and with each closure switch, so that
+/// the backward pass follows every rule the closure follows.
+#[test]
+fn relevance_is_the_closure_of_each_equation_alone_meeting_the_gate() {
+    use crate::confluence::switches::{self, Switches};
+    let mut definitions = vec![(
+        "fun lists".to_owned(),
+        load(FUN_LISTS, "OVERLOADED-LIST-OWISE"),
+    )];
+    for (name, definition, _) in super::generator::templates() {
+        let syntax = parse_definition(&definition.kore()).expect("the template parses");
+        definitions.push((
+            name,
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the template internalizes"),
+        ));
+    }
+    let settings = [
+        ("intact", Switches::default()),
+        (
+            "drop_t1",
+            Switches {
+                drop_t1: true,
+                ..Switches::default()
+            },
+        ),
+        (
+            "drop_tsym_rhs",
+            Switches {
+                drop_tsym_rhs: true,
+                ..Switches::default()
+            },
+        ),
+        (
+            "drop_tobs",
+            Switches {
+                drop_tobs: true,
+                ..Switches::default()
+            },
+        ),
+        (
+            "seed_heads_only",
+            Switches {
+                seed_heads_only: true,
+                ..Switches::default()
+            },
+        ),
+    ];
+    let mut failures = Vec::new();
+    let (mut equations, mut relevant) = (0, 0);
+    for (setting, active) in settings {
+        for (name, definition) in &definitions {
+            let (count, found, disagreements) = switches::with(active, || {
+                crate::confluence::relevance_disagreements(definition)
+            });
+            if setting == "intact" {
+                equations += count;
+                relevant += found;
+            }
+            failures.extend(
+                disagreements
+                    .into_iter()
+                    .map(|disagreement| format!("{name} ({setting}): {disagreement}")),
+            );
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // Both answers occur, so the comparison is not vacuous.
+    assert!(
+        relevant > 0 && relevant < equations,
+        "{relevant} of {equations} equations relevant"
+    );
+}
+
 /// The measure ratchet of the design's section 7: the check's four work counters on the FUN
 /// list-family fixture and the oracle's feature templates, each pinned within 10 % (FUN's prelude
 /// fixture declares no equation head, so the check stops at its precondition rows there). A change
