@@ -76,9 +76,10 @@ use kink_patch::{
     CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef, Withdrawal,
 };
 use kink_pattern::{
-    CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, ExecutionTerminal,
-    ExecutionTerminalKind, MonitorOptions, PathStop, PatternFailure, PatternOutcome, PatternPlan,
-    SearchPolicy, SymbolSorts, TreeOptions, evaluate_tree,
+    CollectionEvidence, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions,
+    EventVocabulary, ExecutionTerminal, ExecutionTerminalKind, MonitorOptions, PathStop, PathTree,
+    PatternFailure, PatternOutcome, PatternPlan, RelationDecider, SearchPolicy, SymbolSorts,
+    TreeOptions, evaluate_tree_with_stats, evaluate_with,
 };
 
 use crate::campaign::check_manifest;
@@ -916,22 +917,12 @@ impl Runtime {
                             let Some(bridged) = &bridged else {
                                 return OracleSide::Unknown;
                             };
-                            let evaluation = evaluate_tree(
+                            let evaluation = slot_evaluation(
                                 &context,
                                 plan,
                                 &bridged.tree,
                                 &bridged.collection,
-                                None,
-                                TreeOptions {
-                                    evaluation: EvaluationOptions {
-                                        stable_path_keys: true,
-                                        search_policy: SearchPolicy::Exhaustive,
-                                        input_error: false,
-                                    },
-                                    // T1 must preserve every exhaustive occurrence. A finite cap
-                                    // belongs to the recorded T2 monitor policy.
-                                    monitor: MonitorOptions { cap: usize::MAX },
-                                },
+                                observation.vocabulary(),
                                 &relations,
                             );
                             if *with_bindings
@@ -954,6 +945,67 @@ impl Runtime {
             })
             .unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
     }
+}
+
+/// `PatternPlan::new` accepts exactly this plan over `vocabulary`. A plan's fields are public,
+/// so a plan edited after validation reaches the campaign unchecked; the shared-prefix monitor
+/// equals `evaluate_with` only on validated plans (CS-04), and an arm without atoms is one
+/// input where they differ (CS-06 review 1).
+fn monitor_admits(plan: &PatternPlan, vocabulary: &EventVocabulary) -> bool {
+    PatternPlan::new(
+        vocabulary,
+        plan.variables.clone(),
+        plan.arms.clone(),
+        plan.side_condition.clone(),
+    )
+    .is_ok_and(|validated| validated == *plan)
+}
+
+/// The exhaustive pattern evaluation of one slot on one side's path tree, equal to
+/// `evaluate_with` over the tree's leaves (T1, corpus-scale README 4.6). The shared-prefix
+/// monitor computes it when `monitor_admits` the plan and no monitor's live partials overflow
+/// [`MonitorOptions::default`]'s cap; otherwise `evaluate_with` computes it from the same leaves.
+/// So neither an unvalidated plan nor the cap can change a side, and the monitor's memory stays
+/// bounded by the cap per (slot, path) (an overflow costs a second evaluation, not a side).
+fn slot_evaluation(
+    context: &EvaluationContext,
+    plan: &PatternPlan,
+    tree: &PathTree,
+    collection: &CollectionEvidence,
+    vocabulary: &EventVocabulary,
+    decider: &dyn RelationDecider,
+) -> Result<Evaluation, PatternFailure> {
+    let evaluation = EvaluationOptions {
+        stable_path_keys: true,
+        search_policy: SearchPolicy::Exhaustive,
+        input_error: false,
+    };
+    if monitor_admits(plan, vocabulary) {
+        let monitored = evaluate_tree_with_stats(
+            context,
+            plan,
+            tree,
+            collection,
+            None,
+            TreeOptions {
+                evaluation,
+                monitor: MonitorOptions::default(),
+            },
+            decider,
+        );
+        if !monitored.as_ref().is_ok_and(|(_, stats)| stats.overflowed) {
+            return monitored.map(|(evaluation, _)| evaluation);
+        }
+    }
+    evaluate_with(
+        context,
+        plan,
+        tree.paths(),
+        collection,
+        None,
+        evaluation,
+        decider,
+    )
 }
 
 /// The comparison of one slot. A comparison failure (a crash the declaration rejects, or
