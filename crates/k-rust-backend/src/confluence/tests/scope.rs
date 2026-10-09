@@ -254,6 +254,22 @@ fn the_load_withdraws_an_overloaded_function_a_pair_reaches() {
     }
     let fe = TermIndex::Symbol("fE".into());
     assert!(definition.value_claims().admit(&fe).is_none());
+    // Review 3, R3: the pair withdraws certificates of overloaded functions and no head's
+    // claims, and is reported.
+    let reported = definition
+        .value_claims()
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.relevant())
+        .map(|pair| pair.withdrawn.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reported,
+        [vec![
+            crate::term::Name::from("fE"),
+            crate::term::Name::from("fN")
+        ]]
+    );
     let differences = scope_differences(&definition);
     assert!(differences.is_empty(), "{differences:?}");
 }

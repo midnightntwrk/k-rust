@@ -311,7 +311,7 @@ impl ValueClaims {
     /// can be asked about, the tainted indexes that are not symbols (the precondition rows), the
     /// gate's answer at every site for every symbol of the definition and every collection
     /// index, and the pairs that withdraw a claim (equations, position, reason, overlapped term as
-    /// spelled canonically, withdrawn heads).
+    /// spelled canonically, withdrawn symbols).
     /// Empty when they agree.
     #[must_use]
     pub fn claim_differences(
@@ -402,7 +402,7 @@ impl ValueClaims {
     /// Where this verdict and `other`, two verdicts of one definition in one scope, differ: the
     /// tainted symbols and indexes, the precondition rows (equation and kind), and every
     /// non-joined pair (equations by unique id, position, reason, overlapped term as spelled
-    /// canonically, withdrawn heads, and whether it withdraws a claim). Empty when they agree;
+    /// canonically, withdrawn symbols, and whether it withdraws a claim). Empty when they agree;
     /// the counts are compared by the caller ([`Self::counts`]).
     #[must_use]
     pub fn verdict_differences(&self, other: &ValueClaims) -> Vec<String> {
@@ -543,8 +543,8 @@ pub struct UnjoinedPair {
     /// The subterm at which the join refused a step, if it refused one.
     pub refused: Option<Term>,
     pub reason: UnjoinedReason,
-    /// The equation heads the taint closure of this pair alone withdraws, sorted: empty when the
-    /// pair constrains no equation head, so that it changes no claim.
+    /// The symbols some gate site is asked about (equation heads and overloaded symbols) that the
+    /// taint closure of this pair alone withdraws, sorted: empty when the pair changes no claim.
     pub withdrawn: Vec<Name>,
 }
 
@@ -1963,12 +1963,6 @@ fn check_detached(
     {
         checked.families = Some(context.families.clone());
     }
-    let is_head = |symbol: &Name| {
-        definition
-            .symbols()
-            .get(symbol)
-            .is_some_and(|symbol| symbol.attributes.head_role() == HeadRole::EquationHead)
-    };
     let mut pinned_heads = BTreeSet::new();
     for (symbol, heads) in closure.pinned_heads() {
         checked.violations.push(Violation {
@@ -1982,7 +1976,7 @@ fn check_detached(
         pair.withdrawn = closure
             .taint([&pair.first, &pair.second], [])
             .into_iter()
-            .filter(|symbol| is_head(symbol))
+            .filter(|symbol| gate_symbol(definition, symbol))
             .collect();
     }
     let tainted = closure.taint(
