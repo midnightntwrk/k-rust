@@ -5,7 +5,10 @@
 # is a precision or cost change to explain, and the manifest is regenerated with --update.
 # The counts are the load's (`CheckScope::Gate`, which classifies only the pairs with a relevant
 # equation); the `full_` keys are the full check's (`CheckScope::All`), which also names the pairs
-# that withdraw no claim. The harness fails when the two verdicts admit different claims (V9).
+# that withdraw no claim. The harness fails when the two verdicts admit different claims (V9), or
+# when either scope without the memo of condition simplifications (`ConditionMemo::Off`) differs in
+# its verdict or in a count other than the memo's hits; `simplifier_calls` counts the conditions
+# simplified or answered from the memo, `condition_memo_hits` those answered from it.
 
 [[case]]
 name = "fun"
@@ -31,6 +34,10 @@ skipped = 14
 full_pairs = 108
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 7
+condition_memo_hits = 3
+full_simplifier_calls = 12
+full_condition_memo_hits = 4
 
 [[case]]
 name = "simple-untyped"
@@ -56,6 +63,10 @@ skipped = 14
 full_pairs = 60
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 2
+condition_memo_hits = 0
+full_simplifier_calls = 7
+full_condition_memo_hits = 1
 
 [[case]]
 name = "simple-typed-static"
@@ -81,6 +92,10 @@ skipped = 17
 full_pairs = 26
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
 
 [[case]]
 name = "simple-typed-dynamic"
@@ -106,6 +121,10 @@ skipped = 17
 full_pairs = 57
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 2
+condition_memo_hits = 0
+full_simplifier_calls = 7
+full_condition_memo_hits = 1
 
 [[case]]
 name = "kool-untyped"
@@ -131,6 +150,10 @@ skipped = 14
 full_pairs = 31
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 3
+condition_memo_hits = 0
+full_simplifier_calls = 8
+full_condition_memo_hits = 1
 
 [[case]]
 name = "kool-typed-dynamic"
@@ -156,6 +179,10 @@ skipped = 17
 full_pairs = 68
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 5
+condition_memo_hits = 0
+full_simplifier_calls = 10
+full_condition_memo_hits = 1
 
 [[case]]
 name = "kool-typed-static"
@@ -181,6 +208,10 @@ skipped = 17
 full_pairs = 25
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
 
 [[case]]
 name = "iele-bison-glr-bug"
@@ -206,6 +237,10 @@ skipped = 7
 full_pairs = 834
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 0
+condition_memo_hits = 0
+full_simplifier_calls = 0
+full_condition_memo_hits = 0
 
 [[case]]
 name = "glr2"
@@ -231,6 +266,10 @@ skipped = 0
 full_pairs = 1
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 0
+condition_memo_hits = 0
+full_simplifier_calls = 0
+full_condition_memo_hits = 0
 
 [[case]]
 name = "glr3"
@@ -256,6 +295,10 @@ skipped = 0
 full_pairs = 1
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 0
+condition_memo_hits = 0
+full_simplifier_calls = 0
+full_condition_memo_hits = 0
 
 [[case]]
 name = "glr4"
@@ -281,6 +324,10 @@ skipped = 0
 full_pairs = 21
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 0
+condition_memo_hits = 0
+full_simplifier_calls = 0
+full_condition_memo_hits = 0
 
 [[case]]
 name = "overload"
@@ -306,6 +353,10 @@ skipped = 14
 full_pairs = 16
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
 
 [[case]]
 name = "issue-1090"
@@ -331,6 +382,10 @@ skipped = 14
 full_pairs = 16
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
 
 [[case]]
 name = "issue-2909-llvm"
@@ -356,6 +411,10 @@ skipped = 8
 full_pairs = 10
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 2
+full_condition_memo_hits = 0
 
 [[case]]
 name = "issue-2909-haskell"
@@ -381,6 +440,10 @@ skipped = 8
 full_pairs = 10
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 2
+full_condition_memo_hits = 0
 
 [[case]]
 name = "issue-4142"
@@ -406,6 +469,10 @@ skipped = 14
 full_pairs = 18
 full_unjoined = 0
 full_tainted_symbols = 0
+simplifier_calls = 1
+condition_memo_hits = 0
+full_simplifier_calls = 6
+full_condition_memo_hits = 1
 
 [[case]]
 name = "wasm"
@@ -431,3 +498,7 @@ skipped = 734
 full_pairs = 4580
 full_unjoined = 61
 full_tainted_symbols = 15
+simplifier_calls = 68
+condition_memo_hits = 57
+full_simplifier_calls = 1738
+full_condition_memo_hits = 1480
