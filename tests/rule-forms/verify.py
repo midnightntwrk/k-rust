@@ -95,8 +95,8 @@ the outcomes must agree:
   equation, and `anywhere` on a readable clause, on a `cells!` rule, or with
   `priority`, and typed binder lists that declare an unused binder, only some
   binders, or binders out of order, or a declared sort an occurrence cannot
-  accept, a desugar clause on an alias production, a desugar production
-  without a clause, `requires` on a desugar clause, and `recursive` on a
+  accept, a desugar clause on an alias production, a desugar or alias
+  production without a clause, `requires` on a desugar clause, and `recursive` on a
   desugar clause, and a nested `k::rewrite!`, a right-side name the left
   image does not bind, `k::rewrite!` outside a rule's subject or in a rule
   with a result, and a single-body rule without a rewrite, and a heat rule
@@ -350,6 +350,7 @@ NEGATIVE = (
     "fresh-partial-generator",
     "desugar-mode-mismatch",
     "desugar-without-clause",
+    "alias-without-clause",
     "desugar-requires",
     "desugar-clause-payload",
     "local-rewrite-nested",

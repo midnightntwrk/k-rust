@@ -443,7 +443,7 @@ By default an expansion does not apply again to its own output; `recursive` on t
 K does not check that a recursive expansion terminates; k-rust reports a non-terminating one when the definition is built.
 
 `recursive` is a property of the production: a clause takes the plain marker or `unbound_variables` (below), has no `#[k::requires]`, and has no priority or `owise`.
-A clause takes its production's mode: a `#[k::desugar]` clause must expand a production marked `#[k::desugar]`, an `#[k::alias]` clause one marked `#[k::alias]`, and a `#[k::desugar]` production without a clause is rejected because nothing expands it (`krs::analysis::invalid-static-clause`).
+A clause takes its production's mode: a `#[k::desugar]` clause must expand a production marked `#[k::desugar]`, an `#[k::alias]` clause one marked `#[k::alias]`, and an alias or desugar production without a clause is rejected because nothing expands it (`krs::analysis::invalid-static-clause`).
 A production is an alias or a desugar, not both.
 
 A desugar written in other rules' patterns may name variables that only the rule using it binds.

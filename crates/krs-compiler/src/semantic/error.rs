@@ -380,7 +380,7 @@ pub enum DescriptorLoweringError {
         range: Option<Box<SourceRange>>,
     },
     /// An alias or desugar clause does not expand a production of its own
-    /// mode, or a desugar production has no clause (KF-028).
+    /// mode, or an alias or desugar production has no clause (KF-028).
     InvalidStaticClause {
         /// Stable reason naming the clause or production and the fix.
         reason: String,

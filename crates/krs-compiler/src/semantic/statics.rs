@@ -4,8 +4,8 @@
 //! `macro`, `-rec` when `recursive`) is expanded before anything runs by the
 //! clauses written for it. A clause takes its production's mode: an
 //! `#[k::alias]` clause expands an alias production and a `#[k::desugar]`
-//! clause a desugar production. A desugar production that no clause expands
-//! is reported, because nothing would ever replace it.
+//! clause a desugar production. An alias or desugar production that no clause
+//! expands is reported, because nothing would ever replace it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,7 +46,7 @@ impl Mode {
 }
 
 /// Checks every alias and desugar clause against its head production, and
-/// every desugar production for a clause, in stable module order.
+/// every alias and desugar production for a clause, in stable module order.
 pub(super) fn check_static_clauses(
     modules: &[SemanticModule],
 ) -> Result<(), DescriptorLoweringError> {
@@ -119,11 +119,14 @@ pub(super) fn check_static_clauses(
         }
     }
     for (production, (mode, origin)) in &modes {
-        if *mode == Mode::Desugar && !expanded.contains(production) {
+        if !expanded.contains(production) {
             return Err(invalid(
                 format!(
-                    "`{}` is marked `#[k::desugar]` but no `#[k::desugar]` clause expands it, so nothing expands it; add a `#[k::desugar] fn` whose pattern is headed by `{}`",
+                    "`{}` is marked `{}` but no `{}` clause expands it, so nothing expands it; add a `{} fn` whose pattern is headed by `{}`",
                     production_display_name(production),
+                    mode.attribute(),
+                    mode.attribute(),
+                    mode.attribute(),
                     production_display_name(production),
                 ),
                 origin,

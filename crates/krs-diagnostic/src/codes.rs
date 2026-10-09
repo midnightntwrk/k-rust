@@ -199,7 +199,7 @@ register_codes! {
         DUPLICATE_FRESH_GENERATOR: "krs::analysis::duplicate-fresh-generator" => "A sort has more than one `fresh_generator` function.",
         DUPLICATE_SMTLIB: "krs::analysis::duplicate-smtlib" => "Two functions declare the same `smtlib` symbol, so Z3 would identify them.",
         INVALID_MATCH_RESTRICTION: "krs::analysis::invalid-match-restriction" => "A `concrete` or `symbolic` key of an equation or simplification names no left-hand binder, restricts one binder both ways, is bare on both keys, or is on an equation whose function's other equations lack it.",
-        INVALID_STATIC_CLAUSE: "krs::analysis::invalid-static-clause" => "An alias or desugar clause expands a production that is not marked with the same mode (`#[k::alias]` or `#[k::desugar]`), or a `#[k::desugar]` production has no clause that expands it.",
+        INVALID_STATIC_CLAUSE: "krs::analysis::invalid-static-clause" => "An alias or desugar clause expands a production that is not marked with the same mode (`#[k::alias]` or `#[k::desugar]`), or an alias or desugar production has no clause that expands it.",
         SMT_LEMMA_UNTRANSLATABLE: "krs::analysis::smt-lemma-untranslatable" => "An `smt_lemma` equation or simplification mentions a function Z3 cannot see: a user function without `smtlib` or `smt_hook`, or a builtin without an SMT translation.",
         INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
