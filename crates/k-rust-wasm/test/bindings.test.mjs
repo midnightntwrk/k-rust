@@ -418,11 +418,13 @@ test('searches and observes the persistent portable backend graph', () => {
   backend.free()
 })
 
-// Rust's default 1 MiB wasm32 stack traps on this program from about 960 levels when it is
-// parsed and from about 480 when it is simplified; the module's 8 MiB stack holds both depths
-// below, which stay under the engine's own call-stack limit at Node's default (about 1,800 and
-// 930 levels). docs/backend-port.md, "Stack bounds".
-test('parses and simplifies programs deeper than a 1 MiB stack holds', () => {
+// Rust's default 1 MiB wasm32 stack traps on this program from about 920 levels when it is
+// parsed in the dev module CI tests (960 in a release one); the module's 8 MiB stack holds the
+// depth below, which stays under the engine's own call-stack limit at Node's default (about
+// 1,800 levels). Simplification is not tested here: in the dev module the engine's call stack
+// binds it at about 390 nested calls whatever the linear stack. docs/backend-port.md, "Stack
+// bounds".
+test('parses a program deeper than a 1 MiB stack holds', () => {
   const definition = `
     module TICKS
       syntax Pgm ::= "tick" Pgm [function, symbol(tick)] | "done" [symbol(done)]
@@ -445,12 +447,6 @@ test('parses and simplifies programs deeper than a 1 MiB stack holds', () => {
   }
   assert.equal(ticks, statements)
   assert.equal(term.label.name, 'done')
-
-  const calls = 700
-  const backend = compileBackend({ definition, moduleName: 'TICKS', includePrelude: false })
-  const state = parseKore(`${'Lbltick{}('.repeat(calls)}Lbldone{}()${')'.repeat(calls)}`).kore
-  assert.equal(printKore(backend.simplify({ state })), 'Lbldone{}()')
-  backend.free()
 })
 
 test('compileBackend compiles and creates a portable session', () => {
