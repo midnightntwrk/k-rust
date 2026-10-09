@@ -1865,7 +1865,11 @@ impl BackendDefinition {
                 result.discharge_rewrite_definedness();
             }
         }
-        result.value_claims = crate::confluence::check(&result);
+        result.value_claims = crate::confluence::check(
+            &result,
+            crate::confluence::CheckScope::Gate,
+            crate::confluence::ConditionMemo::On,
+        );
         result.discharge_rewrite_definedness();
         Ok(result)
     }
@@ -1874,6 +1878,34 @@ impl BackendDefinition {
     /// claims, and the pairs that withdrew the others (`confluence`).
     pub fn value_claims(&self) -> &crate::confluence::ValueClaims {
         &self.value_claims
+    }
+
+    /// The verdict of the critical-pair check run again in `scope`, on a copy of this definition
+    /// that withholds every claim while it runs, as the load does. The load runs
+    /// [`crate::confluence::CheckScope::Gate`]; [`crate::confluence::CheckScope::All`] also
+    /// classifies the pairs that can change no claim, for a report of every pair that does not
+    /// join and for the test that both scopes admit the same claims
+    /// ([`crate::confluence::ValueClaims::claim_differences`]).
+    #[must_use]
+    pub fn value_claims_in_scope(
+        &self,
+        scope: crate::confluence::CheckScope,
+    ) -> crate::confluence::ValueClaims {
+        self.value_claims_checked(scope, crate::confluence::ConditionMemo::On)
+    }
+
+    /// [`Self::value_claims_in_scope`], with the check's memo of condition simplifications on or
+    /// off ([`crate::confluence::ConditionMemo`]; every load runs it on), for the tests that show
+    /// the memo changes no verdict and no count but the simplifier's calls.
+    #[must_use]
+    pub fn value_claims_checked(
+        &self,
+        scope: crate::confluence::CheckScope,
+        memo: crate::confluence::ConditionMemo,
+    ) -> crate::confluence::ValueClaims {
+        let mut copy = self.clone();
+        copy.value_claims = crate::confluence::ValueClaims::withheld();
+        crate::confluence::check(&copy, scope, memo)
     }
 
     /// Returns the equations for function applications.

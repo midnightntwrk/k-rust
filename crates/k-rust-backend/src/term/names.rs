@@ -264,6 +264,10 @@ pub enum FreshMarker {
     /// `{base}!binder{counter}`: quantifier variables renamed so that a substitution under
     /// them, or the printer, captures nothing; they stay bound.
     Binder,
+    /// `{base}!memo{counter}`: the free variables of a condition in the key of the critical-pair
+    /// check's memo of condition simplifications, numbered in order of first occurrence; an
+    /// answer is renamed back before it is read (`confluence::memo`).
+    Memo,
 }
 
 impl FreshMarker {
@@ -274,6 +278,7 @@ impl FreshMarker {
             Self::Exists => "exists",
             Self::Apart => "apart",
             Self::Binder => "binder",
+            Self::Memo => "memo",
         }
     }
 }

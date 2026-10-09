@@ -751,6 +751,24 @@ pub(super) fn observation(definition: Definition, clash: bool) -> (Definition, V
     (definition, seeds)
 }
 
+/// N1 observed by a function: `fO(X:V) = mk(1)` beside `fO(X:V) = mk(2)`, `fO` a declared
+/// function and `V` built only by the equation head `v`. The pair is rooted outside every class
+/// the gate is asked about, so only its variable's sort (T-obs) makes it withdraw `v`'s claims,
+/// and only T-obs makes its equations relevant to the load's scope (`CheckScope::Gate`).
+pub(super) fn observation_by_function(definition: Definition) -> (Definition, Vec<Pat>) {
+    let mut definition = definition
+        .head("v", &["Int"], "V")
+        .function("fO", &["V"], "S")
+        .equation(app("fO", vec![var("VarV", "V")]), app("mk", vec![int(1)]))
+        .equation(app("fO", vec![var("VarV", "V")]), app("mk", vec![int(2)]));
+    definition.sorts.push("V".into());
+    let seeds = vec![
+        app("fO", vec![app("v", vec![int(1)])]),
+        app("v", vec![int(1)]),
+    ];
+    (definition, seeds)
+}
+
 /// A sort `W` inhabited only by applications of declared total functions without equations,
 /// which are normal forms (the design's 3.13 (k)): `tw : Int -> W` and `tw2 : Y -> W`, with `Y`
 /// inhabited by an equation head `hW`. The head `gW` over `W` has two equations whose sides
@@ -1027,6 +1045,12 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
             seeds,
         ));
     }
+    let (definition, seeds) = observation_by_function(base());
+    templates.push((
+        "template observation by a function".into(),
+        definition,
+        seeds,
+    ));
     let (definition, seeds) = erasing(base());
     templates.push(("template erasing".into(), definition, seeds));
     // T1: the pair of `h` alone does not mention `w`, whose equation observes `h` in its

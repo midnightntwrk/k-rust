@@ -259,3 +259,21 @@ mutation!(
     drop_tobs,
     forced_failures
 );
+
+/// V9's failures on N1 observed by a function under `switches`: the template where only T-obs
+/// makes a pair relevant to the load's scope.
+fn scope_failures_on_observation_by_a_function(switches: Switches) -> Vec<String> {
+    contract_failures(switches)
+        .into_iter()
+        .filter(|failure| {
+            failure.starts_with("template observation by a function:")
+                && failure.contains(super::checks::SCOPES)
+        })
+        .collect()
+}
+
+mutation!(
+    relevance_without_t_obs_is_caught_by_the_scope_comparison,
+    relevance_ignores_tobs,
+    scope_failures_on_observation_by_a_function
+);

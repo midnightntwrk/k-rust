@@ -5,10 +5,36 @@
 //! (`name=path` entries separated by `:`), loads each with its last module as the main module, and
 //! prints one `VALUE_CONTRACT {json}` line per definition with the check's verdict and counts. The
 //! script compares the lines with `scripts/value-contract-corpus.toml`.
+//!
+//! The counts are the load's (`CheckScope::Gate`); the `full_` ones are those of the full check
+//! (`CheckScope::All`), which also classifies the pairs that can change no claim. Each definition
+//! also passes V9: the two verdicts admit the same claims and warn about the same pairs. And in
+//! each scope the check without its memo of condition simplifications (`ConditionMemo::Off`)
+//! reaches the same verdict and the same counts but the memo's hits.
 
 use std::time::Instant;
 
-use k_rust_backend::{definition::BackendDefinition, term::HeadRole};
+use k_rust_backend::{
+    confluence::{CheckScope, ConditionMemo, ValueClaims},
+    definition::BackendDefinition,
+    term::HeadRole,
+};
+
+/// Where `on`, a verdict computed with the memo of condition simplifications, and `off`, the same
+/// check's without it, differ: in the verdict, or in a count other than the memo's hits.
+fn memo_differences(on: &ValueClaims, off: &ValueClaims) -> Vec<String> {
+    let mut differences = on.verdict_differences(off);
+    let mut expected = on.counts();
+    expected.condition_memo_hits = 0;
+    if expected != off.counts() {
+        differences.push(format!(
+            "counts with the memo {:?} against without {:?}",
+            on.counts(),
+            off.counts()
+        ));
+    }
+    differences
+}
 use k_rust_kore::kore::parser::parse_definition;
 
 #[test]
@@ -30,15 +56,44 @@ fn value_contract_corpus() {
         let started = Instant::now();
         // Internalization recurses over the definition's terms: give it the stack a deep
         // definition needs.
-        let definition = std::thread::Builder::new()
+        let (definition, seconds, full, [gate_off, full_off]) = std::thread::Builder::new()
             .stack_size(1 << 30)
-            .spawn(move || BackendDefinition::internalize(&syntax, &main))
+            .spawn(move || {
+                let definition = BackendDefinition::internalize(&syntax, &main)?;
+                let seconds = started.elapsed().as_secs_f64();
+                // The full check (`CheckScope::All`), for V9 and for the pairs that withdraw no
+                // claim, which the load's scope does not classify.
+                let full = definition.value_claims_in_scope(CheckScope::All);
+                // Both scopes again without the memo of condition simplifications.
+                let unmemoized = [CheckScope::Gate, CheckScope::All]
+                    .map(|scope| definition.value_claims_checked(scope, ConditionMemo::Off));
+                Ok::<_, k_rust_backend::definition::DefinitionError>((
+                    definition, seconds, full, unmemoized,
+                ))
+            })
             .expect("the loading thread starts")
             .join()
             .expect("loading does not panic")
             .unwrap_or_else(|error| panic!("{name}: {error:?}"));
-        let seconds = started.elapsed().as_secs_f64();
         let claims = definition.value_claims();
+        let differences = claims.claim_differences(&full, &definition);
+        assert!(
+            differences.is_empty(),
+            "{name}: V9: the load's scope and the full check differ: {differences:?}"
+        );
+        let memo = memo_differences(claims, &gate_off)
+            .into_iter()
+            .map(|difference| format!("load's scope: {difference}"))
+            .chain(
+                memo_differences(&full, &full_off)
+                    .into_iter()
+                    .map(|difference| format!("full check: {difference}")),
+            )
+            .collect::<Vec<_>>();
+        assert!(
+            memo.is_empty(),
+            "{name}: the check with and without the memo differs: {memo:?}"
+        );
         let counts = claims.counts();
         let heads = definition
             .symbols()
@@ -66,6 +121,15 @@ fn value_contract_corpus() {
             "several_matches": counts.several_matches,
             "families": counts.families,
             "confluent_families": counts.confluent_families,
+            "relevant_equations": counts.relevant_equations,
+            "skipped": counts.skipped,
+            "full_pairs": full.counts().pairs,
+            "full_unjoined": full.unjoined().len(),
+            "full_tainted_symbols": full.tainted_symbols().len(),
+            "simplifier_calls": counts.simplifier_calls,
+            "condition_memo_hits": counts.condition_memo_hits,
+            "full_simplifier_calls": full.counts().simplifier_calls,
+            "full_condition_memo_hits": full.counts().condition_memo_hits,
         });
         println!("VALUE_CONTRACT {line}");
     }

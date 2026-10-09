@@ -10,7 +10,7 @@
 //! whose pairs join keep the claims the contract makes.
 
 use k_rust_backend::{
-    confluence::{UnjoinedReason, UnresolvedShape},
+    confluence::{CheckScope, UnjoinedReason, UnresolvedShape},
     definition::BackendDefinition,
     rule::Predicate,
     simplify::SimplificationOptions,
@@ -511,6 +511,52 @@ fn finding_n1_a_pair_withdraws_the_heads_its_variables_range_over() {
     assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortA{}");
 }
 
+/// Finding N1 with the value production hooked (review 2 of the load's scope, N1): `v` is still
+/// an equation head (`anywhere`, not a declared function), partial, and the only one, so every
+/// model makes `A` empty and `v(N)` undefined. The closure reaches `v` through the pair's
+/// variable (T-obs), which no hook exempts; the check must not skip the pairs because `v` is
+/// hooked. Its hook never applies to a `Nat` (inhabited by `z`), so no hook evaluation decides
+/// `\ceil(v(N))`.
+#[test]
+fn finding_n1_holds_when_the_value_production_is_hooked() {
+    let declarations = r#"
+        sort SortA{} []
+        sort SortB{} []
+        sort SortNat{} []
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol c1{}() : SortB{} [constructor{}(), functional{}(), injective{}()]
+        symbol c2{}() : SortB{} [constructor{}(), functional{}(), injective{}()]
+        hooked-symbol v{}(SortNat{}) : SortA{}
+            [anywhere{}(), value-production{}(), hook{}("INT.abs")]
+        symbol g{}(SortA{}) : SortB{} [function{}()]
+    "#;
+    let definition = definition(
+        declarations,
+        &[
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortB{}",
+                &["VarX:SortA{}"],
+                "c1{}()",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "g",
+                &["SortA{}"],
+                "SortB{}",
+                &["VarX:SortA{}"],
+                "c2{}()",
+                r"\top{R}()",
+                "",
+            ),
+        ],
+    );
+    assert_withdrawn(&definition, &["v"], Some(UnjoinedReason::DifferentResults));
+    assert_obligation_kept(&definition, "v{}(N:SortNat{})", "SortA{}");
+}
+
 /// A pair whose `requires` could be refuted only through a claim on a head the pair itself
 /// withdraws: `f(X) = c1 requires X ==K h(1)` and `f(X) = c2 requires X ==K h(2)`. Refuting the
 /// conjunction needs `h(1)` and `h(2)` to be distinct values, a free claim about `h`; the check
@@ -812,14 +858,17 @@ fn review_1_n1_through_a_constructor() {
 /// Where `A` has an element in every model (a constant constructor `a0`), the model collapses
 /// `u`'s applications holding a new element into it, and `v` keeps its claims. (This definition
 /// has no model at all, `g(a0)` being both `c1` and `c2`; the claim is vacuously true, and the
-/// test pins that the collapse is still taken where it is valid.)
+/// test pins that the collapse is still taken where it is valid.) The pair of the function `g`
+/// then reaches no symbol the gate is asked about, so the load's scope does not classify it:
+/// the full check names it and taints `g`, and neither verdict taints `v`.
 #[test]
 fn n1_through_a_total_function_into_a_surely_inhabited_sort_keeps_the_claims() {
     let definition = n1_through(
         "function{}(), total{}()",
         "symbol a0{}() : SortA{} [constructor{}(), functional{}(), injective{}()]",
     );
-    let tainted = definition.value_claims().tainted_symbols();
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    let tainted = full.tainted_symbols();
     assert!(
         tainted.iter().any(|symbol| symbol.as_ref() == "g"),
         "{tainted:?}"
@@ -827,6 +876,15 @@ fn n1_through_a_total_function_into_a_surely_inhabited_sort_keeps_the_claims() {
     assert!(
         !tainted.iter().any(|symbol| symbol.as_ref() == "v"),
         "{tainted:?}"
+    );
+    let loaded = definition.value_claims();
+    assert!(loaded.unjoined().is_empty(), "{:?}", loaded.unjoined());
+    assert!(loaded.tainted_symbols().is_empty());
+    assert_eq!(loaded.counts().skipped, 1);
+    assert!(
+        loaded.claim_differences(&full, &definition).is_empty(),
+        "{:?}",
+        loaded.claim_differences(&full, &definition)
     );
 }
 

@@ -519,5 +519,121 @@ fn discharging_before_the_check_is_caught() {
     ));
 }
 
+/// `f(a) = s(b)` and `\ceil(f(b))`, as one conjunction over the variables named `a` and `b`.
+fn two_conjuncts(definition: &BackendDefinition, a: &str, b: &str) -> crate::rule::Predicate {
+    use crate::rule::Predicate;
+    Predicate::And(vec![
+        Predicate::Equals(
+            term(definition, &format!("f{{}}({a}:SortNat{{}})")),
+            term(definition, &format!("s{{}}({b}:SortNat{{}})")),
+        ),
+        Predicate::Ceil(term(definition, &format!("f{{}}({b}:SortNat{{}})"))),
+    ])
+}
+
+/// The memo's key identifies two conditions exactly when one is the other renamed injectively:
+/// the variables are numbered by first occurrence, keeping their sorts.
+#[test]
+fn conditions_share_a_memo_key_exactly_when_one_renames_to_the_other() {
+    use super::memo::Canonical;
+    let definition = definition("");
+    let key = |predicate| Canonical::of(&predicate).key;
+    let first = key(two_conjuncts(&definition, "X", "Y"));
+    assert_eq!(first, key(two_conjuncts(&definition, "Y", "X")));
+    assert_eq!(first, key(two_conjuncts(&definition, "A0", "VarB1")));
+    // Identifying the two variables is not a renaming.
+    assert_ne!(first, key(two_conjuncts(&definition, "X", "X")));
+    assert!(
+        first
+            .free_variables()
+            .iter()
+            .all(|variable| variable.name.ends_with("!memo0") || variable.name.ends_with("!memo1")),
+        "{first:?}"
+    );
+}
+
+/// An answer stored for one condition answers a condition that renames to the same key, renamed
+/// back to that condition's variables; a stop is stored as deciding nothing.
+#[test]
+fn the_memo_answers_a_renamed_condition_with_its_answer_renamed_back() {
+    use super::memo::{Lookup, Memo};
+    use crate::rule::Predicate;
+    let definition = definition("");
+    let mut memo = Memo::default();
+    let Lookup::Miss(canonical) = memo.lookup(&two_conjuncts(&definition, "X", "Y")) else {
+        panic!("an empty memo answers nothing");
+    };
+    // The simplifier's answer for the key: its first conjunct.
+    let Predicate::And(conjuncts) = &canonical.key else {
+        panic!("the key keeps the conjunction");
+    };
+    let answer = conjuncts[0].clone();
+    let renamed = memo
+        .store(canonical, Some(answer))
+        .expect("an answer over the key's variables is stored");
+    let Predicate::And(original) = two_conjuncts(&definition, "X", "Y") else {
+        unreachable!()
+    };
+    assert_eq!(renamed, Some(original[0].clone()));
+    let Lookup::Hit(hit) = memo.lookup(&two_conjuncts(&definition, "U", "V")) else {
+        panic!("a renamed condition is answered from the memo");
+    };
+    let Predicate::And(renamed_conjuncts) = two_conjuncts(&definition, "U", "V") else {
+        unreachable!()
+    };
+    assert_eq!(hit, Some(renamed_conjuncts[0].clone()));
+    // A condition identifying the variables is another key.
+    let Lookup::Miss(canonical) = memo.lookup(&two_conjuncts(&definition, "U", "U")) else {
+        panic!("a condition that is not a renaming is not answered");
+    };
+    assert_eq!(memo.store(canonical, None), Ok(None));
+    assert!(matches!(
+        memo.lookup(&two_conjuncts(&definition, "W", "W")),
+        Lookup::Hit(None)
+    ));
+}
+
+/// An answer the memo cannot rename back without capturing or conflating a variable is not
+/// stored: one with a free variable the key does not have, and one with a quantifier under a
+/// renamed key. A condition with a quantifier is keyed as written, and its answers are stored.
+#[test]
+fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
+    use super::memo::{Canonical, Lookup, Memo};
+    use crate::rule::Predicate;
+    let definition = definition("");
+    let condition = two_conjuncts(&definition, "X", "Y");
+    let other = term(&definition, "f{}(Z:SortNat{})");
+    let mut memo = Memo::default();
+    let Lookup::Miss(canonical) = memo.lookup(&condition) else {
+        panic!("an empty memo answers nothing");
+    };
+    assert_eq!(
+        memo.store(canonical, Some(Predicate::Ceil(other.clone()))),
+        Err(())
+    );
+    let Lookup::Miss(canonical) = memo.lookup(&condition) else {
+        panic!("the refused answer is not stored");
+    };
+    let bound = crate::term::Variable::new("Z", crate::term::Sort::simple("SortNat"));
+    let quantified = Predicate::Exists(bound, Box::new(Predicate::Ceil(other)));
+    assert_eq!(memo.store(canonical, Some(quantified.clone())), Err(()));
+    assert!(matches!(memo.lookup(&condition), Lookup::Miss(_)));
+    // Keyed as written.
+    let with_binder = Predicate::And(vec![condition, quantified.clone()]);
+    assert_eq!(Canonical::of(&with_binder).key, with_binder);
+    let Lookup::Miss(canonical) = memo.lookup(&with_binder) else {
+        panic!("an empty key answers nothing");
+    };
+    assert_eq!(
+        memo.store(canonical, Some(quantified.clone())),
+        Ok(Some(quantified.clone()))
+    );
+    assert!(matches!(
+        memo.lookup(&with_binder),
+        Lookup::Hit(Some(answer)) if answer == quantified
+    ));
+}
+
 mod review_one;
 mod review_two;
+mod scope;
