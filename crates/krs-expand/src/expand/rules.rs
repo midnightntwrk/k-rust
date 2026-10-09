@@ -132,7 +132,7 @@ pub(crate) fn desugar(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    krs_syntax::DesugarAttribute::parse_tokens(attributes)?;
+    let desugar = krs_syntax::DesugarAttribute::parse_tokens(attributes)?;
     if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
         if let Some(requires) = function
             .attrs
@@ -146,14 +146,16 @@ pub(crate) fn desugar(
                 .expect("helper attributes have a final path segment");
             return Err(requires_on_desugar(name.ident.span()));
         }
-        let rule = krs_syntax::RuleItem::parse_tokens(item)?;
+        let rule = krs_syntax::RuleItem::parse_desugar_tokens(item, &desugar)?;
         return expand_ordinary_rule(
             env,
             &rule,
             &krs_syntax::RuleAttribute::default(),
             krs_ir::SentenceKind::Desugar,
-            None,
-            None,
+            OrdinaryRuleKeys {
+                desugar: Some(&desugar),
+                ..OrdinaryRuleKeys::default()
+            },
             None,
             &[],
         );
@@ -199,15 +201,26 @@ fn ordinary_rule(
         &rule,
         attribute,
         sentence_kind,
-        equation,
-        simplification,
+        OrdinaryRuleKeys {
+            equation,
+            simplification,
+            desugar: None,
+        },
         None,
         &[],
     )
 }
 
+/// The sentence-kind keys of an ordinary rule fn beyond `#[k::rule(..)]`.
+#[derive(Clone, Copy, Default)]
+struct OrdinaryRuleKeys<'a> {
+    equation: Option<&'a krs_syntax::EquationAttribute>,
+    simplification: Option<&'a krs_syntax::SimplificationAttribute>,
+    /// `#[k::desugar(..)]` of a desugar clause (KF-046).
+    desugar: Option<&'a krs_syntax::DesugarAttribute>,
+}
+
 #[expect(
-    clippy::too_many_arguments,
     clippy::too_many_lines,
     reason = "Rule lowering keeps the declaration context and both sides together."
 )]
@@ -216,11 +229,15 @@ fn expand_ordinary_rule(
     rule: &krs_syntax::RuleItem,
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
-    equation: Option<&krs_syntax::EquationAttribute>,
-    simplification: Option<&krs_syntax::SimplificationAttribute>,
+    keys: OrdinaryRuleKeys<'_>,
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
+    let OrdinaryRuleKeys {
+        equation,
+        simplification,
+        desugar,
+    } = keys;
     if let Some(binder) = rule.existentials().fresh().first()
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
@@ -257,6 +274,9 @@ fn expand_ordinary_rule(
     }
     if let Some(equation) = equation {
         anchors.extend(equation.provenance()?);
+    }
+    if let Some(desugar) = desugar {
+        anchors.extend(desugar.provenance()?);
     }
     if let Some(simplification) = simplification {
         anchors.push(ProvenanceAnchor::new(
@@ -423,6 +443,9 @@ fn expand_ordinary_rule(
         ensures,
         fresh,
         equation: equation_attributes,
+        unbound_variables: desugar
+            .and_then(krs_syntax::DesugarAttribute::unbound_variables)
+            .map(unbound_variables),
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -557,6 +580,25 @@ fn match_restriction(
             .smt_lemma()
             .map(|_| wire_key(ProvenanceRole::SmtLemma, 0)),
     })
+}
+
+/// The descriptor form of `unbound_variables = [..]` (KF-046).
+fn unbound_variables(unbound: &krs_syntax::UnboundVariables) -> krs_ir::DescriptorUnboundVariables {
+    krs_ir::DescriptorUnboundVariables {
+        key: wire_key(ProvenanceRole::UnboundVariables, 0),
+        variables: (0_u32..)
+            .zip(unbound.variables())
+            .map(|(ordinal, variable)| krs_ir::DescriptorUnboundVariable {
+                key: wire_key(ProvenanceRole::UnboundVariable, ordinal),
+                name: match variable {
+                    krs_syntax::UnboundVariable::Named(name) => name.to_string(),
+                    krs_syntax::UnboundVariable::Wildcard(_) => {
+                        krs_ir::DescriptorUnboundVariable::WILDCARD.to_owned()
+                    }
+                },
+            })
+            .collect(),
+    }
 }
 
 pub(crate) fn orphan_rule_helper(

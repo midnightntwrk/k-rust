@@ -1614,6 +1614,103 @@ pub struct DescriptorRestrictionVariable {
     pub name: String,
 }
 
+/// `unbound_variables = [x, _]` of a desugar clause (KF-046): right-hand
+/// names the left-hand side does not bind, K's `unboundVariables`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorUnboundVariables {
+    /// Provenance of the `unbound_variables` key identifier.
+    pub key: ProvenanceKey,
+    /// Listed names in authored order; `_` stands for every result wildcard.
+    pub variables: Vec<DescriptorUnboundVariable>,
+}
+
+/// One name, or `_`, listed in `unbound_variables = [..]`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorUnboundVariable {
+    /// Exact identifier provenance.
+    pub key: ProvenanceKey,
+    /// The Rust name, or `_` for the result's wildcards.
+    pub name: String,
+}
+
+impl DescriptorUnboundVariable {
+    /// The entry that stands for every wildcard of the result.
+    pub const WILDCARD: &str = "_";
+
+    /// Whether this entry is `_`.
+    #[must_use]
+    pub fn is_wildcard(&self) -> bool {
+        self.name == Self::WILDCARD
+    }
+}
+
+impl DescriptorUnboundVariables {
+    /// Whether `_` is listed, which admits wildcards in the result.
+    #[must_use]
+    pub fn lists_wildcard(&self) -> bool {
+        self.variables
+            .iter()
+            .any(DescriptorUnboundVariable::is_wildcard)
+    }
+
+    /// The listed names other than `_`.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.variables
+            .iter()
+            .filter(|variable| !variable.is_wildcard())
+            .map(|variable| variable.name.as_str())
+    }
+
+    /// Validates key roles and ordinals and nonblank distinct entries that the
+    /// subject does not bind.
+    fn validate(
+        &self,
+        bindings: &BTreeSet<String>,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        let invalid =
+            || GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidUnboundVariables);
+        require_key(&self.key, provenance)?;
+        if self.key.role() != ProvenanceRole::UnboundVariables
+            || self.key.ordinal() != 0
+            || self.variables.is_empty()
+        {
+            return Err(invalid());
+        }
+        let mut names = BTreeSet::new();
+        for (ordinal, variable) in self.variables.iter().enumerate() {
+            require_key(&variable.key, provenance)?;
+            if variable.key.role() != ProvenanceRole::UnboundVariable
+                || variable.key.ordinal() != checked_index(ordinal)?
+                || variable.name.trim().is_empty()
+                || bindings.contains(&variable.name)
+                || !names.insert(variable.name.as_str())
+            {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_expected_keys(
+        &self,
+        keys: &mut BTreeSet<ProvenanceKey>,
+    ) -> Result<(), GrammarTransportError> {
+        insert_exact(keys, &self.key, ProvenanceRole::UnboundVariables, 0)?;
+        for (ordinal, variable) in self.variables.iter().enumerate() {
+            insert_exact(
+                keys,
+                &variable.key,
+                ProvenanceRole::UnboundVariable,
+                checked_index(ordinal)?,
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl DescriptorMatchRestriction {
     /// Whether no key is present.
     #[must_use]
@@ -1800,6 +1897,9 @@ stage_shape! {
         /// Keys of an equation beyond its priority: `concrete`, `symbolic`, `smt_lemma` (KF-043).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub equation: Option<DescriptorEquationAttributes> => [keep],
+        /// `unbound_variables = [..]` of a desugar clause (KF-046).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub unbound_variables: Option<DescriptorUnboundVariables> => [keep],
     }
 }
 
@@ -2091,6 +2191,41 @@ impl StructuredRuleDescriptor {
         Ok(right_bindings)
     }
 
+    /// Validates the result against the names it may reference, including a
+    /// desugar clause's `unbound_variables` (KF-046): each listed name is
+    /// used by the result, and `_` admits result wildcards.
+    fn validate_result(
+        &self,
+        bindings: &BTreeSet<String>,
+        mut right_bindings: BTreeSet<String>,
+        provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
+    ) -> Result<(), GrammarTransportError> {
+        let invalid =
+            || GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidUnboundVariables);
+        let mut result_wildcards = false;
+        if let Some(unbound) = &self.unbound_variables {
+            if self.sentence_kind != SentenceKind::Desugar {
+                return Err(invalid());
+            }
+            unbound.validate(bindings, provenance)?;
+            right_bindings.extend(unbound.names().map(str::to_owned));
+            result_wildcards = unbound.lists_wildcard();
+        }
+        let mut result_variables = BTreeSet::new();
+        self.result.validate(
+            provenance,
+            &right_bindings,
+            &mut result_variables,
+            result_wildcards,
+        )?;
+        if let Some(unbound) = &self.unbound_variables
+            && unbound.names().any(|name| !result_variables.contains(name))
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
     /// Validates the priority, nondet, and anywhere keys of a rule.
     fn validate_rule_keys(
         &self,
@@ -2252,9 +2387,7 @@ impl StructuredRuleDescriptor {
             return Err(GrammarTransportError::InvalidBinding(missing));
         }
         let right_bindings = self.validate_existentials(&bindings, provenance)?;
-        let mut result_variables = BTreeSet::new();
-        self.result
-            .validate(provenance, &right_bindings, &mut result_variables, false)?;
+        self.validate_result(&bindings, right_bindings.clone(), provenance)?;
         if let Some(requires) = &self.requires {
             let mut condition_variables = BTreeSet::new();
             requires
@@ -3579,6 +3712,9 @@ impl StructuredRuleDescriptor {
         if let Some(equation) = &self.equation {
             equation.restriction.collect_expected_keys(&mut keys)?;
         }
+        if let Some(unbound) = &self.unbound_variables {
+            unbound.collect_expected_keys(&mut keys)?;
+        }
         insert_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
         for (index, binding) in self.typed_bindings.iter().enumerate() {
             let ordinal = checked_index(index)?;
@@ -3767,7 +3903,8 @@ impl TermSide {
     const fn wildcard_role(self) -> Option<ProvenanceRole> {
         match self {
             Self::Left => Some(ProvenanceRole::RuleLeftWildcard),
-            Self::Right | Self::Requires | Self::Ensures => None,
+            Self::Right => Some(ProvenanceRole::RuleRightWildcard),
+            Self::Requires | Self::Ensures => None,
         }
     }
 }
@@ -4130,6 +4267,7 @@ mod traversal_tests {
             ensures: None,
             fresh: Vec::new(),
             equation: None,
+            unbound_variables: None,
         };
         assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
     }

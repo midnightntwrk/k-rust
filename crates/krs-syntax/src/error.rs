@@ -263,6 +263,12 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// An `unbound_variables = [..]` key of a desugar clause was malformed or
+    /// misplaced (KF-046).
+    InvalidUnboundVariables {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -347,6 +353,7 @@ impl SyntaxErrorKind {
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
+            Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
         }
     }
 }
@@ -581,7 +588,8 @@ impl fmt::Display for SyntaxError {
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
             SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
-            | SyntaxErrorKind::InvalidMatchRestriction { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidMatchRestriction { reason }
+            | SyntaxErrorKind::InvalidUnboundVariables { reason } => formatter.write_str(reason),
         }
     }
 }

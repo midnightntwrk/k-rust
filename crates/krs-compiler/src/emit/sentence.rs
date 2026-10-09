@@ -820,6 +820,9 @@ fn emit_term_rule_attributes(
     if let Some(restriction) = sentence.restriction() {
         emit_match_restriction(restriction, names, writer)?;
     }
+    if let Some(unbound) = sentence.unbound_variables() {
+        emit_unbound_variables(unbound, names, writer)?;
+    }
     writer.push("label(");
     emit_label(sentence.label(), writer);
     writer.push(")]");
@@ -869,6 +872,38 @@ fn emit_match_restriction(
         writer.record(origin.key(), start, writer.source.len())?;
         writer.push(", ");
     }
+    Ok(())
+}
+
+/// Emits `unboundVariables(X, _)` (KF-046) followed by `, `; named entries
+/// use the sentence's K variable names and `_` stays `_`.
+fn emit_unbound_variables(
+    unbound: &krs_ir_levels::IrUnboundVariables,
+    names: &SentenceVariables,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let start = writer.source.len();
+    writer.push("unboundVariables(");
+    for (index, variable) in unbound.variables().iter().enumerate() {
+        if index != 0 {
+            writer.push(", ");
+        }
+        let name = match variable.id() {
+            None => "_",
+            Some(id) => names.name(id).ok_or_else(|| {
+                EmitError::InvalidReference(format!(
+                    "unbound variable {:?} is not named in its sentence",
+                    id.as_str()
+                ))
+            })?,
+        };
+        let variable_start = writer.source.len();
+        writer.push(name);
+        writer.record(variable.origin().key(), variable_start, writer.source.len())?;
+    }
+    writer.push(")");
+    writer.record(unbound.origin().key(), start, writer.source.len())?;
+    writer.push(", ");
     Ok(())
 }
 

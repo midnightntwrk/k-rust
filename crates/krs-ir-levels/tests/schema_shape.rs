@@ -117,6 +117,8 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "IrMatchRestriction",
     "IrRestriction",
     "IrRestrictionVariable",
+    "IrUnboundVariables",
+    "IrUnboundVariable",
     "ConstructorDescriptor",
     "ConstructorFieldDescriptor",
     "ContextAliasSentence",
@@ -686,6 +688,8 @@ fn registry() -> Registry {
     trace!(DescriptorMatchRestriction: DescriptorMatchRestriction);
     trace!(DescriptorRestriction: DescriptorRestriction);
     trace!(DescriptorRestrictionVariable: DescriptorRestrictionVariable);
+    trace!(DescriptorUnboundVariables: DescriptorUnboundVariables);
+    trace!(DescriptorUnboundVariable: DescriptorUnboundVariable);
     trace!(DescriptorSimplificationPriority: DescriptorSimplificationPriority);
     trace!(ExplicitSymbol: ExplicitSymbol);
     trace!(GroupAssociativity: GroupAssociativity);
@@ -823,6 +827,8 @@ fn registry() -> Registry {
     unsupported!(IrMatchRestriction: IrMatchRestriction);
     unsupported!(IrRestriction: IrRestriction);
     unsupported!(IrRestrictionVariable: IrRestrictionVariable);
+    unsupported!(IrUnboundVariables: IrUnboundVariables);
+    unsupported!(IrUnboundVariable: IrUnboundVariable);
     unsupported!(DefinitionSimplificationPriority: DefinitionSimplificationPriority);
     unsupported!(DefinitionSortRef: DefinitionSortRef);
     unsupported!(DefinitionTerm: DefinitionTerm);

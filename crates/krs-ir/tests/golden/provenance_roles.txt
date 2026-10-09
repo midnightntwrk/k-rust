@@ -204,3 +204,6 @@ SmtLemma=smt_lemma
 DesugarProduction=desugar_production
 DesugarClause=desugar_clause
 StaticRecursive=static_recursive
+UnboundVariables=unbound_variables
+UnboundVariable=unbound_variable
+RuleRightWildcard=rule_right_wildcard

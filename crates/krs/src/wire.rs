@@ -605,6 +605,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             equation: None,
+            unbound_variables: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         assert!(encoded.contains("\"slot\":0,\"authored_path\":\"u64\""));
@@ -632,6 +633,7 @@ mod tests {
                 ensures: None,
                 fresh: Vec::new(),
                 equation: None,
+                unbound_variables: None,
             }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }

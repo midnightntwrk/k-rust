@@ -1062,6 +1062,7 @@ pub struct RuleSentence {
     ensures: Option<DefinitionRuleCondition>,
     fresh: Vec<DefinitionScopedBinder>,
     restriction: Option<crate::IrMatchRestriction>,
+    unbound_variables: Option<crate::IrUnboundVariables>,
     content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
 }
 
@@ -1081,6 +1082,7 @@ impl Serialize for RuleSentence {
             ensures: self.ensures.as_ref().map(Cow::Borrowed),
             fresh: Cow::Borrowed(&self.fresh),
             restriction: self.restriction.as_ref().map(Cow::Borrowed),
+            unbound_variables: self.unbound_variables.as_ref().map(Cow::Borrowed),
             body: self.relational_body(),
         }
         .serialize(serializer)
@@ -1112,6 +1114,8 @@ struct RuleSentenceWire<'a, B> {
     fresh: Cow<'a, [DefinitionScopedBinder]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     restriction: Option<Cow<'a, crate::IrMatchRestriction>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unbound_variables: Option<Cow<'a, crate::IrUnboundVariables>>,
     body: B,
 }
 
@@ -1147,6 +1151,7 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
             ensures: value.ensures.map(Cow::into_owned),
             fresh: value.fresh.into_owned(),
             restriction: value.restriction.map(Cow::into_owned),
+            unbound_variables: value.unbound_variables.map(Cow::into_owned),
             content,
         })
     }
@@ -1183,6 +1188,7 @@ impl RuleSentence {
             ensures: None,
             fresh: Vec::new(),
             restriction: None,
+            unbound_variables: None,
             content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
@@ -1208,6 +1214,7 @@ impl RuleSentence {
             ensures: None,
             fresh: Vec::new(),
             restriction: None,
+            unbound_variables: None,
             content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
@@ -1328,6 +1335,34 @@ impl RuleSentence {
     #[must_use]
     pub const fn restriction(&self) -> Option<&crate::IrMatchRestriction> {
         self.restriction.as_ref()
+    }
+    /// Attaches `unbound_variables = [..]` of a desugar clause (KF-046).
+    #[must_use]
+    pub fn with_unbound_variables(
+        mut self,
+        unbound_variables: Option<crate::IrUnboundVariables>,
+    ) -> Self {
+        self.unbound_variables = unbound_variables;
+        self
+    }
+    /// Returns `unbound_variables = [..]` of a desugar clause.
+    #[must_use]
+    pub const fn unbound_variables(&self) -> Option<&crate::IrUnboundVariables> {
+        self.unbound_variables.as_ref()
+    }
+    /// The wildcards of a term rule's right-hand side, which a desugar
+    /// clause's `_` entry of `unbound_variables` stands for (KF-046).
+    #[must_use]
+    pub fn result_wildcards(&self) -> std::collections::BTreeSet<SemanticId> {
+        let mut variables = std::collections::BTreeSet::new();
+        if let Some(body) = self.body() {
+            crate::ir_validation::collect_term_variables::<crate::DefinitionLevel>(
+                body.to(),
+                &mut variables,
+            );
+        }
+        variables.retain(|id| id.kind() == krs_ir::SemanticIdKind::Wildcard);
+        variables
     }
     /// Attaches the object-Bool postcondition (`#[k::ensures]`) of a transition or claim.
     #[must_use]
@@ -1547,6 +1582,9 @@ pub enum DefinitionValidationError {
     /// `concrete`, `symbolic`, or `smt_lemma` occurred on a sentence other than an equation
     /// or simplification, or named a binder that is not a left-hand variable.
     InvalidMatchRestriction(LabelId),
+    /// `unbound_variables` occurred on a sentence other than a term-shaped desugar clause,
+    /// or listed a variable the left-hand side binds or the right-hand side does not use.
+    InvalidUnboundVariables(LabelId),
     /// A fresh binder occurs in the sentence's left-hand side or `requires` condition, or nowhere on its right.
     FreshScopeViolation(SemanticId),
     /// A rule condition did not have exactly the builtin `Bool` sort.
@@ -1763,6 +1801,10 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidMatchRestriction(id) => write!(
                 formatter,
                 "concrete, symbolic, and smt_lemma are allowed only on equations and simplifications, naming left-hand binders, not on {id}"
+            ),
+            Self::InvalidUnboundVariables(id) => write!(
+                formatter,
+                "unbound_variables is allowed only on desugar clauses, naming right-hand variables the left-hand side does not bind, not on {id}"
             ),
             Self::FreshScopeViolation(id) => write!(
                 formatter,
@@ -2117,6 +2159,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             restriction: None,
+            unbound_variables: None,
             content: crate::ir_level::RuleContent::Configuration {
                 kind: krs_ir::ConfigurationSentenceKind::Claim,
                 body,

@@ -560,6 +560,7 @@ fn bundle() -> (DescriptorBundleInputs, StableItemId) {
             ensures: None,
             fresh: Vec::new(),
             equation: None,
+            unbound_variables: None,
         })),
     ));
 

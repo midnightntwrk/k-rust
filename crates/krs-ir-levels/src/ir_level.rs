@@ -485,6 +485,75 @@ impl IrRestrictionVariable {
     }
 }
 
+/// `unbound_variables = [..]` of a desugar clause (KF-046): right-hand
+/// variables the left-hand side does not bind, K's `unboundVariables`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IrUnboundVariables {
+    pub(crate) origin: NodeOrigin,
+    pub(crate) variables: Vec<IrUnboundVariable>,
+}
+
+/// One entry of `unbound_variables`: a right-hand variable, or `_` (no
+/// identity) for every wildcard of the right-hand side.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IrUnboundVariable {
+    pub(crate) origin: NodeOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) id: Option<SemanticId>,
+}
+
+impl IrUnboundVariables {
+    /// Creates the key with its entries in authored order.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, variables: Vec<IrUnboundVariable>) -> Self {
+        Self { origin, variables }
+    }
+    /// Returns the provenance of the `unbound_variables` key.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the entries in authored order.
+    #[must_use]
+    pub fn variables(&self) -> &[IrUnboundVariable] {
+        &self.variables
+    }
+    /// Whether `_` is listed.
+    #[must_use]
+    pub fn lists_wildcard(&self) -> bool {
+        self.variables.iter().any(IrUnboundVariable::is_wildcard)
+    }
+    /// Every node origin, in source order: the key, then each entry.
+    pub fn origins(&self) -> impl Iterator<Item = &NodeOrigin> {
+        std::iter::once(&self.origin).chain(self.variables.iter().map(|variable| &variable.origin))
+    }
+}
+
+impl IrUnboundVariable {
+    /// Creates one entry; `None` is `_`.
+    #[must_use]
+    pub const fn new(origin: NodeOrigin, id: Option<SemanticId>) -> Self {
+        Self { origin, id }
+    }
+    /// Returns the entry's provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the variable's sentence-local identity; `None` for `_`.
+    #[must_use]
+    pub const fn id(&self) -> Option<&SemanticId> {
+        self.id.as_ref()
+    }
+    /// Whether the entry is `_`.
+    #[must_use]
+    pub const fn is_wildcard(&self) -> bool {
+        self.id.is_none()
+    }
+}
+
 impl IrSimplificationPriority {
     /// Creates a provenance-bearing hint.
     #[must_use]

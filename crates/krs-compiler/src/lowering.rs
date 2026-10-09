@@ -1478,8 +1478,40 @@ fn lower_rule_metadata(
             rule.restriction()
                 .map(|restriction| lower_restriction(restriction, rule.id(), origins))
                 .transpose()?,
+        )
+        .with_unbound_variables(
+            rule.unbound_variables()
+                .map(|unbound| lower_unbound_variables(unbound, rule.id(), origins))
+                .transpose()?,
         );
     Ok(sentence)
+}
+
+/// Lowers `unbound_variables = [..]` of a desugar clause (KF-046); variable
+/// identities are sentence-local and unchanged.
+fn lower_unbound_variables(
+    unbound: &krs_ir_levels::IrUnboundVariables,
+    item: &StableItemId,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::IrUnboundVariables, LoweringError> {
+    let origin = origins.lower(unbound.origin(), "unbound-variables", Some(item), None)?;
+    let variables = unbound
+        .variables()
+        .iter()
+        .enumerate()
+        .map(|(ordinal, variable)| {
+            Ok(krs_ir_levels::IrUnboundVariable::new(
+                origins.lower(
+                    variable.origin(),
+                    "unbound-variable",
+                    Some(item),
+                    Some(&ordinal.to_string()),
+                )?,
+                variable.id().cloned(),
+            ))
+        })
+        .collect::<Result<Vec<_>, LoweringError>>()?;
+    Ok(krs_ir_levels::IrUnboundVariables::new(origin, variables))
 }
 
 /// Lowers the `concrete`, `symbolic`, and `smt_lemma` keys (KF-043); binder

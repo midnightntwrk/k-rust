@@ -6,7 +6,7 @@
     "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
     "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
-    "krs-rule-forms-macros": "0c7db99280ff9359fdc0607500fb5fcf2ba5a5333a4c8b7e80c749167c736a93"
+    "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -25,7 +25,7 @@
       "definition.k": "d231d7982f6ffa3c5bc774e9d203c19225339840941a2af068193999ea3fd86a"
     },
     "krs-rule-forms-macros": {
-      "definition.k": "72e1dcf11bdaaa2d4de1cf808080dc99da0ca6750ddedd615443ed3cc6806bc6"
+      "definition.k": "e42cc5364c8f0464c56ba3bd9d33fbc0776d71196b3140640d0bec20e0bce64e"
     }
   },
   "reference_sha256": {
@@ -34,7 +34,7 @@
     "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521",
     "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25",
     "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",
-    "krs-rule-forms-macros": "30f42c37b5ef36ca74bb4e8442ff42c585786a35d6f559450b070f88de360b89"
+    "krs-rule-forms-macros": "5d046f98abd1d9d698845850df164ba22ca537c37c8e532242757705c7bca979"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -249,6 +249,28 @@
         "cells": {
           "env": "x |-> nest(1 , 2 , .Ints)"
         }
+      },
+      "twin-match": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "a |-> 1"
+        }
+      },
+      "twin-mismatch": {
+        "parse": "accepted",
+        "run": "twin a = pair(3, pair(4, 7));"
+      },
+      "ispair-match": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "b |-> 1"
+        }
+      },
+      "ispair-int": {
+        "parse": "accepted",
+        "run": "ispair b = 5;"
       }
     }
   },

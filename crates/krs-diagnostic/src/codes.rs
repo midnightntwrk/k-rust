@@ -270,6 +270,7 @@ register_codes! {
         RAW_K_SHAPE: "krs::syntax::raw-k-shape" => "A `raw_k!` text is not exactly one rule, claim, or context sentence.",
         INVALID_MATCH_RESTRICTION_KEY: "krs::syntax::invalid-match-restriction" => "A `concrete`, `symbolic`, or `smt_lemma` key was malformed: repeated, `concrete` or `symbolic` both bare and with a list, an empty list, or a key on `#[k::rule]`.",
         INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
+        INVALID_UNBOUND_VARIABLES: "krs::syntax::invalid-unbound-variables" => "An `unbound_variables = [..]` key was malformed or misplaced: outside a desugar clause's `#[k::desugar(..)]`, an empty or repeated list, a name the clause's pattern binds or its result does not use, or `_` with no `_` in the result.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

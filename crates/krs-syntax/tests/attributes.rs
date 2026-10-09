@@ -771,6 +771,89 @@ fn duplicate_error_points_at_the_second_key() {
 }
 
 #[test]
+fn desugar_clause_accepts_unbound_variables() {
+    let attribute =
+        krs_syntax::DesugarAttribute::parse_source("unbound_variables = [x, _, r#y]").unwrap();
+    let unbound = attribute.unbound_variables().unwrap();
+    assert_eq!(unbound.key(), "unbound_variables");
+    assert_eq!(
+        unbound.names().map(ToString::to_string).collect::<Vec<_>>(),
+        ["x", "r#y"]
+    );
+    assert!(unbound.wildcard().is_some());
+    let anchors = attribute.provenance().unwrap();
+    assert_eq!(
+        anchors
+            .iter()
+            .map(|anchor| (anchor.role(), anchor.ordinal()))
+            .collect::<Vec<_>>(),
+        [
+            (ProvenanceRole::UnboundVariables, 0),
+            (ProvenanceRole::UnboundVariable, 0),
+            (ProvenanceRole::UnboundVariable, 1),
+            (ProvenanceRole::UnboundVariable, 2),
+        ]
+    );
+    assert!(
+        krs_syntax::DesugarAttribute::parse_source("")
+            .unwrap()
+            .unbound_variables()
+            .is_none()
+    );
+}
+
+#[test]
+fn desugar_clause_rejects_malformed_unbound_variables() {
+    for (source, reason) in [
+        (
+            "unbound_variables = []",
+            "`unbound_variables = []` lists nothing; list the result's names the pattern does not bind, or omit the key",
+        ),
+        (
+            "unbound_variables = [x, x]",
+            "`x` is listed twice in `unbound_variables`",
+        ),
+        (
+            "unbound_variables = [_, _]",
+            "`_` is listed twice in `unbound_variables`",
+        ),
+        (
+            "unbound_variables = [x], recursive",
+            "a desugar clause takes only `unbound_variables = [..]`",
+        ),
+    ] {
+        let error = krs_syntax::DesugarAttribute::parse_source(source).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidUnboundVariables {
+                reason: reason.to_owned()
+            },
+            "{source}"
+        );
+        assert_eq!(
+            error.kind().code().as_str(),
+            "krs::syntax::invalid-unbound-variables"
+        );
+    }
+}
+
+#[test]
+fn unbound_variables_is_rejected_outside_desugar_clauses() {
+    let expected = SyntaxErrorKind::InvalidUnboundVariables {
+        reason: krs_syntax::UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE.to_owned(),
+    };
+    let source = "unbound_variables = [x]";
+    for error in [
+        krs_syntax::AliasAttribute::parse_source(source).unwrap_err(),
+        krs_syntax::RuleAttribute::parse_source(source).unwrap_err(),
+        krs_syntax::EquationAttribute::parse_source(source).unwrap_err(),
+        krs_syntax::SimplificationAttribute::parse_source(source).unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), &expected);
+    }
+}
+
+#[test]
 fn desugar_clause_rejects_recursive_and_other_payloads() {
     krs_syntax::DesugarAttribute::parse_source("").unwrap();
     for (source, expected_kind) in [
@@ -819,8 +902,8 @@ fn static_production_markers_accept_only_recursive() {
         for (source, expected_kind) in [
             (
                 "unbound_variables = [x]",
-                SyntaxErrorKind::UnknownArgument {
-                    name: "unbound_variables".to_owned(),
+                SyntaxErrorKind::InvalidUnboundVariables {
+                    reason: krs_syntax::UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE.to_owned(),
                 },
             ),
             (

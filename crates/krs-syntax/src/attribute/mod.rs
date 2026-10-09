@@ -17,6 +17,7 @@ pub use sort::{
     AliasAttribute, ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,
     PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
     SimplificationAttribute, SortAttribute, StaticMode, StaticProductionAttribute,
-    SubsortAttribute, SymbolAttribute,
+    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
+    UnboundVariables,
 };
 pub use state::{CellAttributePayload, ConfigurationAttribute, InitAttribute};

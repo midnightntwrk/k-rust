@@ -1,4 +1,5 @@
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt as _;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::{Expr, Ident, LitInt, LitStr, Path, Token};
 
@@ -281,6 +282,12 @@ impl MatchRestriction {
     }
 }
 
+fn bracketed(input: ParseStream<'_>) -> syn::Result<syn::parse::ParseBuffer<'_>> {
+    let content;
+    syn::bracketed!(content in input);
+    Ok(content)
+}
+
 fn parenthesized(input: ParseStream<'_>) -> syn::Result<syn::parse::ParseBuffer<'_>> {
     let content;
     syn::parenthesized!(content in input);
@@ -406,12 +413,167 @@ impl SimplificationAttribute {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AliasAttribute;
 
-/// Validated payload of `#[k::desugar]` on a desugar clause fn (KF-028).
+/// Validated payload of `#[k::desugar]` on a desugar clause fn (KF-028):
+/// empty, or `unbound_variables = [x, _]` (KF-046).
 ///
 /// The production marker, which may say `recursive`, is
 /// [`StaticProductionAttribute`].
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DesugarAttribute;
+#[derive(Clone, Debug, Default)]
+pub struct DesugarAttribute {
+    unbound_variables: Option<UnboundVariables>,
+}
+
+impl DesugarAttribute {
+    /// Returns `unbound_variables = [..]`, when written.
+    #[must_use]
+    pub const fn unbound_variables(&self) -> Option<&UnboundVariables> {
+        self.unbound_variables.as_ref()
+    }
+
+    /// Returns exact provenance: the `unbound_variables` key and each listed
+    /// entry, in authored order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if an authored token has no range.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let Some(unbound) = &self.unbound_variables else {
+            return Ok(Vec::new());
+        };
+        let mut anchors = vec![ProvenanceAnchor::new(
+            ProvenanceRole::UnboundVariables,
+            0,
+            TokenRange::for_tokens(&unbound.key)?,
+        )];
+        for (ordinal, variable) in unbound.variables.iter().enumerate() {
+            let range = match variable {
+                UnboundVariable::Named(name) => TokenRange::for_tokens(name)?,
+                UnboundVariable::Wildcard(wildcard) => TokenRange::for_tokens(wildcard)?,
+            };
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::UnboundVariable,
+                crate::parse::checked_ordinal(
+                    ordinal,
+                    ProvenanceRole::UnboundVariable,
+                    unbound.key.span(),
+                )?,
+                range,
+            ));
+        }
+        Ok(anchors)
+    }
+}
+
+/// `unbound_variables = [x, _]` on a desugar clause (KF-046): right-hand
+/// names the clause's pattern does not bind, K's `unboundVariables`. A
+/// desugar is expanded inside other rules, where such a name is bound by the
+/// rule that uses it; `_` admits wildcards in the result.
+#[derive(Clone, Debug)]
+pub struct UnboundVariables {
+    key: Ident,
+    variables: Vec<UnboundVariable>,
+}
+
+/// One entry of `unbound_variables = [..]`.
+#[derive(Clone, Debug)]
+pub enum UnboundVariable {
+    /// A right-hand name the pattern does not bind.
+    Named(Ident),
+    /// `_`: every wildcard of the result.
+    Wildcard(Token![_]),
+}
+
+impl UnboundVariables {
+    /// Returns the authored `unbound_variables` identifier.
+    #[must_use]
+    pub const fn key(&self) -> &Ident {
+        &self.key
+    }
+
+    /// Returns the entries in authored order.
+    #[must_use]
+    pub fn variables(&self) -> &[UnboundVariable] {
+        &self.variables
+    }
+
+    /// Returns the listed names other than `_`.
+    pub fn names(&self) -> impl Iterator<Item = &Ident> {
+        self.variables.iter().filter_map(|variable| match variable {
+            UnboundVariable::Named(name) => Some(name),
+            UnboundVariable::Wildcard(_) => None,
+        })
+    }
+
+    /// Returns the `_` entry, when listed.
+    #[must_use]
+    pub fn wildcard(&self) -> Option<&Token![_]> {
+        self.variables.iter().find_map(|variable| match variable {
+            UnboundVariable::Wildcard(wildcard) => Some(wildcard),
+            UnboundVariable::Named(_) => None,
+        })
+    }
+}
+
+impl Parse for UnboundVariable {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        if input.peek(Token![_]) {
+            input.parse().map(Self::Wildcard)
+        } else {
+            input.parse().map(Self::Named)
+        }
+    }
+}
+
+/// The diagnostic for `unbound_variables` anywhere but a desugar clause.
+pub const UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE: &str = "unbound_variables applies only to desugar clauses: write it in the `#[k::desugar(..)]` of a clause fn, `#[k::desugar(unbound_variables = [x, _])]`";
+
+/// The error for `unbound_variables` anywhere but a desugar clause.
+pub(crate) fn unbound_variables_outside_desugar(span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidUnboundVariables {
+            reason: UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE.to_owned(),
+        },
+        span,
+    )
+}
+
+fn unbound_variables_error(reason: String, span: proc_macro2::Span) -> ParseError {
+    SyntaxError::new(SyntaxErrorKind::InvalidUnboundVariables { reason }, span).into()
+}
+
+/// Parses `unbound_variables = [x, _]` after its key.
+fn parse_unbound_variables(
+    key: Ident,
+    input: ParseStream<'_>,
+) -> Result<UnboundVariables, ParseError> {
+    input.parse::<Token![=]>()?;
+    let content = bracketed(input)?;
+    let list =
+        syn::punctuated::Punctuated::<UnboundVariable, Token![,]>::parse_terminated(&content)?;
+    if list.is_empty() {
+        return Err(unbound_variables_error(
+            "`unbound_variables = []` lists nothing; list the result's names the pattern does not bind, or omit the key".into(),
+            key.span(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for variable in &list {
+        let (text, span) = match variable {
+            UnboundVariable::Named(name) => (name.unraw().to_string(), name.span()),
+            UnboundVariable::Wildcard(wildcard) => ("_".to_owned(), wildcard.span),
+        };
+        if !seen.insert(text.clone()) {
+            return Err(unbound_variables_error(
+                format!("`{text}` is listed twice in `unbound_variables`"),
+                span,
+            ));
+        }
+    }
+    Ok(UnboundVariables {
+        key,
+        variables: list.into_iter().collect(),
+    })
+}
 
 /// The static rewriting mode a production marker declares (KF-028): K's
 /// `alias`, which also runs backwards when K prints, or a one-way `macro`,
@@ -491,6 +653,9 @@ impl StaticProductionAttribute {
                     },
                     ident.span(),
                 ));
+            }
+            if ident == "unbound_variables" {
+                return Err(unbound_variables_outside_desugar(ident.span()));
             }
             if ident == "recursive" {
                 if let Some(extra) = iter.next() {
@@ -707,6 +872,9 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
                 priority = Some(parse_priority_value(input.parse()?)?);
             }
             "nondet" => return Err(rule_key_error(NONDET_ON_FUNCTION, key.span())),
+            "unbound_variables" => {
+                return Err(unbound_variables_outside_desugar(key.span()).into());
+            }
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },
@@ -754,6 +922,8 @@ fn parse_simplification_stream(
             return Err(rule_key_error(OWISE_ON_SIMPLIFICATION, key.span()));
         } else if key == "nondet" {
             return Err(rule_key_error(NONDET_ON_FUNCTION, key.span()));
+        } else if key == "unbound_variables" {
+            return Err(unbound_variables_outside_desugar(key.span()).into());
         } else if key == "priority" {
             if priority.is_some() {
                 return Err(SyntaxError::new(
@@ -798,6 +968,8 @@ fn parse_static_clause_tokens(
             Some(NONDET_ON_FUNCTION)
         } else if first == "recursive" {
             Some(RECURSIVE_ON_CLAUSE)
+        } else if first == "unbound_variables" {
+            return Err(unbound_variables_outside_desugar(first.span()));
         } else {
             None
         };
@@ -825,15 +997,41 @@ impl KrsSyntax for AliasAttribute {
 }
 
 impl KrsSyntax for DesugarAttribute {
-    /// Parses the desugar clause payload, which is empty.
+    /// Parses the desugar clause payload: empty, or
+    /// `unbound_variables = [x, _]`.
     ///
     /// # Errors
     ///
     /// Rejects `priority` and `owise` (static rules have no priority),
-    /// `nondet`, `recursive` (a property of the production), and every other
-    /// payload at its first token.
+    /// `nondet`, `recursive` (a property of the production), a malformed
+    /// `unbound_variables` list, and every other payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        parse_static_clause_tokens(tokens, "desugar").map(|()| DesugarAttribute)
+        let first = tokens.clone().into_iter().next();
+        let Some(proc_macro2::TokenTree::Ident(first)) = first else {
+            return parse_static_clause_tokens(tokens, "desugar")
+                .map(|()| DesugarAttribute::default());
+        };
+        if first != "unbound_variables" {
+            return parse_static_clause_tokens(tokens, "desugar")
+                .map(|()| DesugarAttribute::default());
+        }
+        structured(
+            tokens,
+            |input: ParseStream<'_>| -> Result<Self, ParseError> {
+                let key = input.parse::<Ident>()?;
+                let unbound = parse_unbound_variables(key, input)?;
+                if !input.is_empty() {
+                    let next: proc_macro2::TokenTree = input.parse()?;
+                    return Err(unbound_variables_error(
+                        "a desugar clause takes only `unbound_variables = [..]`".into(),
+                        next.span(),
+                    ));
+                }
+                Ok(DesugarAttribute {
+                    unbound_variables: Some(unbound),
+                })
+            },
+        )
     }
 }
 

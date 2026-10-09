@@ -795,13 +795,14 @@ pub(super) fn push_term_node_anchors(
 pub(super) fn push_wildcard_anchors(
     anchors: &mut Vec<ProvenanceAnchor>,
     tree: &TermTree,
+    role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
     let mut ranges = Vec::new();
     tree.wildcard_ranges_preorder(&mut ranges);
     for (ordinal, range) in ranges.into_iter().enumerate() {
         anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::RuleLeftWildcard,
-            checked_ordinal(ordinal, ProvenanceRole::RuleLeftWildcard, range.first())?,
+            role,
+            checked_ordinal(ordinal, role, range.first())?,
             range,
         ));
     }

@@ -76,6 +76,8 @@ pub struct RuleItem {
     subject_tree: TermTree,
     requires: Option<RuleCondition>,
     existentials: RuleExistentials,
+    /// Result names a desugar clause's `unbound_variables` lists (KF-046).
+    unbound: Vec<Ident>,
 }
 
 impl RuleItem {
@@ -95,14 +97,62 @@ impl RuleItem {
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_term_sort, false, false, signs)
+        Self::from_item_with_sort_parser(&mut item, parse_term_sort, false, false, signs, false)
+    }
+
+    /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
+    /// (KF-046): the names `unbound_variables` lists are result variables the
+    /// pattern does not bind, and `_` admits wildcards in the result.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`Self::from_item`] rejects, a listed name the pattern
+    /// binds or the result does not use, and `_` when the result has no
+    /// wildcard.
+    pub fn from_desugar_item(
+        item: ItemFn,
+        attribute: &crate::DesugarAttribute,
+    ) -> Result<Self, SyntaxError> {
+        Self::desugar_with_signs(item, attribute, NegativeLiteralSpans::default())
+    }
+
+    /// [`Self::from_desugar_item`] from the clause fn's source tokens.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_desugar_item`], and Rust syntax errors.
+    pub fn parse_desugar_tokens(
+        tokens: TokenStream,
+        attribute: &crate::DesugarAttribute,
+    ) -> Result<Self, SyntaxError> {
+        let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        Self::desugar_with_signs(syn::parse2::<ItemFn>(tokens)?, attribute, signs)
+    }
+
+    fn desugar_with_signs(
+        mut item: ItemFn,
+        attribute: &crate::DesugarAttribute,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        let wildcards = attribute
+            .unbound_variables()
+            .is_some_and(|unbound| unbound.wildcard().is_some());
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_term_sort,
+            false,
+            false,
+            signs,
+            wildcards,
+        )?
+        .apply_unbound_variables(attribute)
     }
 
     pub(super) fn from_readable_item(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
-        Self::from_item_with_sort_parser(&mut item, parse_readable_sort, true, true, signs)
+        Self::from_item_with_sort_parser(&mut item, parse_readable_sort, true, true, signs, false)
     }
 
     fn from_item_with_sort_parser(
@@ -111,6 +161,7 @@ impl RuleItem {
         allow_record_rest: bool,
         root_identifier_is_binding: bool,
         signs: NegativeLiteralSpans,
+        result_wildcards: bool,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
         let binders = parse_rule_binders(item)?;
@@ -148,7 +199,11 @@ impl RuleItem {
             ));
         };
         let result_sort = sort_parser((**result_type).clone())?;
-        let result = parse_rule_body(item)?;
+        let result = if result_wildcards {
+            parse_rule_body_with_wildcards(item)?
+        } else {
+            parse_rule_body(item)?
+        };
         let requires = take_requires_helper(&mut item.attrs)?;
         let existentials = RuleExistentials::take(&mut item.attrs)?;
         // A readable clause checks its existentials against every cell it
@@ -170,7 +225,57 @@ impl RuleItem {
             subject_tree,
             requires,
             existentials,
+            unbound: Vec::new(),
         })
+    }
+
+    /// Checks a desugar clause's `unbound_variables = [x, _]` against the
+    /// parsed clause and records the listed names as result bindings.
+    fn apply_unbound_variables(
+        mut self,
+        attribute: &crate::DesugarAttribute,
+    ) -> Result<Self, SyntaxError> {
+        let Some(unbound) = attribute.unbound_variables() else {
+            return Ok(self);
+        };
+        if let Some(wildcard) = unbound.wildcard() {
+            let mut ranges = Vec::new();
+            self.result.tree().wildcard_ranges_preorder(&mut ranges);
+            if ranges.is_empty() {
+                return Err(unbound_variables_error(
+                    "`_` is listed in `unbound_variables`, but the result has no `_`; list `_` only for a result with wildcards",
+                    wildcard.span,
+                ));
+            }
+        }
+        for name in unbound.names() {
+            if self
+                .parameter
+                .pattern
+                .bindings()
+                .iter()
+                .any(|binding| binding.unraw() == name.unraw())
+            {
+                return Err(unbound_variables_error(
+                    &format!(
+                        "`{}` is bound by the pattern; `unbound_variables` lists only result names the pattern does not bind",
+                        name.unraw()
+                    ),
+                    name.span(),
+                ));
+            }
+            if !super::existentials::references(&self.result, name) {
+                return Err(unbound_variables_error(
+                    &format!(
+                        "`{}` does not occur in the result; `unbound_variables` lists result names the pattern does not bind",
+                        name.unraw()
+                    ),
+                    name.span(),
+                ));
+            }
+            self.unbound.push(name.clone());
+        }
+        Ok(self)
     }
 
     /// Returns the original Rust function with authored spans.
@@ -228,6 +333,7 @@ impl RuleItem {
     pub fn result_bindings(&self) -> Vec<syn::Ident> {
         let mut bindings = self.parameter.pattern.bindings().to_vec();
         bindings.extend(self.existentials.names());
+        bindings.extend(self.unbound.iter().cloned());
         bindings
     }
 
@@ -327,7 +433,11 @@ impl RuleItem {
             &self.subject_tree,
             ProvenanceRole::RuleLeftRecordFieldName,
         )?;
-        push_wildcard_anchors(&mut anchors, &self.subject_tree)?;
+        push_wildcard_anchors(
+            &mut anchors,
+            &self.subject_tree,
+            ProvenanceRole::RuleLeftWildcard,
+        )?;
         push_term_node_anchors(
             &mut anchors,
             self.result.nodes(),
@@ -339,6 +449,11 @@ impl RuleItem {
             &mut anchors,
             self.result.tree(),
             ProvenanceRole::RuleRightRecordFieldName,
+        )?;
+        push_wildcard_anchors(
+            &mut anchors,
+            self.result.tree(),
+            ProvenanceRole::RuleRightWildcard,
         )?;
         if let Some(requires) = &self.requires {
             anchors.extend(requires.provenance()?);
@@ -653,7 +768,33 @@ fn validate_binder_list(binders: &[RuleBinder], bindings: &[Ident]) -> Result<()
     Ok(())
 }
 
+fn unbound_variables_error(reason: &str, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidUnboundVariables {
+            reason: reason.to_owned(),
+        },
+        span,
+    )
+}
+
+/// [`parse_rule_body`] for a desugar clause that lists `_` in
+/// `unbound_variables`: the result may contain wildcards.
+fn parse_rule_body_with_wildcards(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
+    parse_rule_body_context(item, true)
+}
+
 fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
+    parse_rule_body_context(item, false)
+}
+
+fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpression, SyntaxError> {
+    let term = |expression: Expr| {
+        if wildcards {
+            TermExpression::from_pattern_expression(expression)
+        } else {
+            TermExpression::from_expression(expression)
+        }
+    };
     if item.block.stmts.len() != 1 {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedRuleBody {
@@ -680,8 +821,8 @@ fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
-            TermExpression::parse_tokens(expression_macro.mac.tokens.clone())
+            term(syn::parse2::<Expr>(expression_macro.mac.tokens.clone())?)
         }
-        expression => TermExpression::from_expression(expression.clone()),
+        expression => term(expression.clone()),
     }
 }

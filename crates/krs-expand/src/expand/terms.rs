@@ -170,7 +170,8 @@ impl TermSide {
             (Self::Right, T::Path) => P::RuleRightPath,
             (Self::Right, T::ApplicationHead) => P::RuleRightApplicationHead,
             (Self::Right, T::Reference) => P::RuleRightReference,
-            (Self::Right, T::Literal | T::Wildcard) => P::RuleRightLiteral,
+            (Self::Right, T::Literal) => P::RuleRightLiteral,
+            (Self::Right, T::Wildcard) => P::RuleRightWildcard,
             (Self::Right, T::RecordFieldName) => P::RuleRightRecordFieldName,
             (Self::Requires, T::Path) => P::RuleRequiresPath,
             (Self::Requires, T::ApplicationHead) => P::RuleRequiresApplicationHead,
@@ -401,7 +402,9 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::Wildcard(_) => {
-                if !matches!(side, TermSide::Left) {
+                // A result wildcard parses only for a desugar clause that
+                // lists `_` in `unbound_variables` (KF-046).
+                if !matches!(side, TermSide::Left | TermSide::Right) {
                     return Err(ExpandError::new(
                         expand::RULE_RESULT_WILDCARD,
                         Span::call_site(),

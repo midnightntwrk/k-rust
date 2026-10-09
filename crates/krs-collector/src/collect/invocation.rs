@@ -759,19 +759,20 @@ fn static_mode(
     }
 }
 
-/// Checks the payload of an alias or desugar clause marker.
+/// Checks the payload of an alias or desugar clause marker; a desugar
+/// clause's payload may list `unbound_variables` (KF-046).
 fn parse_static_clause(
     mode: krs_syntax::StaticMode,
     attribute: &Attribute,
-) -> Result<(), CollectionError> {
+) -> Result<krs_syntax::DesugarAttribute, CollectionError> {
     let tokens = attribute_tokens(attribute)?;
     match mode {
         krs_syntax::StaticMode::Alias => krs_syntax::AliasAttribute::parse_tokens(tokens)
-            .map(|_| ())
+            .map(|_| krs_syntax::DesugarAttribute::default())
             .map_err(source_syntax),
-        krs_syntax::StaticMode::Desugar => krs_syntax::DesugarAttribute::parse_tokens(tokens)
-            .map(|_| ())
-            .map_err(source_syntax),
+        krs_syntax::StaticMode::Desugar => {
+            krs_syntax::DesugarAttribute::parse_tokens(tokens).map_err(source_syntax)
+        }
     }
 }
 
@@ -817,8 +818,8 @@ fn collect_fn_rules(
         .iter()
         .filter_map(|attribute| static_mode(resolver, attribute).map(|mode| (attribute, mode)))
     {
-        parse_static_clause(mode, attribute)?;
-        let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
+        let desugar = parse_static_clause(mode, attribute)?;
+        let rule = RuleItem::from_desugar_item(item_fn.clone(), &desugar).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
             .pattern
@@ -827,6 +828,7 @@ fn collect_fn_rules(
             .map(ToString::to_string)
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
+        anchors.extend(desugar.provenance().map_err(source_syntax)?);
         anchors.push(ProvenanceAnchor::new(
             mode.clause_role(),
             0,

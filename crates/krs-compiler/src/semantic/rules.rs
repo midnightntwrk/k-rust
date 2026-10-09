@@ -287,6 +287,7 @@ pub(super) fn lower_head_rule_descriptor(
         binding_constraints,
         wildcard_offset: 0,
         wildcards: Vec::new(),
+        result_wildcards: false,
         declared_binders: BTreeMap::new(),
     };
     let head_sort = rule
@@ -1089,6 +1090,14 @@ pub(super) fn lower_structured_rule_descriptor(
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     // Existentials are declared at their authored sort and are visible only
     // to the result and the ensures condition (transport checks the scope).
+    // A desugar clause's `unbound_variables` names occur only in the result,
+    // and their sorts are inferred from those occurrences (KF-046).
+    let unbound_names = rule
+        .unbound_variables
+        .iter()
+        .flat_map(krs_ir::DescriptorUnboundVariables::names)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let binding_names = rule
         .bindings
         .iter()
@@ -1098,6 +1107,7 @@ pub(super) fn lower_structured_rule_descriptor(
                 .chain(&rule.fresh)
                 .map(|binder| &binder.name),
         )
+        .chain(&unbound_names)
         .cloned()
         .collect::<BTreeSet<_>>();
     let existential_sorts = rule
@@ -1135,6 +1145,10 @@ pub(super) fn lower_structured_rule_descriptor(
         binding_constraints: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
+        result_wildcards: rule
+            .unbound_variables
+            .as_ref()
+            .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         declared_binders,
     };
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
@@ -1158,13 +1172,19 @@ pub(super) fn lower_structured_rule_descriptor(
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let restriction = super::restriction::lower_rule_restriction(descriptor, rule)?;
+    let unbound_variables = lower_unbound_variables(descriptor, rule)?;
     let mut variables = Vec::new();
-    for binding in rule.bindings.iter().chain(
-        rule.existentials
-            .iter()
-            .chain(&rule.fresh)
-            .map(|binder| &binder.name),
-    ) {
+    for binding in rule
+        .bindings
+        .iter()
+        .chain(
+            rule.existentials
+                .iter()
+                .chain(&rule.fresh)
+                .map(|binder| &binder.name),
+        )
+        .chain(&unbound_names)
+    {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
             DescriptorLoweringError::InvalidTerm {
                 id: Box::new(descriptor.id().clone()),
@@ -1206,10 +1226,39 @@ pub(super) fn lower_structured_rule_descriptor(
     )
     .with_simplification(simplification)
     .with_restriction(restriction)
+    .with_unbound_variables(unbound_variables)
     .with_existentials(existentials)
     .with_ensures(ensures)
     .with_fresh(fresh)
     .with_requires(requires)?)
+}
+
+/// Lowers `unbound_variables = [..]` of a desugar clause (KF-046); `_` has
+/// no identity and stands for every wildcard of the result.
+fn lower_unbound_variables(
+    descriptor: &Descriptor,
+    rule: &StructuredRuleDescriptor,
+) -> Result<Option<krs_ir_levels::IrUnboundVariables>, DescriptorLoweringError> {
+    let Some(unbound) = &rule.unbound_variables else {
+        return Ok(None);
+    };
+    let origin = semantic_origin(descriptor, unbound.key.clone(), "unbound-variables")?;
+    let variables = unbound
+        .variables
+        .iter()
+        .map(|variable| -> Result<_, DescriptorLoweringError> {
+            let origin = semantic_origin(descriptor, variable.key.clone(), "unbound-variable")?;
+            let id = if variable.is_wildcard() {
+                None
+            } else {
+                Some(SemanticId::new(variable.name.clone())?)
+            };
+            Ok(krs_ir_levels::IrUnboundVariable::new(origin, id))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(krs_ir_levels::IrUnboundVariables::new(
+        origin, variables,
+    )))
 }
 
 fn lower_rule_simplification(

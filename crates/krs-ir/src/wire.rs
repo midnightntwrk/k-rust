@@ -423,6 +423,7 @@ mod tests {
                 ensures: None,
                 fresh: Vec::new(),
                 equation: None,
+                unbound_variables: None,
             },
             "sort",
             4,

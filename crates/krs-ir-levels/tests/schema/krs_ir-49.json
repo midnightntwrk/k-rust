@@ -940,6 +940,34 @@
       }
     ]
   },
+  "DescriptorUnboundVariable": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      }
+    ]
+  },
+  "DescriptorUnboundVariables": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "variables": {
+          "SEQ": {
+            "TYPENAME": "DescriptorUnboundVariable"
+          }
+        }
+      }
+    ]
+  },
   "GroupAssociativity": {
     "ENUM": {
       "0": {

@@ -728,6 +728,9 @@ impl Adapter<'_> {
         if let Some(restriction) = sentence.restriction() {
             self.insert_match_restriction(restriction, &mut attributes)?;
         }
+        if let Some(unbound) = sentence.unbound_variables() {
+            self.insert_unbound_variables(sentence, unbound, &mut attributes)?;
+        }
         if let Some(claim) = sentence.claim() {
             self.map_sentence_origin(
                 claim.modality_origin(),
@@ -816,6 +819,46 @@ impl Adapter<'_> {
             attributes.insert("smt-lemma", json!(""));
         }
         Ok(())
+    }
+
+    /// Inserts `unboundVariables` (KF-046): the listed variables' native names
+    /// joined by `,`. Natively a wildcard is a generated named variable, not
+    /// K's anonymous `_`, so the `_` entry lists every wildcard of the
+    /// right-hand side by name.
+    fn insert_unbound_variables(
+        &self,
+        sentence: &RuleSentence,
+        unbound: &krs_ir_levels::IrUnboundVariables,
+        attributes: &mut NativeAttributes,
+    ) -> Result<(), AdapterError> {
+        let mut names = Vec::new();
+        for variable in unbound.variables() {
+            match variable.id() {
+                Some(id) => names.push(self.native_variable_name(id, variable.origin())?),
+                None => {
+                    for id in &sentence.result_wildcards() {
+                        names.push(self.native_variable_name(id, variable.origin())?);
+                    }
+                }
+            }
+        }
+        attributes.insert("unboundVariables", json!(names.join(",")));
+        Ok(())
+    }
+
+    fn native_variable_name(
+        &self,
+        id: &SemanticId,
+        origin: &NodeOrigin,
+    ) -> Result<String, AdapterError> {
+        self.variable_names
+            .name(id)
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| AdapterError::MissingReference {
+                key: origin.key().clone(),
+                kind: "sentence variable",
+                target: id.as_str().to_owned(),
+            })
     }
 
     fn map_claim_binder(

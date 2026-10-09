@@ -16,6 +16,13 @@
 //! - `nest(1, 2)` is `#[k::alias(recursive)]`: it expands forward to
 //!   `pair(1, pair(2, nil))`, and K prints that value backwards as
 //!   `nest(1, 2)`.
+//! - `twin` and `anyPair` are desugars used as patterns (KF-046): their
+//!   clauses list `unbound_variables`, K's `unboundVariables`, because their
+//!   results name variables (`n`, `rest`) and wildcards (`_`) that only the
+//!   rule using them binds. `twin a = pair(3, pair(3, 7));` matches
+//!   `pair(N, pair(N, Rest))` and sets `a`; `twin a = pair(3, pair(4, 7));`
+//!   is stuck; `ispair b = pair(1, nil);` matches `pair(_, _)` and
+//!   `ispair b = 5;` is stuck.
 
 use k::builtin::{Bool, Id, Int, KSequence, Map, map};
 use k::{KResult, Term};
@@ -125,6 +132,40 @@ fn declare_once(
     StmtSyntax::Sequence(StmtSyntax::Decl(x), Sugar::DeclareOnce(Ids::Cons(y, rest)))
 }
 
+/// Value shapes written only in rule patterns, expanded into them.
+#[k::constructors(sort = Value, result = KResult)]
+#[k::precedence((Twin, AnyPair))]
+#[rustfmt::skip]
+pub enum Shape {
+    #[k::syntax("twin")] #[k::desugar]
+    Twin(),
+
+    #[k::syntax("anyPair")] #[k::desugar]
+    AnyPair(),
+}
+
+/// Statements that test a value against a shape.
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((TestTwin, TestPair))]
+#[rustfmt::skip]
+pub enum Probe {
+    #[k::syntax("twin {name} = {value};")]
+    TestTwin { name: Id, value: Value },
+
+    #[k::syntax("ispair {name} = {value};")]
+    TestPair { name: Id, value: Value },
+}
+
+#[k::desugar(unbound_variables = [n, rest])]
+fn twin(k::term![Shape::Twin()]: Term<Value>) -> Term<Value> {
+    Data::Pair(n, Data::Pair(n, rest))
+}
+
+#[k::desugar(unbound_variables = [_])]
+fn any_pair(k::term![Shape::AnyPair()]: Term<Value>) -> Term<Value> {
+    Data::Pair(_, _)
+}
+
 #[k::alias]
 fn nest_nil(k::term![Data::Nest(Ints::Nil())]: Term<Value>) -> Term<Value> {
     Data::Nil()
@@ -165,6 +206,16 @@ k::rules! {
     if_false: IfThenElse(false, _, s2) => s2;
     /// Remove an empty block from the computation cell.
     done    : EmptyBlock()             => ();
+}
+
+k::rules! {
+    for Stmt;
+    use Probe::*;
+
+    /// A pair whose first two integers are equal sets `name` to 1.
+    is_twin: TestTwin(name, Shape::Twin())    => StmtSyntax::Assign(name, 1);
+    /// Any pair sets `name` to 1.
+    is_pair: TestPair(name, Shape::AnyPair()) => StmtSyntax::Assign(name, 1);
 }
 
 k::rules! {

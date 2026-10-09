@@ -454,6 +454,12 @@ provenance_roles! {
     DesugarClause => "desugar_clause",
     /// `recursive` in a production's `#[k::alias(..)]` or `#[k::desugar(..)]` marker.
     StaticRecursive => "static_recursive",
+    /// `unbound_variables` key of a desugar clause's `#[k::desugar(..)]` (KF-046).
+    UnboundVariables => "unbound_variables",
+    /// One name or `_` listed in `unbound_variables = [..]`, in authored order.
+    UnboundVariable => "unbound_variable",
+    /// `_` in the result of a desugar clause that lists `_` in `unbound_variables`.
+    RuleRightWildcard => "rule_right_wildcard",
 }
 
 impl Serialize for ProvenanceRole {

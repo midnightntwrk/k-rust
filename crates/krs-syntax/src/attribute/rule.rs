@@ -581,6 +581,9 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
             "concrete" | "symbolic" | "smt_lemma" => {
                 return Err(rule_key_error(RESTRICTION_ON_RULE, key.span()));
             }
+            "unbound_variables" => {
+                return Err(super::sort::unbound_variables_outside_desugar(key.span()).into());
+            }
             _ => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnknownArgument { name: key_name },

@@ -35,6 +35,12 @@ def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
     return result
 
 
+UNBOUND_VARIABLES_OUTSIDE_DESUGAR = (
+    "unbound_variables applies only to desugar clauses: write it in the `#[k::desugar(..)]` of "
+    "a clause fn, `#[k::desugar(unbound_variables = [x, _])]`"
+)
+
+
 def check_rust_negative(binary: str, message: str, token: str) -> None:
     result = run_failing(
         [
@@ -191,6 +197,28 @@ def main() -> None:
             "a production is an alias or a desugar, not both: `alias` also prints backwards, "
             "`desugar` only expands",
             "desugar",
+        ),
+        (
+            "desugar_unbound_bound",
+            "`body` is bound by the pattern; `unbound_variables` lists only result names the "
+            "pattern does not bind",
+            "body",
+        ),
+        (
+            "desugar_unbound_unused",
+            "`_` is listed in `unbound_variables`, but the result has no `_`; list `_` only for "
+            "a result with wildcards",
+            "_",
+        ),
+        (
+            "alias_unbound_variables",
+            UNBOUND_VARIABLES_OUTSIDE_DESUGAR,
+            "unbound_variables",
+        ),
+        (
+            "desugar_production_payload",
+            UNBOUND_VARIABLES_OUTSIDE_DESUGAR,
+            "unbound_variables",
         ),
     )
     for binary, message, token in cases:

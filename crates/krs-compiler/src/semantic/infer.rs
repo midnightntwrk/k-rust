@@ -34,6 +34,9 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     pub(super) wildcard_offset: usize,
     pub(super) wildcards: Vec<SemanticVariable>,
+    /// Whether wildcards may occur outside the subject: the result of a
+    /// desugar clause that lists `_` in `unbound_variables` (KF-046).
+    pub(super) result_wildcards: bool,
 }
 
 impl StructuredTermBuilder<'_> {
@@ -61,7 +64,7 @@ impl StructuredTermBuilder<'_> {
                 }
             }
             DescriptorTerm::Wildcard { .. } => {
-                if !subject {
+                if !subject && !self.result_wildcards {
                     return Err(self.invalid_term("wildcard occurs outside the rule subject"));
                 }
                 if expected_sort.is_none() {
@@ -519,7 +522,7 @@ impl StructuredTermBuilder<'_> {
                 ))
             }
             DescriptorTerm::Wildcard { key } => {
-                if !subject {
+                if !subject && !self.result_wildcards {
                     return Err(self.invalid_term("wildcard occurs outside the rule subject"));
                 }
                 let sort = expected_sort.cloned().ok_or_else(|| {

@@ -37,7 +37,7 @@ pub use ir_level::{
     DefinitionLevel, IrClaim, IrContextAlias, IrLevel, IrMatchRestriction, IrRestriction,
     IrRestrictionVariable, IrRewrite, IrRuleBody, IrRuleCondition, IrRulePriority, IrScopedBinder,
     IrSimplification, IrSimplificationPriority, IrSortRef, IrSubsort, IrTerm, IrTermKind,
-    IrVariable, RuleBodyRef, SemanticLevel,
+    IrUnboundVariable, IrUnboundVariables, IrVariable, RuleBodyRef, SemanticLevel,
 };
 pub use semantic::{
     SemanticApplicationRef, SemanticClaim, SemanticConfiguration, SemanticContextAlias,

@@ -60,6 +60,7 @@ impl StateRuleTerms<'_> {
             binding_constraints: initial_binding_constraints(binding_sorts),
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
+            result_wildcards: false,
             declared_binders: BTreeMap::new(),
         };
         builder.infer(term, expected_sort, subject)?;

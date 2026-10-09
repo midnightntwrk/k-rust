@@ -456,6 +456,38 @@ impl Sample for IrRestrictionVariable {
         vec![Self::new(sample::<NodeOrigin>(), sample::<SemanticId>())]
     }
 }
+impl Sample for DescriptorUnboundVariables {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            variables: sample::<Vec<DescriptorUnboundVariable>>(),
+        }]
+    }
+}
+impl Sample for DescriptorUnboundVariable {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+        }]
+    }
+}
+impl Sample for IrUnboundVariables {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<NodeOrigin>(),
+            sample::<Vec<IrUnboundVariable>>(),
+        )]
+    }
+}
+impl Sample for IrUnboundVariable {
+    fn samples() -> Vec<Self> {
+        vec![
+            Self::new(sample::<NodeOrigin>(), Some(sample::<SemanticId>())),
+            Self::new(sample::<NodeOrigin>(), None),
+        ]
+    }
+}
 impl Sample for DescriptorSimplificationPriority {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -3174,6 +3206,7 @@ impl Sample for StructuredRuleDescriptor {
             ensures: sample(),
             fresh: sample(),
             equation: sample::<Option<DescriptorEquationAttributes>>(),
+            unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
         }]
     }
 }
@@ -3365,6 +3398,7 @@ impl Sample for WireStructuredRule {
             ensures: sample(),
             fresh: sample(),
             equation: sample::<Option<DescriptorEquationAttributes>>(),
+            unbound_variables: sample::<Option<DescriptorUnboundVariables>>(),
         }]
     }
 }
@@ -3466,6 +3500,8 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
     insert::<IrMatchRestriction>(corpus, "IrMatchRestriction");
     insert::<IrRestriction>(corpus, "IrRestriction");
     insert::<IrRestrictionVariable>(corpus, "IrRestrictionVariable");
+    insert::<IrUnboundVariables>(corpus, "IrUnboundVariables");
+    insert::<IrUnboundVariable>(corpus, "IrUnboundVariable");
     insert::<IrRewrite<SemanticLevel>>(corpus, "IrRewrite");
     insert::<TermMapOperation>(corpus, "TermMapOperation");
     insert::<DefinitionTerm>(corpus, "DefinitionTerm");

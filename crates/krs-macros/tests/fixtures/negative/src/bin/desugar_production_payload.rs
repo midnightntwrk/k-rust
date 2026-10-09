@@ -4,7 +4,7 @@ use krs_macros::{constructor, sort};
 pub trait Stmt {}
 
 #[constructor(sort = Stmt, syntax = "skip")]
-#[renamed_krs::desugar(unbound_variables = [x])] //~ ERROR unknown argument `unbound_variables`
+#[renamed_krs::desugar(unbound_variables = [x])] //~ ERROR unbound_variables applies only to desugar clauses: write it in the `#[k::desugar(..)]` of a clause fn, `#[k::desugar(unbound_variables = [x, _])]`
 pub struct Skip;
 
 fn main() {}

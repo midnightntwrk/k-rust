@@ -954,6 +954,15 @@ pub enum Sugar {
 pub struct Skip;
 "#,
     ),
+    (
+        "desugar_unbound_variables",
+        r"
+#[k::desugar(unbound_variables = [n, _])]
+fn twin(k::term![Shapes::Twin()]: Term<Value>) -> Term<Value> {
+    Pair(n, Pair(n, _))
+}
+",
+    ),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.

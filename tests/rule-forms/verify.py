@@ -50,7 +50,11 @@ the outcomes must agree:
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
   state that holds the macro symbol `declareOnce`); and
   `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
-  backwards as `nest(1 , 2 , .Ints)`;
+  backwards as `nest(1 , 2 , .Ints)`; the desugars `twin` and `anyPair` are
+  written in rule patterns, and their clauses list `unbound_variables`
+  (K's `unboundVariables(N, Rest)` and `unboundVariables(_)`): `twin`
+  matches `pair(3, pair(3, 7))` but not `pair(3, pair(4, 7))`, and `anyPair`
+  matches `pair(1, nil)` but not `5`;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -174,6 +178,21 @@ MACROS_PROGRAMS = (
         "nest", "x = nest(1, 2);", "accepted", ".K",
         cells=(("env", "x |-> nest(1 , 2 , .Ints)"),),
     ),
+    # `twin` and `anyPair` expand into the rules that use them as patterns;
+    # `unbound_variables` lets their results name `n` and `_`.
+    Program(
+        "twin-match", "twin a = pair(3, pair(3, 7));", "accepted", ".K",
+        cells=(("env", "a |-> 1"),),
+    ),
+    Program(
+        "twin-mismatch", "twin a = pair(3, pair(4, 7));", "accepted",
+        "twin a = pair(3, pair(4, 7));",
+    ),
+    Program(
+        "ispair-match", "ispair b = pair(1, nil);", "accepted", ".K",
+        cells=(("env", "b |-> 1"),),
+    ),
+    Program("ispair-int", "ispair b = 5;", "accepted", "ispair b = 5;"),
 )
 
 COUNTER = (("COUNTER", "1"),)
@@ -297,6 +316,8 @@ def verify_macros(harness: FixtureGate) -> None:
         "rule unless ( C:Expr ) S:Stmt => if ( C:Expr ) { } else S:Stmt [label(",
         "rule int X:Id , Y:Id , Rest:Ids ; => var X:Id ; int Y:Id , Rest:Ids ; [label(",
         "rule nest ( I:Int , Is:Ints ) => pair ( I:Int , nest ( Is:Ints ) ) [label(",
+        "rule twin => pair ( N:Int , pair ( N:Int , Rest:Value ) ) [unboundVariables(N, Rest), label(",
+        "rule anyPair => pair ( _ , _ ) [unboundVariables(_), label(",
     ))
     harness.compare(emitted, MACROS_PROGRAMS, sort="Stmt")
 
@@ -365,7 +386,7 @@ def main() -> int:
         print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")
 
         verify_macros(harness)
-        print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards on both routes")
+        print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards, unboundVariables desugars match as patterns on both routes")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

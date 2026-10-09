@@ -683,3 +683,94 @@ fn rule_existentials_and_ensures_are_result_scoped() {
         assert!(error.to_string().contains(message), "{error}");
     }
 }
+
+fn desugar_clause(
+    unbound: &str,
+    body: &str,
+) -> Result<krs_syntax::RuleItem, krs_syntax::SyntaxError> {
+    let attribute = krs_syntax::DesugarAttribute::parse_source(unbound).unwrap();
+    krs_syntax::RuleItem::parse_desugar_tokens(
+        format!("fn twin(k::term![Shapes::Twin()]: Term<Value>) -> Term<Value> {{ {body} }}")
+            .parse()
+            .unwrap(),
+        &attribute,
+    )
+}
+
+#[test]
+fn unbound_variables_extend_the_result_bindings_and_admit_wildcards() {
+    let rule = desugar_clause(
+        "unbound_variables = [n]",
+        "Data::Pair(n, Data::Pair(n, Data::Nil()))",
+    )
+    .unwrap();
+    assert_eq!(
+        rule.result_bindings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["n"]
+    );
+    assert!(
+        rule.reference_candidates()
+            .unwrap()
+            .iter()
+            .all(|candidate| candidate.path_spelling() != "n")
+    );
+
+    let rule = desugar_clause("unbound_variables = [_]", "Data::Pair(_, _)").unwrap();
+    let wildcards = rule
+        .full_provenance()
+        .unwrap()
+        .into_iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::RuleRightWildcard)
+        .map(|anchor| anchor.ordinal())
+        .collect::<Vec<_>>();
+    assert_eq!(wildcards, [0, 1]);
+}
+
+#[test]
+fn unbound_variables_must_name_result_only_names() {
+    for (unbound, body, reason) in [
+        (
+            "unbound_variables = [m]",
+            "Data::Pair(n, Data::Nil())",
+            "`m` does not occur in the result; `unbound_variables` lists result names the pattern does not bind",
+        ),
+        (
+            "unbound_variables = [_]",
+            "Data::Nil()",
+            "`_` is listed in `unbound_variables`, but the result has no `_`; list `_` only for a result with wildcards",
+        ),
+    ] {
+        let error = desugar_clause(unbound, body).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidUnboundVariables {
+                reason: reason.to_owned()
+            },
+            "{unbound}"
+        );
+    }
+    let attribute = krs_syntax::DesugarAttribute::parse_source("unbound_variables = [x]").unwrap();
+    let error = krs_syntax::RuleItem::parse_desugar_tokens(
+        "fn first(k::term![Shapes::Pick(x)]: Term<Value>) -> Term<Value> { x }"
+            .parse()
+            .unwrap(),
+        &attribute,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::InvalidUnboundVariables {
+            reason: "`x` is bound by the pattern; `unbound_variables` lists only result names the pattern does not bind".to_owned()
+        }
+    );
+    // Without `_` listed, a result wildcard stays a syntax error.
+    assert!(
+        krs_syntax::RuleItem::parse_source(
+            "fn any(k::term![Shapes::Any()]: Term<Value>) -> Term<Value> { Data::Pair(_, _) }",
+        )
+        .is_err()
+    );
+}

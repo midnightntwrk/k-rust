@@ -189,9 +189,14 @@ By default an expansion does not apply again to its own output; `recursive` on t
 `int x, y, z;` with `DeclareMany(Ids::Cons(x, Ids::Cons(y, rest))) => Sequence(Decl(x), DeclareMany(Ids::Cons(y, rest)))` expands fully only when the production is `recursive`; with a plain `#[k::desugar]` it expands one step and leaves `int y, z;`, which Java K's LLVM backend leaves stuck and k-rust refuses to execute, because the macro symbol is still in the program.
 K does not check that a recursive expansion terminates; k-rust reports a non-terminating one when the definition is built.
 
-`recursive` is a property of the production: a clause takes only the plain marker, has no `#[k::requires]`, and has no priority or `owise`.
+`recursive` is a property of the production: a clause takes the plain marker or `unbound_variables` (below), has no `#[k::requires]`, and has no priority or `owise`.
 A clause takes its production's mode: a `#[k::desugar]` clause must expand a production marked `#[k::desugar]`, an `#[k::alias]` clause one marked `#[k::alias]`, and a `#[k::desugar]` production without a clause is rejected because nothing expands it (`krs::analysis::invalid-static-clause`).
 A production is an alias or a desugar, not both.
+
+A desugar written in other rules' patterns may name variables that only the rule using it binds.
+`#[k::desugar(unbound_variables = [n, _])]` on a clause lists them and emits K's `unboundVariables(N, _)` with the sentence's variable names; `_` admits wildcards in the result.
+With `Twin() => Pair(n, Pair(n, rest))` under `unbound_variables = [n, rest]`, the rule `TestTwin(name, Shape::Twin()) => Assign(name, 1)` expands to a pattern that matches `pair(3, pair(3, 7))` and not `pair(3, pair(4, 7))`, and `AnyPair() => Pair(_, _)` under `unbound_variables = [_]` matches any pair; each use of the desugar gets fresh variables on both routes.
+A listed name must occur in the result and must not be bound by the clause's pattern, `_` needs a `_` in the result, and the key applies only to desugar clauses: an ordinary rule's unbound right-side name is an error, and `unbound_variables` on a rule, equation, simplification, alias clause, or production marker is rejected (`krs::syntax::invalid-unbound-variables`).
 
 ### Console I/O and the exit cell
 

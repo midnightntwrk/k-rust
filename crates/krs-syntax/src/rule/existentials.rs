@@ -374,7 +374,7 @@ impl RuleExistentials {
 }
 
 /// Whether `term` references the bare name `name`.
-fn references(term: &TermExpression, name: &Ident) -> bool {
+pub(super) fn references(term: &TermExpression, name: &Ident) -> bool {
     term.nodes().iter().any(|node| {
         matches!(node, crate::TermNode::Reference(path)
             if path.leading_colon.is_none()

@@ -40,6 +40,7 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub ensures: Option<&'a IrRuleCondition<L>>,
     pub fresh: &'a [crate::IrScopedBinder<L>],
     pub restriction: Option<&'a crate::IrMatchRestriction>,
+    pub unbound_variables: Option<&'a crate::IrUnboundVariables>,
     pub anywhere: bool,
 }
 
@@ -178,6 +179,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidRuleExistentials(L::RuleId),
     InvalidRuleFresh(L::RuleId),
     InvalidMatchRestriction(L::RuleId),
+    InvalidUnboundVariables(L::RuleId),
     FreshScopeViolation(SemanticId),
     VariableClosure,
     VariableSortMismatch(SemanticId),
@@ -777,6 +779,9 @@ pub(crate) fn validate_rule<L: Validation>(
     if let Some(restriction) = rule.restriction {
         validate_restriction::<L>(&rule, restriction, nodes)?;
     }
+    if let Some(unbound) = rule.unbound_variables {
+        validate_unbound_variables::<L>(&rule, unbound, nodes)?;
+    }
     if let Some(priority) = rule.priority {
         if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
             return Err(L::error(ValidationError::InvalidRulePriority(
@@ -923,6 +928,40 @@ fn validate_restriction<L: Validation>(
         }
     }
     for origin in restriction.origins() {
+        insert_node::<L>(nodes, origin.key())?;
+    }
+    Ok(())
+}
+
+/// Checks `unbound_variables` (KF-046): only on a term-shaped desugar clause,
+/// with at least one entry, each named entry a distinct variable of the
+/// right-hand side that the left-hand side does not bind, and `_` at most once.
+fn validate_unbound_variables<L: Validation>(
+    rule: &RuleView<'_, L>,
+    unbound: &crate::IrUnboundVariables,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let invalid = || L::error(ValidationError::InvalidUnboundVariables(rule.id.clone()));
+    let RuleBodyRef::Term(body) = rule.body else {
+        return Err(invalid());
+    };
+    if rule.kind != SentenceKind::Desugar || unbound.variables().is_empty() {
+        return Err(invalid());
+    }
+    let mut left = BTreeSet::new();
+    collect_term_variables::<L>(body.from(), &mut left);
+    let mut right = BTreeSet::new();
+    collect_term_variables::<L>(body.to(), &mut right);
+    let mut listed = BTreeSet::new();
+    let mut wildcard = false;
+    for variable in unbound.variables() {
+        match variable.id() {
+            None if !wildcard => wildcard = true,
+            Some(id) if !left.contains(id) && right.contains(id) && listed.insert(id) => {}
+            _ => return Err(invalid()),
+        }
+    }
+    for origin in unbound.origins() {
         insert_node::<L>(nodes, origin.key())?;
     }
     Ok(())

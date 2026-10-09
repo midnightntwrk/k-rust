@@ -35,7 +35,8 @@ pub use attribute::{
     FunctionHook, FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
     PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
     RuleAttribute, SimplificationAttribute, SortAttribute, StaticMode, StaticProductionAttribute,
-    SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
+    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
+    UnboundVariables, VariantSyntaxAttribute,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,

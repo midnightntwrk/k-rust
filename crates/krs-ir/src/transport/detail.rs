@@ -249,6 +249,7 @@ details! {
         WildcardsAreAllowedOnlyInRuleSubjects => "wildcards are allowed only in rule subjects",
         EmptyLexemeText => "lexeme text must not be empty",
         InvalidMatchRestriction => "concrete, symbolic, and smt_lemma keys are allowed only on equations and simplifications, once each, with distinct non-empty binder names",
+        InvalidUnboundVariables => "unbound_variables is allowed only on desugar clauses, listing distinct names the subject does not bind and the result uses, or `_` for the result's wildcards",
     }
 }
 
