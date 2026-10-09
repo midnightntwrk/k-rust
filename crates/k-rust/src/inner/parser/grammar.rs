@@ -1356,7 +1356,8 @@ fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) 
 #[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::super::{
-        PARSE_ATTEMPTS, ParseContext, ParseProvenance, ParsedTerm, PredictionMode, Pruning,
+        DiagnosticWork, PARSE_ATTEMPTS, ParseContext, ParseProvenance, ParsedTerm, PredictionMode,
+        Pruning,
     };
     use super::*;
     use crate::kast::{Term, TermMetadata};
@@ -1547,7 +1548,7 @@ mod tests {
         }
 
         fn unfiltered(grammar: &Grammar, start: &str, input: &str) -> Result<Term, ParseError> {
-            grammar.parse_attempt(
+            grammar.parse_attempt_explained(
                 &Sort::new(start),
                 input,
                 ParseContext {
@@ -1557,6 +1558,7 @@ mod tests {
                         base_offset: 0,
                     },
                     diagnostic_provenance: false,
+                    diagnostic_work: DiagnosticWork::Unlimited,
                 },
                 PredictionMode::Unfiltered,
                 &mut Pruning::default(),

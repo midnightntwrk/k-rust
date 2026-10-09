@@ -50,7 +50,7 @@ use crate::kast::printer::Printer;
 use crate::kast::{ProductionIdentity, Sort, Term, TermParts};
 use crate::provenance::SourceId;
 
-use super::parser::{Grammar, ParseError, named_projection_productions};
+use super::parser::{DiagnosticWork, Grammar, ParseError, named_projection_productions};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProgramError {
@@ -270,8 +270,18 @@ impl ProgramParser {
         start_sort: &Sort,
         source: &str,
     ) -> Result<ParsedProgram, ProgramParseError> {
+        self.parse_within(start_sort, source, DiagnosticWork::from_environment())
+    }
+
+    /// `parse`, with the diagnostic of a failure limited to `diagnostic_work`.
+    fn parse_within(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+        diagnostic_work: DiagnosticWork,
+    ) -> Result<ParsedProgram, ProgramParseError> {
         self.grammar
-            .parse(start_sort, source)
+            .parse_with_diagnostic_work(start_sort, source, diagnostic_work)
             .map(|term| ParsedProgram(without_source_spans(term)))
             .map_err(|error| ProgramParseError {
                 module: self.module.clone(),
@@ -284,17 +294,51 @@ impl ProgramParser {
     /// Parse a K-declared configuration binding, preferring an existing item reading.
     /// Only absence of a reading permits trying the grammar's existing K entry;
     /// ambiguity, inference and validation failures retain their original diagnostics.
+    ///
+    /// An item attempt whose diagnostic stopped at its work limit (`DiagnosticWork`) has not
+    /// decided whether the input has a reading that breaks a relation, which is not an absence of
+    /// a reading. Where the K entry then accepts the input, the item attempt is decided again
+    /// without the limit, so that whether the binding is accepted never depends on it.
     pub fn parse_configuration_k_value(
         &self,
         source: &str,
     ) -> Result<ParsedProgram, ProgramParseError> {
-        match self.parse(&Sort::new("KItem"), source) {
+        self.parse_configuration_k_value_within(source, DiagnosticWork::from_environment())
+    }
+
+    fn parse_configuration_k_value_within(
+        &self,
+        source: &str,
+        diagnostic_work: DiagnosticWork,
+    ) -> Result<ParsedProgram, ProgramParseError> {
+        let item = Sort::new("KItem");
+        match self.parse_within(&item, source, diagnostic_work) {
             Ok(program) => Ok(program),
             Err(item_attempt) if matches!(*item_attempt.error, ParseError::NoParse { .. }) => {
-                self.parse(&Sort::new("K"), source).map_err(|mut error| {
-                    error.item_attempt = Some(Box::new(item_attempt));
-                    error
-                })
+                let program = self
+                    .parse_within(&Sort::new("K"), source, diagnostic_work)
+                    .map_err(|mut error| {
+                        error.item_attempt = Some(Box::new(item_attempt.clone()));
+                        error
+                    })?;
+                if !matches!(
+                    *item_attempt.error,
+                    ParseError::NoParse {
+                        work_limit: Some(_),
+                        ..
+                    }
+                ) {
+                    return Ok(program);
+                }
+                match self.parse_within(&item, source, DiagnosticWork::Unlimited) {
+                    Err(item_attempt)
+                        if matches!(*item_attempt.error, ParseError::NoParse { .. }) =>
+                    {
+                        Ok(program)
+                    }
+                    Err(error) => Err(error),
+                    Ok(_) => unreachable!("an input the item grammar rejected is rejected again"),
+                }
             }
             Err(error) => Err(error),
         }
@@ -743,6 +787,66 @@ endmodule
         let item_error = parser.parse(&Sort::new("KItem"), "same").unwrap_err();
         assert!(matches!(*item_error.error, ParseError::Ambiguous { .. }));
         assert_eq!(parser.parse_configuration_k_value("same"), Err(item_error));
+    }
+
+    /// Whether a `K` binding is accepted does not depend on the diagnostic's work limit: an item
+    /// attempt abandoned at the limit has not decided that the input has no item reading, so
+    /// where the `K` entry accepts, the item attempt is decided without the limit. Here every
+    /// item reading of `a + ... + a - a - b` nests the non-associative `-` in itself, and the
+    /// `K` entry reads the last `-` as its own: the item attempt's relation error is reported,
+    /// within the limit or past it. (The sums below the `-` make the item attempt's diagnostic
+    /// cubic, so that it reaches a limit proportional to its first attempt.)
+    #[test]
+    fn configuration_k_binding_does_not_depend_on_the_diagnostic_work_limit() {
+        let parser = parser(
+            r#"
+module MAIN
+  syntax KItem ::= "a" [symbol(a)] | "b" [symbol(b)]
+                 | KItem "+" KItem [left, symbol(plus)]
+                 > KItem "-" KItem [non-assoc, symbol(minus)]
+  syntax K ::= KItem "-" "b" [symbol(whole)]
+endmodule
+"#,
+        );
+        let source = vec!["a"; 20].join(" + ") + " - a - b";
+        let unlimited = parser
+            .parse_configuration_k_value_within(&source, DiagnosticWork::Unlimited)
+            .unwrap_err();
+        assert!(
+            matches!(*unlimited.error, ParseError::Associativity { .. }),
+            "{unlimited}"
+        );
+        let limited = parser
+            .parse_within(
+                &Sort::new("KItem"),
+                &source,
+                DiagnosticWork::Limited { floor: 0 },
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                *limited.error,
+                ParseError::NoParse {
+                    work_limit: Some(_),
+                    ..
+                }
+            ),
+            "the item attempt must reach its limit: {limited}"
+        );
+        assert!(
+            parser
+                .parse_within(
+                    &Sort::new("K"),
+                    &source,
+                    DiagnosticWork::Limited { floor: 0 }
+                )
+                .is_ok()
+        );
+        assert_eq!(
+            parser
+                .parse_configuration_k_value_within(&source, DiagnosticWork::Limited { floor: 0 }),
+            Err(unlimited)
+        );
     }
 
     /// A definition whose two modules, the program module and one it imports, each hold a rule,

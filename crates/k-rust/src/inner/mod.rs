@@ -12,7 +12,8 @@ mod sort_universe;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
 pub use parser::{
-    AmbiguousParse, CyclicDerivation, Grammar, NoParseInput, ParseError, TokenPrecedenceDeclaration,
+    AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, NoParseInput, ParseError,
+    TokenPrecedenceDeclaration,
 };
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions, parse_apply_priority};

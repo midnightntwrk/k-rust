@@ -86,6 +86,8 @@ pub(super) struct ChartWorkCounters {
     pub(super) completed_nodes_misses: usize,
     pub(super) completed_nodes_invalidation_entries: usize,
     pub(super) completion_caller_derivations_read: usize,
+    /// The chart steps recognitions charged against their work limit (`WorkMeter`).
+    pub(super) chart_steps: usize,
 }
 
 #[cfg(test)]
@@ -114,6 +116,7 @@ impl ChartWorkCounters {
         completed_nodes_misses: 0,
         completed_nodes_invalidation_entries: 0,
         completion_caller_derivations_read: 0,
+        chart_steps: 0,
     };
 }
 

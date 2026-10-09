@@ -1294,6 +1294,7 @@ fn malformed_configuration() {
         input,
         previous,
         span,
+        work_limit: None,
     } = *error
     else {
         panic!("expected a no-parse error, got {error:?}")

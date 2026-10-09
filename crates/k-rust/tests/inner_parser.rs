@@ -262,7 +262,7 @@ fn no_parse_reports_the_unexpected_token_previous_token_and_absolute_span() {
         error,
         ParseError::NoParse {
             position: 3,
-            expected: vec!["\"done\"".into()],
+            expected: vec!["\"done\"".into()].into(),
             input: NoParseInput::Token {
                 value: "bad".into(),
             },
@@ -272,6 +272,7 @@ fn no_parse_reports_the_unexpected_token_previous_token_and_absolute_span() {
                 start: 103,
                 end: 106,
             }),
+            work_limit: None,
         }
     );
     assert_eq!(
@@ -323,7 +324,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
             "ok",
             ParseError::NoParse {
                 position: 2,
-                expected: vec!["\"done\"".into()],
+                expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::EndOfInput,
                 previous: Some("ok".into()),
                 span: Some(TermSpan {
@@ -331,6 +332,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     start: 42,
                     end: 42,
                 }),
+                work_limit: None,
             },
             "Parse error: unexpected end of file following token 'ok'.",
         ),
@@ -338,7 +340,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
             "λ bad",
             ParseError::NoParse {
                 position: 3,
-                expected: vec!["\"done\"".into()],
+                expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::Token {
                     value: "bad".into(),
                 },
@@ -348,6 +350,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     start: 43,
                     end: 46,
                 }),
+                work_limit: None,
             },
             "Parse error: unexpected token 'bad' following token 'λ'.",
         ),
@@ -355,7 +358,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
             "ok ?! bad",
             ParseError::NoParse {
                 position: 3,
-                expected: vec!["\"done\"".into()],
+                expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::UnrecognizedInput { value: "?".into() },
                 previous: Some("ok".into()),
                 span: Some(TermSpan {
@@ -363,6 +366,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     start: 43,
                     end: 44,
                 }),
+                work_limit: None,
             },
             "Scanner error: unexpected character sequence '?'.",
         ),
@@ -370,7 +374,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
             "ok 😀! bad",
             ParseError::NoParse {
                 position: 3,
-                expected: vec!["\"done\"".into()],
+                expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::UnrecognizedInput {
                     value: "😀".into()
                 },
@@ -380,6 +384,7 @@ fn no_parse_distinguishes_eof_unicode_offsets_and_unrecognized_input() {
                     start: 43,
                     end: 47,
                 }),
+                work_limit: None,
             },
             "Scanner error: unexpected character sequence '😀'.",
         ),
@@ -409,22 +414,24 @@ fn no_parse_skips_layout_and_omits_unavailable_provenance() {
         grammar.parse(&Sort::new("Start"), "ok   ").unwrap_err(),
         ParseError::NoParse {
             position: 5,
-            expected: vec!["\"done\"".into()],
+            expected: vec!["\"done\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: Some("ok".into()),
             span: None,
+            work_limit: None,
         }
     );
     assert_eq!(
         grammar.parse(&Sort::new("Start"), "ok bad").unwrap_err(),
         ParseError::NoParse {
             position: 3,
-            expected: vec!["\"done\"".into()],
+            expected: vec!["\"done\"".into()].into(),
             input: NoParseInput::Token {
                 value: "bad".into(),
             },
             previous: Some("ok".into()),
             span: None,
+            work_limit: None,
         }
     );
 
@@ -442,12 +449,13 @@ fn no_parse_skips_layout_and_omits_unavailable_provenance() {
         nullable.parse(&Sort::new("Start"), " bad").unwrap_err(),
         ParseError::NoParse {
             position: 1,
-            expected: vec![],
+            expected: vec![].into(),
             input: NoParseInput::Token {
                 value: "bad".into(),
             },
             previous: None,
             span: None,
+            work_limit: None,
         }
     );
 }
@@ -479,10 +487,11 @@ fn layout_token_competition_prefers_equal_length_layout() {
         grammar.parse(&Sort::new("Start"), "ab"),
         Err(ParseError::NoParse {
             position: 2,
-            expected: vec!["\"ab\"".into()],
+            expected: vec!["\"ab\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: None,
             span: None,
+            work_limit: None,
         })
     );
 }
@@ -494,10 +503,11 @@ fn layout_token_competition_prefers_strictly_longer_layout() {
         grammar.parse(&Sort::new("Start"), "ab"),
         Err(ParseError::NoParse {
             position: 2,
-            expected: vec!["\"a\"".into()],
+            expected: vec!["\"a\"".into()].into(),
             input: NoParseInput::EndOfInput,
             previous: None,
             span: None,
+            work_limit: None,
         })
     );
 }
@@ -539,10 +549,11 @@ fn layout_token_competition_global_token_blocks_nullable_root() {
         grammar.parse(&Sort::new("Start"), "ab"),
         Err(ParseError::NoParse {
             position: 0,
-            expected: vec![],
+            expected: vec![].into(),
             input: NoParseInput::Token { value: "ab".into() },
             previous: None,
             span: None,
+            work_limit: None,
         })
     );
 }
@@ -812,10 +823,11 @@ fn prediction_reuse_preserves_layout_positions_provenance_and_rejection() {
         grammar.parse(&Sort::new("Start"), "x y"),
         Err(ParseError::NoParse {
             position: 2,
-            expected: vec!["\"x\"".into(), "Empty".into()],
+            expected: vec!["\"x\"".into(), "Empty".into()].into(),
             input: NoParseInput::UnrecognizedInput { value: "y".into() },
             previous: Some("x".into()),
             span: None,
+            work_limit: None,
         }),
     );
 }

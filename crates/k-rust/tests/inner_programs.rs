@@ -181,7 +181,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
             item_attempt: None,
             error: Box::new(ParseError::NoParse {
                 position: 3,
-                expected: vec!["\"done\"".into()],
+                expected: vec!["\"done\"".into()].into(),
                 input: NoParseInput::Token {
                     value: "bad".into(),
                 },
@@ -191,6 +191,7 @@ fn parse_program_exposes_the_structured_noparse_diagnostic() {
                     start: 3,
                     end: 6,
                 }),
+                work_limit: None,
             }),
         })
     );
