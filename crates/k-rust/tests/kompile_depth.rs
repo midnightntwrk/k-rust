@@ -6,7 +6,8 @@
 //! of its depth.
 //!
 //! The bytes come from the counting allocator this binary installs, which counts the whole
-//! process, so the measurement takes a lock.
+//! process, so every test of this binary takes one lock: a test that only allocates would
+//! otherwise land in a concurrent test's measurement under a runner that shares the process.
 
 // The counters only count in `measure` builds; the crate's own dev-dependency enables it.
 const _: () = assert!(cfg!(feature = "measure"));
@@ -93,6 +94,7 @@ fn load(source: &str) -> LoadedDefinition {
 #[test]
 fn rule_bodies_thousands_of_levels_deep_compile_on_a_small_stack() {
     const LEVELS: usize = 4_000;
+    let _measuring = measuring();
     let sources = [
         definition(&format!("rule foo({}) => .K", chain(LEVELS))),
         definition(&format!("rule bar({}) => .K", numeral(LEVELS))),
@@ -199,10 +201,12 @@ fn a_nesting_injected_at_every_level_compiles_in_memory_linear_in_its_depth() {
             .join()
             .expect("the worker should finish")
     });
-    let (first, second) = (at_1000 - at_500, at_2000 - at_1000);
     println!("injected nesting: {at_500}, {at_1000} and {at_2000} bytes at 500, 1,000 and 2,000");
+    let increments = at_1000
+        .checked_sub(at_500)
+        .zip(at_2000.checked_sub(at_1000));
     assert!(
-        second <= first * 3,
+        increments.is_some_and(|(first, second)| second <= first * 3),
         "{at_500}, {at_1000} and {at_2000} bytes at 500, 1,000 and 2,000 levels"
     );
 }
