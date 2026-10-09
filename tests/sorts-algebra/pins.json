@@ -62,37 +62,37 @@
       "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains equations of parametric functions [choose]; backend llvm cannot compile equations of a parametric function (Java K 7.1.337's llvm-kompile crashes on them); build with --backend haskell"
     ],
     "lifetime-parameter": [
-      "error[krs::rust-expansion::uncoded-error]: a production struct cannot have lifetime parameters: its generic parameters are K sort parameters `S: ?Sized`"
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have lifetime parameters: its generic parameters are K sort parameters `S: ?Sized`"
     ],
     "const-parameter": [
-      "error[krs::rust-expansion::uncoded-error]: a production struct cannot have const parameters: const generics are reserved for machine-integer widths (KF-034); its generic parameters are K sort parameters `S: ?Sized`"
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have const parameters: const generics are reserved for machine-integer widths (KF-034); its generic parameters are K sort parameters `S: ?Sized`"
     ],
     "missing-unsized": [
-      "error[krs::rust-expansion::uncoded-error]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
+      "error[krs::syntax::invalid-sort-parameter]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
     ],
     "parameter-bound": [
-      "error[krs::rust-expansion::uncoded-error]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
+      "error[krs::syntax::invalid-sort-parameter]: sort markers like `dyn ExprSort` are unsized, and a K sort parameter has no other bound; write `S: ?Sized`"
     ],
     "parameter-default": [
-      "error[krs::rust-expansion::uncoded-error]: a sort parameter cannot have a default: K instantiates it from each term's arguments"
+      "error[krs::syntax::invalid-sort-parameter]: a sort parameter cannot have a default: K instantiates it from each term's arguments"
     ],
     "where-clause": [
-      "error[krs::rust-expansion::uncoded-error]: a production struct cannot have a where clause; a K sort parameter is declared as `S: ?Sized` in the parameter list"
+      "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have a where clause; a K sort parameter is declared as `S: ?Sized` in the parameter list"
     ],
     "unused-parameter": [
-      "error[krs::rust-expansion::uncoded-error]: sort parameter `T` is used by no field: a K sort parameter must be the sort of an argument, such as `pub value: k::Term<T>` (rustc also reports E0392)"
+      "error[krs::syntax::invalid-sort-parameter]: sort parameter `T` is used by no field: a K sort parameter must be the sort of an argument, such as `pub value: k::Term<T>` (rustc also reports E0392)"
     ],
     "enum-generics": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported enum constructor declaration: enum constructor families cannot have generic parameters: a K sort parameter belongs to one production, so declare a parametric production as a struct (`#[k::constructor] struct Wrap<S: ?Sized>` or `#[k::function] struct Choose<S: ?Sized>`)"
+      "error[krs::syntax::unsupported-enum-constructor-declaration]: unsupported enum constructor declaration: enum constructor families cannot have generic parameters: a K sort parameter belongs to one production, so declare a parametric production as a struct (`#[k::constructor] struct Wrap<S: ?Sized>` or `#[k::function] struct Choose<S: ?Sized>`)"
     ],
     "sort-generics": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported sort declaration: sort traits cannot have generic parameters: K 7.1.337 and k-rust support no user parametric sorts; a sort parameter belongs to one production struct (`struct Choose<S: ?Sized>`)"
+      "error[krs::syntax::unsupported-sort-declaration]: unsupported sort declaration: sort traits cannot have generic parameters: K 7.1.337 and k-rust support no user parametric sorts; a sort parameter belongs to one production struct (`struct Choose<S: ?Sized>`)"
     ],
     "generic-equation": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: K rules never quantify over sorts; write one equation per instance with a turbofish, such as `Choose::<k::builtin::Int> { .. }`"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: K rules never quantify over sorts; write one equation per instance with a turbofish, such as `Choose::<k::builtin::Int> { .. }`"
     ],
     "turbofish-lifetime": [
-      "error[krs::rust-expansion::uncoded-error]: a turbofish on a term head lists sort markers only, the types that go inside `k::Term<..>`: `k::builtin::Int`, or a user sort's `dyn ExpSort`; lifetimes and consts are not sorts"
+      "error[krs::syntax::invalid-turbofish]: a turbofish on a term head lists sort markers only, the types that go inside `k::Term<..>`: `k::builtin::Int`, or a user sort's `dyn ExpSort`; lifetimes and consts are not sorts"
     ],
     "turbofish-arity": [
       "error[E0107]: struct takes at most 1 generic argument but 2 generic arguments were supplied"

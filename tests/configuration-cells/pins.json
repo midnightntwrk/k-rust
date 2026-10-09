@@ -144,26 +144,26 @@
       "error[krs::analysis::ambiguous-cell-sort]: cell declaration `Frame` is the content of more than one cell field (`current`, `saved`), so its K cell sort is ambiguous; declare one struct per nested cell"
     ],
     "group-literal": [
-      "error[krs::rust-expansion::uncoded-error]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!"
+      "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!"
     ],
     "cell-bag": [
-      "error[krs::rust-expansion::uncoded-error]: invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\""
+      "error[krs::syntax::invalid-cell-attribute]: invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\""
     ],
     "collection-without-type": [
-      "error[krs::rust-expansion::uncoded-error]: invalid `cell` attribute: a `multiplicity = \"*\"` collection needs `cell_type = \"Set\"`, `\"Map\"`, or `\"List\"`"
+      "error[krs::syntax::invalid-cell-attribute]: invalid `cell` attribute: a `multiplicity = \"*\"` collection needs `cell_type = \"Set\"`, `\"Map\"`, or `\"List\"`"
     ],
     "collection-siblings": [
       "error[krs::analysis::collection-siblings]: the collection cell `job` shares its parent with other cells; K requires a `multiplicity = \"*\"` cell to be its parent's only child, so give it a `#[k::cell]` struct of its own"
     ],
     "optional-plain-field": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported fixed configuration field: a `multiplicity = \"?\"` cell is declared `Option<T>`, T its leaf sort or nested cell struct"
+      "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: a `multiplicity = \"?\"` cell is declared `Option<T>`, T its leaf sort or nested cell struct"
     ],
     "optional-without-multiplicity": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported fixed configuration field: an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`"
+      "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`"
     ],
     "optional-none-template": [
       "error[E0599]: no associated function or constant named `__krs_initializer_payload` found for struct `Machine` in the current scope",
-      "error[krs::rust-expansion::uncoded-error]: unsupported declarative initializer body: K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present"
+      "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: K needs a template for a `?` cell; write Some(<template>) and add `initial` if the cell starts present"
     ],
     "unknown-instance-label": [
       "error[krs::analysis::unknown-instance-label]: `..ghost` names no instance of `job` labelled `ghost @` in the pattern"

@@ -788,19 +788,19 @@
   },
   "diagnostics": {
     "owise-with-priority": [
-      "error[krs::rust-expansion::uncoded-error]: owise is priority 200; write one of them"
+      "error[krs::syntax::invalid-rule-key]: owise is priority 200; write one of them"
     ],
     "priority-out-of-range": [
-      "error[krs::rust-expansion::uncoded-error]: k-rust ranks rule priorities 0..=254"
+      "error[krs::syntax::invalid-rule-key]: k-rust ranks rule priorities 0..=254"
     ],
     "retired-priority": [
-      "error[krs::rust-expansion::uncoded-error]: `#[k::priority(..)]` is retired; write `#[k::equation(priority = 60)]`"
+      "error[krs::syntax::retired-attribute]: `#[k::priority(..)]` is retired; write `#[k::equation(priority = 60)]`"
     ],
     "owise-simplification": [
-      "error[krs::rust-expansion::uncoded-error]: a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there"
+      "error[krs::syntax::invalid-rule-key]: a simplification has its own `priority = N`, a simplifier hint; owise has no meaning there"
     ],
     "priority-alias": [
-      "error[krs::rust-expansion::uncoded-error]: static rules have no priority"
+      "error[krs::syntax::invalid-rule-key]: static rules have no priority"
     ],
     "unannotated-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
@@ -815,25 +815,25 @@
       "error[krs::analysis::nondet-group]: nondet group `toss` mixes priorities 50 and 200; rules at different priorities never compete"
     ],
     "nondet-equation": [
-      "error[krs::rust-expansion::uncoded-error]: functions are deterministic in K; overlapping equations make the function ill-defined"
+      "error[krs::syntax::invalid-rule-key]: functions are deterministic in K; overlapping equations make the function ill-defined"
     ],
     "anywhere-readable": [
-      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
     ],
     "anywhere-cells": [
-      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm; write it term-shaped with #[k::rule(anywhere)] fn"
     ],
     "anywhere-priority": [
-      "error[krs::rust-expansion::uncoded-error]: an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`"
+      "error[krs::syntax::invalid-rule-key]: an anywhere rule applies to any subterm, outside rule priority and the overlap check; it takes no `owise`, `priority`, or `nondet`"
     ],
     "binder-unused": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: binder `extra` is declared but does not occur in the subject"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: binder `extra` is declared but does not occur in the subject"
     ],
     "binder-partial": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
     ],
     "binder-misordered": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
     ],
     "binder-incompatible": [
       "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
@@ -854,25 +854,25 @@
       "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::desugar]` but no `#[k::desugar]` clause expands it, so nothing expands it; add a `#[k::desugar] fn` whose pattern is headed by `Static::Flip`"
     ],
     "desugar-requires": [
-      "error[krs::rust-expansion::uncoded-error]: a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against"
+      "error[krs::syntax::invalid-rule-key]: a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against"
     ],
     "desugar-clause-payload": [
-      "error[krs::rust-expansion::uncoded-error]: recursion is a property of the production: write `recursive` on the production's `#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses"
+      "error[krs::syntax::invalid-rule-key]: recursion is a property of the production: write `recursive` on the production's `#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses"
     ],
     "local-rewrite-nested": [
-      "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` cannot occur inside another rewrite; K rewrites do not nest"
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` cannot occur inside another rewrite; K rewrites do not nest"
     ],
     "local-rewrite-unbound": [
-      "error[krs::rust-expansion::uncoded-error]: `other` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
+      "error[krs::syntax::invalid-local-rewrite]: `other` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
     ],
     "local-rewrite-outside": [
-      "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) is valid only inside the `k::cells!` or `k::term!` subject of a single-body `#[k::rule]` fn (one that returns `()`) or of a `#[k::context]` fn"
     ],
     "local-rewrite-with-result": [
-      "error[krs::rust-expansion::uncoded-error]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state"
+      "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state"
     ],
     "local-rewrite-unchanged": [
-      "error[krs::rust-expansion::uncoded-error]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result"
+      "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result"
     ],
     "heat-cool-hole-not-left": [
       "error[krs::analysis::invalid-heat-cool]: a heat rule must match its hole on the left side; K adds 'requires notBool isKResult(HOLE)', a condition on that subterm, and `x` does not occur there"
@@ -888,6 +888,9 @@
     ],
     "context-hole-absent": [
       "error[krs::analysis::invalid-context]: a context names the subterm K evaluates with `hole = x`, but `x` does not occur in its pattern; K requires exactly one HOLE"
+    ],
+    "alias-without-clause": [
+      "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::alias]` but no `#[k::alias]` clause expands it, so nothing expands it; add a `#[k::alias] fn` whose pattern is headed by `Static::Flip`"
     ]
   },
   "known_divergences": {

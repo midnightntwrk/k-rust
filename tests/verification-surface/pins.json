@@ -139,16 +139,16 @@
   },
   "diagnostics": {
     "exists-equation": [
-      "error[krs::rust-expansion::uncoded-error]: existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases"
+      "error[krs::expand::existential-placement]: existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases"
     ],
     "exists-unused": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential must occur in the rule's result or ensures condition"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential must occur in the rule's result or ensures condition"
     ],
     "exists-in-requires": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot occur in `requires`: it names a value the step creates"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential cannot occur in `requires`: it names a value the step creates"
     ],
     "exists-shadows": [
-      "error[krs::rust-expansion::uncoded-error]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
+      "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: an existential cannot shadow a subject binding; rename it"
     ],
     "smtlib-duplicate": [
       "error[krs::analysis::duplicate-smtlib]: `First` and `Second` both declare `smtlib = \"probe\"`: Z3 would identify `probe` across two K functions; give each its own symbol"
@@ -205,22 +205,22 @@
       "error[krs::analysis::invalid-ml-predicate]: the ml::exists binder `a` shadows a binder of the sentence; quantify a fresh name (K would silently shadow `a`)"
     ],
     "ml-exists-untyped": [
-      "error[krs::rust-expansion::uncoded-error]: the ml::exists binder needs a sort: write `|x: Sort| predicate`"
+      "error[krs::syntax::invalid-ml-exists]: the ml::exists binder needs a sort: write `|x: Sort| predicate`"
     ],
     "ml-closure-elsewhere": [
-      "error[krs::rust-expansion::uncoded-error]: closures introduce quantified binders only inside ml::exists: write `ml::exists(|x: Sort| predicate)`; a closure is never a K function"
+      "error[krs::syntax::invalid-ml-exists]: closures introduce quantified binders only inside ml::exists: write `ml::exists(|x: Sort| predicate)`; a closure is never a K function"
     ],
     "ml-unknown-item": [
-      "error[krs::rust-expansion::uncoded-error]: `ml::floor` is not a matching-logic connective. The connectives are ml::top, ml::bottom, ml::not, ml::and, ml::or, ml::implies, ml::equals, ml::ceil, ml::exists."
+      "error[krs::expand::unknown-ml-item]: `ml::floor` is not a matching-logic connective. The connectives are ml::top, ml::bottom, ml::not, ml::and, ml::or, ml::implies, ml::equals, ml::ceil, ml::exists."
     ],
     "ml-simplification-root": [
       "error[krs::analysis::invalid-ml-predicate]: the left side of a predicate simplification must be rooted at ml::equals or ml::ceil: K's simplifier rewrites an equality or a definedness condition, nothing else"
     ],
     "ml-simplification-types": [
-      "error[krs::rust-expansion::uncoded-error]: a predicate simplification's parameter and result types disagree: the subject is `ml::Predicate`, so this type must be `ml::Predicate` too; a simplification of object terms uses `Term<S>` on both sides"
+      "error[krs::expand::ml-placement]: a predicate simplification's parameter and result types disagree: the subject is `ml::Predicate`, so this type must be `ml::Predicate` too; a simplification of object terms uses `Term<S>` on both sides"
     ],
     "ml-predicate-rule": [
-      "error[krs::rust-expansion::uncoded-error]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
+      "error[krs::expand::ml-placement]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
     ],
     "spec-module-private-id": [
       "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-PRIVATE-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
@@ -270,10 +270,7 @@
       "summary": [
         "krs prove: 1 of 1 claim proven"
       ],
-      "warnings": [
-        "warning[krs::emit::smt-only-function]: function `myAbs` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it",
-        "warning[krs::emit::smt-only-function]: function `clampSub` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it"
-      ]
+      "warnings": []
     },
     "krs-verification-surface-hook-ablation": {
       "statuses": {
@@ -410,5 +407,12 @@
         "branch-ablation": false
       }
     }
+  },
+  "smt_llvm_warnings": {
+    "krs-verification-surface-hook": [
+      "warning[krs::emit::smt-only-function]: function `myAbs` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it",
+      "warning[krs::emit::smt-only-function]: function `clampSub` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it"
+    ],
+    "krs-verification-surface-hook-ablation": []
   }
 }
