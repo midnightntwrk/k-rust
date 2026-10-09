@@ -125,6 +125,57 @@ pub(crate) fn alias(
     ))
 }
 
+/// `#[k::desugar]`: a desugar clause fn (KF-028). The production marker is a
+/// constructor helper consumed by `#[k::constructor]` or `#[k::constructors]`.
+pub(crate) fn desugar(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    krs_syntax::DesugarAttribute::parse_tokens(attributes)?;
+    if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
+        if let Some(requires) = function
+            .attrs
+            .iter()
+            .find(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Requires))
+        {
+            let name = requires
+                .path()
+                .segments
+                .last()
+                .expect("helper attributes have a final path segment");
+            return Err(requires_on_desugar(name.ident.span()));
+        }
+        let rule = krs_syntax::RuleItem::parse_tokens(item)?;
+        return expand_ordinary_rule(
+            env,
+            &rule,
+            &krs_syntax::RuleAttribute::default(),
+            krs_ir::SentenceKind::Desugar,
+            None,
+            None,
+            None,
+            &[],
+        );
+    }
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
+        Span::call_site(),
+        "`#[k::desugar]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
+    ))
+}
+
+/// `#[k::requires]` on a desugar clause (KF-028).
+fn requires_on_desugar(span: Span) -> ExpandError {
+    krs_syntax::SyntaxError::new(
+        krs_syntax::SyntaxErrorKind::InvalidRuleKey {
+            reason: krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
+        },
+        span,
+    )
+    .into()
+}
+
 pub(crate) fn priority(
     _env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -197,6 +248,13 @@ fn expand_ordinary_rule(
             TokenRange::for_tokens(&rule.item().sig.ident)?,
         ));
     }
+    if sentence_kind == krs_ir::SentenceKind::Desugar {
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::DesugarClause,
+            0,
+            TokenRange::for_tokens(&rule.item().sig.ident)?,
+        ));
+    }
     if let Some(equation) = equation {
         anchors.extend(equation.provenance()?);
     }
@@ -215,6 +273,7 @@ fn expand_ordinary_rule(
         krs_ir::SentenceKind::Equation => "equation",
         krs_ir::SentenceKind::Simplification => "simplification",
         krs_ir::SentenceKind::Alias => "alias",
+        krs_ir::SentenceKind::Desugar => "desugar",
         krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
     };
     let nonce = expansion_nonce(env, sentence_name, &rule.item().sig.ident, fallback);
@@ -515,6 +574,13 @@ pub(crate) fn orphan_rule_helper(
     }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
+        if function
+            .attrs
+            .iter()
+            .any(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Desugar))
+        {
+            return Err(requires_on_desugar(Span::call_site()));
+        }
         if let Some((index, outer)) =
             function
                 .attrs
@@ -580,6 +646,7 @@ fn orphan_result_helper(
                     | AttributeMacro::Simplification
                     | AttributeMacro::Alias
                     | AttributeMacro::ContextAlias
+                    | AttributeMacro::Desugar
             )
             .then_some((index, helper))
         });
@@ -605,7 +672,10 @@ fn orphan_result_helper(
         }
         Some((
             _,
-            AttributeMacro::Equation | AttributeMacro::Simplification | AttributeMacro::Alias,
+            AttributeMacro::Equation
+            | AttributeMacro::Simplification
+            | AttributeMacro::Alias
+            | AttributeMacro::Desugar,
         )) => {
             return Err(if entry == AttributeMacro::Fresh {
                 misplaced_fresh(Span::call_site())

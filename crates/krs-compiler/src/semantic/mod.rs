@@ -18,6 +18,7 @@ mod references;
 mod restriction;
 mod rules;
 mod smt;
+mod statics;
 mod tokens;
 mod visibility;
 
@@ -135,6 +136,7 @@ pub fn lower_descriptor_bundle(
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
+    statics::check_static_clauses(&modules)?;
     visibility::check_claim_visibility(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {

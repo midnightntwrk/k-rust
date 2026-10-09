@@ -201,3 +201,6 @@ RestrictionConcrete=restriction_concrete
 RestrictionSymbolic=restriction_symbolic
 RestrictionVariable=restriction_variable
 SmtLemma=smt_lemma
+DesugarProduction=desugar_production
+DesugarClause=desugar_clause
+StaticRecursive=static_recursive

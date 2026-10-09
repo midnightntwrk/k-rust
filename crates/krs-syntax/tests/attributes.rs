@@ -2,6 +2,7 @@
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ProvenanceRole, SyntaxErrorKind};
+use proc_macro2::TokenStream;
 use quote::ToTokens;
 
 #[test]
@@ -212,11 +213,13 @@ fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
 }
 
 #[test]
-fn alias_rejects_recursive_and_other_payloads() {
+fn alias_clause_rejects_recursive_and_other_payloads() {
     for (source, expected_kind) in [
         (
             "recursive",
-            SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: krs_syntax::RECURSIVE_ON_CLAUSE,
+            },
         ),
         (
             "true",
@@ -765,4 +768,83 @@ fn duplicate_error_points_at_the_second_key() {
         krs_syntax::ConstructorAttribute::parse_source("sort = Value,\nsort = Expr").unwrap_err();
     let start = error.span().start();
     assert_eq!((start.line, start.column), (2, 0));
+}
+
+#[test]
+fn desugar_clause_rejects_recursive_and_other_payloads() {
+    krs_syntax::DesugarAttribute::parse_source("").unwrap();
+    for (source, expected_kind) in [
+        (
+            "recursive",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: krs_syntax::RECURSIVE_ON_CLAUSE,
+            },
+        ),
+        (
+            "priority = 40",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "static rules have no priority",
+            },
+        ),
+        (
+            "owise",
+            SyntaxErrorKind::InvalidRuleKey {
+                reason: "static rules have no priority",
+            },
+        ),
+        (
+            "true",
+            SyntaxErrorKind::UnexpectedAttributePayload {
+                attribute: "desugar",
+            },
+        ),
+    ] {
+        let error = krs_syntax::DesugarAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
+    }
+}
+
+#[test]
+fn static_production_markers_accept_only_recursive() {
+    use krs_syntax::{StaticMode, StaticProductionAttribute};
+    for mode in [StaticMode::Alias, StaticMode::Desugar] {
+        let plain = StaticProductionAttribute::parse_marker(mode, TokenStream::new()).unwrap();
+        assert_eq!(plain.mode(), mode);
+        assert!(!plain.is_recursive());
+        assert!(plain.provenance().is_empty());
+        let recursive =
+            StaticProductionAttribute::parse_marker(mode, "recursive".parse().unwrap()).unwrap();
+        assert!(recursive.is_recursive());
+        assert_eq!(recursive.provenance().len(), 1);
+        for (source, expected_kind) in [
+            (
+                "unbound_variables = [x]",
+                SyntaxErrorKind::UnknownArgument {
+                    name: "unbound_variables".to_owned(),
+                },
+            ),
+            (
+                "recursive, recursive",
+                SyntaxErrorKind::UnexpectedAttributePayload {
+                    attribute: "recursive",
+                },
+            ),
+            (
+                "priority = 40",
+                SyntaxErrorKind::InvalidRuleKey {
+                    reason: "static rules have no priority",
+                },
+            ),
+            (
+                "\"recursive\"",
+                SyntaxErrorKind::UnexpectedAttributePayload {
+                    attribute: mode.name(),
+                },
+            ),
+        ] {
+            let error =
+                StaticProductionAttribute::parse_marker(mode, source.parse().unwrap()).unwrap_err();
+            assert_eq!(error.kind(), &expected_kind, "{source}");
+        }
+    }
 }

@@ -27,7 +27,9 @@ pub(crate) use enum_family::constructors;
 pub(crate) use grammar::{associativity, layout, lexical, precedence, raw_k};
 pub(crate) use initializer::init;
 pub(crate) use rule_block::rules;
-pub(crate) use rules::{alias, equation, orphan_rule_helper, priority, rule, simplification};
+pub(crate) use rules::{
+    alias, desugar, equation, orphan_rule_helper, priority, rule, simplification,
+};
 pub(crate) use sorts::{bracket, framework_sorts, sort, sorts, subsort};
 pub(crate) use state_rules::context_alias;
 pub(crate) use syntax_list::syntax_list;

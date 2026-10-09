@@ -147,6 +147,7 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidColors,
     InternalWithProgram,
     PreferAndAvoid,
+    AliasWithDesugar,
     PreferOnParseOnlyProduction,
     InvalidOverloadProduction,
     InvalidListProduction,
@@ -626,6 +627,7 @@ pub(crate) fn validate_rule<L: Validation>(
     signatures: &Signatures<L>,
     functional_productions: &BTreeSet<L::Declaration>,
     alias_productions: &BTreeSet<L::Declaration>,
+    desugar_productions: &BTreeSet<L::Declaration>,
     sort_parents: &SortParents<L>,
     cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
@@ -699,7 +701,7 @@ pub(crate) fn validate_rule<L: Validation>(
                     )));
                 }
             }
-            if rule.kind == SentenceKind::Alias {
+            if matches!(rule.kind, SentenceKind::Alias | SentenceKind::Desugar) {
                 let IrTermKind::Application {
                     application: ApplicationRef::Declared(production),
                     ..
@@ -707,7 +709,12 @@ pub(crate) fn validate_rule<L: Validation>(
                 else {
                     return Err(L::error(ValidationError::InvalidAliasRoot(rule.id.clone())));
                 };
-                if !alias_productions.contains(production) {
+                let heads = if rule.kind == SentenceKind::Alias {
+                    alias_productions
+                } else {
+                    desugar_productions
+                };
+                if !heads.contains(production) {
                     return Err(L::error(ValidationError::InvalidAliasRoot(rule.id.clone())));
                 }
             }
@@ -779,7 +786,7 @@ pub(crate) fn validate_rule<L: Validation>(
         insert_node::<L>(nodes, priority.origin().key())?;
     }
     if let Some(condition) = rule.requires {
-        if rule.kind == SentenceKind::Alias {
+        if matches!(rule.kind, SentenceKind::Alias | SentenceKind::Desugar) {
             return Err(L::error(ValidationError::AliasCondition));
         }
         insert_node::<L>(nodes, condition.origin().key())?;
@@ -1467,6 +1474,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut total = false;
     let mut hook = None;
     let mut alias = false;
+    let mut desugar = false;
     let mut group = false;
     let mut bracket = false;
     let mut avoid = false;
@@ -1495,6 +1503,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
                 std::mem::replace(&mut raw_hook, true) || hook.is_some()
             }
             ProductionAttribute::Alias { .. } => std::mem::replace(&mut alias, true),
+            ProductionAttribute::Desugar { .. } => std::mem::replace(&mut desugar, true),
             ProductionAttribute::Token { .. } => std::mem::replace(&mut token, true),
             ProductionAttribute::Group { .. } => std::mem::replace(&mut group, true),
             ProductionAttribute::Bracket { .. } => std::mem::replace(&mut bracket, true),
@@ -1569,7 +1578,8 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Private { .. }
             | ProductionAttribute::Memo { .. }
             | ProductionAttribute::FreshGenerator { .. }
-            | ProductionAttribute::RawHook { .. } => {}
+            | ProductionAttribute::RawHook { .. }
+            | ProductionAttribute::Desugar { .. } => {}
             ProductionAttribute::Smtlib { symbol, .. } => {
                 if !krs_ir::is_smtlib_simple_symbol(symbol) {
                     return Err(L::error(ValidationError::InvalidSmtMetadata));
@@ -1605,9 +1615,17 @@ pub(crate) fn validate_production_shape<L: Validation>(
         }
     }
     // A syntactic list is K constructor syntax: its two productions carry
-    // no function, token, bracket, or alias metadata.
-    if list && (function || token || bracket || alias || hook.is_some()) {
+    // no function, token, bracket, alias, or desugar metadata.
+    if list && (function || token || bracket || alias || desugar || hook.is_some()) {
         return Err(L::error(ValidationError::InvalidListProduction));
+    }
+    if alias && desugar {
+        return Err(L::error(ValidationError::AliasWithDesugar));
+    }
+    // A static rewrite expands a constructor before anything runs; a
+    // function is evaluated by rules.
+    if (alias || desugar) && function {
+        return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if internal && program {
         return Err(L::error(ValidationError::InternalWithProgram));

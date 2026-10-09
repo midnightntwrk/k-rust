@@ -612,6 +612,11 @@ stage_shape! {
         Alias {
             /// Alias-marker provenance.
             key: ProvenanceKey => [keep],
+            /// Provenance of `recursive` (K's `alias-rec`), when written;
+            /// omitted when absent in every stage, so plain aliases keep
+            /// their encoding.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            recursive: Option<ProvenanceKey> => [keep],
         },
         /// Regex token production and optional lexical precedence.
         Token {
@@ -741,6 +746,15 @@ stage_shape! {
             key: ProvenanceKey => [keep],
             /// Template fragments; each field fragment keeps its placeholder provenance.
             template: Vec<DescriptorSmtFragment> => [keep],
+        },
+        /// Marks a constructor production as a one-way static desugar (K's `macro`).
+        Desugar {
+            /// Desugar-marker provenance.
+            key: ProvenanceKey => [keep],
+            /// Provenance of `recursive` (K's `macro-rec`), when written;
+            /// omitted when absent in every stage.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            recursive: Option<ProvenanceKey> => [keep],
         },
     }
 }
@@ -2172,7 +2186,10 @@ impl StructuredRuleDescriptor {
         }
         if let Some(requires) = &self.requires {
             require_key(&requires.key, provenance)?;
-            if self.sentence_kind == SentenceKind::Alias {
+            if matches!(
+                self.sentence_kind,
+                SentenceKind::Alias | SentenceKind::Desugar
+            ) {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::StaticAliasRequires,
                 ));
@@ -2502,9 +2519,19 @@ impl DescriptorProduction {
                     require_key(key, provenance)?;
                     "hook"
                 }
-                DescriptorProductionAttribute::Alias { key } => {
+                DescriptorProductionAttribute::Alias { key, recursive } => {
                     require_key(key, provenance)?;
+                    if let Some(recursive) = recursive {
+                        require_key(recursive, provenance)?;
+                    }
                     "alias"
+                }
+                DescriptorProductionAttribute::Desugar { key, recursive } => {
+                    require_key(key, provenance)?;
+                    if let Some(recursive) = recursive {
+                        require_key(recursive, provenance)?;
+                    }
+                    "desugar"
                 }
                 DescriptorProductionAttribute::Token {
                     key,
@@ -2664,7 +2691,14 @@ impl DescriptorProduction {
                 GrammarProductionReason::HookWithoutTotalFunction,
             ));
         }
-        if families.contains("alias") && families.contains("function") {
+        if families.contains("alias") && families.contains("desugar") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::AliasDesugarMetadata,
+            ));
+        }
+        if (families.contains("alias") || families.contains("desugar"))
+            && families.contains("function")
+        {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::AliasFunctionMetadata,
             ));
@@ -2695,7 +2729,7 @@ impl DescriptorProduction {
             ));
         }
         if families.contains("list")
-            && (["function", "token", "bracket", "alias", "hook"]
+            && (["function", "token", "bracket", "alias", "desugar", "hook"]
                 .iter()
                 .any(|family| families.contains(family))
                 || !matches!(self.owner, DescriptorProductionOwner::Constructor { .. }))
@@ -3441,8 +3475,17 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::ListTerminator { cons } => {
                     insert_exact(keys, &cons.key, ProvenanceRole::ListDeclaration, 0)?;
                 }
-                DescriptorProductionAttribute::Alias { key } => {
+                DescriptorProductionAttribute::Alias { key, recursive } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;
+                    if let Some(recursive) = recursive {
+                        insert_exact(keys, recursive, ProvenanceRole::StaticRecursive, 0)?;
+                    }
+                }
+                DescriptorProductionAttribute::Desugar { key, recursive } => {
+                    insert_exact(keys, key, ProvenanceRole::DesugarProduction, 0)?;
+                    if let Some(recursive) = recursive {
+                        insert_exact(keys, recursive, ProvenanceRole::StaticRecursive, 0)?;
+                    }
                 }
                 DescriptorProductionAttribute::Internal { key } => {
                     insert_exact(keys, key, ProvenanceRole::ConstructorInternal, 0)?;
@@ -3488,6 +3531,9 @@ impl StructuredRuleDescriptor {
         insert_canonical(&mut keys, ProvenanceRole::RuleDeclaration, 0);
         if self.sentence_kind == SentenceKind::Alias {
             insert_canonical(&mut keys, ProvenanceRole::AliasClause, 0);
+        }
+        if self.sentence_kind == SentenceKind::Desugar {
+            insert_canonical(&mut keys, ProvenanceRole::DesugarClause, 0);
         }
         if let Some(label) = &self.label {
             insert_exact(&mut keys, &label.key, ProvenanceRole::RuleLabel, 0)?;
@@ -4126,7 +4172,10 @@ mod traversal_tests {
                 key: key(3),
                 operation: HookOperation::KryptoSha256Raw,
             },
-            ProductionAttribute::Alias { key: key(4) },
+            ProductionAttribute::Alias {
+                key: key(4),
+                recursive: None,
+            },
             ProductionAttribute::Token {
                 key: key(5),
                 lexical_precedence: Some(DescriptorLexicalPrecedence {

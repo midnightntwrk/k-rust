@@ -134,6 +134,8 @@ entry_points! {
         SyntaxList = "syntax_list",
         /// `#[k::fresh]` outside a `#[k::rule]` item.
         Fresh = "fresh",
+        /// `#[k::desugar]`.
+        Desugar = "desugar",
     }
 }
 
@@ -226,7 +228,14 @@ impl Entry {
 pub const ENUM_HELPERS: &[&str] = &["precedence"];
 
 /// Helpers that `#[k::constructors]` consumes from each enum variant.
-pub const VARIANT_HELPERS: &[&str] = &["syntax", "format", "strict", "seqstrict", "alias"];
+pub const VARIANT_HELPERS: &[&str] = &[
+    "syntax",
+    "format",
+    "strict",
+    "seqstrict",
+    "alias",
+    "desugar",
+];
 
 /// Helpers that `#[k::syntax_list]` consumes from its cons variant.
 pub const SYNTAX_LIST_VARIANT_HELPERS: &[&str] = &["strict", "seqstrict"];

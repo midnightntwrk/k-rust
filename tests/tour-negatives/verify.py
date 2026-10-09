@@ -174,6 +174,24 @@ def main() -> None:
         ("rule_fresh_equation", FRESH_PLACEMENT, "n"),
         ("rule_fresh_claim", FRESH_PLACEMENT, "fresh"),
         ("rule_fresh_anywhere", FRESH_PLACEMENT, "n"),
+        (
+            "desugar_clause_recursive",
+            "recursion is a property of the production: write `recursive` on the production's "
+            "`#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses",
+            "recursive",
+        ),
+        (
+            "desugar_requires",
+            "a desugar clause has no `#[k::requires]`: K rewrites the definition and the program "
+            "with it once, before anything runs, so there is nothing to test a condition against",
+            "requires",
+        ),
+        (
+            "alias_and_desugar",
+            "a production is an alias or a desugar, not both: `alias` also prints backwards, "
+            "`desugar` only expands",
+            "desugar",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

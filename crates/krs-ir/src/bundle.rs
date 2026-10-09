@@ -1120,6 +1120,8 @@ pub enum SentenceKind {
     Alias,
     /// Reachability or logical claim.
     Claim,
+    /// One-way compile-time desugar clause (K's `macro`).
+    Desugar,
 }
 
 impl SentenceKind {
@@ -1132,6 +1134,7 @@ impl SentenceKind {
             Self::Simplification => ItemKind::Simplification,
             Self::Alias => ItemKind::Alias,
             Self::Claim => ItemKind::Claim,
+            Self::Desugar => ItemKind::Desugar,
         }
     }
 }
@@ -1178,7 +1181,7 @@ impl TryFrom<SentenceKind> for ConfigurationSentenceKind {
             SentenceKind::Transition => Ok(Self::Transition),
             SentenceKind::Equation => Ok(Self::Equation),
             SentenceKind::Claim => Ok(Self::Claim),
-            SentenceKind::Alias => Err(StateTransportError::InvalidTerm(
+            SentenceKind::Alias | SentenceKind::Desugar => Err(StateTransportError::InvalidTerm(
                 StateTermReason::ConfigurationStaticAlias,
             )),
             SentenceKind::Simplification => Err(StateTransportError::InvalidTerm(

@@ -69,6 +69,7 @@ pub fn expand_attribute(
         | AttributeMacro::Ensures
         | AttributeMacro::Fresh => expand::orphan_rule_helper(env, entry, attributes, item),
         AttributeMacro::SyntaxList => expand::syntax_list(env, attributes, item),
+        AttributeMacro::Desugar => expand::desugar(env, attributes, item),
     }
 }
 

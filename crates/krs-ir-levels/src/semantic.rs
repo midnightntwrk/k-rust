@@ -175,6 +175,7 @@ impl SemanticTheory {
         let mut production_signatures = BTreeMap::new();
         let mut functional_productions = BTreeSet::new();
         let mut alias_productions = BTreeSet::new();
+        let mut desugar_productions = BTreeSet::new();
         let mut sort_parents: BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> = BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut semantic_ids = BTreeSet::new();
@@ -224,6 +225,13 @@ impl SemanticTheory {
                     .any(|attribute| matches!(attribute, ProductionAttribute::Alias { .. }))
                 {
                     alias_productions.insert(production.id.clone());
+                }
+                if production
+                    .attributes
+                    .iter()
+                    .any(|attribute| matches!(attribute, ProductionAttribute::Desugar { .. }))
+                {
+                    desugar_productions.insert(production.id.clone());
                 }
                 for item in &production.items {
                     insert_node::<SemanticLevel>(&mut node_keys, item.origin().key())?;
@@ -411,6 +419,7 @@ impl SemanticTheory {
                     &production_signatures,
                     &functional_productions,
                     &alias_productions,
+                    &desugar_productions,
                     &sort_parents,
                     &cell_ids,
                     &mut node_keys,
@@ -1116,7 +1125,7 @@ impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLev
                 SemanticValidationError::RuleBodyNotRewrite(Box::new(value.id.as_ref().clone()))
             }
             crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
-                if value.kind == SentenceKind::Alias {
+                if matches!(value.kind, SentenceKind::Alias | SentenceKind::Desugar) {
                     SemanticValidationError::InvalidAliasRoot(Box::new(value.id.as_ref().clone()))
                 } else {
                     SemanticValidationError::InvalidSimplificationRoot(Box::new(
@@ -1200,7 +1209,7 @@ impl SemanticRule {
         body: FixedConfigurationRewrite<SemanticId, SemanticTerm>,
     ) -> Result<Self, SemanticValidationError> {
         let kind = krs_ir::ConfigurationSentenceKind::try_from(kind).map_err(|_| {
-            if kind == SentenceKind::Alias {
+            if matches!(kind, SentenceKind::Alias | SentenceKind::Desugar) {
                 SemanticValidationError::InvalidAliasRoot(Box::new(id.clone()))
             } else {
                 SemanticValidationError::InvalidSimplificationRoot(Box::new(id.clone()))
@@ -1478,6 +1487,8 @@ pub enum SemanticValidationError {
     InternalWithProgram,
     /// A production was marked both `prefer` and `avoid`.
     PreferAndAvoid,
+    /// A production was marked both `alias` and `desugar` (KF-028).
+    AliasWithDesugar,
     /// A token or bracket production was marked `prefer`.
     PreferOnParseOnlyProduction,
     /// A function, token, or bracket production carried `overload`.
@@ -1660,6 +1671,9 @@ impl fmt::Display for SemanticValidationError {
             Self::PreferAndAvoid => {
                 formatter.write_str("a production is either preferred or avoided, not both")
             }
+            Self::AliasWithDesugar => {
+                formatter.write_str("a production is an alias or a desugar, not both")
+            }
             Self::DefinitionOnlyProductionAttribute(id) => write!(
                 formatter,
                 "production {id} carries `private`, which lowering derives from Rust visibility"
@@ -1732,7 +1746,7 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidAliasRoot(id) => write!(
                 formatter,
-                "alias clause {id} must be headed by an alias production"
+                "alias or desugar clause {id} must be headed by a production with the same mode, `alias` or `desugar`"
             ),
             Self::InvalidSimplificationRoot(id) => write!(
                 formatter,
@@ -1800,7 +1814,7 @@ impl fmt::Display for SemanticValidationError {
                 formatter.write_str("rule condition must have builtin Bool sort")
             }
             Self::AliasCondition => {
-                formatter.write_str("static alias clauses cannot carry requires conditions")
+                formatter.write_str("static alias and desugar clauses cannot carry requires conditions")
             }
             Self::InvalidFunctionProduction => {
                 formatter.write_str("total metadata requires function metadata")
@@ -2202,6 +2216,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
+                &BTreeSet::new(),
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &mut BTreeSet::new(),
@@ -2222,6 +2237,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
+                &BTreeSet::new(),
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &mut BTreeSet::new(),
@@ -2240,6 +2256,7 @@ mod tests {
                 None,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
@@ -2273,6 +2290,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
+                &BTreeSet::new(),
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &mut BTreeSet::new(),
@@ -2291,6 +2309,7 @@ mod tests {
                 None,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),

@@ -14,7 +14,9 @@ pub use rule::{
     RuleAttribute,
 };
 pub use sort::{
-    AliasAttribute, ContextAliasAttribute, EquationAttribute, MatchRestriction, PriorityAttribute,
-    RestrictionKey, SimplificationAttribute, SortAttribute, SubsortAttribute, SymbolAttribute,
+    AliasAttribute, ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,
+    PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
+    SimplificationAttribute, SortAttribute, StaticMode, StaticProductionAttribute,
+    SubsortAttribute, SymbolAttribute,
 };
 pub use state::{CellAttributePayload, ConfigurationAttribute, InitAttribute};

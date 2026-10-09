@@ -1774,7 +1774,14 @@ fn lower_authored_production_attributes(
                     origin,
                     operation: *operation,
                 },
-                ProductionAttribute::Alias { .. } => ProductionAttribute::Alias { origin },
+                ProductionAttribute::Alias { recursive, .. } => ProductionAttribute::Alias {
+                    origin,
+                    recursive: *recursive,
+                },
+                ProductionAttribute::Desugar { recursive, .. } => ProductionAttribute::Desugar {
+                    origin,
+                    recursive: *recursive,
+                },
                 ProductionAttribute::Token {
                     lexical_precedence, ..
                 } => ProductionAttribute::Token {

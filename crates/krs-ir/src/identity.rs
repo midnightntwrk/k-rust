@@ -266,6 +266,8 @@ pub enum ItemKind {
     ContextAlias,
     /// A reachability or logical claim.
     Claim,
+    /// A one-way compile-time desugar clause (K's `macro`).
+    Desugar,
 }
 
 /// A stable declaration identity, independent of linker and collection order.

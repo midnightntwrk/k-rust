@@ -917,6 +917,43 @@ pub enum Args {
 }
 "#,
     ),
+    (
+        "desugar",
+        r"
+#[k::desugar]
+fn unless(k::term![Sugar::Unless(c, s)]: Term<Stmt>) -> Term<Stmt> {
+    IfThenElse(c, EmptyBlock(), s)
+}
+",
+    ),
+    (
+        "constructors_static_modes",
+        r#"
+#[k::constructors(sort = Stmt, result = k::KResult)]
+#[k::precedence((Unless, DeclareMany, Zeros))]
+pub enum Sugar {
+    #[k::syntax("unless ({c}) {s}")]
+    #[k::desugar]
+    Unless { c: Expr, s: Stmt },
+
+    #[k::syntax("int {names};")]
+    #[k::desugar(recursive)]
+    DeclareMany { names: Ids },
+
+    #[k::syntax("zeros({n})")]
+    #[k::alias(recursive)]
+    Zeros { n: Int },
+}
+"#,
+    ),
+    (
+        "constructor_desugar",
+        r#"
+#[k::constructor(sort = Stmt, syntax = "skip")]
+#[k::desugar(recursive)]
+pub struct Skip;
+"#,
+    ),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.

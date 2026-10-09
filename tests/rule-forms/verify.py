@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), anywhere rules (KF-026), and fresh values (KF-022).
+"""Rule-forms feature gate: typed binders (KF-009), priority (KF-010), nondet (KF-012), anywhere rules (KF-026), fresh values (KF-022), and macros (KF-028).
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -40,6 +40,17 @@ the outcomes must agree:
   `Loc` and writes `!L:Loc` and `!T:Int`; a fresh binder of a sort without a
   generator, two generators of one sort, and a partial generator each fail
   `krs check` with a pinned diagnostic;
+- `macros`: one-way macros and recursive aliases. `#[k::desugar]` emits
+  K's `macro`, `#[k::desugar(recursive)]` `macro-rec`, and
+  `#[k::alias(recursive)]` `alias-rec`; desugar clauses are plain rules.
+  `unless (false) x = 1;` behaves as `if (false) {} else x = 1;` natively
+  and on Java LLVM, so program parsing runs the macro expansion on both
+  routes; `int x, y, z;` (recursive) declares all three names, while
+  `decl x, y, z;` (plain) expands one step to `var x; decl y, z;`, a pinned
+  divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
+  state that holds the macro symbol `declareOnce`); and
+  `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
+  backwards as `nest(1 , 2 , .Ints)`;
 - negative fixtures: `owise` with `priority`, priority 255, the retired
   `#[k::priority(N)]`, `owise` on a simplification, `priority` on an alias
   clause, an unannotated overlap of reference `#[k::rule]` fns, a group with
@@ -47,7 +58,9 @@ the outcomes must agree:
   equation, and `anywhere` on a readable clause, on a `cells!` rule, or with
   `priority`, and typed binder lists that declare an unused binder, only some
   binders, or binders out of order, or a declared sort an occurrence cannot
-  accept, each fail `krs check` with a pinned diagnostic.
+  accept, a desugar clause on an alias production, a desugar production
+  without a clause, `requires` on a desugar clause, and `recursive` on a
+  desugar clause, each fail `krs check` with a pinned diagnostic.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -142,6 +155,27 @@ FRESH_PROGRAMS = (
     ),
 )
 
+MACROS = Fixture(MANIFEST, "krs-rule-forms-macros")
+MACROS_PROGRAMS = (
+    Program("unless-false", "unless (false) x = 1;", "accepted", ".K", cells=(("env", "x |-> 1"),)),
+    Program("unless-true", "unless (true) x = 1;", "accepted", ".K", cells=(("env", ".Map"),)),
+    Program("if-else", "if (false) {} else x = 1;", "accepted", ".K", cells=(("env", "x |-> 1"),)),
+    Program(
+        "int-recursive", "int x, y, z;", "accepted", ".K",
+        cells=(("env", "x |-> 0 y |-> 0 z |-> 0"),),
+    ),
+    # A pinned divergence: a plain desugar applies once, so `decl y, z;` is
+    # left in the program. Java K runs `var x;` and stops at it; k-rust
+    # refuses to execute a state that still holds a macro symbol.
+    Program("decl-one-step", "decl x, y, z;", "accepted", "decl y , z , .Ids;"),
+    # `nest(1, 2)` runs forward as `pair(1, pair(2, nil))`; both printers
+    # apply the alias-rec clauses backwards.
+    Program(
+        "nest", "x = nest(1, 2);", "accepted", ".K",
+        cells=(("env", "x |-> nest(1 , 2 , .Ints)"),),
+    ),
+)
+
 COUNTER = (("COUNTER", "1"),)
 NONDET_PROGRAMS = (
     Program("toss", "toss", "accepted", None, search=("heads", "tails"), variables=COUNTER),
@@ -171,6 +205,10 @@ NEGATIVE = (
     "fresh-no-generator",
     "fresh-two-generators",
     "fresh-partial-generator",
+    "desugar-mode-mismatch",
+    "desugar-without-clause",
+    "desugar-requires",
+    "desugar-clause-payload",
 )
 
 
@@ -245,6 +283,24 @@ def verify_fresh(harness: FixtureGate) -> None:
     harness.compare(emitted, FRESH_PROGRAMS, sort="Stmt")
 
 
+def verify_macros(harness: FixtureGate) -> None:
+    """Desugar and recursive alias productions expand programs alike on both routes."""
+
+    harness.check(MACROS)
+    harness.expand(MACROS)
+    emitted = harness.emit(MACROS)
+    emitted_attributes(emitted, (
+        '"unless" "(" Expr ")" Stmt [symbol(unless), macro,',
+        '"int" Ids ";" [symbol(declareMany), macro-rec,',
+        '"decl" Ids ";" [symbol(declareOnce), macro,',
+        '"nest" "(" Ints ")" [symbol(nest), alias-rec,',
+        "rule unless ( C:Expr ) S:Stmt => if ( C:Expr ) { } else S:Stmt [label(",
+        "rule int X:Id , Y:Id , Rest:Ids ; => var X:Id ; int Y:Id , Rest:Ids ; [label(",
+        "rule nest ( I:Int , Is:Ints ) => pair ( I:Int , nest ( Is:Ints ) ) [label(",
+    ))
+    harness.compare(emitted, MACROS_PROGRAMS, sort="Stmt")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -307,6 +363,9 @@ def main() -> int:
 
         verify_fresh(harness)
         print("PASS fresh: !L:Loc and !T:Int share the generated counter natively and on Java LLVM")
+
+        verify_macros(harness)
+        print("PASS macros: unless desugars to if/else, macro-rec expands fully and macro one step, alias-rec prints backwards on both routes")
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

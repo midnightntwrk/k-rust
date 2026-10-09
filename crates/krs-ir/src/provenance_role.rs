@@ -448,6 +448,12 @@ provenance_roles! {
     RestrictionVariable => "restriction_variable",
     /// Bare `smt_lemma` flag of an equation or simplification.
     SmtLemma => "smt_lemma",
+    /// `#[k::desugar]` marker on a production (K's `macro`).
+    DesugarProduction => "desugar_production",
+    /// Name of a `#[k::desugar]` clause fn.
+    DesugarClause => "desugar_clause",
+    /// `recursive` in a production's `#[k::alias(..)]` or `#[k::desugar(..)]` marker.
+    StaticRecursive => "static_recursive",
 }
 
 impl Serialize for ProvenanceRole {

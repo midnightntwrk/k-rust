@@ -92,6 +92,7 @@ details! {
         ListTerminator => "list terminator",
         FreshGenerator => "fresh generator",
         Smt => "smt",
+        Desugar => "desugar",
     }
 }
 

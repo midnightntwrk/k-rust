@@ -219,6 +219,10 @@ pub fn claim(attributes: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Declares a reversible static alias production helper or alias clause.
+///
+/// On a production, `#[k::alias(recursive)]` is K's `alias-rec`: an
+/// expansion may apply again to its own output. The clauses stay plain
+/// `#[k::alias]` fns.
 #[proc_macro_attribute]
 pub fn alias(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Alias, attributes, item)
@@ -404,4 +408,16 @@ pub fn is(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn project(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Project, input)
+}
+
+/// Declares a one-way static desugar (K's `macro`, KF-028): on a production,
+/// `#[k::desugar]` or `#[k::desugar(recursive)]` (K's `macro-rec`); on a fn,
+/// one desugar clause, `pattern => replacement`, with no `requires`.
+///
+/// K rewrites the definition's rules and the input program with the clauses
+/// once, before anything runs; it is not a runtime step. Unlike an alias, a
+/// desugar is never applied backwards when K prints a result.
+#[proc_macro_attribute]
+pub fn desugar(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Desugar, attributes, item)
 }

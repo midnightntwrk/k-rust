@@ -348,23 +348,27 @@ fn collect_struct_constructors(
             anchors.extend(symbol_anchors.clone());
             grammar_anchors.extend(symbol_anchors);
         }
-        for helper in item_struct
+        for (helper, mode) in item_struct
             .attrs
             .iter()
-            .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Alias))
+            .filter_map(|attribute| static_mode(resolver, attribute).map(|mode| (attribute, mode)))
         {
-            krs_syntax::AliasAttribute::parse_tokens(attribute_tokens(helper)?)
-                .map_err(source_syntax)?;
-            let marker = helper
+            let marker = krs_syntax::StaticProductionAttribute::parse_marker(
+                mode,
+                attribute_tokens(helper)?,
+            )
+            .map_err(source_syntax)?;
+            let name = helper
                 .path()
                 .segments
                 .last()
                 .expect("named attributes have a final path segment");
             grammar_anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AliasProduction,
+                mode.production_role(),
                 0,
-                TokenRange::for_tokens(&marker.ident).map_err(source_syntax)?,
+                TokenRange::for_tokens(&name.ident).map_err(source_syntax)?,
             ));
+            grammar_anchors.extend(marker.provenance());
         }
         for helper in item_struct
             .attrs
@@ -741,6 +745,36 @@ fn collect_fn_invocations(
     Ok(())
 }
 
+/// The static mode an `#[k::alias]` or `#[k::desugar]` attribute names (KF-028).
+fn static_mode(
+    resolver: &AttributeResolver<'_>,
+    attribute: &Attribute,
+) -> Option<krs_syntax::StaticMode> {
+    if resolver.invokes(attribute, AttributeMacro::Alias) {
+        Some(krs_syntax::StaticMode::Alias)
+    } else if resolver.invokes(attribute, AttributeMacro::Desugar) {
+        Some(krs_syntax::StaticMode::Desugar)
+    } else {
+        None
+    }
+}
+
+/// Checks the payload of an alias or desugar clause marker.
+fn parse_static_clause(
+    mode: krs_syntax::StaticMode,
+    attribute: &Attribute,
+) -> Result<(), CollectionError> {
+    let tokens = attribute_tokens(attribute)?;
+    match mode {
+        krs_syntax::StaticMode::Alias => krs_syntax::AliasAttribute::parse_tokens(tokens)
+            .map(|_| ())
+            .map_err(source_syntax),
+        krs_syntax::StaticMode::Desugar => krs_syntax::DesugarAttribute::parse_tokens(tokens)
+            .map(|_| ())
+            .map_err(source_syntax),
+    }
+}
+
 fn collect_fn_rules(
     item_fn: &syn::ItemFn,
     resolver: &AttributeResolver<'_>,
@@ -778,13 +812,12 @@ fn collect_fn_rules(
             ParsedInvocationPayload::Rule { bindings },
         )?);
     }
-    for attribute in item_fn
+    for (attribute, mode) in item_fn
         .attrs
         .iter()
-        .filter(|attr| resolver.invokes(attr, AttributeMacro::Alias))
+        .filter_map(|attribute| static_mode(resolver, attribute).map(|mode| (attribute, mode)))
     {
-        krs_syntax::AliasAttribute::parse_tokens(attribute_tokens(attribute)?)
-            .map_err(source_syntax)?;
+        parse_static_clause(mode, attribute)?;
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
@@ -795,7 +828,7 @@ fn collect_fn_rules(
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::AliasClause,
+            mode.clause_role(),
             0,
             TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
         ));

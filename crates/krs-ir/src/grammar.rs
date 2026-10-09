@@ -420,6 +420,9 @@ pub enum ProductionAttribute<S, D> {
     Alias {
         /// Attribute provenance.
         origin: NodeOrigin,
+        /// K's `alias-rec`: an expansion may apply again to its own output.
+        #[serde(default, skip_serializing_if = "is_false")]
+        recursive: bool,
     },
     /// Declares a regex production as a token, with optional lexical priority.
     Token {
@@ -576,6 +579,24 @@ pub enum ProductionAttribute<S, D> {
         /// Checked template fragments in source order.
         template: Vec<SmtFragment>,
     },
+    /// Declares a constructor production as a one-way static desugar, K's
+    /// `macro` (`macro-rec` when `recursive`), expanded before anything runs
+    /// and never printed backwards (KF-028).
+    Desugar {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// K's `macro-rec`: an expansion may apply again to its own output.
+        #[serde(default, skip_serializing_if = "is_false")]
+        recursive: bool,
+    },
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl<S, D> ProductionAttribute<S, D> {
@@ -587,7 +608,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Function { origin }
             | Self::Total { origin }
             | Self::Hook { origin, .. }
-            | Self::Alias { origin }
+            | Self::Alias { origin, .. }
+            | Self::Desugar { origin, .. }
             | Self::Token { origin, .. }
             | Self::Group { origin, .. }
             | Self::Bracket { origin }
@@ -643,6 +665,7 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Smtlib { .. } | Self::SmtHook { .. } => {
                 Some(crate::ProductionAttributeFamily::Smt)
             }
+            Self::Desugar { .. } => Some(crate::ProductionAttributeFamily::Desugar),
         }
     }
 }

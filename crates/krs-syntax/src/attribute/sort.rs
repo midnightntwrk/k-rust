@@ -399,9 +399,149 @@ impl SimplificationAttribute {
     }
 }
 
-/// Validated empty payload of `#[k::alias]`.
+/// Validated empty payload of `#[k::alias]` on an alias clause fn.
+///
+/// The production marker, which may say `recursive`, is
+/// [`StaticProductionAttribute`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AliasAttribute;
+
+/// Validated payload of `#[k::desugar]` on a desugar clause fn (KF-028).
+///
+/// The production marker, which may say `recursive`, is
+/// [`StaticProductionAttribute`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DesugarAttribute;
+
+/// The static rewriting mode a production marker declares (KF-028): K's
+/// `alias`, which also runs backwards when K prints, or a one-way `macro`,
+/// which KRS spells `desugar`.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticMode {
+    /// `#[k::alias]`: K's `alias` or `alias-rec`.
+    Alias,
+    /// `#[k::desugar]`: K's `macro` or `macro-rec`.
+    Desugar,
+}
+
+impl StaticMode {
+    /// The attribute name, `alias` or `desugar`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Alias => "alias",
+            Self::Desugar => "desugar",
+        }
+    }
+
+    /// The provenance role of the production marker.
+    #[must_use]
+    pub const fn production_role(self) -> ProvenanceRole {
+        match self {
+            Self::Alias => ProvenanceRole::AliasProduction,
+            Self::Desugar => ProvenanceRole::DesugarProduction,
+        }
+    }
+
+    /// The provenance role of a clause fn's name.
+    #[must_use]
+    pub const fn clause_role(self) -> ProvenanceRole {
+        match self {
+            Self::Alias => ProvenanceRole::AliasClause,
+            Self::Desugar => ProvenanceRole::DesugarClause,
+        }
+    }
+}
+
+/// The diagnostic for `recursive` on an alias or desugar clause.
+pub const RECURSIVE_ON_CLAUSE: &str = "recursion is a property of the production: write `recursive` on the production's `#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses";
+
+/// The diagnostic for `#[k::requires]` on a desugar clause.
+pub const REQUIRES_ON_DESUGAR_CLAUSE: &str = "a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against";
+
+/// Validated payload of a static production marker (KF-028): `#[k::alias]`,
+/// `#[k::alias(recursive)]`, `#[k::desugar]`, or `#[k::desugar(recursive)]`
+/// on a variant or after `#[k::constructor(...)]`.
+#[derive(Clone, Copy, Debug)]
+pub struct StaticProductionAttribute {
+    mode: StaticMode,
+    recursive: Option<TokenRange>,
+}
+
+impl StaticProductionAttribute {
+    /// Parses the payload of the `mode` marker: empty or `recursive`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects `priority`/`owise` (static rules have no priority) and every
+    /// payload other than one `recursive`.
+    pub fn parse_marker(mode: StaticMode, tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let mut iter = tokens.into_iter();
+        let Some(first) = iter.next() else {
+            return Ok(Self {
+                mode,
+                recursive: None,
+            });
+        };
+        if let proc_macro2::TokenTree::Ident(ident) = &first {
+            if ident == "priority" || ident == "owise" {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidRuleKey {
+                        reason: PRIORITY_ON_STATIC_RULE,
+                    },
+                    ident.span(),
+                ));
+            }
+            if ident == "recursive" {
+                if let Some(extra) = iter.next() {
+                    return Err(SyntaxError::new(
+                        SyntaxErrorKind::UnexpectedAttributePayload {
+                            attribute: "recursive",
+                        },
+                        extra.span(),
+                    ));
+                }
+                return Ok(Self {
+                    mode,
+                    recursive: Some(TokenRange::for_tokens(ident)?),
+                });
+            }
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnknownArgument {
+                    name: ident.to_string(),
+                },
+                ident.span(),
+            ));
+        }
+        Err(SyntaxError::new(
+            SyntaxErrorKind::UnexpectedAttributePayload {
+                attribute: mode.name(),
+            },
+            first.span(),
+        ))
+    }
+
+    /// The marker's mode.
+    #[must_use]
+    pub const fn mode(&self) -> StaticMode {
+        self.mode
+    }
+
+    /// Whether the production is `recursive` (K's `alias-rec`/`macro-rec`).
+    #[must_use]
+    pub const fn is_recursive(&self) -> bool {
+        self.recursive.is_some()
+    }
+
+    /// The anchor of the `recursive` keyword, when written.
+    #[must_use]
+    pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
+        self.recursive
+            .map(|range| ProvenanceAnchor::new(ProvenanceRole::StaticRecursive, 0, range))
+            .into_iter()
+            .collect()
+    }
+}
 
 /// Checked payload of `#[k::context_alias(name = alias, here = binding)]`.
 #[derive(Clone, Debug)]
@@ -646,30 +786,54 @@ fn parse_simplification_stream(
     })
 }
 
+/// Rejects the payload of a static clause marker at its first token.
+fn parse_static_clause_tokens(
+    tokens: TokenStream,
+    attribute: &'static str,
+) -> Result<(), SyntaxError> {
+    if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
+        let reason = if first == "priority" || first == "owise" {
+            Some(PRIORITY_ON_STATIC_RULE)
+        } else if first == "nondet" {
+            Some(NONDET_ON_FUNCTION)
+        } else if first == "recursive" {
+            Some(RECURSIVE_ON_CLAUSE)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidRuleKey { reason },
+                first.span(),
+            ));
+        }
+    }
+    parse_empty_tokens(tokens, attribute)
+}
+
 impl KrsSyntax for AliasAttribute {
-    /// Parses the intentionally empty alias payload.
+    /// Parses the intentionally empty alias clause payload.
     ///
     /// # Errors
     ///
     /// Rejects `priority` and `owise` (static rules have no priority),
-    /// `nondet`, recursive mode, and every other payload at its first token.
+    /// `nondet`, `recursive` (a property of the production), and every other
+    /// payload at its first token.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        if let Some(proc_macro2::TokenTree::Ident(first)) = tokens.clone().into_iter().next() {
-            let reason = if first == "priority" || first == "owise" {
-                Some(PRIORITY_ON_STATIC_RULE)
-            } else if first == "nondet" {
-                Some(NONDET_ON_FUNCTION)
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::InvalidRuleKey { reason },
-                    first.span(),
-                ));
-            }
-        }
-        parse_empty_tokens(tokens, "alias").map(|()| AliasAttribute)
+        parse_static_clause_tokens(tokens, "alias").map(|()| AliasAttribute)
+    }
+}
+
+impl KrsSyntax for DesugarAttribute {
+    /// Parses the desugar clause payload, which is empty.
+    ///
+    /// # Errors
+    ///
+    /// Rejects `priority` and `owise` (static rules have no priority),
+    /// `nondet`, `recursive` (a property of the production), and every other
+    /// payload at its first token.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        parse_static_clause_tokens(tokens, "desugar").map(|()| DesugarAttribute)
     }
 }
 

@@ -290,8 +290,13 @@ fn lower_production_attribute(
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
             operation: *operation,
         },
-        DescriptorProductionAttribute::Alias { key } => ProductionAttribute::Alias {
+        DescriptorProductionAttribute::Alias { key, recursive } => ProductionAttribute::Alias {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            recursive: recursive.is_some(),
+        },
+        DescriptorProductionAttribute::Desugar { key, recursive } => ProductionAttribute::Desugar {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            recursive: recursive.is_some(),
         },
         DescriptorProductionAttribute::Token {
             key,

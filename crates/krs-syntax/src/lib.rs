@@ -31,9 +31,10 @@ pub mod trivia;
 pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
     ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
-    ContextAliasAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook,
-    FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
-    PriorityAttribute, RestrictionKey, RuleAttribute, SimplificationAttribute, SortAttribute,
+    ContextAliasAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute,
+    FunctionHook, FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
+    PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
+    RuleAttribute, SimplificationAttribute, SortAttribute, StaticMode, StaticProductionAttribute,
     SubsortAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 pub use configuration::{

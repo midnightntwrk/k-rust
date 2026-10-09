@@ -5,7 +5,8 @@
     "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
     "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
-    "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2"
+    "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
+    "krs-rule-forms-macros": "0c7db99280ff9359fdc0607500fb5fcf2ba5a5333a4c8b7e80c749167c736a93"
   },
   "emitted": {
     "krs-rule-forms-priority": {
@@ -22,6 +23,9 @@
     },
     "krs-rule-forms-fresh": {
       "definition.k": "d231d7982f6ffa3c5bc774e9d203c19225339840941a2af068193999ea3fd86a"
+    },
+    "krs-rule-forms-macros": {
+      "definition.k": "72e1dcf11bdaaa2d4de1cf808080dc99da0ca6750ddedd615443ed3cc6806bc6"
     }
   },
   "reference_sha256": {
@@ -29,7 +33,8 @@
     "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
     "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521",
     "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25",
-    "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad"
+    "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",
+    "krs-rule-forms-macros": "30f42c37b5ef36ca74bb4e8442ff42c585786a35d6f559450b070f88de360b89"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -198,6 +203,53 @@
           "txs": "1 |-> 1 3 |-> 1"
         }
       }
+    },
+    "krs-rule-forms-macros": {
+      "unless-false": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "unless-true": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": ".Map"
+        }
+      },
+      "if-else": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 1"
+        }
+      },
+      "int-recursive": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> 0 y |-> 0 z |-> 0"
+        }
+      },
+      "decl-one-step": {
+        "native": {
+          "parse": "accepted",
+          "run": "refused: invalid executable state: MacroOrAliasInExecutablePattern(\"LbldeclareOnce\")"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "decl y , z , .Ids;"
+        }
+      },
+      "nest": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "env": "x |-> nest(1 , 2 , .Ints)"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -260,6 +312,18 @@
     ],
     "fresh-partial-generator": [
       "error[krs::analysis::invalid-fresh-generator]: `FreshLoc` is a `fresh_generator`, so it must be `total`: K calls it on every counter value"
+    ],
+    "desugar-mode-mismatch": [
+      "error[krs::analysis::invalid-static-clause]: desugar clause `flip` expands `Static::Flip`, which is marked `#[k::alias]`: a clause takes its production's mode, so write `#[k::alias]` on the clause, or `#[k::desugar]` on the production"
+    ],
+    "desugar-without-clause": [
+      "error[krs::analysis::invalid-static-clause]: `Static::Flip` is marked `#[k::desugar]` but no `#[k::desugar]` clause expands it, so nothing expands it; add a `#[k::desugar] fn` whose pattern is headed by `Static::Flip`"
+    ],
+    "desugar-requires": [
+      "error[krs::rust-expansion::uncoded-error]: a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against"
+    ],
+    "desugar-clause-payload": [
+      "error[krs::rust-expansion::uncoded-error]: recursion is a property of the production: write `recursive` on the production's `#[k::alias]` or `#[k::desugar]` marker, and a plain marker on its clauses"
     ]
   },
   "known_divergences": {
@@ -294,6 +358,18 @@
         "java": {
           "parse": "accepted",
           "run": "undefined"
+        }
+      }
+    },
+    "krs-rule-forms-macros": {
+      "decl-one-step": {
+        "native": {
+          "parse": "accepted",
+          "run": "refused: invalid executable state: MacroOrAliasInExecutablePattern(\"LbldeclareOnce\")"
+        },
+        "java": {
+          "parse": "accepted",
+          "run": "decl y , z , .Ids;"
         }
       }
     }

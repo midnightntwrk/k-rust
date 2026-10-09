@@ -322,6 +322,7 @@ fn bn128_point_constructors_are_checked_in_both_levels() {
         },
         ProductionAttribute::Alias {
             origin: testing::origin("alias"),
+            recursive: false,
         },
         ProductionAttribute::Bracket {
             origin: testing::origin("bracket"),

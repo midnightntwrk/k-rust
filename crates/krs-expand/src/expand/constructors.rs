@@ -354,12 +354,19 @@ fn constructor_like(
     reject_unexpanded_symbol(&raw_item.attrs)?;
     let explicit_symbol = take_explicit_symbol_helper(&mut raw_item.attrs)?;
     let strictness = take_strictness_helpers(&mut raw_item.attrs)?;
-    let alias = take_alias_helper(&mut raw_item.attrs)?;
-    if functional && alias.is_some() {
+    let static_marker = take_static_helper(&mut raw_item.attrs)?;
+    if functional && let Some((marker, _)) = &static_marker {
         return Err(ExpandError::new(
             expand::FUNCTION_ALIAS_CONFLICT,
             raw_item.ident.span(),
-            "a function production cannot also be a static alias",
+            match marker.mode() {
+                krs_syntax::StaticMode::Alias => {
+                    "a function production cannot also be a static alias"
+                }
+                krs_syntax::StaticMode::Desugar => {
+                    "a function production cannot also be a desugar: K expands a desugar before anything runs, while a function is evaluated as rules run"
+                }
+            },
         ));
     }
     let declaration = krs_syntax::ConstructorDeclaration::parse_tokens(raw_item.to_token_stream())?;
@@ -400,8 +407,9 @@ fn constructor_like(
     if let Some(symbol) = &explicit_symbol {
         grammar_anchors.extend(symbol.provenance()?);
     }
-    if let Some(alias) = &alias {
-        grammar_anchors.push(alias.clone());
+    if let Some((marker, anchor)) = &static_marker {
+        grammar_anchors.push(anchor.clone());
+        grammar_anchors.extend(marker.provenance());
     }
     if functional {
         if total {
@@ -535,7 +543,7 @@ fn constructor_like(
         [memo.is_some(), fresh_generator.is_some()],
         hook.as_ref().map(|(_, operation)| operation),
         smt.map(|smt| smt.attribute),
-        alias.is_some(),
+        static_marker.as_ref().map(|(marker, _)| *marker),
     )?;
 
     let factory_tokens = DescriptorFactory {
@@ -662,46 +670,59 @@ fn take_strictness_helpers(
     Ok(strictness)
 }
 
-fn take_alias_helper(attributes: &mut Vec<Attribute>) -> crate::Result<Option<ProvenanceAnchor>> {
-    let mut alias = None;
+/// Takes the struct's `#[k::alias]` or `#[k::desugar]` production marker
+/// (KF-028), with the anchor of its name.
+fn take_static_helper(
+    attributes: &mut Vec<Attribute>,
+) -> crate::Result<Option<(krs_syntax::StaticProductionAttribute, ProvenanceAnchor)>> {
+    let mut found: Option<(krs_syntax::StaticProductionAttribute, ProvenanceAnchor)> = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if helper_entry(attribute.path()) == Some(AttributeMacro::Alias) {
-            let tokens = match &attribute.meta {
-                Meta::Path(_) => TokenStream::new(),
-                Meta::List(list) => list.tokens.clone(),
-                Meta::NameValue(_) => {
-                    return Err(ExpandError::new(
-                        expand::ALIAS_MARKER_FORM,
-                        attribute.span(),
-                        "`alias` must use marker syntax",
-                    ));
-                }
-            };
-            krs_syntax::AliasAttribute::parse_tokens(tokens)?;
-            if alias.is_some() {
+        let mode = match helper_entry(attribute.path()) {
+            Some(AttributeMacro::Alias) => krs_syntax::StaticMode::Alias,
+            Some(AttributeMacro::Desugar) => krs_syntax::StaticMode::Desugar,
+            _ => {
+                retained.push(attribute);
+                continue;
+            }
+        };
+        let tokens = match &attribute.meta {
+            Meta::Path(_) => TokenStream::new(),
+            Meta::List(list) => list.tokens.clone(),
+            Meta::NameValue(_) => {
                 return Err(ExpandError::new(
-                    expand::DUPLICATE_ALIAS,
+                    expand::ALIAS_MARKER_FORM,
                     attribute.span(),
-                    "a constructor may declare `alias` only once",
+                    format!("`{}` must use marker syntax", mode.name()),
                 ));
             }
-            let marker = attribute
-                .path()
-                .segments
-                .last()
-                .expect("helper attributes have a final path segment");
-            alias = Some(ProvenanceAnchor::new(
-                ProvenanceRole::AliasProduction,
-                0,
-                TokenRange::for_tokens(&marker.ident)?,
+        };
+        let marker = krs_syntax::StaticProductionAttribute::parse_marker(mode, tokens)?;
+        let name = attribute
+            .path()
+            .segments
+            .last()
+            .expect("helper attributes have a final path segment");
+        if let Some((previous, _)) = &found {
+            return Err(ExpandError::new(
+                expand::DUPLICATE_ALIAS,
+                name.ident.span(),
+                if previous.mode() == mode {
+                    format!("a constructor may declare `{}` only once", mode.name())
+                } else {
+                    "a production is an alias or a desugar, not both: `alias` also prints backwards, `desugar` only expands".to_owned()
+                },
             ));
-        } else {
-            retained.push(attribute);
         }
+        let anchor = ProvenanceAnchor::new(
+            mode.production_role(),
+            0,
+            TokenRange::for_tokens(&name.ident)?,
+        );
+        found = Some((marker, anchor));
     }
     *attributes = retained;
-    Ok(alias)
+    Ok(found)
 }
 
 pub(crate) fn orphan_strictness(
@@ -948,11 +969,10 @@ fn constructor_grammar(
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
     smt: Option<WireProductionAttribute>,
-    alias: bool,
+    static_marker: Option<krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
     let function_hook_role = ProvenanceRole::FunctionHook;
-    let alias_production_role = ProvenanceRole::AliasProduction;
     let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let name = declaration.name().to_string();
     let grammar_name = format!("__krs_grammar_{name}");
@@ -1083,13 +1103,8 @@ fn constructor_grammar(
             smt,
         );
     }
-    if alias {
-        attributes.insert(
-            0,
-            WireProductionAttribute::Alias {
-                key: wire_key(alias_production_role, 0),
-            },
-        );
+    if let Some(marker) = &static_marker {
+        attributes.insert(0, super::productions::static_mode_wire(marker));
     }
     if let Some(strict_attribute) =
         super::productions::strictness_wire(facade, strictness, nonce, &mut slots)

@@ -156,7 +156,7 @@ details! {
         RuleProvenanceOrdinalExceedsU32 => "rule provenance ordinal exceeds u32",
         RuleVariableBindingIsNotATerm => "rule variable binding is not a term",
         ConfigurationSimplification => "simplifications cannot have configuration rewrite bodies",
-        ConfigurationStaticAlias => "static aliases cannot have configuration rewrite bodies",
+        ConfigurationStaticAlias => "static alias and desugar clauses cannot have configuration rewrite bodies",
         SubjectFrameBindingKind => "subject frame binding has the wrong structural kind",
         TooManyClaimBinders => "too many claim binders",
         TooManyClaimNodes => "too many claim nodes",
@@ -173,7 +173,7 @@ details! {
 details! {
     /// A grammar production validation failure.
     GrammarProductionReason {
-        AliasFunctionMetadata => "alias metadata cannot be combined with function metadata",
+        AliasFunctionMetadata => "alias and desugar metadata cannot be combined with function metadata",
         InternalProgramMetadata => "`internal` cannot be combined with `program`",
         PreferAvoidMetadata => "`prefer` cannot be combined with `avoid`",
         MemoWithoutFunction => "`memo` requires function metadata",
@@ -181,7 +181,7 @@ details! {
         SmtWithoutFunction => "`smtlib` and `smt_hook` require function metadata",
         InvalidSmtlibSymbol => "an `smtlib` symbol is an SMT-LIB simple symbol",
         InvalidSmtTemplate => "an `smt_hook` template is nonempty text and placeholders that name nonterminal fields",
-        ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, or alias metadata",
+        ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, alias, or desugar metadata",
         BracketConstructorField => "bracket nonterminal cannot claim a constructor field",
         BracketFieldName => "bracket nonterminal field must be `value`",
         BracketOwnerResultSortMismatch => "bracket owner and result sorts must be identical",
@@ -210,6 +210,7 @@ details! {
         TokenCarrierOwner => "every production of a token carrier must be a token production of one sort",
         TerminalTokenPrecedence => "`prec` applies only to regex token productions",
         TotalWithoutFunction => "total metadata requires function metadata",
+        AliasDesugarMetadata => "a production is an alias or a desugar, not both",
     }
 }
 
@@ -244,7 +245,7 @@ details! {
         InvalidRuleFresh => "fresh binders are allowed only on transitions that are not anywhere rules, with distinct non-empty binder names",
         UnexpectedSimplificationMetadata => "simplification metadata is supported only on simplifications",
         MissingSimplificationMetadata => "simplification sentence lacks simplification metadata",
-        StaticAliasRequires => "static alias clauses cannot carry requires conditions",
+        StaticAliasRequires => "static alias and desugar clauses cannot carry requires conditions",
         WildcardsAreAllowedOnlyInRuleSubjects => "wildcards are allowed only in rule subjects",
         EmptyLexemeText => "lexeme text must not be empty",
         InvalidMatchRestriction => "concrete, symbolic, and smt_lemma keys are allowed only on equations and simplifications, once each, with distinct non-empty binder names",

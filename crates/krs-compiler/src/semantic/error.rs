@@ -210,6 +210,14 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending key or binder.
         range: Option<Box<SourceRange>>,
     },
+    /// An alias or desugar clause does not expand a production of its own
+    /// mode, or a desugar production has no clause (KF-028).
+    InvalidStaticClause {
+        /// Stable reason naming the clause or production and the fix.
+        reason: String,
+        /// Sole exact authored range of the clause name or production marker.
+        range: Option<Box<SourceRange>>,
+    },
     /// An `smt_lemma` mentions a function Z3 cannot see (KF-043).
     SmtLemmaUntranslatable {
         /// Stable reason naming the function and the fix.
@@ -363,6 +371,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidFresh { reason, .. }
             | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidMatchRestriction { reason, .. }
+            | Self::InvalidStaticClause { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. } => formatter.write_str(reason),
@@ -419,6 +428,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::DuplicateSmtlib { .. } => codes::analysis::DUPLICATE_SMTLIB,
             Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
+            Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
@@ -444,6 +454,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             | Self::InvalidFresh { range, .. }
             | Self::DuplicateSmtlib { range, .. }
             | Self::InvalidMatchRestriction { range, .. }
+            | Self::InvalidStaticClause { range, .. }
             | Self::SmtLemmaUntranslatable { range, .. }
             | Self::InvalidConsoleCell { range, .. } => range
                 .as_deref()

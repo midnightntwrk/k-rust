@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::wire::{
     WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
-    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionAttribute,
-    WireProductionOwner, WireSortReference, WireTypeReference,
+    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionOwner, WireSortReference,
+    WireTypeReference,
 };
 use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
@@ -435,7 +435,6 @@ fn expand_enum_variant(
     index: usize,
     cfg: &[Attribute],
 ) -> crate::Result<TokenStream> {
-    let alias_production_role = ProvenanceRole::AliasProduction;
     let constructor_syntax_role = ProvenanceRole::ConstructorSyntax;
     let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let enum_name = declaration.sort_name().to_string();
@@ -542,13 +541,8 @@ fn expand_enum_variant(
         0..0,
         super::productions::production_documentation_wire(variant.documentation())?,
     );
-    if variant.is_alias() {
-        attributes.insert(
-            0,
-            WireProductionAttribute::Alias {
-                key: wire_key(alias_production_role, 0),
-            },
-        );
+    if let Some(marker) = variant.static_attribute() {
+        attributes.insert(0, super::productions::static_mode_wire(marker));
     }
     if let Some(strictness) = super::productions::strictness_wire(
         facade,

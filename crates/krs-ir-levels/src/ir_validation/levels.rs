@@ -69,6 +69,7 @@ macro_rules! validation_error {
             ValidationError::InvalidColors => $public::InvalidColors,
             ValidationError::InternalWithProgram => $public::InternalWithProgram,
             ValidationError::PreferAndAvoid => $public::PreferAndAvoid,
+            ValidationError::AliasWithDesugar => $public::AliasWithDesugar,
             ValidationError::PreferOnParseOnlyProduction => $public::PreferOnParseOnlyProduction,
             ValidationError::InvalidOverloadProduction => $public::InvalidOverloadProduction,
             ValidationError::InvalidListProduction => $public::InvalidListProduction,

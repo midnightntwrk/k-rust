@@ -267,7 +267,15 @@ class FixtureGate:
                     if program.search is not None:
                         outcomes[program.name]["search"] = _native_search(session, program, pattern)
                     continue
-                leaves = session.execute(pattern).get("leaves") or []
+                try:
+                    leaves = session.execute(pattern).get("leaves") or []
+                except GateError as error:
+                    # k-rust refuses some states outright, such as one that
+                    # still holds a macro symbol; such an outcome can only be
+                    # a pinned divergence.
+                    refusal = re.sub(r"^gate request \d+ failed: ", "", str(error))
+                    outcomes[program.name] = {"parse": ACCEPTED, "run": "refused: " + refusal}
+                    continue
                 if not leaves or any("bottom" in str(leaf.get("reason", "")).lower() for leaf in leaves):
                     outcomes[program.name] = {"parse": ACCEPTED, "run": UNDEFINED}
                     continue

@@ -377,6 +377,7 @@ impl DefinitionIr {
         let mut production_signatures = BTreeMap::new();
         let mut functional_productions = BTreeSet::new();
         let mut alias_productions = BTreeSet::new();
+        let mut desugar_productions = BTreeSet::new();
         let mut context_aliases = BTreeSet::new();
         let mut subsort_parents: BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>> =
             BTreeMap::new();
@@ -448,6 +449,11 @@ impl DefinitionIr {
                             .any(|attribute| matches!(attribute, ProductionAttribute::Alias { .. }))
                         {
                             alias_productions.insert(sentence.symbol.id.clone());
+                        }
+                        if sentence.attributes.iter().any(|attribute| {
+                            matches!(attribute, ProductionAttribute::Desugar { .. })
+                        }) {
+                            desugar_productions.insert(sentence.symbol.id.clone());
                         }
                         for item in &sentence.items {
                             insert_node::<DefinitionLevel>(&mut nodes, item.origin().key())?;
@@ -609,6 +615,7 @@ impl DefinitionIr {
                             &production_signatures,
                             &functional_productions,
                             &alias_productions,
+                            &desugar_productions,
                             &subsort_parents,
                             &BTreeSet::new(),
                             &mut nodes,
@@ -1120,7 +1127,7 @@ impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionL
                 DefinitionValidationError::RuleBodyNotRewrite(value.label.id.clone())
             }
             crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
-                if value.kind == SentenceKind::Alias {
+                if matches!(value.kind, SentenceKind::Alias | SentenceKind::Desugar) {
                     DefinitionValidationError::InvalidAliasRoot(value.label.id.clone())
                 } else {
                     DefinitionValidationError::InvalidSimplificationRoot(value.label.id.clone())
@@ -1460,6 +1467,8 @@ pub enum DefinitionValidationError {
     InternalWithProgram,
     /// A production was marked both `prefer` and `avoid`.
     PreferAndAvoid,
+    /// A production was marked both `alias` and `desugar` (KF-028).
+    AliasWithDesugar,
     /// A token or bracket production was marked `prefer`.
     PreferOnParseOnlyProduction,
     /// A function, token, or bracket production carried `overload`.
@@ -1654,6 +1663,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::PreferAndAvoid => {
                 formatter.write_str("a production is either preferred or avoided, not both")
             }
+            Self::AliasWithDesugar => {
+                formatter.write_str("a production is an alias or a desugar, not both")
+            }
             Self::InvalidOverloadProduction => formatter.write_str(
                 "`overload` relates constructor productions; a function, token, or bracket production cannot carry it",
             ),
@@ -1707,7 +1719,7 @@ impl fmt::Display for DefinitionValidationError {
             ),
             Self::InvalidAliasRoot(id) => write!(
                 formatter,
-                "alias clause {id} must be headed by an alias production"
+                "alias or desugar clause {id} must be headed by a production with the same mode, `alias` or `desugar`"
             ),
             Self::InvalidSimplificationRoot(id) => write!(
                 formatter,
@@ -1760,7 +1772,7 @@ impl fmt::Display for DefinitionValidationError {
                 formatter.write_str("rule condition must have builtin Bool sort")
             }
             Self::AliasCondition => {
-                formatter.write_str("static alias clauses cannot carry requires conditions")
+                formatter.write_str("static alias and desugar clauses cannot carry requires conditions")
             }
             Self::InvalidFunctionProduction => {
                 formatter.write_str("total metadata requires function metadata")
@@ -1926,6 +1938,7 @@ fn validate_production(
             | ProductionAttribute::Total { .. }
             | ProductionAttribute::Hook { .. }
             | ProductionAttribute::Alias { .. }
+            | ProductionAttribute::Desugar { .. }
             | ProductionAttribute::Token { .. }
             | ProductionAttribute::Bracket { .. }
             | ProductionAttribute::Avoid { .. }
@@ -2370,6 +2383,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
+                &BTreeSet::new(),
                 &BTreeMap::new(),
                 &BTreeSet::new(),
                 &mut BTreeSet::new(),
@@ -2388,6 +2402,7 @@ mod tests {
                 None,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
@@ -2419,6 +2434,7 @@ mod tests {
                 None,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),

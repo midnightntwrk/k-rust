@@ -489,9 +489,11 @@ fn primary_key(kind: ItemKind) -> Result<ProvenanceKey, CollectionError> {
         ItemKind::Sort => ProvenanceRole::SortDeclaration,
         ItemKind::Constructor => ProvenanceRole::ConstructorSort,
         ItemKind::Configuration | ItemKind::Cell => ProvenanceRole::ConfigurationDeclaration,
-        ItemKind::Rule | ItemKind::Equation | ItemKind::Simplification | ItemKind::Alias => {
-            ProvenanceRole::RuleDeclaration
-        }
+        ItemKind::Rule
+        | ItemKind::Equation
+        | ItemKind::Simplification
+        | ItemKind::Alias
+        | ItemKind::Desugar => ProvenanceRole::RuleDeclaration,
         ItemKind::Claim => ProvenanceRole::ClaimDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
         ItemKind::Grammar => {
@@ -514,6 +516,7 @@ fn descriptor_label(kind: ItemKind) -> &'static str {
         ItemKind::Equation => "equation",
         ItemKind::Simplification => "simplification",
         ItemKind::Alias => "alias",
+        ItemKind::Desugar => "desugar",
         ItemKind::ContextAlias => "context alias",
         ItemKind::Claim => "claim",
         ItemKind::Grammar => "grammar",

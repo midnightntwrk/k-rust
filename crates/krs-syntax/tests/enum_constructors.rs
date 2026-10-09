@@ -465,7 +465,7 @@ fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
         (
             "#[k::constructors(sort = Expr, result = KResult)] enum Bad { #[k::precedence(middle)] #[k::syntax(\"x\")] X }",
             SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
-                reason: "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, and `alias` KRS helpers; precedence belongs on the enum",
+                reason: "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
             },
         ),
         (

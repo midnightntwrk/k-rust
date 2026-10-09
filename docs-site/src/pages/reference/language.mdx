@@ -24,6 +24,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::rule]`, `k::rules!` | explicit rule functions or readable term-rule tables | [Evaluation](/imp/evaluation) |
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
 | `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
+| `#[k::desugar]` | one-way static expansion, K's `macro`; with `recursive` on the production, `macro-rec` (and `#[k::alias(recursive)]` is `alias-rec`) | [Desugar and recursive aliases](#desugar-and-recursive-aliases) |
 | `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
 | `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
 | `#[k::symbol("public::Name")]` | pinned public identity for a sort or standalone constructor; place it immediately before that KRS declaration attribute | [Composition](/advanced/composition) |
@@ -177,6 +178,20 @@ KRS emits K's attributes with the sentence's variable names, before the label: `
 Syntax errors (`krs::syntax::invalid-match-restriction`): a repeated key, `concrete` both bare and with a list, an empty list, a value on a key, and any of the keys on `#[k::rule]`, since restrictions apply to equations and simplifications.
 Analysis errors (`krs::analysis::invalid-match-restriction`): a listed name that is not a left-hand binder, a binder restricted both ways (bare `concrete` with any `symbolic` restricts every binder twice), and an equation whose function's other equations are not bare `concrete` (or `symbolic`) too, which K rejects ("Found concrete attribute without simplification attribute on function with one or more non-concrete rules"); write the restricted case as a simplification instead.
 An `smt_lemma` may mention only functions Z3 can see, so a user function needs `smtlib` or `smt_hook` and a builtin needs an SMT translation in the K prelude (`krs::analysis::smt-lemma-untranslatable`).
+
+### Desugar and recursive aliases
+
+A K macro rewrites the definition's rules and the input program once, before anything runs; it is not a runtime step, and it is not a Rust macro (there are no tokens and no hygiene).
+KRS calls it `desugar`: `#[k::desugar]` on a production emits K's `[macro]`, and each `#[k::desugar] fn` is one clause, `pattern => replacement`, emitted as a plain `rule`.
+`unless ({c}) {s}` with the clause `Unless(c, s) => IfThenElse(c, EmptyBlock(), s)` emits `rule unless ( C:Expr ) S:Stmt => if ( C:Expr ) { } else S:Stmt`, so `unless (false) x = 1;` runs as the if/else form.
+An alias (`#[k::alias]`) expands the same way and also runs backwards when K prints a result; a desugar never does.
+By default an expansion does not apply again to its own output; `recursive` on the production allows it: `#[k::desugar(recursive)]` emits `macro-rec` and `#[k::alias(recursive)]` emits `alias-rec`.
+`int x, y, z;` with `DeclareMany(Ids::Cons(x, Ids::Cons(y, rest))) => Sequence(Decl(x), DeclareMany(Ids::Cons(y, rest)))` expands fully only when the production is `recursive`; with a plain `#[k::desugar]` it expands one step and leaves `int y, z;`, which Java K's LLVM backend leaves stuck and k-rust refuses to execute, because the macro symbol is still in the program.
+K does not check that a recursive expansion terminates; k-rust reports a non-terminating one when the definition is built.
+
+`recursive` is a property of the production: a clause takes only the plain marker, has no `#[k::requires]`, and has no priority or `owise`.
+A clause takes its production's mode: a `#[k::desugar]` clause must expand a production marked `#[k::desugar]`, an `#[k::alias]` clause one marked `#[k::alias]`, and a `#[k::desugar]` production without a clause is rejected because nothing expands it (`krs::analysis::invalid-static-clause`).
+A production is an alias or a desugar, not both.
 
 ### Console I/O and the exit cell
 
@@ -359,7 +374,8 @@ Each production prints through its `format` (the syntax template, terminals spac
 Parentheses come back only where `#[k::precedence]`, associativity, or sorts require them: `(1 + 2) * 3` keeps them and `1 + 2 * 3` gets none.
 A non-empty `<k>` cell prints its items joined by `~>` and ending in `.K`, and a finished program's `<k>` holds only `.K`.
 Maps and sets print one entry per line, sorted by their printed text with numbers compared by value (`x2` before `x10`), not in a `HashMap`'s order.
-Every alias prints in reverse, so with `rule zeroAlias => 0` every `0`, even a value inside `<env>`, prints as `zeroAlias`; a K `macro` is one-way and prints expanded.
+Every alias prints in reverse, so with `rule zeroAlias => 0` every `0`, even a value inside `<env>`, prints as `zeroAlias`; a K `macro` (`#[k::desugar]`) is one-way and prints expanded.
+An `alias-rec` reverses repeatedly: with `nest(.Ints) => nil` and `nest(I, Is) => pair(I, nest(Is))`, the value `pair(1, pair(2, nil))` prints as `nest(1 , 2 , .Ints)`.
 `krs parse --output program` prints a parsed program the same way, with its macros as written, as `kast --module MAIN --output program` does: KRS reverses the main module's aliases, while a bare `kast --output program` uses only the program-syntax module, which has no alias rules.
 A production without a printable format prints its term as KAST, with a `warning:` line naming it.
 

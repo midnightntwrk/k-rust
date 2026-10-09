@@ -334,7 +334,12 @@ fn emit_production_attribute(
             writer.push(operation.spec().k_hook);
             writer.push(")");
         }
-        ProductionAttribute::Alias { .. } => writer.push("alias"),
+        ProductionAttribute::Alias { recursive, .. } => {
+            writer.push(if *recursive { "alias-rec" } else { "alias" });
+        }
+        ProductionAttribute::Desugar { recursive, .. } => {
+            writer.push(if *recursive { "macro-rec" } else { "macro" });
+        }
         ProductionAttribute::Token {
             lexical_precedence, ..
         } => {

@@ -10,7 +10,8 @@ use syn::{
 };
 
 use crate::attribute::{
-    ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, VariantSyntaxAttribute,
+    ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, StaticMode,
+    StaticProductionAttribute, VariantSyntaxAttribute,
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
@@ -80,7 +81,7 @@ pub struct EnumConstructorVariant {
     constructor_sort: Path,
     strictness: Option<StrictnessAttribute>,
     documentation: Vec<ProductionDocumentation>,
-    alias_range: Option<TokenRange>,
+    static_marker: Option<VariantStaticMarker>,
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
 }
@@ -141,8 +142,23 @@ impl EnumConstructorVariant {
 
     /// Whether this constructor is headed by a static alias clause.
     #[must_use]
-    pub const fn is_alias(&self) -> bool {
-        self.alias_range.is_some()
+    pub fn is_alias(&self) -> bool {
+        self.static_mode() == Some(StaticMode::Alias)
+    }
+
+    /// The static rewriting mode of the variant's `#[k::alias]` or
+    /// `#[k::desugar]` marker, if any (KF-028).
+    #[must_use]
+    pub fn static_mode(&self) -> Option<StaticMode> {
+        self.static_marker
+            .as_ref()
+            .map(|marker| marker.attribute.mode())
+    }
+
+    /// The variant's checked `#[k::alias]` or `#[k::desugar]` marker payload.
+    #[must_use]
+    pub fn static_attribute(&self) -> Option<&StaticProductionAttribute> {
+        self.static_marker.as_ref().map(|marker| &marker.attribute)
     }
 
     /// Returns the enum-level precedence group ordinal in readable mode.
@@ -215,12 +231,13 @@ impl EnumConstructorVariant {
         if let Some(strictness) = &self.strictness {
             anchors.extend(strictness.provenance()?);
         }
-        if let Some(range) = self.alias_range {
+        if let Some(marker) = &self.static_marker {
             anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AliasProduction,
+                marker.attribute.mode().production_role(),
                 0,
-                range,
+                marker.range,
             ));
+            anchors.extend(marker.attribute.provenance());
         }
         Ok(anchors)
     }
@@ -449,7 +466,7 @@ impl EnumConstructorDeclaration {
                 constructor_sort: constructor_sort.clone(),
                 strictness,
                 documentation,
-                alias_range: helpers.alias_range,
+                static_marker: helpers.static_marker,
                 precedence_group: None,
                 precedence_member_range: None,
             });
@@ -971,7 +988,14 @@ struct VariantHelpers {
     syntax: Option<VariantSyntaxAttribute>,
     format: Option<LitStr>,
     strictness: Option<VariantStrictness>,
-    alias_range: Option<TokenRange>,
+    static_marker: Option<VariantStaticMarker>,
+}
+
+/// A variant's `#[k::alias]` or `#[k::desugar]` marker (KF-028).
+#[derive(Clone, Debug)]
+struct VariantStaticMarker {
+    range: TokenRange,
+    attribute: StaticProductionAttribute,
 }
 
 struct VariantStrictness {
@@ -1055,24 +1079,48 @@ fn take_variant_helpers(
             }
             let tokens = marker_tokens(&attribute)?;
             helpers.strictness = Some(VariantStrictness { kind, tokens, mode });
-        } else if open_family && is_helper_named(&attribute, "alias") {
-            if helpers.alias_range.is_some() {
+        } else if let Some(mode) = open_family
+            .then(|| variant_static_mode(&attribute))
+            .flatten()
+        {
+            if let Some(previous) = &helpers.static_marker {
                 return Err(unsupported_enum(
-                    "a variant may declare `alias` only once",
-                    attribute.span(),
+                    if previous.attribute.mode() == mode {
+                        match mode {
+                            StaticMode::Alias => "a variant may declare `alias` only once",
+                            StaticMode::Desugar => "a variant may declare `desugar` only once",
+                        }
+                    } else {
+                        "a production is an alias or a desugar, not both: `alias` also prints backwards, `desugar` only expands"
+                    },
+                    attribute
+                        .path()
+                        .segments
+                        .last()
+                        .map_or_else(|| attribute.span(), |segment| segment.ident.span()),
                 ));
             }
-            let Meta::Path(path) = &attribute.meta else {
-                return Err(unsupported_enum(
-                    "`alias` must use marker syntax",
-                    attribute.span(),
-                ));
+            let (range, tokens) = match &attribute.meta {
+                Meta::Path(path) => (TokenRange::for_tokens(path)?, TokenStream::new()),
+                Meta::List(list) => (TokenRange::for_tokens(&list.path)?, list.tokens.clone()),
+                Meta::NameValue(_) => {
+                    return Err(unsupported_enum(
+                        match mode {
+                            StaticMode::Alias => "`alias` must use marker syntax",
+                            StaticMode::Desugar => "`desugar` must use marker syntax",
+                        },
+                        attribute.span(),
+                    ));
+                }
             };
-            helpers.alias_range = Some(TokenRange::for_tokens(path)?);
+            helpers.static_marker = Some(VariantStaticMarker {
+                range,
+                attribute: StaticProductionAttribute::parse_marker(mode, tokens)?,
+            });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
                 if open_family {
-                    "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, and `alias` KRS helpers; precedence belongs on the enum"
+                    "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum"
                 } else {
                     "legacy enum variants support only the `#[k::syntax]` KRS helper"
                 },
@@ -1153,6 +1201,17 @@ fn helper_marker<'a>(attribute: &'a Attribute, helper: &str) -> Option<&'a Ident
 
 fn is_helper_named(attribute: &Attribute, helper: &str) -> bool {
     helper_marker(attribute, helper).is_some()
+}
+
+/// The static mode a variant helper names: `alias` or `desugar`.
+fn variant_static_mode(attribute: &Attribute) -> Option<StaticMode> {
+    if is_helper_named(attribute, "alias") {
+        Some(StaticMode::Alias)
+    } else if is_helper_named(attribute, "desugar") {
+        Some(StaticMode::Desugar)
+    } else {
+        None
+    }
 }
 
 fn is_k_helper(attribute: &Attribute) -> bool {

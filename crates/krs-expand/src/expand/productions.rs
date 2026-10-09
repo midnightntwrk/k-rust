@@ -283,6 +283,27 @@ pub(super) fn production_documentation_wire(
         .collect()
 }
 
+/// The production attribute of a `#[k::alias]` or `#[k::desugar]` marker
+/// (KF-028), with the `recursive` keyword's key when written.
+pub(super) fn static_mode_wire(
+    marker: &krs_syntax::StaticProductionAttribute,
+) -> krs_ir::wire::WireProductionAttribute {
+    use super::terms::wire_key;
+    let recursive = marker
+        .is_recursive()
+        .then(|| wire_key(ProvenanceRole::StaticRecursive, 0));
+    match marker.mode() {
+        krs_syntax::StaticMode::Alias => krs_ir::wire::WireProductionAttribute::Alias {
+            key: wire_key(ProvenanceRole::AliasProduction, 0),
+            recursive,
+        },
+        krs_syntax::StaticMode::Desugar => krs_ir::wire::WireProductionAttribute::Desugar {
+            key: wire_key(ProvenanceRole::DesugarProduction, 0),
+            recursive,
+        },
+    }
+}
+
 pub(super) fn strictness_wire(
     facade: &Path,
     strictness: Option<&StrictnessAttribute>,

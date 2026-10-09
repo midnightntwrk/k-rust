@@ -1183,10 +1183,10 @@ pub(super) fn lower_structured_rule_descriptor(
         subject,
         result,
     )?;
-    let rule_origin_role = if rule.sentence_kind == krs_ir::SentenceKind::Alias {
-        ProvenanceRole::AliasClause
-    } else {
-        ProvenanceRole::RuleDeclaration
+    let rule_origin_role = match rule.sentence_kind {
+        krs_ir::SentenceKind::Alias => ProvenanceRole::AliasClause,
+        krs_ir::SentenceKind::Desugar => ProvenanceRole::DesugarClause,
+        _ => ProvenanceRole::RuleDeclaration,
     };
     Ok(SemanticRule::new(
         semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?,

@@ -266,8 +266,11 @@ impl Adapter<'_> {
             DefinitionProductionAttribute::Hook { operation, .. } => {
                 attributes.insert("hook", json!(operation.spec().k_hook));
             }
-            DefinitionProductionAttribute::Alias { .. } => {
-                attributes.insert("alias", json!(""));
+            DefinitionProductionAttribute::Alias { recursive, .. } => {
+                attributes.insert(if *recursive { "alias-rec" } else { "alias" }, json!(""));
+            }
+            DefinitionProductionAttribute::Desugar { recursive, .. } => {
+                attributes.insert(if *recursive { "macro-rec" } else { "macro" }, json!(""));
             }
             DefinitionProductionAttribute::Token {
                 lexical_precedence, ..

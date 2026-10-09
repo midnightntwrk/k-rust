@@ -1137,6 +1137,7 @@ impl Sample for DescriptorProductionAttribute {
                 },
                 Self::Alias {
                     key: sample::<ProvenanceKey>(),
+                    recursive: sample::<Option<ProvenanceKey>>(),
                 },
                 Self::Token {
                     key: sample::<ProvenanceKey>(),
@@ -1211,8 +1212,12 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     template: sample::<Vec<DescriptorSmtFragment>>(),
                 },
+                Self::Desugar {
+                    key: sample::<ProvenanceKey>(),
+                    recursive: sample::<Option<ProvenanceKey>>(),
+                },
             ],
-            24,
+            25,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1239,6 +1244,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::FreshGenerator { .. } => 21,
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
+                Self::Desugar { .. } => 24,
             },
         )
     }
@@ -1643,6 +1649,7 @@ impl<
                 },
                 Self::Alias {
                     origin: sample::<NodeOrigin>(),
+                    recursive: true,
                 },
                 Self::Token {
                     origin: sample::<NodeOrigin>(),
@@ -1722,8 +1729,12 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     template: sample::<Vec<SmtFragment>>(),
                 },
+                Self::Desugar {
+                    origin: sample::<NodeOrigin>(),
+                    recursive: true,
+                },
             ],
-            25,
+            26,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1751,6 +1762,7 @@ impl<
                 Self::FreshGenerator { .. } => 22,
                 Self::Smtlib { .. } => 23,
                 Self::SmtHook { .. } => 24,
+                Self::Desugar { .. } => 25,
             },
         )
     }
@@ -2221,6 +2233,7 @@ impl Sample for WireProductionAttribute {
                 },
                 Self::Alias {
                     key: sample::<ProvenanceKey>(),
+                    recursive: sample::<Option<ProvenanceKey>>(),
                 },
                 Self::Token {
                     key: sample::<ProvenanceKey>(),
@@ -2295,8 +2308,12 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     template: sample::<Vec<DescriptorSmtFragment>>(),
                 },
+                Self::Desugar {
+                    key: sample::<ProvenanceKey>(),
+                    recursive: sample::<Option<ProvenanceKey>>(),
+                },
             ],
-            24,
+            25,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2323,6 +2340,7 @@ impl Sample for WireProductionAttribute {
                 Self::FreshGenerator { .. } => 21,
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
+                Self::Desugar { .. } => 24,
             },
         )
     }
