@@ -10620,8 +10620,8 @@ endmodule
 
 /// Generated parsers locate tokens as the in-process parser does (`inner::location`): lines and
 /// columns from 1 on every line, a column per Unicode scalar value, the end column after the last
-/// character, and `\n`, `\r`, `\r\n` and U+2028 each ending one line, also when two tokens split a
-/// `\r\n`.
+/// character, and `\n`, `\r`, `\r\n`, vertical tab, U+0085 and U+2028 each ending one line, also
+/// when two tokens split a `\r\n`.
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_locations_number_lines_and_columns_as_the_in_process_parser() {
@@ -10634,7 +10634,11 @@ endmodule
 "#;
     let (root, parser) = generate_parser(definition, "LOC-SYNTAX", &[]);
     let input = root.join("input.pgm");
-    fs::write(&input, "a;\r\n<\u{e9}>;\rbb;<x\ny>;<p\u{2028}q>").unwrap();
+    fs::write(
+        &input,
+        "a;\r\n<\u{e9}>;\rbb;<x\ny\u{85}z\u{b}w>;<p\u{2028}q>",
+    )
+    .unwrap();
     let parsed = Command::new(&parser).arg(&input).output().unwrap();
     assert!(
         parsed.status.success(),
@@ -10658,8 +10662,8 @@ endmodule
             [1, 1, 1, 2],
             [2, 1, 2, 4],
             [3, 1, 3, 3],
-            [3, 4, 4, 3],
-            [4, 4, 5, 3],
+            [3, 4, 6, 3],
+            [6, 4, 7, 3],
         ],
         "{output}"
     );
