@@ -474,11 +474,31 @@ fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Resu
 #[cold]
 #[cfg_attr(debug_assertions, track_caller)]
 fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Result<R, E> {
-    struct Release(usize);
-    impl Drop for Release {
+    on_new_segment_within(
+        &PROCESS_SEGMENTS,
+        crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET,
+        work,
+    )
+}
+
+/// [`on_new_segment`] with the process's count and budget given: `process` holds the bytes of
+/// the segments held on every thread, which stay within `process_budget`.
+#[cfg(not(target_family = "wasm"))]
+#[cfg_attr(debug_assertions, track_caller)]
+fn on_new_segment_within<R, E: From<Stop>>(
+    process: &std::sync::atomic::AtomicUsize,
+    process_budget: usize,
+    work: impl FnOnce() -> Result<R, E>,
+) -> Result<R, E> {
+    struct Release<'a> {
+        held: usize,
+        process: &'a std::sync::atomic::AtomicUsize,
+    }
+    impl Drop for Release<'_> {
         fn drop(&mut self) {
-            SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((self.0, segments.get().1)));
-            PROCESS_SEGMENTS.fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
+            SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((self.held, segments.get().1)));
+            self.process
+                .fetch_sub(SIMPLIFICATION_SEGMENT, Ordering::Relaxed);
         }
     }
     let (held, budget) = SIMPLIFICATION_SEGMENTS.with(Cell::get);
@@ -488,14 +508,11 @@ fn on_new_segment<R, E: From<Stop>>(work: impl FnOnce() -> Result<R, E>) -> Resu
     else {
         return Err(Stop::mint(StopCause::StackExhausted).into());
     };
-    if !reserve_segment(
-        &PROCESS_SEGMENTS,
-        crate::nesting::SIMPLIFICATION_STACK_PROCESS_BUDGET,
-    ) {
+    if !reserve_segment(process, process_budget) {
         return Err(Stop::mint(StopCause::StackExhausted).into());
     }
     SIMPLIFICATION_SEGMENTS.with(|segments| segments.set((holding, budget)));
-    let _release = Release(held);
+    let _release = Release { held, process };
     // `stacker` maps the segment before it runs the work and panics when the mapping fails. A
     // panic while the work is still here is that failure; a panic from the work itself continues
     // to unwind as it would have on the thread's own stack.
@@ -998,6 +1015,32 @@ mod tests {
             &total,
             budget + SIMPLIFICATION_SEGMENT - 1
         ));
+    }
+
+    /// A segment the thread's budget allows is refused when the process's count is at its
+    /// budget, and it is released from that count afterwards.
+    #[test]
+    fn a_segment_is_refused_at_the_process_budget() {
+        let process = std::sync::atomic::AtomicUsize::new(0);
+        let held = || SIMPLIFICATION_SEGMENTS.with(Cell::get).0;
+        let outcome = with_segment_budget(3 * SIMPLIFICATION_SEGMENT, || {
+            on_new_segment_within(&process, SIMPLIFICATION_SEGMENT, || {
+                let inner =
+                    on_new_segment_within(&process, SIMPLIFICATION_SEGMENT, || Ok::<_, Stop>(()))
+                        .err()
+                        .map(Stop::into_cause);
+                Ok::<_, Stop>((inner, held(), process.load(Ordering::Relaxed)))
+            })
+        });
+        assert_eq!(
+            outcome.ok(),
+            Some((
+                Some(StopCause::StackExhausted),
+                SIMPLIFICATION_SEGMENT,
+                SIMPLIFICATION_SEGMENT
+            ))
+        );
+        assert_eq!((held(), process.load(Ordering::Relaxed)), (0, 0));
     }
 
     #[test]

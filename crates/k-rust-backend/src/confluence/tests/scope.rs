@@ -254,6 +254,22 @@ fn the_load_withdraws_an_overloaded_function_a_pair_reaches() {
     }
     let fe = TermIndex::Symbol("fE".into());
     assert!(definition.value_claims().admit(&fe).is_none());
+    // Review 3, R3: the pair withdraws certificates of overloaded functions and no head's
+    // claims, and is reported.
+    let reported = definition
+        .value_claims()
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.relevant())
+        .map(|pair| pair.withdrawn.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reported,
+        [vec![
+            crate::term::Name::from("fE"),
+            crate::term::Name::from("fN")
+        ]]
+    );
     let differences = scope_differences(&definition);
     assert!(differences.is_empty(), "{differences:?}");
 }
@@ -449,4 +465,82 @@ fn a_reported_overlap_is_spelled_alike_in_both_scopes() {
             );
         }
     }
+}
+
+/// `wt(inj{A,T}(XA)) = m(z)` and `wt(inj{B,T}(YB)) = m(s(z))`, which overlap only through the
+/// common subsorts `C` and `D` of `A` and `B`, at variables the unifier mints, and do not join;
+/// with `before`, the declared function `ft` has two equations of the same shape, whose pair
+/// withdraws no claim and which the full check classifies before `wt`'s (and advances the
+/// unifier's counter) and the load skips.
+fn overlapping_through_a_common_subsort(before: bool) -> BackendDefinition {
+    let pair = |head: &str, result: &str, rights: [&str; 2]| {
+        [("SortA{}", "XA", rights[0]), ("SortB{}", "YB", rights[1])]
+            .into_iter()
+            .map(|(sort, variable, right)| {
+                equation(
+                    head,
+                    "SortT{}",
+                    result,
+                    &format!("inj{{{sort}, SortT{{}}}}({variable}:{sort})"),
+                    right,
+                    &format!("{head}-{variable}"),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut extra = "symbol wt{}(SortT{}) : SortS{} [anywhere{}()]\n".to_owned();
+    extra.extend(
+        pair("wt", "SortS{}", ["m{}(z{}())", "m{}(s{}(z{}()))"])
+            .into_iter()
+            .map(|axiom| axiom + "\n"),
+    );
+    if before {
+        extra.push_str("symbol ft{}(SortT{}) : SortNat{} [function{}()]\n");
+        extra.extend(
+            pair("ft", "SortNat{}", ["z{}()", "s{}(z{}())"])
+                .into_iter()
+                .map(|axiom| axiom + "\n"),
+        );
+    }
+    definition(&extra)
+}
+
+/// Review 3, R1: the variables the unifier mints are spelled with their counter after the
+/// marker (`VarOverlap!unify0`), so the canonical spelling of a reported overlap drops the
+/// counter that earlier pairs advanced, and the two scopes warn about the same pair alike.
+#[test]
+fn an_overlap_at_a_variable_the_unifier_mints_is_spelled_alike_in_both_scopes() {
+    let overlaps = |claims: &crate::confluence::ValueClaims| {
+        claims
+            .unjoined()
+            .iter()
+            .filter(|pair| pair.relevant())
+            .map(|pair| pair.overlap.clone().expect("a root pair has an overlap"))
+            .collect::<Vec<_>>()
+    };
+    let alone = overlapping_through_a_common_subsort(false);
+    let expected = overlaps(alone.value_claims());
+    assert!(!expected.is_empty(), "the pairs of `wt` withdraw it");
+    let minted = expected
+        .iter()
+        .flat_map(|overlap| overlap.attributes().variables.iter())
+        .map(|variable| variable.name.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        minted
+            .iter()
+            .any(|name| name.starts_with("VarOverlap!unify")),
+        "{expected:?}"
+    );
+    let definition = overlapping_through_a_common_subsort(true);
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    assert!(
+        full.counts().unjoined > definition.value_claims().counts().unjoined,
+        "the full check classifies `ft`'s pair as well"
+    );
+    assert!(tainted(&definition, "wt") && !tainted(&definition, "ft"));
+    for claims in [definition.value_claims(), &full] {
+        assert_eq!(overlaps(claims), expected);
+    }
+    assert_eq!(scope_differences(&definition), Vec::<String>::new());
 }

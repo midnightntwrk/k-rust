@@ -57,7 +57,11 @@ use crate::{
     rule::{RewriteRule, applicable_groups, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify},
     substitution::{Substitution, substitute},
-    term::{FunctionType, HeadRole, SymbolType, Term, TermKind, Variable, head::NormalEvidence},
+    term::{
+        FunctionType, HeadRole, SymbolType, Term, TermKind, Variable,
+        head::NormalEvidence,
+        names::{FreshMarker, with_fresh_marker},
+    },
 };
 
 /// The most steps the join takes on one side.
@@ -486,7 +490,7 @@ impl Join<'_, '_> {
                 return Term::variable(placeholder.clone());
             }
             let placeholder = Variable::new(
-                format!("VarResidual{}!unify", self.context.fresh),
+                with_fresh_marker("VarResidual", FreshMarker::Unify, self.context.fresh),
                 term.sort(),
             );
             self.context.fresh += 1;

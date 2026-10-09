@@ -262,7 +262,7 @@ impl ValueClaimFindingCode {
 
 /// One finding of the load-time critical-pair check (`k_rust_backend::confluence`), as data
 /// independent of the loaded definition's terms: the equations by unique id, why the check
-/// reports them, the equation heads they withdraw, and the text the author is told, rendered
+/// reports them, the symbols whose claims they withdraw, and the text the author is told, rendered
 /// once from the verdict. The warning of `krun`, `kprove` and the RPC server
 /// ([`value_claim_warnings`]) and the located diagnostic of `kompile`
 /// ([`value_claim_diagnostics`]) are both made from it, so a verdict stored or reported as these
@@ -279,7 +279,8 @@ pub struct ValueClaimFinding {
     /// Why the pair does not join, or which precondition the row violates, as the check states
     /// it.
     pub reason: String,
-    /// The equation heads the pair withdraws, by KORE name, sorted; empty for a row.
+    /// The symbols whose claims the pair withdraws (equation heads and overloaded symbols), by
+    /// KORE name, sorted; empty for a row.
     pub withdrawn: Vec<String>,
     /// The text, without a severity prefix.
     pub message: String,
@@ -289,10 +290,10 @@ pub struct ValueClaimFinding {
 /// constructor and overload preconditions the definition violates, and one per pair of
 /// executable equations that does not provably join and withdraws a value claim, naming both
 /// equations with their written positions, the overlapped term, why the check does not join
-/// it, and the equation heads that get no value claim. An equation the check does not pair
-/// (`ComputedBelowRoot`, `UnboundResultVariables`) is named as not checked; an equation paired
-/// with itself because its map or set pattern matches one subject in several ways
-/// (`SeveralMatches`) is named as that pair.
+/// it, and the equation heads and overloaded symbols that get no value claim. An equation the
+/// check does not pair (`ComputedBelowRoot`, `UnboundResultVariables`) is named as not checked;
+/// an equation paired with itself because its map or set pattern matches one subject in several
+/// ways (`SeveralMatches`) is named as that pair.
 pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
     /// The characters of the overlapped term a warning prints before it cuts it short.
     const OVERLAP_CHARACTERS: usize = 240;
@@ -342,14 +343,14 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             format!(
                 "the equation {} paired with itself is not shown to join: its map or set pattern can match one collection in several ways, and its right-hand side and `ensures` are not shown to read only variables that every matching binds alike; no value claims are made for {}",
                 equation(&pair.first),
-                withdrawn_heads(&pair.withdrawn)
+                withdrawn_symbols(&pair.withdrawn)
             )
         } else if alone {
             format!(
                 "the equation {} is not checked ({}); no value claims are made for {}",
                 equation(&pair.first),
                 pair.reason,
-                withdrawn_heads(&pair.withdrawn)
+                withdrawn_symbols(&pair.withdrawn)
             )
         } else {
             let equations = format!(
@@ -373,7 +374,7 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             format!(
                 "{equations}{overlap} are not shown to join ({}); no value claims are made for {}",
                 pair.reason,
-                withdrawn_heads(&pair.withdrawn)
+                withdrawn_symbols(&pair.withdrawn)
             )
         };
         let mut withdrawn = pair
@@ -494,9 +495,9 @@ fn written_location(origin: &RuleOrigin) -> (Option<String>, Option<crate::defin
     (source, location)
 }
 
-/// The equation heads a non-joined pair withdraws, by K label, sorted, the first five listed and
-/// the rest counted.
-fn withdrawn_heads(withdrawn: &[k_rust_backend::term::Name]) -> String {
+/// The symbols whose claims a non-joined pair withdraws, by K label, sorted, the first five listed
+/// and the rest counted.
+fn withdrawn_symbols(withdrawn: &[k_rust_backend::term::Name]) -> String {
     const LISTED_HEADS: usize = 5;
     let mut labels = withdrawn
         .iter()
@@ -2080,8 +2081,58 @@ mod value_claim_finding_tests {
            org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
     endmodule []"#;
 
+    /// No equation head: a declared function `gg` with two equations at `gg(z)`, one of which
+    /// reaches the overloaded `fE` (over `fN`), whose certificates the pair withdraws.
+    const OVERLOADED_ONLY: &str = r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        sort SortE{} []
+        sort SortN{} []
+        symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+        axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortN{}, SortE{}}(F:SortN{}))) [subsort{SortN{}, SortE{}}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol m{}(SortNat{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol e0{}() : SortE{} [constructor{}(), functional{}(), injective{}()]
+        symbol fE{}(SortE{}) : SortS{} [function{}()]
+        symbol fN{}(SortN{}) : SortS{} [function{}()]
+        symbol gg{}(SortNat{}) : SortS{} [function{}()]
+        axiom{R} \equals{SortS{}, R}(fE{}(inj{SortN{}, SortE{}}(K0:SortN{})), fN{}(K0:SortN{}))
+            [symbol-overload{}(fE{}(), fN{}())]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, z{}()), \top{R}())),
+            \equals{SortS{}, R}(gg{}(X0:SortNat{}), \and{SortS{}}(fE{}(e0{}()), \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("to-fe")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, z{}()), \top{R}())),
+            \equals{SortS{}, R}(gg{}(X0:SortNat{}), \and{SortS{}}(m{}(z{}()), \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("to-m")]
+    endmodule []"#;
+
+    /// A pair that withdraws the certificates of overloaded functions and no equation head's
+    /// claims is reported like one that withdraws a head's, naming the overloaded symbols.
+    #[test]
+    fn a_pair_that_withdraws_only_overloaded_certificates_is_reported() {
+        use super::{ValueClaimFindingCode, value_claim_findings};
+        let syntax = k_rust_kore::kore::parser::parse_definition(OVERLOADED_ONLY)
+            .expect("the definition parses");
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("the definition internalizes");
+        let findings = value_claim_findings(&definition);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let finding = &findings[0];
+        assert_eq!(finding.code, ValueClaimFindingCode::UnjoinedCriticalPair);
+        assert_eq!(finding.withdrawn, ["fE", "fN"]);
+        assert!(
+            finding
+                .message
+                .ends_with("; no value claims are made for fE, fN"),
+            "{finding:?}"
+        );
+    }
+
     /// A finding of the critical-pair check is data: its equations by unique id, its reason and
-    /// withdrawn heads, and its message. The warning and the diagnostic are both rendered from it,
+    /// withdrawn symbols, and its message. The warning and the diagnostic are both rendered from it,
     /// and it reads back from its serialized form (the fields a stored or reported verdict holds)
     /// as the same finding.
     #[test]

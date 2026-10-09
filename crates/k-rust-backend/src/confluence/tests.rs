@@ -634,6 +634,59 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
     ));
 }
 
+/// `w(z) = m(z) requires f(z) = z` beside `w(z) = m(s(z))`, with `f(z) = f_z`: the pair's
+/// condition is the same ground predicate in every such definition, and its answer is `f_z = z`.
+fn condition_reading_f(f_z: &str) -> BackendDefinition {
+    let w = |requires: &str, right: &str, id: &str| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}({requires}, \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, z{{}}()), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(w{{}}(X0:SortNat{{}}), \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}()))
+            ) [anywhere{{}}(), UNIQUE'Unds'ID{{}}("{id}")]"#
+        )
+    };
+    definition(&format!(
+        r#"{} {}
+        axiom{{R}} \implies{{R}}(
+            \and{{R}}(\top{{R}}(), \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, z{{}}()), \top{{R}}())),
+            \equals{{SortNat{{}}, R}}(f{{}}(X0:SortNat{{}}), \and{{SortNat{{}}}}({f_z}, \top{{SortNat{{}}}}()))
+        ) [UNIQUE'Unds'ID{{}}("f-z")]"#,
+        w(
+            r"\equals{SortNat{}, R}(f{}(z{}()), z{}())",
+            "m{}(z{}())",
+            "w-if"
+        ),
+        w(r"\top{R}()", "m{}(s{}(z{}()))", "w-else"),
+    ))
+}
+
+/// The memo's answers live as long as one check: its soundness rests on the definition, the
+/// withheld claims, the options and the solver being fixed, which holds within a check and not
+/// across checks. Two definitions loaded in turn on one thread share the pair's condition
+/// `f(z) = z` and answer it differently: `false` under `f(z) = s(z)`, which separates the two
+/// equations, and `true` under `f(z) = z`, under which the reducts differ and `w` is withdrawn.
+/// Each verdict is the one the check reaches without the memo, whichever definition is loaded
+/// first.
+#[test]
+fn the_memo_answers_only_within_one_check() {
+    use super::{CheckScope, ConditionMemo};
+    let withdraws_w = |definition: &BackendDefinition| {
+        definition
+            .value_claims()
+            .tainted_symbols()
+            .contains(&crate::term::Name::from("w"))
+    };
+    for order in [["s{}(z{}())", "z{}()"], ["z{}()", "s{}(z{}())"]] {
+        let definitions = order.map(condition_reading_f);
+        for (f_z, definition) in order.iter().zip(&definitions) {
+            assert_eq!(withdraws_w(definition), *f_z == "z{}()", "f(z) = {f_z}");
+            let off = definition.value_claims_checked(CheckScope::Gate, ConditionMemo::Off);
+            let differences = definition.value_claims().verdict_differences(&off);
+            assert!(differences.is_empty(), "f(z) = {f_z}: {differences:?}");
+        }
+    }
+}
+
 mod review_one;
 mod review_two;
 mod scope;
