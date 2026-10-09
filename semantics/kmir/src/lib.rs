@@ -83,7 +83,6 @@ k::sorts! {
     Branches: k::KItem;
     SwitchTargets: k::KItem;
     MaybeBasicBlockIdx: k::KItem;
-    Operands: k::KItem;
     LocalDecl: k::KItem;
     LocalDecls: k::KItem;
     FunctionBody: k::KItem;
@@ -4353,13 +4352,14 @@ pub enum MirMaybeBasicBlockIdx {
     SomeBasicBlockIdx { target: Int },
 }
 
-#[k::constructors(sort = Operands, result = KResult)]
-#[k::precedence((OperandsEmpty, OperandsCons))]
-pub enum MirOperands {
-    #[k::syntax(".Operands")]
-    OperandsEmpty(),
-    #[k::syntax("{head} {tail}")]
-    OperandsCons { head: Operand, tail: Operands },
+/// Call and aggregate operands, written one after another with no separator:
+/// `copy(place(local(1), .ProjectionElems)) move(place(local(2), .ProjectionElems))`.
+/// K's `List{Operand, ""}`: the empty program text is the empty list, which
+/// rules print as `.Operands`.
+#[k::syntax_list(separator = "")]
+pub enum Operands {
+    Cons { head: Operand, tail: Operands },
+    Nil(),
 }
 
 #[k::constructors(sort = LocalDecl, result = KResult)]
@@ -6714,14 +6714,14 @@ k::rules! {
     where operation: BinaryOp, lhs: Operand, rhs: Operand, place: Place;
 
     eval_aggregate_empty: {
-        k: [Execution::EvalRvalue { value: MirRvalue::AggregateRvalue { kind, operands: MirOperands::OperandsEmpty() }, place }, ..],
+        k: [Execution::EvalRvalue { value: MirRvalue::AggregateRvalue { kind, operands: Operands::Nil() }, place }, ..],
     } => {
         k: [Execution::SetLocalValue { place, value: MaterializeAggregate { kind, values: list::empty() } }, ..],
     }
     where kind: AggregateKind, place: Place;
 
     eval_aggregate_cons: {
-        k: [Execution::EvalRvalue { value: MirRvalue::AggregateRvalue { kind, operands: MirOperands::OperandsCons { head, tail } }, place }, ..],
+        k: [Execution::EvalRvalue { value: MirRvalue::AggregateRvalue { kind, operands: Operands::Cons { head, tail } }, place }, ..],
     } => {
         k: [Execution::EvalOperand { operand: head, continuation: EvaluationContinuation::AggregateNext { place, kind, values: list::empty(), remaining: tail } }, ..],
     }
@@ -7093,14 +7093,14 @@ k::rules! {
     where value: MirValue, place: Place;
 
     continue_aggregate_done: {
-        k: [Execution::Continue { value, continuation: EvaluationContinuation::AggregateNext { place, kind, values, remaining: MirOperands::OperandsEmpty() } }, ..],
+        k: [Execution::Continue { value, continuation: EvaluationContinuation::AggregateNext { place, kind, values, remaining: Operands::Nil() } }, ..],
     } => {
         k: [Execution::SetLocalValue { place, value: MaterializeAggregate { kind, values: list::concat(values, list::item(value)) } }, ..],
     }
     where value: MirValue, place: Place, kind: AggregateKind, values: List;
 
     continue_aggregate_next: {
-        k: [Execution::Continue { value, continuation: EvaluationContinuation::AggregateNext { place, kind, values, remaining: MirOperands::OperandsCons { head, tail } } }, ..],
+        k: [Execution::Continue { value, continuation: EvaluationContinuation::AggregateNext { place, kind, values, remaining: Operands::Cons { head, tail } } }, ..],
     } => {
         k: [Execution::EvalOperand { operand: head, continuation: EvaluationContinuation::AggregateNext { place, kind, values: list::concat(values, list::item(value)), remaining: tail } }, ..],
     }
@@ -7798,13 +7798,13 @@ k::rules! {
     where span: Int, callee: Ty, args: Operands, destination: Place, target: Int, unwind: UnwindAction, current_func: Ty, current_body: List, old_caller: Ty, old_dest: Place, old_target: MaybeBasicBlockIdx, old_unwind: UnwindAction, caller_locals: List, stack: List, functions: Map;
 
     set_args_done: {
-        k: [Execution::SetArgsFromStack { index: _, args: MirOperands::OperandsEmpty() }, ..],
+        k: [Execution::SetArgsFromStack { index: _, args: Operands::Nil() }, ..],
     } => {
         k: [..],
     };
 
     set_args_cons: {
-        k: [Execution::SetArgsFromStack { index, args: MirOperands::OperandsCons { head, tail } }, ..],
+        k: [Execution::SetArgsFromStack { index, args: Operands::Cons { head, tail } }, ..],
     } => {
         k: [Execution::SetArgFromStack { index, operand: head }, Execution::SetArgsFromStack { index: int::add(index, 1), args: tail }, ..],
     }
