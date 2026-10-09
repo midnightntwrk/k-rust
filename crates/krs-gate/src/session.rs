@@ -455,7 +455,8 @@ impl Session {
         Ok(serde_json::to_value(semantics.search(&state, options)?)?)
     }
 
-    /// `krs prove` through `krs-exec`: `claims` (labels; empty proves every claim) and `depth`.
+    /// `krs prove` through `krs-exec`: `module` (an author spec module, KF-041; absent proves the
+    /// generated `<MAIN>-SPEC`), `claims` (labels; empty proves every claim), and `depth`.
     fn exec_prove(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let claims = match request.get("claims") {
             None | Some(Value::Null) => Vec::new(),
@@ -471,8 +472,12 @@ impl Session {
                 })
                 .collect::<Result<_, _>>()?,
         };
+        let module = match request.get("module") {
+            None | Some(Value::Null) => None,
+            Some(_) => Some(required_string(request, "module")?.to_owned()),
+        };
         let options = ProveOptions {
-            module: None,
+            module,
             claims,
             depth: optional_u64(request, "depth")?,
         };

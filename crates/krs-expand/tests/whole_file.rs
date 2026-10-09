@@ -353,6 +353,49 @@ fn factories_outside_the_crate_root_are_rejected() {
 }
 
 #[test]
+fn spec_modules_register_their_items_from_the_crate_root() {
+    let source = r#"#[k::spec_module(name = "ORG-PROOFS", imports = [crate])]
+mod proofs {
+    use k::Term;
+    use k::builtin::{Bool, int};
+
+    #[k::simplification]
+    fn lt_irreflexive(k::term![int::lt(value, value)]: Term<Bool>) -> Term<Bool> {
+        false
+    }
+}
+"#;
+    let expansion = expand(source).expect("a spec module expands at the crate root");
+    let mut factories = expansion
+        .registrations
+        .iter()
+        .map(|registration| registration.factory.clone())
+        .collect::<Vec<_>>();
+    factories.sort();
+    assert_eq!(factories.len(), 2, "{factories:?}");
+    for factory in &factories {
+        assert!(factory.starts_with("proofs::__krs_"), "{factory}");
+        assert!(
+            expansion
+                .generated
+                .text
+                .contains(&format!("registrar.factory(crate::{factory});")),
+            "{factory} is listed"
+        );
+    }
+    let text = expansion.generated.text.replace(' ', "");
+    assert!(text.contains("pub(super)fn__krs_spec_module_descriptor_"));
+    assert!(text.contains("usecrateas_;"));
+    let nested = "#[k::spec_module]\nmod outer {\n    #[k::spec_module]\n    mod inner {}\n}\n";
+    let diagnostics = expand(nested).unwrap_err();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("spec modules do not nest"))
+    );
+}
+
+#[test]
 fn byte_order_marks_and_shebangs_are_rejected() {
     for source in [
         "\u{feff}k::sorts! { A; }\n",

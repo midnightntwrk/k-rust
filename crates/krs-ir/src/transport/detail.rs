@@ -57,6 +57,8 @@ details! {
         LexicalName => "lexical name",
         LayoutRegexes => "layout regexes",
         RawSentenceText => "raw K sentence text",
+        SpecModuleName => "spec module name",
+        SpecModuleImport => "spec module import",
     }
 }
 

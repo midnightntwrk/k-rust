@@ -447,10 +447,16 @@ class Session:
             variables=dict(variables or {}), mode=mode, depth=depth, max_solutions=max_solutions,
         )
 
-    def exec_prove(self, claims: list[str] | None = None, *, depth: int | None = None) -> list[dict[str, Any]]:
-        """Prove claims by label through krs-exec, as `krs prove` does, and return its proof reports."""
+    def exec_prove(
+        self, claims: list[str] | None = None, *, depth: int | None = None, module: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Prove claims by label through krs-exec, as `krs prove` does, and return its proof reports.
 
-        return self.request("exec.prove", claims=list(claims or []), depth=depth)
+        ``module`` selects an author spec module (`krs prove --spec-module`); the default proves the
+        generated `<MAIN>-SPEC`.
+        """
+
+        return self.request("exec.prove", claims=list(claims or []), depth=depth, module=module)
 
     @staticmethod
     def _kast_input(value: Any = None, *, text: str | None = None, path: Path | None = None) -> dict[str, Any]:

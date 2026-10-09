@@ -79,6 +79,41 @@ fn read_package_source<'bundle>(
                 .insert(descriptor.id().module_path());
         }
     }
+    // An author spec module (KF-041) is an inline `mod` whose attribute
+    // consumes its items: they are rendered with the module, unchanged.
+    let spec_paths = in_package()
+        .filter(|descriptor| {
+            matches!(
+                descriptor.payload(),
+                DescriptorPayload::Grammar(grammar)
+                    if matches!(grammar.as_ref(), krs_ir::GrammarDescriptor::SpecModule { .. })
+            )
+        })
+        .map(|descriptor| descriptor.id().module_path())
+        .collect::<Vec<_>>();
+    for paths in sources.values_mut() {
+        let outside = paths
+            .iter()
+            .copied()
+            .filter(|path| !spec_paths.iter().any(|spec| path.starts_with(spec)))
+            .collect::<BTreeSet<_>>();
+        if outside.is_empty() {
+            let parents = paths
+                .iter()
+                .filter_map(|path| {
+                    spec_paths
+                        .iter()
+                        .find(|spec| path.starts_with(spec))
+                        .map(|spec| &spec[..spec.len().saturating_sub(1)])
+                })
+                .collect::<BTreeSet<_>>();
+            if parents.len() == 1 {
+                *paths = parents;
+            }
+        } else {
+            *paths = outside;
+        }
+    }
     let [(file, module_paths)] = sources.iter().collect::<Vec<_>>()[..] else {
         return Err(ReferenceSourceError::Selection(
             sources.into_keys().cloned().collect(),

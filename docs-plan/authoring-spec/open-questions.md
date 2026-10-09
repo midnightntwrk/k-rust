@@ -113,9 +113,13 @@ what they block.
 13. **Method-call term sugar** (`e.update(k, v)`) — deferred and
     policy-blocked (r10: no Rust trait resolution in term position);
     would need a closed sort-directed method table. [result README]
-14. **`imp-verification.k`** (`[simplification]` rules, regex `token` productions) — explicitly out of the readable IMP specimen's scope, and the next thing a reader looks for.
-    The four `[simplification]` lemmas are expressed with the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
-    The `$`-prefixed `Id` token production has no authored counterpart: claims write such identifiers with `k::id!("$n")`.
+14. ~~**`imp-verification.k`** (`[simplification]` rules, regex `token` productions)~~ — **RESOLVED (2026-10, KF-041)**: spec modules and `$` tokens.
+    A K proof module is an inline Rust `mod` carrying `#[k::spec_module(name = "..", imports = [..])]`; it holds claims, simplification lemmas, and terminal tokens for existing sorts, imports the definition explicitly (`crate`, a dependency crate root, or another spec module; rustc checks every path), and is emitted into `spec.k` in import order before the generated `<MAIN>-SPEC`.
+    `krs prove --spec-module NAME` proves it natively, as `kprove --spec-module NAME` does.
+    The `$`-prefixed `Id` token is authored as upstream does, in the definition: `#[k::token(regex = r"\$[a-zA-Z0-9_]+")] pub type DollarId = k::builtin::Id;`, and a spec-module claim then prints `k::id!("$n")` bare as `$n`, so C2-002's `#token("$n","Id")` spelling is no longer needed there.
+    Regex tokens stay out of spec modules on recorded backend evidence (kore-exec once failed to terminate with one in a proof module), and an identifier in a spec-module claim that no visible token production lexes is an error.
+    The four `[simplification]` lemmas remain in the explicit `#[k::simplification]` function form (`tests/imp/rust-definition/src/verification.rs`); the readable `k::rules!` tables have no simplification spelling.
+    Rejected: Cargo-metadata spec facets, one package per spec module, a general `#[k::module]`, spec-only constructors or functions (K forbids them), and regex token aliases in spec modules.
 15. ~~**Exact-parity `% ` format escape**~~ — **RESOLVED for printing**: there is no `% ` escape.
     A format's literal text prints as written and its terminals print by position (the C5 note), so a plain space is the exact spelling; the escape list is `%n %i %d %c %r %%`.
 16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).

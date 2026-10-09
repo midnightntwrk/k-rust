@@ -18,6 +18,7 @@ mod references;
 mod restriction;
 mod rules;
 mod smt;
+mod spec_modules;
 mod statics;
 mod tokens;
 mod visibility;
@@ -28,7 +29,7 @@ use crate::overlap::OverlapViolation;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 pub use raw_k::{RawKPolicy, raw_k_policy};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
@@ -37,7 +38,7 @@ use krs_ir::{
 use krs_ir_levels::SemanticTheory;
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
-use package::lower_package_module;
+use package::{lower_package_module, lower_spec_module};
 use references::validate_all_stable_references;
 
 /// Resolves one descriptor bundle into checked target-neutral IR.
@@ -114,10 +115,13 @@ pub fn lower_descriptor_bundle(
         metadata: &declaration_metadata,
     };
     let mut modules = Vec::with_capacity(packages.len());
+    let mut package_specs = Vec::new();
     for (package, package_descriptors) in packages {
+        let split = spec_modules::split_package(&package, &package_descriptors)?;
         modules.push(
             lower_package_module(
                 &package,
+                &split.definition,
                 &package_descriptors,
                 &module_ids,
                 &declaration_catalog,
@@ -126,6 +130,36 @@ pub fn lower_descriptor_bundle(
             )?
             .with_int_literals(bundle.int_literals(&package)),
         );
+        if !split.specs.is_empty() {
+            package_specs.push((package, split.specs));
+        }
+    }
+    // Only the main package's spec modules belong to this build (KF-041).
+    if let Some(main) =
+        crate::lowering::main_semantic_module(&modules).map(|module| module.id().clone())
+        && let Some((package, specs)) = package_specs
+            .into_iter()
+            .find(|(package, _)| module_ids.get(package) == Some(&main))
+    {
+        let mut reserved = BTreeSet::new();
+        for module in &modules {
+            reserved.insert(module.id().as_str().to_owned());
+            reserved.insert(format!("{}-SYNTAX", module.id().as_str()));
+        }
+        reserved.insert(format!("{}-SPEC", main.as_str()));
+        let (declarations, members): (Vec<_>, Vec<_>) = specs.into_iter().unzip();
+        let imports =
+            spec_modules::resolve_imports(&package, &declarations, &module_ids, &main, &reserved)?;
+        for ((spec, descriptors), imports) in declarations.iter().zip(&members).zip(imports) {
+            modules.push(lower_spec_module(
+                spec,
+                imports,
+                descriptors,
+                &declaration_catalog,
+                &semantic_sort_parents,
+                &production_catalog,
+            )?);
+        }
     }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
@@ -138,6 +172,8 @@ pub fn lower_descriptor_bundle(
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
     visibility::check_claim_visibility(&modules)?;
+    spec_modules::check_spec_lemmas(&modules)?;
+    spec_modules::check_spec_identifiers(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {
             declarations

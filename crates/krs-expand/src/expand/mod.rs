@@ -14,6 +14,7 @@ mod productions;
 mod rule_block;
 mod rules;
 mod sorts;
+mod spec_modules;
 mod state_rules;
 mod syntax_list;
 mod term_islands;
@@ -31,6 +32,7 @@ pub(crate) use rules::{
     alias, desugar, equation, orphan_rule_helper, priority, rule, simplification,
 };
 pub(crate) use sorts::{bracket, framework_sorts, sort, sorts, subsort};
+pub(crate) use spec_modules::spec_module;
 pub(crate) use state_rules::context_alias;
 pub(crate) use syntax_list::syntax_list;
 pub(crate) use term_islands::{cells, fragment, k, map, term};

@@ -237,6 +237,22 @@ impl Sample for DescriptorLexical {
         }]
     }
 }
+impl Sample for DescriptorSpecModuleName {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            value: sample::<String>(),
+        }]
+    }
+}
+impl Sample for DescriptorModuleImport {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            path: sample::<String>(),
+        }]
+    }
+}
 impl Sample for DescriptorLayoutRegex {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -1585,8 +1601,13 @@ impl Sample for GrammarDescriptor {
                     line: sample::<u32>(),
                     column: sample::<u32>(),
                 },
+                Self::SpecModule {
+                    key: sample::<ProvenanceKey>(),
+                    name: Some(sample::<DescriptorSpecModuleName>()),
+                    imports: sample::<Vec<DescriptorModuleImport>>(),
+                },
             ],
-            8,
+            9,
             "GrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -1597,6 +1618,7 @@ impl Sample for GrammarDescriptor {
                 Self::Lexical { .. } => 5,
                 Self::Layout { .. } => 6,
                 Self::RawSentence { .. } => 7,
+                Self::SpecModule { .. } => 8,
             },
         )
     }
@@ -2225,8 +2247,13 @@ impl Sample for WireGrammarDescriptor {
                     line: sample::<u32>(),
                     column: sample::<u32>(),
                 },
+                Self::SpecModule {
+                    key: sample::<ProvenanceKey>(),
+                    name: Some(sample::<DescriptorSpecModuleName>()),
+                    imports: sample::<Vec<DescriptorModuleImport>>(),
+                },
             ],
-            8,
+            9,
             "WireGrammarDescriptor",
             |value| match value {
                 Self::Production(..) => 0,
@@ -2237,6 +2264,7 @@ impl Sample for WireGrammarDescriptor {
                 Self::Lexical { .. } => 5,
                 Self::Layout { .. } => 6,
                 Self::RawSentence { .. } => 7,
+                Self::SpecModule { .. } => 8,
             },
         )
     }

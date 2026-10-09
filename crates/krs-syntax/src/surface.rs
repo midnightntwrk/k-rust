@@ -136,6 +136,8 @@ entry_points! {
         Fresh = "fresh",
         /// `#[k::desugar]`.
         Desugar = "desugar",
+        /// `#[k::spec_module]` on an inline `mod` (KF-041).
+        SpecModule = "spec_module",
     }
 }
 

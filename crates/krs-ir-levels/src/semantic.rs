@@ -528,6 +528,19 @@ pub struct SemanticModule {
     /// `k::raw_k!` sentences, ordered by origin.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     raw_sentences: Vec<krs_ir::RawSentence>,
+    /// Whether this is an author spec module (KF-041): a K proof module that
+    /// holds claims, simplification lemmas, and terminal tokens, imports the
+    /// definition explicitly, and is never part of the definition itself.
+    #[serde(default, skip_serializing_if = "is_false")]
+    spec: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference."
+)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn is_empty_sentences<T>(value: &SortedByKey<T>) -> bool {
@@ -619,7 +632,21 @@ impl SemanticModule {
             lexicals: SortedByKey::default(),
             layouts: SortedByKey::default(),
             raw_sentences: Vec::new(),
+            spec: false,
         }
+    }
+
+    /// Marks this module as an author spec module (KF-041).
+    #[must_use]
+    pub const fn into_spec(mut self) -> Self {
+        self.spec = true;
+        self
+    }
+
+    /// Whether this is an author spec module (KF-041).
+    #[must_use]
+    pub const fn is_spec(&self) -> bool {
+        self.spec
     }
 
     /// Sets the module's named lexicals (`k::lexical!`).
@@ -695,7 +722,7 @@ impl SemanticModule {
         krs_ir::testing::permute(&mut associativities, seed);
         krs_ir::testing::permute(&mut context_aliases, seed);
         krs_ir::testing::permute(&mut rules, seed);
-        Self::new_with_context_aliases(
+        let module = Self::new_with_context_aliases(
             self.origin.clone(),
             self.id.clone(),
             imports,
@@ -711,7 +738,12 @@ impl SemanticModule {
         .with_int_literals(self.int_literals)
         .with_lexicals(permuted(&self.lexicals, seed))
         .with_layouts(permuted(&self.layouts, seed))
-        .with_raw_sentences(self.raw_sentences.clone())
+        .with_raw_sentences(self.raw_sentences.clone());
+        if self.spec {
+            module.into_spec()
+        } else {
+            module
+        }
     }
 
     /// Returns this module's stable identity.

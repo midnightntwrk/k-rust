@@ -2,7 +2,8 @@
   "schema": 1,
   "expand": {
     "krs-verification-surface-l21": "f99fbc44b01b693669d76dd08bb8a8c49e3669060d50664ea87f925a9f708e06",
-    "krs-verification-surface-l21-readable": "26b82f1383e66bae6e401c1a64fff5d70474c7d9a8141ffdf6c97759d27dae64"
+    "krs-verification-surface-l21-readable": "26b82f1383e66bae6e401c1a64fff5d70474c7d9a8141ffdf6c97759d27dae64",
+    "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -39,6 +40,10 @@
     "krs-verification-surface-conc-smt-lemma": {
       "definition.k": "53fa2f0d70a0b525b8ff7f14c187ebe325198fd57a0121dc76ee3b7dc4838e47",
       "spec.k": "52ff6921f00ff7b21e7d2c7dba112cafdcb6ecabb5593a301b4e26dec704e681"
+    },
+    "krs-verification-surface-imp-sum": {
+      "definition.k": "662a994a80043027f66a0f29d196e8909aee9c398f13108d7d6d96bbff31d900",
+      "spec.k": "be388bad9696ce082bd89ca4af1b07fbbe40a4a6040f14faa9b81a3602f5e180"
     }
   },
   "capability_refusals": {
@@ -54,7 +59,8 @@
     "krs-verification-surface-hook-ablation": "ac79b7be1f50c86b5fc07e565a3c0c24a58c2290824435d5dfe18cf91c4a81cb",
     "krs-verification-surface-conc": "1f6252df8f13b3e26796b6b2a6cad31411bd3167f490f207e6a60fece12da1bb",
     "krs-verification-surface-conc-unrestricted": "aac7e016ebe43eb3c0978008126176e3194c7873af6104ad48e4342389e44c76",
-    "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511"
+    "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
+    "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -152,6 +158,24 @@
     ],
     "smt-lemma-untranslatable": [
       "error[krs::analysis::smt-lemma-untranslatable]: `smt_lemma` on `h_lemma` mentions function `H`, which Z3 cannot see; Z3 sees a user function only through `smtlib = \"..\"` or `smt_hook = \"..\"`, so give it one or drop `smt_lemma`"
+    ],
+    "spec-module-sort": [
+      "error[krs::analysis::invalid-spec-module]: `Extra` is a sort in spec module `KRS-SPEC-MODULE-SORT-PROOFS`; K proof modules may contain only claims, simplification lemmas, and tokens for existing sorts. Move it into the definition"
+    ],
+    "spec-module-cycle": [
+      "error[krs::analysis::invalid-spec-module]: spec-module imports form a cycle: FIRST-SPEC -> SECOND-SPEC -> FIRST-SPEC; K module imports must be acyclic"
+    ],
+    "spec-module-regex-token": [
+      "error[krs::analysis::invalid-spec-module]: the regex token `DollarId` is in spec module `KRS-SPEC-MODULE-REGEX-TOKEN-PROOFS`; a spec module adds only terminal tokens (`#[k::token(terminal = \"..\")]`), because kore-exec did not terminate with a regex token in a proof module. Declare the regex token in the definition, as upstream IMP-VERIFICATION does"
+    ],
+    "spec-module-undeclared-id": [
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-UNDECLARED-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
+    ],
+    "spec-module-smt-lemma": [
+      "error[krs::analysis::invalid-spec-module]: `smt_lemma` on `h_lemma` in spec module `KRS-SPEC-MODULE-SMT-LEMMA-PROOFS` would have no effect: kore-exec hands only the definition's lemmas to Z3. Move the lemma into the definition"
+    ],
+    "spec-module-no-definition": [
+      "error[krs::analysis::invalid-spec-module]: spec module `LONELY-SPEC` does not import the definition: its imports never reach `KRS-SPEC-MODULE-NO-DEFINITION`. Add `imports = [crate]` (or a spec module that imports it)"
     ]
   },
   "trusted_proofs": {
@@ -271,6 +295,34 @@
     "krs-verification-surface-conc-smt-lemma": {
       "go-concrete": true,
       "go-symbolic": true
+    }
+  },
+  "spec_module_proofs": {
+    "krs-verification-surface-imp-sum": {
+      "statuses": {
+        "dollar-sum-spec": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 1 of 1 claim proven"
+      ],
+      "warnings": []
+    }
+  },
+  "spec_module_refusals": {
+    "krs-verification-surface-imp-sum": {
+      "IMP-VERIFICATION-LEMMAS": [
+        "error[krs::exec::claim]: spec module `IMP-VERIFICATION-LEMMAS` has no claims of its own or through its imports"
+      ],
+      "MISSING-SPEC": [
+        "error[krs::exec::claim]: no spec module is named `MISSING-SPEC`; the definition's spec modules are `IMP-SUM-SPEC`, `IMP-VERIFICATION-LEMMAS` and the generated `IMP-VERIFICATION-SPEC`"
+      ]
+    }
+  },
+  "spec_module_kprove": {
+    "krs-verification-surface-imp-sum": {
+      "proven": true,
+      "top": true
     }
   }
 }

@@ -1014,7 +1014,38 @@ stage_shape! {
             /// One-based column of the `raw_k!` invocation.
             column: u32 => [keep],
         },
+        /// One `#[k::spec_module]` inline module (KF-041): an author K proof
+        /// module. Its Rust module path is the descriptor identity's module path.
+        SpecModule {
+            /// Module-name provenance (`spec_module_declaration`).
+            key: ProvenanceKey => [keep],
+            /// The authored `name = ".."`, when present.
+            name: Option<DescriptorSpecModuleName> => [keep],
+            /// The `imports = [..]` paths, in authored order.
+            imports: Vec<DescriptorModuleImport> => [keep],
+        },
     }
+}
+
+/// The `name = ".."` of a `#[k::spec_module]`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorSpecModuleName {
+    /// Literal provenance (`spec_module_name`).
+    pub key: ProvenanceKey,
+    /// The K module name.
+    pub value: String,
+}
+
+/// One `imports = [..]` path of a `#[k::spec_module]`, resolved by the
+/// semantic layer: `crate`, a dependency crate root, or another spec module.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorModuleImport {
+    /// Path provenance (`spec_module_import`).
+    pub key: ProvenanceKey,
+    /// The authored Rust path, `::`-separated, with a leading `::` when authored.
+    pub path: String,
 }
 
 /// Descriptor-stage form of [`StageGrammarDescriptor`].
@@ -2428,6 +2459,7 @@ impl GrammarDescriptor {
             Self::Lexical { .. } => canonical_key(ProvenanceRole::LexicalDeclaration, 0),
             Self::Layout { .. } => canonical_key(ProvenanceRole::LayoutRegex, 0),
             Self::RawSentence { .. } => canonical_key(ProvenanceRole::RawKDeclaration, 0),
+            Self::SpecModule { .. } => canonical_key(ProvenanceRole::SpecModuleDeclaration, 0),
         }
     }
 
@@ -2547,6 +2579,26 @@ impl GrammarDescriptor {
                     return Err(GrammarTransportError::EmptyCollection(
                         TransportField::RawSentenceText,
                     ));
+                }
+                Ok(())
+            }
+            Self::SpecModule { key, name, imports } => {
+                require_key(key, provenance)?;
+                if let Some(name) = name {
+                    require_key(&name.key, provenance)?;
+                    if name.value.is_empty() {
+                        return Err(GrammarTransportError::EmptyCollection(
+                            TransportField::SpecModuleName,
+                        ));
+                    }
+                }
+                for import in imports {
+                    require_key(&import.key, provenance)?;
+                    if import.path.is_empty() {
+                        return Err(GrammarTransportError::EmptyCollection(
+                            TransportField::SpecModuleImport,
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -3138,6 +3190,20 @@ impl GrammarDescriptor {
             }
             Self::RawSentence { key, .. } => {
                 insert_exact(&mut keys, key, ProvenanceRole::RawKDeclaration, 0)?;
+            }
+            Self::SpecModule { key, name, imports } => {
+                insert_exact(&mut keys, key, ProvenanceRole::SpecModuleDeclaration, 0)?;
+                if let Some(name) = name {
+                    insert_exact(&mut keys, &name.key, ProvenanceRole::SpecModuleName, 0)?;
+                }
+                for (ordinal, import) in imports.iter().enumerate() {
+                    insert_exact(
+                        &mut keys,
+                        &import.key,
+                        ProvenanceRole::SpecModuleImport,
+                        checked_index(ordinal)?,
+                    )?;
+                }
             }
         }
         Ok(keys)

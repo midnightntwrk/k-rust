@@ -963,6 +963,23 @@ fn twin(k::term![Shapes::Twin()]: Term<Value>) -> Term<Value> {
 }
 ",
     ),
+    (
+        "spec_module",
+        r#"
+#[k::spec_module(name = "ORG-LEMMAS", imports = [crate])]
+mod lemmas {
+    use super::*;
+
+    #[k::token(terminal = "main")]
+    pub type MainName = crate::Name;
+
+    #[k::simplification]
+    fn lt_irreflexive(k::term![int::lt(value, value)]: Term<Bool>) -> Term<Bool> {
+        false
+    }
+}
+"#,
+    ),
 ];
 
 /// The invocation of one case: the entry point, its call site, and its input.
@@ -994,6 +1011,7 @@ fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
         syn::Item::Struct(item) => &mut item.attrs,
         syn::Item::Trait(item) => &mut item.attrs,
         syn::Item::Type(item) => &mut item.attrs,
+        syn::Item::Mod(item) => &mut item.attrs,
         other => panic!("unsupported golden item: {}", other.to_token_stream()),
     }
 }

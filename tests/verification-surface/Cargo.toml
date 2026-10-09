@@ -9,6 +9,7 @@ members = [
     "packages/conc",
     "packages/conc-unrestricted",
     "packages/conc-smt-lemma",
+    "packages/imp-sum",
 ]
 resolver = "3"
 

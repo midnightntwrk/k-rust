@@ -421,3 +421,19 @@ pub fn project(input: TokenStream) -> TokenStream {
 pub fn desugar(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Desugar, attributes, item)
 }
+
+/// Declares an author K proof module on an inline `mod` (KF-041).
+///
+/// `#[k::spec_module(name = "IMP-SUM-SPEC", imports = [lemmas])] mod sum_spec { .. }`
+/// emits K `module IMP-SUM-SPEC imports .. endmodule` in `spec.k`. A proof
+/// module may contain only claims, simplification lemmas, and terminal tokens
+/// for existing sorts; it imports the definition explicitly (`imports =
+/// [crate]` names this package's semantics module, a dependency crate root
+/// names that package's, and a spec module names that module). A Rust `use`
+/// never changes what K sees. The name defaults to
+/// `<k-namespace>-<UPPER-KEBAB(mod name)>`; `krs prove --spec-module NAME`
+/// proves its claims.
+#[proc_macro_attribute]
+pub fn spec_module(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::SpecModule, attributes, item)
+}

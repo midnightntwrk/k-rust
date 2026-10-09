@@ -28,7 +28,7 @@
 //! | `krs::policy::krs-import` | a `use` tree that imports a KRS entry from the facade, renames the facade, glob-imports the facade, or binds the facade alias to another item; a `mod` named like the facade alias; a KRS entry named without the facade prefix | the `use` subtree, the module name, or the attribute or macro path |
 //! | `krs::policy::reserved-facade-item` | a facade path with a segment starting with `__`, in an attribute, a macro invocation, or a `use` tree | the attribute or macro path, or the `use` segment |
 //! | `krs::policy::cfg` | `#[cfg]` and `#[cfg_attr]` anywhere | the attribute |
-//! | `krs::policy::krs-item-scope` | a KRS invocation inside an inline `mod` or in a file that is not the crate root; a KRS attribute invocation, or a KRS macro in item or statement position, inside a block that no KRS invocation consumes | the attribute, or the macro path through the closing delimiter |
+//! | `krs::policy::krs-item-scope` | a KRS invocation inside an inline `mod` or in a file that is not the crate root, except directly inside a crate-root `#[k::spec_module]` `mod`, which consumes its items (KF-041); a KRS attribute invocation, or a KRS macro in item or statement position, inside a block that no KRS invocation consumes | the attribute, or the macro path through the closing delimiter |
 //! | `krs::policy::attribute-order` | an attribute in [`ORDER_SENSITIVE_ATTRIBUTES`] that precedes the first KRS attribute invocation on the same item, impl item, or trait item | the preceding attribute |
 //! | `krs::policy::reserved-name` | an item, associated item, foreign item, or `use` binding whose name, compared in ASCII lowercase, starts with [`RESERVED_NAME_PREFIX`] | the item's name, or the `use` subtree |
 //! | `krs::policy::protocol` | a malformed request or unsupported schema | none (request level) |
@@ -43,6 +43,9 @@
 //! the factories are private to the scope that defines them. A KRS macro in
 //! expression, pattern, or type position inside a block defines no factory
 //! and is accepted there, for example `k::term![…]` in a helper function.
+//! A `#[k::spec_module]` attribute on an inline crate-root `mod` expands the
+//! KRS items directly inside it and registers their factories from the crate
+//! root, so those items are in scope; a module nested inside it is not.
 //!
 //! `krs::policy::attribute-order` exists because rustc expands `#[derive]`
 //! before an attribute macro that follows it, handing the KRS attribute an

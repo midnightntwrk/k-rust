@@ -460,6 +460,12 @@ provenance_roles! {
     UnboundVariable => "unbound_variable",
     /// `_` in the result of a desugar clause that lists `_` in `unbound_variables`.
     RuleRightWildcard => "rule_right_wildcard",
+    /// The module name of a `#[k::spec_module]` inline `mod`.
+    SpecModuleDeclaration => "spec_module_declaration",
+    /// The `name = ".."` literal of a `#[k::spec_module]`.
+    SpecModuleName => "spec_module_name",
+    /// One path of a `#[k::spec_module]`'s `imports = [..]`.
+    SpecModuleImport => "spec_module_import",
 }
 
 impl Serialize for ProvenanceRole {

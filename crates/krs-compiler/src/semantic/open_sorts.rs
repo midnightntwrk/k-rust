@@ -174,7 +174,8 @@ fn open_sort_edges(
                 | GrammarDescriptor::Tokens { .. }
                 | GrammarDescriptor::Lexical { .. }
                 | GrammarDescriptor::Layout { .. }
-                | GrammarDescriptor::RawSentence { .. } => {}
+                | GrammarDescriptor::RawSentence { .. }
+                | GrammarDescriptor::SpecModule { .. } => {}
             },
         }
     }

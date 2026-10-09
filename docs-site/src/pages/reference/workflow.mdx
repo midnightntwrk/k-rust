@@ -80,7 +80,7 @@ They share the collection and lowering stages of `check`, then compile the Defin
 Their results are never reused from an earlier invocation.
 FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` binds another configuration variable by its K name (`ENV` or `$ENV`) or its init parameter (`env`).
 `run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
-`prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix.
+`prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix; `--spec-module NAME` proves the claims of an author spec module (`kprove --spec-module`) instead of the generated `<MAIN>-SPEC` ([spec modules](/verification/reachability-claims#spec-modules)).
 `--depth N` bounds rewrite steps; evaluating functions is not a step.
 `--trace` prints each rewrite step with its rule label and authored source.
 `run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.

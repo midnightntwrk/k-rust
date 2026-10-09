@@ -60,7 +60,8 @@ pub fn raw_k_policy(
             | GrammarDescriptor::Precedence { .. }
             | GrammarDescriptor::Associativity { .. }
             | GrammarDescriptor::Lexical { .. }
-            | GrammarDescriptor::Layout { .. } => Vec::new(),
+            | GrammarDescriptor::Layout { .. }
+            | GrammarDescriptor::SpecModule { .. } => Vec::new(),
         };
         if uses.is_empty() {
             continue;

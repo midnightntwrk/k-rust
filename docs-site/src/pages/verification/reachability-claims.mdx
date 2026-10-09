@@ -99,9 +99,63 @@ The claim `go(I) => true` with `requires I >Int 2` is not, on `krs prove` or Jav
 Without `concrete(x)` the simplification also rewrites `h(I)` and both claims are proved; with `#[k::simplification(concrete(x), smt_lemma)]` the prover still leaves `h(I)` alone, but Z3 knows `probeH(x) = x + 1` for every `x` and proves the claim.
 Z3 can use an `smt_lemma` only when it can see every function the lemma mentions, which is why `h` declares `smtlib`; like a trusted claim, the lemma is assumed, not checked (see [Concrete, symbolic, and SMT lemmas](/reference/language#concrete-symbolic-and-smt-lemmas)).
 
+## Spec modules
+
+K proves claims with `kprove`, which reads a different file from the one `kompile` reads.
+The definition is the language; a spec module is a proof input that imports the definition explicitly and may add only claims, simplification lemmas, and tokens for sorts the definition already declares.
+In KRS a spec module is an inline Rust `mod` carrying `#[k::spec_module]`:
+
+```rust
+// The verification package depends on IMP. Its definition module, IMP-VERIFICATION,
+// adds one token to `Id`, as upstream imp-verification.k does.
+#[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+pub type DollarId = k::builtin::Id;
+
+#[k::spec_module(name = "IMP-VERIFICATION-LEMMAS", imports = [crate])]
+pub mod lemmas {
+    use super::*;
+    #[k::simplification]
+    fn lt_irreflexive(k::term![int::lt(value, value)]: Term<Bool>) -> Term<Bool> {
+        false
+    }
+}
+
+#[k::spec_module(name = "IMP-SUM-SPEC", imports = [lemmas])]
+mod sum_spec {
+    use super::*;
+    #[k::claim(all_paths, label = "dollar-sum-spec", circularity)]
+    #[k::requires(int::ge(n, 0))]
+    fn dollar_sum_spec(/* the sum loop over $n and $s */) -> Machine { /* .. */ }
+}
+```
+
+`krs emit-k` writes the author spec modules to `spec.k` in import order, before the generated `<MAIN>-SPEC` that holds the claims outside every spec module:
+
+```text
+module IMP-SUM-SPEC
+  imports IMP-VERIFICATION-LEMMAS
+  ...
+  claim [dollar-sum-spec]:
+    <k> while ( ! ($n <= 0) ) { $s = $s + $n ; $n = $n + - 1 ; } ~> Tail:K => .K ~> Tail:K </k>
+    ...
+endmodule
+```
+
+`krs prove --spec-module IMP-SUM-SPEC` proves its claims, as `kprove spec.k --spec-module IMP-SUM-SPEC` does, and the claim labels are module-qualified (`IMP-SUM-SPEC.dollar-sum-spec`).
+Without `--spec-module`, `krs prove` proves the generated `<MAIN>-SPEC`.
+
+In Rust terms, `mod` gives the scope and `imports = [..]` is K's import: `crate` names this package's semantics module, a dependency crate root names that package's, and a spec module path names that spec module; rustc checks every path.
+A Rust `use` never changes what K sees.
+The name defaults to `<k-namespace>-<UPPER-KEBAB(mod name)>`.
+
+An identifier in a spec-module claim must be lexed by a token production the module sees, because K parses the module's claims with its own grammar and `Id` has no identifier syntax outside programs.
+That is why the definition adds the `$`-identifier token: the claim can write `$n` where a claim outside a spec module needs `#token("$n","Id")`.
+KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, a regex token there (declare it in the definition, as upstream does), an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
+Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
+
 ## Capability boundary
 
-`krs emit-k` writes claims to `spec.k`, a `<MAIN>-SPEC` module beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
+`krs emit-k` writes claims to `spec.k`, in their spec modules or in a generated `<MAIN>-SPEC` module, beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
 Claims are proof obligations, so only a proving backend consumes them.
 LLVM executes but does not prove: `krs build --backend llvm` omits every claim from its KORE and reports how many it omitted, so a definition with claims still builds a concrete interpreter.
 
@@ -114,6 +168,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 | Circular all-path | Current; the complete IMP fixture authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. |
 | Trusted all-path | Current; the verification-surface fixture emits `[trusted]`. | Current; `krs prove` reports the trusted claim `trusted` and proves the claim that applies it, and Java `kprove` proves the same spec; without the trusted claim both routes fail. |
 | One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. |
+| In an author spec module | Current; the verification-surface fixture emits two spec modules in import order before the generated module. | Current; `krs prove --spec-module IMP-SUM-SPEC` and Java `kprove --spec-module IMP-SUM-SPEC` both prove the circular sum claim over `$`-identifiers. |
 
 “Current” does not mean every true-looking claim closes within every bound.
 A proved result, an incomplete frontier, a false claim, and exhausted resources are distinct observations.

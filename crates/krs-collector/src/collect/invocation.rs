@@ -123,12 +123,39 @@ fn collect_module_items(
                 }
             }
             Item::Mod(module) => {
+                collect_spec_module_invocation(module, resolver, output)?;
                 if let Some((_, nested)) = &module.content {
                     collect_module_items(nested, invocations, resolver, output)?;
                 }
             }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+/// Reparses a `#[k::spec_module]` on an inline `mod` (KF-041).
+fn collect_spec_module_invocation(
+    module: &syn::ItemMod,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    for attribute in module
+        .attrs
+        .iter()
+        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::SpecModule))
+    {
+        let parsed = krs_syntax::SpecModuleAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
+        let item = krs_syntax::SpecModuleItem::from_item(module.clone()).map_err(source_syntax)?;
+        let mut anchors = item.provenance();
+        anchors.extend(parsed.provenance().map_err(source_syntax)?);
+        output.push(parsed_invocation(
+            ProvenanceRole::SpecModuleDeclaration,
+            module.ident.to_string(),
+            anchors,
+            ParsedInvocationPayload::Declaration,
+        )?);
     }
     Ok(())
 }

@@ -165,7 +165,7 @@ impl ImportPolicy {
     pub fn for_module(self, module: &DefinitionModule) -> Self {
         match module.role() {
             crate::ModuleRole::ProgramSyntax => Self::ProgramSyntax,
-            crate::ModuleRole::Semantics => self,
+            crate::ModuleRole::Semantics | crate::ModuleRole::Spec => self,
         }
     }
 }

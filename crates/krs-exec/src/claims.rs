@@ -29,10 +29,28 @@ pub(crate) fn catalog(
     provenance: &SentenceProvenance,
     origins: &mut Origins,
 ) -> Result<Vec<ClaimInfo>, ExecError> {
+    catalog_labelled(definition_kore, Some(main_module), provenance, origins)
+}
+
+/// Every labelled claim of an author spec module's proof definition (KF-041):
+/// the claims already live in their spec modules, so a backend label such as
+/// `IMP-SUM-SPEC.sum-spec` is the `kprove --claims` label.
+pub(crate) fn spec_catalog(
+    definition_kore: &str,
+    provenance: &SentenceProvenance,
+    origins: &mut Origins,
+) -> Result<Vec<ClaimInfo>, ExecError> {
+    catalog_labelled(definition_kore, None, provenance, origins)
+}
+
+fn catalog_labelled(
+    definition_kore: &str,
+    main_module: Option<&str>,
+    provenance: &SentenceProvenance,
+    origins: &mut Origins,
+) -> Result<Vec<ClaimInfo>, ExecError> {
     let definition = parse_definition(definition_kore)
         .map_err(|error| ExecError::Result(format!("compiled KORE does not parse: {error}")))?;
-    let spec = spec_module(main_module);
-    let native_prefix = format!("{main_module}.");
     let mut claims = Vec::new();
     for module in &definition.modules {
         for sentence in &module.sentences {
@@ -47,9 +65,22 @@ pub(crate) fn catalog(
             let Some(backend_label) = string_attribute(attributes, "label") else {
                 continue;
             };
-            let local = backend_label
-                .strip_prefix(&native_prefix)
-                .unwrap_or(backend_label);
+            let (label, module) = match main_module {
+                Some(main_module) => {
+                    let spec = spec_module(main_module);
+                    let local = backend_label
+                        .strip_prefix(&format!("{main_module}."))
+                        .unwrap_or(backend_label);
+                    (format!("{spec}.{local}"), spec)
+                }
+                None => (
+                    backend_label.to_owned(),
+                    backend_label
+                        .split_once('.')
+                        .map_or(backend_label, |(module, _)| module)
+                        .to_owned(),
+                ),
+            };
             let origin = string_attribute(attributes, "UNIQUE'Unds'ID")
                 .and_then(|id| provenance.get(id))
                 .and_then(|provenance| {
@@ -60,8 +91,8 @@ pub(crate) fn catalog(
                 })
                 .and_then(|origin| origins.span(origin));
             claims.push(ClaimInfo {
-                label: format!("{spec}.{local}"),
-                module: spec.clone(),
+                label,
+                module,
                 modality: modality(pattern),
                 origin,
                 trusted: has_attribute(attributes, "trusted"),

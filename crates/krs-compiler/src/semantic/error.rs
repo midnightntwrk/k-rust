@@ -99,6 +99,15 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the target path.
         range: Option<Box<SourceRange>>,
     },
+    /// An author spec module breaks a K proof-module rule (KF-041).
+    InvalidSpecModule {
+        /// The spec module, or the item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Complete reason naming the fix.
+        reason: String,
+        /// Sole exact authored range of the offending occurrence.
+        range: Option<Box<SourceRange>>,
+    },
     /// A claim names a private production, which its proof module cannot see.
     PrivateProductionInSpec {
         /// The private production.
@@ -364,7 +373,8 @@ impl fmt::Display for DescriptorLoweringError {
                 "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
                 rule.item_name()
             ),
-            Self::InvalidTokenSort { reason, .. }
+            Self::InvalidSpecModule { reason, .. }
+            | Self::InvalidTokenSort { reason, .. }
             | Self::InvalidSortTest { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
             | Self::InvalidLexical { reason, .. }
@@ -406,6 +416,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
+            Self::InvalidSpecModule { .. } => codes::analysis::INVALID_SPEC_MODULE,
             Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
             Self::AlwaysEnabledRule { .. } => codes::analysis::ALWAYS_ENABLED_RULE,
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
@@ -442,6 +453,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NondetGroup { range, .. }
             | Self::InvalidOverload { range, .. }
             | Self::PrivateProductionInSpec { range, .. }
+            | Self::InvalidSpecModule { range, .. }
             | Self::RuleChangesNoCell { range, .. }
             | Self::AlwaysEnabledRule { range, .. }
             | Self::GroupAndDescendant { range, .. }

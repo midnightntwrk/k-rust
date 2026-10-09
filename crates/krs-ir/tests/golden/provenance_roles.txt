@@ -207,3 +207,6 @@ StaticRecursive=static_recursive
 UnboundVariables=unbound_variables
 UnboundVariable=unbound_variable
 RuleRightWildcard=rule_right_wildcard
+SpecModuleDeclaration=spec_module_declaration
+SpecModuleName=spec_module_name
+SpecModuleImport=spec_module_import

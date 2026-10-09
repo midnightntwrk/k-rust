@@ -32,7 +32,7 @@ pub use k_rust::timings::PhaseTimings as NativePhaseTimings;
 
 pub use adapter::{
     AdaptedDefinition, AdapterError, NativeNodePlace, OriginMapping, SentenceNodeRole,
-    adapt_definition, adapt_definition_for,
+    adapt_definition, adapt_definition_for, adapt_spec_definition,
 };
 pub use error::{
     CompileError, DefinitionCompileError, DiagnosticSeverity, FrontendDiagnostic, PreparationError,
@@ -380,8 +380,39 @@ pub fn compile_definition_with_context_timed(
     options: CompileOptions,
     timings: &mut Timings,
 ) -> Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError> {
+    compile_ir(ir, None, options, timings)
+}
+
+/// Compile the proof definition of one author spec module (KF-041), as
+/// `kprove --spec-module` reads it: the spec module is the main module, and
+/// the definition's main module is checked as the definition (no claims, and
+/// the spec module adds no syntax beyond tokens).
+///
+/// # Errors
+///
+/// Fails as [`compile_definition_with_context_timed`] does, and with an adapter
+/// error when `spec_module` names no spec module.
+pub fn compile_spec_definition_with_context_timed(
+    ir: &DefinitionIr,
+    spec_module: &str,
+    options: CompileOptions,
+    timings: &mut Timings,
+) -> Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError> {
+    compile_ir(ir, Some(spec_module), options, timings)
+}
+
+fn compile_ir(
+    ir: &DefinitionIr,
+    spec_module: Option<&str>,
+    options: CompileOptions,
+    timings: &mut Timings,
+) -> Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError> {
     let adapted = timings.try_span("native.adapt", |_| {
-        adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)
+        match spec_module {
+            None => adapt_definition_for(ir, options.backend),
+            Some(spec_module) => adapter::adapt_spec_definition(ir, spec_module),
+        }
+        .map_err(DefinitionCompileError::Adapter)
     })?;
     let loaded = timings.try_span("native.prepare", |_| {
         prepare_definition(adapted.definition.clone(), options.backend).map_err(|mut error| {
@@ -391,11 +422,14 @@ pub fn compile_definition_with_context_timed(
         })
     })?;
     let mut artifacts = timings.try_span("native.compile", |timings| {
+        let definition_module = spec_module.map(|_| ir.main_module().as_str().to_owned());
         let (artifacts, phases) =
-            compile_loaded_definition_timed(&loaded, options).map_err(|mut error| {
-                resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
-                DefinitionCompileError::Compile(error)
-            })?;
+            compile_loaded_definition_with(&loaded, options, definition_module).map_err(
+                |mut error| {
+                    resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
+                    DefinitionCompileError::Compile(error)
+                },
+            )?;
         for phase in phases.phases {
             timings.record(phase.name, phase.seconds, phase.depth);
         }
@@ -471,6 +505,17 @@ pub fn compile_loaded_definition_timed(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
+    compile_loaded_definition_with(loaded, options, None)
+}
+
+/// [`compile_loaded_definition_timed`], checking a proof definition whose
+/// definition module is `definition_module` when one is given (an author spec
+/// module's proof definition, KF-041).
+fn compile_loaded_definition_with(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+    definition_module: Option<String>,
+) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
         Backend::Haskell => kompile::CompilationBackend::Rust,
@@ -487,7 +532,9 @@ pub fn compile_loaded_definition_timed(
             // share the selected main module. Tell the upstream checker to use
             // its explicit colocated-proof policy; claim-free inputs retain the
             // stricter definition-only policy.
-            check_mode: if loaded.definition().modules.iter().any(|module| {
+            check_mode: if let Some(definition_module) = definition_module {
+                NativeCheckMode::Proof { definition_module }
+            } else if loaded.definition().modules.iter().any(|module| {
                 module
                     .local_sentences
                     .iter()

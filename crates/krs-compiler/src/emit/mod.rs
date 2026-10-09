@@ -46,11 +46,13 @@ pub struct EmittedK {
     source_map: SourceMap,
 }
 
-/// Canonical claims-only K specification.
+/// Canonical K specification: the author spec modules (KF-041), then the
+/// generated `<MAIN>-SPEC` holding the loose claims.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedSpec {
     source: String,
-    module: String,
+    modules: Vec<String>,
+    generated: Option<String>,
 }
 
 impl EmittedSpec {
@@ -60,10 +62,18 @@ impl EmittedSpec {
         &self.source
     }
 
-    /// Returns the specification module name, the main module suffixed `-SPEC`.
+    /// Returns every specification module name in emitted order: author spec
+    /// modules in import order, then the generated module.
     #[must_use]
-    pub fn module(&self) -> &str {
-        &self.module
+    pub fn modules(&self) -> &[String] {
+        &self.modules
+    }
+
+    /// Returns the generated module holding the loose claims, the main module
+    /// suffixed `-SPEC`, when a claim outside every spec module exists.
+    #[must_use]
+    pub fn generated_module(&self) -> Option<&str> {
+        self.generated.as_deref()
     }
 }
 
@@ -171,7 +181,11 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     let mut claims = Vec::new();
     // Each package's program-syntax module precedes the semantics module that
     // imports it, as in the K tutorials' `IMP-SYNTAX`/`IMP` pairs.
-    let mut modules = definition.modules().iter().collect::<Vec<_>>();
+    let mut modules = definition
+        .modules()
+        .iter()
+        .filter(|module| !module.is_spec())
+        .collect::<Vec<_>>();
     modules.sort_by_key(|module| {
         let name = module.id().as_str();
         match module.role() {
@@ -180,20 +194,33 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
                     .unwrap_or(name),
                 0,
             ),
-            ModuleRole::Semantics => (name, 1),
+            ModuleRole::Semantics | ModuleRole::Spec => (name, 1),
         }
     });
     for (index, module) in modules.into_iter().enumerate() {
         if index != 0 {
             writer.push("\n");
         }
-        emit_module(module, &context, &mut writer, &mut claims)?;
+        emit_module(module, &context, &mut writer, Some(&mut claims))?;
     }
     if !writer.source.ends_with('\n') {
         writer.push("\n");
     }
     let mut spec_writer = Writer::default();
-    let spec_module = if claims.is_empty() {
+    let author_modules = spec_modules_in_import_order(definition);
+    let mut spec_modules = Vec::new();
+    if !claims.is_empty() || !author_modules.is_empty() {
+        spec_writer.push("requires \"");
+        spec_writer.push(DEFINITION_ARTIFACT);
+        spec_writer.push("\"\n");
+    }
+    for module in author_modules {
+        let spec_context = EmitContext::new(definition).for_spec_module(definition, module);
+        spec_writer.push("\n");
+        emit_module(module, &spec_context, &mut spec_writer, None)?;
+        spec_modules.push(module.id().as_str().to_owned());
+    }
+    let generated = if claims.is_empty() {
         None
     } else {
         let main = definition.main_module().as_str();
@@ -208,9 +235,7 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
                 detail: format!("module {module:?} collides with the generated claims module"),
             });
         }
-        spec_writer.push("requires \"");
-        spec_writer.push(DEFINITION_ARTIFACT);
-        spec_writer.push("\"\n\nmodule ");
+        spec_writer.push("\nmodule ");
         spec_writer.push(&module);
         spec_writer.push("\n  imports ");
         spec_writer.push(main);
@@ -219,6 +244,7 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
             emit_sentence(claim, &context, &mut spec_writer)?;
         }
         spec_writer.push("endmodule\n");
+        spec_modules.push(module.clone());
         Some(module)
     };
     let source_map = lowered.source_map().clone().with_generated_ranges(&[
@@ -227,13 +253,41 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     ])?;
     Ok(EmittedK {
         source: writer.source,
-        spec: spec_module.map(|module| EmittedSpec {
+        spec: (!spec_modules.is_empty()).then_some(EmittedSpec {
             source: spec_writer.source,
-            module,
+            modules: spec_modules,
+            generated,
         }),
         symbol_map: lowered.symbol_map().clone(),
         source_map,
     })
+}
+
+/// The author spec modules (KF-041), each after every spec module it imports,
+/// otherwise by name.
+#[must_use]
+pub fn spec_modules_in_import_order(definition: &DefinitionIr) -> Vec<&DefinitionModule> {
+    let mut pending = definition
+        .modules()
+        .iter()
+        .filter(|module| module.is_spec())
+        .collect::<Vec<_>>();
+    pending.sort_by(|left, right| left.id().cmp(right.id()));
+    let mut ordered: Vec<&DefinitionModule> = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let position = pending
+            .iter()
+            .position(|module| {
+                module
+                    .imports()
+                    .iter()
+                    .all(|import| !pending.iter().any(|other| other.id() == import))
+            })
+            // An import cycle is rejected before lowering; never loop.
+            .unwrap_or(0);
+        ordered.push(pending.remove(position));
+    }
+    ordered
 }
 
 struct EmitContext<'a> {
@@ -242,6 +296,9 @@ struct EmitContext<'a> {
     repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
     naming: VariableNaming,
     lexicon: TokenLexicon,
+    /// In an author spec module (KF-041), the `Id` tokens its grammar lexes,
+    /// which print bare.
+    spec_identifiers: Option<crate::spec_tokens::IdLexicon>,
 }
 
 impl<'a> EmitContext<'a> {
@@ -269,7 +326,49 @@ impl<'a> EmitContext<'a> {
             repeated_ancestors,
             naming: VariableNaming::new(definition),
             lexicon: TokenLexicon::new(definition),
+            spec_identifiers: None,
         }
+    }
+
+    /// The context of one author spec module: identifiers that a token
+    /// production the module sees lexes print bare, as upstream specs write
+    /// `$n`.
+    fn for_spec_module(mut self, definition: &DefinitionIr, module: &DefinitionModule) -> Self {
+        let mut seen = BTreeSet::new();
+        let mut pending = vec![module.id()];
+        let mut visible = Vec::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(module) = definition.modules().iter().find(|module| module.id() == id) {
+                visible.push(module);
+                pending.extend(module.imports());
+            }
+        }
+        self.spec_identifiers = Some(crate::spec_tokens::IdLexicon::new(
+            visible
+                .into_iter()
+                .flat_map(DefinitionModule::sentences)
+                .filter_map(|sentence| match sentence {
+                    DefinitionSentence::Production(production)
+                        if production.result_sort()
+                            == &DefinitionSortRef::Builtin(krs_ir::BuiltinSort::Id)
+                            && production.attributes().iter().any(|attribute| {
+                                matches!(attribute, krs_ir::ProductionAttribute::Token { .. })
+                            }) =>
+                    {
+                        Some(
+                            production
+                                .items()
+                                .iter()
+                                .map(krs_ir::GrammarProductionItem::kind),
+                        )
+                    }
+                    _ => None,
+                }),
+        ));
+        self
     }
 
     /// Spells a token bare when K's rule parser lexes that spelling back to the same token of the
@@ -277,6 +376,14 @@ impl<'a> EmitContext<'a> {
     fn token(&self, value: &str, sort: &DefinitionSortRef) -> Result<String, EmitError> {
         if let DefinitionSortRef::Builtin(builtin) = sort
             && self.lexicon.is_bare(*builtin, value)
+        {
+            return Ok(value.to_owned());
+        }
+        if let DefinitionSortRef::Builtin(krs_ir::BuiltinSort::Id) = sort
+            && self
+                .spec_identifiers
+                .as_ref()
+                .is_some_and(|identifiers| identifiers.lexes(value))
         {
             return Ok(value.to_owned());
         }
@@ -397,11 +504,13 @@ impl Writer {
 }
 
 /// Renders `module` without its claims, which are appended to `claims`.
+/// Emits one module. With `claims`, the module's claims are moved there for
+/// the generated `<MAIN>-SPEC`; a spec module keeps its own claims.
 fn emit_module<'a>(
     module: &'a DefinitionModule,
     context: &EmitContext<'_>,
     writer: &mut Writer,
-    claims: &mut Vec<&'a DefinitionSentence>,
+    claims: Option<&mut Vec<&'a DefinitionSentence>>,
 ) -> Result<(), EmitError> {
     let module_start = writer.source.len();
     writer.push("module ");
@@ -415,10 +524,16 @@ fn emit_module<'a>(
     }
     let mut sentences = module.sentences().iter().collect::<Vec<_>>();
     sentences.sort_by_key(|sentence| sentence_key(sentence));
-    let (module_claims, sentences): (Vec<_>, Vec<_>) = sentences
-        .into_iter()
-        .partition(|sentence| is_claim(sentence));
-    claims.extend(module_claims);
+    let sentences = match claims {
+        Some(claims) => {
+            let (module_claims, sentences): (Vec<_>, Vec<_>) = sentences
+                .into_iter()
+                .partition(|sentence| is_claim(sentence));
+            claims.extend(module_claims);
+            sentences
+        }
+        None => sentences,
+    };
     if !imports.is_empty() && !sentences.is_empty() {
         writer.push("\n");
     }

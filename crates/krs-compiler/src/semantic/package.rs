@@ -44,9 +44,14 @@ pub(super) struct ModuleSentences {
     pub(super) raw_sentences: Vec<krs_ir::RawSentence>,
 }
 
+/// Lowers a package's definition module from `descriptors`. Its imports
+/// follow the references of every descriptor in `referencing`, which includes
+/// the package's spec modules (KF-041): a spec module imports the definition
+/// through `crate`, so the definition must import what the spec module names.
 pub(super) fn lower_package_module(
     package: &PackageId,
     descriptors: &[&Descriptor],
+    referencing: &[&Descriptor],
     module_ids: &BTreeMap<PackageId, ModuleId>,
     declarations: &DeclarationCatalog<'_>,
     semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
@@ -67,7 +72,7 @@ pub(super) fn lower_package_module(
                 detail: format!("package {package} has no semantic descriptors"),
             })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
-    let imports = referenced_packages(descriptors)
+    let imports = referenced_packages(referencing)
         .into_iter()
         .filter(|referenced| referenced != package)
         .map(|referenced| {
@@ -79,7 +84,47 @@ pub(super) fn lower_package_module(
             })
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
+    build_module(
+        module_origin,
+        module_id,
+        imports.into_iter().collect(),
+        descriptors,
+        declarations,
+        semantic_sort_parents,
+        production_catalog,
+    )
+}
 
+/// Lowers one author spec module (KF-041) with its resolved imports.
+pub(super) fn lower_spec_module(
+    spec: &super::spec_modules::SpecDeclaration<'_>,
+    imports: Vec<ModuleId>,
+    descriptors: &[&Descriptor],
+    declarations: &DeclarationCatalog<'_>,
+    semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<SemanticModule, DescriptorLoweringError> {
+    Ok(build_module(
+        semantic_origin_from_primary(spec.descriptor, "spec-module")?,
+        spec.name.clone(),
+        imports,
+        descriptors,
+        declarations,
+        semantic_sort_parents,
+        production_catalog,
+    )?
+    .into_spec())
+}
+
+fn build_module(
+    module_origin: krs_ir::NodeOrigin,
+    module_id: ModuleId,
+    imports: Vec<ModuleId>,
+    descriptors: &[&Descriptor],
+    declarations: &DeclarationCatalog<'_>,
+    semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<SemanticModule, DescriptorLoweringError> {
     let mut sentences = ModuleSentences::default();
     for descriptor in descriptors {
         lower_module_descriptor(
@@ -113,7 +158,7 @@ pub(super) fn lower_package_module(
     Ok(SemanticModule::new_with_context_aliases(
         module_origin,
         module_id,
-        imports.into_iter().collect(),
+        imports,
         sorts,
         subsorts,
         productions,
@@ -357,7 +402,8 @@ fn collect_grammar_packages(grammar: &GrammarDescriptor, packages: &mut BTreeSet
         | GrammarDescriptor::Associativity { .. }
         | GrammarDescriptor::Lexical { .. }
         | GrammarDescriptor::Layout { .. }
-        | GrammarDescriptor::RawSentence { .. } => {}
+        | GrammarDescriptor::RawSentence { .. }
+        | GrammarDescriptor::SpecModule { .. } => {}
     }
 }
 

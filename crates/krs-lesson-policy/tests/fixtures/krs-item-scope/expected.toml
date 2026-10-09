@@ -15,3 +15,9 @@ code = "krs::policy::krs-item-scope"
 start = 199
 end = 231
 text = "k::rules! {\n        for M;\n    }"
+
+[[diagnostic]]
+code = "krs::policy::krs-item-scope"
+start = 310
+end = 350
+text = "k::rules! {\n            for M;\n        }"

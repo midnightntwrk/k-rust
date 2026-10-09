@@ -152,7 +152,8 @@ fn validate_grammar_references(
         | GrammarDescriptor::Associativity { .. }
         | GrammarDescriptor::Lexical { .. }
         | GrammarDescriptor::Layout { .. }
-        | GrammarDescriptor::RawSentence { .. } => {}
+        | GrammarDescriptor::RawSentence { .. }
+        | GrammarDescriptor::SpecModule { .. } => {}
     }
     Ok(())
 }

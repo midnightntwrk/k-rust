@@ -72,6 +72,8 @@ pub(super) fn lower_grammar_descriptor(
         GrammarDescriptor::Lexical { .. } | GrammarDescriptor::Layout { .. } => {
             lower_lexing_descriptor(descriptor, grammar, module)?;
         }
+        // A spec-module declaration is not a sentence; `spec_modules` reads it.
+        GrammarDescriptor::SpecModule { .. } => {}
         GrammarDescriptor::Associativity { sentences, .. } => {
             for sentence in sentences {
                 module.associativities.push(

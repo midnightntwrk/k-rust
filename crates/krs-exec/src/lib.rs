@@ -37,6 +37,7 @@ use krs_ir_levels::DefinitionIr;
 use krs_k_rust::{
     CompileOptions, CompiledArtifacts, ConfigurationContext, DefinitionCompileError,
     NativeDefinition, SentenceProvenance, compile_definition_with_context_timed,
+    compile_spec_definition_with_context_timed,
 };
 
 pub use configuration::Configuration;
@@ -228,6 +229,18 @@ pub enum ExecError {
     },
     /// `prove` on a definition without claims.
     NoClaims,
+    /// `--spec-module` named an author spec module without claims (KF-041).
+    NoSpecClaims(String),
+    /// `--spec-module` named no author spec module, or (without it) every
+    /// claim is in a spec module (KF-041).
+    UnknownSpecModule {
+        /// The module as written, or `None` when `--spec-module` was not given.
+        requested: Option<String>,
+        /// The author spec modules.
+        modules: Vec<String>,
+        /// The generated module of the loose claims.
+        generated: String,
+    },
     /// `search` on a definition with stream cells.
     SearchWithStreams,
     /// An operation this build or this unit does not provide.
@@ -297,6 +310,32 @@ impl fmt::Display for ExecError {
                     .join(", ")
             ),
             Self::NoClaims => formatter.write_str("this definition has no claims"),
+            Self::NoSpecClaims(module) => write!(
+                formatter,
+                "spec module `{module}` has no claims of its own or through its imports"
+            ),
+            Self::UnknownSpecModule {
+                requested,
+                modules,
+                generated,
+            } => {
+                let modules = modules
+                    .iter()
+                    .map(|module| format!("`{module}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match requested {
+                    Some(requested) => write!(
+                        formatter,
+                        "no spec module is named `{requested}`; the definition's spec modules are {} and the generated `{generated}`",
+                        if modules.is_empty() { "none".to_owned() } else { modules }
+                    ),
+                    None => write!(
+                        formatter,
+                        "every claim of this definition is in a spec module; pass --spec-module with one of {modules}"
+                    ),
+                }
+            }
             Self::SearchWithStreams => formatter.write_str(
                 "krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)",
             ),
@@ -345,6 +384,18 @@ pub struct Semantics {
     user_sorts: Vec<String>,
     origins: origin::Origins,
     console: console::ConsoleCells,
+    /// The author spec modules (KF-041), by name.
+    spec_modules: Vec<String>,
+    /// The Definition IR, kept to compile a spec module's proof definition on demand.
+    spec_definition: Option<Box<DefinitionIr>>,
+    /// Compiled spec-module proof definitions, by spec module.
+    spec_provers: BTreeMap<String, SpecProver>,
+}
+
+/// One author spec module's compiled proof definition (KF-041).
+struct SpecProver {
+    backend: Backend,
+    claims: Vec<ClaimInfo>,
 }
 
 impl Semantics {
@@ -415,6 +466,13 @@ impl Semantics {
             &sentence_provenance,
             &mut origins,
         )?;
+        let spec_modules = definition
+            .modules()
+            .iter()
+            .filter(|module| module.is_spec())
+            .map(|module| module.id().as_str().to_owned())
+            .collect::<Vec<_>>();
+        let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         Ok(Self {
             backend,
             unparser,
@@ -428,7 +486,65 @@ impl Semantics {
             user_sorts,
             origins,
             console,
+            spec_modules,
+            spec_definition,
+            spec_provers: BTreeMap::new(),
         })
+    }
+
+    /// The author spec modules (KF-041), by name.
+    #[must_use]
+    pub fn spec_modules(&self) -> &[String] {
+        &self.spec_modules
+    }
+
+    /// The claims of one author spec module's proof definition, compiling it on first use.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::UnknownSpecModule`], or the compile or backend error.
+    pub fn spec_claims(&mut self, module: &str) -> Result<&[ClaimInfo], ExecError> {
+        Ok(&self.spec_prover(module)?.claims)
+    }
+
+    fn spec_prover(&mut self, module: &str) -> Result<&mut SpecProver, ExecError> {
+        if !self.spec_provers.contains_key(module) {
+            let definition = self
+                .spec_definition
+                .as_deref()
+                .filter(|_| self.spec_modules.iter().any(|name| name == module))
+                .ok_or_else(|| ExecError::UnknownSpecModule {
+                    requested: Some(module.to_owned()),
+                    modules: self.spec_modules.clone(),
+                    generated: claims::spec_module(&self.main_module),
+                })?;
+            let (artifacts, _) = compile_spec_definition_with_context_timed(
+                definition,
+                module,
+                CompileOptions {
+                    backend: krs_k_rust::Backend::Haskell,
+                    ..CompileOptions::default()
+                },
+                &mut Timings::disabled(),
+            )
+            .map_err(ExecError::Compile)?;
+            let backend = Backend::new(
+                &artifacts.definition_kore,
+                module.to_owned(),
+                BackendOptions::default(),
+            )?;
+            let claims = claims::spec_catalog(
+                &artifacts.definition_kore,
+                &artifacts.sentence_provenance,
+                &mut self.origins,
+            )?;
+            self.spec_provers
+                .insert(module.to_owned(), SpecProver { backend, claims });
+        }
+        Ok(self
+            .spec_provers
+            .get_mut(module)
+            .expect("the spec prover was just inserted"))
     }
 
     /// The compiled KORE definition text.
@@ -731,51 +847,23 @@ impl Semantics {
         if let Some(module) = &options.module
             && module != &claims::spec_module(&self.main_module)
         {
-            return Err(ExecError::Unavailable(format!(
-                "spec module `{module}` is unavailable: author spec modules (KF-041) are not built yet; the generated module is `{}`",
-                claims::spec_module(&self.main_module)
-            )));
+            let prover = self.spec_prover(module)?;
+            if prover.claims.is_empty() {
+                return Err(ExecError::NoSpecClaims(module.clone()));
+            }
+            return prove_claims(&mut prover.backend, &prover.claims, options);
         }
         if self.claims.is_empty() {
+            if !self.spec_modules.is_empty() {
+                return Err(ExecError::UnknownSpecModule {
+                    requested: None,
+                    modules: self.spec_modules.clone(),
+                    generated: claims::spec_module(&self.main_module),
+                });
+            }
             return Err(ExecError::NoClaims);
         }
-        let selected = claims::select(&self.claims, &options.claims)?;
-        let mut reports = Vec::with_capacity(selected.len());
-        for index in selected {
-            let claim = self.claims[index].clone();
-            let result = self.backend.prove(ProveRequest {
-                claim: Some(claim.backend_label.clone()),
-                max_depth: options.depth,
-                ..ProveRequest::default()
-            })?;
-            let mut verdict = Verdict::from_backend(&result.status).ok_or_else(|| {
-                ExecError::Result(format!("unknown proof status `{}`", result.status))
-            })?;
-            // The backend assumes a trusted claim and reports it proven; KRS never calls an
-            // assumption proven (KF-042).
-            if claim.trusted && verdict == Verdict::Proven {
-                verdict = Verdict::Trusted;
-            }
-            let leaves = result
-                .leaves
-                .iter()
-                .map(|leaf| {
-                    Ok(ProofLeaf {
-                        state: term(&leaf.state)?,
-                        depth: leaf.depth,
-                        outcome: leaf.outcome.clone(),
-                    })
-                })
-                .collect::<Result<Vec<_>, ExecError>>()?;
-            reports.push(ProofReport {
-                claim: claim.label,
-                modality: claim.modality,
-                origin: claim.origin,
-                verdict,
-                leaves,
-            });
-        }
-        Ok(reports)
+        prove_claims(&mut self.backend, &self.claims, options)
     }
 
     /// Render a term.
@@ -838,6 +926,51 @@ pub fn compile_definition(
         },
         timings,
     )
+}
+
+/// Prove the selected claims of `catalog` on `backend`, one proof per claim, in selection order.
+fn prove_claims(
+    backend: &mut Backend,
+    catalog: &[ClaimInfo],
+    options: &ProveOptions,
+) -> Result<Vec<ProofReport>, ExecError> {
+    let selected = claims::select(catalog, &options.claims)?;
+    let mut reports = Vec::with_capacity(selected.len());
+    for index in selected {
+        let claim = catalog[index].clone();
+        let result = backend.prove(ProveRequest {
+            claim: Some(claim.backend_label.clone()),
+            max_depth: options.depth,
+            ..ProveRequest::default()
+        })?;
+        let mut verdict = Verdict::from_backend(&result.status).ok_or_else(|| {
+            ExecError::Result(format!("unknown proof status `{}`", result.status))
+        })?;
+        // The backend assumes a trusted claim and reports it proven; KRS never calls an
+        // assumption proven (KF-042).
+        if claim.trusted && verdict == Verdict::Proven {
+            verdict = Verdict::Trusted;
+        }
+        let leaves = result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                Ok(ProofLeaf {
+                    state: term(&leaf.state)?,
+                    depth: leaf.depth,
+                    outcome: leaf.outcome.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, ExecError>>()?;
+        reports.push(ProofReport {
+            claim: claim.label,
+            modality: claim.modality,
+            origin: claim.origin,
+            verdict,
+            leaves,
+        });
+    }
+    Ok(reports)
 }
 
 fn search_backend(

@@ -26,7 +26,7 @@ Usage:
   krs search --package P --definition D [FILE|-] [-c NAME=TEXT]...
              [--mode final|all|one-step|one-or-more-steps] [--depth N] [--max-solutions N]
              [--trace] [--output kast|json|kore] [--color auto|always|never]
-  krs prove  --package P --definition D [--claim LABEL]... [--depth N] [--output kast|json|kore]
+  krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N] [--output kast|json|kore]
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
 
@@ -56,6 +56,7 @@ Options:
   --trace                    Print each rewrite step with its rule and source
   --mode MODE                Search mode (default: final)
   --max-solutions N          Stop search after N solutions
+  --spec-module NAME         Prove the claims of this author spec module (default: the generated <MAIN>-SPEC)
   --claim LABEL              Prove only this claim (exact label or unique suffix); repeatable
   --sort SORT                Parse at SORT (default: the sort of $PGM)
   --color WHEN               Colour pretty output (auto, always, never)
@@ -263,6 +264,7 @@ struct ExecOptions {
     mode: Option<SearchMode>,
     max_solutions: Option<usize>,
     claims: Vec<String>,
+    spec_module: Option<String>,
     sort: Option<String>,
     color: Option<ColorChoice>,
 }
@@ -456,12 +458,13 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 }
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 7] = [
+const EXEC_LONG_OPTIONS: [&str; 8] = [
     "depth",
     "max-solutions",
     "mode",
     "trace",
     "claim",
+    "spec-module",
     "sort",
     "color",
 ];
@@ -519,6 +522,11 @@ fn exec_option(
             exec.note("--claim");
             exec.claims.push(option_value(parser, "claim label")?);
         }
+        "spec-module" => {
+            exec.note("--spec-module");
+            let module = option_value(parser, "spec module")?;
+            set_once(&mut exec.spec_module, module, "--spec-module")?;
+        }
         "sort" => {
             exec.note("--sort");
             let sort = option_value(parser, "sort")?;
@@ -554,7 +562,7 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--trace",
             "--color",
         ],
-        CommandKind::Prove => &["--claim", "--depth", "--color"],
+        CommandKind::Prove => &["--spec-module", "--claim", "--depth", "--color"],
         CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => &[],
     }
 }
@@ -635,6 +643,7 @@ fn exec_command(
             color,
         }),
         CommandKind::Prove => Command::Prove(ProveRequest {
+            spec_module: exec.spec_module,
             claims: exec.claims,
             depth: exec.depth,
             output,
@@ -1266,6 +1275,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One table of every run-family command keeps their parses side by side."
+    )]
     fn parses_run_family_commands() {
         let base = ["--package", "imp", "--definition", "main"];
         let with = |verb: &str, extra: &[&str]| {
@@ -1337,9 +1350,20 @@ mod tests {
                 ]
             ),
             Command::Prove(ProveRequest {
+                spec_module: None,
                 claims: vec!["branching".to_owned(), "MAIN-SPEC.sum".to_owned()],
                 depth: None,
                 output: TermOutput::Kore,
+                color: ColorChoice::Auto,
+            })
+        );
+        assert_eq!(
+            with("prove", &["--spec-module", "IMP-SUM-SPEC"]),
+            Command::Prove(ProveRequest {
+                spec_module: Some("IMP-SUM-SPEC".to_owned()),
+                claims: Vec::new(),
+                depth: None,
+                output: TermOutput::Pretty,
                 color: ColorChoice::Auto,
             })
         );
@@ -1401,6 +1425,14 @@ mod tests {
         assert_eq!(
             failure("check", &["--claim", "x"]),
             "--claim does not apply to krs check"
+        );
+        assert_eq!(
+            failure("run", &["--spec-module", "IMP-SUM-SPEC"]),
+            "--spec-module does not apply to krs run"
+        );
+        assert_eq!(
+            failure("prove", &["--spec-module", "A", "--spec-module", "B"]),
+            "--spec-module specified more than once"
         );
         assert_eq!(
             failure("prove", &["prog.imp"]),

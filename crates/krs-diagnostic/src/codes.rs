@@ -202,6 +202,7 @@ register_codes! {
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",
         INCOMPATIBLE_BINDER: "krs::analysis::incompatible-binder" => "A typed binder's declared sort is not a subsort of the sort one of its occurrences needs.",
+        INVALID_SPEC_MODULE: "krs::analysis::invalid-spec-module" => "An author spec module breaks a K proof-module rule: it holds something other than claims, simplification lemmas, and terminal tokens for existing sorts, holds a regex token or an `smt_lemma` lemma, nests, has an import cycle or an import that resolves to no module, does not import the definition, reuses a module name, or names an `Id` its grammar cannot lex.",
     }
     /// Diagnostics forwarded from Rust expansion without a rustc-owned code.
     rust_expansion {
@@ -271,6 +272,7 @@ register_codes! {
         INVALID_MATCH_RESTRICTION_KEY: "krs::syntax::invalid-match-restriction" => "A `concrete`, `symbolic`, or `smt_lemma` key was malformed: repeated, `concrete` or `symbolic` both bare and with a list, an empty list, or a key on `#[k::rule]`.",
         INVALID_SMT_METADATA: "krs::syntax::invalid-smt-metadata" => "A function's `smtlib` or `smt_hook` was malformed: both keys, an `smtlib` value that is not an SMT-LIB simple symbol, or an `smt_hook` template with a placeholder naming no field, unbalanced parentheses, a positional `#N`, or a `\"`.",
         INVALID_UNBOUND_VARIABLES: "krs::syntax::invalid-unbound-variables" => "An `unbound_variables = [..]` key was malformed or misplaced: outside a desugar clause's `#[k::desugar(..)]`, an empty or repeated list, a name the clause's pattern binds or its result does not use, or `_` with no `_` in the result.",
+        INVALID_SPEC_MODULE: "krs::syntax::invalid-spec-module" => "A `#[k::spec_module]` was malformed: it is not on an inline `mod`, repeats or misspells a key, or names an invalid K module or one ending in the reserved `-SYNTAX` suffix.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {
@@ -282,7 +284,8 @@ register_codes! {
         NESTED_ATTRIBUTE: "krs::expand::nested-attribute" => "An expansion emitted a KRS attribute invocation, which this driver does not expand.",
         RECURSION: "krs::expand::recursion-limit" => "Rescanned invocations nest deeper than the expansion recursion limit.",
         REGISTRATION_SCOPE: "krs::expand::registration-scope" => "A descriptor factory is defined where the crate-root registration table cannot name it.",
-        SELECTION: "krs::expand::selection" => "An explicitly selected invocation does not match a discovered one.",
+SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spec_module]` cannot be expanded there: a nested spec module, or an attribute on a KRS macro.",
+                SELECTION: "krs::expand::selection" => "An explicitly selected invocation does not match a discovered one.",
         PRINT: "krs::expand::print" => "An expansion cannot be printed as text without changing its tokens.",
         DESCRIPTOR_CAPACITY: "krs::expand::descriptor-capacity" => "A descriptor count or ordinal exceeds its u32 representation.",
         HELPER_PAYLOAD_FORM: "krs::expand::helper-payload-form" => "A helper attribute requires a parenthesized payload.",

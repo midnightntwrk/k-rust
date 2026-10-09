@@ -13,6 +13,7 @@ expect-test = "1.5.1"
 prettyplease = "0.2.37"
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"
+regex = "1.13.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = { version = "1.0.140", features = ["unbounded_depth"] }
 sha2 = "0.10.9"

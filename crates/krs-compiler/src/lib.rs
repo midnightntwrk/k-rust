@@ -16,6 +16,7 @@ mod reference;
 mod semantic;
 mod sidecar;
 mod sort_tests;
+mod spec_tokens;
 #[cfg(feature = "test-support")]
 pub mod testing;
 

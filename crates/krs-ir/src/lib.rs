@@ -135,14 +135,14 @@ pub use transport::grammar::{
     DescriptorEquationAttributes, DescriptorFieldReference, DescriptorFormatFragment,
     DescriptorGroupReference, DescriptorLayoutRegex, DescriptorLexical,
     DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorMatchRestriction,
-    DescriptorNondetGroup, DescriptorPrecedenceChain, DescriptorProduction,
+    DescriptorModuleImport, DescriptorNondetGroup, DescriptorPrecedenceChain, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
     DescriptorRestriction, DescriptorRestrictionVariable, DescriptorRuleCondition,
     DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
     DescriptorSimplificationPriority, DescriptorSmtFragment, DescriptorSortRef,
-    DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, DescriptorUnboundVariable,
-    DescriptorUnboundVariables, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
-    GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
+    DescriptorSortReference, DescriptorSpecModuleName, DescriptorTerm, DescriptorTermArgument,
+    DescriptorUnboundVariable, DescriptorUnboundVariables, ENUM_VARIANT_DISAMBIGUATOR_PREFIX,
+    GrammarDescriptor, GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
     HostApplicationTarget, HostBuiltinRegistry, HostBuiltinRegistryError, HostCellTermField,
     HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
     HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction,
@@ -191,7 +191,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(49);
+    pub const CURRENT: Self = Self(50);
 }
 
 impl Default for SchemaVersion {

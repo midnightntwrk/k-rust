@@ -57,6 +57,7 @@ pub(crate) fn check(
         block_scope: 0,
         item_position: false,
         krs_depth: 0,
+        in_spec_module: false,
         helpers: PendingHelpers::default(),
     };
     match &parsed {
@@ -176,6 +177,8 @@ struct Checker<'a, 'ast> {
     item_position: bool,
     /// Enclosing KRS invocations.
     krs_depth: usize,
+    /// Whether the items being visited are directly inside a spec module.
+    in_spec_module: bool,
     helpers: PendingHelpers,
 }
 
@@ -1201,6 +1204,14 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                 self.check_out_of_line_module(&name, range);
             }
             Some((_, items)) => {
+                // A spec module (KF-041) is a consuming KRS invocation one
+                // level deep: its attribute registers the KRS items directly
+                // inside it from the crate root, but a module nested in it is
+                // ordinary, so its KRS invocations are out of scope again.
+                let spec = self.has_krs_attribute(&module.attrs, &[AttributeMacro::SpecModule]);
+                let saved_depth = (!spec && self.in_spec_module)
+                    .then(|| std::mem::replace(&mut self.krs_depth, 0));
+                let saved_spec = std::mem::replace(&mut self.in_spec_module, spec);
                 self.module_path.push(module.ident.unraw().to_string());
                 self.module_scope += 1;
                 for item in items {
@@ -1208,6 +1219,10 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                 }
                 self.module_scope -= 1;
                 self.module_path.pop();
+                self.in_spec_module = saved_spec;
+                if let Some(depth) = saved_depth {
+                    self.krs_depth = depth;
+                }
             }
         }
     }

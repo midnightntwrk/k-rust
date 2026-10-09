@@ -1,6 +1,7 @@
 mod constructor;
 mod rule;
 mod sort;
+mod spec_module;
 mod state;
 mod value;
 
@@ -20,4 +21,5 @@ pub use sort::{
     SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
     UnboundVariables,
 };
+pub use spec_module::{SpecModuleAttribute, SpecModuleItem, validate_spec_module_name};
 pub use state::{CellAttributePayload, ConfigurationAttribute, InitAttribute};

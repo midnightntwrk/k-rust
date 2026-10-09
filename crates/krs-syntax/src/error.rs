@@ -269,6 +269,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A `#[k::spec_module]` attribute or its module was malformed (KF-041).
+    InvalidSpecModule {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
 }
 
 impl SyntaxErrorKind {
@@ -354,6 +359,7 @@ impl SyntaxErrorKind {
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
+            Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
         }
     }
 }
@@ -589,7 +595,8 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
-            | SyntaxErrorKind::InvalidUnboundVariables { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InvalidUnboundVariables { reason }
+            | SyntaxErrorKind::InvalidSpecModule { reason } => formatter.write_str(reason),
         }
     }
 }

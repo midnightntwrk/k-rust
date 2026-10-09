@@ -2153,6 +2153,7 @@ mod tests {
                         rebuilt.into_program_syntax(module.int_literals())
                     }
                     krs_ir_levels::ModuleRole::Semantics => rebuilt,
+                    krs_ir_levels::ModuleRole::Spec => rebuilt.into_spec(),
                 }
             })
             .collect();

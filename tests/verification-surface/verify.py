@@ -80,6 +80,23 @@ the left side does not bind, bare `concrete` with bare `symbolic`, an
 `smt_lemma` over a function without an SMT translation, and a `concrete`
 equation beside an unrestricted one of the same function.
 
+Author spec modules (KF-041): `imp-sum` depends on the IMP language and,
+like upstream `imp-verification.k`, its definition module `IMP-VERIFICATION`
+adds only a regex token for `$`-prefixed identifiers to `Id`. Its spec module
+`IMP-VERIFICATION-LEMMAS` imports the definition (`imports = [crate]`) and
+adds a simplification lemma; `IMP-SUM-SPEC` imports the lemmas and holds the
+sum loop's circularity, `dollar-sum-spec`, whose identifiers print bare
+(`$n`, not `#token("$n","Id")`). The emitted `spec.k` holds the two author
+modules in import order and then the generated `IMP-VERIFICATION-SPEC` with
+IMP's loose claims; `definition.k` holds neither. `krs prove --spec-module
+IMP-SUM-SPEC` proves the claim natively (k-rust proves the spec module's own
+proof definition), and Java `kprove --spec-module IMP-SUM-SPEC` of the
+emitted files gives `#Top`. An unknown spec module and a spec module without
+claims are refused. Negative fixtures pin a sort in a spec module, an import
+cycle, a regex token in a spec module, an identifier no visible token lexes,
+an `smt_lemma` lemma in a spec module, and a spec module that never imports
+the definition.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -232,6 +249,21 @@ CONC_EXPECTED = {
     ),
 }
 
+IMP_SUM = Fixture(MANIFEST, "krs-verification-surface-imp-sum", dependencies=("krs-imp-definition:main",))
+IMP_SUM_SPEC = "IMP-SUM-SPEC"
+IMP_SUM_MODULES = ["IMP-VERIFICATION-LEMMAS", "IMP-SUM-SPEC", "IMP-VERIFICATION-SPEC"]
+IMP_SUM_TOKEN = '  syntax Id ::= r"\\\\$[a-zA-Z0-9_]+" [token]\n'
+IMP_SUM_FRAGMENTS = (
+    "module IMP-VERIFICATION-LEMMAS\n  imports BOOL\n  imports IMP-VERIFICATION\n  imports INT\n",
+    "  rule Value:Int <Int Value:Int => false [simplification,",
+    "module IMP-SUM-SPEC\n  imports BOOL\n  imports ID-SYNTAX\n  imports IMP-VERIFICATION-LEMMAS\n",
+    "  claim [dollar-sum-spec]:\n"
+    "    <k> while ( ! ($n <= 0) ) { $s = $s + $n ; $n = $n + - 1 ; } ~> Tail:K => .K ~> Tail:K </k>\n"
+    "    <env> $n |-> N:Int $s |-> S:Int => $n |-> 0 $s |-> S:Int +Int (((N:Int +Int 1) *Int N:Int) /Int 2) </env>\n"
+    "    requires N:Int >=Int 0\n"
+    "    [circularity]\n",
+)
+
 NEGATIVE = (
     "exists-equation",
     "exists-unused",
@@ -242,6 +274,12 @@ NEGATIVE = (
     "restriction-both-bare",
     "restriction-equation-inconsistent",
     "smt-lemma-untranslatable",
+    "spec-module-sort",
+    "spec-module-cycle",
+    "spec-module-regex-token",
+    "spec-module-undeclared-id",
+    "spec-module-smt-lemma",
+    "spec-module-no-definition",
 )
 
 
@@ -683,10 +721,12 @@ def verify_ignored_ensures(harness: FixtureGate) -> None:
     print(f"PASS ensures-llvm: {warnings[0]}")
 
 
-def native_trusted_proof(harness: FixtureGate, fixture: Fixture, spec_module: str = TRUSTED_SPEC_MODULE) -> dict[str, Any]:
+def native_trusted_proof(
+    harness: FixtureGate, fixture: Fixture, spec_module: str = TRUSTED_SPEC_MODULE, *extra: str
+) -> dict[str, Any]:
     """Run `krs prove` on every claim; return statuses, exit status, and warnings."""
 
-    process = harness._krs(fixture, "prove", check=False)
+    process = harness._krs(fixture, "prove", *extra, check=False)
     prefix = re.escape(spec_module)
     statuses = dict(re.findall(rf"^{prefix}\.([\w-]+): ([\w-]+)$", process.stdout, re.MULTILINE))
     if not statuses:
@@ -859,6 +899,55 @@ def verify_conc(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove {java}")
 
 
+def verify_spec_modules(harness: FixtureGate, fixture: Fixture) -> None:
+    """Author spec modules: emitted in import order, proved natively and by `kprove --spec-module`."""
+
+    harness.check(fixture)
+    expansion = harness.expand(fixture)
+    if "#[k::spec_module(name = \"IMP-SUM-SPEC\", imports = [lemmas])]" not in expansion:
+        raise GateError(f"{fixture.package}: krs expand does not keep the spec-module attribute")
+    emitted = harness.emit(fixture)
+    if emitted.main_module != "IMP-VERIFICATION":
+        raise GateError(f"{fixture.package}: the main module is {emitted.main_module}, not the verification package")
+    definition = emitted.source.read_text(encoding="utf-8")
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    if IMP_SUM_TOKEN not in definition:
+        raise GateError(f"{fixture.package}: definition.k omits the $-identifier token")
+    if any(f"module {module}\n" in definition for module in IMP_SUM_MODULES):
+        raise GateError(f"{fixture.package}: definition.k holds a spec module")
+    modules = re.findall(r"^module (\S+)$", spec, re.MULTILINE)
+    if modules != IMP_SUM_MODULES:
+        raise GateError(f"{fixture.package}: spec.k modules {modules}, expected {IMP_SUM_MODULES}")
+    for fragment in IMP_SUM_FRAGMENTS:
+        if fragment not in spec:
+            raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
+
+    native = native_trusted_proof(harness, fixture, IMP_SUM_SPEC, "--spec-module", IMP_SUM_SPEC)
+    if native["statuses"] != {"dollar-sum-spec": "proven"} or native["exit"] != 0 or native["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove --spec-module reported {json.dumps(native)}")
+    harness.pins.expect(("spec_module_proofs", fixture.package), native)
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        reports = session.exec_prove(module=IMP_SUM_SPEC)
+    session_statuses = {report["claim"]: report["verdict"] for report in reports}
+    if session_statuses != {f"{IMP_SUM_SPEC}.dollar-sum-spec": "proven"}:
+        raise GateError(f"{fixture.package}: the krs-gate session proved {json.dumps(session_statuses)}")
+    refusals = {}
+    for module in ("IMP-VERIFICATION-LEMMAS", "MISSING-SPEC"):
+        refused = harness._krs(fixture, "prove", "--spec-module", module, check=False)
+        lines = diagnostic_lines(refused.stderr)
+        if refused.returncode == 0 or not lines:
+            raise GateError(f"{fixture.package}: krs prove --spec-module {module} was accepted:\n{refused.stderr}")
+        refusals[module] = lines
+    harness.pins.expect(("spec_module_refusals", fixture.package), refusals)
+
+    java = java_trusted_proof(harness, emitted, IMP_SUM_SPEC)
+    if not (java["proven"] and java["top"]):
+        raise GateError(f"{fixture.package}: kprove --spec-module {IMP_SUM_SPEC} reported {json.dumps(java)}")
+    harness.pins.expect(("spec_module_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: {IMP_SUM_SPEC} proven natively and by kprove --spec-module")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -891,6 +980,7 @@ def main() -> int:
         verify_conc(harness, CONC)
         verify_conc(harness, CONC_UNRESTRICTED)
         verify_conc(harness, CONC_SMT_LEMMA)
+        verify_spec_modules(harness, IMP_SUM)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

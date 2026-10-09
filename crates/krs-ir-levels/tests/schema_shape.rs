@@ -652,6 +652,8 @@ fn registry() -> Registry {
     trace!(DescriptorAssociativitySentence: DescriptorAssociativitySentence);
     trace!(DescriptorLexical: DescriptorLexical);
     trace!(DescriptorLayoutRegex: DescriptorLayoutRegex);
+    trace!(DescriptorSpecModuleName: DescriptorSpecModuleName);
+    trace!(DescriptorModuleImport: DescriptorModuleImport);
     trace!(DescriptorCellColor: DescriptorCellColor);
     trace!(DescriptorCellDeclarationReference: DescriptorCellDeclarationReference);
     trace!(DescriptorCellIdentity: DescriptorCellIdentity);

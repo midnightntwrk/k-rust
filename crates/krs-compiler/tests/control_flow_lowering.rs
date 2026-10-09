@@ -1185,7 +1185,10 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
     let spec = emitted
         .spec()
         .expect("claims are emitted as a specification");
-    assert_eq!(spec.module(), format!("{main}-SPEC"));
+    assert_eq!(
+        spec.generated_module(),
+        Some(format!("{main}-SPEC").as_str())
+    );
     let spec = spec.source();
     assert!(
         spec.starts_with(&format!(

@@ -27,6 +27,7 @@ fn context() -> EmitContext<'static> {
         repeated_ancestors: BTreeMap::new(),
         naming: VariableNaming::default(),
         lexicon: TokenLexicon::default(),
+        spec_identifiers: None,
     }
 }
 

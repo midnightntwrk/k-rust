@@ -15,3 +15,12 @@ pub fn helper() {
         for M;
     }
 }
+
+#[k::spec_module(imports = [crate])]
+mod proofs {
+    mod nested {
+        k::rules! {
+            for M;
+        }
+    }
+}

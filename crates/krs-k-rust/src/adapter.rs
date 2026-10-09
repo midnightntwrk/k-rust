@@ -226,6 +226,24 @@ pub fn adapt_definition(ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterE
     Adapter::new(ir, true).adapt(ir)
 }
 
+/// Adapt Definition IR as the proof definition of one author spec module
+/// (KF-041), as `kprove --spec-module` reads it: the spec module is the main
+/// module, the definition's modules keep no claims (K allows none in the
+/// definition), and the spec modules it imports are included.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] under the same conditions as [`adapt_definition`],
+/// and [`AdapterError::MissingReference`] when `spec_module` names no spec module.
+pub fn adapt_spec_definition(
+    ir: &DefinitionIr,
+    spec_module: &str,
+) -> Result<AdaptedDefinition, AdapterError> {
+    let mut adapter = Adapter::new(ir, false);
+    adapter.spec_module = Some(spec_module.to_owned());
+    adapter.adapt(ir)
+}
+
 /// Adapt Definition IR as compiled for `backend`, omitting every claim when
 /// [`Backend::proves_claims`] is false. Sentence indices and origin mappings
 /// describe the adapted modules, so they stay consistent with the omission.
@@ -250,6 +268,8 @@ struct Adapter<'a> {
     origins: Vec<OriginMapping>,
     keep_claims: bool,
     omitted_claims: usize,
+    /// The spec module whose proof definition is adapted, if any (KF-041).
+    spec_module: Option<String>,
 }
 
 impl<'a> Adapter<'a> {
@@ -263,18 +283,27 @@ impl<'a> Adapter<'a> {
             origins: Vec::new(),
             keep_claims,
             omitted_claims: 0,
+            spec_module: None,
         }
     }
 
     fn adapt(mut self, ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterError> {
+        let spec_closure = match &self.spec_module {
+            None => BTreeSet::new(),
+            Some(name) => spec_closure(ir, name)?,
+        };
         let modules = ir
             .modules()
             .iter()
+            .filter(|module| !module.is_spec() || spec_closure.contains(module.id().as_str()))
             .map(|module| self.module(module))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(AdaptedDefinition {
             definition: NativeDefinition {
-                main_module: ir.main_module().as_str().to_owned(),
+                main_module: self
+                    .spec_module
+                    .clone()
+                    .unwrap_or_else(|| ir.main_module().as_str().to_owned()),
                 modules,
                 attributes: NativeAttributes::default(),
             },
@@ -291,7 +320,7 @@ impl<'a> Adapter<'a> {
         self.map_origin(module.origin(), &module_name, NativeNodePlace::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
-            if !self.keep_claims && is_claim(sentence) {
+            if !self.keep_claims && !module.is_spec() && is_claim(sentence) {
                 self.omitted_claims += 1;
                 continue;
             }
@@ -403,6 +432,40 @@ impl<'a> Adapter<'a> {
     ) {
         self.map_origin(origin, module, NativeNodePlace::Sentence { index, role });
     }
+}
+
+/// The spec modules `name` imports, transitively, including itself.
+fn spec_closure(ir: &DefinitionIr, name: &str) -> Result<BTreeSet<String>, AdapterError> {
+    let find = |name: &str| {
+        ir.modules()
+            .iter()
+            .find(|module| module.is_spec() && module.id().as_str() == name)
+    };
+    let Some(root) = find(name) else {
+        let main = ir
+            .modules()
+            .iter()
+            .find(|module| module.id() == ir.main_module())
+            .expect("validated Definition IR contains its main module");
+        return Err(AdapterError::MissingReference {
+            key: main.origin().key().clone(),
+            kind: "spec module",
+            target: name.to_owned(),
+        });
+    };
+    let mut closure = BTreeSet::new();
+    let mut pending = vec![root];
+    while let Some(module) = pending.pop() {
+        if closure.insert(module.id().as_str().to_owned()) {
+            pending.extend(
+                module
+                    .imports()
+                    .iter()
+                    .filter_map(|import| find(import.as_str())),
+            );
+        }
+    }
+    Ok(closure)
 }
 
 fn is_claim(sentence: &DefinitionSentence) -> bool {

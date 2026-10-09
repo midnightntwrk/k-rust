@@ -236,7 +236,8 @@ impl Partition {
     pub fn of(theory: &SemanticTheory) -> Result<Self, PartitionError> {
         let mut partition = Self::default();
         for module in theory.modules() {
-            if is_framework_module(module.id()) {
+            // A spec module (KF-041) is a proof module: it has no program syntax.
+            if is_framework_module(module.id()) || module.is_spec() {
                 continue;
             }
             let placement = place_module(module, &mut partition.warnings)?;

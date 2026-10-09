@@ -220,6 +220,21 @@ def main() -> None:
             UNBOUND_VARIABLES_OUTSIDE_DESUGAR,
             "unbound_variables",
         ),
+        (
+            "spec_module_not_a_module",
+            "`#[k::spec_module]` applies to an inline `mod name { .. }`, which holds the spec module's claims, lemmas, and tokens",
+            "fn",
+        ),
+        (
+            "spec_module_syntax_name",
+            "`ORG-SYNTAX` ends in `-SYNTAX`, which KRS reserves for program-syntax modules; choose another spec-module name",
+            '"ORG-SYNTAX"',
+        ),
+        (
+            "spec_module_nested",
+            "spec modules do not nest: declare this spec module beside its parent and list the parent in its `imports`",
+            "#",
+        ),
     )
     for binary, message, token in cases:
         check_rust_negative(binary, message, token)

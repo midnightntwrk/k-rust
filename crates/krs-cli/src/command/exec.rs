@@ -109,6 +109,8 @@ pub struct SearchRequest {
 /// `krs prove` inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProveRequest {
+    /// `--spec-module`: an author spec module (KF-041); `None` proves the generated `<MAIN>-SPEC`.
+    pub spec_module: Option<String>,
     /// `--claim` labels; empty proves every claim.
     pub claims: Vec<String>,
     /// `--depth`.
@@ -412,7 +414,7 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
 fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOutcome, Failure> {
     let smt = semantics.capabilities().smt;
     let reports = semantics.prove(&ProveOptions {
-        module: None,
+        module: request.spec_module.clone(),
         claims: request.claims.clone(),
         depth: request.depth,
     })?;
@@ -565,9 +567,11 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         | ExecError::MissingVariables(_) => codes::exec::VARIABLE,
         ExecError::Parse { .. } => codes::exec::PARSE,
         ExecError::UnknownSort { .. } | ExecError::NoProgramSort => codes::exec::SORT,
-        ExecError::UnknownClaim { .. } | ExecError::AmbiguousClaim { .. } | ExecError::NoClaims => {
-            codes::exec::CLAIM
-        }
+        ExecError::UnknownClaim { .. }
+        | ExecError::AmbiguousClaim { .. }
+        | ExecError::NoClaims
+        | ExecError::NoSpecClaims(_)
+        | ExecError::UnknownSpecModule { .. } => codes::exec::CLAIM,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

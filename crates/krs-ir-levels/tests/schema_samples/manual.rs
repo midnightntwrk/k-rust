@@ -401,19 +401,22 @@ impl Sample for SemanticModule {
             )],
         )
         .unwrap();
-        vec![Self::new_with_context_aliases(
-            sample_origin("semantic.module"),
-            sample::<ModuleId>(),
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            Some(configuration),
-            vec![],
-            vec![],
-        )]
+        vec![
+            Self::new_with_context_aliases(
+                sample_origin("semantic.module"),
+                sample::<ModuleId>(),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                Some(configuration),
+                vec![],
+                vec![],
+            )
+            .into_spec(),
+        ]
     }
 }
 

@@ -291,7 +291,9 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
                 &stdin,
             )
         };
-        if let Some(placement) = partition.module(module.id()) {
+        if module.is_spec() {
+            lowered_modules.push(lower(ModulePart::Whole)?.into_spec());
+        } else if let Some(placement) = partition.module(module.id()) {
             // The program-syntax module is lowered first so that each group
             // with a program-syntax member is declared there.
             let syntax = lower(ModulePart::ProgramSyntax(placement))?
@@ -453,7 +455,7 @@ impl NamingPass {
             )?;
             pass.modules
                 .insert(module.id().clone(), module.id().clone());
-            if !is_framework_module(module.id()) {
+            if !is_framework_module(module.id()) && !module.is_spec() {
                 let syntax = program_syntax_module_name(module.id().as_str());
                 validate_module_name(&syntax)?;
                 claim(
@@ -2081,18 +2083,61 @@ fn overload_roots(
 }
 
 fn select_main_module(theory: &SemanticTheory) -> Result<&SemanticModule, LoweringError> {
-    let configured = theory
-        .modules()
+    main_semantic_module(theory.modules()).ok_or_else(|| {
+        let configured = theory
+            .modules()
+            .iter()
+            .filter(|module| module.configuration().is_some())
+            .count();
+        LoweringError::UnsupportedShape {
+            node: "main module",
+            detail: format!("expected one configured module, found {configured}"),
+        }
+    })
+}
+
+/// The definition's main module: the one module that no other definition
+/// module imports, when it imports the configured module transitively (a
+/// package that only adds tokens to a language it depends on, such as a
+/// verification package, KF-041); otherwise the configured module. Spec
+/// modules are never the main module.
+pub(crate) fn main_semantic_module(modules: &[SemanticModule]) -> Option<&SemanticModule> {
+    let definition = modules
+        .iter()
+        .filter(|module| !module.is_spec())
+        .collect::<Vec<_>>();
+    let configured = match definition
         .iter()
         .filter(|module| module.configuration().is_some())
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [module] => **module,
+        _ => return None,
+    };
+    let imported = definition
+        .iter()
+        .flat_map(|module| module.imports())
+        .collect::<BTreeSet<_>>();
+    let tops = definition
+        .iter()
+        .filter(|module| !imported.contains(module.id()))
         .collect::<Vec<_>>();
-    match configured.as_slice() {
-        [module] => Ok(*module),
-        _ => Err(LoweringError::UnsupportedShape {
-            node: "main module",
-            detail: format!("expected one configured module, found {}", configured.len()),
-        }),
+    if let [top] = tops.as_slice() {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![top.id()];
+        while let Some(id) = stack.pop() {
+            if id == configured.id() {
+                return Some(top);
+            }
+            if seen.insert(id)
+                && let Some(module) = definition.iter().find(|module| module.id() == id)
+            {
+                stack.extend(module.imports());
+            }
+        }
     }
+    Some(configured)
 }
 
 fn claim(

@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 fn syntax_categories_have_distinct_registered_codes() {
+    let example = || String::from("example");
     let kinds = [
         SyntaxErrorKind::ReservedBinder,
         SyntaxErrorKind::RustSyntax(String::from("example")),
@@ -40,9 +41,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidFormat { reason: "example" },
         SyntaxErrorKind::InvalidStrictness { reason: "example" },
         SyntaxErrorKind::InvalidGrammarMacro { reason: "example" },
-        SyntaxErrorKind::InvalidEnumPrecedence {
-            reason: String::from("example"),
-        },
+        SyntaxErrorKind::InvalidEnumPrecedence { reason: example() },
         SyntaxErrorKind::UnsupportedConfigurationDeclaration { reason: "example" },
         SyntaxErrorKind::UnsupportedConfigurationField { reason: "example" },
         SyntaxErrorKind::UnsupportedInitializerSignature { reason: "example" },
@@ -79,18 +78,11 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::InvalidTokenAttribute { reason: "example" },
         SyntaxErrorKind::InvalidLexicalMacro { reason: "example" },
         SyntaxErrorKind::InvalidSyntaxList { reason: "example" },
-        SyntaxErrorKind::RawKShape {
-            reason: String::from("example"),
-        },
-        SyntaxErrorKind::InvalidSmtMetadata {
-            reason: String::from("example"),
-        },
-        SyntaxErrorKind::InvalidMatchRestriction {
-            reason: String::from("example"),
-        },
-        SyntaxErrorKind::InvalidUnboundVariables {
-            reason: String::from("example"),
-        },
+        SyntaxErrorKind::RawKShape { reason: example() },
+        SyntaxErrorKind::InvalidSmtMetadata { reason: example() },
+        SyntaxErrorKind::InvalidMatchRestriction { reason: example() },
+        SyntaxErrorKind::InvalidUnboundVariables { reason: example() },
+        SyntaxErrorKind::InvalidSpecModule { reason: example() },
     ];
     let mut seen = HashSet::new();
     for kind in kinds {

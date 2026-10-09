@@ -666,6 +666,10 @@ pub enum ModuleRole {
     /// Everything rules may use, the configuration, and the rules.
     #[default]
     Semantics,
+    /// An author spec module (KF-041): a K proof module emitted into `spec.k`,
+    /// outside the definition's import closure, holding claims,
+    /// simplification lemmas, and terminal tokens for existing sorts.
+    Spec,
 }
 
 impl ModuleRole {
@@ -741,6 +745,19 @@ impl DefinitionModule {
         self
     }
 
+    /// Marks this module as an author spec module (KF-041).
+    #[must_use]
+    pub const fn into_spec(mut self) -> Self {
+        self.role = ModuleRole::Spec;
+        self
+    }
+
+    /// Whether this is an author spec module (KF-041).
+    #[must_use]
+    pub const fn is_spec(&self) -> bool {
+        matches!(self.role, ModuleRole::Spec)
+    }
+
     /// Rebuilds every set-like module collection from permuted inputs.
     #[cfg(feature = "test-support")]
     #[must_use]
@@ -761,6 +778,7 @@ impl DefinitionModule {
         match self.role {
             ModuleRole::ProgramSyntax => module.into_program_syntax(self.int_literals),
             ModuleRole::Semantics => module,
+            ModuleRole::Spec => module.into_spec(),
         }
     }
 

@@ -34,9 +34,10 @@ pub use attribute::{
     ContextAliasAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute,
     FunctionHook, FunctionSmt, FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag,
     PriorityAttribute, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey,
-    RuleAttribute, SimplificationAttribute, SortAttribute, StaticMode, StaticProductionAttribute,
-    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
-    UnboundVariables, VariantSyntaxAttribute,
+    RuleAttribute, SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem,
+    StaticMode, StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
+    UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
+    VariantSyntaxAttribute, validate_spec_module_name,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
