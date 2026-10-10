@@ -56,29 +56,27 @@ use crate::definition::DefinitionError;
 /// The size counts what unfolding builds: each pattern and sort node and each byte of the names
 /// they own, of the unfolded pattern and of each alias application it enters, plus one unit for
 /// each argument of such an application. A cloned node allocates its own names, so memory grows
-/// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes
-/// with one-byte names, on a 64-bit target, so the floor, 2^22 (4,194,304), lets the unfolded
-/// pattern of a small operation reach a few hundred MiB at worst, which the internal terms built
-/// from it and every later pass over them multiply. A binder renamed to avoid capture gets
-/// `Alias` and an index added to its name, so the size spent counts each name that renaming can
-/// lengthen at the longest index the operation can reach ([`Size::bound`]): what is built never
-/// exceeds what is spent. The bound gives every renamed name the digits of the largest index the
-/// operation could reach, so it over-counts each renamed binder by the digits its actual index
-/// lacks; where a body's one-byte binders could be renamed but are not, it can count up to about
-/// 4 times what is built. Time grows with the size too: unfolding builds nothing it does not
-/// count, and the size also counts the capture checks at the binders of the alias bodies it
-/// enters, the one part of its work that is not proportional to what it builds. Each unit is
-/// visited or checked once,
-/// with map and set operations of logarithmic cost, whatever the number of free variables of the
-/// arguments. The fresh names a renamed binder tries are not counted, but each candidate is tried
-/// at most once per operation, so the tries are one per renamed binder and one per name of the
-/// form of a fresh name among the variables built and those of the alias bodies entered
-/// ([`Expander`]). With the stack provided up front, as operations provide it, a release build
-/// took 18 to 150 ns per measured unit on alias chains that duplicate their argument, nest
-/// binders around it, pass it through 256,000 nested bodies, or rename every binder they nest
-/// around it, on a body of 64,000 nested binders that are all renamed, and on a chain of 64,000
-/// renamed binders around an argument whose free variables spell the first 64,000 candidates;
-/// unfolding 98% of the floor took 0.55 s.
+/// with it: about 10 bytes per unit for nodes with short names, and at most about 60 for nodes with
+/// one-byte names, on a 64-bit target, so the floor, 2^22 (4,194,304), lets the unfolded pattern of
+/// a small operation reach a few hundred MiB at worst, which the internal terms built from it and
+/// every later pass over them multiply. A binder renamed to avoid capture gets `Alias` and an index
+/// added to its name, so the size spent counts each name that renaming can lengthen at the longest
+/// index the operation can reach ([`Size::bound`]): what is built never exceeds what is spent. The
+/// bound gives every renamed name the digits of the largest index the operation could reach, so it
+/// over-counts each renamed binder by the digits its actual index lacks; where a body's one-byte
+/// binders could be renamed but are not, it can count up to about 4 times what is built. Time grows
+/// with the size too: unfolding builds nothing it does not count, and the size also counts the
+/// capture checks at the binders of the alias bodies it enters, the one part of its work that is
+/// not proportional to what it builds. Each unit is visited or checked once, with map and set
+/// operations of logarithmic cost, whatever the number of free variables of the arguments. The
+/// fresh names a renamed binder tries are not counted, but each candidate is tried at most once per
+/// operation, so the tries are one per renamed binder and one per name of the form of a fresh name
+/// among the variables built and those of the alias bodies entered ([`Expander`]). With the stack
+/// provided up front, as operations provide it, a release build took 18 to 150 ns per measured unit
+/// on alias chains that duplicate their argument, nest binders around it, pass it through 256,000
+/// nested bodies, or rename every binder they nest around it, on a body of 64,000 nested binders
+/// that are all renamed, and on a chain of 64,000 renamed binders around an argument whose free
+/// variables spell the first 64,000 candidates; unfolding 98% of the floor took 0.55 s.
 pub(crate) const UNFOLDING_LIMIT: u64 = 1 << 22;
 
 /// How many times its own size, as written ([`Size`]), unfolding may add to the patterns of an

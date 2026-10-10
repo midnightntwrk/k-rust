@@ -51,7 +51,8 @@
 //! detection, which visits each module once and gives the declaration order (postorder) and the
 //! axiom order (first-visit preorder), axiom-shape classification, term internalization; subsort
 //! and overload transitive closures by naive iteration, rounds <= longest chain, each
-//! O(|S| x |closure|) for subsorts and O(|closure|^2) for overloads. No counter; the `internalize` phase of `kprove --timings` measures it,
+//! O(|S| x |closure|) for subsorts and O(|closure|^2) for overloads.
+//! No counter; the `internalize` phase of `kprove --timings` measures it,
 //! `Counter::TermConstructed` indirectly.
 
 use std::{
