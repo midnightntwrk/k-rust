@@ -175,6 +175,7 @@ diagnostic_codes! {
     InvalidOrPattern => "InvalidOrPattern",
     InvalidRegex => "InvalidRegex",
     InvalidRewrite => "InvalidRewrite",
+    InvalidSearchPattern => "InvalidSearchPattern",
     InvalidIoStream => "InvalidIoStream",
     IsSortPredicateConflict => "IsSortPredicateConflict",
     InvalidSmtLemma => "InvalidSmtLemma",
@@ -264,6 +265,7 @@ impl DiagnosticCode {
             | Self::InvalidOrPattern
             | Self::InvalidRegex
             | Self::InvalidRewrite
+            | Self::InvalidSearchPattern
             | Self::InvalidIoStream
             | Self::IsSortPredicateConflict
             | Self::InvalidSmtLemma

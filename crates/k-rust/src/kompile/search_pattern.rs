@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::definition::{Attributes, LabelHead, ResolvedDefinition, Sentence};
+use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::inner::{RuleError, parse_rule_content};
 use crate::kast::{Sort, Term, TermParts, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
@@ -71,7 +72,13 @@ pub enum CompileSearchPatternError {
     MacroExpansion(String),
     SortInjection(SortInjectionError),
     TermConversion(TermConversionError),
-    ExpectedGeneratedTopCell { actual: Sort },
+    ExpectedGeneratedTopCell {
+        actual: Sort,
+    },
+    /// The pattern writes text that takes no part in what it denotes: a named variable that
+    /// occurs only on a rewrite's right side, or an `ensures` other than `true`
+    /// ([`DiagnosticCode::InvalidSearchPattern`](crate::diagnostic::DiagnosticCode)).
+    Denotation(Box<Diagnostic>),
 }
 
 impl fmt::Display for CompileSearchPatternError {
@@ -102,6 +109,18 @@ impl fmt::Display for CompileSearchPatternError {
                 formatter,
                 "search pattern body has sort {actual}; expected GeneratedTopCell"
             ),
+            Self::Denotation(diagnostic) => {
+                match (&diagnostic.source, diagnostic.location) {
+                    (Some(source), Some(location)) => write!(
+                        formatter,
+                        "{source}:{}:{}: ",
+                        location.start_line, location.start_column
+                    )?,
+                    (Some(source), None) => write!(formatter, "{source}: ")?,
+                    _ => {}
+                }
+                formatter.write_str(&diagnostic.message)
+            }
         }
     }
 }
@@ -148,6 +167,7 @@ pub fn compile_search_pattern(
     attributes: Attributes,
 ) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
     let sentence = parse_rule_content(parsing_definition, module, contents, attributes)?;
+    reject_undenoted_text(&sentence)?;
     let module_id = execution_definition
         .module_id(module)
         .ok_or_else(|| CompileSearchPatternError::MissingExecutionModule(module.to_owned()))?;
@@ -265,6 +285,103 @@ pub fn compile_search_pattern(
         pattern,
         generated_anonymous_variables,
     })
+}
+
+/// Reject a pattern that writes text taking no part in what it denotes.
+///
+/// A search pattern denotes the configurations its body's left side matches, under its
+/// `requires`: a rewrite in it denotes its left side, and nothing describes a later state.
+/// So a named variable that occurs only on a rewrite's right side is constrained by nothing the
+/// pattern denotes, and a test of it (such as the sort test its cast adds) holds whenever it is
+/// satisfiable at all: `<k> X => Y:Bool </k>` and `<k> X => Y:Int </k>` would find the same
+/// configurations. An `ensures` states what holds after a step, which a pattern does not
+/// describe. A variable that occurs in `requires` and not in the body is an existential that
+/// constrains the body (`<k> X </k> requires X ==Int Y +Int 1 andBool Y >Int 0`), so it stays
+/// legal; anonymous variables name nothing.
+fn reject_undenoted_text(sentence: &Sentence) -> Result<(), CompileSearchPatternError> {
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = sentence
+    else {
+        unreachable!("parse_rule_content always returns a Rule sentence")
+    };
+    if !is_true(ensures) {
+        return Err(CompileSearchPatternError::Denotation(Box::new(
+            Diagnostic::error(
+                DiagnosticCode::InvalidSearchPattern,
+                "a search pattern cannot have an `ensures` clause: it denotes the configurations its left side matches under its `requires`, and describes no later state",
+                sentence,
+            ),
+        )));
+    }
+    let mut denoted = BTreeSet::new();
+    let mut right_only = BTreeSet::new();
+    collect_named_variables(body, false, &mut denoted, &mut right_only);
+    collect_named_variables(requires, false, &mut denoted, &mut right_only);
+    let unbound = right_only
+        .difference(&denoted)
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if unbound.is_empty() {
+        return Ok(());
+    }
+    Err(CompileSearchPatternError::Denotation(Box::new(
+        Diagnostic::error(
+            DiagnosticCode::InvalidSearchPattern,
+            format!(
+                "variable{} {} of the search pattern occur{} only on the right side of a rewrite; a search pattern denotes the left side of its rewrites, so nothing it denotes constrains {}",
+                if unbound.len() == 1 { "" } else { "s" },
+                unbound.join(", "),
+                if unbound.len() == 1 { "s" } else { "" },
+                if unbound.len() == 1 { "it" } else { "them" },
+            ),
+            sentence,
+        ),
+    )))
+}
+
+/// Add the named variables of `term` to `right_only` when they stand on the right side of a
+/// rewrite (`right` says whether `term` does), and to `denoted` otherwise.
+fn collect_named_variables(
+    term: &Term,
+    right: bool,
+    denoted: &mut BTreeSet<String>,
+    right_only: &mut BTreeSet<String>,
+) {
+    let mut pending = vec![(term, right)];
+    // Invariant: every variable of the visited subterms is in `denoted` or `right_only`, as its
+    // position says, and `pending` holds the unvisited subterms with their positions; each step
+    // replaces one subterm by its direct subterms.
+    while let Some((term, right)) = pending.pop() {
+        match term.unannotated() {
+            Term::Variable { name, .. } => {
+                if !matches!(name.as_str(), "_" | "?_" | "!_" | "@_") {
+                    if right {
+                        right_only.insert(name.clone());
+                    } else {
+                        denoted.insert(name.clone());
+                    }
+                }
+            }
+            Term::Rewrite { left, right: built } => {
+                pending.push((left, right));
+                pending.push((built, true));
+            }
+            Term::As { pattern, alias } => {
+                pending.push((pattern, right));
+                pending.push((alias, right));
+            }
+            Term::Apply { arguments, .. } => {
+                pending.extend(arguments.iter().map(|argument| (argument, right)));
+            }
+            Term::Sequence(items) => pending.extend(items.iter().map(|item| (item, right))),
+            Term::Token { .. } | Term::InjectedLabel(_) => {}
+            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+        }
+    }
 }
 
 /// The label of `BOOL`'s conjunction, with which generated sort tests are conjoined.

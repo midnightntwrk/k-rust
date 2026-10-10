@@ -193,7 +193,11 @@ Every other construct that reads a term through the projection into a sort witho
 A configuration variable cast to such a sort is rejected at configuration expansion, at the configuration: its initial value is read through that sort's projection, and no value of a sort without K terms can be supplied.
 A definition's own production labelled `#OuterCast` whose result is such a sort (`syntax #Foo ::= "{" K "}" "asFoo" [symbol(#OuterCast)]`) is a parse error at its use; with a result that has a projection it lowers to that projection like `{T}:>S`.
 In a search pattern (`krun --search --pattern`), each semantic cast, including the one the inner parser puts around every variable at its inferred sort, adds the sort predicate of its sort to the pattern's condition when that sort has one.
-A pattern with a rewrite denotes its left side, so the predicate tests the left side of the cast's operand: `(X => Y):Int` adds the test `X:Int` adds.
+A pattern denotes the configurations its body's left side matches under its `requires`, so the predicate of a cast around a rewrite tests the rewrite's left side: `(X => X):Int` adds the test `X:Int` adds.
+A named variable that occurs only on the right side of a rewrite is constrained by nothing the pattern denotes, and a test of it holds whenever it is satisfiable at all (`<k> X => Y:Bool </k>` and `<k> X => Y:Int </k>` would find the same configurations), so such a pattern is rejected with `InvalidSearchPattern` at the pattern, naming those variables; an anonymous variable names nothing and is not one of them.
+An `ensures` other than `true` states what holds after a step, which a pattern does not describe, so it is rejected the same way.
+A variable that occurs only in `requires` is an existential that constrains the body (`<k> X </k> requires X ==Int Y +Int 1 andBool Y >Int 0`), so it stays legal.
+This is a recorded divergence from the pinned K frontend, which accepts both kinds of pattern.
 A cast to `Bag` adds the cell-fragment test `isBag`, which cell concretization expands into the sort predicates of the fragment's cells.
 A cast to any other sort (`KLabel`, `KList`, `KString`, `Cell`) adds nothing: no compiled K term has such a sort, and the cast's sort is already the operand's sort in the compiled pattern, where a variable matches only terms of its sort and sort injection checks any other operand against the cast.
 The positive `isS(X:S) => true` sort-predicate rule exists only when `S` is placeable at the predicate's `K` argument in its module's subsort order.
