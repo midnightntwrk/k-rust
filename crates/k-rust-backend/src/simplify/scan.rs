@@ -88,7 +88,7 @@ pub(super) enum TheoryScan<K> {
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
 /// role = "part"
-/// sites = ["scan_term_theory", "scan_group", "scan_instances"]
+/// sites = ["scan_term_theory", "scan_alternatives", "scan_group", "scan_instances"]
 /// ```
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(super) fn scan_term_theory<K: TermTheory>(
@@ -207,24 +207,45 @@ pub(super) enum GroupScan<T> {
     NotApplicable,
 }
 
-/// Try the equations of one priority group in order until one applies.
+/// How alternatives tried in order combine when each is by itself enough to rewrite the subject:
+/// the equations of one priority group ([`scan_group`]) and the instances of one equation
+/// ([`scan_instances`]). The first alternative that applies gives the result. Otherwise an
+/// undecided alternative (indeterminate or recurred) leaves the whole undecided, since it may
+/// still apply, and the first such outcome is the whole's. Otherwise the whole is context
+/// dependent if one alternative is, else unused if one is, and not applicable only when every
+/// alternative is.
+pub(super) enum Combined<T, N> {
+    Applied(T),
+    Indeterminate(ConditionIndeterminacy),
+    Recurred,
+    ContextDependent,
+    Unused,
+    /// Every alternative was `NotApplicable`: the evidence of the last one, none when there was
+    /// no alternative.
+    NotApplicable(Option<N>),
+}
+
+/// Try `alternatives` in order with `attempt` until one applies, and combine their outcomes
+/// ([`Combined`]); also returns the diagnostics of the undecided attempts, in order.
 ///
 /// Each attempt is speculative, so its diagnostics are buffered ([`diagnostic::buffer`]) and
 /// follow its outcome. An applied attempt's are committed: its result is the subject's. An
-/// indeterminate or recurred attempt's are held in `indeterminate`, for the caller to commit if
-/// the subject is kept. An attempt that does not apply, its `requires` refuted or the equation not used,
-/// says nothing about the subject, and its diagnostics are dropped. A failed attempt's are
-/// committed, as the failure is what the scan returns.
+/// undecided attempt's are returned, for the caller to commit where an undecided outcome is what
+/// explains the subject. An attempt that does not apply, its `requires` refuted or the equation
+/// not used, says nothing about the subject, and its diagnostics are dropped. A failed attempt's
+/// are committed, as the failure is what the scan returns.
 #[deny(clippy::wildcard_enum_match_arm)]
-pub(super) fn scan_group<R, T, N>(
-    rules: &[Arc<R>],
-    indeterminate_attempts: &mut IndeterminateAttempts,
-    mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
-) -> SimplifyResult<GroupScan<T>> {
-    let mut indeterminate = false;
-    let mut not_cacheable = false;
-    for rule in rules {
-        let (outcome, diagnostics) = diagnostic::buffer(|| attempt(rule));
+fn scan_alternatives<A, T, N>(
+    alternatives: impl IntoIterator<Item = A>,
+    mut attempt: impl FnMut(A) -> SimplifyResult<EquationAttempt<T, N>>,
+) -> SimplifyResult<(Combined<T, N>, Vec<Buffered>)> {
+    let mut undecided: Option<Combined<T, N>> = None;
+    let mut held = Vec::new();
+    let mut context_dependent = false;
+    let mut unused = false;
+    let mut not_applicable = None;
+    for alternative in alternatives {
+        let (outcome, diagnostics) = diagnostic::buffer(|| attempt(alternative));
         let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(unwind) => {
@@ -235,22 +256,50 @@ pub(super) fn scan_group<R, T, N>(
         match outcome {
             EquationAttempt::Applied(result) => {
                 diagnostics.commit();
-                return Ok(GroupScan::Applied(result));
+                return Ok((Combined::Applied(result), held));
             }
-            EquationAttempt::Indeterminate(_) | EquationAttempt::Recurred => {
-                indeterminate_attempts.0.push(diagnostics);
-                indeterminate = true;
+            EquationAttempt::Indeterminate(reason) => {
+                held.push(diagnostics);
+                undecided.get_or_insert(Combined::Indeterminate(reason));
             }
-            EquationAttempt::ContextDependent | EquationAttempt::Unused => not_cacheable = true,
-            EquationAttempt::NotApplicable(_evidence) => {}
+            EquationAttempt::Recurred => {
+                held.push(diagnostics);
+                undecided.get_or_insert(Combined::Recurred);
+            }
+            EquationAttempt::ContextDependent => context_dependent = true,
+            EquationAttempt::Unused => unused = true,
+            EquationAttempt::NotApplicable(evidence) => not_applicable = Some(evidence),
         }
     }
-    Ok(if indeterminate {
-        GroupScan::Blocked
-    } else if not_cacheable {
-        GroupScan::NotCacheable
+    let combined = if let Some(undecided) = undecided {
+        undecided
+    } else if context_dependent {
+        Combined::ContextDependent
+    } else if unused {
+        Combined::Unused
     } else {
-        GroupScan::NotApplicable
+        Combined::NotApplicable(not_applicable)
+    };
+    Ok((combined, held))
+}
+
+/// Try the equations of one priority group in order until one applies ([`scan_alternatives`]).
+/// An undecided group blocks; one whose equations were context dependent or unused is not
+/// cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
+/// for the caller to commit if the subject is kept.
+#[deny(clippy::wildcard_enum_match_arm)]
+pub(super) fn scan_group<R, T, N>(
+    rules: &[Arc<R>],
+    indeterminate_attempts: &mut IndeterminateAttempts,
+    attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
+) -> SimplifyResult<GroupScan<T>> {
+    let (combined, undecided) = scan_alternatives(rules, attempt)?;
+    indeterminate_attempts.0.extend(undecided);
+    Ok(match combined {
+        Combined::Applied(result) => GroupScan::Applied(result),
+        Combined::Indeterminate(_) | Combined::Recurred => GroupScan::Blocked,
+        Combined::ContextDependent | Combined::Unused => GroupScan::NotCacheable,
+        Combined::NotApplicable(_evidence) => GroupScan::NotApplicable,
     })
 }
 
@@ -261,17 +310,16 @@ pub(super) fn scan_group<R, T, N>(
 /// `σ1, ..., σn`. Each instance `f(t) = rhs σi requires R σi` is by itself a consequence of the
 /// equation, so the equation applies to `t` as soon as one instance does, and is passed over
 /// only when every instance is. The instances therefore combine exactly as the equations of one
-/// priority group do in [`scan_group`]: the first instance that applies gives the result (when
-/// several would apply with different results, the definition equates those results, and the
-/// load-time check pairs the equation with itself unless its right-hand side and `ensures` read
-/// only variables every matching binds alike); otherwise an undecided instance leaves the
+/// priority group do ([`scan_alternatives`]): the first instance that applies gives the result
+/// (when several would apply with different results, the definition equates those results, and
+/// the load-time check pairs the equation with itself unless its right-hand side and `ensures`
+/// read only variables every matching binds alike); otherwise an undecided instance leaves the
 /// equation undecided, so that a lower-priority group does not fire where this equation may
-/// apply; otherwise the equation is context dependent or unused if one instance is, and not
-/// applicable when every instance is.
+/// apply.
 ///
-/// Diagnostics follow the outcome they explain, as in [`scan_group`]: an applied instance's are
-/// committed to the enclosing collector, an undecided one's are committed only if the equation
-/// ends undecided, and the others' are dropped. A single instance is attempted directly.
+/// The undecided instances' diagnostics are committed to the enclosing collector only if the
+/// equation ends undecided, as they explain that outcome. A single instance is attempted
+/// directly.
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(super) fn scan_instances<S, T, N>(
     mut instances: Vec<S>,
@@ -280,75 +328,62 @@ pub(super) fn scan_instances<S, T, N>(
     if instances.len() == 1 {
         return attempt(instances.pop().expect("one instance"));
     }
-    let mut undecided: Option<EquationAttempt<T, N>> = None;
-    let mut held = Vec::new();
-    let mut context_dependent = false;
-    let mut unused = false;
-    let mut not_applicable = None;
-    for instance in instances {
-        let (outcome, diagnostics) = diagnostic::buffer(|| attempt(instance));
-        let outcome = match outcome {
-            Ok(outcome) => outcome,
-            Err(unwind) => {
-                diagnostics.commit();
-                return Err(unwind);
-            }
-        };
-        match outcome {
-            EquationAttempt::Applied(result) => {
-                diagnostics.commit();
-                return Ok(EquationAttempt::Applied(result));
-            }
-            outcome @ (EquationAttempt::Indeterminate(_) | EquationAttempt::Recurred) => {
-                held.push(diagnostics);
-                undecided.get_or_insert(outcome);
-            }
-            EquationAttempt::ContextDependent => context_dependent = true,
-            EquationAttempt::Unused => unused = true,
-            EquationAttempt::NotApplicable(evidence) => not_applicable = Some(evidence),
-        }
-    }
-    if let Some(undecided) = undecided {
-        for diagnostics in held {
+    let (combined, undecided) = scan_alternatives(instances, attempt)?;
+    let commit_undecided = |outcome| {
+        for diagnostics in undecided {
             diagnostics.commit();
         }
-        return Ok(undecided);
-    }
-    Ok(if context_dependent {
-        EquationAttempt::ContextDependent
-    } else if unused {
-        EquationAttempt::Unused
-    } else {
-        EquationAttempt::NotApplicable(
-            not_applicable.expect("an equation has at least one instance"),
-        )
+        outcome
+    };
+    Ok(match combined {
+        Combined::Applied(result) => EquationAttempt::Applied(result),
+        Combined::Indeterminate(reason) => commit_undecided(EquationAttempt::Indeterminate(reason)),
+        Combined::Recurred => commit_undecided(EquationAttempt::Recurred),
+        Combined::ContextDependent => EquationAttempt::ContextDependent,
+        Combined::Unused => EquationAttempt::Unused,
+        Combined::NotApplicable(evidence) => {
+            EquationAttempt::NotApplicable(evidence.expect("an equation has at least one instance"))
+        }
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{EquationAttempt, scan_instances};
+    use std::sync::Arc;
+
+    use super::{EquationAttempt, GroupScan, IndeterminateAttempts, scan_group, scan_instances};
     use crate::{diagnostic, simplify::ConditionIndeterminacy};
 
-    /// The outcome of each instance in order, each of which emits a diagnostic naming itself;
-    /// returns the scan's outcome and the instances whose diagnostics reached the collector.
-    fn scan(outcomes: &[EquationAttempt<&'static str, ()>]) -> (String, Vec<usize>) {
+    type Outcome = EquationAttempt<&'static str, ()>;
+
+    /// Attempt alternative `index` of `outcomes`: emit a diagnostic naming it and end as given.
+    fn replay(outcomes: &[Outcome], index: usize) -> Outcome {
+        diagnostic::emit_rule_condition_budget_exhausted(&format!("alternative-{index}"), 1);
+        match &outcomes[index] {
+            EquationAttempt::Applied(result) => EquationAttempt::Applied(*result),
+            EquationAttempt::NotApplicable(()) => EquationAttempt::NotApplicable(()),
+            EquationAttempt::Indeterminate(_) => {
+                EquationAttempt::Indeterminate(ConditionIndeterminacy::NoSolver)
+            }
+            EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
+            EquationAttempt::Unused => EquationAttempt::Unused,
+            EquationAttempt::Recurred => EquationAttempt::Recurred,
+        }
+    }
+
+    /// The alternatives whose diagnostics reached the collector shown as `shown`.
+    fn reached(outcomes: &[Outcome], shown: &str) -> Vec<usize> {
+        (0..outcomes.len())
+            .filter(|index| shown.contains(&format!("\"alternative-{index}\"")))
+            .collect()
+    }
+
+    /// The instances of one equation, ending as `outcomes` in order; returns the scan's outcome
+    /// and the instances whose diagnostics reached the collector.
+    fn scan(outcomes: &[Outcome]) -> (String, Vec<usize>) {
         let (outcome, diagnostics) = diagnostic::collect(|| {
             scan_instances((0..outcomes.len()).collect(), |instance| {
-                diagnostic::emit_rule_condition_budget_exhausted(
-                    &format!("instance-{instance}"),
-                    1,
-                );
-                Ok(match &outcomes[instance] {
-                    EquationAttempt::Applied(result) => EquationAttempt::Applied(*result),
-                    EquationAttempt::NotApplicable(()) => EquationAttempt::NotApplicable(()),
-                    EquationAttempt::Indeterminate(_) => {
-                        EquationAttempt::Indeterminate(ConditionIndeterminacy::NoSolver)
-                    }
-                    EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
-                    EquationAttempt::Unused => EquationAttempt::Unused,
-                    EquationAttempt::Recurred => EquationAttempt::Recurred,
-                })
+                Ok(replay(outcomes, instance))
             })
         });
         let outcome = match outcome.expect("no attempt stops") {
@@ -359,11 +394,29 @@ mod tests {
             EquationAttempt::Unused => "unused".to_owned(),
             EquationAttempt::Recurred => "recurred".to_owned(),
         };
-        let shown = format!("{diagnostics:?}");
-        let reached = (0..outcomes.len())
-            .filter(|instance| shown.contains(&format!("\"instance-{instance}\"")))
-            .collect();
-        (outcome, reached)
+        (outcome, reached(outcomes, &format!("{diagnostics:?}")))
+    }
+
+    /// The equations of one priority group, ending as `outcomes` in order; returns the scan's
+    /// outcome, the equations whose diagnostics reached the collector, and how many attempts it
+    /// held for the caller.
+    fn scan_equations(outcomes: &[Outcome]) -> (String, Vec<usize>, usize) {
+        let rules = (0..outcomes.len()).map(Arc::new).collect::<Vec<_>>();
+        let mut held = IndeterminateAttempts::default();
+        let (outcome, diagnostics) = diagnostic::collect(|| {
+            scan_group(&rules, &mut held, |rule| Ok(replay(outcomes, **rule)))
+        });
+        let outcome = match outcome.expect("no attempt stops") {
+            GroupScan::Applied(result) => format!("applied {result}"),
+            GroupScan::Blocked => "blocked".to_owned(),
+            GroupScan::NotCacheable => "not cacheable".to_owned(),
+            GroupScan::NotApplicable => "not applicable".to_owned(),
+        };
+        (
+            outcome,
+            reached(outcomes, &format!("{diagnostics:?}")),
+            held.0.len(),
+        )
     }
 
     /// Diagnostics follow the outcome they explain: an instance passed over (refuted, unused)
@@ -389,6 +442,37 @@ mod tests {
         assert_eq!(
             scan(&[NotApplicable(()), Unused]),
             ("unused".to_owned(), vec![])
+        );
+    }
+
+    /// Diagnostics follow the outcome they explain, as for the instances of one equation: an
+    /// equation passed over (refuted, unused) explains nothing, an applied one explains the
+    /// result, and undecided ones are held for the caller, which commits them only if the
+    /// subject is kept.
+    #[test]
+    fn only_the_equations_that_explain_the_outcome_report_their_diagnostics() {
+        use EquationAttempt::{Applied, Indeterminate, NotApplicable, Unused};
+        let undecided = || Indeterminate(ConditionIndeterminacy::NoSolver);
+
+        assert_eq!(
+            scan_equations(&[NotApplicable(()), Unused, Applied("r")]),
+            ("applied r".to_owned(), vec![2], 0)
+        );
+        assert_eq!(
+            scan_equations(&[undecided(), NotApplicable(()), Applied("r")]),
+            ("applied r".to_owned(), vec![2], 1)
+        );
+        assert_eq!(
+            scan_equations(&[NotApplicable(()), undecided(), Unused, undecided()]),
+            ("blocked".to_owned(), vec![], 2)
+        );
+        assert_eq!(
+            scan_equations(&[NotApplicable(()), Unused]),
+            ("not cacheable".to_owned(), vec![], 0)
+        );
+        assert_eq!(
+            scan_equations(&[NotApplicable(()), NotApplicable(())]),
+            ("not applicable".to_owned(), vec![], 0)
         );
     }
 }
