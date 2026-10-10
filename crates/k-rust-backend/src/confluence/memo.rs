@@ -21,9 +21,10 @@
 //!
 //! An answer either case keeps out is *refused*: the predicate as written is simplified instead,
 //! and the key is marked refused. Whether a key's answer is refused is a function of the key
-//! (both cases read only the answer, the key's free variables and whether the key is the
-//! predicate as written), so every later predicate with that key is simplified as written
-//! directly, and a key is simplified at most once per check.
+//! (both cases read only the answer, the key's free variables and whether the key has a renaming
+//! back, which it lacks exactly when it has a quantifier or no free variable), so every later
+//! predicate with that key is simplified as written directly, and a key is simplified at most
+//! once per check.
 //!
 //! A stopped or failed simplification is stored as "decides nothing", which is what the check
 //! reads it as wherever it occurs.
@@ -57,7 +58,8 @@ enum Stored {
 /// A predicate in the memo's canonical form, with the renaming back to the original's names.
 pub(super) struct Canonical {
     pub(super) key: Predicate,
-    /// Canonical name to original variable; empty when the key is the predicate as written.
+    /// Canonical name to original variable; empty exactly when the predicate has a quantifier
+    /// (it is keyed as written) or no free variable.
     back: BTreeMap<Variable, Variable>,
 }
 

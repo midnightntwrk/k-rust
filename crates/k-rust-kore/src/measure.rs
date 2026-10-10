@@ -546,7 +546,9 @@ pub enum Counter {
     ConfluenceUnifierBranches,
     /// Steps the critical-pair join took.
     ConfluenceJoinSteps,
-    /// Predicate simplifications the critical-pair check ran.
+    /// Conditions the critical-pair check gave to its predicate simplifier, including those the
+    /// memo of condition simplifications answered without simplifying (the check's
+    /// `simplifier_calls`).
     ConfluenceSimplifierCalls,
     /// Terms constructed.
     TermConstructed,
