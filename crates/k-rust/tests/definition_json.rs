@@ -1307,7 +1307,7 @@ fn module_list_reader_rejects_bad_main_modules_and_other_nodes() {
     wrong_version["version"] = value!(3);
     assert!(matches!(
         json::module_list_from_str(&wrong_version.to_string()),
-        Err(json::Error::UnsupportedVersion(3))
+        Err(json::Error::UnsupportedKastVersion(3))
     ));
 
     // KContextAlias is not KAST v4 vocabulary, whichever reader meets it.
