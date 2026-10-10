@@ -7025,6 +7025,27 @@ endmodule
     }
 }
 
+// One variable written as the alias of a `<y>` and of a `<z>` would be one term that is both
+// cells; cells of two sorts have two labels, so no term is, and the rule never applies. It is
+// rejected naming the variable and both cells, whether the cells are written open or closed.
+#[test]
+fn rejects_an_alias_variable_of_cells_of_two_sorts_naming_both() {
+    let configuration = "<k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a>";
+    for rule in [
+        "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) (<z> Z </z> #as YC) ... </a>",
+        "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) (<z> Z </z> #as YC) </a>",
+    ] {
+        let errors = concretized_cell_rule(configuration, rule)
+            .expect_err("one alias variable cannot name two cells");
+        assert!(
+            errors.iter().any(|error| error.contains(
+                "Alias variable YC names a <y> and a <z>; one term is not two cells, so the rule never applies"
+            )),
+            "{rule}: {errors:?}"
+        );
+    }
+}
+
 // An item written among a cell's children outside any rewrite is placed by the same rule as one
 // on a rewrite side, so an item no child holds is rejected with the same message, located in the
 // cell's body.

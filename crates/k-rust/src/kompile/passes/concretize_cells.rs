@@ -680,10 +680,13 @@ impl CellModel {
     /// anywhere in `roots` (a rule's body and conditions), when `V` has no cell sort: `V` names
     /// the one cell `P`, so its value is a term of `P`'s sort wherever `V` occurs, whatever
     /// sort it took from where it is written (`Bag`, which a term of any number of cells has,
-    /// in a cell body). A variable that aliases cells of two sorts is left out; the rule keeps
-    /// the sorts it is written with.
-    fn one_cell_alias_sorts(&self, roots: &[&Term]) -> BTreeMap<String, Sort> {
-        let mut sorts = BTreeMap::<String, Option<Sort>>::new();
+    /// in a cell body).
+    ///
+    /// A variable written as the alias of one cell of each of two sorts is rejected: its one
+    /// value would be a cell of each sort, and cells of two sorts have two labels, so no term
+    /// is both and the sentence never applies.
+    fn one_cell_alias_sorts(&self, roots: &[&Term]) -> Result<BTreeMap<String, Sort>, String> {
+        let mut sorts = BTreeMap::<String, BTreeSet<Sort>>::new();
         for root in roots {
             root.visit_preorder(&mut |term| {
                 if let Term::As { alias, .. } = term.unannotated()
@@ -691,20 +694,31 @@ impl CellModel {
                     && self.sort_for_term(alias).is_none()
                     && let Some(sort) = self.slot_sort(term)
                 {
-                    sorts
-                        .entry(name.clone())
-                        .and_modify(|known| {
-                            if known.as_ref() != Some(&sort) {
-                                *known = None;
-                            }
-                        })
-                        .or_insert(Some(sort));
+                    sorts.entry(name.clone()).or_default().insert(sort);
                 }
             });
         }
         sorts
             .into_iter()
-            .filter_map(|(name, sort)| Some((name, sort?)))
+            .map(|(name, sorts)| {
+                let mut iter = sorts.iter();
+                match (iter.next(), iter.next()) {
+                    (Some(sort), None) => Ok((name, sort.clone())),
+                    _ => {
+                        let cells = sorts
+                            .iter()
+                            .map(|sort| match self.cells.get(sort) {
+                                Some(cell) => format!("a {}", cell.label.name),
+                                None => format!("a {sort}"),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" and ");
+                        Err(format!(
+                            "Alias variable {name} names {cells}; one term is not two cells, so the rule never applies"
+                        ))
+                    }
+                }
+            })
             .collect()
     }
 
@@ -830,7 +844,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 attributes,
             } => {
                 let [body, requires, ensures] =
-                    self.sort_one_cell_aliases([body, requires, ensures]);
+                    self.sort_one_cell_aliases([body, requires, ensures])?;
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 let ensures = self.close(ensures, false)?;
@@ -849,7 +863,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 attributes,
             } => {
                 let [body, requires, ensures] =
-                    self.sort_one_cell_aliases([body, requires, ensures]);
+                    self.sort_one_cell_aliases([body, requires, ensures])?;
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 let ensures = self.close(ensures, false)?;
@@ -866,7 +880,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 requires,
                 attributes,
             } => {
-                let [body, requires] = self.sort_one_cell_aliases([body, requires]);
+                let [body, requires] = self.sort_one_cell_aliases([body, requires])?;
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
@@ -881,7 +895,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 requires,
                 attributes,
             } => {
-                let [body, requires] = self.sort_one_cell_aliases([body, requires]);
+                let [body, requires] = self.sort_one_cell_aliases([body, requires])?;
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
@@ -903,13 +917,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     /// `roots`, a sentence's body and conditions, with the variable of each alias of one cell
-    /// given that cell's sort wherever it occurs ([`CellModel::one_cell_alias_sorts`]).
-    fn sort_one_cell_aliases<const N: usize>(&self, roots: [Term; N]) -> [Term; N] {
-        let sorts = self.model.one_cell_alias_sorts(&roots.each_ref());
+    /// given that cell's sort wherever it occurs ([`CellModel::one_cell_alias_sorts`]), or the
+    /// rejection of a variable written as the alias of cells of two sorts.
+    fn sort_one_cell_aliases<const N: usize>(&self, roots: [Term; N]) -> Result<[Term; N], String> {
+        let sorts = self.model.one_cell_alias_sorts(&roots.each_ref())?;
         if sorts.is_empty() {
-            return roots;
+            return Ok(roots);
         }
-        roots.map(|root| sort_one_cell_aliases(root, &sorts, self.model))
+        Ok(roots.map(|root| sort_one_cell_aliases(root, &sorts, self.model)))
     }
 
     fn concretize_body(&mut self, body: Term, skip_root: bool) -> Result<Term, String> {
