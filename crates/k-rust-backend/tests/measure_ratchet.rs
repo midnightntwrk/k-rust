@@ -152,6 +152,25 @@ fn measured<T>(work: impl FnOnce() -> T) -> (T, Snapshot) {
     (result, snapshot().delta(&before))
 }
 
+/// A Z3 solver whose checks the clock never cuts off.
+///
+/// The SMT counters these tests pin must be a function of the queries. Under a wall-clock
+/// timeout, a check the scheduler delays is cut off and retried: the cut-off attempt's work is
+/// added to `smt.rlimit_count` without another solver run, and a check cut off on its last retry
+/// answers unknown, which changes the rules that apply. `u32::MAX` is Z3's default for the
+/// parameter, under which no check is cut off.
+#[cfg(feature = "z3")]
+fn unclocked_solver(definition: &BackendDefinition) -> k_rust_backend::smt::Z3Solver {
+    k_rust_backend::smt::Z3Solver::with_options(
+        definition,
+        k_rust_backend::smt::Z3Options {
+            timeout_ms: u32::MAX,
+            ..k_rust_backend::smt::Z3Options::default()
+        },
+    )
+    .unwrap()
+}
+
 #[cfg(feature = "z3")]
 fn be08_measure_definition(rules: &str) -> BackendDefinition {
     definition(
@@ -262,7 +281,7 @@ fn be08_measure_any() -> BackendDefinition {
 #[cfg(feature = "z3")]
 fn be08_measure_stopped(definition: &BackendDefinition, mode: ExecutionMode) -> Snapshot {
     let initial = pattern(definition, "wrap{}(X:SortInt{})");
-    let solver = k_rust_backend::smt::Z3Solver::new(definition).unwrap();
+    let solver = unclocked_solver(definition);
     let (result, delta) = measured(|| {
         execute_with_solver(
             definition,
@@ -326,7 +345,7 @@ fn complete_steps_attempt_each_candidate_rule_once() {
 #[test]
 fn queued_complete_remainder_does_not_reattempt_rules() {
     let definition = be08_measure_any();
-    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let solver = unclocked_solver(&definition);
     let (result, delta) = measured(|| {
         execute_with_solver(
             &definition,
@@ -850,7 +869,7 @@ fn map_matching_collection_problems_grow_at_most_linearly_with_the_store() {
 mod smt {
     use k_rust_backend::{
         rule::Predicate,
-        smt::{Satisfiability, SmtSolver, Z3Solver},
+        smt::{Satisfiability, SmtSolver},
         substitution::Substitution,
         term::{Sort, Term, Variable},
     };
@@ -869,7 +888,7 @@ mod smt {
     #[test]
     fn identical_sat_queries_need_no_prelude_check() {
         let definition = definition(COUNTING);
-        let (solver, construction) = measured(|| Z3Solver::new(&definition).unwrap());
+        let (solver, construction) = measured(|| super::unclocked_solver(&definition));
         assert_eq!(construction.get(Counter::SmtSolverRuns), 0);
         assert_eq!(construction.get(Counter::SmtQueries), 0);
 
@@ -888,7 +907,7 @@ mod smt {
     #[test]
     fn repeated_queries_never_run_the_solver_again() {
         let definition = definition(COUNTING);
-        let solver = Z3Solver::new(&definition).unwrap();
+        let solver = super::unclocked_solver(&definition);
         let before = snapshot();
         for _ in 0..16 {
             assert_eq!(
