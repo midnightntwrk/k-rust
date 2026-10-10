@@ -2,7 +2,7 @@
 //! id = "backend.confluence.critical_pairs"
 //! name = "load-time critical-pair check by order-sorted unification and an innermost join"
 //! sites = ["check", "Context::classify", "Context::conditions"]
-//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
+//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation or at an argument whose second equation is rooted at an equation head or overloaded symbol); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
 //! counters = ["ConfluencePairs", "ConfluenceUnifierBranches", "ConfluenceJoinSteps", "ConfluenceSimplifierCalls"]
 //! span = "per call"
 //!
@@ -47,7 +47,10 @@
 //!    overload axioms of confluent families (`unify.rs`). Under the load's scope
 //!    ([`CheckScope::Gate`]) only the pairs with a *relevant* equation, one whose closure alone
 //!    reaches a symbol some gate site can be asked about, are classified: the others change no
-//!    claim, whether they join or not;
+//!    claim, whether they join or not. An inner pair at an argument of `e1` whose `e2` is rooted
+//!    at an equation head or an overloaded symbol is classified under every scope: not joined,
+//!    it states that `e1` is not shown consistent with `e2`, a finding the load reports whatever
+//!    claims it withdraws ([`UnjoinedPair::in_argument`]);
 //! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
@@ -618,6 +621,9 @@ pub struct UnjoinedPair {
     /// The symbols some gate site is asked about (equation heads and overloaded symbols) that the
     /// taint closure of this pair alone withdraws, sorted: empty when the pair changes no claim.
     pub withdrawn: Vec<Name>,
+    /// Whether `position` is in an argument of `first`'s left-hand side and `second` is rooted at
+    /// an equation head or an overloaded symbol ([`Self::in_argument`]).
+    pub rewrites_argument: bool,
 }
 
 impl UnjoinedPair {
@@ -627,12 +633,27 @@ impl UnjoinedPair {
         !self.withdrawn.is_empty()
     }
 
-    /// Whether the backend reports the pair: it withdraws a value claim, or it is a report on one
+    /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
-    /// which holds whether or not the definition makes claims.
+    /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
+    /// hold whether or not the definition makes claims.
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant() || self.reason.describes_one_equation()
+        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
+    }
+
+    /// Whether the pair is an inner pair at an argument of `first`'s left-hand side whose
+    /// `second` is rooted at an equation head or an overloaded symbol: `second` rewrites some
+    /// instance of an argument pattern of `first`. Both equations are axioms, so at
+    /// such an instance the application `first` rewrites equals both `first`'s right-hand side
+    /// and the application with the rewritten argument. Not joined, the two are not shown equal,
+    /// so `first` is not shown consistent with `second` there: the condition that keeps an
+    /// equation with an anywhere head in an argument consistent (its argument pattern is normal
+    /// on every instance, or every such pair joins) is not shown to hold
+    /// (`docs/compatibility.md`, "Anywhere heads in equation arguments").
+    #[must_use]
+    pub fn in_argument(&self) -> bool {
+        self.rewrites_argument
     }
 
     /// The pair's terms, in order: the overlap, the two reducts, what the join reached from
@@ -869,6 +890,20 @@ fn inner_positions(lhs: &Term) -> Vec<(Vec<usize>, Term)> {
         }
     }
     positions
+}
+
+/// Whether `path` (an [`inner_positions`] position) leads into an argument of `lhs`: it passes
+/// below some term that is not an `\and`. A path through `\and` conjuncts alone reaches a
+/// conjunct, which is the left-hand side's root, not one of its arguments.
+fn argument_position(lhs: &Term, path: &[usize]) -> bool {
+    let mut term = lhs.clone();
+    for index in path {
+        if !matches!(term.kind(), TermKind::And(..)) {
+            return true;
+        }
+        term = children(&term)[*index].clone();
+    }
+    false
 }
 
 /// The immediate subterms of `term`, in the order positions count them.
@@ -1690,6 +1725,7 @@ fn unjoined_report(candidate: &Candidate<'_>, reason: UnjoinedReason) -> Unjoine
         refused: None,
         reason,
         withdrawn: Vec::new(),
+        rewrites_argument: false,
     }
 }
 
@@ -1816,6 +1852,7 @@ fn check_detached(
                 refused: None,
                 reason,
                 withdrawn: Vec::new(),
+                rewrites_argument: false,
             })
         })
         .collect::<Vec<_>>();
@@ -1948,6 +1985,7 @@ fn check_detached(
             refused: None,
             reason: UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches),
             withdrawn: Vec::new(),
+            rewrites_argument: false,
         });
     }
 
@@ -2042,7 +2080,17 @@ fn check_detached(
                 {
                     continue;
                 }
-                if !classified(&equation.rule, &second) {
+                // A pair at an argument whose second equation is rooted at a symbol a gate site
+                // is asked about (an equation head or an overloaded symbol) is reported whatever
+                // its relevance (`UnjoinedPair::in_argument`), so it is classified under every
+                // scope. Such an equation's closure reaches its own root, so the pair is relevant
+                // too; the disjunct states the class instead of relying on that.
+                let rewrites_argument = argument_position(&equation.rule.lhs, &position)
+                    && matches!(
+                        term_index(&second.lhs),
+                        TermIndex::Symbol(name) if gate_symbol(definition, &name)
+                    );
+                if !classified(&equation.rule, &second) && !rewrites_argument {
                     context.counts.skipped += 1;
                     continue;
                 }
@@ -2052,7 +2100,8 @@ fn check_detached(
                     position: position.clone(),
                     lifting: true,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                    pair.rewrites_argument = rewrites_argument;
                     unjoined.push(*pair);
                 }
             }

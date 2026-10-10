@@ -9180,6 +9180,59 @@ fn kcompile_names_a_pair_of_anywhere_rules_that_does_not_join_at_its_first_rule(
     );
 }
 
+const ANYWHERE_ARGUMENTS: &str = r#"
+module AA
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k>
+  syntax Zero ::= "z"
+  syntax Nat ::= Zero | s(Nat)
+  syntax Wrap ::= h(Nat)
+  syntax Pgm ::= Nat | f(Wrap) [function] | g(Wrap) [function] | k(Wrap) [function]
+  rule [h-drop]: h(s(Y)) => h(Y) [anywhere]
+  rule [f-any]: f(h(X)) => X
+  rule [g-zero]: g(h(z)) => z
+  rule [k-zero]: k(h(X:Zero)) => X
+endmodule
+"#;
+
+/// An equation whose argument holds an anywhere head is consistent with the anywhere equations
+/// when no instance of its argument pattern is rewritten by them (or each such rewrite gives the
+/// same result). `f(h(X)) => X` is not: at `X = s(Y)` the axiom `h(s(Y)) = h(Y)` makes
+/// `f(h(s(Y)))` equal both `s(Y)` and `f(h(Y))`, that is `Y`. `kcompile` names it at its rule,
+/// as not shown consistent with `h-drop`. `g(h(z))` (ground, and `h(z)` is no instance of
+/// `h(s(Y))`) and `k(h(X:Zero))` (an injected `Zero` is never an `s(_)` application) are normal on
+/// every instance and get nothing.
+#[test]
+fn kcompile_names_an_equation_whose_argument_an_anywhere_rule_rewrites() {
+    let (root, definition) = fixture();
+    fs::write(&definition, ANYWHERE_ARGUMENTS).unwrap();
+    let options = ["--main-module", "AA", "--syntax-module", "AA"];
+    let compiled = kcompile_for_krun(&definition, &options, &root.join("compiled"));
+    let stderr = String::from_utf8(compiled.stderr).unwrap();
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains("[UnjoinedCriticalPair]"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    let warning = warnings[0];
+    let position = |line: usize| format!("{}:{line}:3", definition.display());
+    assert!(
+        warning.starts_with(&format!(
+            "{}: Warning[UnjoinedCriticalPair]: the equation AA.f-any at {} is not shown consistent with the equation AA.h-drop at {}, which rewrites some instances of an argument of the first's left-hand side (at ",
+            position(10),
+            position(10),
+            position(9)
+        )) && warning.contains(
+            "): the two results are not shown equal (the two reducts reach different terms)"
+        ),
+        "{warning}"
+    );
+    assert!(
+        !stderr.contains("AA.g-zero") && !stderr.contains("AA.k-zero"),
+        "{stderr}"
+    );
+}
+
 const SEVERAL_MATCHES: &str = r#"
 module SM
   imports DOMAINS

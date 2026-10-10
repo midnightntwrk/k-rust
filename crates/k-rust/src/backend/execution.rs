@@ -244,9 +244,10 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
 pub enum ValueClaimFindingCode {
     /// A row of the constructor and overload preconditions the definition violates.
     ValueClaimPrecondition,
-    /// A pair of executable equations that is not shown to join, which withdraws value claims,
-    /// or an equation the evaluator never applies as written, reported whether or not it
-    /// withdraws any.
+    /// A pair of executable equations that is not shown to join, which withdraws value claims;
+    /// or, reported whether or not they withdraw any, an equation the evaluator never applies as
+    /// written, and an equation not shown consistent with an equation that rewrites some
+    /// instances of one of its arguments.
     UnjoinedCriticalPair,
 }
 
@@ -295,7 +296,10 @@ pub struct ValueClaimFinding {
 /// evaluator never applies as written (`ComputedBelowRoot`, `UnboundResultVariables`) is named
 /// as such whether or not the definition makes claims, with the claims it withdraws if any;
 /// an equation paired with itself because its map or set pattern matches one subject in several
-/// ways (`SeveralMatches`) is named as that pair.
+/// ways (`SeveralMatches`) is named as that pair. An inner pair whose second equation, rooted at
+/// an equation head or an overloaded symbol, rewrites some instances of an argument of the first
+/// (`UnjoinedPair::in_argument`) names the first as not shown consistent with the second, whether
+/// or not the definition makes claims, with the claims it withdraws if any.
 pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
     /// The characters of the overlapped term a warning prints before it cuts it short.
     const OVERLAP_CHARACTERS: usize = 240;
@@ -364,29 +368,47 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                 pair.reason,
             )
         } else {
-            let equations = format!(
-                "the equations {} and {}",
-                equation(&pair.first),
-                equation(&pair.second)
-            );
-            let overlap = pair
-                .overlap
-                .as_ref()
-                .map(|overlap| {
-                    let mut text =
-                        KorePrinter::compact().print_pattern(&externalize::term(overlap));
-                    if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
-                        text.truncate(cut);
-                        text.push_str("...");
-                    }
-                    format!(" overlap at {text} and")
-                })
-                .unwrap_or_default();
-            format!(
-                "{equations}{overlap} are not shown to join ({}); no value claims are made for {}",
-                pair.reason,
-                withdrawn_symbols(&pair.withdrawn)
-            )
+            let overlap = pair.overlap.as_ref().map(|overlap| {
+                let mut text = KorePrinter::compact().print_pattern(&externalize::term(overlap));
+                if let Some((cut, _)) = text.char_indices().nth(OVERLAP_CHARACTERS) {
+                    text.truncate(cut);
+                    text.push_str("...");
+                }
+                text
+            });
+            if pair.in_argument() {
+                // Both equations are axioms: at an instance whose argument the second rewrites,
+                // the first's application equals the first's right-hand side and the application
+                // with the rewritten argument, which the check does not show equal.
+                let claims = if pair.withdrawn.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; no value claims are made for {}",
+                        withdrawn_symbols(&pair.withdrawn)
+                    )
+                };
+                let overlap = overlap
+                    .map(|text| format!(" (at {text})"))
+                    .unwrap_or_default();
+                format!(
+                    "the equation {} is not shown consistent with the equation {}, which rewrites some instances of an argument of the first's left-hand side{overlap}: the two results are not shown equal ({}){claims}",
+                    equation(&pair.first),
+                    equation(&pair.second),
+                    pair.reason,
+                )
+            } else {
+                let overlap = overlap
+                    .map(|text| format!(" overlap at {text} and"))
+                    .unwrap_or_default();
+                format!(
+                    "the equations {} and {}{overlap} are not shown to join ({}); no value claims are made for {}",
+                    equation(&pair.first),
+                    equation(&pair.second),
+                    pair.reason,
+                    withdrawn_symbols(&pair.withdrawn)
+                )
+            }
         };
         let mut withdrawn = pair
             .withdrawn
