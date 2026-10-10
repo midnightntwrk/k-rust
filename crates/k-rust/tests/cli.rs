@@ -4381,6 +4381,53 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `replace` (hook `STRING.replace`) has no evaluator here and has equations in `domains.md`,
+/// which the compiled definition holds. Where none of them applies (a count that is not a value),
+/// the warning says that none applies, not that the definition has none.
+#[test]
+fn an_unevaluated_hook_with_equations_is_not_reported_as_having_none() {
+    const SOURCE: &str = r#"
+module REPLACE-COUNT
+  imports STRING
+  imports INT
+  syntax Int ::= count() [function, no-evaluators]
+  syntax Pgm ::= "go"
+  configuration <k> $PGM:Pgm </k> <out> "" </out>
+  rule <k> go => .K </k> <out> _ => replace("aa", "a", "b", count()) </out>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "-m",
+            "REPLACE-COUNT",
+            "-s",
+            "Pgm",
+            "-e",
+            "go",
+            "--io",
+            "off",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("hook STRING.replace was left unevaluated")
+            && stderr.contains("no equation of the definition applies"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("no equations in the definition"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An equation attempt on an `Unspecified` application that fails is undone entirely, its
 /// console effects included: what it read is unread and what it wrote unwritten. Here the first
 /// equation writes, reads a byte, then needs the application's own value; the second reads a
