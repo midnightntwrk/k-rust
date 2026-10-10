@@ -1195,6 +1195,38 @@ pub(super) fn claim_dependent() -> Definition {
         .equation(app("f", vec![var("VarX", "A")]), cons("c2"))
 }
 
+/// A refutation with a claim that another pair withdraws: `f(X) = hv(1) requires isD(g(2))`
+/// beside `f(X) = hv(2)`, where the total `isD` is `true` on `d` and `false` otherwise
+/// (`owise`), and `g(1) = d` beside `g(1) = g(2)`. Refuting `f`'s pair needs `g(2)` to be a value
+/// other than `d`, a claim about `g` that `g`'s own pair withdraws: every model has
+/// `g(2) = g(1) = d`, so `isD(g(2))` holds, `f(X)` is both `hv(1)` and `hv(2)`, and `hv(1) =
+/// hv(2)`. So `hv` must keep no claim.
+pub(super) fn withdrawn_claim_refutation() -> Definition {
+    Definition::new(&["A", "B"])
+        .constructor("d", &[], "A")
+        .constructor("cb", &[], "B")
+        .head("g", &["Int"], "A")
+        .head("hv", &["Int"], "S")
+        .total_function("isD", &["A"], "Bool")
+        .equation(app("isD", vec![cons("d")]), boolean(true))
+        .full(
+            app("isD", vec![var("VarY", "A")]),
+            boolean(false),
+            None,
+            None,
+            OWISE_PRIORITY,
+        )
+        .equation(app("g", vec![int(1)]), cons("d"))
+        .equation(app("g", vec![int(1)]), app("g", vec![int(2)]))
+        .function("f", &["B"], "S")
+        .conditional(
+            app("f", vec![var("VarX", "B")]),
+            app("hv", vec![int(1)]),
+            Some(app("isD", vec![app("g", vec![int(2)])])),
+        )
+        .equation(app("f", vec![var("VarX", "B")]), app("hv", vec![int(2)]))
+}
+
 /// Two maximal common subsorts: `C1, C2 < Al, Bl < Tl`, so that `inj{Al,Tl}(Z)` and
 /// `inj{Bl,Tl}(Y)` unify in two ways, one per common subsort. `gl(inj{Bl,Tl}(Y)) = kl requires
 /// pl(Y)`, with `pl` true on the subsorts in `true_on`; `fl(kl) = hi`, `fl(X) = lo [owise]`; and
