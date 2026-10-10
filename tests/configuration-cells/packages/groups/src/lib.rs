@@ -10,12 +10,14 @@
 //! restate every leaf of `<frame>` and rebuild it with `k::fragment!`.
 //! `call` and `ret` are `push` and `pop` in the reference spelling `krs
 //! expand` prints: a nested field's `cells!` entry has no wrapper, and the
-//! group binder is typed by the nested `#[k::cell]` struct.
+//! group binder is typed by the nested `#[k::cell]` struct. `wrap` and
+//! `unwrap` save the frame inside `held(..)`, a user production whose field is
+//! a `KItem`: K makes every generated cell sort a subsort of `KItem`.
 //!
 //! Starting from an empty stack, pc 0 and gas 13
 //! (`-cSTACK=.List -cPC=0 -cGAS=13`), the program
-//! `bump bump push bump pop bump report`, and its twins with `save`/`restore`
-//! and `call`/`ret`, end with pc 3 and gas 10: the frame saved after two bumps
+//! `bump bump push bump pop bump report`, and its twins with `save`/`restore`,
+//! `call`/`ret` and `wrap`/`unwrap`, end with pc 3 and gas 10: the frame saved after two bumps
 //! (pc 2, gas 11) is restored after the third, and the last bump runs from
 //! there. `report` writes `100 * pc + gas`, 310, to the computation cell, so
 //! both routes agree on the frame.
@@ -36,7 +38,7 @@ k::sorts! {
 
 #[k::constructors(sort = Stmt, result = KResult)]
 #[k::precedence(
-    cmd (Bump, Push, Pop, Save, Restore, Call, Ret, Report, Jump)
+    cmd (Bump, Push, Pop, Save, Restore, Call, Ret, Report, Jump, Wrap, Unwrap, Held)
     > right seq (Seq)
 )]
 #[rustfmt::skip]
@@ -50,6 +52,9 @@ pub enum Cmd {
     #[k::syntax("ret")] Ret(),
     #[k::syntax("report")] Report(),
     #[k::syntax("jump")] Jump(),
+    #[k::syntax("wrap")] Wrap(),
+    #[k::syntax("unwrap")] Unwrap(),
+    #[k::syntax("held({saved})")] Held { saved: k::KItem },
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
 }
 
@@ -150,6 +155,29 @@ k::rules! {
     } => {
         k: [..],
         frame: Frame { pc: int::add(p, 10), gas: g },
+    };
+
+    /// `push` that saves the frame inside a user production: K makes
+    /// `FrameCell` a subsort of `KItem`, so `f` fills the `KItem` field.
+    wrap: {
+        k: [Wrap(), ..],
+        stack: s,
+        frame: f,
+    } => {
+        k: [..],
+        stack: list::concat(list::item(Held { saved: f }), s),
+        frame: f,
+    };
+
+    /// `pop` for a frame saved by `wrap`.
+    unwrap: {
+        k: [Unwrap(), ..],
+        stack: list::concat(list::item(Held { saved: f }), s),
+        frame: _,
+    } => {
+        k: [..],
+        stack: s,
+        frame: f,
     };
 
     /// `push` written the long way: restate every leaf of the frame.

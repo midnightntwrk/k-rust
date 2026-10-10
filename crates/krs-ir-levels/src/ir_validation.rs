@@ -412,6 +412,27 @@ fn configuration_leaf_sorts<L: Validation>(
     Ok(leaf_sorts)
 }
 
+/// Adds K's `Cell(d) <: KItem` edge for every nested (group) cell of the
+/// configuration, so a whole-group binder may stand wherever a `KItem` is
+/// expected, as the compiler's inference catalog already allows.
+pub(crate) fn insert_group_cell_parents<L: Validation>(
+    configuration: Option<&Configuration<L>>,
+    k_item: Option<L::Sort>,
+    parents: &mut SortParents<L>,
+) {
+    let (Some(configuration), Some(k_item)) = (configuration, k_item) else {
+        return;
+    };
+    for (sort, _) in configuration_groups::<L>(configuration).into_values() {
+        if let Some(sort) = sort {
+            let entry = parents.entry(sort).or_default();
+            if !entry.contains(&k_item) {
+                entry.push(k_item.clone());
+            }
+        }
+    }
+}
+
 /// Nested (group) cells with their generated cell sort, when the level can
 /// name it, and every leaf below them.
 type GroupCells<L> =

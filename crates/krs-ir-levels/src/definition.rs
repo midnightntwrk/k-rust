@@ -13,9 +13,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_node, require_kind, require_sort, validate_context_alias,
-    validate_context_alias_frames, validate_fixed_configuration, validate_precedence_order,
-    validate_production_shape, validate_rule, validate_subsort_order,
+    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
+    require_sort, validate_context_alias, validate_context_alias_frames,
+    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_subsort_order,
 };
 use krs_ir::ir::validated_id;
 use krs_ir::sorted::{SortKey, SortedByKey};
@@ -548,6 +549,22 @@ impl DefinitionIr {
                 _ => None,
             })
         });
+        // The sort emitted as `KItem` is K's own, whichever module declares it.
+        let k_item = self.modules.iter().find_map(|module| {
+            module.sentences.iter().find_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence)
+                    if sentence.symbol.emitted_name == "KItem" =>
+                {
+                    Some(DefinitionSortRef::Declared(sentence.symbol.id.clone()))
+                }
+                _ => None,
+            })
+        });
+        insert_group_cell_parents::<DefinitionLevel>(
+            fixed_configuration,
+            k_item,
+            &mut subsort_parents,
+        );
 
         for module in &self.modules {
             for import in &module.imports {

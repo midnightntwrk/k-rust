@@ -22,13 +22,16 @@ the outcomes must agree:
   bare; `krs expand` writes the entry without a `Cell(..)` wrapper and types
   the binder by the nested `#[k::cell]` struct. `save`/`restore` restate the
   leaves and rebuild the frame with `k::fragment!`, and `call`/`ret` are the
-  reference spelling of `push`/`pop`. Starting from an empty stack, pc 0 and
-  gas 13, each of the three programs ends with pc 3 and gas 10 natively, and
-  `report` writes 310 (`100 * pc + gas`) to the computation cell on both
-  routes. `jump` matches and rebuilds the frame with the readable record
-  `Frame { pc: p, gas: g }`, which is the group term `k::fragment!` spells:
-  `krs expand` writes it as a fragment, and `bump jump report` ends with
-  pc 11 and gas 12 and writes 1112 on both routes;
+  reference spelling of `push`/`pop`, and `wrap`/`unwrap` save the frame
+  inside `held(..)`, a user production with a `KItem` field, which the
+  frame fills because K makes `FrameCell` a subsort of `KItem`. Starting
+  from an empty stack, pc 0 and gas 13, each of the four programs ends with
+  pc 3 and gas 10 natively, and `report` writes 310 (`100 * pc + gas`) to
+  the computation cell on both routes. `jump` matches and rebuilds the
+  frame with the readable record `Frame { pc: p, gas: g }`, which is the
+  group term `k::fragment!` spells: `krs expand` writes it as a fragment,
+  and `bump jump report` ends with pc 11 and gas 12 and writes 1112 on both
+  routes;
 - `optional`: an `Option<Int>` cell and an `Option<Mark>` nested cell,
   both `multiplicity = "?"` and absent at start. `enable` creates the
   counter (`None => Some(0)`), `inc`/`dec` update it, `read` reads it,
@@ -128,6 +131,7 @@ GROUPS_PROGRAMS = tuple(
         ("push-pop", "push", "pop"),
         ("save-restore", "save", "restore"),
         ("call-ret", "call", "ret"),
+        ("wrap-unwrap", "wrap", "unwrap"),
     )
 )
 
@@ -154,6 +158,12 @@ POP_K = (
     "    <k> pop => .K ... </k>\n"
     "    <stack> ListItem(F:FrameCell) S:List => S:List </stack>\n"
     "    (_:FrameCell => F:FrameCell)\n"
+)
+WRAP_K = (
+    "  rule [wrap]:\n"
+    "    <k> wrap => .K ... </k>\n"
+    "    <stack> S:List => ListItem(held ( F:FrameCell )) S:List </stack>\n"
+    "    F:FrameCell\n"
 )
 PUSH_REFERENCE = (
     '#[k::rule(label = "push")]\n'
@@ -366,7 +376,7 @@ def verify_groups(harness: FixtureGate) -> None:
             raise GateError(f"the readable group record of `jump` is not a fragment in the reference form:\n{text}")
     emitted = harness.emit(GROUPS)
     source = emitted.source.read_text(encoding="utf-8")
-    for rule in (PUSH_K, POP_K, JUMP_K):
+    for rule in (PUSH_K, POP_K, JUMP_K, WRAP_K):
         if rule not in source:
             raise GateError(f"emitted K changed a whole-cell rule:\n{source}")
     harness.compare(emitted, (*GROUPS_PROGRAMS, GROUPS_JUMP), sort="Stmt")

@@ -658,6 +658,13 @@ fn render_reference_term_type(
             let marker = format_ident!("{}Sort", id.item_name());
             Ok(quote!(k::Term<dyn #marker>))
         }
+        // A framework sort's marker is the facade's `k::KItemSort` or `k::KResultSort`.
+        krs_ir::DescriptorSortRef::Declared(id)
+            if id.package().k_namespace() == crate::partition::FRAMEWORK_NAMESPACE =>
+        {
+            let marker = format_ident!("{}Sort", id.item_name());
+            Ok(quote!(k::Term<dyn k::#marker>))
+        }
         krs_ir::DescriptorSortRef::Declared(id) => Err(
             ReferenceExpansionError::ExternalReferenceSort(Box::new(id.clone())),
         ),

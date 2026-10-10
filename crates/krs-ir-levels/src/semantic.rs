@@ -14,11 +14,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::SemanticLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_node, require_kind, require_sort, validate_context_alias,
-    validate_context_alias_frames, validate_fixed_configuration,
-    validate_initializer_cell_references, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_rule_cell_references, validate_subsort_order,
-    validate_term_cell_references,
+    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
+    require_sort, validate_context_alias, validate_context_alias_frames,
+    validate_fixed_configuration, validate_initializer_cell_references, validate_precedence_order,
+    validate_production_shape, validate_rule, validate_rule_cell_references,
+    validate_subsort_order, validate_term_cell_references,
 };
 use krs_ir::sorted::{SortKey, SortedByKey};
 use krs_ir::{
@@ -334,6 +334,12 @@ impl SemanticTheory {
             .modules
             .iter()
             .find_map(|module| module.configuration.as_ref());
+        let k_item = declarations
+            .keys()
+            .find(|id| is_framework_k_item(id))
+            .cloned()
+            .map(SemanticSortRef::Declared);
+        insert_group_cell_parents::<SemanticLevel>(fixed_configuration, k_item, &mut sort_parents);
 
         for module in &self.modules {
             for import in &module.imports {
@@ -2135,6 +2141,15 @@ impl fmt::Display for SemanticValidationError {
 }
 
 impl Error for SemanticValidationError {}
+
+/// Recognises the framework's `KItem` sort declaration (`k::KItem`).
+fn is_framework_k_item(id: &StableItemId) -> bool {
+    id.item_kind() == ItemKind::Sort
+        && id.item_name() == "KItem"
+        && id.package().k_namespace() == "KRS-FRAMEWORK"
+        && id.package().cargo_name() == "krs"
+        && id.package().cargo_source() == "framework"
+}
 
 fn validate_item_kind(
     id: &StableItemId,
