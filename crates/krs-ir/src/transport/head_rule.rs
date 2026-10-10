@@ -129,8 +129,31 @@ protocol_shape! {
     }
 }
 
+protocol_shape! {
+    /// The List-collection reading of a readable record clause whose
+    /// bracketed cell value reads both as the computation cell's
+    /// `[head, ..]` and as a List collection's front instances (KF-023):
+    /// `job: [Job { payload: p }, ..]`. The rule is carried in its
+    /// computation-cell reading; the collector, which knows the cell's
+    /// declared type, replaces the head by this extra when the cell is a
+    /// collection. The instance children reuse the head record's terms and
+    /// keys.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleBracketAlternative<S => sort_map => U, I => cell_map => J, T => term_map => V> {
+        /// The clause's bindings in this reading, in introduction order:
+        /// instance labels are not bindings.
+        pub bindings: Vec<ProtocolHeadRuleBinding<S>> => [vec nested sort_map],
+        /// The collection cell's state extra.
+        pub extra: ProtocolHeadRuleExtra<I, T> => [nested cell_map term_map],
+    }
+}
+
 /// Host gradual extra-cell clause.
 pub type HostHeadRuleExtra = ProtocolHeadRuleExtra<HostHeadRuleCellReference, HostTerm>;
+/// Host List-collection reading of an ambiguous bracketed cell value.
+pub type HostHeadRuleBracketAlternative =
+    ProtocolHeadRuleBracketAlternative<HostSortReference, HostHeadRuleCellReference, HostTerm>;
 /// Stable gradual extra-cell clause.
 pub type DescriptorHeadRuleExtra = ProtocolHeadRuleExtra<DescriptorCellReference, DescriptorTerm>;
 
@@ -185,8 +208,13 @@ stage_shape! {
         /// The `heat` or `cool` key of a transition (KF-014).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub evaluation: Option<crate::transport::rule::EvaluationStep<S>> => [option nested],
+        /// The List-collection reading of a bracketed cell value that also
+        /// reads as the computation cell's head (KF-023); the collector keeps
+        /// one reading by the cell's declared type.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub bracket_alternative: Option<ProtocolHeadRuleBracketAlternative<S::Sort, S::HeadRuleCell, Term<S>>> => [option protocol sort head_rule_cell nested],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -567,6 +595,40 @@ impl HostHeadRule {
                 ));
             }
         }
+        if let Some(alternative) = &self.bracket_alternative {
+            // The List reading replaces the head of the same cell, so it
+            // exists only beside a head and names the computation cell.
+            let ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                result_key,
+                before,
+                after,
+            } = &alternative.extra
+            else {
+                return Err(StateTransportError::InvalidTerm(
+                    StateTermReason::InvalidReadableStateExtra,
+                ));
+            };
+            if self.head.is_none()
+                || self.computation_cell_name.as_deref() != Some(cell.name.as_str())
+                || cells.contains(cell.name.as_str())
+                || cell.key.role() != ProvenanceRole::RuleLeftCellsField
+                || result_key
+                    .as_ref()
+                    .is_some_and(|key| key.role() != ProvenanceRole::RuleRightCellsField)
+                || result_key.is_some() != after.is_some()
+                || !matches!(before, crate::ProtocolRuleStateTerm::Instances(_))
+                || !readable_state_extra(before, after.as_ref())
+            {
+                return Err(StateTransportError::InvalidTerm(
+                    StateTermReason::InvalidReadableStateExtra,
+                ));
+            }
+            validate_bindings(
+                &alternative.bindings,
+                &[] as &[ProtocolHeadRuleExtra<HostHeadRuleCellReference, HostTerm>],
+            )?;
+        }
         Ok(())
     }
 }
@@ -872,6 +934,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            bracket_alternative: None,
         };
         let original = serde_json::to_value(&rule).unwrap();
         let mut map = CountingMap::default();

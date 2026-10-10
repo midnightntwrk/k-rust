@@ -1,13 +1,14 @@
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{quote, quote_spanned};
 use syn::ext::IdentExt;
-use syn::parse::ParseStream;
 use syn::parse::discouraged::Speculative;
+use syn::parse::{ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, Pat, PatIdent, Path, Token, Type, braced, bracketed};
 
 use super::block::{
-    RuleClause, RuleClauseLayout, RuleHeadResult, RuleNarrowing, take_rule_clause_attribute,
+    BracketAlternative, RuleClause, RuleClauseLayout, RuleHeadResult, RuleNarrowing,
+    take_rule_clause_attribute,
 };
 use super::condition::{MapUpdateExtra, RuleExtra, condition_token_range, parse_map_update};
 use super::item::RuleItem;
@@ -34,6 +35,9 @@ enum MachinePatternCell {
     },
     /// `Some(p)`, `None`, or an instance list (KF-023).
     State(Box<StateTerm>),
+    /// A bracketed value: the computation cell's `[head, ..]` or a List
+    /// collection's instances (KF-023), read once the clause is assembled.
+    Bracket(proc_macro2::Group),
 }
 
 #[derive(Clone)]
@@ -42,6 +46,8 @@ enum MachineResultCell {
     Term(Box<Expr>),
     /// `Some(e)`, `None`, or an instance list (KF-023).
     State(Box<StateTerm>),
+    /// A bracketed value, read like the subject's.
+    Bracket(proc_macro2::Group),
 }
 
 /// What a subject record's optional or collection entry expects of the
@@ -92,13 +98,9 @@ fn parse_readable_pattern_state(input: ParseStream<'_>) -> Result<Option<StateTe
             )))));
         }
     }
-    if input.peek(syn::token::Bracket) || input.peek(syn::token::Brace) {
+    if input.peek(syn::token::Brace) {
         let group: proc_macro2::Group = input.fork().parse()?;
-        let list = match group.delimiter() {
-            proc_macro2::Delimiter::Bracket => readable_bracket_is_list(&group),
-            _ => !contains_top_level_arrow(&group),
-        };
-        if list {
+        if !contains_top_level_arrow(&group) {
             let group: proc_macro2::Group = input.parse()?;
             return Ok(Some(StateTerm::Instances(parse_readable_instances(
                 &group,
@@ -203,9 +205,11 @@ fn is_instance_record(tokens: &TokenStream) -> bool {
     })
 }
 
-/// Whether a bracketed subject value is a List collection rather than the
-/// computation cell's `[head, ..]`: it has no item before its `..`, an item
-/// after it, or an instance record that ends in a rest.
+/// Whether a bracketed subject value that reads neither way looks like a
+/// List collection: it has no item before its `..`, an item after it, or an
+/// instance record that ends in a rest. It only picks which reading's error
+/// to report; a value that reads one way is read by the cell's declared type
+/// (see [`BracketReadings`]).
 fn readable_bracket_is_list(group: &proc_macro2::Group) -> bool {
     let items = top_level_items(group.stream());
     let Some(first) = items.first() else {
@@ -474,28 +478,7 @@ fn parse_machine_pattern_record(
         let value = if let Some(state) = parse_readable_pattern_state(&content)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
-            let sequence = content.call(|input| {
-                let sequence;
-                bracketed!(sequence in input);
-                Ok(sequence)
-            })?;
-            if sequence.peek(Token![..]) {
-                return Err(sequence
-                    .error("a machine-rule pattern must match one k head before `..`")
-                    .into());
-            }
-            let (head, signs) = parse_pattern_with_signs(&sequence)?;
-            sequence.parse::<Token![,]>()?;
-            sequence.parse::<Token![..]>()?;
-            if sequence.peek(Token![,]) {
-                sequence.parse::<Token![,]>()?;
-            }
-            if !sequence.is_empty() {
-                return Err(sequence
-                    .error("a machine-rule k pattern is `[head, ..]`")
-                    .into());
-            }
-            MachinePatternCell::KHead(head, signs)
+            MachinePatternCell::Bracket(content.parse()?)
         } else if content.peek(syn::token::Brace) {
             let map = content.call(|input| {
                 let map;
@@ -602,26 +585,7 @@ fn parse_machine_result_record(
         let value = if let Some(family) = family {
             MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
         } else if content.peek(syn::token::Bracket) {
-            let sequence = content.call(|input| {
-                let sequence;
-                bracketed!(sequence in input);
-                Ok(sequence)
-            })?;
-            let mut items = Vec::new();
-            while !sequence.peek(Token![..]) {
-                items.push(sequence.parse::<Expr>()?);
-                sequence.parse::<Token![,]>()?;
-            }
-            sequence.parse::<Token![..]>()?;
-            if sequence.peek(Token![,]) {
-                sequence.parse::<Token![,]>()?;
-            }
-            if !sequence.is_empty() {
-                return Err(sequence
-                    .error("a machine-rule k result ends in `..`")
-                    .into());
-            }
-            MachineResultCell::KItems(items)
+            MachineResultCell::Bracket(content.parse()?)
         } else {
             MachineResultCell::Term(Box::new(content.parse::<Expr>()?))
         };
@@ -637,13 +601,9 @@ fn parse_machine_result_record(
     Ok(cells)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "One linear parser retains clause layout and diagnostics at authored tokens."
-)]
 pub(super) fn parse_machine_clause(
     input: ParseStream<'_>,
-    attributes: Vec<Attribute>,
+    attributes: &[Attribute],
     name: &Ident,
     configuration_type: &Type,
     clause_start: proc_macro2::Span,
@@ -718,12 +678,271 @@ pub(super) fn parse_machine_clause(
         }
     }
     let semicolon = input.parse::<Token![;]>()?;
+    let clause = MachineClause {
+        attributes,
+        name,
+        configuration_type,
+        pattern_record: &pattern_record,
+        result_record: &result_record,
+        layout,
+        narrowings: &narrowings,
+        source_range: TokenRange::new(clause_start, semicolon.span),
+    };
+    read_machine_clause(&clause, &subject_cells, &result_cells)
+}
 
+/// The parsed parts of one cell-record clause that every reading of its
+/// bracketed values shares.
+struct MachineClause<'a> {
+    attributes: &'a [Attribute],
+    name: &'a Ident,
+    configuration_type: &'a Type,
+    pattern_record: &'a TokenTree,
+    result_record: &'a TokenTree,
+    layout: RuleClauseLayout,
+    narrowings: &'a [RuleNarrowing],
+    source_range: TokenRange,
+}
+
+/// The readings a bracketed subject value admits with its result: the
+/// computation cell's `[head, ..] => [items.., ..]`, and a List collection's
+/// instances.
+struct BracketReadings {
+    computation: bool,
+    list: bool,
+}
+
+impl BracketReadings {
+    fn of(group: &proc_macro2::Group, result: Option<&MachineResultCell>) -> Self {
+        let computation = bracket_head(group).is_ok()
+            && matches!(result, Some(MachineResultCell::Bracket(result)) if bracket_items(result).is_ok());
+        let list = parse_readable_instances(group, StateMacroContext::Pattern).is_ok()
+            && match result {
+                None => true,
+                Some(MachineResultCell::Bracket(result)) => {
+                    parse_readable_instances(result, StateMacroContext::Expression).is_ok()
+                }
+                Some(_) => false,
+            };
+        Self { computation, list }
+    }
+}
+
+/// Reads a cell-record clause's bracketed values (KF-023). A bracketed value
+/// that reads only one way is read that way. One that reads both ways, such
+/// as `job: [Job { payload: p }, ..] => job: [..]`, depends on the cell's
+/// declared type, which only the collector knows: when no other cell is the
+/// computation cell, the clause is read with it as the computation cell and
+/// carries its List reading beside it, and the collector keeps the reading
+/// the configuration declares.
+fn read_machine_clause(
+    clause: &MachineClause<'_>,
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<RuleClause, ParseError> {
+    let mut definite = Vec::new();
+    let mut ambiguous = Vec::new();
+    let mut unreadable = Vec::new();
+    for (cell, pattern) in subject_cells {
+        let MachinePatternCell::Bracket(group) = pattern else {
+            continue;
+        };
+        let result = result_cells
+            .iter()
+            .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
+            .map(|(_, result)| result);
+        let readings = BracketReadings::of(group, result);
+        match (readings.computation, readings.list) {
+            (true, false) => definite.push(cell),
+            (true, true) => ambiguous.push(cell),
+            (false, true) => {}
+            (false, false) => unreadable.push((cell, group)),
+        }
+    }
+    if let [_, second, ..] = definite.as_slice() {
+        return Err(syn::Error::new(
+            second.span(),
+            "a machine rule must match at most one computation-cell sequence",
+        )
+        .into());
+    }
+    let read = |computation: Option<&Ident>| {
+        let (subject, result) = read_brackets(subject_cells, result_cells, computation)?;
+        assemble_machine_clause(clause, &subject, &result)
+    };
+    if let Some(cell) = definite.first() {
+        return read(Some(cell));
+    }
+    let Some(cell) = ambiguous.first() else {
+        // A value that reads neither way reports the error of the reading
+        // its shape suggests.
+        let computation = unreadable
+            .iter()
+            .find(|(_, group)| !readable_bracket_is_list(group))
+            .map(|(cell, _)| *cell);
+        return read(computation);
+    };
+    match (read(Some(cell)), read(None)) {
+        (Ok(mut computation), Ok(list)) => {
+            computation.bracket_alternative = BracketAlternative::from_list_reading(list, cell);
+            Ok(computation)
+        }
+        (Ok(computation), Err(_)) => Ok(computation),
+        (Err(_), Ok(list)) => Ok(list),
+        (Err(error), Err(_)) => Err(error),
+    }
+}
+
+/// A clause's subject and result cells.
+type MachineCells = (
+    Vec<(Ident, MachinePatternCell)>,
+    Vec<(Ident, MachineResultCell)>,
+);
+
+/// Reads every bracketed value: `computation`'s as the computation cell's
+/// `[head, ..]`, every other one as a List collection's instances.
+fn read_brackets(
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+    computation: Option<&Ident>,
+) -> Result<MachineCells, ParseError> {
+    let is_computation =
+        |cell: &Ident| computation.is_some_and(|computation| computation.unraw() == cell.unraw());
+    let is_list = |cell: &Ident| {
+        !is_computation(cell)
+            && subject_cells.iter().any(|(subject_cell, pattern)| {
+                subject_cell.unraw() == cell.unraw()
+                    && matches!(pattern, MachinePatternCell::Bracket(_))
+            })
+    };
+    let mut subject = Vec::with_capacity(subject_cells.len());
+    for (cell, pattern) in subject_cells {
+        let pattern = match pattern {
+            MachinePatternCell::Bracket(group) if is_computation(cell) => {
+                let (head, signs) = bracket_head(group)?;
+                MachinePatternCell::KHead(head, signs)
+            }
+            MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
+                StateTerm::Instances(parse_readable_instances(group, StateMacroContext::Pattern)?),
+            )),
+            pattern => pattern.clone(),
+        };
+        subject.push((cell.clone(), pattern));
+    }
+    let mut result = Vec::with_capacity(result_cells.len());
+    for (cell, value) in result_cells {
+        let value = match value {
+            MachineResultCell::Bracket(group) if is_list(cell) => {
+                MachineResultCell::State(Box::new(StateTerm::Instances(parse_readable_instances(
+                    group,
+                    StateMacroContext::Expression,
+                )?)))
+            }
+            MachineResultCell::Bracket(group) => MachineResultCell::KItems(bracket_items(group)?),
+            MachineResultCell::Term(expression) if is_list(cell) => {
+                return Err(readable_error(
+                    expression.span(),
+                    "a collection cell's result is an instance list `{ .. }` or `[ .. ]`",
+                ));
+            }
+            value => value.clone(),
+        };
+        result.push((cell.clone(), value));
+    }
+    Ok((subject, result))
+}
+
+/// Reads a bracketed subject value as the computation cell's `[head, ..]`.
+fn bracket_head(group: &proc_macro2::Group) -> Result<(Pat, NegativeLiteralSpans), ParseError> {
+    let parser = |input: ParseStream<'_>| {
+        let sequence;
+        bracketed!(sequence in input);
+        if sequence.peek(Token![..]) {
+            return Err(sequence.error("a machine-rule pattern must match one k head before `..`"));
+        }
+        let (head, signs) = parse_pattern_with_signs(&sequence)?;
+        sequence.parse::<Token![,]>()?;
+        sequence.parse::<Token![..]>()?;
+        if sequence.peek(Token![,]) {
+            sequence.parse::<Token![,]>()?;
+        }
+        if !sequence.is_empty() {
+            return Err(sequence.error("a machine-rule k pattern is `[head, ..]`"));
+        }
+        Ok((head, signs))
+    };
+    Ok(parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?)
+}
+
+/// Reads a bracketed result value as the computation cell's `[items.., ..]`.
+fn bracket_items(group: &proc_macro2::Group) -> Result<Vec<Expr>, ParseError> {
+    let parser = |input: ParseStream<'_>| {
+        let sequence;
+        bracketed!(sequence in input);
+        let mut items = Vec::new();
+        while !sequence.peek(Token![..]) {
+            items.push(sequence.parse::<Expr>()?);
+            sequence.parse::<Token![,]>()?;
+        }
+        sequence.parse::<Token![..]>()?;
+        if sequence.peek(Token![,]) {
+            sequence.parse::<Token![,]>()?;
+        }
+        if !sequence.is_empty() {
+            return Err(sequence.error("a machine-rule k result ends in `..`"));
+        }
+        Ok(items)
+    };
+    Ok(parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?)
+}
+
+impl BracketAlternative {
+    /// The List reading of `cell` from the clause read with every bracketed
+    /// value as a List collection.
+    fn from_list_reading(list: RuleClause, cell: &Ident) -> Option<Box<Self>> {
+        let bindings = list.bindings;
+        list.extras.into_iter().find_map(|extra| match extra {
+            RuleExtra::RewriteState {
+                cell: state_cell,
+                before,
+                result_cell,
+                after,
+            } if state_cell.unraw() == cell.unraw() => Some(Box::new(Self {
+                cell: state_cell,
+                before: *before,
+                result_cell,
+                after: after.map(|after| *after),
+                bindings: bindings.clone(),
+            })),
+            _ => None,
+        })
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "One linear pass retains clause layout and diagnostics at authored tokens."
+)]
+fn assemble_machine_clause(
+    clause: &MachineClause<'_>,
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<RuleClause, ParseError> {
+    let MachineClause {
+        attributes,
+        name,
+        configuration_type,
+        pattern_record,
+        result_record,
+        layout,
+        narrowings,
+        source_range,
+    } = *clause;
     let mut subject_k = None;
     let mut extras = Vec::new();
     let mut extra_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
-    for (cell, pattern) in &subject_cells {
+    for (cell, pattern) in subject_cells {
         match pattern {
             MachinePatternCell::KHead(head, signs) => {
                 if subject_k
@@ -790,6 +1009,12 @@ pub(super) fn parse_machine_clause(
                     after,
                 });
             }
+            MachinePatternCell::Bracket(group) => {
+                return Err(readable_error(
+                    group.span(),
+                    "a bracketed cell value is read before the clause is assembled",
+                ));
+            }
             MachinePatternCell::Term {
                 pattern,
                 tree: before_tree,
@@ -825,7 +1050,7 @@ pub(super) fn parse_machine_clause(
             }
         }
     }
-    for (cell, _) in &result_cells {
+    for (cell, _) in result_cells {
         if !subject_cells
             .iter()
             .any(|(subject_cell, _)| subject_cell.unraw() == cell.unraw())
@@ -837,7 +1062,7 @@ pub(super) fn parse_machine_clause(
             .into());
         }
     }
-    let (attribute, retained) = take_rule_clause_attribute(attributes)?;
+    let (attribute, retained) = take_rule_clause_attribute(attributes.to_vec())?;
     let (rule, head_result, computation_cell) = if let Some((computation_cell, subject_k, signs)) =
         subject_k
     {
@@ -920,7 +1145,7 @@ pub(super) fn parse_machine_clause(
         }
         bindings.push(introduced);
     }
-    for narrowing in &narrowings {
+    for narrowing in narrowings {
         if !bindings
             .iter()
             .any(|binding| binding.unraw() == narrowing.binding.unraw())
@@ -938,13 +1163,14 @@ pub(super) fn parse_machine_clause(
     let clause = RuleClause {
         rule,
         attribute,
-        narrowings,
+        narrowings: narrowings.to_vec(),
         head_result,
         extras,
         bindings,
         computation_cell,
-        source_range: TokenRange::new(clause_start, semicolon.span),
+        source_range,
         layout,
+        bracket_alternative: None,
     };
     clause.check_existentials()?;
     Ok(clause)

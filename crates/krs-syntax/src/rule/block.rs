@@ -150,6 +150,55 @@ pub struct RuleClause {
     pub(super) computation_cell: Option<Ident>,
     pub(super) source_range: TokenRange,
     pub(super) layout: RuleClauseLayout,
+    pub(super) bracket_alternative: Option<Box<BracketAlternative>>,
+}
+
+/// The List-collection reading of a cell-record clause whose bracketed
+/// value reads both as the computation cell's `[head, ..]` and as a List
+/// collection's instances, such as `job: [Job { payload: p }, ..] => job:
+/// [..]` (KF-023). Only the cell's declared type, which the collector knows,
+/// tells them apart: the clause is parsed in its computation-cell reading
+/// and carries this one beside it.
+#[derive(Clone, Debug)]
+pub struct BracketAlternative {
+    pub(super) cell: Ident,
+    pub(super) before: crate::StateTerm,
+    pub(super) result_cell: Option<Ident>,
+    pub(super) after: Option<crate::StateTerm>,
+    pub(super) bindings: Vec<Ident>,
+}
+
+impl BracketAlternative {
+    /// The cell, as the subject record names it.
+    #[must_use]
+    pub const fn cell(&self) -> &Ident {
+        &self.cell
+    }
+
+    /// The subject instances: one front record and a rest.
+    #[must_use]
+    pub const fn before(&self) -> &crate::StateTerm {
+        &self.before
+    }
+
+    /// The cell as the result record names it, absent when the result leaves
+    /// it out.
+    #[must_use]
+    pub const fn result_cell(&self) -> Option<&Ident> {
+        self.result_cell.as_ref()
+    }
+
+    /// The result instances, absent when the result leaves the cell out.
+    #[must_use]
+    pub const fn after(&self) -> Option<&crate::StateTerm> {
+        self.after.as_ref()
+    }
+
+    /// The clause's bindings in this reading, in introduction order.
+    #[must_use]
+    pub fn bindings(&self) -> &[Ident] {
+        &self.bindings
+    }
 }
 
 impl RuleClause {
@@ -224,6 +273,14 @@ impl RuleClause {
     #[must_use]
     pub const fn computation_cell(&self) -> Option<&Ident> {
         self.computation_cell.as_ref()
+    }
+
+    /// Returns the List-collection reading of the computation cell's
+    /// bracketed value when that value also reads as a List collection's
+    /// instances (KF-023).
+    #[must_use]
+    pub fn bracket_alternative(&self) -> Option<&BracketAlternative> {
+        self.bracket_alternative.as_deref()
     }
 
     /// Returns the complete authored clause range, including attributes and
@@ -524,6 +581,44 @@ impl RuleClause {
                 }
             }
         }
+        if let Some(alternative) = &self.bracket_alternative {
+            // The List reading's cell names and instance structure, numbered
+            // after every other extra; its instance children are the head
+            // record's terms, already anchored above.
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::RuleLeftCellsField,
+                checked_ordinal(
+                    have_cell,
+                    ProvenanceRole::RuleLeftCellsField,
+                    alternative.cell.span(),
+                )?,
+                TokenRange::for_tokens(&alternative.cell)?,
+            ));
+            append_alternative_state_anchors(
+                &mut anchors,
+                &alternative.before,
+                RuleTermSide::Left,
+                &mut left_states,
+            )?;
+            if let (Some(result_cell), Some(after)) = (&alternative.result_cell, &alternative.after)
+            {
+                anchors.push(ProvenanceAnchor::new(
+                    ProvenanceRole::RuleRightCellsField,
+                    checked_ordinal(
+                        update_cell,
+                        ProvenanceRole::RuleRightCellsField,
+                        result_cell.span(),
+                    )?,
+                    TokenRange::for_tokens(result_cell)?,
+                ));
+                append_alternative_state_anchors(
+                    &mut anchors,
+                    after,
+                    RuleTermSide::Right,
+                    &mut right_states,
+                )?;
+            }
+        }
         for (ordinal, narrowing) in self.narrowings.iter().enumerate() {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleBindingType,
@@ -793,6 +888,77 @@ fn append_readable_state_anchors(
     Ok(())
 }
 
+/// The structural anchors of a bracket alternative's instance list: each
+/// instance record, each child name, and the rest. The children's terms are
+/// the head record's, which the clause anchors already.
+fn append_alternative_state_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    state: &crate::StateTerm,
+    side: RuleTermSide,
+    counters: &mut ReadableStateCounters,
+) -> Result<(), SyntaxError> {
+    let left = matches!(side, RuleTermSide::Left);
+    let role = |left_role: ProvenanceRole, right_role: ProvenanceRole| {
+        if left { left_role } else { right_role }
+    };
+    let push = |anchors: &mut Vec<ProvenanceAnchor>,
+                role: ProvenanceRole,
+                counter: &mut usize,
+                range: TokenRange| {
+        anchors.push(ProvenanceAnchor::new(
+            role,
+            checked_ordinal(*counter, role, range.first())?,
+            range,
+        ));
+        *counter += 1;
+        Ok::<_, SyntaxError>(())
+    };
+    let crate::StateTerm::Instances(list) = state else {
+        return Ok(());
+    };
+    let mut instance = |anchors: &mut Vec<ProvenanceAnchor>, item: &crate::InstanceItem| {
+        push(
+            anchors,
+            role(
+                ProvenanceRole::RuleLeftCellsInstance,
+                ProvenanceRole::RuleRightCellsInstance,
+            ),
+            &mut counters.instance,
+            item.range(),
+        )?;
+        for field in item.fields() {
+            push(
+                anchors,
+                role(
+                    ProvenanceRole::RuleLeftCellsInstanceField,
+                    ProvenanceRole::RuleRightCellsInstanceField,
+                ),
+                &mut counters.instance_field,
+                TokenRange::for_tokens(field.name())?,
+            )?;
+        }
+        Ok::<_, SyntaxError>(())
+    };
+    for item in list.front() {
+        instance(anchors, item)?;
+    }
+    for item in list.back() {
+        instance(anchors, item)?;
+    }
+    if let Some(range) = list.rest().range() {
+        push(
+            anchors,
+            role(
+                ProvenanceRole::RuleLeftCellsInstancesRest,
+                ProvenanceRole::RuleRightCellsInstancesRest,
+            ),
+            &mut counters.instances_rest,
+            range,
+        )?;
+    }
+    Ok(())
+}
+
 fn append_readable_term_anchors(
     anchors: &mut Vec<ProvenanceAnchor>,
     term: &TermExpression,
@@ -947,7 +1113,7 @@ impl RuleBlock {
             if machine_clause {
                 clauses.push(parse_machine_clause(
                     input,
-                    attributes,
+                    &attributes,
                     &name,
                     &sort_type,
                     clause_start,
@@ -1102,6 +1268,7 @@ impl RuleBlock {
                 computation_cell: None,
                 source_range: TokenRange::new(clause_start, semicolon.span),
                 layout,
+                bracket_alternative: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);

@@ -288,6 +288,13 @@ bug — report it, don't guess.
   with the block's `use Enum::*` in scope, so a variant of the same name
   wins and `crate::Frame { .. }` names the struct. Inside other terms
   (`list::item(..)`), a group is still written with `k::fragment!`.
+  The same holds for a bracketed value (KF-023): `[Job { payload: p },
+  ..] => [..]` is the front instance of a List collection `job` and the
+  head of the computation cell `k`, and the cell's declared type, which
+  the collector knows, picks the reading; a value that reads only one way
+  (`[.., Job { .. }]`, `[Push(), ..]`) is read that way, and a rule has
+  one computation cell. This replaces a syntactic rule that read a front
+  record naming every child as the computation cell's head.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

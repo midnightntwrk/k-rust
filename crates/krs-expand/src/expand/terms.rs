@@ -1437,7 +1437,7 @@ impl<'a> TermBuilder<'a> {
         let import = self
             .enum_import_item
             .filter(|_| self.enum_glob.is_some())
-            .map(|item| quote!(#[allow(unused_imports)] #item));
+            .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
         quote! {{
             #import
             let __krs_rule_application_witness: ::core::option::Option<_> =

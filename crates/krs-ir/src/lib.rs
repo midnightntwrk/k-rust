@@ -158,7 +158,8 @@ pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
     DescriptorHeadRuleResult, HeadRule, HostHeadRule, HostHeadRuleBinding,
-    HostHeadRuleCellReference, HostHeadRuleExtra, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    HostHeadRuleBracketAlternative, HostHeadRuleCellReference, HostHeadRuleExtra,
+    HostHeadRuleResult, ProtocolHeadRuleBinding, ProtocolHeadRuleBracketAlternative,
     ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult, ResolvedHeadRule,
 };
 pub use transport::rule::{
@@ -198,7 +199,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(55);
+    pub const CURRENT: Self = Self(56);
 }
 
 impl Default for SchemaVersion {

@@ -6,7 +6,7 @@
     "krs-configuration-cells-optional": "af1363145a2d9c7022fc4725097668b0a0d55e17f7d63ba5e58e63770de0bca1",
     "krs-configuration-cells-threads": "0406161421bcd9df8543e12f916e8e443c49e59e3b06150e53cee86672da42c3",
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
-    "krs-configuration-cells-queue": "50c9e1085dc5ae0f5fa123af0d56fffc09f3d97d677ca6eef80ebfd7ef34ca1c"
+    "krs-configuration-cells-queue": "7f1e1998155b9a78e6db091517dbc68eab134462fcf2cb7f4a974920c11437bc"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -25,7 +25,7 @@
       "definition.k": "428644451852e54d113d2c1a38693780418f67b7b77d4d07b0c4d62f86d66991"
     },
     "krs-configuration-cells-queue": {
-      "definition.k": "61b9b225cdc37f43104154c9280595c74929e4d6a1daa696edf2fc10e7026ba4"
+      "definition.k": "c784306ec5a7737628fa17804f6e2453ee91ecf6057fd266f1a32d0248bcad36"
     }
   },
   "reference_sha256": {
@@ -34,7 +34,7 @@
     "krs-configuration-cells-optional": "4ec221088a6bab08c35092d3ca8b1804ca7f2d2fb7dfaf2d541c699212c843ba",
     "krs-configuration-cells-threads": "74bfe8aeb94dc55afab8fa71c69cf0c8df1602cdbebc6439fc086d9e3ba2666b",
     "krs-configuration-cells-objects": "9f14878c0ca218504d9713d4dbda27c0b5ca37ca3940befe55e5656c9ed4aa5f",
-    "krs-configuration-cells-queue": "c72f0a403a4e17402b141a7814d63a38144af3a0769fce10c842483eb07eca27"
+    "krs-configuration-cells-queue": "41f81f76d8da9c509bb0a434dcf4b701f9ce49938ecc7e3e4c1cd485e43028a2"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -131,6 +131,14 @@
       "pop": {
         "parse": "accepted",
         "run": "6"
+      },
+      "retire": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "0",
+          "front"
+        ]
       }
     }
   },

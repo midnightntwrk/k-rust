@@ -185,6 +185,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ProductionSentence",
     "ProtocolCellField",
     "ProtocolContextAliasBinding",
+    "ProtocolHeadRuleBracketAlternative",
     "ProtocolHeadRuleHead",
     "ProtocolInitializerCell",
     "ProtocolMap",
@@ -1008,6 +1009,7 @@ fn registry() -> Registry {
     unsupported!(ProtocolInitializerCellContent: ProtocolInitializerCellContent<String,String,String>);
     unsupported!(ProtocolInitializerCell: ProtocolInitializerCell<String,String,String>);
     unsupported!(ProtocolHeadRuleResult: ProtocolHeadRuleResult<String>);
+    unsupported!(ProtocolHeadRuleBracketAlternative: ProtocolHeadRuleBracketAlternative<String,String,String>);
     unsupported!(ProtocolHeadRuleHead: ProtocolHeadRuleHead<String>);
     unsupported!(ProtocolHeadRuleExtra: ProtocolHeadRuleExtra<String,String>);
     unsupported!(ProtocolRuleBindingKind: ProtocolRuleBindingKind<String>);

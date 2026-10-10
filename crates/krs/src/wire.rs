@@ -673,6 +673,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            bracket_alternative: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
@@ -699,6 +700,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            bracket_alternative: None,
         }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }

@@ -43,7 +43,13 @@ the outcomes must agree:
   with template defaults, updated in place, removed, and matched exactly;
 - `queue`: a `cell_type = "List"` collection where `enqueue` appends at
   the back and `dequeue` removes the front, so jobs leave first in first
-  out; the emitted back rewrite names the leading instances `_Instances1:Bag`;
+  out; the emitted back rewrite names the leading instances `_Instances1:Bag`.
+  A bracketed value whose front record names every child reads by the
+  cell's declared type: `enqueue` matches `k: [Enqueue { value: v }, ..]`
+  at the computation cell's head, and `retire`, which leaves the
+  computation cell out, removes the front instance `[Job { payload: 0 }, ..]`
+  of the List collection; a search of `enqueue 4 enqueue 0 drop front`
+  reaches `front` (retired first) and `0` (read first) on both routes;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -261,6 +267,7 @@ QUEUE_PROGRAMS = (
     Program("fifo", "enqueue 1 enqueue 2 enqueue 3 drop drop dequeue", "accepted", "3"),
     Program("front", "enqueue 4 enqueue 5 front", "accepted", "4"),
     Program("pop", "enqueue 4 enqueue 5 enqueue 6 pop", "accepted", "6"),
+    Program("retire", "enqueue 4 enqueue 0 drop front", "accepted", None, search=("0", "front")),
 )
 QUEUE_K = (
     "      <job multiplicity=\"*\" type=\"List\">\n",
@@ -277,6 +284,13 @@ QUEUE_K = (
     "            <payload> V:Int </payload>\n"
     "            ...\n"
     "        </job>)\n"
+    "    </queue>\n",
+    "  rule [retire]:\n"
+    "    <queue>\n"
+    "        (<job>\n"
+    "            <payload> 0 </payload>\n"
+    "        </job> => .Bag)\n"
+    "        ...\n"
     "    </queue>\n",
 )
 
@@ -441,8 +455,11 @@ def main() -> int:
         harness.compare(verify_emitted(harness, OBJECTS, OBJECTS_K), OBJECTS_PROGRAMS, sort="Stmt")
         print("PASS objects: Set instances are created with defaults, updated, removed, and matched exactly")
 
-        harness.compare(verify_emitted(harness, QUEUE, QUEUE_K), QUEUE_PROGRAMS, sort="Stmt")
-        print("PASS queue: enqueue appends at the back and dequeue removes the front, first in first out")
+        harness.compare(verify_emitted(harness, QUEUE, QUEUE_K), QUEUE_PROGRAMS, sort="Stmt", search=True)
+        print(
+            "PASS queue: enqueue appends at the back and dequeue removes the front, first in first out; "
+            "brackets read by the cell's declared type"
+        )
 
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

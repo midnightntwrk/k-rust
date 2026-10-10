@@ -133,6 +133,8 @@ struct HeadRuleCellTarget {
     /// The leaf wrapper; absent for a fixed nested (group) cell, which a
     /// readable record names as a whole (KF-016).
     wrapper: Option<krs_ir::CellWrapper>,
+    /// Whether the cell is a `multiplicity = "*"` collection (KF-023).
+    collection: bool,
 }
 
 fn head_rule_cell_target(
@@ -162,6 +164,10 @@ fn head_rule_cell_target(
         identity,
         names,
         wrapper,
+        collection: field
+            .multiplicity
+            .as_ref()
+            .is_some_and(|multiplicity| multiplicity.value == "*"),
     })
 }
 
@@ -313,12 +319,13 @@ pub(super) fn resolve_head_rule_targets(
     Ok(targets)
 }
 
-fn resolve_head_rule_target<'a>(
+/// The fixed configuration a head rule names, or the only one collected.
+fn select_head_rule_target<'a>(
     rule: &krs_ir::HostHeadRule,
     targets: &'a [HeadRuleTarget],
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-) -> Result<HeadRuleSelection<'a>, CollectionError> {
-    let target = if let Some(configuration) = &rule.configuration {
+) -> Result<&'a HeadRuleTarget, CollectionError> {
+    Ok(if let Some(configuration) = &rule.configuration {
         let selected = resolve_configuration_reference(configuration, declarations)?;
         targets
             .iter()
@@ -344,7 +351,15 @@ fn resolve_head_rule_target<'a>(
             ));
         };
         target
-    };
+    })
+}
+
+fn resolve_head_rule_target<'a>(
+    rule: &krs_ir::HostHeadRule,
+    targets: &'a [HeadRuleTarget],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> Result<HeadRuleSelection<'a>, CollectionError> {
+    let target = select_head_rule_target(rule, targets, declarations)?;
     if rule.head.is_none() {
         return Ok(HeadRuleSelection {
             target,
@@ -665,10 +680,46 @@ fn placeholder_term() -> krs_ir::HostTerm {
     }
 }
 
+/// Keeps the reading of a bracketed cell value that the cell's declared
+/// type gives (KF-023). `job: [Job { payload: p }, ..] => job: [..]` reads
+/// both as the computation cell's head and as a List collection's front
+/// instance; the macro carries it as a head with its List reading beside it,
+/// and a `*` collection cell takes the List reading, its instances in place
+/// of the head. Any other cell keeps the head, which names the computation
+/// cell or is reported as naming none.
+fn readable_bracket_reading(
+    mut rule: krs_ir::HostHeadRule,
+    targets: &[HeadRuleTarget],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> Result<krs_ir::HostHeadRule, CollectionError> {
+    let Some(alternative) = rule.bracket_alternative.take() else {
+        return Ok(rule);
+    };
+    let krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } = &alternative.extra else {
+        return Ok(rule);
+    };
+    let target = select_head_rule_target(&rule, targets, declarations)?;
+    let named = target
+        .cells
+        .iter()
+        .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
+        .collect::<Vec<_>>();
+    if let [candidate] = named.as_slice()
+        && candidate.collection
+    {
+        rule.head = None;
+        rule.computation_cell_name = None;
+        rule.bindings = alternative.bindings;
+        rule.extras.push(alternative.extra);
+    }
+    Ok(rule)
+}
+
 fn resolve_head_rule(
     rule: krs_ir::HostHeadRule,
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
+    let rule = readable_bracket_reading(rule, map.head_targets, map.declarations)?;
     let rule = readable_group_terms(rule, map.declarations);
     map.head_selection = Some(resolve_head_rule_target(
         &rule,
@@ -1328,6 +1379,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            bracket_alternative: None,
         };
         let identity = krs_ir::DescriptorCellIdentity {
             owner: StableItemId::new(
@@ -1346,6 +1398,7 @@ mod tests {
                 identity,
                 names: vec!["k".to_owned()],
                 wrapper: Some(krs_ir::CellWrapper::KCell),
+                collection: false,
             }],
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));

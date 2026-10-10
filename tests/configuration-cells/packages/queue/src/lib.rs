@@ -10,6 +10,15 @@
 //! K closes a parent cell by adding the other instances on the right, so a
 //! back instance follows a variable naming the others: `enqueue` emits
 //! `<queue> _Instances0:Bag (.Bag => <job> .. </job>) </queue>`.
+//!
+//! A bracketed value whose front record names every child reads two ways:
+//! `[Enqueue { value: v }, ..]` is the computation cell's head and
+//! `[Job { payload: 0 }, ..]` the List collection's front instance. The
+//! cell's declared type decides, so `enqueue` matches its command as a
+//! record and `retire`, which leaves the computation cell out, removes a
+//! front job whose payload is 0 whenever one reaches the front: after
+//! `enqueue 4 enqueue 0 drop front`, `front` reads the 0 or finds the queue
+//! empty, and both routes reach both outcomes.
 
 use k::KResult;
 use k::builtin::{Int, KSequence};
@@ -82,7 +91,7 @@ k::rules! {
 
     /// Add a job at the back.
     enqueue: {
-        k: [Enqueue(v), ..],
+        k: [Enqueue { value: v }, ..],
         job: [..],
     } => {
         k: [..],
@@ -90,6 +99,7 @@ k::rules! {
     };
 
     /// Remove the front job and write its payload to the computation cell.
+    #[k::rule(nondet = retire)]
     dequeue: {
         k: [Dequeue(), ..],
         job: [first @ Job { payload: p, .. }, ..],
@@ -108,6 +118,7 @@ k::rules! {
     };
 
     /// Read the front job without removing it.
+    #[k::rule(nondet = retire)]
     front: {
         k: [Front(), ..],
         job: [Job { payload: p, .. }, ..],
@@ -115,7 +126,16 @@ k::rules! {
         k: [p, ..],
     };
 
+    /// Remove a front job whose payload is 0.
+    #[k::rule(nondet = retire)]
+    retire: {
+        job: [Job { payload: 0 }, ..],
+    } => {
+        job: [..],
+    };
+
     /// Remove the back job and write its payload to the computation cell.
+    #[k::rule(nondet = retire)]
     pop: {
         k: [Pop(), ..],
         job: [.., last @ Job { payload: p, .. }],

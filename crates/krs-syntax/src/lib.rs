@@ -67,9 +67,9 @@ pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    BINDER_LIST_CONTRACT, ReadableStateCounters, RuleBinder, RuleBlock, RuleClause,
-    RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult, RuleImport,
-    RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    BINDER_LIST_CONTRACT, BracketAlternative, ReadableStateCounters, RuleBinder, RuleBlock,
+    RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult,
+    RuleImport, RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
     parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};

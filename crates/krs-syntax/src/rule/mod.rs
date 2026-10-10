@@ -6,8 +6,8 @@ mod machine;
 mod pattern;
 
 pub use block::{
-    ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout, RuleHeadResult, RuleImport,
-    RuleNarrowing, parse_rule_block_source_with_trivia,
+    BracketAlternative, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout,
+    RuleHeadResult, RuleImport, RuleNarrowing, parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapUpdate};

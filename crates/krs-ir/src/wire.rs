@@ -247,6 +247,12 @@ pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 pub type WireHeadRuleHead = ProtocolHeadRuleHead<WireTerm>;
 /// Static wire-stage extra-cell clause in a readable head rule.
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
+/// Macro-emitted List-collection reading of an ambiguous bracketed cell value.
+pub type WireHeadRuleBracketAlternative = crate::ProtocolHeadRuleBracketAlternative<
+    WireSortReference,
+    WireHeadRuleCellReference,
+    WireTerm,
+>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -464,6 +470,7 @@ mod tests {
                 ensures: None,
                 fresh: Vec::new(),
                 evaluation: None,
+                bracket_alternative: None,
             },
             "sort",
             3,

@@ -2113,6 +2113,24 @@ impl<
         )
     }
 }
+impl<
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    I: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for ProtocolHeadRuleBracketAlternative<S, I, T>
+{
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            bindings: sample::<Vec<ProtocolHeadRuleBinding<S>>>(),
+            extra: ProtocolHeadRuleExtra::RewriteState {
+                cell: sample::<I>(),
+                result_key: Some(sample::<ProvenanceKey>()),
+                before: ProtocolRuleStateTerm::Instances(sample()),
+                after: Some(ProtocolRuleStateTerm::Instances(sample())),
+            },
+        }]
+    }
+}
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleHead<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -3850,6 +3868,7 @@ impl Sample for WireHeadRule {
             ensures: sample(),
             fresh: sample(),
             evaluation: sample(),
+            bracket_alternative: sample(),
         }]
     }
 }
@@ -4070,6 +4089,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
         "ProtocolHeadRuleExtra",
     );
     insert::<ProtocolHeadRuleResult<DescriptorTerm>>(corpus, "ProtocolHeadRuleResult");
+    insert::<WireHeadRuleBracketAlternative>(corpus, "ProtocolHeadRuleBracketAlternative");
     insert::<ProtocolHeadRuleHead<DescriptorTerm>>(corpus, "ProtocolHeadRuleHead");
     insert::<
         ProtocolInitializerCellContent<
