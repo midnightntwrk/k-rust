@@ -6,7 +6,7 @@
     "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
     "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
     "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588",
-    "krs-grammar-visibility": "784657f56281821a1c67aa968057767c74a11af61921c6bf8920264b6e0bac04",
+    "krs-grammar-visibility": "ff411851741b7f03e512aa4eb0be8a290c3e316c958cd23268d718748a073cce",
     "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70",
     "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
     "krs-grammar-token-id": "47d8d9c0f113d3c06c4f65cb40d36e181ccca7b8d6f5a339d3ce9dfcd7087558",
@@ -296,7 +296,7 @@
       "error[krs::plan::invalid-int-literals]: could not plan collector: package `krs-grammar-invalid-int-literals` sets `int-literals = \"natural\"`; expected \"signed\" (the default, INT-SYNTAX) or \"unsigned\" (UNSIGNED-INT-SYNTAX)"
     ],
     "internal-not-pub": [
-      "error[krs::rust-expansion::uncoded-error]: `internal` applies only to a `pub` production; non-pub productions are already private"
+      "error[krs::expand::invalid-placement-flag]: `internal` applies only to a `pub` production; non-pub productions are already private"
     ],
     "mixed-group": [
       "error[krs::partition::mixed-group]: group `ops_tier0` mixes `internal` production `Ops::Hidden` with program-syntax production `Ops::Visible`; K priorities and associativity apply per module, so mark both `internal` or neither"
@@ -305,10 +305,10 @@
       "error[krs::partition::signed-integer-leak]: `KRS-UNSIGNED-ROOT-SYNTAX` uses `int-literals = \"unsigned\"` but imports `KRS-SIGNED-BASE-SYNTAX`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
     ],
     "colors-mismatch": [
-      "error[krs::rust-expansion::uncoded-error]: invalid production colours: `colors` needs one colour per terminal of the syntax template plus one per `%c`"
+      "error[krs::syntax::invalid-color]: invalid production colours: `colors` needs one colour per terminal of the syntax template plus one per `%c`"
     ],
     "prefer-avoid": [
-      "error[krs::rust-expansion::uncoded-error]: `prefer` must be omitted: a production is either preferred or avoided, not both"
+      "error[krs::syntax::invalid-argument-value]: `prefer` must be omitted: a production is either preferred or avoided, not both"
     ],
     "overload-arity": [
       "error[krs::analysis::invalid-overload]: invalid `overload`: `LValSyntax::LvalField` takes 1 argument but its target `ExpSyntax::Dot` takes 2 arguments; an overload has the target's arity"
