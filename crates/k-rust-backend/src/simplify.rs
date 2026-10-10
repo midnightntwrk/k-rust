@@ -94,8 +94,8 @@ use crate::{
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     matching::{
         CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode, MatchResult,
-        match_collection_remainders_all_in_definition, match_injection_equality,
-        match_term_pairs_in_definition, match_terms_in_definition,
+        match_collection_remainders_all_in_definition, match_equation_in_definition,
+        match_injection_equality, match_term_pairs_in_definition,
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
@@ -6150,7 +6150,12 @@ pub(crate) fn equation_instances<'r>(
         Some((renamed, _)) => Cow::Owned(renamed),
         None => Cow::Borrowed(rule),
     };
-    let matched = match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term);
+    let matched = match_equation_in_definition(
+        definition,
+        &rule.lhs,
+        term,
+        &rule.computed_attributes.unread_map_frames,
+    );
     let substitutions = match matched {
         MatchResult::Failed(_) => {
             let failed = matched

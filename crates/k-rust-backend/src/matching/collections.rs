@@ -1680,6 +1680,49 @@ pub(super) fn split_common_keys<K: Ord + Clone, V: Clone>(
     pattern: &[(K, V)],
     subject: &[(K, V)],
 ) -> CommonKeys<K, V> {
+    find_common_keys(pattern, subject).split(subject)
+}
+
+/// The keys `pattern` and `subject` bind both, as [`split_common_keys`] finds them, before the
+/// subject's other entries are copied.
+pub(super) struct FoundKeys<K, V> {
+    /// As [`CommonKeys::values`].
+    pub(super) values: Vec<(V, V)>,
+    /// As [`CommonKeys::pattern_only`].
+    pub(super) pattern_only: Vec<(K, V)>,
+    /// The subject's indices of the common keys, increasing.
+    found: Vec<usize>,
+}
+
+impl<K: Clone, V: Clone> FoundKeys<K, V> {
+    /// The split, with the subject's entries outside the common keys copied once.
+    pub(super) fn split(self, subject: &[(K, V)]) -> CommonKeys<K, V> {
+        let Self {
+            values,
+            pattern_only,
+            found,
+        } = self;
+        let mut subject_only = Vec::with_capacity(subject.len() - found.len());
+        let mut start = 0;
+        for index in found {
+            subject_only.extend_from_slice(&subject[start..index]);
+            start = index + 1;
+        }
+        subject_only.extend_from_slice(&subject[start..]);
+        CommonKeys {
+            values,
+            pattern_only,
+            subject_only,
+        }
+    }
+}
+
+/// The search half of [`split_common_keys`]: `O(log n)` key comparisons per pattern key and no
+/// copy of the subject's other entries.
+pub(super) fn find_common_keys<K: Ord + Clone, V: Clone>(
+    pattern: &[(K, V)],
+    subject: &[(K, V)],
+) -> FoundKeys<K, V> {
     let mut values = Vec::new();
     let mut pattern_only = Vec::new();
     let mut found = Vec::new();
@@ -1698,17 +1741,10 @@ pub(super) fn split_common_keys<K: Ord + Clone, V: Clone>(
             }
         }
     }
-    let mut subject_only = Vec::with_capacity(subject.len() - found.len());
-    let mut start = 0;
-    for index in found {
-        subject_only.extend_from_slice(&subject[start..index]);
-        start = index + 1;
-    }
-    subject_only.extend_from_slice(&subject[start..]);
-    CommonKeys {
+    FoundKeys {
         values,
         pattern_only,
-        subject_only,
+        found,
     }
 }
 
