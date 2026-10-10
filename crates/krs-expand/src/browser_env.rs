@@ -7,6 +7,7 @@
 //! | Query | rustc (`krs-macros`) | [`BrowserEnvironment`] |
 //! |---|---|---|
 //! | display file | `Span::file()` | the authored file's display file |
+//! | package file (nonces) | `Span::file()` relative to `CARGO_MANIFEST_DIR` | the authored file's display file |
 //! | positions | 1-based line and column of the span | fallback line, fallback column + 1 |
 //! | synthesized spans | located at the invocation's call site | located at the configured call site |
 //! | call site | `Span::call_site()` | the configured call site |
@@ -67,6 +68,13 @@ impl<'a> BrowserEnvironment<'a> {
 
 impl MacroEnvironment for BrowserEnvironment<'_> {
     fn span_file(&self, _span: Span) -> String {
+        self.authored.display_file().to_owned()
+    }
+
+    /// The authored display file, which browser and whole-file hosts give
+    /// relative to the package manifest directory, as rustc-built nonces see
+    /// it.
+    fn span_package_file(&self, _span: Span) -> String {
         self.authored.display_file().to_owned()
     }
 

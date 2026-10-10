@@ -5,6 +5,8 @@
 //! for rustc (`ProcMacroEnvironment`); this crate never calls `Span::unwrap()`
 //! or queries Cargo manifests for the facade.
 
+use std::path::{Component, Path as FsPath};
+
 use krs_ir::Position;
 use proc_macro2::Span;
 use syn::Path;
@@ -39,6 +41,18 @@ impl From<Position> for SourcePosition {
 pub trait MacroEnvironment {
     /// The display file of `span` (rustc `Span::file`).
     fn span_file(&self, span: Span) -> String;
+    /// The file of `span` as expansion nonces hash it: its path relative to
+    /// the invoking package's manifest directory, `/`-separated, for example
+    /// `src/lib.rs`.
+    ///
+    /// Nonces name generated items whose names reach the emitted artifacts
+    /// and the order of K sentences, so this identity must not depend on
+    /// where the package lives on disk. rustc's display file does: Cargo
+    /// passes a workspace member's file relative to the workspace root and a
+    /// path dependency's file (every package the KRS collector builds) as an
+    /// absolute path. A host that sees such spellings resolves them with
+    /// [`package_relative_file`].
+    fn span_package_file(&self, span: Span) -> String;
     /// Start of `span`, or `None` when the host has no representable location.
     fn span_start(&self, span: Span) -> Option<SourcePosition>;
     /// End of `span`, or `None` when the host has no representable location.
@@ -52,6 +66,55 @@ pub trait MacroEnvironment {
     /// Returns the invocation's diagnostic when the host cannot name the
     /// facade, such as a crate without a direct `krs` dependency.
     fn facade_path(&self) -> crate::Result<Path>;
+}
+
+/// The path of the absolute `file` relative to the absolute `manifest_dir`,
+/// `/`-separated, with a `..` for each level `file` lies outside the
+/// directory; `None` when either path is relative or the two share no root.
+///
+/// The comparison is lexical: `.` components are dropped and `..` removes the
+/// preceding component, so a host that wants symbolic links resolved
+/// canonicalizes both paths first.
+#[must_use]
+pub fn package_relative_file(file: &FsPath, manifest_dir: &FsPath) -> Option<String> {
+    if !file.is_absolute() || !manifest_dir.is_absolute() {
+        return None;
+    }
+    let file = lexical_components(file);
+    let base = lexical_components(manifest_dir);
+    let common = file
+        .iter()
+        .zip(&base)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return None;
+    }
+    let mut parts = std::iter::repeat_n("..".to_owned(), base.len() - common).collect::<Vec<_>>();
+    parts.extend(
+        file[common..]
+            .iter()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+    );
+    Some(parts.join("/"))
+}
+
+fn lexical_components(path: &FsPath) -> Vec<Component<'_>> {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(components.last(), Some(Component::Normal(_))) {
+                    components.pop();
+                }
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                components.push(component);
+            }
+        }
+    }
+    components
 }
 
 /// A host-independent environment for unit tests: a configured display file
@@ -83,6 +146,10 @@ impl MacroEnvironment for FixedEnvironment {
         self.file.clone()
     }
 
+    fn span_package_file(&self, _span: Span) -> String {
+        self.file.clone()
+    }
+
     fn span_start(&self, span: Span) -> Option<SourcePosition> {
         Self::position(span.start())
     }
@@ -103,6 +170,37 @@ impl MacroEnvironment for FixedEnvironment {
 #[cfg(test)]
 mod tests {
     use super::FixedEnvironment;
+    use super::package_relative_file;
+    use std::path::Path;
+
+    #[test]
+    fn package_relative_file_is_lexical_and_checkout_independent() {
+        let relative = |file: &str, manifest: &str| {
+            package_relative_file(Path::new(file), Path::new(manifest))
+        };
+        assert_eq!(
+            relative("/a/krs/tests/pkg/src/lib.rs", "/a/krs/tests/pkg").as_deref(),
+            Some("src/lib.rs")
+        );
+        assert_eq!(
+            relative(
+                "/b/k-rust/krs/tests/pkg/src/lib.rs",
+                "/b/k-rust/krs/tests/pkg/"
+            )
+            .as_deref(),
+            Some("src/lib.rs")
+        );
+        assert_eq!(
+            relative("/w/./pkg/src/../src/lib.rs", "/w/pkg").as_deref(),
+            Some("src/lib.rs")
+        );
+        assert_eq!(
+            relative("/w/shared/grammar.rs", "/w/pkg").as_deref(),
+            Some("../shared/grammar.rs")
+        );
+        assert_eq!(relative("src/lib.rs", "/w/pkg"), None);
+        assert_eq!(relative("/w/pkg/src/lib.rs", "pkg"), None);
+    }
     use proc_macro2::TokenStream;
 
     #[test]

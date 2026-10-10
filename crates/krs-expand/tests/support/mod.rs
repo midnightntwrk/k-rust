@@ -59,6 +59,10 @@ impl MacroEnvironment for TestEnvironment<'_> {
         "src/lib.rs".to_owned()
     }
 
+    fn span_package_file(&self, _span: Span) -> String {
+        "src/lib.rs".to_owned()
+    }
+
     fn span_start(&self, span: Span) -> Option<SourcePosition> {
         Self::position(self.resolve(span).start())
     }

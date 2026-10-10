@@ -369,6 +369,10 @@ impl MacroEnvironment for NestedEnvironment<'_> {
         self.inner.span_file(span)
     }
 
+    fn span_package_file(&self, span: Span) -> String {
+        self.inner.span_package_file(span)
+    }
+
     fn span_start(&self, span: Span) -> Option<SourcePosition> {
         self.inner.span_start(span)
     }

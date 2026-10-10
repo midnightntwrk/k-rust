@@ -31,8 +31,9 @@
 //!   expands only the listed outermost invocations (editor tooling and
 //!   tests).
 //! - `file.virtual_path` must equal `package.manifest_dir` joined with
-//!   `file.display_file`, and `display_file` is the value rustc reports as
-//!   `Span::file()` for the lesson, which enters factory names.
+//!   `file.display_file`, and `display_file` is the lesson file's path
+//!   relative to the package manifest directory, which enters factory names
+//!   as it does when rustc expands the lesson (`span_package_file`).
 //! - `module_path` must start with `package.crate_name`.
 //! - `facade.alias` must equal `policy.facade_alias`.
 //! - `policy` is the lesson manifest's `[policy]` table
@@ -156,7 +157,7 @@ pub struct Selected {
 pub struct File {
     /// Absolute path of the authored file in the worker's file system.
     pub virtual_path: String,
-    /// Package-relative display file (rustc `Span::file()`).
+    /// The file's path relative to the package manifest directory.
     pub display_file: String,
     /// The complete UTF-8 source.
     pub source: String,

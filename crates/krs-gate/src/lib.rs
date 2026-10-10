@@ -54,7 +54,7 @@
 //! It returns `instances`, an object mapping each label to the sorted, distinct lists of K sort names with which the definition's axioms apply its symbol; applications at a sort variable are omitted.
 //! `registration.table` operates independently of a loaded definition and requires string `source`, `display_file`, `crate_name`, and `facade_alias` fields.
 //! Unknown request fields are errors.
-//! `source` names an authored crate-root file that must be readable as UTF-8; `display_file` must equal the file spelling rustc reports through `Span::file()`, which determines factory names.
+//! `source` names an authored crate-root file that must be readable as UTF-8; `display_file` must be the file's path relative to its package manifest directory (for example `src/lib.rs`), which determines factory names as it does under rustc wherever the package lives.
 //! `crate_name` is the library crate name at the start of `module_path!()`, and `facade_alias` is the dependency name through which authored code names the KRS facade.
 //! It calls [`krs_expand::whole_file::expand_file`] with whole-file selection, module path `[crate_name]`, facade path `::<facade_alias>`, and `display_file` as the generated-file map label.
 //! Expansion failures return an error message listing every diagnostic's code and message.

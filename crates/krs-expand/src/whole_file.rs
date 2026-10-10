@@ -84,9 +84,11 @@ pub struct SelectedInvocation {
 /// The inputs of one whole-file expansion.
 #[derive(Clone, Debug)]
 pub struct FileRequest<'a> {
-    /// The package-relative display file rustc reports for the authored file
-    /// (`Span::file()`), for example `src/lib.rs`; it enters expansion nonces
-    /// and `HostProvenance`.
+    /// The authored file's path relative to the package manifest directory,
+    /// for example `src/lib.rs`; it enters expansion nonces, which rustc
+    /// hashes with the same package-relative path
+    /// ([`crate::MacroEnvironment::span_package_file`]), and
+    /// `HostProvenance`.
     pub display_file: &'a str,
     /// The complete authored source.
     pub source: &'a str,

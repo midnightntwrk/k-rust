@@ -315,7 +315,7 @@ def parity(
     census = take_census(copy, root, environment)
     source = copy / "src" / "lib.rs"
     product = krs_gate.registration_table(
-        gate, source, os.fspath(source.resolve()), crate_root, facade,
+        gate, source, source.relative_to(copy).as_posix(), crate_root, facade,
         environment=environment,
     )
     verify_registration_census(product, census, copy, crate_root)

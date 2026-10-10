@@ -23,7 +23,7 @@ use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::TokenStream;
 
 pub use browser_env::BrowserEnvironment;
-pub use environment::{MacroEnvironment, SourcePosition};
+pub use environment::{MacroEnvironment, SourcePosition, package_relative_file};
 pub use error::{ExpandError, Result};
 
 /// Expands one attribute-macro invocation.
