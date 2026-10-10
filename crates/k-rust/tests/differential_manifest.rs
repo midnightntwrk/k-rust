@@ -261,8 +261,7 @@ fi
         .env("KMIR_PYTHON", fixture.join("kmir-python"))
         .env("MIR_SEMANTICS_CHECKOUT", &mir_checkout)
         .env("KRUST_GATE_TARGET_DIR", &target)
-        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+        .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1");
     match selection {
         Some(value) => command.env("KRUST_GATE_Z3", value),
         None => command.env_remove("KRUST_GATE_Z3"),
@@ -943,7 +942,6 @@ fn every_gate_rejects_unknown_cases_before_validating_reference_tools() {
                 .arg(workspace.join(script))
                 .arg(case)
                 .env("K_KOMPILE", &missing)
-                .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
                 .output()
                 .expect("run gate preflight");
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1312,8 +1310,11 @@ fn lifted_cells_need_a_reason_and_an_accepted_compile_case() {
 /// with `FAKE_SIMPLIFIED_STATUS`). The gate chooses the server's port unless `environment` sets
 /// `REFERENCE_SIMPLIFIER_PORT`; the fake server records the port it bound (`kore-rpc-bound`).
 /// Returns the exit status, the call log, standard output and standard error, and whether a
-/// fake server still listened after the gate exited. Two switches change the fakes, both off by
-/// default:
+/// fake server still listened after the gate exited. `GHCRTS` is removed unless `environment`
+/// sets it. Three switches change the fakes, all off by default:
+/// - `FAKE_GHC_RUNTIME_CHECK=1`: the fake `kore-parser` and `kore-rpc-client`, which stand for
+///   binaries of the non-threaded GHC runtime, refuse to start under a `GHCRTS` holding `-N`, as
+///   the pinned ones do;
 /// - `FAKE_REFERENCE_RESULT`: what the fake reference `krun` prints;
 /// - `FAKE_ECHO_REFERENCE=1`: the fake `kore-parser` answers with a digest of the pattern file it
 ///   read, the fake client answers `simplify` with the term it was sent, and the comparator logs
@@ -1322,6 +1323,16 @@ fn lifted_cells_need_a_reason_and_an_accepted_compile_case() {
 fn execution_gate_with_reference_simplifier(
     case: &str,
     environment: &[(&str, &str)],
+) -> (Option<i32>, String, String, String, bool) {
+    execution_gate_with_reference_simplifier_under(case, environment, &[])
+}
+
+/// [`execution_gate_with_reference_simplifier`] started through `caller`, a command that execs
+/// its arguments (`bash GATE CASE`).
+fn execution_gate_with_reference_simplifier_under(
+    case: &str,
+    environment: &[(&str, &str)],
+    caller: &[&str],
 ) -> (Option<i32>, String, String, String, bool) {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let fixture = environment_fixture("execution-simplifier");
@@ -1343,7 +1354,9 @@ fi
     write_environment_probe(
         &fixture.join("kore-parser"),
         "kore-parser $*",
-        r#"
+        &format!(
+            "{FAKE_NON_THREADED_GHC_RUNTIME}{}",
+            r#"
 pattern=
 for ((i = 1; i <= $#; i++)); do
   if [[ ${!i} == --pattern ]]; then j=$((i + 1)); pattern=${!j}; fi
@@ -1354,7 +1367,8 @@ if [[ ${FAKE_ECHO_REFERENCE:-0} == 1 ]]; then
 else
   printf '%s\n' '{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}'
 fi
-"#,
+"#
+        ),
     );
     write_environment_probe(
         &fixture.join("kore-rpc"),
@@ -1375,7 +1389,9 @@ time.sleep(600)' "$port"
     write_environment_probe(
         &fixture.join("kore-rpc-client"),
         "kore-rpc-client-done",
-        r#"
+        &format!(
+            "{FAKE_NON_THREADED_GHC_RUNTIME}{}",
+            r#"
 printf 'kore-rpc-client %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
 while (($#)); do [[ $1 == -o ]] && out=$2; [[ $1 == simplify ]] && request=$2; shift; done
 if [[ ${FAKE_ECHO_REFERENCE:-0} == 1 ]]; then
@@ -1385,7 +1401,8 @@ elif [[ ${FAKE_RPC_ERROR:-0} == 1 ]]; then
 else
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"state":{"format":"KORE","version":1,"term":{"tag":"Bottom","sort":{"tag":"SortApp","name":"S","args":[]}}}}}' >"$out"
 fi
-"#,
+"#
+        ),
     );
     let target = fake_gate_rust_toolchain(
         &fixture,
@@ -1407,10 +1424,18 @@ esac
         fixture.display(),
         std::env::var("PATH").expect("PATH")
     );
-    let mut command = Command::new("bash");
+    let mut command = match caller {
+        [] => Command::new("bash"),
+        [program, arguments @ ..] => {
+            let mut command = Command::new(program);
+            command.args(arguments).arg("bash");
+            command
+        }
+    };
     command
         .arg(workspace.join("scripts/reference-non-imp-execution-differential.sh"))
         .arg(case)
+        .env_remove("GHCRTS")
         .env("PATH", &path)
         .env("ENVIRONMENT_CALLS", &calls)
         .env("K_CHECKOUT", &k_checkout)
@@ -1422,7 +1447,6 @@ esac
         .env_remove("REFERENCE_SIMPLIFIER_PORT")
         .env("KRUST_GATE_TARGET_DIR", &target)
         .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
         .stdin(std::process::Stdio::null());
     for (name, value) in environment {
         command.env(name, value);
@@ -1441,6 +1465,16 @@ esac
         still_listening,
     )
 }
+
+/// The prologue of a fake binary of the non-threaded GHC runtime under `FAKE_GHC_RUNTIME_CHECK=1`:
+/// like the pinned `kore-parser` and `kore-rpc-client`, it refuses runtime options that need the
+/// threaded runtime.
+const FAKE_NON_THREADED_GHC_RUNTIME: &str = r#"
+if [[ ${FAKE_GHC_RUNTIME_CHECK:-0} == 1 && ${GHCRTS:-} == *-N* ]]; then
+  echo "the flag ${GHCRTS} requires the program to be built with -threaded" >&2
+  exit 1
+fi
+"#;
 
 /// The ports the fake reference simplifiers of [`execution_gate_with_reference_simplifier`]
 /// bound, in start order.
@@ -2342,7 +2376,6 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
             .env("KRUST_GATE_TARGET_DIR", &gate_target)
             .env("ENVIRONMENT_CALLS", &calls)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .output()
             .expect("run port-accepts gate fixture");
         (
@@ -2556,7 +2589,6 @@ fi
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .env("REFERENCE_DIFFERENTIAL_PAIRINGS", pairing)
             .output()
             .unwrap();
@@ -3103,8 +3135,8 @@ fn java_backed_differentials_guard_the_whole_job_without_nested_sibling_scopes()
         "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-16777216",
         "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-16777216",
         "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-25165824",
-        "MemoryHigh=${reference_job_memory_high_kib}K",
-        "MemoryMax=${reference_job_memory_max_kib}K",
+        "MemoryHigh=${memory_high_kib}K",
+        "MemoryMax=${memory_max_kib}K",
         "MemorySwapMax=0",
         "ulimit -v \"$reference_job_fallback_virtual_memory_kib\"",
         // The virtual-address fallback must bound the reference JVM itself:
@@ -3193,6 +3225,7 @@ reference_run_rust_frontend bash -c '
         // override. CI and callers may set these in the parent environment.
         for name in [
             "REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND",
+            "REFERENCE_DIFFERENTIAL_JOB_GUARD_PROCESS",
             "REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB",
             "REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB",
             "REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB",
@@ -3216,8 +3249,22 @@ reference_run_rust_frontend bash -c '
     assert_eq!(scoped.stdout, b"systemd-scope\n", "preserve scoped stdout",);
     assert_eq!(scoped.stderr, b"payload-err", "preserve scoped stderr");
     let scoped_calls = fs::read_to_string(&calls).expect("scoped call log");
-    assert!(scoped_calls.contains("MemoryHigh=16777216K"));
-    assert!(scoped_calls.contains("MemoryMax=16777216K"));
+    // The guard's 16 GiB defaults, or less under a caller already bounded more tightly
+    // (the_memory_guard_keeps_a_gate_inside_its_callers_resource_envelope).
+    let property = |name: &str| -> u64 {
+        let prefix = format!("{name}=");
+        scoped_calls
+            .split_whitespace()
+            .find_map(|word| word.strip_prefix(prefix.as_str()))
+            .and_then(|value| value.strip_suffix('K'))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("no {name} in {scoped_calls}"))
+    };
+    assert!(property("MemoryMax") <= 16_777_216, "{scoped_calls}");
+    assert!(
+        property("MemoryHigh") <= property("MemoryMax"),
+        "{scoped_calls}"
+    );
     assert!(scoped_calls.contains("MemorySwapMax=0"));
     assert_eq!(
         scoped_calls.lines().count(),
@@ -3290,6 +3337,32 @@ reference_run_rust_frontend bash -c '
         fs::read_to_string(&payload_runs).expect("fallback payload runs"),
         "x",
         "a nonzero fallback child must never be retried",
+    );
+
+    // What a guarded caller exports names the caller's guard, not this job's: the job still
+    // enters its own scope, and runs once.
+    fs::write(&calls, "").expect("clear call log");
+    fs::write(&payload_runs, "").expect("clear payload run log");
+    let leaked = fixture_command()
+        .env("PAYLOAD_STATUS", "0")
+        .env("SYSTEMD_PROBE_STATUS", "0")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "systemd-scope")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_PROCESS", "1")
+        .output()
+        .expect("run guard fixture under a guarded caller's environment");
+    assert_eq!(leaked.status.code(), Some(0), "{leaked:?}");
+    assert_eq!(leaked.stdout, b"systemd-scope\n");
+    assert_eq!(
+        fs::read_to_string(&calls)
+            .expect("leaked call log")
+            .lines()
+            .count(),
+        2,
+        "a caller's guard markers must not skip the probe and the job's own scope",
+    );
+    assert_eq!(
+        fs::read_to_string(&payload_runs).expect("leaked payload runs"),
+        "x"
     );
 
     fs::write(&calls, "").expect("clear call log");
@@ -3400,7 +3473,7 @@ fi
         std::env::var("PATH").expect("PATH")
     );
     let script = workspace.join("scripts/reference-differential.sh");
-    let run = |pairing: &str, ghcrts: Option<&str>| {
+    let run = |pairing: &str, ghcrts: Option<&str>, reference_ghcrts: Option<&str>| {
         fs::write(&calls, "").expect("clear environment call log");
         let mut command = Command::new("bash");
         command
@@ -3413,7 +3486,6 @@ fi
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("KRUST_GATE_TARGET_DIR", &gate_target)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .env("REFERENCE_DIFFERENTIAL_PAIRINGS", pairing);
         match ghcrts {
             Some(value) => {
@@ -3423,10 +3495,18 @@ fi
                 command.env_remove("GHCRTS");
             }
         }
+        match reference_ghcrts {
+            Some(value) => {
+                command.env("REFERENCE_GHCRTS", value);
+            }
+            None => {
+                command.env_remove("REFERENCE_GHCRTS");
+            }
+        }
         let output = command.output().expect("run compile environment fixture");
         assert!(
             output.status.success(),
-            "fixture control failed for {pairing} with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            "fixture control failed for {pairing} with GHCRTS={ghcrts:?}, REFERENCE_GHCRTS={reference_ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
@@ -3434,9 +3514,10 @@ fi
         fs::read_to_string(&calls).expect("environment call log")
     };
 
-    let default_haskell = run("haskell/rust", None);
-    let overridden_haskell = run("haskell/rust", Some("-N3"));
-    let non_haskell = run("kore/llvm", None);
+    let default_haskell = run("haskell/rust", None, None);
+    let caller_haskell = run("haskell/rust", Some("-N3"), None);
+    let overridden_haskell = run("haskell/rust", None, Some("-N3"));
+    let non_haskell = run("kore/llvm", None, None);
 
     assert_eq!(
         default_haskell,
@@ -3444,9 +3525,13 @@ fi
         "the default must make only the reference Haskell frontend single-capability",
     );
     assert_eq!(
+        caller_haskell, default_haskell,
+        "the caller's GHCRTS must reach no process of the gate",
+    );
+    assert_eq!(
         overridden_haskell,
-        "cargo-build|-N3\ncargo-test|-N3\nkompile|-N3\nkrust-kcompile|-N3\nparser|<empty>\nparser|<empty>\ncomparator|-N3\n",
-        "a caller Haskell override must reach kompile while parsers remain compatible",
+        "cargo-build|<unset>\ncargo-test|<unset>\nkompile|-N3\nkrust-kcompile|<unset>\nparser|<empty>\nparser|<empty>\ncomparator|<unset>\n",
+        "REFERENCE_GHCRTS must replace the threaded reference tools' default and reach nothing else",
     );
     assert!(
         non_haskell.starts_with(
@@ -3589,7 +3674,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
         std::env::var("PATH").expect("PATH")
     );
     let script = workspace.join(SYMBOLIC_EXECUTION_SCRIPT_PATH);
-    let run = |ghcrts: Option<&str>| {
+    let run = |ghcrts: Option<&str>, reference_ghcrts: Option<&str>| {
         fs::write(&calls, "").expect("clear environment call log");
         let mut command = Command::new("bash");
         command
@@ -3602,8 +3687,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("K_KORE_EXEC", &fake_kore_exec)
             .env("KRUST_GATE_TARGET_DIR", &target)
-            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1");
         match ghcrts {
             Some(value) => {
                 command.env("GHCRTS", value);
@@ -3612,10 +3696,18 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
                 command.env_remove("GHCRTS");
             }
         }
+        match reference_ghcrts {
+            Some(value) => {
+                command.env("REFERENCE_GHCRTS", value);
+            }
+            None => {
+                command.env_remove("REFERENCE_GHCRTS");
+            }
+        }
         let output = command.output().expect("run symbolic environment fixture");
         assert!(
             output.status.success(),
-            "fixture control failed with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            "fixture control failed with GHCRTS={ghcrts:?}, REFERENCE_GHCRTS={reference_ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
@@ -3623,8 +3715,9 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
         fs::read_to_string(&calls).expect("environment call log")
     };
 
-    let default = run(None);
-    let overridden = run(Some("-N3"));
+    let default = run(None, None);
+    let caller = run(Some("-N3"), None);
+    let overridden = run(None, Some("-N3"));
 
     assert_eq!(
         default,
@@ -3632,9 +3725,13 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
         "the default must make the reference Haskell frontend and backend single-capability and leave the parsers and Rust side alone",
     );
     assert_eq!(
+        caller, default,
+        "the caller's GHCRTS must reach no process of the gate"
+    );
+    assert_eq!(
         overridden,
-        "cargo-build|-N3\ncargo-test|-N3\nkompile|-N3\nparser|<empty>\nparser|<empty>\nkore-exec|-N3\nkrust-kore-exec|-N3\ncomparator|-N3\n",
-        "a caller Haskell override must reach kompile and kore-exec while parsers remain compatible",
+        "cargo-build|<unset>\ncargo-test|<unset>\nkompile|-N3\nparser|<empty>\nparser|<empty>\nkore-exec|-N3\nkrust-kore-exec|<unset>\ncomparator|<unset>\n",
+        "REFERENCE_GHCRTS must replace the default of kompile and kore-exec and reach nothing else",
     );
 
     fs::remove_dir_all(fixture).expect("remove symbolic environment fixture");
@@ -3669,7 +3766,7 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
         std::env::var("PATH").expect("PATH")
     );
     let script = workspace.join("scripts/reference-mir-execution-differential.sh");
-    let run = |ghcrts: Option<&str>| {
+    let run = |ghcrts: Option<&str>, reference_ghcrts: Option<&str>| {
         fs::write(&calls, "").expect("clear environment call log");
         let mut command = Command::new("bash");
         command
@@ -3681,8 +3778,7 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
             .env("K_KRUN", &fake_krun)
             .env("KMIR_PYTHON", &fake_kmir_python)
             .env("MIR_SEMANTICS_CHECKOUT", &mir_checkout)
-            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1");
         match ghcrts {
             Some(value) => {
                 command.env("GHCRTS", value);
@@ -3691,10 +3787,18 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
                 command.env_remove("GHCRTS");
             }
         }
+        match reference_ghcrts {
+            Some(value) => {
+                command.env("REFERENCE_GHCRTS", value);
+            }
+            None => {
+                command.env_remove("REFERENCE_GHCRTS");
+            }
+        }
         let output = command.output().expect("run MIR environment fixture");
         assert!(
             output.status.success(),
-            "fixture control failed with GHCRTS={ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
+            "fixture control failed with GHCRTS={ghcrts:?}, REFERENCE_GHCRTS={reference_ghcrts:?}: status={}\nstdout:\n{}\nstderr:\n{}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
@@ -3702,8 +3806,9 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
         fs::read_to_string(&calls).expect("environment call log")
     };
 
-    let default = run(None);
-    let overridden = run(Some("-N3"));
+    let default = run(None, None);
+    let caller = run(Some("-N3"), None);
+    let overridden = run(None, Some("-N3"));
 
     assert_eq!(
         default,
@@ -3711,9 +3816,13 @@ fn mir_execution_gate_scopes_haskell_runtime_options_to_the_reference_backend() 
         "the default must make the reference Haskell kompile and krun single-capability and leave the Rust side alone",
     );
     assert_eq!(
+        caller, default,
+        "the caller's GHCRTS must reach no process of the gate"
+    );
+    assert_eq!(
         overridden,
-        "kompile|-N3\ncargo-run|-N3\nkmir-python|-N3\nkrun|-N3\ncargo-run|-N3\ncargo-test|-N3\n",
-        "a caller Haskell override must reach the reference kompile and krun",
+        "kompile|-N3\ncargo-run|<unset>\nkmir-python|<unset>\nkrun|-N3\ncargo-run|<unset>\ncargo-test|<unset>\n",
+        "REFERENCE_GHCRTS must replace the default of the reference kompile and krun and reach nothing else",
     );
 
     fs::remove_dir_all(fixture).expect("remove MIR environment fixture");
@@ -3976,4 +4085,249 @@ fn backend_smoke_builds_krust_with_the_gates_z3_selection() {
             "{cargo}"
         );
     }
+}
+
+/// The reference simplifier's client, `kore-rpc-client`, is not built with the threaded GHC
+/// runtime, so it refuses to start under runtime options such as `-N1`: the GHC runtime options
+/// of the gate's caller must not reach it, as they reach none of the gate's other reference calls.
+/// With `GHCRTS=-N1` exported, the N41 case must still compare, and the client must run with
+/// `GHCRTS` unset or empty.
+#[test]
+fn execution_gate_runs_the_reference_simplifier_client_without_the_callers_ghcrts() {
+    let (status, log, stdout, stderr, listening) =
+        execution_gate_with_reference_simplifier("star-cell-heating-set", &[("GHCRTS", "-N1")]);
+    assert_eq!(status, Some(0), "{stdout}{stderr}");
+    assert!(!listening, "the gate left the reference simplifier running");
+    let clients = log
+        .lines()
+        .filter(|line| line.starts_with("kore-rpc-client-done|"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        clients.len(),
+        2,
+        "one simplify request per program result: {log}"
+    );
+    for client in clients {
+        assert!(
+            matches!(
+                client,
+                "kore-rpc-client-done|<empty>" | "kore-rpc-client-done|<unset>"
+            ),
+            "the simplifier client ran with the caller's GHCRTS: {client}"
+        );
+    }
+}
+
+/// A listening socket the gate's caller opened without close-on-exec is inherited by every
+/// server the gate starts, but it is not that server's bind: the helper must not report its port.
+/// Here the "server" (`sleep`) never listens, so the helper must give up rather than hand the gate
+/// the caller's port, which would make both RPC sessions talk to one foreign process.
+#[test]
+fn the_server_port_helper_ignores_a_listening_socket_inherited_from_the_caller() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let caller = r#"
+import os, socket, sys
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen()
+listener.set_inheritable(True)
+print("caller", listener.getsockname()[1], flush=True)
+os.execvp("bash", ["bash", "-c", sys.argv[1]])
+"#;
+    let gate = r#"
+set -u
+source "$WORKSPACE/scripts/reference-server-port.sh"
+log=$(mktemp)
+sleep 30 &
+server=$!
+status=0
+reference_wait_for_server_port "$server" "$log" 0 20 2>/dev/null || status=$?
+echo "helper $status ${reference_listening_port:-none}"
+kill "$server"
+rm -f "$log"
+"#;
+    let output = Command::new("python3")
+        .args(["-I", "-c", caller, gate])
+        .env("WORKSPACE", &workspace)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run the server-port helper under a caller holding a listener");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "{stdout}{stderr}");
+    assert!(lines[0].starts_with("caller "), "{stdout}{stderr}");
+    assert_eq!(
+        lines[1], "helper 1 none",
+        "the helper reported the caller's listener as the server's port: {stdout}{stderr}"
+    );
+}
+
+/// A caller that leaks into what a gate starts: it exports `GHCRTS` and holds a listening socket
+/// without close-on-exec, then execs its arguments.
+const LEAKING_CALLER: &str = r#"
+import os, socket, sys
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen()
+listener.set_inheritable(True)
+os.execvp(sys.argv[1], sys.argv[1:])
+"#;
+
+/// A gate's verdict is a function of its inputs (krust, the pinned reference, the case), not of
+/// the process it was started from: whatever its caller exports or holds open, the same case
+/// compares the same results and reaches the same verdict. The N41 case runs every kind of
+/// reference process a gate starts (non-threaded GHC tools, a server whose port the gate reads
+/// from the server, the comparator), once from a clean environment and then from callers that
+/// export `GHCRTS=-N1` (which the non-threaded tools refuse; a caller states the threaded tools'
+/// options as `REFERENCE_GHCRTS`) and hold an inherited listening socket; in every run the
+/// requests go to the servers the gate started.
+#[test]
+fn a_gate_reaches_the_same_verdict_whatever_its_caller_leaks() {
+    let check = ("FAKE_GHC_RUNTIME_CHECK", "1");
+    let comparisons = |log: &str| {
+        log.lines()
+            .filter(|line| line.starts_with("comparator "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let (status, log, stdout, stderr, _) =
+        execution_gate_with_reference_simplifier_under("star-cell-heating-set", &[check], &[]);
+    assert_eq!(status, Some(0), "clean caller: {stdout}{stderr}");
+    let clean = comparisons(&log);
+    assert!(!clean.is_empty(), "{log}");
+    let mut failures = Vec::new();
+    for (description, environment, caller) in [
+        (
+            "a caller exporting GHCRTS=-N1",
+            vec![check, ("GHCRTS", "-N1")],
+            vec![],
+        ),
+        (
+            "a caller holding an inheritable listening socket",
+            vec![check],
+            vec!["python3", "-I", "-c", LEAKING_CALLER],
+        ),
+    ] {
+        let (status, log, _, stderr, listening) = execution_gate_with_reference_simplifier_under(
+            "star-cell-heating-set",
+            &environment,
+            &caller,
+        );
+        if status != Some(0) || comparisons(&log) != clean {
+            let last = stderr.lines().last().unwrap_or_default();
+            failures.push(format!(
+                "{description}: exit {status:?} and {} comparisons, not exit 0 and {}: {last}",
+                comparisons(&log).len(),
+                clean.len()
+            ));
+        }
+        if simplify_request_ports(&log) != bound_simplifier_ports(&log) {
+            failures.push(format!(
+                "{description}: simplify requests went to ports {:?}, the servers the gate started bound {:?}",
+                simplify_request_ports(&log),
+                bound_simplifier_ports(&log)
+            ));
+        }
+        if listening {
+            failures.push(format!("{description}: the gate left a server running"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The whole-job memory guard bounds a gate's memory; it must not loosen a bound the gate's
+/// caller already set, so after the guard the gate still runs inside its caller's slice and
+/// under a memory limit no larger than the caller's. That holds however the caller starts the
+/// gate: through another process (`timeout`) or as the outer scope's own process. Needs a user
+/// systemd manager; without one the guard takes its RLIMIT_AS fallback and the test has nothing
+/// to check.
+#[test]
+fn the_memory_guard_keeps_a_gate_inside_its_callers_resource_envelope() {
+    let manager = Command::new("systemd-run")
+        .args(["--user", "--scope", "--quiet", "--", "true"])
+        .stdin(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !manager {
+        eprintln!("no user systemd manager: the guard uses its RLIMIT_AS fallback");
+        return;
+    }
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("guard-envelope");
+    let gate = fixture.join("gate.sh");
+    fs::write(
+        &gate,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+source {guard:?}
+reference_enter_whole_job "$@"
+cgroup=$(sed -n 's/^0:://p' /proc/self/cgroup)
+limit=max
+directory=/sys/fs/cgroup$cgroup
+while [[ $directory == /sys/fs/cgroup/* ]]; do
+  if [[ -r $directory/memory.max ]]; then
+    value=$(<"$directory/memory.max")
+    if [[ $value != max ]] && [[ $limit == max || $value -lt $limit ]]; then limit=$value; fi
+  fi
+  directory=${{directory%/*}}
+done
+echo "guard $REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND cgroup $cgroup limit $limit"
+"#,
+            guard = workspace.join("scripts/reference-memory-guard.sh"),
+        ),
+    )
+    .unwrap();
+    let slice = format!("k-rust-guard-test-{}.slice", std::process::id());
+    let caller_limit: u64 = 1 << 30;
+    let mut failures = Vec::new();
+    for (description, between) in [
+        ("started through timeout", vec!["timeout", "60"]),
+        ("the outer scope's own process", vec![]),
+    ] {
+        let output = Command::new("systemd-run")
+            .args(["--user", "--scope", "--quiet"])
+            .arg(format!("--slice={slice}"))
+            .arg(format!("--property=MemoryMax={caller_limit}"))
+            .args(["--"])
+            .args(&between)
+            .arg("bash")
+            .arg(&gate)
+            .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run the guard under an outer scope");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = stdout.lines().find(|line| line.starts_with("guard "));
+        let Some(line) = line else {
+            failures.push(format!(
+                "{description}: the gate did not run: {stdout}{stderr}"
+            ));
+            continue;
+        };
+        let words = line.split_whitespace().collect::<Vec<_>>();
+        let (cgroup, limit) = (words[3], words[5]);
+        if !cgroup.contains(&format!("/{slice}/")) {
+            failures.push(format!(
+                "{description}: the gate left its caller's slice {slice}: {cgroup}"
+            ));
+        }
+        if limit
+            .parse::<u64>()
+            .map_or(true, |limit| limit > caller_limit)
+        {
+            failures.push(format!(
+                "{description}: the gate's memory limit {limit} exceeds its caller's {caller_limit}"
+            ));
+        }
+    }
+    fs::remove_dir_all(&fixture).expect("remove guard fixture");
+    // A slice stays loaded once its last scope ends; stop the one this test created.
+    let _ = Command::new("systemctl")
+        .args(["--user", "stop", &slice])
+        .stdin(std::process::Stdio::null())
+        .status();
+    assert!(failures.is_empty(), "{failures:#?}");
 }

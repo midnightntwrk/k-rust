@@ -123,7 +123,7 @@ simplify_reference_result() {
   fi
   (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     exec "$reference_simplifier" "$definition/definition.kore" \
       --module "$main_module" \
       --smt none \
@@ -136,8 +136,12 @@ simplify_reference_result() {
     echo "error: the reference simplifier did not listen" >&2
     exit 1
   fi
-  "$rpc_client" --port "$reference_listening_port" --log-level Error simplify "$stem.json" \
-    -o "$stem.simplify-response.json" </dev/null
+  (
+    ulimit -v "$reference_memory_kib"
+    export GHCRTS=
+    exec "$rpc_client" --port "$reference_listening_port" --log-level Error simplify "$stem.json" \
+      -o "$stem.simplify-response.json" </dev/null
+  )
   stop_reference_simplifier
   if ! jq -e '.result.state' "$stem.simplify-response.json" >"$simplified"; then
     echo "error: the reference simplifier returned no state:" >&2
@@ -155,7 +159,7 @@ run_reference_krun() {
     set +e
     (
       ulimit -v "$reference_memory_kib"
-      export GHCRTS=${GHCRTS:--N1}
+      export GHCRTS=${REFERENCE_GHCRTS--N1}
       export K_OPTS="$reference_k_opts"
       # The program, the parser script and the definition are the run's inputs; krun reads
       # standard input to its end when the definition declares $STDIN.
@@ -280,7 +284,7 @@ for name in "${selected[@]}"; do
   fi
   (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     export K_OPTS="$reference_k_opts"
     reference_cached kompile "$name" --output-root "$definition" --kdep "$kdep" -- \
       "$kompile" "$source" \

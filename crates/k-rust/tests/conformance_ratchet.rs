@@ -4035,3 +4035,58 @@ cases = ["b", "d"]
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("names an unknown case: zz"));
 }
+
+/// Whether a GHC runtime option is valid is a property of the binary that receives it: a binary
+/// of the non-threaded runtime refuses `-N`. So the driver gives each reference call the options
+/// of the binary it runs, never the options its caller exported as `GHCRTS`: none to a
+/// non-threaded tool, and `REFERENCE_GHCRTS` (by default `-N1`) to a threaded one.
+#[test]
+fn conformance_driver_gives_each_reference_tool_its_own_ghc_runtime_options() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import run
+print(json.dumps({
+    "kompile": run.reference_process_env("kompile")["GHCRTS"],
+    "krun": run.reference_process_env("krun", ["x.imp"])["GHCRTS"],
+    "krun-pattern": run.reference_process_env("krun", ["--pattern", "p"])["GHCRTS"],
+    "kore-parser": run.reference_process_env("kore-parser")["GHCRTS"],
+}))
+"#;
+    let probe = |environment: &[(&str, &str)]| {
+        let mut command = Command::new("python3");
+        command
+            .env("K_KOMPILE", "/kbin/kompile")
+            .env_remove("GHCRTS")
+            .env_remove("REFERENCE_GHCRTS")
+            .args(["-c", script])
+            .arg(workspace.join("scripts/conformance"));
+        for (name, value) in environment {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let defaults = serde_json::json!({
+        "kompile": "-N1", "krun": "-N1", "krun-pattern": "", "kore-parser": ""
+    });
+    assert_eq!(probe(&[]), defaults);
+    assert_eq!(
+        probe(&[("GHCRTS", "-N3")]),
+        defaults,
+        "the caller's GHCRTS reached a reference call"
+    );
+    assert_eq!(
+        probe(&[("REFERENCE_GHCRTS", "-N2")]),
+        serde_json::json!({
+            "kompile": "-N2", "krun": "-N2", "krun-pattern": "", "kore-parser": ""
+        }),
+        "REFERENCE_GHCRTS replaces the threaded tools' default and reaches no other tool"
+    );
+}

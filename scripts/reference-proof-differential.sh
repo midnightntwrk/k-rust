@@ -107,7 +107,7 @@ for name in "${selected[@]}"; do
   echo "[$name] compiling the reference Haskell definition"
   (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     export K_OPTS="$reference_k_opts"
     reference_cached kompile "$name" --output-root "$definition" --kdep "$kdep" -- \
       "$kompile" "$semantics"       --backend haskell       --main-module "$main_module"       --syntax-module "$syntax_module"       --output-definition "$definition"       --warnings none
@@ -143,7 +143,7 @@ for name in "${selected[@]}"; do
     echo "[$name] checking the reference proven verdicts"
     if ! (
       ulimit -v "$reference_memory_kib"
-      export GHCRTS=${GHCRTS:--N1}
+      export GHCRTS=${REFERENCE_GHCRTS--N1}
       export K_OPTS="$reference_k_opts"
       reference_cached kprove "$name:proven" --input "$definition" --kdep "$kdep" -- \
         "$kprove" "$specification" \
@@ -189,7 +189,7 @@ for name in "${selected[@]}"; do
   echo "[$name:$failure_claim] checking the reference refuted verdict"
   if (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     export K_OPTS="$reference_k_opts"
     reference_cached kprove "$name:$failure_claim" --input "$definition" --kdep "$kdep" -- \
       "$kprove" "$specification"       --definition "$definition"       --spec-module "$spec_module"       --claims "$failure_claim"       --depth "$proof_depth"       --output none       --warnings none       -I "$semantics_dir"

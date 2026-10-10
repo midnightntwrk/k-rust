@@ -22,16 +22,26 @@ reference_server_process_tree() {
 }
 
 # reference_server_port PID
-#   Prints the port of the one TCP socket in LISTEN state held open by PID or a descendant.
+#   Prints the port of the one TCP socket in LISTEN state held open by PID or a descendant and not
+#   by the gate's own shell. A socket the gate also holds was not bound by the server: the server
+#   inherited it from the gate, which had it from its caller. reference_enter_whole_job closes such
+#   descriptors before any server starts; this filter keeps the helper right without that.
 #   Returns 1 while there is none, and 2 when there are several ports (the server is ambiguous).
 reference_server_port() {
   local pid=$1
   local process descriptor target
   local -a inodes=() ports=()
+  local -A inherited=()
+  for descriptor in "/proc/$$/fd/"*; do
+    target=$(readlink "$descriptor" 2>/dev/null) || continue
+    if [[ "$target" =~ ^socket:\[([0-9]+)\]$ ]]; then
+      inherited[${BASH_REMATCH[1]}]=1
+    fi
+  done
   for process in $(reference_server_process_tree "$pid"); do
     for descriptor in /proc/"$process"/fd/*; do
       target=$(readlink "$descriptor" 2>/dev/null) || continue
-      if [[ "$target" =~ ^socket:\[([0-9]+)\]$ ]]; then
+      if [[ "$target" =~ ^socket:\[([0-9]+)\]$ ]] && [[ -z "${inherited[${BASH_REMATCH[1]}]:-}" ]]; then
         inodes+=("${BASH_REMATCH[1]}")
       fi
     done
