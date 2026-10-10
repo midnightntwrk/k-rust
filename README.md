@@ -660,10 +660,14 @@ The scripts enforce clean checkouts at the manifest revisions and require the ma
 Set `K_CHECKOUT`, `IMP_SEMANTICS_CHECKOUT`, `WASM_SEMANTICS_CHECKOUT`, `EVM_SEMANTICS_CHECKOUT`, `EVM_EQUIVALENCE_CHECKOUT`, or `MIR_SEMANTICS_CHECKOUT` when a checkout is not at its ignored workspace-default path.
 Each of the six Java-backed differential scripts re-executes its complete job in one transient user systemd scope before loading the manifest, validating pins, or starting reference and Rust phases.
 The single scope contains the aggregate process tree, including reference JVMs, k-rust, backend servers, Cargo children, and cleanup; the Java and Rust phases are sequential rather than concurrent.
+A gate's verdict must not depend on the process that started it, so the guard (`reference_enter_whole_job` in `scripts/reference-memory-guard.sh`) first points standard input at `/dev/null`, closes every inherited descriptor above 2, and removes `GHCRTS`.
+Each reference call sets the GHC runtime options of the binary it runs: none for the non-threaded tools (`kore-parser`, `kore-rpc-client`, `kore-match-disjunction`), which refuse `-N`, and `-N1` for the threaded ones, which `REFERENCE_GHCRTS` replaces when set.
+The scope is created in the deepest slice of the caller's cgroup path, under a unique unit name, and its memory limits are no larger than those of any cgroup the job leaves, so the guard only tightens a caller's bound and the job stays in the caller's slice; it is created whether or not the caller is already bounded.
 `REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB` and `REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB` both default to 16 GiB, and swap is disabled for the scope.
 The equal defaults make the hard stop authoritative for anonymous-memory-heavy compiler workloads; operators may still configure an earlier soft throttle when a measured workload can reclaim or swap memory under pressure.
-An inner `systemd-run` scope would be a sibling of the aggregate scope rather than its child, so `reference_run_rust_frontend` executes directly after the whole-job marker is present.
-When user scopes are unavailable, `REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 24 GiB whole-job virtual-address ceiling and emits a warning identifying its RLIMIT_AS semantics.
+An inner `systemd-run` scope would be a sibling of the aggregate scope rather than its child, so `reference_run_rust_frontend` executes directly once the script has entered the guard.
+`REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND` reports the guard in effect to the processes a gate starts; the guard never reads it, so a value exported by a caller cannot skip it.
+When user scopes are unavailable, `REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 24 GiB whole-job virtual-address ceiling, or keeps the caller's tighter one, and emits a warning identifying its RLIMIT_AS semantics.
 The fallback is deliberately larger because a healthy process can reserve substantially more address space than it keeps resident; it is not a resident-memory guarantee.
 `REFERENCE_DIFFERENTIAL_MEMORY_KIB` independently controls only the reference JVM's virtual memory and remains unset by default for the same reservation reason.
 Raise a hard ceiling only after checking current machine headroom.

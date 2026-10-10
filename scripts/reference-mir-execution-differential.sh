@@ -73,7 +73,7 @@ rust_result="$work/main-a-b-c.rust.kore"
 echo "[mir] compiling the pinned concrete Haskell definition"
 (
   export K_OPTS="$reference_k_opts"
-  export GHCRTS=${GHCRTS:--N1}
+  export GHCRTS=${REFERENCE_GHCRTS--N1}
   reference_cached kompile mir --output-root "$reference_definition" --kdep "$kdep" -- \
     "$kompile" "$source_path" \
     --backend haskell \
@@ -106,7 +106,7 @@ echo "[mir] generating one shared raw initial KORE pattern from pinned SMIR"
 echo "[mir] executing the shared pattern with the pinned Haskell backend"
 (
   export K_OPTS="$reference_k_opts"
-  export GHCRTS=${GHCRTS:--N1}
+  export GHCRTS=${REFERENCE_GHCRTS--N1}
   reference_cached krun mir:main-a-b-c --input "$reference_definition" --store-status 0 -- \
     "$krun" "$initial" \
     --definition "$reference_definition" \

@@ -7,6 +7,9 @@
 # `<instrs>` `.K`), and otherwise the output's SHA-256 and size. A proof's `verdict` is its claim
 # statuses with their state counts and, for a failed claim, where it stopped; a failed proof's
 # `stdout` is the SHA-256 and size of its whole output, which holds the configuration it stopped on.
+# A case whose recorded result is not a success (a program that does not exit 0 with `success`, a
+# proof that does not exit 0) states why in `known_failure`: the upstream list of failing tests
+# that names it, or a FOLLOWUPS item. A success carries no `known_failure`; the gate checks both.
 
 [[program]]
 name = "simple/address-c"
@@ -94,6 +97,7 @@ stdout = "success"
 
 [[program]]
 name = "simple/fconversions-c"
+known_failure = "upstream tests/failing.simple"
 exit = 0
 stderr = """
 warning: hook FLOAT.float2int was left unevaluated at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
@@ -267,6 +271,7 @@ claim #5: proven (3 states, 0 unexplored)
 name = "proofs/wrc20"
 module = "WRC20-SPEC"
 definition_module = "WRC20-LEMMAS"
+known_failure = "upstream tests/failing.proofs"
 exit = 1
 stderr = """
 error: one or more reachability claims were not proven

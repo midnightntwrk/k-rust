@@ -290,10 +290,9 @@ def sh_to_file(cmd, cwd, timeout, stdout_path, env=None):
 
 
 def reference_process_env(tool=None, args=()):
-    """Bound threaded Haskell tools without passing -N1 to non-threaded helpers."""
-    configured = os.environ.get("GHCRTS")
-    if configured is not None:
-        return {"GHCRTS": configured}
+    """The GHC runtime options of one reference call, which are valid or not per binary: none for
+    a binary of the non-threaded runtime, which refuses -N, and REFERENCE_GHCRTS (default -N1) for
+    a threaded one. The caller's GHCRTS is never passed on: the gate's guard removes it."""
     # The pinned kore-match-disjunction is not threaded. Reference krun delegates
     # --pattern matching to it, so the default threaded-runtime bound must not
     # leak through the wrapper to that child process.
@@ -302,7 +301,7 @@ def reference_process_env(tool=None, args=()):
     )
     if tool in ("kore-match-disjunction", "kore-parser") or uses_match_disjunction:
         return {"GHCRTS": ""}
-    return {"GHCRTS": "-N1"}
+    return {"GHCRTS": os.environ.get("REFERENCE_GHCRTS", "-N1")}
 
 
 def reference_sh(case, cmd, timeout, tool, stdin_path=None, env=None, bytes_output=False,

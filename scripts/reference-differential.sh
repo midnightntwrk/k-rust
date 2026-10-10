@@ -88,7 +88,7 @@ run_reference_tool() (
 
 run_reference_kompile() (
   if [[ "$reference_backend" == haskell ]]; then
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
   fi
   run_reference_tool "$@"
 )

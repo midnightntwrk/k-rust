@@ -33,7 +33,9 @@ A program's result is its exit status, its standard error, and its standard outp
 is its exit status, its standard error, and its verdict: the lines of standard output indented
 by at most two spaces (each claim's status and state counts, and where a failed claim stopped);
 a proof that fails also records the SHA-256 of its whole standard output, which holds the
-configuration each failed claim stopped on.
+configuration each failed claim stopped on. A recorded result other than success states its
+reason as `known_failure`, and a success has none; the gate checks this before it compiles
+(exit 2), and --update drops the reason of a case that now succeeds.
 
 krust is $KRUST_BIN when set, otherwise the gate binary built as the reference gates build it
 (KRUST_GATE_Z3, KRUST_GATE_TARGET_DIR, KRUST_GATE_INVARIANT_CHECKS). The checkouts are
@@ -72,6 +74,163 @@ builtin="$k_checkout/k-distribution/include/kframework/builtin"
 [[ -d "$builtin" ]] || die "no K builtin directory at $k_checkout (set K_CHECKOUT)"
 reference_require_git_pin WASM "$wasm_checkout" "$WASM_REFERENCE_REVISION"
 reference_require_git_pin K "$k_checkout" "$K_REFERENCE_REVISION"
+
+# report MODE [CASE...]
+#   The manifest step. MODE `check` checks that every recorded result other than success states
+#   its reason (`known_failure`) and that no success carries one; `compare` checks that and
+#   compares the selected cases' outputs in $work with the manifest (exit 3 on a difference);
+#   `update` rewrites the selected cases' results from $work and checks the rewritten manifest.
+report() {
+  python3 - "$manifest" "$success_configuration" "$work" "$@" <<'EOF'
+import difflib, hashlib, re, sys, tomllib
+from pathlib import Path
+
+manifest_path, success_path, work = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+mode, selected = sys.argv[4], sys.argv[5:]
+text = manifest_path.read_text()
+loaded = tomllib.loads(text)
+success = success_path.read_bytes()
+cases = [("program", case) for case in loaded["program"]] + [("proof", case) for case in loaded["proof"]]
+selected = set(selected or [case["name"] for _, case in cases])
+
+
+RESULT_KEYS = ("exit", "stderr", "stdout", "verdict")
+
+
+def succeeded(kind, result):
+    """A program succeeds when it exits 0 with the configuration upstream's passing tests reach,
+    a proof when it exits 0, which it does when every claim is proven."""
+    if kind == "program":
+        return result.get("exit") == 0 and result.get("stdout") == "success"
+    return result.get("exit") == 0
+
+
+def reason_errors(entries):
+    """A recorded result other than success says why in `known_failure` (an upstream list of
+    failing tests, or a FOLLOWUPS item), so that a defect cannot look like a known failure; a
+    success has nothing to explain."""
+    errors = []
+    for kind, case in entries:
+        reason = case.get("known_failure")
+        if succeeded(kind, case):
+            if reason is not None:
+                errors.append(f"{case['name']}: records success, so it carries no known_failure")
+        elif not (isinstance(reason, str) and reason.strip()):
+            errors.append(f"{case['name']}: records a result other than success without a "
+                          "known_failure reason")
+    return errors
+
+
+def fail_on(errors):
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        sys.exit(2)
+
+
+fail_on(reason_errors(cases))
+if mode == "check":
+    sys.exit(0)
+
+
+def digest(stdout):
+    return f"sha256:{hashlib.sha256(stdout).hexdigest()} ({len(stdout)} bytes)"
+
+
+def measure(kind, name):
+    def output(suffix):
+        return (work / (name.replace("/", "-") + suffix)).read_bytes()
+
+    stdout = output(".stdout")
+    result = {"exit": int(output(".exit")), "stderr": output(".stderr").decode()}
+    if kind == "program":
+        result["stdout"] = "success" if stdout == success else digest(stdout)
+    else:
+        lines = stdout.decode().splitlines()
+        result["verdict"] = "".join(line + "\n" for line in lines if re.match(r"^ {0,2}\S", line))
+        # The verdict says where a failed claim stopped but not on which configuration; the
+        # digest of the whole output pins that too.
+        if result["exit"] != 0:
+            result["stdout"] = digest(stdout)
+    seconds = int(output(".milliseconds")) / 1000
+    return result, stdout, seconds
+
+
+def toml_string(value):
+    if "\n" in value:
+        return '"""\n' + value.replace("\\", "\\\\").replace('"""', '\\"""') + '"""'
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+if mode == "update":
+    header = []
+    for line in text.splitlines(keepends=True):
+        if not line.startswith("#"):
+            break
+        header.append(line)
+    out = header
+    updated = []
+    for kind, case in cases:
+        if case["name"] in selected:
+            kept = {key: value for key, value in case.items() if key not in RESULT_KEYS}
+            case = kept | measure(kind, case["name"])[0]
+            if succeeded(kind, case) and "known_failure" in case:
+                print(f"{case['name']}: now success; dropped known_failure {case.pop('known_failure')!r}")
+        updated.append((kind, case))
+        out.append(f"\n[[{kind}]]\n")
+        for key, value in case.items():
+            out.append(f"{key} = {value if isinstance(value, int) else toml_string(value)}\n")
+    manifest_path.write_text("".join(out))
+    print(f"updated {len(selected)} cases in {manifest_path}")
+    fail_on(reason_errors(updated))
+    sys.exit(0)
+
+differences = 0
+for kind, case in cases:
+    name = case["name"]
+    if name not in selected:
+        continue
+    measured, stdout, seconds = measure(kind, name)
+    differing = [key for key in RESULT_KEYS
+                 if (key in measured or key in case) and measured.get(key) != case.get(key)]
+    if not differing:
+        if kind == "program":
+            shown = measured["stdout"]
+        else:
+            statuses = re.findall(r"^claim .*?: (\w+)", measured["verdict"], re.MULTILINE)
+            shown = ", ".join(f"{statuses.count(s)} {s}" for s in sorted(set(statuses)))
+        known = f"; known failure: {case['known_failure']}" if "known_failure" in case else ""
+        print(f"{name}: ok, exit {measured['exit']}, {shown} ({seconds:.1f} s){known}")
+        continue
+    differences += 1
+    print(f"{name}: DIFFERS ({seconds:.1f} s)")
+    if "known_failure" in case:
+        print(f"  recorded as a known failure: {case['known_failure']}")
+    if measured["exit"] == 124:
+        print("  timed out")
+    for key in differing:
+        expected, actual = str(case.get(key, "(absent)")), str(measured.get(key, "(absent)"))
+        if "\n" in expected + actual or len(expected + actual) > 100:
+            print(f"  {key}:")
+            for line in difflib.unified_diff(expected.splitlines(), actual.splitlines(),
+                                             "expected", "measured", lineterm="", n=1):
+                print(f"    {line}")
+        else:
+            print(f"  {key}: expected {expected}, measured {actual}")
+    if (kind == "program" and case.get("stdout") == "success" and measured["stdout"] != "success"
+            and stdout):
+        diff = list(difflib.unified_diff(success.decode().splitlines(), stdout.decode().splitlines(),
+                                         "success", "measured", lineterm="", n=1))
+        for line in diff[:40]:
+            print(f"    {line}")
+        if len(diff) > 40:
+            print(f"    ... {len(diff) - 40} more diff lines")
+print(f"{len(selected) - differences} of {len(selected)} cases as recorded")
+sys.exit(3 if differences else 0)
+EOF
+}
+
+report check || exit 2
 
 # One line per selected case: kind, name, and for a proof its two modules.
 entries=$(python3 - "$manifest" "${cases[@]}" <<'EOF'
@@ -148,109 +307,7 @@ while IFS=$'\t' read -r kind name module definition_module; do
 done <<<"$entries"
 
 status=0
-python3 - "$manifest" "$success_configuration" "$work" "$update" "${cases[@]}" <<'EOF' || status=$?
-import difflib, hashlib, re, sys, tomllib
-from pathlib import Path
-
-manifest_path, success_path, work = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-update, selected = sys.argv[4] == "true", sys.argv[5:]
-text = manifest_path.read_text()
-loaded = tomllib.loads(text)
-success = success_path.read_bytes()
-cases = [("program", case) for case in loaded["program"]] + [("proof", case) for case in loaded["proof"]]
-selected = set(selected or [case["name"] for _, case in cases])
-
-
-RESULT_KEYS = ("exit", "stderr", "stdout", "verdict")
-
-
-def digest(stdout):
-    return f"sha256:{hashlib.sha256(stdout).hexdigest()} ({len(stdout)} bytes)"
-
-
-def measure(kind, name):
-    def output(suffix):
-        return (work / (name.replace("/", "-") + suffix)).read_bytes()
-
-    stdout = output(".stdout")
-    result = {"exit": int(output(".exit")), "stderr": output(".stderr").decode()}
-    if kind == "program":
-        result["stdout"] = "success" if stdout == success else digest(stdout)
-    else:
-        lines = stdout.decode().splitlines()
-        result["verdict"] = "".join(line + "\n" for line in lines if re.match(r"^ {0,2}\S", line))
-        # The verdict says where a failed claim stopped but not on which configuration; the
-        # digest of the whole output pins that too.
-        if result["exit"] != 0:
-            result["stdout"] = digest(stdout)
-    seconds = int(output(".milliseconds")) / 1000
-    return result, stdout, seconds
-
-
-def toml_string(value):
-    if "\n" in value:
-        return '"""\n' + value.replace("\\", "\\\\").replace('"""', '\\"""') + '"""'
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-if update:
-    header = []
-    for line in text.splitlines(keepends=True):
-        if not line.startswith("#"):
-            break
-        header.append(line)
-    out = header
-    for kind, case in cases:
-        if case["name"] in selected:
-            kept = {key: value for key, value in case.items() if key not in RESULT_KEYS}
-            case = kept | measure(kind, case["name"])[0]
-        out.append(f"\n[[{kind}]]\n")
-        for key, value in case.items():
-            out.append(f"{key} = {value if isinstance(value, int) else toml_string(value)}\n")
-    manifest_path.write_text("".join(out))
-    print(f"updated {len(selected)} cases in {manifest_path}")
-    sys.exit(0)
-
-differences = 0
-for kind, case in cases:
-    name = case["name"]
-    if name not in selected:
-        continue
-    measured, stdout, seconds = measure(kind, name)
-    differing = [key for key in RESULT_KEYS
-                 if (key in measured or key in case) and measured.get(key) != case.get(key)]
-    if not differing:
-        if kind == "program":
-            shown = measured["stdout"]
-        else:
-            statuses = re.findall(r"^claim .*?: (\w+)", measured["verdict"], re.MULTILINE)
-            shown = ", ".join(f"{statuses.count(s)} {s}" for s in sorted(set(statuses)))
-        print(f"{name}: ok, exit {measured['exit']}, {shown} ({seconds:.1f} s)")
-        continue
-    differences += 1
-    print(f"{name}: DIFFERS ({seconds:.1f} s)")
-    if measured["exit"] == 124:
-        print("  timed out")
-    for key in differing:
-        expected, actual = str(case.get(key, "(absent)")), str(measured.get(key, "(absent)"))
-        if "\n" in expected + actual or len(expected + actual) > 100:
-            print(f"  {key}:")
-            for line in difflib.unified_diff(expected.splitlines(), actual.splitlines(),
-                                             "expected", "measured", lineterm="", n=1):
-                print(f"    {line}")
-        else:
-            print(f"  {key}: expected {expected}, measured {actual}")
-    if (kind == "program" and case.get("stdout") == "success" and measured["stdout"] != "success"
-            and stdout):
-        diff = list(difflib.unified_diff(success.decode().splitlines(), stdout.decode().splitlines(),
-                                         "success", "measured", lineterm="", n=1))
-        for line in diff[:40]:
-            print(f"    {line}")
-        if len(diff) > 40:
-            print(f"    ... {len(diff) - 40} more diff lines")
-print(f"{len(selected) - differences} of {len(selected)} cases as recorded")
-sys.exit(3 if differences else 0)
-EOF
+report "$([[ "$update" == true ]] && echo update || echo compare)" "${cases[@]}" || status=$?
 
 if ((status == 0)) && [[ "$remove_work" == true ]]; then
   find "$work" -depth -delete

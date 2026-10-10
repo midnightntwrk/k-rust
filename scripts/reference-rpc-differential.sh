@@ -167,7 +167,7 @@ run_reference_krun() {
   for ((attempt = 1; attempt <= reference_retries; attempt++)); do
     if (
       ulimit -v "$reference_memory_kib"
-      export GHCRTS=${GHCRTS:--N1}
+      export GHCRTS=${REFERENCE_GHCRTS--N1}
       export K_OPTS="$reference_k_opts"
       # The request state is a function of the program and the definition: krun runs with an
       # empty standard input (the cache's default without --stdin), never the caller's.
@@ -195,7 +195,7 @@ generate_state() {
   export KAST_PROGRAM_SORT="$program_sort"
   (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     export K_OPTS="$reference_k_opts"
     # As in run_reference_krun, standard input is empty, not the caller's.
     reference_cached krun "$name:$stem" --input "$work/kompiled" \
@@ -432,7 +432,7 @@ compare_simplified_implication() {
 echo "[$name:rpc] compiling the reference Haskell definition"
 (
   ulimit -v "$reference_memory_kib"
-  export GHCRTS=${GHCRTS:--N1}
+  export GHCRTS=${REFERENCE_GHCRTS--N1}
   export K_OPTS="$reference_k_opts"
   reference_cached kompile "$name" --output-root "$work/kompiled" --kdep "$kdep" -- \
     "$kompile" "$semantics" \
@@ -590,7 +590,7 @@ for reference_oracle in "${reference_oracles[@]}"; do
   echo "[$name:rpc] collecting pinned $oracle_name responses"
   (
     ulimit -v "$reference_memory_kib"
-    export GHCRTS=${GHCRTS:--N1}
+    export GHCRTS=${REFERENCE_GHCRTS--N1}
     exec "$reference_oracle" "$work/kompiled/definition.kore" \
       --module "$main_module" \
       "${smt_off_args[@]}" \

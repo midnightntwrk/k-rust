@@ -77,7 +77,7 @@ run_reference_parser() (
 )
 
 run_reference_backend() (
-  export GHCRTS=${GHCRTS:--N1}
+  export GHCRTS=${REFERENCE_GHCRTS--N1}
   run_reference_tool "$@"
 )
 
