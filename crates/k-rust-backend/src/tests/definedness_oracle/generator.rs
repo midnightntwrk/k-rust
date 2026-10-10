@@ -431,6 +431,19 @@ pub(super) fn random_definition(rng: &mut Rng) -> (Definition, Vec<Pat>) {
     (definition, seeds)
 }
 
+/// Writes some of the equation heads of `definition` that no `total` declaration covers as
+/// hooked symbols ([`Definition::hooked_heads`]), each with probability `percent`, drawing from
+/// `rng`. A total head is left unhooked: an application of a total hooked symbol that no
+/// evaluator and no equation reduces is refused as an uncomputed value, which is not the
+/// equation head's reading.
+pub(super) fn hook_some_heads(definition: &mut Definition, rng: &mut Rng, percent: usize) {
+    for symbol in &definition.symbols {
+        if matches!(symbol.kind, Kind::Head { total: false, .. }) && rng.percent(percent) {
+            definition.hooked_heads.push(symbol.name.clone());
+        }
+    }
+}
+
 /// Whether two left-hand sides may have a common instance, read syntactically with every
 /// variable a wildcard (an over-approximation of unifiability).
 fn compatible(left: &Pat, right: &Pat) -> bool {

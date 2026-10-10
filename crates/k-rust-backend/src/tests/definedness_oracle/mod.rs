@@ -221,17 +221,38 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
     }
 }
 
-/// Runs the checks on the templates and `cases` random definitions from `seed`.
+/// The share of the equation heads of a random definition, in percent, written as hooked symbols
+/// ([`generator::hook_some_heads`]).
+const HOOKED_HEADS: usize = 20;
+
+/// Runs the checks on the templates, each also with its equation heads hooked, and `cases`
+/// random definitions from `seed`, some of whose heads are hooked.
 fn run_random(first: u64, cases: u64, seed: u64) -> Tally {
     let mut total = Tally::default();
     for (name, definition, seeds) in generator::templates() {
         let mut rng = Rng(seed);
         let (tally, _) = check_definition(&name, &definition, &seeds, &[], &mut rng);
         total.add(tally);
+        let mut hooked = definition;
+        generator::hook_some_heads(&mut hooked, &mut Rng(seed), 100);
+        if !hooked.hooked_heads.is_empty() {
+            let mut rng = Rng(seed);
+            let (tally, _) = check_definition(
+                &format!("{name}, heads hooked"),
+                &hooked,
+                &seeds,
+                &[],
+                &mut rng,
+            );
+            total.add(tally);
+        }
     }
     for case in first..first + cases {
         let mut rng = Rng(seed ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        let (definition, seeds) = generator::random_definition(&mut rng);
+        let (mut definition, seeds) = generator::random_definition(&mut rng);
+        // Drawn from a stream of its own, so that the definitions and queries of the run are
+        // those of the same seed without hooked heads.
+        generator::hook_some_heads(&mut definition, &mut Rng(rng.0 ^ 0x5eed_400c), HOOKED_HEADS);
         let (tally, _) = check_definition(
             &format!("case {case} (seed {seed:#x})"),
             &definition,
