@@ -14,7 +14,9 @@
 //! - an element of a strict subsort of it is injected;
 //! - an element of any other sort, a result sort that is no collection of the hook's kind, or an
 //!   opaque rest of another sort than the result's leaves the application unevaluated: the
-//!   declaration gives it no value this evaluator can build.
+//!   declaration gives it no value this evaluator can build. A loaded definition holds no
+//!   declaration under which an element's sort or the result's kind cannot fit
+//!   ([`super::hook_signature`] rejects it), so there only an opaque rest declines here.
 
 use std::{borrow::Cow, sync::Arc};
 

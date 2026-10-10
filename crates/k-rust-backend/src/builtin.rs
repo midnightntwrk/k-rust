@@ -12,6 +12,7 @@ mod bytes;
 mod float;
 #[cfg(test)]
 mod hook_models;
+mod hook_signature;
 mod krypto;
 mod list;
 mod map;
@@ -20,6 +21,7 @@ mod set;
 mod string;
 mod substitution;
 
+pub(crate) use hook_signature::misfit as collection_hook_misfit;
 pub(crate) use result_collection::ResultCollection;
 pub(crate) use substitution::KVarSorts;
 
@@ -367,6 +369,25 @@ pub(crate) fn evaluate_hook_into(
     .layered()
 }
 
+/// The value of a hook that gives one element of a collection argument (`LIST.get`,
+/// `MAP.lookup`, `MAP.lookupOrDefault`) as a value of the application's sort: the element's sort
+/// is that sort or a subsort of it, as the load checks (`hook_signature::misfit`), and a value of
+/// a strict subsort is a value of the result once injected.
+fn member_in_result(
+    hook: &str,
+    result: BuiltinResult,
+    result_sort: Option<&Sort>,
+    sort_graph: Option<&SortGraph>,
+) -> HookResult<BuiltinResult> {
+    match result {
+        BuiltinResult::Value(value) if hook_signature::gives_member(hook) => Ok(
+            hook_signature::member_of_result(value, result_sort, sort_graph)
+                .map_or(BuiltinResult::NotApplicable, BuiltinResult::Value),
+        ),
+        result => Ok(result),
+    }
+}
+
 fn evaluate_hook_with_context(
     hook: &str,
     arguments: &[Term],
@@ -433,12 +454,18 @@ fn evaluate_hook_with_context(
         }
         _ => {
             return match HookName::parse(hook).map(HookName::kind) {
-                Some(HookNamespace::List) => {
-                    list::evaluate(hook, arguments, sort_graph, result_collection)
-                }
-                Some(HookNamespace::Map) => {
-                    map::evaluate(hook, arguments, sort_graph, result_collection)
-                }
+                Some(HookNamespace::List) => member_in_result(
+                    hook,
+                    list::evaluate(hook, arguments, sort_graph, result_collection)?,
+                    result_sort,
+                    sort_graph,
+                ),
+                Some(HookNamespace::Map) => member_in_result(
+                    hook,
+                    map::evaluate(hook, arguments, sort_graph, result_collection)?,
+                    result_sort,
+                    sort_graph,
+                ),
                 Some(HookNamespace::Set) => {
                     set::evaluate(hook, arguments, sort_graph, result_collection)
                 }

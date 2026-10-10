@@ -383,3 +383,174 @@ fn a_collection_hook_injects_elements_into_its_result_element_sort() {
         differing.join("\n")
     );
 }
+
+/// The fixture with `declarations` added to its module.
+fn with_declarations(declarations: &str) -> String {
+    FIXTURE.replacen("endmodule []", &format!("{declarations}\nendmodule []"), 1)
+}
+
+/// A hooked collection symbol under whose declaration the hook gives no value of its result
+/// sort (an element, or the elements of a collection argument, not of the result's element sort
+/// or a subsort of it; a result sort that is no collection of the hook's kind; an element
+/// returned that is not of the result sort or a subsort of it) denotes nothing the hook computes,
+/// so the definition is rejected where the symbol is declared, before anything is evaluated.
+#[test]
+fn a_collection_hook_whose_declaration_gives_no_value_of_its_result_sort_is_rejected_at_load() {
+    let cases = [
+        (
+            "makeBad{}(SortInt{}, SortInt{}) : SortVals{} [function{}(), hook{}(\"LIST.make\")]",
+            "argument 2 of LIST.make, of sort SortInt, is an element of the result, but SortInt \
+             is not SortVal",
+        ),
+        (
+            "makeSet{}(SortInt{}, SortVal{}) : SortValSet{} [function{}(), hook{}(\"LIST.make\")]",
+            "LIST.make gives a list, but the result sort SortValSet is no list sort",
+        ),
+        (
+            "makeInt{}(SortInt{}, SortKItem{}) : SortInt{} [function{}(), hook{}(\"LIST.make\")]",
+            "LIST.make gives a list, but the result sort SortInt is no list sort",
+        ),
+        (
+            "makeThree{}(SortInt{}, SortVal{}, SortVal{}) : SortVals{} \
+             [function{}(), hook{}(\"LIST.make\")]",
+            "LIST.make takes 2 arguments, the symbol 3",
+        ),
+        (
+            "listIntoVals{}(SortList{}, SortList{}) : SortVals{} \
+             [function{}(), hook{}(\"LIST.concat\")]",
+            "an element of argument 1 of LIST.concat, of sort SortKItem, is an element of the \
+             result, but SortKItem is not SortVal",
+        ),
+        (
+            "mapIntoVals{}(SortValMap{}, SortVals{}) : SortVals{} \
+             [function{}(), hook{}(\"LIST.concat\")]",
+            "argument 1 of LIST.concat, of sort SortValMap, is no list sort",
+        ),
+        (
+            "listToValSet{}(SortList{}) : SortValSet{} [function{}(), hook{}(\"SET.list2set\")]",
+            "an element of argument 1 of SET.list2set, of sort SortKItem",
+        ),
+        (
+            "keysToValSet{}(SortMap{}) : SortValSet{} [function{}(), hook{}(\"MAP.keys\")]",
+            "a key of argument 1 of MAP.keys, of sort SortKItem",
+        ),
+        (
+            "updateValMap{}(SortValMap{}, SortKItem{}, SortVal{}) : SortValMap{} \
+             [function{}(), hook{}(\"MAP.update\")]",
+            "argument 2 of MAP.update, of sort SortKItem, is a key of the result",
+        ),
+        (
+            "getVal{}(SortList{}, SortInt{}) : SortVal{} [function{}(), hook{}(\"LIST.get\")]",
+            "an element of argument 1 of LIST.get, of sort SortKItem, is the result, but \
+             SortKItem is not SortVal",
+        ),
+        (
+            "getOfInt{}(SortInt{}, SortInt{}) : SortKItem{} [function{}(), hook{}(\"LIST.get\")]",
+            "argument 1 of LIST.get, of sort SortInt, is no list sort",
+        ),
+        (
+            "lookupVal{}(SortMap{}, SortKItem{}) : SortVal{} [function{}(), hook{}(\"MAP.lookup\")]",
+            "a value of argument 1 of MAP.lookup, of sort SortKItem, is the result",
+        ),
+        (
+            "lookupOrItem{}(SortValMap{}, SortVal{}, SortKItem{}) : SortVal{} \
+             [function{}(), hook{}(\"MAP.lookupOrDefault\")]",
+            "argument 3 of MAP.lookupOrDefault, of sort SortKItem, is a possible result",
+        ),
+    ];
+    let unexpected = cases
+        .iter()
+        .filter_map(|(declaration, reason)| {
+            let source = with_declarations(&format!("  hooked-symbol {declaration}"));
+            let syntax = parse_definition(&source).expect("the declaration should parse");
+            match BackendDefinition::internalize(&syntax, "MAIN") {
+                Err(error) => {
+                    let message = error.to_string();
+                    (!message.contains("Malformed collection hook") || !message.contains(reason))
+                        .then(|| format!("{declaration}: {message}"))
+                }
+                Ok(_) => Some(format!("{declaration}: loaded")),
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        unexpected.is_empty(),
+        "an ill-fitting collection hook declaration was not rejected as expected:\n{}",
+        unexpected.join("\n")
+    );
+}
+
+/// The rejection names where the symbol is written.
+#[test]
+fn an_ill_fitting_collection_hook_is_rejected_at_its_written_position() {
+    let source = with_declarations(
+        "  hooked-symbol makeBad{}(SortInt{}, SortInt{}) : SortVals{}\n    [function{}(), \
+         hook{}(\"LIST.make\"),\n     org'Stop'kframework'Stop'attributes'Stop'Location{}(\"\
+         Location(12,3,12,60)\"),\n     org'Stop'kframework'Stop'attributes'Stop'Source{}(\"\
+         Source(/defs/vals.k)\")]",
+    );
+    let syntax = parse_definition(&source).expect("the declaration should parse");
+    let Err(error) = BackendDefinition::internalize(&syntax, "MAIN") else {
+        panic!("makeBad should be rejected at load");
+    };
+    let message = error.to_string();
+    assert!(
+        message.starts_with(
+            "/defs/vals.k:12:3: Malformed collection hook: the hooked symbol \
+                             makeBad denotes no value of its result sort:"
+        ),
+        "{message}"
+    );
+}
+
+/// A hook that gives one element of a collection argument (`LIST.get`, `MAP.lookup`, or the
+/// default of `MAP.lookupOrDefault`) gives a value of the symbol's result sort: the element
+/// itself when its sort is that sort, its injection when it is a strict subsort.
+#[test]
+fn an_element_returning_hook_gives_a_value_of_its_result_sort() {
+    let source = with_declarations(
+        r#"  hooked-symbol getVal{}(SortVals{}, SortInt{}) : SortVal{} [function{}(), hook{}("LIST.get")]
+  hooked-symbol getItem{}(SortVals{}, SortInt{}) : SortKItem{} [function{}(), hook{}("LIST.get")]
+  hooked-symbol lookupItem{}(SortValMap{}, SortVal{}) : SortKItem{} [function{}(), hook{}("MAP.lookup")]
+  hooked-symbol lookupOrItem{}(SortValMap{}, SortVal{}, SortVal{}) : SortKItem{}
+    [function{}(), total{}(), hook{}("MAP.lookupOrDefault")]"#,
+    );
+    let syntax = parse_definition(&source).expect("the declarations should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("element-returning hooks into the element sort or a supersort should load");
+    let item = "inj{SortVal{}, SortKItem{}}(w{}())";
+    let vals = "valsConcat{}(valsItem{}(v{}()), valsItem{}(w{}()))";
+    let map = "valMapItem{}(v{}(), w{}())";
+    let pairs = [
+        (
+            format!(r#"getVal{{}}({vals}, \dv{{SortInt{{}}}}("1"))"#),
+            "w{}()".to_owned(),
+        ),
+        (
+            format!(r#"getItem{{}}({vals}, \dv{{SortInt{{}}}}("1"))"#),
+            item.to_owned(),
+        ),
+        (format!("lookupItem{{}}({map}, v{{}}())"), item.to_owned()),
+        (
+            format!("lookupOrItem{{}}({map}, w{{}}(), w{{}}())"),
+            item.to_owned(),
+        ),
+        (
+            format!("lookupOrItem{{}}({map}, v{{}}(), v{{}}())"),
+            item.to_owned(),
+        ),
+    ];
+    let differing = pairs
+        .iter()
+        .filter_map(|(hooked, expected)| {
+            let value = simplified(&definition, hooked);
+            let expected = internal_term(&definition, expected);
+            (value != expected).then(|| format!("{hooked}: {value:?}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        differing.is_empty(),
+        "an element-returning hook gave another value than its result sort's:\n{}",
+        differing.join("\n")
+    );
+}

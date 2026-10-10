@@ -846,6 +846,13 @@ pub enum DefinitionError {
     InvalidSortParameter,
     MalformedAttribute(String),
     MalformedCollection(String),
+    /// A symbol hooked to a collection hook whose declaration denotes no value of its result
+    /// sort (`builtin::hook_signature`), with its written position (`path:line:column`).
+    CollectionHookMisfit {
+        symbol: String,
+        position: Option<String>,
+        reason: String,
+    },
     MalformedAlias(String),
     AliasCycle(Vec<String>),
     /// Unfolding the aliases of a request pattern, or of the axioms of a definition or of a
@@ -1000,6 +1007,20 @@ impl fmt::Display for DefinitionError {
             }
             Self::MalformedCollection(error) => {
                 write!(formatter, "Malformed collection: {error}")
+            }
+            Self::CollectionHookMisfit {
+                symbol,
+                position,
+                reason,
+            } => {
+                if let Some(position) = position {
+                    write!(formatter, "{position}: ")?;
+                }
+                write!(
+                    formatter,
+                    "Malformed collection hook: the hooked symbol {symbol} denotes no value of \
+                     its result sort: {reason}"
+                )
             }
             Self::MalformedAlias(error) => write!(formatter, "Malformed alias: {error}"),
             Self::AliasCycle(aliases) => {
@@ -1856,6 +1877,7 @@ impl BackendDefinition {
         .into_iter()
         .unzip();
         let sort_graph = build_sort_graph(&sorts, subsorts);
+        reject_collection_hook_misfits(ordered, &symbols, &sort_graph)?;
         for (greater, lesser) in &overloads {
             if !symbols.contains_key(greater) {
                 return Err(DefinitionError::UnknownSymbol(greater.to_string()));
@@ -3412,6 +3434,92 @@ fn attach_collection_metadata(
     Ok(())
 }
 
+/// Rejects a symbol hooked to a collection hook under whose declaration the hook gives no value
+/// of the symbol's result sort (`builtin::collection_hook_misfit`): the declaration has no model
+/// in which the hook computes the symbol. Reported where the symbol is declared.
+fn reject_collection_hook_misfits(
+    ordered: &[&kore::Module],
+    symbols: &BTreeMap<Name, Arc<Symbol>>,
+    sort_graph: &SortGraph,
+) -> Result<(), DefinitionError> {
+    let collections = symbols
+        .values()
+        .filter_map(|symbol| symbol.attributes.collection.as_ref())
+        .map(|collection| {
+            let sort = match collection {
+                CollectionMetadata::List(definition) | CollectionMetadata::Set(definition) => {
+                    &definition.list_sort
+                }
+                CollectionMetadata::Map(definition) => &definition.map_sort,
+            };
+            (sort.clone(), collection)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let collection = |sort: &Sort| match sort {
+        Sort::Application { name, arguments } if arguments.is_empty() => {
+            collections.get(name).copied()
+        }
+        Sort::Application { .. } | Sort::Variable(_) => None,
+    };
+    for module in ordered {
+        for sentence in &module.sentences {
+            let kore::Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } = sentence
+            else {
+                continue;
+            };
+            let Some(declared) = symbols.get(symbol.name.as_str()) else {
+                continue;
+            };
+            let Some(hook) = declared.attributes.hook.as_deref() else {
+                continue;
+            };
+            if let Some(reason) = crate::builtin::collection_hook_misfit(
+                hook,
+                &declared.argument_sorts,
+                &declared.result_sort,
+                collection,
+                sort_graph,
+            ) {
+                return Err(DefinitionError::CollectionHookMisfit {
+                    symbol: symbol.name.clone(),
+                    position: written_position(attributes)?,
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A declaration's written position, `path:line:column`, from its KORE `Source` and `Location`
+/// attributes; `None` when it carries neither.
+fn written_position(attributes: &kore::Attributes) -> Result<Option<String>, DefinitionError> {
+    let source = attributes.string(KoreAttribute::Source)?.map(|source| {
+        source
+            .strip_prefix("Source(")
+            .and_then(|path| path.strip_suffix(')'))
+            .unwrap_or(source)
+    });
+    let location = attributes.string(KoreAttribute::Location)?.map(|location| {
+        let start = location
+            .strip_prefix("Location(")
+            .and_then(|inner| inner.strip_suffix(')'))
+            .map(|inner| inner.split(',').take(2).collect::<Vec<_>>());
+        match start {
+            Some(parts) if parts.len() == 2 => format!("{}:{}", parts[0], parts[1]),
+            _ => location.to_owned(),
+        }
+    });
+    Ok(match (source, location) {
+        (Some(source), Some(location)) => Some(format!("{source}:{location}")),
+        (Some(source), None) => Some(source.to_owned()),
+        (None, Some(location)) => Some(location),
+        (None, None) => None,
+    })
+}
+
 fn build_sort_graph(
     sorts: &BTreeMap<Name, SortInfo>,
     pairs: Vec<(ClosedSort, ClosedSort)>,
@@ -3707,7 +3815,7 @@ mod tests {
             ),
             ("functional{}(), anywhere{}()", "", HeadRole::EquationHead),
             (
-                r#"function{}(), total{}(), hook{}("LIST.concat"), assoc{}()"#,
+                r#"function{}(), total{}(), hook{}("STRING.concat"), assoc{}()"#,
                 "",
                 HeadRole::Function {
                     declared: true,
