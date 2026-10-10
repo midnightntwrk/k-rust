@@ -362,3 +362,36 @@ fn kore_names_decode_as_kprint_decodes_them() {
         "\"a\\\"\\\\\\n\\t\\x01\\xc3\""
     );
 }
+
+#[test]
+fn result_floats_take_the_llvm_runtime_form_in_every_output() {
+    let unparser = Unparser::from_kore(
+        r#"[]
+module FLOATS
+  hooked-sort SortFloat{} [hook{}("FLOAT.Float")]
+  sort SortText{} []
+  sort SortExp{} []
+  symbol Lblpair{}(SortFloat{}, SortText{}) : SortExp{} [format{}("pair ( %1 , %3 )"), terminals{}("110101")]
+endmodule []
+"#,
+        "",
+    )
+    .expect("synthetic KORE");
+    let native = pattern(
+        r#"Lblpair{}(\dv{SortFloat{}}("-1.5000000000000000e+00p53x11"), \dv{SortText{}}("1.5p53x11"))"#,
+    );
+    let rewritten = unparser.llvm_floats(&native).expect("a Float to rewrite");
+    // Only the domain value of the hooked Float sort changes.
+    assert_eq!(
+        rewritten.to_string(),
+        r#"Lblpair{}(\dv{SortFloat{}}("-0.15000000000000000e1"), \dv{SortText{}}("1.5p53x11"))"#
+    );
+    // A result already in the LLVM form, or without a Float, is left as it is.
+    assert!(unparser.llvm_floats(&rewritten).is_none());
+    let printed = unparser.print_kore(&native, &Options::new(Mode::Pretty));
+    assert!(
+        printed.text.starts_with("pair ( -0.15000000000000000e1 ,"),
+        "{}",
+        printed.text
+    );
+}

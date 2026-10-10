@@ -18,7 +18,8 @@
 //!
 //! [`Mode::Pretty`] first rewrites each binary32 and binary64 Float domain value in the form the
 //! LLVM runtime prints it, `0.15000000000000000e1` for `1.5`, since a native result carries
-//! k-rust's own canonical Float token.
+//! k-rust's own canonical Float token; [`Unparser::llvm_floats`] does the same for the other
+//! output formats.
 //!
 //! [`Mode::Program`] prints a parsed program as `kast --output program` does: no substitution
 //! filtering, and a child that needs brackets in a sort without a bracket production is printed
@@ -237,10 +238,25 @@ impl Unparser {
         Ok(Self::new(&definition, &macros.sentences))
     }
 
+    /// `pattern`, a result of the definition, with each binary32 and binary64 Float domain
+    /// value in the form K's LLVM runtime prints it (`0.15000000000000000e1` for k-rust's
+    /// `1.5000000000000000e+00p53x11`), as every `krun` output format shows it; `None` when no
+    /// domain value changes.
+    #[must_use]
+    pub fn llvm_floats(&self, pattern: &Pattern) -> Option<Pattern> {
+        float::llvm_floats(&self.data, pattern)
+    }
+
     /// Print a KORE pattern.
     #[must_use]
     pub fn print_kore(&self, pattern: &Pattern, options: &Options) -> Printed {
         let mut problems = Problems::default();
+        // The LLVM runtime prints every Float it returns in MPFR's form, before kprint reverses
+        // aliases.
+        let floats = (options.mode == Mode::Pretty)
+            .then(|| self.llvm_floats(pattern))
+            .flatten();
+        let pattern = floats.as_ref().unwrap_or(pattern);
         let mut node = unflatten_and_or(&from_pattern(pattern));
         instantiate(&mut node, &self.data.declarations);
         let mut exceeded = None;
@@ -248,10 +264,6 @@ impl Unparser {
             let mut reverser = Reverser::new(&self.data, &self.macros);
             node = reverser.expand(&node);
             exceeded = reverser.exceeded;
-        }
-        // The LLVM runtime prints every Float it returns in MPFR's form.
-        if options.mode == Mode::Pretty {
-            node = float::llvm_floats(&self.data, &node);
         }
         let sort = |node: &Node, problems: &mut Problems| {
             if options.sort_collections {

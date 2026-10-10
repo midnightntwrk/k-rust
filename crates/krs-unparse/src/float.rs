@@ -1,47 +1,54 @@
 //! Float domain values as K's LLVM backend prints them.
 //!
-//! `krun --output pretty` prints a Float through the LLVM runtime, which writes
-//! MPFR's decimal form: the significand's `1 + ceil(p log10 2)` correctly rounded
-//! digits after `0.`, the decimal exponent, and the format suffix (none for
-//! binary64, `f` for binary32, `pPxE` otherwise), so `1.5` prints as
-//! `0.15000000000000000e1` and `-0.0f` as `-0.000000000e0f`; infinities print as
-//! `Infinity` and NaN as `NaN`, each with the suffix. k-rust writes its own
-//! canonical token (`1.5000000000000000e+00p53x11`), and a program literal keeps
-//! its text, so [`crate::Mode::Pretty`] rewrites every binary32 and binary64
-//! Float to the LLVM form. A Float of any other format is printed as it is.
+//! Every `krun` output of a result prints a Float as the LLVM runtime writes it, in MPFR's decimal
+//! form: the significand's `1 + ceil(p log10 2)` correctly rounded digits after `0.`, the decimal
+//! exponent, and the format suffix (none for binary64, `f` for binary32, `pPxE` otherwise), so
+//! `1.5` prints as `0.15000000000000000e1` and `-0.0f` as `-0.000000000e0f`; infinities print as
+//! `Infinity` and NaN as `NaN`, each with the suffix. `--output pretty`, `kast`, `kore`, and
+//! `json` all carry that text. k-rust writes its own canonical token
+//! (`1.5000000000000000e+00p53x11`), and a program literal keeps its text, so
+//! [`crate::Unparser::llvm_floats`] rewrites every binary32 and binary64 Float of a result to the
+//! LLVM form, and [`crate::Mode::Pretty`] prints through it. A Float of any other format is left
+//! as it is.
 
 use crate::data::PrintData;
-use crate::node::{App, Node};
-use k_rust::kore::ast::Sort;
+use k_rust::kore::ast::{KoreString, Pattern, Sort};
+use k_rust::kore::node::PatternSource;
+use k_rust::kore::walk;
 
-/// `node` with each binary32 and binary64 Float domain value in the LLVM
-/// runtime's printed form.
-pub(crate) fn llvm_floats(data: &PrintData, node: &Node) -> Node {
-    let Node::App(app) = node else {
-        return node.clone();
+/// `pattern` with each binary32 and binary64 Float domain value in the LLVM runtime's printed
+/// form, or `None` when no domain value changes.
+pub(crate) fn llvm_floats(data: &PrintData, pattern: &Pattern) -> Option<Pattern> {
+    let printed = |pattern: &Pattern| -> Option<KoreString> {
+        let Pattern::DomainValue {
+            sort: Sort::Application { name, .. },
+            value,
+        } = pattern
+        else {
+            return None;
+        };
+        if data
+            .hooks
+            .get(name)
+            .is_none_or(|hook| hook != "FLOAT.Float")
+        {
+            return None;
+        }
+        let token = value.as_utf8().ok()?;
+        let text = llvm_float_text(token)?;
+        (text != token).then(|| KoreString::from_bytes(text.into_bytes()))
     };
-    if app.sym.name == "\\dv"
-        && is_float(data, app)
-        && let [Node::Str(text)] = app.args.as_slice()
-        && let Some(printed) = std::str::from_utf8(text).ok().and_then(llvm_float_text)
-    {
-        return Node::app(app.sym.clone(), vec![Node::Str(printed.into_bytes())]);
-    }
-    Node::app(
-        app.sym.clone(),
-        app.args
-            .iter()
-            .map(|argument| llvm_floats(data, argument))
-            .collect(),
-    )
-}
-
-fn is_float(data: &PrintData, app: &App) -> bool {
-    matches!(
-        app.sym.formals.first(),
-        Some(Sort::Application { name, .. })
-            if data.hooks.get(name).is_some_and(|hook| hook == "FLOAT.Float")
-    )
+    let mut changed = false;
+    walk::for_each_post_order(pattern, |node| changed = changed || printed(node).is_some());
+    changed.then(|| {
+        walk::rebuild(pattern, |node, children| match (node, printed(node)) {
+            (Pattern::DomainValue { sort, .. }, Some(value)) => Pattern::DomainValue {
+                sort: sort.clone(),
+                value,
+            },
+            _ => node.node().split().0.fill(children).into_pattern(),
+        })
+    })
 }
 
 /// The LLVM runtime's text of the K Float token `token`, when its format is

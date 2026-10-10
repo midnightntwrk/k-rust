@@ -25,7 +25,8 @@ impl Term {
         Self { kore, kast }
     }
 
-    /// The KORE pattern, as the backend returned it.
+    /// The KORE pattern, as the backend returned it; a run or search result has its Floats in the
+    /// form `krun` prints them.
     #[must_use]
     pub const fn kore(&self) -> &Pattern {
         &self.kore
@@ -222,7 +223,7 @@ pub struct RunReport {
     pub halt: Halt,
     /// Rewrite steps taken.
     pub steps: u64,
-    /// The final configuration.
+    /// The final configuration, with each binary32 and binary64 Float as `krun` prints it.
     pub state: Term,
     /// Rewrite steps, when a trace was requested.
     pub trace: Vec<Step>,
@@ -239,7 +240,7 @@ pub struct RunReport {
 /// One final state of a search.
 #[derive(Clone, Debug, Serialize)]
 pub struct Solution {
-    /// The state.
+    /// The state, with each binary32 and binary64 Float as `krun` prints it.
     pub state: Term,
     /// Rewrite steps from the initial state.
     pub depth: u64,

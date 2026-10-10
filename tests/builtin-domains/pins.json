@@ -89,7 +89,8 @@
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
     "krs-builtin-sort-tests": "c7571e17d21ad3aa80c1fbabe9e1a2aa23468c26dc0b8614cf5474545ea01109",
     "krs-builtin-io-hooks": "00c98e87c19d62e3a698c023a2ceb9688c89b5dcf8eb4a7f7a46945fe47d0f19",
-    "krs-builtin-io-log": "b383fb21fb73ae21e2040c7422ff2ac8988ef2f8e8e21042418362684278c5bb"
+    "krs-builtin-io-log": "b383fb21fb73ae21e2040c7422ff2ac8988ef2f8e8e21042418362684278c5bb",
+    "krs-builtin-floats-outputs": "7fb09e1c99c58d0accad5e73b2620f9fe1350639098c77b6b8cba6779cba5b2e"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -1071,6 +1072,42 @@
     "krs-builtin-io-log": {
       "summary": "PASS native KORE: reference=3114 native=3114 reference_projector_pairs=0 native_projector_pairs=0 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
       "report_sha256": "eaa867f9fef2d1545c55205a29b7d751986787c3771a814dca753b7ebc45dee1"
+    }
+  },
+  "float_outputs": {
+    "krs-builtin-floats": {
+      "negate-binary64": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.15000000000000000e1\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.15000000000000000e1"
+      },
+      "negate-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.100000001e0f\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.100000001e0f"
+      },
+      "negate-infinity": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"Infinity\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "Infinity"
+      },
+      "negate-nan-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"NaNf\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "NaNf"
+      },
+      "negate-zero": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.00000000000000000e0\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.00000000000000000e0"
+      },
+      "negate-subnormal": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"-0.25000000000000171e-309\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "-0.25000000000000171e-309"
+      },
+      "literal-binary64": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"0.15000000000000000e1\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "0.15000000000000000e1"
+      },
+      "literal-binary32": {
+        "kast": "`<generatedTop>`(`<k>`(#token(\"0.100000001e0f\",\"Float\")),`<generatedCounter>`(#token(\"0\",\"Int\")))",
+        "kore_floats": "0.100000001e0f"
+      }
     }
   }
 }

@@ -29,7 +29,12 @@ operation, and a corpus of programs that apply them to concrete values:
   `negate` leaves a Float in the computation cell, which both routes print as
   K's LLVM runtime does (`-0.15000000000000000e1`, `-0.100000001e0f`,
   `Infinity`, `NaNf`, `-0.00000000000000000e0`); every other result is a Bool
-  or an Int;
+  or an Int. Those programs and two Float literals left as the result (`1.5`,
+  `0.1f`) also run through `krs run` and `krs search` with `--output kast`,
+  `kore`, and `json`, which must print each Float as `krun` and `krun --search`
+  do (`#token("-0.15000000000000000e1","Float")`, not k-rust's
+  `-1.5000000000000000e+00p53x11` or the literal's own text): the KAST text
+  byte for byte, the KORE cells and the KAST JSON term as values;
 - `float-java-only`: a ground FLOAT application and a binary128 token, which
   KRS records as the `GroundFloatFolding` and `FloatPrecisionBeyondBinary64`
   requirements; the native and browser routes refuse the definition before
@@ -112,6 +117,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -318,6 +324,15 @@ FLOATS = (
     float_case("negate-subnormal", "negate(2.5e-310)", "-0.25000000000000171e-309"),
 )
 
+FLOATS_PACKAGE = "krs-builtin-floats"
+FLOAT_OUTPUTS = {
+    **{program.name: program.text for program in FLOATS if program.name.startswith("negate-")},
+    "literal-binary64": "1.5",
+    "literal-binary32": "0.1f",
+}
+"""The `floats` programs whose result holds a Float, each printed by every `--output` format."""
+FLOAT_KORE = re.compile(r'\\dv\{SortFloat\{\}\}\("([^"]*)"\)')
+
 FLOAT_JAVA_ONLY = Fixture(MANIFEST, "krs-builtin-float-java-only")
 FLOAT_JAVA_ONLY_PROGRAMS = (
     case("ground", "isHalf(0.5)", "true"),
@@ -388,7 +403,7 @@ CASES = (
     ("krs-builtin-set-ops", SET_OPS),
     ("krs-builtin-map-ops", MAP_OPS),
     ("krs-builtin-strings", STRINGS),
-    ("krs-builtin-floats", FLOATS),
+    (FLOATS_PACKAGE, FLOATS),
     ("krs-builtin-sort-tests", SORT_TESTS),
 )
 
@@ -464,6 +479,107 @@ def java_only_floats(harness: FixtureGate) -> None:
     print(
         "PASS krs-builtin-float-java-only: Java K runs it; the native and browser routes refuse it "
         "before compiling"
+    )
+
+
+def float_outputs(harness: FixtureGate, emitted) -> None:
+    """Require `krs run` and `krs search` to print Floats as `krun` does in every output format.
+
+    The LLVM runtime prints a Float in MPFR's form (`-0.15000000000000000e1`)
+    in `--output kast`, `kore`, and `json` alike, while k-rust carries its own
+    canonical token (`-1.5000000000000000e+00p53x11`) and a program literal
+    keeps its text (`1.5`). `krs run --output kast` must print krun's bytes,
+    `--output kore` the same cells (k-rust's KORE printer spaces its commas),
+    and `--output json` the same KAST JSON term; `krs search --output kast`
+    and `json` must print the configuration of `krun --search`'s one
+    `#Equals` solution, and every KORE output the same Float tokens.
+    """
+
+    directory = harness.workspace / "float-outputs"
+    directory.mkdir(parents=True, exist_ok=True)
+    name = f"{FLOATS_PACKAGE}-outputs"
+    k = Snapshot(
+        f"{harness.label}/{name}",
+        Key(tools=JAVA_TOOLS, inputs=repository_inputs([])),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, name),
+    )
+    compiled = harness.workspace / "kompiled" / name
+    kompiled = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--enable-search", "--output-definition", compiled,
+        ],
+        timeout=900,
+    )
+    if kompiled.returncode != 0:
+        raise GateError(f"{name}: kompile rejected the emitted definition:\n{kompiled.stderr}")
+
+    def krs(command: str, output: str, program: Path) -> str:
+        native = harness._krs(emitted.fixture, command, "--output", output, program)  # noqa: SLF001
+        return native.stdout
+
+    def krun(label: str, program: Path, *arguments: str) -> str:
+        java = k.run(label, "krun", ["--definition", compiled, *arguments, program], timeout=120)
+        if java.returncode != 0:
+            raise GateError(f"{name} {label}: krun exited {java.returncode}:\n{java.stderr}")
+        return java.stdout
+
+    def mismatch(program: str, what: str, native: Any, java: Any) -> GateError:
+        return GateError(f"{name} {program}: {what} differs from krun's:\n  krs:  {native!r}\n  krun: {java!r}")
+
+    observed: dict[str, dict[str, str]] = {}
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        for program_name, text in FLOAT_OUTPUTS.items():
+            program = directory / f"{program_name}.pgm"
+            program.write_text(text + "\n", encoding="utf-8")
+            run_kast = krs("run", "kast", program)
+            java_kast = krun(f"krun-kast/{program_name}", program, "--output", "kast")
+            if run_kast != java_kast:
+                raise mismatch(program_name, "krs run --output kast", run_kast, java_kast)
+
+            run_kore = krs("run", "kore", program)
+            java_kore = krun(f"krun-kore/{program_name}", program, "--output", "kore")
+            session.read(run_kore, f"{program_name}-native")
+            session.read(java_kore, f"{program_name}-java")
+            cells = ["k", "generatedCounter"]
+            native_cells = session.observe(f"{program_name}-native", cells)
+            java_cells = session.observe(f"{program_name}-java", cells)
+            if native_cells != java_cells:
+                raise mismatch(program_name, "krs run --output kore", native_cells, java_cells)
+            floats = FLOAT_KORE.findall(java_kore)
+            if not floats or FLOAT_KORE.findall(run_kore) != floats:
+                raise mismatch(program_name, "the Floats of krs run --output kore", run_kore, java_kore)
+
+            run_json = json.loads(krs("run", "json", program))["run"]["state"]
+            java_json = json.loads(krun(f"krun-json/{program_name}", program, "--output", "json"))
+            if run_json != java_json:
+                raise mismatch(program_name, "krs run --output json", run_json, java_json)
+
+            # `krun --search` prints its one solution as `#Equals(Result, configuration)`.
+            search_kast = krs("search", "kast", program)
+            java_search_kast = krun(f"krun-search-kast/{program_name}", program, "--search", "--output", "kast")
+            if java_search_kast != f"#Equals{{GeneratedTopCell,GeneratedTopCell}}(Result,{search_kast.strip()})\n":
+                raise mismatch(program_name, "krs search --output kast", search_kast, java_search_kast)
+            [solution] = json.loads(krs("search", "json", program))["search"]["solutions"]
+            java_search = json.loads(
+                krun(f"krun-search-json/{program_name}", program, "--search", "--output", "json"),
+            )
+            equals = java_search["term"]
+            if equals["label"]["name"] != "#Equals" or solution["state"]["term"] != equals["args"][1]:
+                raise mismatch(program_name, "krs search --output json", solution["state"], java_search)
+            search_kore = krs("search", "kore", program)
+            if FLOAT_KORE.findall(search_kore) != floats:
+                raise mismatch(program_name, "the Floats of krs search --output kore", search_kore, floats)
+            observed[program_name] = {"kast": run_kast.strip(), "kore_floats": " ".join(floats)}
+    print(f"PASS builtin-domains {name} reference snapshot: {k.finish()}")
+    harness.pins.expect(("float_outputs", FLOATS_PACKAGE), observed)
+    print(
+        f"PASS {name}: krs run and krs search print {len(observed)} Float results as krun does "
+        "in --output kast, kore, and json"
     )
 
 
@@ -858,6 +974,8 @@ def main() -> int:
                 f"PASS {package}: {len(programs) - pinned} programs agree natively and on Java K"
                 + (f"; {pinned} pinned divergences unchanged" if pinned else "")
             )
+            if package == FLOATS_PACKAGE:
+                float_outputs(harness, emitted)
 
         sort_test_diagnostics(harness)
         java_only_floats(harness)

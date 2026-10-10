@@ -786,12 +786,22 @@ impl Semantics {
         Ok(RunReport {
             halt,
             steps: leaf.depth,
-            state,
+            state: self.krun_floats(state)?,
             trace,
             stdout,
             exit_code,
             log: log_lines(&leaf.effects),
         })
+    }
+
+    /// A run or search result with each binary32 and binary64 Float as `krun` prints it in every
+    /// output format, in the LLVM runtime's form (`0.15000000000000000e1`, not k-rust's
+    /// `1.5000000000000000e+00p53x11`).
+    fn krun_floats(&self, state: Term) -> Result<Term, ExecError> {
+        match self.unparser.llvm_floats(state.kore()) {
+            Some(kore) => Term::from_kore(kore),
+            None => Ok(state),
+        }
     }
 
     /// The exit cell's final value: `getExitCode` of the final configuration, as krun computes the status.
@@ -830,7 +840,7 @@ impl Semantics {
             .iter()
             .map(|solution| {
                 Ok(Solution {
-                    state: term(&solution.state)?,
+                    state: self.krun_floats(term(&solution.state)?)?,
                     depth: solution.depth,
                     trace: if options.trace {
                         self.steps(&solution.trace)
