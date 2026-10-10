@@ -1,6 +1,7 @@
 //! The user-facing K term model.
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display, Formatter},
     sync::Arc,
 };
@@ -20,7 +21,7 @@ use super::printer::Printer;
 /// A sort is dropped with an explicit work list, so a sort nested to any depth is dropped on
 /// any thread. Because of that `Drop`, a sort cannot be destructured by move; take its fields
 /// with `std::mem::take` instead.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Sort {
     pub name: String,
     pub parameters: Vec<Sort>,
@@ -86,7 +87,7 @@ impl Sort {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Label {
     pub name: String,
     pub parameters: Vec<Sort>,
@@ -764,82 +765,83 @@ impl Ord for Term {
     }
 }
 
-impl Term {
-    /// One level of [`Term::cmp`], which runs it with stack for one more level.
-    fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
+/// The fields of one node that the comparison of terms ([`Term::cmp`], and so [`Term::eq`])
+/// reads besides its children: its variant, and its label, or its token or variable name with
+/// its sort. Annotations are not among them.
+///
+/// The derived order is the comparison's order on nodes that differ in these fields: variants in
+/// the order [`Term`] declares them, then the fields in order. [`NodeHead::of`] borrows them from
+/// a term; [`NodeHead::into_owned`] keeps them past the term.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum NodeHead<'t> {
+    InjectedLabel(Cow<'t, Label>),
+    Rewrite,
+    As,
+    Variable(Cow<'t, str>, Option<Cow<'t, Sort>>),
+    Sequence,
+    Apply(Cow<'t, Label>),
+    Token(Cow<'t, str>, Cow<'t, Sort>),
+}
 
-        let left = self.unannotated();
-        let right = other.unannotated();
-        let rank = |term: &Self| match term {
-            Self::InjectedLabel(_) => 0,
-            Self::Rewrite { .. } => 1,
-            Self::As { .. } => 2,
-            Self::Variable { .. } => 3,
-            Self::Sequence(_) => 4,
-            Self::Apply { .. } => 5,
-            Self::Token { .. } => 6,
-            Self::Annotated { .. } => unreachable!(),
+impl<'t> NodeHead<'t> {
+    /// The head of `term`, its annotations removed.
+    pub(crate) fn of(term: &'t Term) -> Self {
+        match term.unannotated() {
+            Term::InjectedLabel(label) => Self::InjectedLabel(Cow::Borrowed(label)),
+            Term::Rewrite { .. } => Self::Rewrite,
+            Term::As { .. } => Self::As,
+            Term::Variable { name, sort } => {
+                Self::Variable(Cow::Borrowed(name), sort.as_ref().map(Cow::Borrowed))
+            }
+            Term::Sequence(_) => Self::Sequence,
+            Term::Apply { label, .. } => Self::Apply(Cow::Borrowed(label)),
+            Term::Token { token, sort } => Self::Token(Cow::Borrowed(token), Cow::Borrowed(sort)),
+            Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
+        }
+    }
+
+    /// This head with its fields owned.
+    pub(crate) fn into_owned(self) -> NodeHead<'static> {
+        let owned = |sort: Cow<'_, Sort>| Cow::Owned(sort.into_owned());
+        match self {
+            Self::InjectedLabel(label) => NodeHead::InjectedLabel(Cow::Owned(label.into_owned())),
+            Self::Rewrite => NodeHead::Rewrite,
+            Self::As => NodeHead::As,
+            Self::Variable(name, sort) => {
+                NodeHead::Variable(Cow::Owned(name.into_owned()), sort.map(owned))
+            }
+            Self::Sequence => NodeHead::Sequence,
+            Self::Apply(label) => NodeHead::Apply(Cow::Owned(label.into_owned())),
+            Self::Token(token, sort) => {
+                NodeHead::Token(Cow::Owned(token.into_owned()), owned(sort))
+            }
+        }
+    }
+}
+
+impl Term {
+    /// The children of this term, its annotations removed: a rewrite's left and right sides, an
+    /// alias's pattern and alias, a sequence's items or an application's arguments, in order.
+    pub(crate) fn children(&self) -> impl Iterator<Item = &Self> {
+        let (pair, items): (Option<[&Self; 2]>, &[Self]) = match self.unannotated() {
+            Self::Rewrite { left, right } => (Some([left, right]), &[]),
+            Self::As { pattern, alias } => (Some([pattern, alias]), &[]),
+            Self::Sequence(items)
+            | Self::Apply {
+                arguments: items, ..
+            } => (None, items),
+            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => (None, &[]),
+            Self::Annotated { .. } => unreachable!("unannotated strips annotations"),
         };
-        match rank(left).cmp(&rank(right)) {
-            Ordering::Equal => {}
-            ordering => return ordering,
-        }
-        match (left, right) {
-            (Self::InjectedLabel(left), Self::InjectedLabel(right)) => left.cmp(right),
-            (
-                Self::Rewrite {
-                    left: left_left,
-                    right: left_right,
-                },
-                Self::Rewrite {
-                    left: right_left,
-                    right: right_right,
-                },
-            ) => (left_left, left_right).cmp(&(right_left, right_right)),
-            (
-                Self::As {
-                    pattern: left_pattern,
-                    alias: left_alias,
-                },
-                Self::As {
-                    pattern: right_pattern,
-                    alias: right_alias,
-                },
-            ) => (left_pattern, left_alias).cmp(&(right_pattern, right_alias)),
-            (
-                Self::Variable {
-                    name: left_name,
-                    sort: left_sort,
-                },
-                Self::Variable {
-                    name: right_name,
-                    sort: right_sort,
-                },
-            ) => (left_name, left_sort).cmp(&(right_name, right_sort)),
-            (Self::Sequence(left), Self::Sequence(right)) => left.cmp(right),
-            (
-                Self::Apply {
-                    label: left_label,
-                    arguments: left_arguments,
-                },
-                Self::Apply {
-                    label: right_label,
-                    arguments: right_arguments,
-                },
-            ) => (left_label, left_arguments).cmp(&(right_label, right_arguments)),
-            (
-                Self::Token {
-                    token: left_token,
-                    sort: left_sort,
-                },
-                Self::Token {
-                    token: right_token,
-                    sort: right_sort,
-                },
-            ) => (left_token, left_sort).cmp(&(right_token, right_sort)),
-            _ => unreachable!("equal term ranks have matching variants"),
-        }
+        pair.into_iter().flatten().chain(items)
+    }
+
+    /// One level of [`Term::cmp`], which runs it with stack for one more level: the heads, then
+    /// the children in order, each compared by [`Term::cmp`].
+    fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
+        NodeHead::of(self)
+            .cmp(&NodeHead::of(other))
+            .then_with(|| self.children().cmp(other.children()))
     }
 }
 

@@ -108,8 +108,8 @@ fn other_sort(sort: &Sort) -> Sort {
 type Edit = Box<dyn Fn(&mut Term)>;
 
 /// Each term that differs from `term` in exactly one field of one node other than its
-/// children, with the name of the field: every field `Term::cmp_level` compares besides the
-/// children (the variant is changed by the generator's independent draws).
+/// children, with the name of the field: every field of the node's `NodeHead` but its variant,
+/// which the generator's independent draws change.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "the structural nodes have no field besides their children"
