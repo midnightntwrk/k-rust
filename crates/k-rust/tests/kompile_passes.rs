@@ -6893,6 +6893,65 @@ fn concretized_cell_rule_in(
     Ok(body.clone())
 }
 
+const OPTIONAL_IN_THREADS: &str = r#"<top> <k> 0 </k> <ts> <th multiplicity="*" type="Map"> <tid> 0 </tid> <o multiplicity="?"> <ov> 0 </ov> </o> </th> </ts> </top>"#;
+
+// Completion places each item of a rewrite side among the children of the cell whose body holds
+// the rewrite. An item that is neither a cell, a variable nor the empty bag is a term the rule
+// writes that no child holds: the rule is rejected with an error naming it, never compiled
+// without it. `.Bag` writes no child, so on a rewrite side it stands for the unit of the slot the
+// other side occupies.
+#[test]
+fn rejects_a_rewrite_side_item_that_no_child_holds_and_names_it() {
+    for (syntax, rule, named) in [
+        (
+            "syntax Bag ::= mko(Int) [function]",
+            "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> => mko(2)) ... </th>",
+            "the function `mko(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+        ),
+        (
+            "syntax Bag ::= bago(Int)",
+            "<th> <tid> 1 </tid> (.Bag => bago(2)) ... </th>",
+            "the symbol `bago(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+        ),
+        (
+            "",
+            "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> #as O => <o> <ov> 2 </ov> </o>) ... </th>",
+            "the alias `O`, written on the left side",
+        ),
+    ] {
+        let errors = concretized_cell_rule_in(syntax, OPTIONAL_IN_THREADS, rule, "")
+            .expect_err("the rewrite side holds an item that no child holds");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains(named) && error.contains("<th>")),
+            "{rule}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn the_empty_bag_on_a_rewrite_side_is_the_unit_of_the_other_sides_slot() {
+    for (rule, removed) in [
+        (
+            "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> => .Bag) ... </th>",
+            true,
+        ),
+        (
+            "<th> <tid> 1 </tid> (.Bag => <o> <ov> 1 </ov> </o>) ... </th>",
+            false,
+        ),
+    ] {
+        let body = concretized_cell_rule(OPTIONAL_IN_THREADS, rule).unwrap();
+        let rewrite = if removed {
+            r#"`<o>`(`<ov>`(#token("1","Int")))=>`.OCell`(.KList)"#
+        } else {
+            r#"`.OCell`(.KList)=>`<o>`(`<ov>`(#token("1","Int")))"#
+        };
+        assert!(body.contains(rewrite), "{rule}: {body}");
+    }
+}
+
 // A cell written inside a parent that does not contain it in the configuration is never dropped:
 // dropping it would compile a rule that matches any content of that cell and never updates it.
 // When the cell's configured parent is an ancestor of its written parent, completion lifts it
