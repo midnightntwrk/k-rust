@@ -179,48 +179,26 @@ fn collect_trait_invocations(
         let sort_attribute = krs_syntax::SortAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let declaration = SortDeclaration::from_item(item_trait.clone()).map_err(source_syntax)?;
-        if sort_attribute.is_reference()
-            && sort_attribute.parents().len() != declaration.parents().len()
-        {
+        let alias = sort_attribute
+            .checked_alias(&item_trait.ident)
+            .map_err(source_syntax)?;
+        if sort_attribute.parents().len() != declaration.parents().len() {
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
                 "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
             )
             .with_span(attribute.span()));
         }
-        let mut anchors = if let Some(alias) = sort_attribute.alias() {
-            let mut anchors = vec![ProvenanceAnchor::new(
-                ProvenanceRole::SortDeclaration,
-                0,
-                TokenRange::for_tokens(alias).map_err(source_syntax)?,
-            )];
-            for (ordinal, parent) in sort_attribute.parents().iter().enumerate() {
-                let ordinal = u32::try_from(ordinal).map_err(|_| {
-                    CollectionError::new(
-                        CollectionErrorKind::SourceSyntax,
-                        "reference sort has too many semantic parents",
-                    )
-                    .with_span(parent.span())
-                })?;
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::SortParent,
-                    ordinal,
-                    TokenRange::for_tokens(parent).map_err(source_syntax)?,
-                ));
-            }
-            anchors
-        } else {
-            declaration.provenance().map_err(source_syntax)?
-        };
+        let mut anchors = sort_attribute
+            .provenance(&item_trait.ident)
+            .map_err(source_syntax)?;
         if let Some(symbol) = &sort_symbol {
             anchors.extend(symbol.provenance().map_err(source_syntax)?);
         }
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::SortDeclaration,
-                sort_attribute
-                    .alias()
-                    .map_or_else(|| item_trait.ident.to_string(), ToString::to_string),
+                alias.to_string(),
                 anchors,
                 ParsedInvocationPayload::Declaration,
             )?,
@@ -975,29 +953,12 @@ fn collect_impl_invocations(
             .retain(|candidate| !resolver.invokes(candidate, AttributeMacro::Subsort));
         let declaration = SubsortDeclaration::from_item(reparsed_item).map_err(source_syntax)?;
         let tokens = attribute_tokens(attribute)?;
-        let anchors = if tokens.is_empty() {
-            declaration.provenance().map_err(source_syntax)?
-        } else {
-            let reference =
-                krs_syntax::SubsortAttribute::parse_tokens(tokens).map_err(source_syntax)?;
-            vec![
-                ProvenanceAnchor::new(
-                    ProvenanceRole::SubsortDeclaration,
-                    0,
-                    TokenRange::for_tokens(declaration.item()).map_err(source_syntax)?,
-                ),
-                ProvenanceAnchor::new(
-                    ProvenanceRole::SubsortSuperSort,
-                    0,
-                    TokenRange::for_tokens(reference.sort()).map_err(source_syntax)?,
-                ),
-                ProvenanceAnchor::new(
-                    ProvenanceRole::SubsortSubSort,
-                    0,
-                    TokenRange::for_tokens(declaration.sub_sort()).map_err(source_syntax)?,
-                ),
-            ]
-        };
+        if tokens.is_empty() {
+            return Err(source_syntax(declaration.unaliased_error()));
+        }
+        let reference =
+            krs_syntax::SubsortAttribute::parse_tokens(tokens).map_err(source_syntax)?;
+        let anchors = declaration.provenance(&reference).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::SubsortDeclaration,
             String::new(),

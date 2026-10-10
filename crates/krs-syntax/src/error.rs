@@ -261,6 +261,17 @@ pub enum SyntaxErrorKind {
         /// Specific restriction.
         reason: String,
     },
+    /// A `#[k::sort]` marker trait has no `alias`, or its name is not the
+    /// alias followed by `Sort` (B2).
+    UnaliasedSort {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
+    /// A `#[k::subsort]` impl does not name its supersort's alias (B2).
+    UnaliasedSubsort {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
     /// A token-bearing semantic node unexpectedly emitted no token leaves.
     MissingTokenEndpoint,
     /// A single invocation contained more same-role nodes than `u32` can key.
@@ -342,7 +353,9 @@ impl SyntaxErrorKind {
             Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
             Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
             Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
-            Self::UnsupportedSortDeclaration { .. } => codes::syntax::UNSUPPORTED_SORT_DECLARATION,
+            Self::UnsupportedSortDeclaration { .. } | Self::UnaliasedSort { .. } => {
+                codes::syntax::UNSUPPORTED_SORT_DECLARATION
+            }
             Self::UnsupportedConstructorDeclaration { .. } => {
                 codes::syntax::UNSUPPORTED_CONSTRUCTOR_DECLARATION
             }
@@ -352,7 +365,7 @@ impl SyntaxErrorKind {
             Self::UnsupportedTokenDeclaration { .. } => {
                 codes::syntax::UNSUPPORTED_TOKEN_DECLARATION
             }
-            Self::UnsupportedSubsortDeclaration { .. } => {
+            Self::UnsupportedSubsortDeclaration { .. } | Self::UnaliasedSubsort { .. } => {
                 codes::syntax::UNSUPPORTED_SUBSORT_DECLARATION
             }
             Self::InvalidSyntaxTemplate { .. } => codes::syntax::INVALID_SYNTAX_TEMPLATE,
@@ -535,6 +548,12 @@ impl fmt::Display for SyntaxError {
                 write!(formatter, "unsupported token declaration: {reason}")
             }
             SyntaxErrorKind::UnsupportedSubsortDeclaration { reason } => {
+                write!(formatter, "unsupported subsort declaration: {reason}")
+            }
+            SyntaxErrorKind::UnaliasedSort { reason } => {
+                write!(formatter, "unsupported sort declaration: {reason}")
+            }
+            SyntaxErrorKind::UnaliasedSubsort { reason } => {
                 write!(formatter, "unsupported subsort declaration: {reason}")
             }
             SyntaxErrorKind::InvalidSyntaxTemplate { reason } => {

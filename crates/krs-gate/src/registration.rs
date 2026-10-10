@@ -103,11 +103,11 @@ mod tests {
         std::fs::write(
             &source,
             r"
-#[k::sort]
-pub trait Visible {}
-#[k::sort]
+#[k::sort(alias = Visible)]
+pub trait VisibleSort {}
+#[k::sort(alias = Hidden)]
 #[cfg(any())]
-pub trait Hidden {}
+pub trait HiddenSort {}
 ",
         )
         .unwrap();

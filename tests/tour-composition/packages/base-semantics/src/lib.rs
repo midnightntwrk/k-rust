@@ -2,12 +2,14 @@
 
 use language_host as k;
 
-#[k::sort]
-pub trait BaseItem {}
+#[k::sort(alias = BaseItem)]
+pub trait BaseItemSort {}
+pub type BaseItem = k::Term<dyn BaseItemSort>;
 
 #[k::symbol("tour::BaseCommon")]
-#[k::sort]
-pub trait Common: BaseItem {}
+#[k::sort(alias = Common, parents = [BaseItem])]
+pub trait CommonSort: BaseItemSort {}
+pub type Common = k::Term<dyn CommonSort>;
 
 #[k::symbol("tour::BaseSame")]
 #[k::constructor(sort = Common, syntax = "same-base")]

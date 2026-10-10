@@ -752,17 +752,22 @@ fn associativity_accepts_an_optional_family_owner_and_rejects_malformed_owners()
 #[test]
 fn explicit_builtin_to_authored_subsort_retains_both_paths() {
     let declaration =
-        krs_syntax::SubsortDeclaration::parse_source("impl value::Value for k::Int {}").unwrap();
+        krs_syntax::SubsortDeclaration::parse_source("impl value::ValueSort for k::Int {}")
+            .unwrap();
     assert_eq!(
         declaration.super_sort().to_token_stream().to_string(),
-        "value :: Value"
+        "value :: ValueSort"
     );
     assert_eq!(
         declaration.sub_sort().to_token_stream().to_string(),
         "k :: Int"
     );
-    assert_eq!(declaration.spelling(), "value::Value for k::Int");
-    let anchors = declaration.provenance().unwrap();
+    assert_eq!(declaration.spelling(), "value::ValueSort for k::Int");
+    assert!(declaration.unaliased_error().to_string().contains(
+        "write `#[k::subsort(sort = value::Value)] impl value::ValueSort for k::Int {}`"
+    ));
+    let attribute = krs_syntax::SubsortAttribute::parse_source("sort = value::Value").unwrap();
+    let anchors = declaration.provenance(&attribute).unwrap();
     assert_eq!(anchors[0].role(), ProvenanceRole::SubsortDeclaration);
     assert_eq!(anchors[1].role(), ProvenanceRole::SubsortSuperSort);
     assert_eq!(anchors[2].role(), ProvenanceRole::SubsortSubSort);
@@ -951,9 +956,9 @@ use quote::ToTokens;
 #[test]
 fn exact_public_surface_is_ordinary_rust_token_syntax() {
     let source = r#"
-        #[k::sort]
+        #[k::sort(alias = Expr, parents = [k::KItem])]
         #[k::bracket("({value})")]
-        pub trait Expr: KItem {}
+        pub trait ExprSort: k::KItemSort {}
 
         #[k::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2)]
         pub struct Id(String);
@@ -967,12 +972,12 @@ fn exact_public_surface_is_ordinary_rust_token_syntax() {
         )]
         #[k::seqstrict(sequence = [lhs, rhs], result = Value)]
         pub struct Add {
-            pub lhs: Term<dyn Expr>,
-            pub rhs: Term<dyn Expr>,
+            pub lhs: Term<dyn ExprSort>,
+            pub rhs: Term<dyn ExprSort>,
         }
 
-        #[k::subsort]
-        impl Value for k::Int {}
+        #[k::subsort(sort = Value)]
+        impl ValueSort for k::Int {}
 
         k::precedence! {
             multiplicative > additive > comparison;

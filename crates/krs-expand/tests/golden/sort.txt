@@ -1,18 +1,19 @@
-pub trait Value: Expr + KResult {}
+pub trait ValueSort: ExprSort + KResultSort {}
+::k::__request_framework_sorts!();
 #[doc(hidden)]
-fn __krs_sort_type_b0e7cc828be62a92() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Value>()
+fn __krs_sort_type_c413fb444b0ca766() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Value>()
 }
 #[doc(hidden)]
-fn __krs_sort_parent_b0e7cc828be62a92_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Expr>()
+fn __krs_sort_parent_c413fb444b0ca766_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Expr>()
 }
 #[doc(hidden)]
-fn __krs_sort_parent_b0e7cc828be62a92_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn KResult>()
+fn __krs_sort_parent_c413fb444b0ca766_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<KResult>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
+fn __krs_sort_descriptor_c413fb444b0ca766() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
 > {
@@ -30,15 +31,15 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
             .expect("Cargo and Rust macro context form a valid host identity"),
         declared_type: ::core::option::Option::Some(
             ::k::HostDeclarationIdentity::Nominal(
-                ::k::HostTypeKey(__krs_sort_type_b0e7cc828be62a92),
+                ::k::HostTypeKey(__krs_sort_type_c413fb444b0ca766),
             ),
         ),
         payload: ::k::__krs_host_payload(
             "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"Expr\"},{\"slot\":1,\"authored_path\":\"KResult\"}]}}",
             ::k::__KrsSlots {
                 types: &[
-                    ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_0),
-                    ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_1),
+                    ::k::HostTypeKey(__krs_sort_parent_c413fb444b0ca766_0),
+                    ::k::HostTypeKey(__krs_sort_parent_c413fb444b0ca766_1),
                 ],
                 items: &[],
                 targets: &[],
@@ -59,8 +60,8 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 11u32),
-                            (3u32, 16u32),
+                            (2u32, 19u32),
+                            (2u32, 24u32),
                             true,
                         ),
                     ),
@@ -70,8 +71,8 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 18u32),
-                            (3u32, 22u32),
+                            (2u32, 37u32),
+                            (2u32, 41u32),
                             true,
                         ),
                     ),
@@ -81,8 +82,8 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 25u32),
-                            (3u32, 32u32),
+                            (2u32, 43u32),
+                            (2u32, 50u32),
                             true,
                         ),
                     ),
@@ -93,7 +94,7 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 11u32),
+                        (2u32, 53u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -102,4 +103,4 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
         )?,
     })
 }
-::k::__register_host_descriptor!(__krs_sort_descriptor_b0e7cc828be62a92);
+::k::__register_host_descriptor!(__krs_sort_descriptor_c413fb444b0ca766);

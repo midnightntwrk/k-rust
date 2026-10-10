@@ -1,0 +1,1 @@
+error[krs::syntax::unsupported-sort-declaration] 3:10-3:14: unsupported sort declaration: `#[k::sort]` names the sort's alias on its marker trait: write `#[k::sort(alias = Expr)] pub trait ExprSort {}` with `pub type Expr = k::Term<dyn ExprSort>;`, or declare `Expr` in `k::sorts!`

@@ -16,19 +16,21 @@ use super::value::{
     parse_unqualified_identifier_value,
 };
 
-/// Checked payload of `#[k::sort]`.
+/// Checked payload of `#[k::sort(alias = Expr[, parents = [..]])]`.
 ///
-/// The empty legacy form declares the attributed trait directly. Reference
-/// Rust may instead name the public term alias represented by a generated
-/// marker trait and materialize the authored semantic parent paths.
-#[derive(Clone, Debug, Default)]
+/// The attributed marker trait `ExprSort` represents the sort, and the
+/// public alias `pub type Expr = k::Term<dyn ExprSort>;` beside it names it
+/// (B2). `parents` materializes one semantic parent path for each marker
+/// supertrait.
+#[derive(Clone, Debug)]
 pub struct SortAttribute {
     alias: Option<Ident>,
     parents: Vec<Path>,
 }
 
 impl SortAttribute {
-    /// Returns the reference-surface term alias represented by the marker.
+    /// Returns the sort's alias as authored, if any; [`Self::checked_alias`]
+    /// requires one.
     #[must_use]
     pub const fn alias(&self) -> Option<&Ident> {
         self.alias.as_ref()
@@ -40,10 +42,71 @@ impl SortAttribute {
         &self.parents
     }
 
-    /// Whether this is the explicit alias-carrying reference form.
-    #[must_use]
-    pub const fn is_reference(&self) -> bool {
-        self.alias.is_some()
+    /// Returns the sort's alias, checked against the attributed marker
+    /// trait: `#[k::sort(alias = Expr)]` sits on `trait ExprSort`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a missing `alias` and a marker trait whose name is not the
+    /// alias followed by `Sort`, naming the expected spelling.
+    pub fn checked_alias(&self, marker: &Ident) -> Result<&Ident, SyntaxError> {
+        let marker_name = marker.unraw().to_string();
+        let Some(alias) = &self.alias else {
+            let stem = marker_name
+                .strip_suffix("Sort")
+                .filter(|stem| !stem.is_empty())
+                .unwrap_or(&marker_name);
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnaliasedSort {
+                    reason: format!(
+                        "`#[k::sort]` names the sort's alias on its marker trait: write `#[k::sort(alias = {stem})] pub trait {stem}Sort {{}}` with `pub type {stem} = k::Term<dyn {stem}Sort>;`, or declare `{stem}` in `k::sorts!`"
+                    ),
+                },
+                marker.span(),
+            ));
+        };
+        let expected = format!("{}Sort", alias.unraw());
+        if marker_name != expected {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::UnaliasedSort {
+                    reason: format!(
+                        "the marker trait of the sort alias `{alias}` is named `{expected}`, so that `dyn {expected}` names the sort"
+                    ),
+                },
+                marker.span(),
+            ));
+        }
+        Ok(alias)
+    }
+
+    /// Returns the sort-declaration anchor at the alias and one parent
+    /// anchor per materialized parent path.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a missing alias as [`Self::checked_alias`] does, and returns
+    /// an endpoint error only if a parsed node emits no leaves.
+    pub fn provenance(&self, marker: &Ident) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let alias = self.checked_alias(marker)?;
+        let mut anchors = Vec::with_capacity(self.parents.len() + 1);
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::SortDeclaration,
+            0,
+            TokenRange::for_tokens(alias)?,
+        ));
+        for (ordinal, parent) in self.parents.iter().enumerate() {
+            let ordinal = crate::parse::checked_ordinal(
+                ordinal,
+                ProvenanceRole::SortParent,
+                syn::spanned::Spanned::span(parent),
+            )?;
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::SortParent,
+                ordinal,
+                TokenRange::for_tokens(parent)?,
+            ));
+        }
+        Ok(anchors)
     }
 }
 
@@ -791,7 +854,8 @@ impl Parse for ContextAliasAttribute {
 }
 
 impl KrsSyntax for SortAttribute {
-    /// Parses a legacy empty or explicit reference sort-attribute payload.
+    /// Parses a sort-attribute payload; [`SortAttribute::checked_alias`]
+    /// then requires its `alias`.
     ///
     /// # Errors
     ///
@@ -1094,7 +1158,10 @@ impl KrsSyntax for PriorityAttribute {
 
 fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseError> {
     if input.is_empty() {
-        return Ok(SortAttribute::default());
+        return Ok(SortAttribute {
+            alias: None,
+            parents: Vec::new(),
+        });
     }
 
     let missing_span = input.span();

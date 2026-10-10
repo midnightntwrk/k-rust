@@ -2,12 +2,12 @@
 use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
 use renamed_krs::builtin::{KSequence, Map};
 
-#[renamed_krs::sort]
-pub trait Expr {}
+#[renamed_krs::sort(alias = Expr)]
+pub trait ExprSort {} pub type Expr = renamed_krs::Term<dyn ExprSort>;
 
 #[renamed_krs::constructor(sort = Expr, syntax = "wrap({value})")]
 pub struct Wrap {
-    pub value: renamed_krs::Term<dyn Expr>,
+    pub value: renamed_krs::Term<dyn ExprSort>,
 }
 
 #[renamed_krs::constructor(sort = Expr, syntax = "halt")]

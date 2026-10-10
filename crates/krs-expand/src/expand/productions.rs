@@ -28,11 +28,7 @@ pub(super) fn strictness_key_function<'a>(
         .collect::<Vec<_>>();
     let key_fn = format_ident!("__krs_strictness_result_{nonce:016x}");
     let path = call_site_path(strictness.result_sort())?;
-    let result_type = if strictness.has_readable_result() {
-        quote!(#path)
-    } else {
-        quote!(dyn #path)
-    };
+    let result_type = quote!(#path);
     if strictness.using().is_some()
         && strictness
             .result_sort()

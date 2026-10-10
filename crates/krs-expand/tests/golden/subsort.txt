@@ -1,14 +1,14 @@
-impl Value for Identifier {}
+impl ValueSort for Identifier {}
 #[doc(hidden)]
-fn __krs_subsort_super_ec843611dce35b9f() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Value>()
+fn __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Value>()
 }
 #[doc(hidden)]
-fn __krs_subsort_sub_ec843611dce35b9f() -> ::core::any::TypeId {
+fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Identifier>()
 }
 #[doc(hidden)]
-fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
 > {
@@ -19,7 +19,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "__krs_grammar_subsort_ec843611dce35b9f",
+                "__krs_grammar_subsort(member=relative:Identifier;supersort=relative:Value)",
                 ::k::ItemKind::Grammar,
                 "subsort",
             )
@@ -29,8 +29,12 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Identifier\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}}}}}",
             ::k::__KrsSlots {
                 types: &[
-                    ::k::HostTypeKey(__krs_subsort_super_ec843611dce35b9f),
-                    ::k::HostTypeKey(__krs_subsort_sub_ec843611dce35b9f),
+                    ::k::HostTypeKey(
+                        __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529,
+                    ),
+                    ::k::HostTypeKey(
+                        __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529,
+                    ),
                 ],
                 items: &[],
                 targets: &[],
@@ -52,7 +56,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
                             0usize,
                             false,
                             (3u32, 1u32),
-                            (3u32, 29u32),
+                            (3u32, 33u32),
                             true,
                         ),
                     ),
@@ -62,8 +66,8 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 6u32),
-                            (3u32, 11u32),
+                            (2u32, 21u32),
+                            (2u32, 26u32),
                             true,
                         ),
                     ),
@@ -73,8 +77,8 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 16u32),
-                            (3u32, 26u32),
+                            (3u32, 20u32),
+                            (3u32, 30u32),
                             true,
                         ),
                     ),
@@ -85,7 +89,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 14u32),
+                        (2u32, 28u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -94,4 +98,6 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::core::result::Result<
         )?,
     })
 }
-::k::__register_host_descriptor!(__krs_subsort_descriptor_ec843611dce35b9f);
+::k::__register_host_descriptor!(
+    __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a4964656e7469666965723b7375706572736f72743d72656c61746976653a56616c756529
+);

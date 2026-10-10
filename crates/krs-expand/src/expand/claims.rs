@@ -91,7 +91,7 @@ fn configuration_claim(
             StateRuleBindingKind::Term => {
                 let sort = binding.term_sort().expect("term binding sort");
                 let path = call_site_path(sort.sort())?;
-                let ty = sort_type_tokens(&path, sort.is_dynamic());
+                let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
                 let key_fn =
                     format_ident!("__krs_claim_universal_sort_{nonce:016x}_{term_ordinal}");
                 key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() } });

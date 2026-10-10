@@ -1,7 +1,7 @@
 pub enum Boolean {
     True,
     False,
-    Tagged { value: Term<dyn Expr> },
+    Tagged { value: Term<dyn ExprSort> },
 }
 #[doc(hidden)]
 fn __krs_enum_type_01bc3d1b6dad6040() -> ::core::any::TypeId {
@@ -89,7 +89,7 @@ impl ::k::__KrsRuleApplication<15748873300391606157u64> for Boolean {
 }
 #[doc(hidden)]
 fn __krs_enum_membership_super_01bc3d1b6dad6040() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Value>()
+    ::core::any::TypeId::of::<Value>()
 }
 #[doc(hidden)]
 fn __krs_enum_sort_descriptor_01bc3d1b6dad6040() -> ::core::result::Result<
@@ -702,7 +702,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
 ::k::__register_host_descriptor!(__krs_enum_grammar_01bc3d1b6dad6040_1);
 #[doc(hidden)]
 fn __krs_enum_field_01bc3d1b6dad6040_2_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Expr>()
+    ::core::any::TypeId::of::<::k::Term<dyn ExprSort>>()
 }
 #[doc(hidden)]
 fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
@@ -730,7 +730,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
@@ -866,7 +866,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (9u32, 30u32),
-                            (9u32, 34u32),
+                            (9u32, 38u32),
                             true,
                         ),
                     ),
@@ -919,7 +919,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::Tagged\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Boolean\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"tag\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::Tagged\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Boolean\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"tag\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ExprSort\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_field_01bc3d1b6dad6040_2_0),
@@ -1060,7 +1060,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (9u32, 30u32),
-                            (9u32, 34u32),
+                            (9u32, 38u32),
                             true,
                         ),
                     ),

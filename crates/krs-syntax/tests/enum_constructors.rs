@@ -331,12 +331,6 @@ enum Op {
         declaration.variants()[0].strictness().unwrap().fields(),
         ["value"]
     );
-    assert!(
-        declaration.variants()[0]
-            .strictness()
-            .unwrap()
-            .has_readable_result()
-    );
     assert_eq!(
         declaration.variants()[1]
             .strictness()
@@ -551,7 +545,6 @@ enum Op {
     assert_eq!(strictness.fields(), ["rhs", "lhs"]);
     let result_sort = strictness.result_sort();
     assert_eq!(quote::quote!(#result_sort).to_string(), "KResult");
-    assert!(strictness.has_readable_result());
 }
 
 #[test]

@@ -2,14 +2,9 @@
 use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
 use krs_compiler::{DescriptorLoweringError, lower_descriptor_bundle};
 
-#[renamed_krs::sort]
-pub trait KItem {}
-
-#[renamed_krs::sort]
-pub trait KResult: KItem {}
-
-#[renamed_krs::sort]
-pub trait Obj: KResult {}
+#[renamed_krs::sort(alias = Obj, parents = [renamed_krs::KResult])]
+pub trait ObjSort: renamed_krs::KResultSort {}
+pub type Obj = renamed_krs::Term<dyn ObjSort>;
 
 #[renamed_krs::constructor(sort = Obj, syntax = "guarded({value})")]
 pub struct Guarded {
@@ -36,8 +31,8 @@ impl Machine {
 #[renamed_krs::rule]
 #[renamed_krs::requires(renamed_krs::builtin::int::add(value, 1))]
 pub fn guarded(
-    Guarded { value }: renamed_krs::Term<dyn Obj>,
-) -> renamed_krs::Term<dyn Obj> {
+    Guarded { value }: renamed_krs::Term<dyn ObjSort>,
+) -> renamed_krs::Term<dyn ObjSort> {
     Guarded { value }
 }
 

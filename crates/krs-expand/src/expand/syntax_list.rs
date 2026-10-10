@@ -321,7 +321,7 @@ impl ListContext<'_> {
                         field.term_sort().ty().to_token_stream()
                     } else {
                         let path = call_site_path(field.term_sort().sort())?;
-                        sort_type_tokens(&path, false)
+                        sort_type_tokens(facade, &path, false)
                     };
                     field_key_functions.push(quote! {
                         #(#cfg)*

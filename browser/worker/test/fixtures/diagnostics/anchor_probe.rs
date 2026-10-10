@@ -33,8 +33,8 @@ fn anchor(display_file: &str, line: u32, start: u32, end: u32) -> HostSourceAnch
 
 fn descriptor(package_root: &Path, display_file: &str) -> HostDescriptor {
     let key = ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0);
-    let authored = HostAuthoredAnchor::new(key, anchor(display_file, 2, 11, 15));
-    let provenance = HostProvenance::new(anchor(display_file, 1, 1, 11), vec![authored])
+    let authored = HostAuthoredAnchor::new(key, anchor(display_file, 1, 19, 23));
+    let provenance = HostProvenance::new(anchor(display_file, 1, 1, 25), vec![authored])
         .expect("fixture provenance is complete");
     HostDescriptor {
         protocol_version: SchemaVersion::CURRENT,
@@ -72,7 +72,7 @@ fn main() {
     .expect("write manifest");
     fs::write(
         package_root.join("src/lib.rs"),
-        "#[k::sort]\npub trait Expr {}\n",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
     )
     .expect("write authored source");
 
@@ -85,7 +85,7 @@ fn main() {
     if mutate {
         fs::write(
             package_root.join("src/lib.rs"),
-            "#[k::sort]\npub trait Changed {}\n",
+            "#[k::sort(alias = Changed)]\npub trait ChangedSort {}\n",
         )
         .expect("replace source after expansion anchor capture");
     }

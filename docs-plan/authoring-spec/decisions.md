@@ -81,7 +81,7 @@ bug — report it, don't guess.
 - **B1 — `k::sorts!` declares sorts; `impl` lines declare membership.**
   `Value: Expr + KResult;` is elided supertrait syntax; `impl Value for
   Int, Bool;` is elided impl syntax, one impl per type in the expansion
-  (`#[k::subsort] impl ValueSort for Int {}`). Membership sits under the
+  (`#[k::subsort(sort = Value)] impl ValueSort for Int {}`). Membership sits under the
   sort it populates. The separate `k::subsorts!` block is gone. [r8.2,
   superseding r6]
 - **B2 — Sort aliases.** Each sort generates a membership trait
@@ -94,6 +94,16 @@ bug — report it, don't guess.
   `krs expand` renders). Each layer rejects the other's spelling with a
   did-you-mean; in layer 2 the alias would make rustc read the fields as
   `Term<Term<…>>`. [KF-027 follow-up; user decision 2026-10-10]
+  Layer 2 has the one aliased sort form that `krs expand` renders:
+  `#[k::sort(alias = Expr)] pub trait ExprSort {}` with
+  `pub type Expr = Term<dyn ExprSort>;`, and
+  `#[k::subsort(sort = Value)] impl ValueSort for Int {}`. A sort path
+  names the alias and `Term<dyn ExprSort>` the same sort through its
+  marker, in every position. The older un-aliased form, a bare
+  `#[k::sort]` on a trait that was itself the sort, and `#[k::subsort]`
+  without `sort =`, is removed: `dyn` could not name it, and it existed
+  only for history. Framework sorts come from the facade (B3). [user
+  decision 2026-10-10]
 - **B3 — Framework sorts are imported, not declared.** `use k::KResult;`
   — the sorts block declares only the language's own categories. [r7.1]
 - **B4 — `#[k::bracket("(", ")")]`** names the sort's grouping delimiters

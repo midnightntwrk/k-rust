@@ -28,16 +28,30 @@ const CASES: &[(&str, &str)] = &[
     (
         "sort",
         r"
+#[k::sort(alias = Value, parents = [Expr, KResult])]
+pub trait ValueSort: ExprSort + KResultSort {}
+",
+    ),
+    (
+        "sort_unaliased",
+        r"
 #[k::sort]
-pub trait Value: Expr + KResult {}
+pub trait Expr {}
+",
+    ),
+    (
+        "sort_marker_name",
+        r"
+#[k::sort(alias = Expr)]
+pub trait Expression {}
 ",
     ),
     (
         "sort_bracket",
         r#"
-#[k::sort]
+#[k::sort(alias = Expr, parents = [KItem])]
 #[k::bracket("({value})")]
-pub trait Expr: KItem {}
+pub trait ExprSort: KItemSort {}
 "#,
     ),
     (
@@ -97,6 +111,13 @@ k::__framework_sorts! {
     (
         "subsort",
         r"
+#[k::subsort(sort = Value)]
+impl ValueSort for Identifier {}
+",
+    ),
+    (
+        "subsort_unaliased",
+        r"
 #[k::subsort]
 impl Value for Identifier {}
 ",
@@ -129,8 +150,8 @@ pub struct Halt;
 )]
 #[k::seqstrict(sequence = [first, second], result = KResult)]
 pub struct Pair {
-    pub first: Term<dyn Expr>,
-    pub second: Term<dyn Expr>,
+    pub first: Term<dyn ExprSort>,
+    pub second: Term<dyn ExprSort>,
 }
 "#,
     ),
@@ -140,7 +161,7 @@ pub struct Pair {
 #[k::constructor(sort = Expr, syntax = "-{value}", group = "prefix", format = "%1%2")]
 #[k::strict(sequence = [value], result = KResult)]
 pub struct Neg {
-    pub value: Term<dyn Expr>,
+    pub value: Term<dyn ExprSort>,
 }
 "#,
     ),
@@ -258,7 +279,7 @@ pub enum Boolean {
     #[k::syntax("false", group = "atoms")]
     False,
     #[k::syntax("tag {value}", group = "atoms", format = "%1%2")]
-    Tagged { value: Term<dyn Expr> },
+    Tagged { value: Term<dyn ExprSort> },
 }
 "#,
     ),
@@ -289,7 +310,7 @@ pub type DollarId = k::builtin::Id;
         r"
 #[k::strict(sequence = [value], result = KResult)]
 pub struct Neg {
-    pub value: Term<dyn Expr>,
+    pub value: Term<dyn ExprSort>,
 }
 ",
     ),
@@ -298,7 +319,7 @@ pub struct Neg {
         r"
 #[k::seqstrict(sequence = [first], result = KResult)]
 pub struct Pair {
-    pub first: Term<dyn Expr>,
+    pub first: Term<dyn ExprSort>,
 }
 ",
     ),
@@ -372,7 +393,7 @@ pub struct Machine {
     pub k: instrumented::KCell<k::builtin::KSequence>,
     #[k::cell(name = "environment", color = "blue")]
     pub env: k::configuration::Cell<
-        k::builtin::Map<k::builtin::Id, Term<dyn Value>>,
+        k::builtin::Map<k::builtin::Id, Term<dyn ValueSort>>,
     >,
 }
 "#,
@@ -393,7 +414,7 @@ pub struct NestedMachine {
 #[k::cell]
 pub struct Store {
     pub env: k::configuration::Cell<
-        k::builtin::Map<k::builtin::Id, Term<dyn Value>>,
+        k::builtin::Map<k::builtin::Id, Term<dyn ValueSort>>,
     >,
 }
 ",

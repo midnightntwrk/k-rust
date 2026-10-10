@@ -1,6 +1,8 @@
 pub struct Machine {
     pub k: instrumented::KCell<k::builtin::KSequence>,
-    pub env: k::configuration::Cell<k::builtin::Map<k::builtin::Id, Term<dyn Value>>>,
+    pub env: k::configuration::Cell<
+        k::builtin::Map<k::builtin::Id, Term<dyn ValueSort>>,
+    >,
 }
 impl Machine {
     #[doc(hidden)]
@@ -177,7 +179,7 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                                 0usize,
                                 false,
                                 (7u32, 9u32),
-                                (7u32, 57u32),
+                                (7u32, 61u32),
                                 true,
                             ),
                         ),

@@ -3,13 +3,13 @@ use renamed_krs::Term;
 use renamed_krs::builtin::KSequence;
 use renamed_krs::configuration::KCell;
 
-#[sort]
-pub trait Expr {}
+#[sort(alias = Expr)]
+pub trait ExprSort {} pub type Expr = renamed_krs::Term<dyn ExprSort>;
 
 #[constructor(sort = Expr)]
 pub struct Pair {
-    pub left: Term<dyn Expr>,
-    pub right: Term<dyn Expr>,
+    pub left: Term<dyn ExprSort>,
+    pub right: Term<dyn ExprSort>,
 }
 
 #[renamed_krs::configuration]
@@ -28,8 +28,8 @@ impl Machine {
 
 #[context(hole = h)]
 fn invalid(
-    h: Term<dyn Expr>, //~ ERROR typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded)
-    e: Term<dyn Expr>,
+    h: Term<dyn ExprSort>, //~ ERROR typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded)
+    e: Term<dyn ExprSort>,
     cells! { k: KCell(Pair { left: e, right: h }, tail @ ..), state @ .. }: Machine,
 ) {
 }

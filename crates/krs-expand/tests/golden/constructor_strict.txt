@@ -1,18 +1,18 @@
 pub struct Neg {
-    pub value: Term<dyn Expr>,
+    pub value: Term<dyn ExprSort>,
 }
-const _: ::core::marker::PhantomData<dyn Expr> = ::core::marker::PhantomData;
+const _: ::core::marker::PhantomData<Expr> = ::core::marker::PhantomData;
 #[doc(hidden)]
 fn __krs_constructor_type_1bd4e99d7edfdcae() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Neg>()
 }
 #[doc(hidden)]
 fn __krs_constructor_sort_1bd4e99d7edfdcae() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Expr>()
+    ::core::any::TypeId::of::<Expr>()
 }
 #[doc(hidden)]
 fn __krs_constructor_field_1bd4e99d7edfdcae_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Expr>()
+    ::core::any::TypeId::of::<::k::Term<dyn ExprSort>>()
 }
 impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Neg {
     fn __krs_rule_application(authored_path: &str) -> ::k::HostApplicationTarget {
@@ -45,7 +45,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_1bd4e99d7edfdcae),
@@ -104,7 +104,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::core::result::Result<
                             0usize,
                             false,
                             (5u32, 25u32),
-                            (5u32, 29u32),
+                            (5u32, 33u32),
                             true,
                         ),
                     ),
@@ -127,7 +127,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::core::result::Result<
 ::k::__register_host_descriptor!(__krs_constructor_descriptor_1bd4e99d7edfdcae);
 #[doc(hidden)]
 fn __krs_strictness_result_1bd4e99d7edfdcae() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn KResult>()
+    ::core::any::TypeId::of::<KResult>()
 }
 #[doc(hidden)]
 fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::core::result::Result<
@@ -148,7 +148,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::core::result::Result<
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Neg\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"-\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"prefix\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"value\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"KResult\"}}}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Neg\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"-\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"prefix\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"value\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"KResult\"}}}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_1bd4e99d7edfdcae),
@@ -289,7 +289,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::core::result::Result<
                             0usize,
                             false,
                             (5u32, 25u32),
-                            (5u32, 29u32),
+                            (5u32, 33u32),
                             true,
                         ),
                     ),

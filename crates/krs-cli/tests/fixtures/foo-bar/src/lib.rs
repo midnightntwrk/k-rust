@@ -1,13 +1,8 @@
 //! Minimal authored language used by the crate-local CLI integration test.
 
-#[krs::sort]
-pub trait KItem {}
-
-#[krs::sort]
-pub trait KResult: KItem {}
-
-#[krs::sort]
-pub trait Obj: KResult {}
+#[krs::sort(alias = Obj, parents = [krs::KResult])]
+pub trait ObjSort: krs::KResultSort {}
+pub type Obj = krs::Term<dyn ObjSort>;
 
 #[krs::constructor(sort = Obj, syntax = "foo")]
 pub struct Foo;
@@ -30,6 +25,6 @@ impl Machine {
 }
 
 #[krs::rule]
-pub fn foo_to_bar(Foo: krs::Term<dyn Obj>) -> krs::Term<dyn Obj> {
+pub fn foo_to_bar(Foo: krs::Term<dyn ObjSort>) -> krs::Term<dyn ObjSort> {
     Bar
 }

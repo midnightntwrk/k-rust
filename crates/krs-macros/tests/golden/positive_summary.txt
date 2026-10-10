@@ -41,7 +41,7 @@ krs_macros_positive|__krs_grammar_associativity_f7fd5e39dc8936e9|Grammar|5
 krs_macros_positive|__krs_grammar_bracket_Expr_0|Grammar|6
 krs_macros_positive|__krs_grammar_membership_Boolean|Grammar|3
 krs_macros_positive|__krs_grammar_precedence_7608cf3429a74f0e|Grammar|4
-krs_macros_positive|__krs_grammar_subsort_24e3914884fb5455|Grammar|3
+krs_macros_positive|__krs_grammar_subsort(member=relative:Identifier;supersort=relative:Value)|Grammar|3
 krs_macros_positive|__krs_grammar_token_Identifier|Grammar|3
 krs_macros_positive|binder_gap|Rule|21
 krs_macros_positive|boolean_literal|Rule|7

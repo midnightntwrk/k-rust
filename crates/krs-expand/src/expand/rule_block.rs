@@ -79,7 +79,7 @@ fn expand_head_rule(
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
     let sort_path = call_site_path(rule.parameter().term_sort.sort())?;
-    let sort_type = sort_type_tokens(&sort_path, rule.parameter().term_sort.is_dynamic());
+    let sort_type = sort_type_tokens(&facade, &sort_path, rule.parameter().term_sort.is_dynamic());
     let sort_spelling = rule.parameter().term_sort.sort_token_text();
     let mut slots = WireSlots::new(&facade);
     let sort_slot = slots.type_slot(quote!(#facade::HostTypeKey(#sort_key)));

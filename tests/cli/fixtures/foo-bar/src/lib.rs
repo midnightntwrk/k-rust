@@ -1,13 +1,8 @@
 //! Standalone authored foo-to-bar language used only by the external CLI oracle.
 
-#[krs::sort]
-pub trait KItem {}
-
-#[krs::sort]
-pub trait KResult: KItem {}
-
-#[krs::sort]
-pub trait ObjectTerm: KResult {}
+#[krs::sort(alias = ObjectTerm, parents = [krs::KResult])]
+pub trait ObjectTermSort: krs::KResultSort {}
+pub type ObjectTerm = krs::Term<dyn ObjectTermSort>;
 
 #[krs::constructor(sort = ObjectTerm, syntax = "foo")]
 pub struct Foo;
@@ -30,6 +25,6 @@ impl Machine {
 }
 
 #[krs::rule]
-pub fn foo_to_bar(Foo: krs::Term<dyn ObjectTerm>) -> krs::Term<dyn ObjectTerm> {
+pub fn foo_to_bar(Foo: krs::Term<dyn ObjectTermSort>) -> krs::Term<dyn ObjectTermSort> {
     Bar
 }

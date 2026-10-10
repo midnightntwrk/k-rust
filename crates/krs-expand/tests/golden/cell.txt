@@ -1,5 +1,7 @@
 pub struct Store {
-    pub env: k::configuration::Cell<k::builtin::Map<k::builtin::Id, Term<dyn Value>>>,
+    pub env: k::configuration::Cell<
+        k::builtin::Map<k::builtin::Id, Term<dyn ValueSort>>,
+    >,
 }
 impl Store {
     #[doc(hidden)]
@@ -105,7 +107,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
                             0usize,
                             false,
                             (5u32, 9u32),
-                            (5u32, 57u32),
+                            (5u32, 61u32),
                             true,
                         ),
                     ),

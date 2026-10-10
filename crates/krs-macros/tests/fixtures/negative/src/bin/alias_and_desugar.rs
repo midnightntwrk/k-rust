@@ -1,7 +1,7 @@
 use krs_macros::{constructor, sort};
 
-#[sort]
-pub trait Stmt {}
+#[sort(alias = Stmt)]
+pub trait StmtSort {} pub type Stmt = renamed_krs::Term<dyn StmtSort>;
 
 #[constructor(sort = Stmt, syntax = "skip")]
 #[renamed_krs::alias]

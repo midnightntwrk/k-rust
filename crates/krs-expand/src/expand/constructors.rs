@@ -485,16 +485,8 @@ fn constructor_like(
     let result_parameter = declaration
         .sort_parameter_index(&attribute.sort)
         .map(|index| parameter_markers[index].0.clone());
-    let authored_sort_type = if functional {
-        quote!(#authored_sort)
-    } else {
-        quote!(dyn #authored_sort)
-    };
-    let generated_sort_type = if functional {
-        quote!(#generated_sort)
-    } else {
-        quote!(dyn #generated_sort)
-    };
+    let authored_sort_type = quote!(#authored_sort);
+    let generated_sort_type = quote!(#generated_sort);
     let sort_spelling = spelling(&attribute.sort);
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
@@ -516,7 +508,7 @@ fn constructor_like(
             quote!(#marker)
         } else {
             let generated = call_site_path(field.term_sort().sort())?;
-            sort_type_tokens(&generated, field.term_sort().is_dynamic())
+            sort_type_tokens(&facade, &generated, field.term_sort().is_dynamic())
         };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();

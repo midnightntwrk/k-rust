@@ -17,7 +17,7 @@ use krs_ir::{
     HostTypeReference, ItemKind, Position, ProvenanceRole, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
-use krs_syntax::{ConstructorDeclaration, ProvenanceAnchor, SortDeclaration};
+use krs_syntax::{ConstructorDeclaration, ProvenanceAnchor};
 use krs_test_support::{TempDir, temp_dir};
 use syn::{Item, Meta};
 
@@ -66,14 +66,14 @@ fn other_type() -> TypeId {
 fn collection_is_deterministic_and_resolves_sort_and_constructor_references() {
     let package = TestPackage::new(
         "semantics",
-        r#"#[k::sort]
-pub trait KItem {}
+        r#"#[k::sort(alias = KItem)]
+pub trait KItemSort {}
 
-#[k::sort]
-pub trait Expr: KItem {}
+#[k::sort(alias = Expr, parents = [KItem])]
+pub trait ExprSort: KItemSort {}
 
 #[k::constructor(sort = Expr, syntax = "foo({value})")]
-pub struct Foo { pub value: Term<dyn Expr> }
+pub struct Foo { pub value: Term<dyn ExprSort> }
 "#,
     );
     let descriptors = vec![
@@ -104,7 +104,7 @@ pub struct Foo { pub value: Term<dyn Expr> }
 fn intake_reports_the_same_first_error_in_either_registration_order() {
     let package = TestPackage::new(
         "intake_order",
-        "#[k::sort]\npub trait Alpha {}\n#[k::sort]\npub trait Beta {}\n",
+        "#[k::sort(alias = Alpha)]\npub trait AlphaSort {}\n#[k::sort(alias = Beta)]\npub trait BetaSort {}\n",
     );
     let mut alpha = package.sort("Alpha", expr_type, vec![]);
     alpha.protocol_version = SchemaVersion(100);
@@ -163,8 +163,8 @@ fn collection_preserves_exact_visibility_and_explicit_symbol_provenance() {
     let package = TestPackage::new(
         "stable_api",
         r#"#[k::symbol("api::Expr")]
-#[k::sort]
-pub trait Expr {}
+#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 
 #[k::symbol("api::PublicValue")]
 #[k::constructor(sort = Expr, syntax = "publicValue")]
@@ -208,7 +208,7 @@ pub struct PublicValue;
 fn unicode_scalar_anchors_materialize_exact_utf8_byte_ranges() {
     let package = TestPackage::new(
         "unicode_semantics",
-        "const 日本: () = ();\n#[k::sort]\npub trait Expr {}\n",
+        "const 日本: () = ();\n#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
     );
     let bundle = collect_descriptors(
         [package.context("ORG-UNICODE")],
@@ -229,7 +229,10 @@ fn unicode_scalar_anchors_materialize_exact_utf8_byte_ranges() {
 
 #[test]
 fn canonical_manifest_matching_accepts_a_symlink_hint() {
-    let package = TestPackage::new("linked", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "linked",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let link = package.root().with_extension("link");
     #[cfg(unix)]
     std::os::unix::fs::symlink(package.root(), &link).unwrap();
@@ -252,16 +255,19 @@ fn canonical_manifest_matching_accepts_a_symlink_hint() {
 #[test]
 fn same_names_in_modules_and_packages_remain_distinct() {
     let source = r"pub mod left {
-    #[k::sort]
-    pub trait Value {}
+    #[k::sort(alias = Value)]
+    pub trait ValueSort {}
 }
 pub mod right {
-    #[k::sort]
-    pub trait Value {}
+    #[k::sort(alias = Value)]
+    pub trait ValueSort {}
 }
 ";
     let first = TestPackage::new("first", source);
-    let second = TestPackage::new("second", "#[k::sort]\npub trait Value {}\n");
+    let second = TestPackage::new(
+        "second",
+        "#[k::sort(alias = Value)]\npub trait ValueSort {}\n",
+    );
     let descriptors = [
         first.sort_in_module("Value", 0, "left", expr_type),
         first.sort_in_module("Value", 1, "right", other_type),
@@ -287,14 +293,14 @@ pub mod right {
 
 #[test]
 fn unresolved_parent_and_field_references_locate_their_own_tokens() {
-    let source = r#"#[k::sort]
-pub trait KItem {}
+    let source = r#"#[k::sort(alias = KItem)]
+pub trait KItemSort {}
 
-#[k::sort]
-pub trait Expr: KItem + Missing {}
+#[k::sort(alias = Expr, parents = [KItem, Missing])]
+pub trait ExprSort: KItemSort + MissingSort {}
 
 #[k::constructor(sort = KItem, syntax = "foo({left}, {right})")]
-pub struct Foo { pub left: Term<dyn KItem>, pub right: Term<dyn Absent> }
+pub struct Foo { pub left: Term<dyn KItemSort>, pub right: Term<dyn Absent> }
 "#;
     let package = TestPackage::new("reference_ranges", source);
     let located = |descriptors: Vec<HostDescriptor>| {
@@ -334,11 +340,14 @@ pub struct Foo { pub left: Term<dyn KItem>, pub right: Term<dyn Absent> }
 
 #[test]
 fn changed_semantic_source_is_rejected_as_stale() {
-    let package = TestPackage::new("changed", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "changed",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let descriptor = package.sort("Expr", expr_type, vec![]);
     fs::write(
         package.root().join("src/lib.rs"),
-        "#[k::sort]\npub trait Changed {}\n",
+        "#[k::sort(alias = Changed)]\npub trait ChangedSort {}\n",
     )
     .unwrap();
     let error = collect_descriptors([package.context("ORG-CHANGED")], [descriptor]).unwrap_err();
@@ -346,8 +355,8 @@ fn changed_semantic_source_is_rejected_as_stale() {
     let range = error.source_range().expect("located stale anchor");
     assert_eq!(range.file.package().k_namespace(), "ORG-CHANGED");
     assert_eq!(range.file.package_relative_path(), "src/lib.rs");
-    assert_eq!(range.start_byte, 21);
-    assert_eq!(range.end_byte, 25);
+    assert_eq!(range.start_byte, 18);
+    assert_eq!(range.end_byte, 22);
 }
 
 #[test]
@@ -355,11 +364,11 @@ fn foreign_attributes_named_like_krs_entries_are_rejected() {
     for (name, source) in [
         (
             "foreign_rule",
-            "#[k::sort]\npub trait Expr {}\n\n#[other::rule]\nfn rewrite() {}\n",
+            "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n\n#[other::rule]\nfn rewrite() {}\n",
         ),
         (
             "imported_sort",
-            "#[k::sort]\npub trait Expr {}\n\n#[sort]\npub trait Other {}\n",
+            "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n\n#[sort]\npub trait Other {}\n",
         ),
     ] {
         let package = TestPackage::new(name, source);
@@ -381,7 +390,7 @@ fn foreign_attributes_named_like_krs_entries_are_rejected() {
 
 #[test]
 fn attributes_resolve_under_the_renamed_facade_only() {
-    let source = "#[language_host::sort]\npub trait Expr {}\n";
+    let source = "#[language_host::sort(alias = Expr)]\npub trait ExprSort {}\n";
     let package = TestPackage::with_facade("renamed_facade", "", "language-host", source);
     let bundle = collect_descriptors(
         [package.context("ORG-RENAMED")],
@@ -395,7 +404,7 @@ fn attributes_resolve_under_the_renamed_facade_only() {
         "default_alias",
         "",
         "language-host",
-        "#[k::sort]\npub trait Expr {}\n",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
     );
     let error = collect_descriptors(
         [package.context("ORG-DEFAULT-ALIAS")],
@@ -419,7 +428,7 @@ fn variant_helpers_require_a_facade_path() {
         ("imported_variant_helper", "#[syntax(\"value\")]"),
     ] {
         let source = format!(
-            "#[k::sort]\npub trait Expr {{}}\nuse k::syntax;\n#[k::constructors]\npub enum Values {{\n    {helper}\n    Value,\n}}\n"
+            "#[k::sort(alias = Expr)]\npub trait ExprSort {{}}\nuse k::syntax;\n#[k::constructors]\npub enum Values {{\n    {helper}\n    Value,\n}}\n"
         );
         let package = TestPackage::new(name, &source);
         let error = collect_descriptors(
@@ -449,7 +458,7 @@ fn nested_attribute_positions_reject_foreign_entry_names() {
         ("module", "#[other::sort] mod inner {}"),
         ("parameter", "fn host(#[other::config_var] value: u8) {}"),
     ] {
-        let source = format!("#[k::sort]\npub trait Expr {{}}\n{item}\n");
+        let source = format!("#[k::sort(alias = Expr)]\npub trait ExprSort {{}}\n{item}\n");
         let package = TestPackage::new(name, &source);
         let error = collect_descriptors(
             [package.context("ORG-NESTED-ATTRS")],
@@ -470,7 +479,7 @@ fn item_macros_require_a_facade_path() {
         ("foreign_rules", "foreign::rules! {}"),
         ("imported_rules", "use k::rules; rules! {}"),
     ] {
-        let source = format!("#[k::sort]\npub trait Expr {{}}\n{invocation}\n");
+        let source = format!("#[k::sort(alias = Expr)]\npub trait ExprSort {{}}\n{invocation}\n");
         let package = TestPackage::new(name, &source);
         let error = collect_descriptors(
             [package.context("ORG-MACROS")],
@@ -505,7 +514,8 @@ fn item_macros_resolve_raw_and_renamed_facade_paths() {
             "mod inner { use k as lang; lang::sorts! { Value; } }",
         ),
     ] {
-        let source = format!("#[{facade}::sort]\npub trait Expr {{}}\n{invocation}\n");
+        let source =
+            format!("#[{facade}::sort(alias = Expr)]\npub trait ExprSort {{}}\n{invocation}\n");
         let package = TestPackage::with_facade(name, "", facade, &source);
         let bundle = collect_descriptors(
             [package.context("ORG-MACRO-PATHS")],
@@ -542,7 +552,10 @@ fn symbol_diagnostics_use_the_resolved_facade_name() {
 
 #[test]
 fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
-    let package = TestPackage::new("negative", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "negative",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
 
     let mut old = package.sort("Expr", expr_type, vec![]);
     old.protocol_version = SchemaVersion(2);
@@ -591,7 +604,10 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
 
 #[test]
 fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
-    let package = TestPackage::new("contexts", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "contexts",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     assert_kind(
         collect_descriptors(
             [package.context("ORG-ONE"), package.context("ORG-TWO")],
@@ -600,7 +616,10 @@ fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
         CollectionErrorKind::DuplicatePackageContext,
     );
 
-    let other = TestPackage::new("other_context", "#[k::sort]\npub trait Expr {}\n");
+    let other = TestPackage::new(
+        "other_context",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     assert_kind(
         collect_descriptors(
             [package.context("ORG-SAME"), other.context("ORG-SAME")],
@@ -619,7 +638,10 @@ fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
 
 #[test]
 fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
-    let package = TestPackage::new("anchors", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "anchors",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let mut wrong_file = package.sort("Expr", expr_type, vec![]);
     wrong_file.provenance = replace_display(&wrong_file.provenance, "src/missing.rs");
     assert_kind(
@@ -662,10 +684,17 @@ fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
 #[cfg(unix)]
 #[test]
 fn source_symlinks_cannot_escape_the_canonical_package_directory() {
-    let package = TestPackage::new("escape", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "escape",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let external = temp_dir();
     let external_source = external.path().join("outside.rs");
-    fs::write(&external_source, "#[k::sort]\npub trait Expr {}\n").unwrap();
+    fs::write(
+        &external_source,
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    )
+    .unwrap();
     std::os::unix::fs::symlink(&external_source, package.root().join("src/escape.rs")).unwrap();
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, "src/escape.rs");
@@ -680,7 +709,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
     let package = TestPackage::new_nested(
         "workspace_hint",
         "workspace/layers/packages/workspace_hint",
-        "#[k::sort]\npub trait Expr {}\n",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
     );
     let package_descriptor = package.sort("Expr", expr_type, vec![]);
     let package_bundle = collect_descriptors(
@@ -718,7 +747,10 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
 #[cfg(unix)]
 #[test]
 fn canonical_source_candidates_are_deduplicated_across_symlinks() {
-    let package = TestPackage::new("source_alias", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "source_alias",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let package_component = package.root().file_name().unwrap().to_string_lossy();
     std::os::unix::fs::symlink(
         package.root(),
@@ -739,11 +771,18 @@ fn canonical_source_candidates_are_deduplicated_across_symlinks() {
 
 #[test]
 fn multiple_distinct_in_package_source_candidates_are_rejected() {
-    let package = TestPackage::new("source_ambiguity", "#[k::sort]\npub trait Expr {}\n");
+    let package = TestPackage::new(
+        "source_ambiguity",
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    );
     let package_component = package.root().file_name().unwrap().to_string_lossy();
     let nested = package.root().join(package_component.as_ref()).join("src");
     fs::create_dir_all(&nested).unwrap();
-    fs::write(nested.join("lib.rs"), "#[k::sort]\npub trait Expr {}\n").unwrap();
+    fs::write(
+        nested.join("lib.rs"),
+        "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n",
+    )
+    .unwrap();
     let display_hint = format!("{package_component}/src/lib.rs");
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, &display_hint);
@@ -755,11 +794,16 @@ fn multiple_distinct_in_package_source_candidates_are_rejected() {
 
 #[test]
 fn duplicate_reparsed_invocations_are_rejected_as_ambiguous() {
-    let package = TestPackage::new("ambiguous", "#[k::sort]\n#[k::sort]\npub trait Expr {}\n");
+    // Both `#[k::subsort]` invocations on the one impl are anchored at the
+    // same impl item, so the descriptor's primary anchor matches both.
+    let package = TestPackage::new(
+        "ambiguous",
+        "#[k::subsort(sort = Value)]\n#[k::subsort(sort = Value)]\nimpl ValueSort for Int {}\n",
+    );
     assert_kind(
         collect_descriptors(
             [package.context("ORG-AMBIGUOUS")],
-            [package.sort("Expr", expr_type, vec![])],
+            [package.subsort(foo_type, expr_type)],
         ),
         CollectionErrorKind::AmbiguousAnchor,
     );
@@ -770,8 +814,8 @@ fn collection_rejects_block_comments_in_every_dsl_body_at_exact_bytes() {
     let cases = [
         (
             "dsl_block_rules",
-            r"#[k::sort]
-pub trait Expr {}
+            r"#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 k::rules! {
     for Expr;
     use Op::*;
@@ -782,8 +826,8 @@ k::rules! {
         ),
         (
             "dsl_block_cells",
-            r"#[k::sort]
-pub trait Expr {}
+            r"#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 fn fixture() {
     let _ = k::cells! { k: KCell(value /*krs-f7-block*/, ..tail), ..state };
 }
@@ -792,8 +836,8 @@ fn fixture() {
         ),
         (
             "dsl_block_map",
-            r"#[k::sort]
-pub trait Expr {}
+            r"#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 fn fixture() {
     let _ = k::map! { name /*krs-f7-block*/ -> value, rest @ .. };
 }
@@ -825,11 +869,11 @@ fn fixture() {
 
 #[test]
 fn line_comment_dsl_reparse_preserves_identity_payload_topology_and_exact_anchors() {
-    let baseline_source = r"#[k::sort]
-pub trait Expr {}
+    let baseline_source = r"#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 ";
-    let commented_source = r"#[k::sort]
-pub trait Expr {}
+    let commented_source = r"#[k::sort(alias = Expr)]
+pub trait ExprSort {}
 k::rules! {
     for Expr;
     use Op::*;
@@ -1039,9 +1083,10 @@ impl TestPackage {
         declared: fn() -> TypeId,
         parents: Vec<HostTypeReference>,
     ) -> HostDescriptor {
+        let marker = format!("{name}Sort");
         let trait_item = find_traits(&syn::parse_file(&self.source).unwrap().items)
             .into_iter()
-            .filter(|item| item.ident == name)
+            .filter(|item| item.ident == marker || item.ident == name)
             .nth(occurrence)
             .unwrap();
         let symbol = trait_item
@@ -1051,10 +1096,23 @@ impl TestPackage {
             .map(|attribute| {
                 krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(attribute)).unwrap()
             });
-        let mut anchors = SortDeclaration::from_item(trait_item)
-            .unwrap()
-            .provenance()
-            .unwrap();
+        // The sort attribute under any facade name; a source without one
+        // (a negative case) anchors the declaration at the trait name.
+        let sort_attribute = trait_item
+            .attrs
+            .iter()
+            .find(|attribute| attribute.path().segments.last().unwrap().ident == "sort")
+            .map(|attribute| {
+                krs_syntax::SortAttribute::parse_tokens(attribute_tokens(attribute)).unwrap()
+            });
+        let mut anchors = match sort_attribute {
+            Some(attribute) => attribute.provenance(&trait_item.ident).unwrap(),
+            None => vec![ProvenanceAnchor::new(
+                ProvenanceRole::SortDeclaration,
+                0,
+                krs_syntax::TokenRange::for_tokens(&trait_item.ident).unwrap(),
+            )],
+        };
         if let Some(symbol) = symbol {
             anchors.extend(symbol.provenance().unwrap());
         }
@@ -1141,6 +1199,53 @@ impl TestPackage {
             }),
             cfg: BTreeMap::new(),
             provenance: host_provenance("src/lib.rs", provenance),
+        }
+    }
+}
+
+impl TestPackage {
+    /// A subsort descriptor for the first `#[k::subsort(..)]` impl, `subsort`
+    /// below `supersort`.
+    fn subsort(&self, subsort: fn() -> TypeId, supersort: fn() -> TypeId) -> HostDescriptor {
+        let source = syn::parse_file(&self.source).unwrap();
+        let item = source
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Impl(item) => Some(item),
+                _ => None,
+            })
+            .unwrap();
+        let attribute = item
+            .attrs
+            .iter()
+            .find(|attribute| attribute.path().segments.last().unwrap().ident == "subsort")
+            .unwrap();
+        let parsed =
+            krs_syntax::SubsortAttribute::parse_tokens(attribute_tokens(attribute)).unwrap();
+        let mut stripped = item.clone();
+        stripped.attrs.clear();
+        let declaration = krs_syntax::SubsortDeclaration::from_item(stripped).unwrap();
+        let anchors = declaration.provenance(&parsed).unwrap();
+        HostDescriptor {
+            protocol_version: SchemaVersion::CURRENT,
+            id: self.item_id("subsort", ItemKind::Grammar, &[]),
+            declared_type: None,
+            payload: HostDescriptorPayload::Grammar(Box::new(
+                krs_ir::HostGrammarDescriptor::Subsort {
+                    key: krs_ir::ProvenanceKey::new(ProvenanceRole::SubsortDeclaration, 0),
+                    subsort: krs_ir::HostSortReference {
+                        key: krs_ir::ProvenanceKey::new(ProvenanceRole::SubsortSubSort, 0),
+                        target: type_ref(subsort, "Int"),
+                    },
+                    supersort: krs_ir::HostSortReference {
+                        key: krs_ir::ProvenanceKey::new(ProvenanceRole::SubsortSuperSort, 0),
+                        target: type_ref(supersort, "Value"),
+                    },
+                },
+            )),
+            cfg: BTreeMap::new(),
+            provenance: host_provenance("src/lib.rs", anchors),
         }
     }
 }

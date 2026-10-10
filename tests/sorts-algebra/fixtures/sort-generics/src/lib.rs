@@ -30,5 +30,5 @@ impl Machine {
     }
 }
 
-#[k::sort]
-pub trait Pair<S> {}
+#[k::sort(alias = Pair)]
+pub trait PairSort<S> {}

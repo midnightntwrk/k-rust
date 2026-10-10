@@ -131,7 +131,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert_success(&check);
     assert_eq!(
         check.stdout,
-        b"KRS check passed: 9 descriptors, 1 semantic modules\n"
+        b"KRS check passed: 9 descriptors, 2 semantic modules\n"
     );
 
     assert_check_measurement(temporary.path(), target.path(), &manifest, &check.stdout);
@@ -216,9 +216,10 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let source = FOO_BAR.replace(
-        "pub trait Obj: KResult {}",
-        "pub trait Obj: KResult + Send {}",
+        "#[krs::sort(alias = Obj, parents = [krs::KResult])]\npub trait ObjSort: krs::KResultSort {}",
+        "#[krs::sort(alias = Obj, parents = [krs::KResult, String])]\npub trait ObjSort: krs::KResultSort + Send {}",
     );
+    assert_ne!(source, FOO_BAR);
     let manifest = materialize_fixture(temporary.path(), &source);
     let scratch = temporary.path().join("scratch");
     fs::create_dir(&scratch).unwrap();
@@ -255,12 +256,12 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
         range.file.content_sha256(),
         &krs_ir::Sha256Digest::from_bytes(Sha256::digest(source.as_bytes()).into())
     );
-    let start = source.find("Send").unwrap();
+    let start = source.find("String").unwrap();
     assert_eq!(range.start_byte as usize, start);
-    assert_eq!(range.end_byte as usize, start + "Send".len());
+    assert_eq!(range.end_byte as usize, start + "String".len());
     assert!(output.stdout.is_empty());
     assert!(
-        stderr.contains("Rust path `Send` does not resolve to a selected KRS type declaration"),
+        stderr.contains("Rust path `String` does not resolve to a selected KRS type declaration"),
         "{stderr}"
     );
     let timings = read_json(&timings_path);
@@ -419,7 +420,7 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     let counters = &counters["counters"];
     assert_eq!(counters["result.reused"], 0);
     assert_eq!(counters["descriptors.total"], 9);
-    assert_eq!(counters["semantic.modules"], 1);
+    assert_eq!(counters["semantic.modules"], 2);
     let bundle_bytes = counters["bundle.bytes"].as_u64().unwrap();
     let provenance_bytes = counters["bundle.provenance_bytes"].as_u64().unwrap();
     assert!(provenance_bytes > 0 && provenance_bytes < bundle_bytes);

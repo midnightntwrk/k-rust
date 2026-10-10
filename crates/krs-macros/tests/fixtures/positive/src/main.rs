@@ -445,18 +445,18 @@ mod instrumented {
     }
 }
 
-#[language_host::sort]
-pub trait KItem {}
+#[language_host::sort(alias = KItem)]
+pub trait KItemSort {} pub type KItem = Term<dyn KItemSort>;
 
-#[language_host::sort]
+#[language_host::sort(alias = Expr, parents = [KItem])]
 #[language_host::bracket("({value})")]
-pub trait Expr: KItem {}
+pub trait ExprSort: KItemSort {} pub type Expr = Term<dyn ExprSort>;
 
-#[language_host::sort]
-pub trait KResult: KItem {}
+#[language_host::sort(alias = KResult, parents = [KItem])]
+pub trait KResultSort: KItemSort {} pub type KResult = Term<dyn KResultSort>;
 
-#[language_host::sort]
-pub trait Value: Expr + KResult {}
+#[language_host::sort(alias = Value, parents = [Expr, KResult])]
+pub trait ValueSort: ExprSort + KResultSort {} pub type Value = Term<dyn ValueSort>;
 
 #[language_host::symbol("api::Halt")]
 #[language_host::constructor(sort = Expr, syntax = "halt", group = "atoms")]
@@ -471,13 +471,13 @@ pub struct Halt;
 )]
 #[language_host::seqstrict(sequence = [first, second], result = KResult)]
 pub struct Pair {
-    pub first: Term<dyn Expr>,
-    pub second: Term<dyn Expr>,
+    pub first: Term<dyn ExprSort>,
+    pub second: Term<dyn ExprSort>,
 }
 
 #[language_host::constructor(sort = Expr, syntax = "wrap({value})")]
 pub struct Wrap {
-    pub value: Term<dyn Expr>,
+    pub value: Term<dyn ExprSort>,
 }
 
 #[language_host::constructor(sort = Expr, syntax = "guarded({value})")]
@@ -543,12 +543,12 @@ fn increment(
 #[language_host::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 1)]
 pub struct Identifier(pub String);
 
-impl KItem for Identifier {}
-impl Expr for Identifier {}
-impl KResult for Identifier {}
+impl KItemSort for Identifier {}
+impl ExprSort for Identifier {}
+impl KResultSort for Identifier {}
 
-#[language_host::subsort]
-impl Value for Identifier {}
+#[language_host::subsort(sort = Value)]
+impl ValueSort for Identifier {}
 
 #[language_host::constructors(sort = Value)]
 pub enum Boolean {
@@ -557,13 +557,13 @@ pub enum Boolean {
     #[k::syntax("false", group = "atoms")]
     False,
     #[k::syntax("tag {value}", group = "atoms", format = "%1%2")]
-    Tagged { value: Term<dyn Expr> },
+    Tagged { value: Term<dyn ExprSort> },
 }
 
-impl KItem for Boolean {}
-impl Expr for Boolean {}
-impl KResult for Boolean {}
-impl Value for Boolean {}
+impl KItemSort for Boolean {}
+impl ExprSort for Boolean {}
+impl KResultSort for Boolean {}
+impl ValueSort for Boolean {}
 
 use Boolean as Truth;
 
@@ -581,7 +581,7 @@ pub struct Machine {
     pub k: instrumented::KCell<language_host::builtin::KSequence>,
     #[k::cell(name = "environment", color = "blue")]
     pub env: language_host::configuration::Cell<
-        language_host::builtin::Map<language_host::builtin::Id, Term<dyn Value>>,
+        language_host::builtin::Map<language_host::builtin::Id, Term<dyn ValueSort>>,
     >,
 }
 
@@ -598,7 +598,7 @@ impl Machine {
 #[language_host::cell]
 pub struct Store {
     pub env: language_host::configuration::Cell<
-        language_host::builtin::Map<language_host::builtin::Id, Term<dyn Value>>,
+        language_host::builtin::Map<language_host::builtin::Id, Term<dyn ValueSort>>,
     >,
 }
 
@@ -627,7 +627,7 @@ pub struct Secondary {
 
 impl Secondary {
     #[language_host::init]
-    pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItem>) -> Self {
+    pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![program]),
         }
@@ -693,7 +693,7 @@ impl ReadableEquivalentMachine {
 }
 
 #[language_host::rule]
-pub fn native_pair(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
+pub fn native_pair(Pair { first, second }: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     Pair {
         first: second,
         second: first,
@@ -701,7 +701,7 @@ pub fn native_pair(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
 }
 
 #[language_host::rule]
-pub fn macro_pair(term![Pair { first, second }]: Term<dyn Expr>) -> Term<dyn Expr> {
+pub fn macro_pair(term![Pair { first, second }]: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     term![Wrap { value: first }]
 }
 
@@ -710,8 +710,8 @@ pub fn binder_gap(
     term![Pair {
         first: 日本,
         second: nested::Done,
-    }]: Term<dyn Expr>,
-) -> Term<dyn Expr> {
+    }]: Term<dyn ExprSort>,
+) -> Term<dyn ExprSort> {
     term![nested::Keep {
         value: 日本,
         marker: nested::Done
@@ -733,8 +733,8 @@ pub fn subject_wildcard(
     Pair {
         first: _,
         second: value,
-    }: Term<dyn Expr>,
-) -> Term<dyn Expr> {
+    }: Term<dyn ExprSort>,
+) -> Term<dyn ExprSort> {
     value
 }
 
@@ -750,21 +750,21 @@ pub fn builtin_application(
     term![Pair {
         first: lhs,
         second: rhs,
-    }]: Term<dyn Expr>,
+    }]: Term<dyn ExprSort>,
 ) -> Term<language_host::builtin::int::Int> {
     term![language_host::builtin::int::add(lhs, rhs)]
 }
 
 #[language_host::rule]
 #[language_host::requires(language_host::builtin::int::gt(value, 0))]
-pub fn guarded_term(Guarded { value }: Term<dyn Expr>) -> Term<dyn Expr> {
+pub fn guarded_term(Guarded { value }: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     Halt
 }
 
 #[language_host::rule(label = "state-var")]
 pub fn whole_state_var(
     x: Term<language_host::builtin::Id>,
-    value: Term<dyn Value>,
+    value: Term<dyn ValueSort>,
     cells! {
         k: KCell(x, tail @ ..),
         env: Cell(map![x -> value, rest @ ..]),
@@ -780,7 +780,7 @@ pub fn whole_state_var(
 #[language_host::rule]
 pub fn nested_state_var(
     x: Term<language_host::builtin::Id>,
-    value: Term<dyn Value>,
+    value: Term<dyn ValueSort>,
     cells! {
         k: KCell(x, tail @ ..),
         Store::env: Cell(map![x -> value, rest @ ..]),
@@ -810,7 +810,7 @@ pub fn guarded_state(
 
 #[language_host::rule]
 pub fn whole_state_wildcard(
-    value: Term<dyn Expr>,
+    value: Term<dyn ExprSort>,
     krs_macros::cells! {
         k: instrumented::KCell(Pair(value, _), tail @ ..),
         state @ ..
@@ -823,19 +823,19 @@ pub fn whole_state_wildcard(
 }
 
 pub mod nested {
-    use super::{Expr, Term};
+    use super::{Expr, ExprSort, Term};
 
     #[language_host::constructor(sort = Expr, syntax = "done")]
     pub struct Done;
 
     #[language_host::constructor(sort = Expr)]
     pub struct Keep {
-        pub value: Term<dyn Expr>,
-        pub marker: Term<dyn Expr>,
+        pub value: Term<dyn ExprSort>,
+        pub marker: Term<dyn ExprSort>,
     }
 
     #[language_host::rule]
-    pub fn stay(Done: Term<dyn Expr>) -> Term<dyn Expr> {
+    pub fn stay(Done: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
         Done
     }
 }
@@ -844,7 +844,7 @@ pub mod nested {
     dead_code,
     reason = "The compile fixture checks the authored surface without executing every declaration."
 )]
-fn standalone_term(value: Term<dyn Expr>) -> Term<dyn Expr> {
+fn standalone_term(value: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     term![Wrap { value }]
 }
 
@@ -880,9 +880,9 @@ mod tests {
     #[test]
     fn rust_membership_and_macro_signatures() {
         readable_sorts::rust_membership_is_exact();
-        let _: fn(Term<dyn Expr>) -> Term<dyn Expr> = macro_pair;
+        let _: fn(Term<dyn ExprSort>) -> Term<dyn ExprSort> = macro_pair;
         let _: fn() -> Machine = Machine::init;
-        let _: fn(Term<dyn KItem>) -> Secondary = Secondary::init;
+        let _: fn(Term<dyn KItemSort>) -> Secondary = Secondary::init;
         let _: fn() -> TwoComputationMachine = TwoComputationMachine::init;
         let _: fn(
             readable_sorts::ReadableStmt,
@@ -894,15 +894,15 @@ mod tests {
         ) -> ReadableEquivalentMachine = ReadableEquivalentMachine::init;
         let _: fn() -> split_config::Split = split_config::Split::init;
         let _: fn() -> NestedMachine = NestedMachine::init;
-        let _: fn(Term<language_host::builtin::Id>, Term<dyn Value>, Machine) -> Machine =
+        let _: fn(Term<language_host::builtin::Id>, Term<dyn ValueSort>, Machine) -> Machine =
             whole_state_var;
         let _: fn(
             Term<language_host::builtin::Id>,
-            Term<dyn Value>,
+            Term<dyn ValueSort>,
             NestedMachine,
         ) -> NestedMachine = nested_state_var;
         let _: fn(Term<language_host::builtin::int::Int>, Machine) -> Machine = guarded_state;
-        let _: fn(Term<dyn Expr>, Machine) -> Machine = whole_state_wildcard;
+        let _: fn(Term<dyn ExprSort>, Machine) -> Machine = whole_state_wildcard;
     }
 
     #[test]
@@ -1639,7 +1639,7 @@ mod tests {
         assert_eq!(variable.sort.key.ordinal(), 0);
         assert_eq!(
             variable.sort.target.key.resolve(),
-            std::any::TypeId::of::<dyn KItem>()
+            std::any::TypeId::of::<KItem>()
         );
         assert!(variable.main_key.is_some());
     }
@@ -1895,7 +1895,7 @@ mod tests {
         };
         let explicit_membership = subsort_descriptor(
             std::any::TypeId::of::<Identifier>(),
-            std::any::TypeId::of::<dyn Value>(),
+            std::any::TypeId::of::<Value>(),
         );
         let readable_membership = subsort_descriptor(
             std::any::TypeId::of::<language_host::builtin::Id>(),

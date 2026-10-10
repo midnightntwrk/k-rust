@@ -3,12 +3,12 @@
 use k::Term;
 use k::builtin::KSequence;
 
-#[k::sort]
-pub trait Top {}
+#[k::sort(alias = Top)]
+pub trait TopSort {} pub type Top = k::Term<dyn TopSort>;
 
 #[k::constructor(sort = Top, syntax = "top {value}")]
 pub struct Wrap {
-    pub value: Term<dyn signed_base::Num>,
+    pub value: Term<dyn signed_base::NumSort>,
 }
 
 #[k::configuration]

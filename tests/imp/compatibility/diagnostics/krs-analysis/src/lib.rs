@@ -1,5 +1,5 @@
-#[k::sort]
-pub trait Expr {}
+#[k::sort(alias = Expr)]
+pub trait ExprSort {} pub type Expr = k::Term<dyn ExprSort>;
 
 #[k::configuration(root = "diagnostic")]
 pub struct Machine {

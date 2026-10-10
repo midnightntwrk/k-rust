@@ -45,9 +45,13 @@ pub(super) fn take_counter(counter: &mut u32) -> crate::Result<u32> {
     Ok(value)
 }
 
-pub(super) fn sort_type_tokens(path: &Path, dynamic: bool) -> TokenStream {
+/// The Rust type whose `TypeId` identifies a sort written as `Term<path>`:
+/// the path itself (a sort alias, builtin, or closed sort), or, for a
+/// marker `Term<dyn PSort>`, that whole type, which is the identity of the
+/// sort's alias (B2).
+pub(super) fn sort_type_tokens(facade: &Path, path: &Path, dynamic: bool) -> TokenStream {
     if dynamic {
-        quote!(dyn #path)
+        quote!(#facade::Term<dyn #path>)
     } else {
         quote!(#path)
     }

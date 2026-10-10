@@ -405,12 +405,13 @@ fn expand_ordinary_rule(
     } else {
         (
             sort_type_tokens(
+                &facade,
                 &parameter_sort_path,
                 rule.parameter().term_sort.is_dynamic(),
             ),
             rule.result_sort()
                 .zip(result_sort_path.as_ref())
-                .map(|(sort, path)| sort_type_tokens(path, sort.is_dynamic())),
+                .map(|(sort, path)| sort_type_tokens(&facade, path, sort.is_dynamic())),
             TokenStream::new(),
         )
     };
@@ -856,7 +857,7 @@ fn typed_binders(
         })?;
         let sort = binder.term_sort();
         let path = call_site_path(sort.sort())?;
-        let ty = sort_type_tokens(&path, sort.is_dynamic());
+        let ty = sort_type_tokens(facade, &path, sort.is_dynamic());
         let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{ordinal}");
         key_functions.push(quote! {
             #(#cfg)*

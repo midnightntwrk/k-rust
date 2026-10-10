@@ -24,8 +24,8 @@ mod internal_old {
 
 pub mod moved_api {
     #[k::symbol("api::Expr")]
-    #[k::sort]
-    pub trait Expr {}
+    #[k::sort(alias = Expr)]
+    pub trait ExprSort {} pub type Expr = k::Term<dyn ExprSort>;
 
     #[k::symbol("api::PublicValue")]
     #[k::constructor(sort = Expr, syntax = "publicValue")]

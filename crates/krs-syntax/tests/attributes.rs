@@ -8,7 +8,6 @@ use quote::ToTokens;
 #[test]
 fn empty_marker_attributes_are_accepted() {
     let sort = krs_syntax::SortAttribute::parse_source("").unwrap();
-    assert!(!sort.is_reference());
     assert!(sort.alias().is_none());
     assert!(sort.parents().is_empty());
     krs_syntax::EquationAttribute::parse_source("").unwrap();
@@ -21,14 +20,12 @@ fn empty_marker_attributes_are_accepted() {
 #[test]
 fn sort_accepts_explicit_alias_and_parent_carriers() {
     let alias = krs_syntax::SortAttribute::parse_source("alias = Expr").unwrap();
-    assert!(alias.is_reference());
     assert_eq!(alias.alias().unwrap(), "Expr");
     assert!(alias.parents().is_empty());
 
     let inherited =
         krs_syntax::SortAttribute::parse_source("parents = [Expr, k::KResult], alias = Value,")
             .unwrap();
-    assert!(inherited.is_reference());
     assert_eq!(inherited.alias().unwrap(), "Value");
     assert_eq!(
         inherited
@@ -38,6 +35,43 @@ fn sort_accepts_explicit_alias_and_parent_carriers() {
             .map(|tokens| tokens.to_string())
             .collect::<Vec<_>>(),
         ["Expr", "k :: KResult"]
+    );
+}
+
+#[test]
+fn sort_alias_names_the_marker_trait() {
+    let marker = |source: &str| syn::parse_str::<syn::Ident>(source).unwrap();
+    let alias = krs_syntax::SortAttribute::parse_source("alias = Expr").unwrap();
+    assert_eq!(alias.checked_alias(&marker("ExprSort")).unwrap(), "Expr");
+    let anchors = alias.provenance(&marker("ExprSort")).unwrap();
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[0].role(), ProvenanceRole::SortDeclaration);
+
+    let error = alias.checked_alias(&marker("Expression")).unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        SyntaxErrorKind::UnaliasedSort { .. }
+    ));
+    assert!(
+        error
+            .to_string()
+            .contains("the marker trait of the sort alias `Expr` is named `ExprSort`")
+    );
+
+    let unaliased = krs_syntax::SortAttribute::parse_source("").unwrap();
+    let error = unaliased.checked_alias(&marker("Expr")).unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        SyntaxErrorKind::UnaliasedSort { .. }
+    ));
+    assert!(error.to_string().contains(
+        "write `#[k::sort(alias = Expr)] pub trait ExprSort {}` with `pub type Expr = k::Term<dyn ExprSort>;`"
+    ));
+    let error = unaliased.checked_alias(&marker("ExprSort")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("#[k::sort(alias = Expr)] pub trait ExprSort {}")
     );
 }
 

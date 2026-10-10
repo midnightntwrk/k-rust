@@ -2,16 +2,16 @@ use krs_macros::{constructor, context, sort};
 use renamed_krs::Term;
 use renamed_krs::builtin::int::Int;
 
-#[sort]
-pub trait Expr {}
+#[sort(alias = Expr)]
+pub trait ExprSort {} pub type Expr = renamed_krs::Term<dyn ExprSort>;
 
 #[constructor(sort = Expr)]
 pub struct Wrap {
-    pub inner: Term<dyn Expr>,
+    pub inner: Term<dyn ExprSort>,
 }
 
 #[context(hole = h)]
 #[renamed_krs::fresh(n: Int)] //~ ERROR fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule
-fn invalid(Wrap { inner: h }: Term<dyn Expr>) {}
+fn invalid(Wrap { inner: h }: Term<dyn ExprSort>) {}
 
 fn main() {}

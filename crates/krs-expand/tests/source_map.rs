@@ -566,16 +566,16 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 /// Diagnostic case D002 (`browser/worker/test/fixtures/diagnostics/unresolved_constructor.rs`,
-/// sha256 705c28f3...ebeaa): native rustc reports E0433 at the authored
-/// `missing` (bytes 207..214, exact-authored) and D004 at the invocation
-/// (183..241, invocation-level). The expansion carries `missing` verbatim, so
+/// sha256 f3523362...6eec932): native rustc reports E0433 at the authored
+/// `missing` (bytes 264..271, exact-authored) and D004 at the invocation
+/// (240..298, invocation-level). The expansion carries `missing` verbatim, so
 /// the map reproduces both classes.
 #[test]
 fn unresolved_constructor_sort_path_maps_like_native() {
-    const SOURCE: &str = "#[k::sort]\npub trait Expr {}\n\n// The first diagnostic selects `missing`; a generated reference check also\n// reports the complete macro invocation through rustc's expansion metadata.\n#[k::constructor(sort = missing::Expr, syntax = \"broken\")]\npub struct Broken;\n\nfn main() {}\n";
+    const SOURCE: &str = "#[k::sort(alias = Expr)]\npub trait ExprSort {} pub type Expr = k::Term<dyn ExprSort>;\n\n// The first diagnostic selects `missing`; a generated reference check also\n// reports the complete macro invocation through rustc's expansion metadata.\n#[k::constructor(sort = missing::Expr, syntax = \"broken\")]\npub struct Broken;\n\nfn main() {}\n";
     assert_eq!(
         sha256(SOURCE.as_bytes()),
-        "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa"
+        "f3523362aad619dabe55c2b074811ce0ac4e542b662373ab4b2aa693f6eec932"
     );
     let (authored, tokens) =
         AuthoredFile::lex("src/bin/unresolved_constructor.rs", SOURCE).unwrap();
@@ -633,17 +633,17 @@ fn unresolved_constructor_sort_path_maps_like_native() {
         .map
         .segments
         .iter()
-        .filter(|segment| segment.authored == Some(br(207..214)))
+        .filter(|segment| segment.authored == Some(br(264..271)))
         .collect::<Vec<_>>();
     assert!(!missing.is_empty(), "`missing` is copied verbatim");
     for segment in missing {
         assert_eq!(
             lookup(&source, &authored, segment.generated),
             Mapping::ExactAuthored {
-                authored: br(207..214),
+                authored: br(264..271),
                 owner: Some(InvocationId(1))
             }
         );
     }
-    assert_eq!(source.map.invocations[1].call_site, br(183..241));
+    assert_eq!(source.map.invocations[1].call_site, br(240..298));
 }

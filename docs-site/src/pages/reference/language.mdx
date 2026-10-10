@@ -14,8 +14,8 @@ It is not an alternate learning order: follow each link back to the chapter that
 
 | Surface | Meaning | Tour |
 | --- | --- | --- |
-| `#[k::sort]`, `k::sorts!` | open object-language sorts | [Sorts and values](/imp/sorts-and-values) |
-| `#[k::subsort]` | direct sort membership; KRS computes transitive closure | [Sorts and values](/imp/sorts-and-values) |
+| `k::sorts!`, `#[k::sort(alias = Expr)]` | open object-language sorts; the reference form sits on the marker trait `ExprSort` beside `pub type Expr = k::Term<dyn ExprSort>;` | [Sorts and values](/imp/sorts-and-values) |
+| `#[k::subsort(sort = Value)]` | direct sort membership on an impl of the supersort's marker, `impl ValueSort for Int {}`; KRS computes transitive closure | [Sorts and values](/imp/sorts-and-values) |
 | `#[k::constructor]`, `#[k::constructors]` | standalone or enum-family constructors | [Concrete grammar](/imp/concrete-grammar) |
 | `#[k::token]`, `#[k::bracket]` | lexical tokens (one `regex` or `terminal` per attribute, stacked; on a struct a closed token sort, on a type alias more tokens for an existing sort) and grouping-only productions | [Language scale](/advanced/language-scale) |
 | `k::lexical!`, `k::layout!` | named regex fragments (`{Name}` in token, layout, and lexical regexes) and the layout the scanner discards, which replaces K's default | [Language scale](/advanced/language-scale#layout-and-named-lexicals) |

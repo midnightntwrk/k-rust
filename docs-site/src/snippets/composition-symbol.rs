@@ -1,6 +1,7 @@
 #[k::symbol("tour::RootCommon")]
-#[k::sort]
-pub trait Common: KItem {}
+#[k::sort(alias = Common, parents = [KItem])]
+pub trait CommonSort: KItemSort {}
+pub type Common = Term<dyn CommonSort>;
 
 #[k::symbol("tour::RootSame")]
 #[k::constructor(sort = Common, syntax = "same-root")]

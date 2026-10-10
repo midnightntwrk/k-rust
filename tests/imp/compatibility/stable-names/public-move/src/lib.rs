@@ -1,6 +1,6 @@
 pub mod moved_api {
-    #[k::sort]
-    pub trait Expr {}
+    #[k::sort(alias = Expr)]
+    pub trait ExprSort {} pub type Expr = k::Term<dyn ExprSort>;
 
     #[k::constructor(sort = Expr, syntax = "publicValue")]
     pub struct PublicValue;

@@ -77,7 +77,7 @@ pub(crate) fn init(
         let sort_path = call_site_path(variable.sort())?;
         let sort_type = variable.optional_term_sort().map_or_else(
             || quote!(#sort_path),
-            |term_sort| sort_type_tokens(&sort_path, term_sort.is_dynamic()),
+            |term_sort| sort_type_tokens(&facade, &sort_path, term_sort.is_dynamic()),
         );
         let sort_key = format_ident!("__krs_initializer_variable_{nonce:016x}_{index}");
         builder.key_functions.push(quote! {

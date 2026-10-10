@@ -89,7 +89,7 @@ pub(crate) fn context_alias(
                         .term_sort()
                         .expect("non-HERE terms retain explicit sorts");
                     let path = call_site_path(sort.sort())?;
-                    let ty = sort_type_tokens(&path, sort.is_dynamic());
+                    let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
                     let key_fn =
                         format_ident!("__krs_context_alias_binding_{nonce:016x}_{term_ordinal}");
                     key_functions.push(quote! {
@@ -282,7 +282,7 @@ pub(super) fn configuration_rule(
                     .term_sort()
                     .expect("term bindings retain explicit sorts");
                 let path = call_site_path(sort.sort())?;
-                let ty = sort_type_tokens(&path, sort.is_dynamic());
+                let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
                 let key_fn = format_ident!("__krs_rule_binding_sort_{nonce:016x}_{term_ordinal}");
                 binding_key_functions.push(quote! {
                     #(#cfg)*

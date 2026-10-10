@@ -43,7 +43,10 @@ fn function_macro(entry: FunctionMacro, input: TokenStream) -> TokenStream {
     ))
 }
 
-/// Declares an open K sort on an empty Rust marker trait.
+/// Declares an open K sort on its empty Rust marker trait:
+/// `#[k::sort(alias = Expr)] pub trait ExprSort {}` beside
+/// `pub type Expr = k::Term<dyn ExprSort>;`, with `parents = [..]` naming one
+/// parent sort per marker supertrait.
 #[proc_macro_attribute]
 pub fn sort(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Sort, attributes, item)
@@ -137,9 +140,9 @@ pub fn bracket(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Bracket, attributes, item)
 }
 
-/// Adds one explicit after-the-fact subsort relation. Deterministic layer-2
-/// output may name its semantic supersort alias with `sort = ...` while the
-/// Rust impl targets the corresponding marker trait.
+/// Adds one explicit after-the-fact subsort relation:
+/// `#[k::subsort(sort = Value)] impl ValueSort for Int {}` names the semantic
+/// supersort's alias while the Rust impl targets its marker trait.
 #[proc_macro_attribute]
 pub fn subsort(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Subsort, attributes, item)

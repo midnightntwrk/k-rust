@@ -1462,7 +1462,6 @@ pub struct StrictnessAttribute {
     using: Option<Ident>,
     fields: Vec<Ident>,
     result_sort: Path,
-    readable_result: bool,
     range: TokenRange,
 }
 
@@ -1485,17 +1484,11 @@ impl StrictnessAttribute {
         &self.fields
     }
 
-    /// Returns the explicit result-predicate sort path.
+    /// Returns the explicit result-predicate sort path, a sort's alias such
+    /// as `k::KResult`.
     #[must_use]
     pub const fn result_sort(&self) -> &Path {
         &self.result_sort
-    }
-
-    /// Whether the result path is a readable sort alias rather than a legacy
-    /// marker trait path.
-    #[must_use]
-    pub const fn has_readable_result(&self) -> bool {
-        self.readable_result
     }
 
     pub(crate) fn parse_readable(
@@ -1559,7 +1552,6 @@ impl StrictnessAttribute {
             using,
             fields,
             result_sort,
-            readable_result: true,
             range: TokenRange::for_tokens(marker)?,
         };
         parsed.validate_fields(available_fields)?;
@@ -1569,17 +1561,15 @@ impl StrictnessAttribute {
     /// Parses the fully explicit strictness carrier emitted by layer-2
     /// reference projection.
     ///
-    /// Unlike legacy structured strictness, the result path names the
-    /// readable sort alias directly. Selected fields are checked immediately
-    /// against the enclosing production.
+    /// Selected fields are checked immediately against the enclosing
+    /// production.
     pub(crate) fn parse_reference(
         kind: StrictnessKind,
         tokens: TokenStream,
         available_fields: &[Ident],
     ) -> Result<Self, SyntaxError> {
-        let mut parsed = parse_strictness(tokens, kind)?;
+        let parsed = parse_strictness(tokens, kind)?;
         parsed.validate_fields(available_fields)?;
-        parsed.readable_result = true;
         Ok(parsed)
     }
 
@@ -1758,7 +1748,6 @@ fn parse_strictness(
             using,
             fields: fields.ok_or_else(|| missing("sequence", missing_span))?,
             result_sort: result_sort.ok_or_else(|| missing("result", missing_span))?,
-            readable_result: false,
             range: complete_range,
         })
     })
@@ -2240,6 +2229,30 @@ impl SubsortDeclaration {
         &self.sub_sort
     }
 
+    /// The error for a `#[k::subsort]` impl without `sort = ..`: the
+    /// supersort is named by its alias, and the impl populates the alias's
+    /// marker trait (B2), as in `#[k::subsort(sort = Value)] impl ValueSort
+    /// for Int {}`.
+    #[must_use]
+    pub fn unaliased_error(&self) -> SyntaxError {
+        let marker = path_text(&self.super_sort);
+        let (alias, marker) = match marker.strip_suffix("Sort") {
+            Some(alias) if !alias.is_empty() && !alias.ends_with("::") => {
+                (alias.to_owned(), marker.clone())
+            }
+            _ => (marker.clone(), format!("{marker}Sort")),
+        };
+        SyntaxError::new(
+            SyntaxErrorKind::UnaliasedSubsort {
+                reason: format!(
+                    "`#[k::subsort]` names the supersort's alias and implements its marker trait: write `#[k::subsort(sort = {alias})] impl {marker} for {} {{}}`",
+                    path_text(&self.sub_sort)
+                ),
+            },
+            self.super_sort.span(),
+        )
+    }
+
     /// Returns a stable syntax-level sentence spelling.
     #[must_use]
     pub fn spelling(&self) -> String {
@@ -2250,12 +2263,16 @@ impl SubsortDeclaration {
         )
     }
 
-    /// Returns declaration and exact endpoint anchors.
+    /// Returns declaration and exact endpoint anchors; the supersort is the
+    /// alias `attribute` names.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn provenance(
+        &self,
+        attribute: &crate::SubsortAttribute,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(vec![
             ProvenanceAnchor::new(
                 ProvenanceRole::SubsortDeclaration,
@@ -2265,7 +2282,7 @@ impl SubsortDeclaration {
             ProvenanceAnchor::new(
                 ProvenanceRole::SubsortSuperSort,
                 0,
-                TokenRange::for_tokens(&self.super_sort)?,
+                TokenRange::for_tokens(attribute.sort())?,
             ),
             ProvenanceAnchor::new(
                 ProvenanceRole::SubsortSubSort,

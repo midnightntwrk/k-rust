@@ -459,29 +459,6 @@ impl SortDeclaration {
     pub fn parents(&self) -> &[syn::Path] {
         &self.parents
     }
-
-    /// Returns canonical name and parent anchors.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if a parsed node emits no leaves.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(self.parents.len() + 1);
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::SortDeclaration,
-            0,
-            TokenRange::for_tokens(&self.item.ident)?,
-        ));
-        for (ordinal, parent) in self.parents.iter().enumerate() {
-            let ordinal = checked_ordinal(ordinal, ProvenanceRole::SortParent, parent.span())?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SortParent,
-                ordinal,
-                TokenRange::for_tokens(parent)?,
-            ));
-        }
-        Ok(anchors)
-    }
 }
 
 impl KrsSyntax for SortDeclaration {

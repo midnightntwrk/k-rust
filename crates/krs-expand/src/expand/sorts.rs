@@ -26,7 +26,7 @@ use crate::provenance::host_provenance;
 
 #[expect(
     clippy::too_many_lines,
-    reason = "Legacy and aliased carriers share one descriptor expansion."
+    reason = "The sort, its parents, brackets, and descriptor expand in one pass."
 )]
 pub(crate) fn sort(
     env: &dyn MacroEnvironment,
@@ -39,40 +39,17 @@ pub(crate) fn sort(
     let explicit_symbol = take_explicit_symbol_helper(&mut item.attrs)?;
     let brackets = take_bracket_helpers(&mut item.attrs)?;
     let declaration = krs_syntax::SortDeclaration::parse_tokens(item.to_token_stream())?;
+    let alias = attribute.checked_alias(&declaration.item().ident)?;
     let facade = env.facade_path()?;
-    if attribute.is_reference() && attribute.parents().len() != declaration.parents().len() {
+    if attribute.parents().len() != declaration.parents().len() {
         return Err(ExpandError::new(
             expand::SORT_PARENT_MISMATCH,
             declaration.item().ident.span(),
             "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
         ));
     }
-    let semantic_sort_range =
-        TokenRange::for_tokens(attribute.alias().unwrap_or(&declaration.item().ident))?;
-    let mut anchors = if attribute.is_reference() {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::SortDeclaration,
-            0,
-            semantic_sort_range,
-        )];
-        for (ordinal, parent) in attribute.parents().iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    parent.span(),
-                    "too many sort parents",
-                )
-            })?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SortParent,
-                ordinal,
-                TokenRange::for_tokens(parent)?,
-            ));
-        }
-        anchors
-    } else {
-        declaration.provenance()?
-    };
+    let semantic_sort_range = TokenRange::for_tokens(alias)?;
+    let mut anchors = attribute.provenance(&declaration.item().ident)?;
     if let Some(symbol) = &explicit_symbol {
         anchors.extend(symbol.provenance()?);
     }
@@ -85,38 +62,21 @@ pub(crate) fn sort(
     );
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}", span = Span::call_site());
     let item = declaration.item();
-    let name = attribute
-        .alias()
-        .map_or_else(|| declaration.item().ident.to_string(), ToString::to_string);
-    let declared = call_site_ident(&declaration.item().ident)?;
-    let declared_type = if let Some(alias) = attribute.alias() {
-        let alias = call_site_ident(alias)?;
-        quote!(#alias)
-    } else {
-        quote!(dyn #declared)
-    };
+    let name = alias.to_string();
+    let declared_type = call_site_ident(alias)?;
     let cfg = call_site_cfg_attributes(&item.attrs)?;
 
     let mut key_functions = Vec::new();
     let mut parents = Vec::new();
     let mut slots = WireSlots::new(&facade);
-    let semantic_parents = if attribute.is_reference() {
-        attribute.parents()
-    } else {
-        declaration.parents()
-    };
+    let semantic_parents = attribute.parents();
     for (index, parent) in semantic_parents.iter().enumerate() {
         let key = format_ident!(
             "__krs_sort_parent_{nonce:016x}_{index}",
             span = Span::call_site()
         );
-        let generated = call_site_path(parent)?;
+        let parent_type = call_site_path(parent)?;
         let spelling = spelling(parent);
-        let parent_type = if attribute.is_reference() {
-            quote!(#generated)
-        } else {
-            quote!(dyn #generated)
-        };
         key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -143,9 +103,10 @@ pub(crate) fn sort(
             &cfg,
         )?);
     }
-    let framework_request = (attribute.is_reference()
-        && semantic_parents.iter().any(is_framework_sort_path))
-    .then(|| quote!(#facade::__request_framework_sorts!();));
+    let framework_request = semantic_parents
+        .iter()
+        .any(is_framework_sort_path)
+        .then(|| quote!(#facade::__request_framework_sorts!();));
 
     let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
         .expect("KRS wire values serialize");
@@ -655,61 +616,27 @@ pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> crate::Res
     ))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Both identity carriers deliberately emit the same payload shape."
-)]
 pub(crate) fn subsort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
-    let reference = (!attributes.is_empty())
-        .then(|| krs_syntax::SubsortAttribute::parse_tokens(attributes))
-        .transpose()?;
     let declaration = krs_syntax::SubsortDeclaration::parse_tokens(item)?;
+    if attributes.is_empty() {
+        return Err(declaration.unaliased_error().into());
+    }
+    let reference = krs_syntax::SubsortAttribute::parse_tokens(attributes)?;
     let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
-    let anchors = if let Some(reference) = &reference {
-        vec![
-            ProvenanceAnchor::new(ProvenanceRole::SubsortDeclaration, 0, fallback),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSuperSort,
-                0,
-                TokenRange::for_tokens(reference.sort())?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSubSort,
-                0,
-                TokenRange::for_tokens(declaration.sub_sort())?,
-            ),
-        ]
-    } else {
-        declaration.provenance()?
-    };
+    let anchors = declaration.provenance(&reference)?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
-    let (super_key, sub_key, factory, grammar_name) = if let Some(reference) = &reference {
-        let identity = ReadableMembershipIdentity::new(reference.sort(), declaration.sub_sort());
-        (
-            format_ident!("__krs_subsort_super_{}", identity.rust_key),
-            format_ident!("__krs_subsort_sub_{}", identity.rust_key),
-            format_ident!("__krs_subsort_descriptor_{}", identity.rust_key),
-            identity.item_name,
-        )
-    } else {
-        let synthetic = Ident::new("subsort", Span::call_site());
-        let nonce = expansion_nonce(env, "subsort", &synthetic, fallback);
-        (
-            format_ident!("__krs_subsort_super_{nonce:016x}"),
-            format_ident!("__krs_subsort_sub_{nonce:016x}"),
-            format_ident!("__krs_subsort_descriptor_{nonce:016x}"),
-            format!("__krs_grammar_subsort_{nonce:016x}"),
-        )
-    };
-    let semantic_super = reference
-        .as_ref()
-        .map_or_else(|| declaration.super_sort(), |attribute| attribute.sort());
+    let identity = ReadableMembershipIdentity::new(reference.sort(), declaration.sub_sort());
+    let super_key = format_ident!("__krs_subsort_super_{}", identity.rust_key);
+    let sub_key = format_ident!("__krs_subsort_sub_{}", identity.rust_key);
+    let factory = format_ident!("__krs_subsort_descriptor_{}", identity.rust_key);
+    let grammar_name = identity.item_name;
+    let semantic_super = reference.sort();
     let super_path = call_site_path(semantic_super)?;
     let sub_path = call_site_path(declaration.sub_sort())?;
     let super_spelling = spelling(semantic_super);
@@ -740,14 +667,7 @@ pub(crate) fn subsort(
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
-    let super_type = if reference.is_some() {
-        quote!(#super_path)
-    } else {
-        quote!(dyn #super_path)
-    };
-    let framework_request = reference
-        .as_ref()
-        .is_some_and(|attribute| is_framework_sort_path(attribute.sort()))
+    let framework_request = is_framework_sort_path(semantic_super)
         .then(|| quote!(#facade::__request_framework_sorts!();));
 
     let factory_tokens = DescriptorFactory {
@@ -774,7 +694,7 @@ pub(crate) fn subsort(
         #(#cfg)*
         #[doc(hidden)]
         fn #super_key() -> ::core::any::TypeId {
-            ::core::any::TypeId::of::<#super_type>()
+            ::core::any::TypeId::of::<#super_path>()
         }
 
         #(#cfg)*

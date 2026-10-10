@@ -1,12 +1,12 @@
 pub struct Skip;
-const _: ::core::marker::PhantomData<dyn Stmt> = ::core::marker::PhantomData;
+const _: ::core::marker::PhantomData<Stmt> = ::core::marker::PhantomData;
 #[doc(hidden)]
 fn __krs_constructor_type_9bb06ac28e815adc() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Skip>()
 }
 #[doc(hidden)]
 fn __krs_constructor_sort_9bb06ac28e815adc() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<dyn Stmt>()
+    ::core::any::TypeId::of::<Stmt>()
 }
 impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Skip {
     fn __krs_rule_application(authored_path: &str) -> ::k::HostApplicationTarget {

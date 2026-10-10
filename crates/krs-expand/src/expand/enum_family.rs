@@ -235,7 +235,7 @@ pub(crate) fn constructors(
             #(#cfg)*
             #[doc(hidden)]
             fn #membership_key() -> ::core::any::TypeId {
-                ::core::any::TypeId::of::<dyn #outer_path>()
+                ::core::any::TypeId::of::<#outer_path>()
             }
 
             #sort_factory_tokens
@@ -475,7 +475,7 @@ fn expand_enum_variant(
             field.term_sort().ty().to_token_stream()
         } else {
             let path = call_site_path(field.term_sort().sort())?;
-            sort_type_tokens(&path, field.term_sort().is_dynamic())
+            sort_type_tokens(facade, &path, field.term_sort().is_dynamic())
         };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();
