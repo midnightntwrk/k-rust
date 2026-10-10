@@ -225,16 +225,18 @@ fn a_deep_recursive_function_completes_on_a_small_thread() {
 
 /// The same recursion past the stack it may take (a budget of 16 MiB beyond the thread's 2 MiB)
 /// stops with `StackExhausted` and does not abort, though the stopped state holds a term 20,000
-/// levels deep that the operation then drops.
+/// levels deep that the operation then drops. The stop names the thread's budget that stopped it.
 #[test]
 fn a_recursion_past_its_stack_budget_stops_with_stack_exhausted() {
-    let result = execute_deep_evaluation(EVALUATION_LEVELS, Some(16 << 20));
+    use k_rust_backend::stop::{StackLimit, StopCause};
+    let budget = 16 << 20;
+    let result = execute_deep_evaluation(EVALUATION_LEVELS, Some(budget));
     let text = match &result {
         Ok(text) | Err(text) => text,
     };
+    let cause = StopCause::StackExhausted(StackLimit::ThreadBudget(budget));
     assert!(
-        text.contains("StackExhausted")
-            || text.contains(&k_rust_backend::stop::StopCause::StackExhausted.to_string()),
+        text.contains(&format!("{cause:?}")) || text.contains(&cause.to_string()),
         "{result:?}"
     );
 }

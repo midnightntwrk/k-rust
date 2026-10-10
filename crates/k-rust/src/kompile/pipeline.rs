@@ -986,7 +986,7 @@ impl DeepestTerm {
     /// holds its recursions ([`crate::stack::with_depth`]). A stage may build terms deeper than
     /// its input before it walks them (an injection above each argument of a chain doubles its
     /// depth), so it is given twice the depth. Refused at the deepest term's sentence when no
-    /// stack this build maps holds that depth.
+    /// stack this build maps holds that depth, or when the system refuses to map it.
     pub(crate) fn run<T>(
         &self,
         stage: &'static str,
@@ -1018,7 +1018,8 @@ impl DeepestTerm {
 
 /// Work refused by [`DeepestTerm::run_located`].
 pub(crate) struct TooDeepAt {
-    /// Why: the depth, the stack it needs and the largest this build maps.
+    /// Why: the depth, the stack it needs, and the limit that refused it (the largest stack this
+    /// build maps, or the system's refusal to map it).
     pub(crate) message: String,
     /// The `TermTooDeep` error at the sentence that holds the deepest term, with `message`.
     pub(crate) at: Option<Diagnostic>,

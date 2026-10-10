@@ -1218,7 +1218,7 @@ fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> boo
     step_timer.discard_measurement();
     match cause {
         StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
-        StopCause::Deadline(_) | StopCause::StackExhausted => false,
+        StopCause::Deadline(_) | StopCause::StackExhausted(_) => false,
     }
 }
 

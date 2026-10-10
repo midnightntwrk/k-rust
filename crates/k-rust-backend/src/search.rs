@@ -2354,7 +2354,7 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
 fn stop_ends_search(cause: &StopCause) -> bool {
     match cause {
         StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
-        StopCause::Deadline(_) | StopCause::StackExhausted => false,
+        StopCause::Deadline(_) | StopCause::StackExhausted(_) => false,
     }
 }
 
@@ -3285,7 +3285,10 @@ mod tests {
             (StopCause::Cancelled, true),
             (prelude, true),
             (deadline, false),
-            (StopCause::StackExhausted, false),
+            (
+                StopCause::StackExhausted(crate::stop::StackLimit::ThreadBudget(0)),
+                false,
+            ),
         ] {
             assert_eq!(stop_ends_search(&cause), ends, "{cause:?}");
         }

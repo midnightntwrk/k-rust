@@ -220,11 +220,11 @@ fn kast_batch_accepts_what_a_single_case_accepts() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// When the system refuses to map a simplification stack segment (here under an address-space
-/// limit), the run reports its stop alone: no `stacker` panic text precedes it.
-#[test]
-#[ignore = "reproduces FOLLOWUPS: Stacker panic text before `StackExhausted`"]
-fn a_refused_stack_segment_prints_no_panic_text() {
+/// `kcompile` a definition whose program `build(n, z)` builds the term `c^n(z)` in `n` rewrite
+/// steps and then evaluates the recursive function `size` on it, which descends `n` levels in the
+/// simplifier, and `krun` `build(levels, z)` on it with the process's address space limited to
+/// `limit_kib` KiB (`ulimit -v`).
+fn krun_deep_under_address_limit(levels: usize, limit_kib: usize) -> Output {
     const SOURCE: &str = r#"
 module DEEP
   imports INT
@@ -257,13 +257,50 @@ endmodule
     );
     let output = Command::new("sh")
         .arg("-c")
-        .arg(r#"ulimit -v 500000; exec "$0" krun --definition "$1" -s Pgm -e 'build(100000, z)' --io off"#)
+        .arg(
+            r#"ulimit -v "$3"; exec "$0" krun --definition "$1" -s Pgm -e "build($2, z)" --io off"#,
+        )
         .arg(env!("CARGO_BIN_EXE_krust"))
         .arg(&compiled)
+        .arg(levels.to_string())
+        .arg(limit_kib.to_string())
         .stdin(Stdio::null())
         .output()
         .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    output
+}
+
+/// When the system refuses to map a simplification stack segment (here under an address-space
+/// limit), the run reports its stop alone: no `stacker` panic text precedes it.
+#[test]
+#[ignore = "TQ37 (owner): suppressing stacker's own panic text needs a probe mapping before each \
+            segment; until it is decided the text prints before krust's stop, which names the \
+            refused mapping (a_refused_stack_segment_stops_naming_the_refused_mapping)"]
+fn a_refused_stack_segment_prints_no_panic_text() {
+    let output = krun_deep_under_address_limit(100_000, 500_000);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("panicked at"), "{stderr}");
-    fs::remove_dir_all(root).unwrap();
+}
+
+/// A stop names the limit that stopped it. Under an address space of about 300 MB, far below the
+/// thread's 1 GiB stack budget, a recursion 200,000 levels deep (about 5 KiB of stack per level
+/// in a release build and more in the others, so several times the address space) is stopped by
+/// the system's refusal to map a segment: the run fails with a stop that names the refused
+/// mapping and does not claim that a recursion exhausted the thread's budget, which it did not
+/// reach.
+#[test]
+fn a_refused_stack_segment_stops_naming_the_refused_mapping() {
+    let output = krun_deep_under_address_limit(200_000, 300_000);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    let stop = stderr
+        .lines()
+        .find(|line| line.starts_with("error: "))
+        .unwrap_or_else(|| panic!("no error line: {stderr}"));
+    assert!(
+        stop.contains("simplification exhausted its native stack: the system refused to map"),
+        "{stderr}"
+    );
+    assert!(!stop.contains("a recursion went too deep"), "{stderr}");
 }
