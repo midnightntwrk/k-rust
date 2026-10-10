@@ -999,8 +999,10 @@ pub type SentenceKey = (Name, usize);
 ///
 /// The first axiom of a class in declaration order is kept with its variable names and sentence
 /// key for load diagnostics, and the origins of the others are appended to its origin list in
-/// declaration order. Each module is read once (`visit_module`), so a sentence reaches this function at most once
-/// and one key is never an origin twice.
+/// declaration order. The loader reads each module once (`visit_module`) and each of its
+/// sentences once (`rule_sentence_indices`), so no two items share a sentence key and appending
+/// never lists a sentence twice (`import_paths.rs` holds that a module reached by two import
+/// paths loads to the same classified axioms, origins included, as one reached by one path).
 /// Axioms that share a `UNIQUE_ID` but differ in anything compared above stay separate rules.
 /// Each axiom is hashed once by its `UNIQUE_ID` and a shape that ignores variable names
 /// (`axiom_shape`), and comparisons, each one traversal of the smaller axiom, run only between
@@ -1010,7 +1012,7 @@ pub(crate) fn collapse_equal_axioms(
     axioms: impl IntoIterator<Item = (ClassifiedAxiom, SentenceKey)>,
 ) -> Vec<(ClassifiedAxiom, SentenceKey)> {
     let mut collapsed = Vec::<ClassifiedAxiom>::new();
-    let mut sentences = Vec::<Vec<SentenceKey>>::new();
+    let mut sentences = Vec::<SentenceKey>::new();
     let mut classes = BTreeMap::<(String, u64), Vec<usize>>::new();
     for (mut axiom, sentence) in axioms {
         let candidates = classes
@@ -1022,28 +1024,17 @@ pub(crate) fn collapse_equal_axioms(
             .find(|&class| equal_axioms(&collapsed[class], &axiom))
         {
             Some(class) => {
-                if !sentences[class].contains(&sentence) {
-                    sentences[class].push(sentence);
-                    let origins = std::mem::take(&mut axiom.attributes_mut().origins);
-                    collapsed[class].attributes_mut().origins.extend(origins);
-                }
+                let origins = std::mem::take(&mut axiom.attributes_mut().origins);
+                collapsed[class].attributes_mut().origins.extend(origins);
             }
             None => {
                 candidates.push(collapsed.len());
-                sentences.push(vec![sentence]);
+                sentences.push(sentence);
                 collapsed.push(axiom);
             }
         }
     }
-    collapsed
-        .into_iter()
-        .zip(sentences.into_iter().map(|sentences| {
-            sentences
-                .into_iter()
-                .next()
-                .expect("each class records its first sentence")
-        }))
-        .collect()
+    collapsed.into_iter().zip(sentences).collect()
 }
 
 fn equal_axioms(left: &ClassifiedAxiom, right: &ClassifiedAxiom) -> bool {
@@ -4345,22 +4336,6 @@ mod tests {
             panic!("expected a rewrite");
         };
         assert_eq!(lhs, expected);
-    }
-
-    #[test]
-    fn a_sentence_reached_twice_is_one_origin() {
-        let rule = guarded_rewrite(["X", "Y"], "X", "Y", &location(1));
-        let copy = guarded_rewrite(["X", "Y"], "X", "Y", &location(2));
-
-        let collapsed = collapse(&[(&rule, 0), (&copy, 1), (&rule, 0)]);
-
-        let [axiom] = collapsed.as_slice() else {
-            panic!("expected one rule: {collapsed:?}");
-        };
-        assert_eq!(
-            origin_locations(axiom),
-            ["Location(1,1,1,9)", "Location(2,1,2,9)"]
-        );
     }
 
     /// `unary(Arg) = Result` for `Arg` in `Result`, with `concrete(Constrained)`.
