@@ -14,11 +14,13 @@ the outcomes must agree:
   native search and `krun --search` both reach `heads` and `tails`; bare
   `#[k::strict]` reaches counters 3 and 4 on both routes; two `#[k::rule]`
   fns with complementary guards need no group; the key emits nothing;
-- `anywhere`: `#[k::rule(anywhere)]` drops a leading `a` from `seq` at the
-  top, inside `wrap(..)`, and repeatedly on both routes; reassociating
-  `seq(seq(b, c), d)` is a pinned divergence (k-rust leaves the left-hand
-  side, which nests the anywhere-headed `seq`, unreduced with a residual
-  `#Ceil`; Java LLVM reassociates); each emitted rule carries `anywhere` and a
+- `anywhere`: `#[k::rule(anywhere)]` drops a leading `a` from a right-associative
+  `;` sequence at the top, inside `wrap(..)`, and repeatedly on both routes;
+  the emitted `reassociate` rule writes its left-nested `(S1 ; S2) ; S3` with
+  parentheses, so K reads back the tree KRS lowered; reassociating
+  `(b ; c) ; d` is a pinned divergence (k-rust leaves the left-hand side,
+  which nests the anywhere-headed `;`, unreduced with a residual `#Ceil`;
+  Java LLVM reassociates); each emitted rule carries `anywhere` and a
   `// krs-capability: AnywhereRule` comment, `symbols.json` records the
   requirement, and the Java Haskell reference route refuses the definition
   with `krs::capability::unavailable` before anything is kompiled;
@@ -169,14 +171,14 @@ CASTS_PROGRAMS = (
 NONDET = Fixture(MANIFEST, "krs-rule-forms-nondet")
 ANYWHERE = Fixture(MANIFEST, "krs-rule-forms-anywhere")
 ANYWHERE_PROGRAMS = (
-    Program("drop", "seq(a, b)", "accepted", "b"),
-    Program("drop-nested", "wrap(seq(a, b))", "accepted", "wrap(b)"),
-    Program("drop-repeated", "seq(a, seq(a, c))", "accepted", "c"),
-    # A pinned divergence: k-rust leaves `seq(seq(b, c), d)` unreduced with a
-    # residual `#Ceil(seq(b, c))`, because the left-hand side nests the
-    # anywhere-headed `seq`; Java LLVM reassociates.
-    Program("reassociate", "seq(seq(b, c), d)", "accepted", "seq(b, seq(c, d))"),
-    Program("reassociate-nested", "wrap(seq(seq(b, c), d))", "accepted", "wrap(seq(b, seq(c, d)))"),
+    Program("drop", "a ; b", "accepted", "b"),
+    Program("drop-nested", "wrap(a ; b)", "accepted", "wrap(b)"),
+    Program("drop-repeated", "a ; a ; c", "accepted", "c"),
+    # A pinned divergence: k-rust leaves `(b ; c) ; d` unreduced with a
+    # residual `#Ceil(b ; c)`, because the left-hand side nests the
+    # anywhere-headed `;`; Java LLVM reassociates.
+    Program("reassociate", "(b ; c) ; d", "accepted", "b ; c ; d"),
+    Program("reassociate-nested", "wrap((b ; c) ; d)", "accepted", "wrap(b ; c ; d)"),
 )
 ANYWHERE_REFUSAL = (
     "error[krs::capability::unavailable]: definition contains anywhere rules [drop-a, reassociate]; "
@@ -393,9 +395,9 @@ def verify_anywhere(harness: FixtureGate, pins: Ledger) -> None:
     harness.expand(ANYWHERE)
     emitted = harness.emit(ANYWHERE)
     emitted_attributes(emitted, (
-        "  // krs-capability: AnywhereRule reassociate\n  rule seq ( seq (",
-        "[anywhere, label(reassociate)]",
-        "  // krs-capability: AnywhereRule drop-a\n  rule seq ( a , S:Stmt ) => S:Stmt [anywhere, label(drop-a)]",
+        "  // krs-capability: AnywhereRule reassociate\n"
+        "  rule (S1:Stmt ; S2:Stmt) ; S3:Stmt => S1:Stmt ; S2:Stmt ; S3:Stmt [anywhere, label(reassociate)]",
+        "  // krs-capability: AnywhereRule drop-a\n  rule a ; S:Stmt => S:Stmt [anywhere, label(drop-a)]",
     ))
     symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
     requirements = symbols.get("capability_requirements")

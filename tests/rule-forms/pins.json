@@ -3,7 +3,7 @@
   "expand": {
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
     "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
-    "krs-rule-forms-anywhere": "88b743d9874a85b00a97c721079e923bee7750d12eaea3df7543bca868340c50",
+    "krs-rule-forms-anywhere": "f71bf961706e9c2102f3ee2c6044b41f9885608c49610eb5978f8f7424f2febf",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
     "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
     "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
@@ -22,7 +22,7 @@
       "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
     },
     "krs-rule-forms-anywhere": {
-      "definition.k": "9ff57bef179b5bdcd6fea1502f5810513a72ec4a8ce0da289b47a4765a16e607"
+      "definition.k": "b01afd6c438255b1e85927785b4496d27a68630b788f81885434359597a92d04"
     },
     "krs-rule-forms-casts": {
       "definition.k": "6b7c1e0d35a507e879059c1404b65f5111cf7c53efa147a5f01f26032ee6fcb6"
@@ -61,7 +61,7 @@
   "reference_sha256": {
     "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
     "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
-    "krs-rule-forms-anywhere": "9bd97b51a2d3e84b24f22ccbb1e528c4e7873305e6bf7539ae99d85fb7be9521",
+    "krs-rule-forms-anywhere": "aa123df748e232b1331bd8dcb81eb2bebad3cef80b7d96306f82302b8dd3c61a",
     "krs-rule-forms-casts": "4146ff37d7789a0bcf2794ac2e64e876ee21546846fa669b901aa0082df7bf25",
     "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",
     "krs-rule-forms-macros": "5d046f98abd1d9d698845850df164ba22ca537c37c8e532242757705c7bca979",
@@ -177,7 +177,7 @@
         },
         "java": {
           "parse": "accepted",
-          "run": "seq(b, seq(c, d))"
+          "run": "b ; c ; d"
         }
       },
       "reassociate-nested": {
@@ -187,7 +187,7 @@
         },
         "java": {
           "parse": "accepted",
-          "run": "wrap(seq(b, seq(c, d)))"
+          "run": "wrap(b ; c ; d)"
         }
       }
     },
@@ -902,7 +902,7 @@
         },
         "java": {
           "parse": "accepted",
-          "run": "seq(b, seq(c, d))"
+          "run": "b ; c ; d"
         }
       },
       "reassociate-nested": {
@@ -912,7 +912,7 @@
         },
         "java": {
           "parse": "accepted",
-          "run": "wrap(seq(b, seq(c, d)))"
+          "run": "wrap(b ; c ; d)"
         }
       }
     },

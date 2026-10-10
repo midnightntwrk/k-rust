@@ -5,6 +5,8 @@
 //! constructor that behaviour while it stays a constructor: `drop_a` removes
 //! a leading `a` from a sequence at the top, inside `wrap(..)`, or repeatedly,
 //! and `reassociate` rewrites a left-nested sequence to the right-nested form.
+//! `;` is right-associative, so the emitted K writes the left-nested
+//! `(S1 ; S2) ; S3` with parentheses and the right-nested one without.
 //! K's Haskell backend does not support anywhere rules, so the Java Haskell
 //! reference route refuses this definition.
 
@@ -12,11 +14,15 @@ use k::Term;
 use k::builtin::KSequence;
 
 k::sorts! {
+    #[k::bracket("(", ")")]
     Stmt;
 }
 
 #[k::constructors(sort = Stmt, result = k::KResult)]
-#[k::precedence((A, B, C, D, Wrap, Seq))]
+#[k::precedence(
+    (A, B, C, D, Wrap)
+    > right (Seq)
+)]
 #[rustfmt::skip]
 pub enum StmtSyntax {
     #[k::syntax("a")] A(),
@@ -24,7 +30,7 @@ pub enum StmtSyntax {
     #[k::syntax("c")] C(),
     #[k::syntax("d")] D(),
     #[k::syntax("wrap({inner})")] Wrap { inner: Stmt },
-    #[k::syntax("seq({lhs}, {rhs})")] Seq { lhs: Stmt, rhs: Stmt },
+    #[k::syntax("{lhs} ; {rhs}")] Seq { lhs: Stmt, rhs: Stmt },
 }
 
 #[k::configuration]
