@@ -1,5 +1,6 @@
 //! Portable SMT-LIB translation shared by native Z3 and solver-free builds: one pass per query
-//! script; a responsibility, not an algorithm; no counter of its own, no worklist.
+//! script, and one reachability search over its conjuncts' constants for the conjuncts a validity
+//! check sends (`closure_over`); a responsibility, not an algorithm; no counter of its own.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -893,46 +894,80 @@ fn collection_size_term(term: &Term) -> bool {
     )
 }
 
+/// The SMT constants `expression` mentions, in one walk of it.
 #[cfg(feature = "z3")]
-fn smt_variables(expression: &SExpr) -> BTreeSet<String> {
-    match expression {
-        SExpr::Atom(atom) if atom.starts_with("SMT-") => BTreeSet::from([atom.clone()]),
-        SExpr::Atom(_) => BTreeSet::new(),
-        SExpr::List(items) => items.iter().flat_map(smt_variables).collect(),
+fn smt_variables(expression: &SExpr) -> BTreeSet<&str> {
+    fn collect<'a>(expression: &'a SExpr, names: &mut BTreeSet<&'a str>) {
+        match expression {
+            SExpr::Atom(atom) if atom.starts_with("SMT-") => {
+                names.insert(atom);
+            }
+            SExpr::Atom(_) => {}
+            SExpr::List(items) => {
+                for item in items {
+                    collect(item, names);
+                }
+            }
+        }
     }
+    let mut names = BTreeSet::new();
+    collect(expression, &mut names);
+    names
 }
 
-/// The expressions that share an SMT constant with `interesting`, transitively. Dropping a
-/// conjunct weakens the query, so its `Sat` need not hold for the whole conjunction: the
-/// selection is `Exact` only when nothing was dropped.
+/// The expressions that share an SMT constant with `interesting`, transitively, each once and in
+/// `SExpr` order. Dropping a conjunct weakens the query, so its `Sat` need not hold for the whole
+/// conjunction: the selection is `Exact` only when nothing was dropped.
+///
+/// The selection is the set of expressions reachable from `interesting` in the graph that links
+/// each distinct expression to the constants it mentions. Each expression's constants are read
+/// once and indexed by constant, and a breadth-first search follows each constant once, however
+/// long the chains of shared constants are.
 #[cfg(feature = "z3")]
-fn closure_over(
-    interesting: &BTreeSet<String>,
-    expressions: Vec<SExpr>,
-) -> (Vec<SExpr>, Exactness) {
-    let mut variables = interesting.clone();
-    let mut remaining = expressions.into_iter().collect::<BTreeSet<_>>();
-    let mut selected = BTreeSet::new();
-    loop {
-        let added = remaining
+fn closure_over(interesting: &BTreeSet<&str>, expressions: Vec<SExpr>) -> (Vec<SExpr>, Exactness) {
+    let distinct = expressions
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let selected = {
+        let names = distinct.iter().map(smt_variables).collect::<Vec<_>>();
+        let mut mentioning = BTreeMap::<&str, Vec<usize>>::new();
+        for (index, expression_names) in names.iter().enumerate() {
+            for &name in expression_names {
+                mentioning.entry(name).or_default().push(index);
+            }
+        }
+        let mut selected = vec![false; distinct.len()];
+        let mut followed = BTreeSet::new();
+        let mut pending = interesting
             .iter()
-            .filter(|expression| !smt_variables(expression).is_disjoint(&variables))
-            .cloned()
-            .collect::<Vec<_>>();
-        if added.is_empty() {
-            let exactness = if remaining.is_empty() {
-                Exactness::Exact
-            } else {
-                Exactness::Approximate
-            };
-            return (selected.into_iter().collect(), exactness);
+            .copied()
+            .collect::<std::collections::VecDeque<&str>>();
+        while let Some(name) = pending.pop_front() {
+            if !followed.insert(name) {
+                continue;
+            }
+            for &index in mentioning.get(name).into_iter().flatten() {
+                if !selected[index] {
+                    selected[index] = true;
+                    pending.extend(names[index].iter().copied());
+                }
+            }
         }
-        for expression in added {
-            remaining.remove(&expression);
-            variables.extend(smt_variables(&expression));
-            selected.insert(expression);
-        }
-    }
+        selected
+    };
+    let exactness = if selected.iter().all(|&chosen| chosen) {
+        Exactness::Exact
+    } else {
+        Exactness::Approximate
+    };
+    let chosen = distinct
+        .into_iter()
+        .zip(selected)
+        .filter_map(|(expression, chosen)| chosen.then_some(expression))
+        .collect();
+    (chosen, exactness)
 }
 
 fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
@@ -1828,5 +1863,80 @@ mod tests {
                 arguments: 1,
             })
         );
+    }
+
+    /// The selection as a least fixed point computed by rounds: every round adds each remaining
+    /// expression that mentions a constant of the selection so far, until a round adds none.
+    #[cfg(feature = "z3")]
+    fn closure_by_rounds(
+        interesting: &BTreeSet<&str>,
+        expressions: Vec<SExpr>,
+    ) -> (Vec<SExpr>, Exactness) {
+        let mut constants = interesting
+            .iter()
+            .map(|&name| name.to_owned())
+            .collect::<BTreeSet<_>>();
+        let mut remaining = expressions.into_iter().collect::<BTreeSet<_>>();
+        let mut selected = BTreeSet::new();
+        loop {
+            let added = remaining
+                .iter()
+                .filter(|expression| {
+                    smt_variables(expression)
+                        .iter()
+                        .any(|&name| constants.contains(name))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if added.is_empty() {
+                let exactness = if remaining.is_empty() {
+                    Exactness::Exact
+                } else {
+                    Exactness::Approximate
+                };
+                return (selected.into_iter().collect(), exactness);
+            }
+            for expression in added {
+                remaining.remove(&expression);
+                constants.extend(
+                    smt_variables(&expression)
+                        .iter()
+                        .map(|&name| name.to_owned()),
+                );
+                selected.insert(expression);
+            }
+        }
+    }
+
+    /// Expressions over a few SMT constants and other atoms, nested a few levels.
+    #[cfg(feature = "z3")]
+    fn constant_expression() -> impl proptest::strategy::Strategy<Value = SExpr> {
+        use proptest::{collection::vec, prelude::*};
+        let atom = prop_oneof![
+            (0..6_u8).prop_map(|index| SExpr::atom(format!("SMT-{index}"))),
+            prop_oneof![Just("="), Just("and"), Just("x"), Just("0")].prop_map(SExpr::atom),
+        ];
+        atom.prop_recursive(3, 12, 3, |inner| vec(inner, 0..4).prop_map(SExpr::List))
+    }
+
+    #[cfg(feature = "z3")]
+    proptest::proptest! {
+        /// The breadth-first selection is the least set closed under sharing a constant with
+        /// the check or with a selected expression, which the rounds compute directly.
+        #[test]
+        fn breadth_first_selection_is_the_closure_by_rounds(
+            expressions in proptest::collection::vec(constant_expression(), 0..8),
+            interesting in proptest::collection::btree_set(0..6_u8, 0..3),
+        ) {
+            let interesting = interesting
+                .into_iter()
+                .map(|index| format!("SMT-{index}"))
+                .collect::<Vec<_>>();
+            let interesting = interesting.iter().map(String::as_str).collect::<BTreeSet<_>>();
+            proptest::prop_assert_eq!(
+                closure_over(&interesting, expressions.clone()),
+                closure_by_rounds(&interesting, expressions)
+            );
+        }
     }
 }

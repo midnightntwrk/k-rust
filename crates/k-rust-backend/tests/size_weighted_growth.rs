@@ -42,6 +42,13 @@ use k_rust_backend::{
     smt::{NoSolver, TranslationState},
     term::Term,
 };
+#[cfg(feature = "z3")]
+use k_rust_backend::{
+    rule::Predicate,
+    smt::{SmtSolver, Z3Solver},
+    substitution::Substitution,
+    term::Variable,
+};
 use k_rust_kore::{
     kore::parser::{parse_definition, parse_pattern},
     measure::{Counter, CountingAllocator, set_allocation_counters, snapshot},
@@ -668,4 +675,96 @@ fn printing_an_existential_chain_visits_its_predicates_linearly_in_its_depth() {
 #[test]
 fn a_negation_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("not", 400);
+}
+
+// ---------- SMT queries: which conjuncts a validity check sends ----------
+
+/// The variables `X0` to `Xn` of sort `Int`, read from `TEMPLATES`.
+#[cfg(feature = "z3")]
+fn int_variables(definition: &BackendDefinition, n: u64) -> Vec<Variable> {
+    let sort = term(definition, "X:SortInt{}").sort();
+    (0..=n)
+        .map(|index| Variable::new(format!("X{index}"), sort.clone()))
+        .collect()
+}
+
+/// The bytes one validity check of `checked` under `known` allocates, on a fresh solver so that
+/// no cached answer is read.
+#[cfg(feature = "z3")]
+fn validity_check_bytes(
+    definition: &BackendDefinition,
+    known: &[Predicate],
+    checked: &[Predicate],
+) -> u64 {
+    let solver = Z3Solver::new(definition).expect("the solver starts");
+    bytes_of(|| {
+        solver
+            .check_predicates(known, &Substitution::new(), checked)
+            .expect("no stop")
+            .expect("the check translates")
+    })
+}
+
+/// Checking an existential chain reads the SMT constants of its translation once.
+///
+/// Which known facts a check needs is decided by the constants the checked predicate mentions;
+/// a binder's constant is one of them, and the constants under a binder are those of its body,
+/// so collecting them is one walk of the translation, not one walk of the body per binder.
+#[cfg(feature = "z3")]
+#[test]
+fn checking_an_existential_chain_allocates_linearly_in_its_depth() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(TEMPLATES);
+    assert_linear("SMT check of an exists chain", "bytes", 200, |depth| {
+        let variables = int_variables(&definition, depth);
+        let sort = variables[0].sort.clone();
+        let mut chain = Predicate::Equals(
+            Term::variable(variables[0].clone()),
+            Term::domain_value(sort, "1"),
+        );
+        for bound in &variables[1..] {
+            chain = Predicate::Exists(bound.clone(), Box::new(chain));
+        }
+        validity_check_bytes(&definition, &[], &[chain])
+    });
+}
+
+/// Selecting the known conjuncts linked to a check reads each conjunct's constants once.
+///
+/// The known facts `Xi = X(i+1)` are linked to a check of `X0` one after the other. The facts a
+/// check needs are those reachable from its constants through shared constants, and a search
+/// that indexes each fact by its constants reaches every fact once, however long the chain of
+/// links that reaches it.
+#[cfg(feature = "z3")]
+#[test]
+fn selecting_linked_known_conjuncts_allocates_linearly_in_their_number() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(TEMPLATES);
+    assert_linear(
+        "SMT selection of linked known facts",
+        "bytes",
+        200,
+        |links| {
+            let variables = int_variables(&definition, links);
+            let sort = variables[0].sort.clone();
+            let known = variables
+                .windows(2)
+                .map(|pair| {
+                    Predicate::Equals(
+                        Term::variable(pair[0].clone()),
+                        Term::variable(pair[1].clone()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let checked = Predicate::Equals(
+                Term::variable(variables[0].clone()),
+                Term::domain_value(sort, "1"),
+            );
+            validity_check_bytes(&definition, &known, &[checked])
+        },
+    );
 }
