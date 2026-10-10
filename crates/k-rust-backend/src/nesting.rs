@@ -21,7 +21,9 @@
 //! The segment is bounded by [`STACK_LIMIT`], a fixed reservation far above any thread an
 //! embedder runs the backend on; work that would need more is refused with
 //! [`DefinitionError::InsufficientStack`] before any of it runs. Mapping a segment can also fail
-//! when the system refuses the reservation, which is refused the same way.
+//! when the system refuses the reservation ([`map_segment`]); that work is refused, also before
+//! any of it runs, with [`DefinitionError::StackSegmentRefused`], which names the refusal instead
+//! of a depth limit the work did not reach.
 //!
 //! The work must include everything that recurses over the deep terms: an operation returns only
 //! external results built inside the segment, and its internal terms are dropped inside it.
@@ -166,7 +168,8 @@ pub fn stack_for_depth(depth: usize) -> usize {
 /// The work runs on the current thread's stack when its remaining stack is unknown or covers
 /// [`stack_for_depth`]`(depth)`, and otherwise on a segment of that size. It is refused with
 /// [`DefinitionError::InsufficientStack`], without running, when the segment would exceed
-/// [`STACK_LIMIT`] or cannot be mapped.
+/// [`STACK_LIMIT`], and with [`DefinitionError::StackSegmentRefused`] when the system refuses to
+/// map it ([`map_segment`]).
 pub fn with_stack<R>(depth: usize, work: impl FnOnce() -> R) -> Result<R, DefinitionError> {
     #[cfg(target_family = "wasm")]
     {
@@ -182,29 +185,65 @@ pub fn with_stack<R>(depth: usize, work: impl FnOnce() -> R) -> Result<R, Defini
         if required <= remaining {
             return Ok(work());
         }
-        let refused = || DefinitionError::InsufficientStack {
-            depth,
-            required,
-            limit: STACK_LIMIT.max(remaining),
-        };
         if required > STACK_LIMIT {
-            return Err(refused());
+            return Err(DefinitionError::InsufficientStack {
+                depth,
+                required,
+                limit: STACK_LIMIT.max(remaining),
+            });
         }
-        // `stacker` maps the segment before it runs the work and panics when the mapping
-        // fails. A panic before `work` started is that failure, an ordinary refusal; a panic
-        // from `work` itself continues to unwind as it would have without the segment.
-        let mut started = false;
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            stacker::grow(required, || {
-                started = true;
-                work()
-            })
-        }));
-        match outcome {
-            Ok(result) => Ok(result),
-            Err(_) if !started => Err(refused()),
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
+        map_segment(required, work)
+            .map_err(|refused| DefinitionError::StackSegmentRefused { depth, refused })
+    }
+}
+
+/// The system's refusal to map a native stack segment of `size` bytes ([`map_segment`]).
+///
+/// It is a fact about the address space and memory the system grants the process, not about the
+/// work: the same work runs where the system grants the segment.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SegmentRefused {
+    /// The bytes of the segment the system refused.
+    pub size: usize,
+}
+
+impl std::fmt::Display for SegmentRefused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the system refused to map a native stack segment of {} bytes",
+            self.size
+        )
+    }
+}
+
+/// Run `work` on a new native stack segment of `size` bytes, which `stacker` maps before the work
+/// starts and unmaps after it ends, or refuse it with [`SegmentRefused`], without running it, when
+/// the system refuses that mapping.
+///
+/// Mapping a segment is an allocation of address space, which the system may refuse (an
+/// address-space limit, or memory it will not commit), and the work cannot run without it.
+/// `stacker` maps the segment before it calls the work and panics when the mapping fails, so a
+/// panic while the work has not been called is that refusal; a panic from the work itself
+/// continues to unwind to the caller as it would have on the thread's own stack. Every site that
+/// runs work on a segment it sizes itself goes through this function, so the refusal is
+/// recognized in one place and each site reports it as its own outcome.
+///
+/// `stacker` prints its panic message through the process's panic hook before the refusal is
+/// returned.
+#[cfg(not(target_family = "wasm"))]
+pub fn map_segment<T>(size: usize, work: impl FnOnce() -> T) -> Result<T, SegmentRefused> {
+    let mut work = Some(work);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stacker::grow(size, || {
+            let work = work.take().expect("the segment runs the work once");
+            work()
+        })
+    }));
+    match outcome {
+        Ok(result) => Ok(result),
+        Err(_) if work.is_some() => Err(SegmentRefused { size }),
+        Err(payload) => std::panic::resume_unwind(payload),
     }
 }
 
@@ -1041,6 +1080,27 @@ mod tests {
             let payload = panic.expect_err("the work's panic propagates");
             assert_eq!(payload.downcast_ref::<&str>(), Some(&"from the work"));
         });
+    }
+
+    /// A segment the system refuses (here larger than the address space of the process) is
+    /// refused with its size, without running the work; a segment it maps runs the work there,
+    /// and the work's own panic unwinds to the caller as it would on the thread.
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn a_segment_the_system_refuses_is_refused_without_running() {
+        let mut ran = false;
+        assert_eq!(
+            map_segment(1 << 60, || ran = true),
+            Err(SegmentRefused { size: 1 << 60 })
+        );
+        assert!(!ran);
+        assert_eq!(
+            map_segment(1 << 20, || remaining_stack().unwrap() <= 1 << 20),
+            Ok(true)
+        );
+        let panic = std::panic::catch_unwind(|| map_segment(1 << 20, || panic!("from the work")));
+        let payload = panic.expect_err("the work's panic propagates");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"from the work"));
     }
 
     /// Every shape the bound was measured on runs every entry point on a thread whose stack

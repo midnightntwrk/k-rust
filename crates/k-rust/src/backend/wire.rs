@@ -1575,7 +1575,7 @@ fn stopped_search_output<K: WireKore>(
         StopCause::Cancelled => Ok(IncompleteSearchOutput::Cancelled {
             state: search_state_output(state)?,
         }),
-        StopCause::StackExhausted => Ok(IncompleteSearchOutput::Simplification {
+        StopCause::StackExhausted(_) => Ok(IncompleteSearchOutput::Simplification {
             state: search_state_output(state)?,
             error: SearchFailureOutput::StackExhausted,
         }),

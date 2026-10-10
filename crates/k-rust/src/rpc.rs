@@ -560,7 +560,7 @@ impl From<StopCause> for RpcFault {
     fn from(cause: StopCause) -> Self {
         match cause {
             StopCause::Cancelled => Self::cancelled(),
-            StopCause::StackExhausted | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
+            StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
                 Self::runtime(cause.to_string(), None)
             }
         }
@@ -1200,7 +1200,7 @@ impl RpcService {
 fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
     match cause {
         StopCause::Deadline(_) => Ok("timeout"),
-        StopCause::Cancelled | StopCause::StackExhausted | StopCause::SolverPrelude(_) => {
+        StopCause::Cancelled | StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) => {
             Err(RpcFault::from(cause.clone()))
         }
     }
@@ -2913,15 +2913,14 @@ mod tests {
             (fault.code, fault.message.as_str()),
             (-32000, "Request cancelled")
         );
-        let fault = RpcFault::from(StopCause::StackExhausted);
+        let exhausted =
+            StopCause::StackExhausted(k_rust_backend::stop::StackLimit::ThreadBudget(1 << 30));
+        let fault = RpcFault::from(exhausted.clone());
         assert_eq!(
             (fault.code, fault.message.as_str()),
             (-32002, "Runtime error")
         );
-        assert_eq!(
-            fault.data_value().unwrap()["error"],
-            StopCause::StackExhausted.to_string()
-        );
+        assert_eq!(fault.data_value().unwrap()["error"], exhausted.to_string());
 
         let fault = implication_check_result(Ok(Err(ImplicationError::Simplification(
             SimplificationError::DisjunctiveResult {
@@ -6665,9 +6664,10 @@ endmodule
         assert!(rest.is_empty(), "{rest}");
         assert_eq!(responses[0]["id"], 1);
         assert_eq!(responses[0]["error"]["code"], -32002, "{:#}", responses[0]);
-        assert_eq!(
-            responses[0]["error"]["data"]["error"],
-            StopCause::StackExhausted.to_string(),
+        assert!(
+            responses[0]["error"]["data"]["error"].as_str().is_some_and(
+                |error| error.starts_with("simplification exhausted its native stack: ")
+            ),
             "{:#}",
             responses[0]
         );

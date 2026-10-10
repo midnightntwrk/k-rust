@@ -1833,7 +1833,7 @@ fn forgone_refinement_stop() -> Option<StopCause> {
     let stop = stop::check().err()?;
     match stop.cause() {
         StopCause::Cancelled | StopCause::SolverPrelude(_) => Some(stop.into_cause()),
-        StopCause::Deadline(_) | StopCause::StackExhausted => {
+        StopCause::Deadline(_) | StopCause::StackExhausted(_) => {
             stop.forgo_refinement();
             None
         }
@@ -1861,7 +1861,7 @@ fn proof_stop(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> ProofStop {
     step_timer.discard_measurement();
     match cause {
         StopCause::Deadline(_) => ProofStop::LeafAndFinish,
-        StopCause::StackExhausted => ProofStop::Leaf,
+        StopCause::StackExhausted(_) => ProofStop::Leaf,
         StopCause::Cancelled | StopCause::SolverPrelude(_) => ProofStop::Finish,
     }
 }

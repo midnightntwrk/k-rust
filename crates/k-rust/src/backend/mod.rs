@@ -482,7 +482,7 @@ impl From<StopCause> for BackendError {
         match cause {
             StopCause::Cancelled
             | StopCause::Deadline(_)
-            | StopCause::StackExhausted
+            | StopCause::StackExhausted(_)
             | StopCause::SolverPrelude(_) => Self(cause.to_string()),
         }
     }
@@ -1562,7 +1562,7 @@ fn stopped_halt_reason(
     match cause {
         StopCause::Cancelled => Ok((HaltReasonOutput::Cancelled, None)),
         StopCause::Deadline(_) => Ok((HaltReasonOutput::Timeout, Some(format!("{reason:?}")))),
-        StopCause::StackExhausted => Ok((
+        StopCause::StackExhausted(_) => Ok((
             HaltReasonOutput::SimplificationError,
             Some(format!("{reason:?}")),
         )),
@@ -4068,9 +4068,12 @@ endmodule
                     "{simplified}"
                 ),
                 Err(error) => assert!(
-                    error
+                    error.to_string().contains(
+                        &StopCause::StackExhausted(k_rust_backend::stop::StackLimit::ThreadBudget(
+                            0
+                        ))
                         .to_string()
-                        .contains(&StopCause::StackExhausted.to_string()),
+                    ),
                     "{error}"
                 ),
             }

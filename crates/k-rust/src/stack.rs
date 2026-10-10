@@ -82,24 +82,49 @@ pub(crate) const STACK_LIMIT: usize = 4 << 30;
 #[cfg(all(not(target_family = "wasm"), not(target_pointer_width = "64")))]
 pub(crate) const STACK_LIMIT: usize = 256 << 20;
 
-/// Work over terms deeper than any stack segment [`with_depth`] maps holds.
+/// Work over terms deeper than the stack [`with_depth`] could provide: no segment it maps holds
+/// them, or the system refused to map the one that would.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TooDeep {
     /// The depth of the deepest term the work walks.
     pub(crate) depth: usize,
     /// The stack that depth needs.
     pub(crate) required: usize,
-    /// The largest segment mapped.
-    pub(crate) limit: usize,
+    /// What refused that stack.
+    pub(crate) limit: StackLimit,
+}
+
+/// The limit that refused [`with_depth`] the stack its work needs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    target_family = "wasm",
+    expect(
+        dead_code,
+        reason = "on wasm32 `with_depth` runs every work and refuses none"
+    )
+)]
+pub(crate) enum StackLimit {
+    /// The stack needed exceeds the largest segment this build maps, whose bytes are given.
+    LargestSegment(usize),
+    /// The segment is within that limit, and the system refused to map it.
+    MappingRefused(k_rust_backend::nesting::SegmentRefused),
 }
 
 impl std::fmt::Display for TooDeep {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "a term {} levels deep needs {} bytes of native stack, more than the {} bytes this build provides",
-            self.depth, self.required, self.limit
-        )
+        let Self {
+            depth, required, ..
+        } = self;
+        match self.limit {
+            StackLimit::LargestSegment(largest) => write!(
+                formatter,
+                "a term {depth} levels deep needs {required} bytes of native stack, more than the {largest} bytes this build provides"
+            ),
+            StackLimit::MappingRefused(refused) => write!(
+                formatter,
+                "a term {depth} levels deep needs {required} bytes of native stack, and {refused}"
+            ),
+        }
     }
 }
 
@@ -107,7 +132,8 @@ impl std::fmt::Display for TooDeep {
 /// [`term_depth`] counts them), with stack for all of them: on the current stack when enough of
 /// it remains, and otherwise on a fresh segment of [`STACK_PER_LEVEL`] per level plus
 /// [`RED_ZONE`], which `stacker` maps for the duration of the work. Refused, without running,
-/// when that segment would exceed [`STACK_LIMIT`] or cannot be mapped.
+/// when that segment would exceed [`STACK_LIMIT`] or the system refuses to map it
+/// (`k_rust_backend::nesting::map_segment`), with that limit named.
 pub(crate) fn with_depth<T>(depth: usize, work: impl FnOnce() -> T) -> Result<T, TooDeep> {
     #[cfg(target_family = "wasm")]
     {
@@ -125,29 +151,18 @@ pub(crate) fn with_depth<T>(depth: usize, work: impl FnOnce() -> T) -> Result<T,
         if required <= remaining {
             return Ok(work());
         }
-        let refused = TooDeep {
+        let refused = |limit| TooDeep {
             depth,
             required,
-            limit: STACK_LIMIT.max(remaining),
+            limit,
         };
         if required > STACK_LIMIT {
-            return Err(refused);
+            return Err(refused(StackLimit::LargestSegment(
+                STACK_LIMIT.max(remaining),
+            )));
         }
-        // `stacker` maps the segment before it runs the work and panics when the mapping fails:
-        // a panic before the work started is that failure, a refusal; one from the work itself
-        // continues to unwind.
-        let mut started = false;
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            stacker::grow(required, || {
-                started = true;
-                work()
-            })
-        }));
-        match outcome {
-            Ok(result) => Ok(result),
-            Err(_) if !started => Err(refused),
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
+        k_rust_backend::nesting::map_segment(required, work)
+            .map_err(|mapping| refused(StackLimit::MappingRefused(mapping)))
     }
 }
 
@@ -210,7 +225,10 @@ mod tests {
         assert!(!ran);
         assert_eq!(refused.depth, depth);
         assert!(refused.required > STACK_LIMIT, "{refused:?}");
-        assert!(refused.limit >= STACK_LIMIT, "{refused:?}");
+        assert!(
+            matches!(refused.limit, StackLimit::LargestSegment(largest) if largest >= STACK_LIMIT),
+            "{refused:?}"
+        );
     }
 
     /// Work over terms that fit runs, on the current stack or on a segment of the size the

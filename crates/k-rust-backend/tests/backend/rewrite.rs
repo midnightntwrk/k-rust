@@ -6132,7 +6132,10 @@ fn unbounded_non_tail_recursion_reports_an_exhausted_stack() {
         .map_err(Stop::into_cause)
     });
     // The stop is the outer layer: no simplification and no failure of it exists.
-    assert_eq!(result, Err(StopCause::StackExhausted));
+    assert!(
+        matches!(result, Err(StopCause::StackExhausted(_))),
+        "{result:?}"
+    );
 }
 
 #[test]
@@ -6149,7 +6152,10 @@ fn an_embedder_sized_thread_reports_an_exhausted_stack() {
         .map_err(Stop::into_cause)
     });
     // The stop is the outer layer: no simplification and no failure of it exists.
-    assert_eq!(result, Err(StopCause::StackExhausted));
+    assert!(
+        matches!(result, Err(StopCause::StackExhausted(_))),
+        "{result:?}"
+    );
 }
 
 #[test]
@@ -6171,9 +6177,13 @@ fn stack_exhaustion_in_an_equation_condition_ends_execution_with_the_error() {
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one leaf, found {:?}", result.leaves);
     };
-    assert_eq!(
-        leaf.halt_reason,
-        HaltReason::Stopped(StopCause::StackExhausted)
+    assert!(
+        matches!(
+            leaf.halt_reason,
+            HaltReason::Stopped(StopCause::StackExhausted(_))
+        ),
+        "{:?}",
+        leaf.halt_reason
     );
 }
 
@@ -6196,9 +6206,13 @@ fn divergent_ground_recursion_at_the_default_budget_ends_with_an_exhausted_stack
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one leaf, found {:?}", result.leaves);
     };
-    assert_eq!(
-        leaf.halt_reason,
-        HaltReason::Stopped(StopCause::StackExhausted)
+    assert!(
+        matches!(
+            leaf.halt_reason,
+            HaltReason::Stopped(StopCause::StackExhausted(_))
+        ),
+        "{:?}",
+        leaf.halt_reason
     );
 }
 

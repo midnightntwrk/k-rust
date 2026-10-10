@@ -1365,7 +1365,7 @@ fn run_backend_with_solver(
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stop_fails_the_run(cause: &StopCause) -> bool {
     match cause {
-        StopCause::Cancelled | StopCause::StackExhausted | StopCause::SolverPrelude(_) => true,
+        StopCause::Cancelled | StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) => true,
         StopCause::Deadline(_) => false,
     }
 }
@@ -2212,7 +2212,10 @@ mod failed_halt_tests {
     /// exhausted, not with the variant's `Debug` form (`Stopped(StackExhausted)`).
     #[test]
     fn a_stopped_leaf_is_reported_with_its_cause_text() {
-        for cause in [StopCause::StackExhausted, StopCause::Cancelled] {
+        for cause in [
+            StopCause::StackExhausted(k_rust_backend::stop::StackLimit::ThreadBudget(1 << 30)),
+            StopCause::Cancelled,
+        ] {
             assert_eq!(
                 describe_failed_halt(&HaltReason::Stopped(cause.clone()), &Sort::simple("SortK")),
                 cause.to_string()

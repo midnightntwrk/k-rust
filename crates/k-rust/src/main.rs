@@ -3442,7 +3442,7 @@ fn kprove_stop_message(cause: StopCause) -> String {
         StopCause::SolverPrelude(PreludeFailure::Unknown(_))
         | StopCause::Cancelled
         | StopCause::Deadline(_)
-        | StopCause::StackExhausted => cause.to_string(),
+        | StopCause::StackExhausted(_) => cause.to_string(),
     }
 }
 

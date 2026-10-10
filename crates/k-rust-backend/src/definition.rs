@@ -879,6 +879,13 @@ pub enum DefinitionError {
         required: usize,
         limit: usize,
     },
+    /// The recursive passes over patterns and sorts nested `depth` levels deep need a stack
+    /// segment within the limit of [`InsufficientStack`](Self::InsufficientStack), and the system
+    /// refused to map it (`nesting::map_segment`).
+    StackSegmentRefused {
+        depth: usize,
+        refused: crate::nesting::SegmentRefused,
+    },
     Axiom(AxiomError),
     RulePattern(RulePatternError),
     Claim(ClaimError),
@@ -1047,6 +1054,11 @@ impl fmt::Display for DefinitionError {
             } => write!(
                 formatter,
                 "Patterns and sorts nested {depth} levels deep need about {required} bytes of stack, more than the {limit} bytes the backend provides for one operation"
+            ),
+            Self::StackSegmentRefused { depth, refused } => write!(
+                formatter,
+                "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, and {refused}",
+                refused.size
             ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
