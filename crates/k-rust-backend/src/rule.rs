@@ -59,7 +59,7 @@ use std::{
 
 use k_rust_kore::kore::ast::{self as kore, KoreString};
 use k_rust_kore::kore::walk;
-use k_rust_kore::measure::{self, Algorithm};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::{
     DEFAULT_RULE_PRIORITY, KoreAttribute, MalformedAttribute, OWISE_RULE_PRIORITY, WellKnownSymbol,
     rule_priority,
@@ -339,6 +339,7 @@ impl Predicate {
     }
 
     pub fn free_variables(&self) -> BTreeSet<Variable> {
+        measure::bump(Counter::SimplifyPredicateNodesVisited);
         match self {
             Self::True | Self::False => BTreeSet::new(),
             Self::Term(term) | Self::Ceil(term) | Self::Floor(term) => {
@@ -3145,6 +3146,7 @@ pub(crate) fn rename_predicate_rule_apart(
 /// Whether `predicate` mentions one of `variables`, free or bound: whether the set
 /// `collect_all_variables` builds for it meets `variables`.
 fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True | Predicate::False => false,
         Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
@@ -3173,6 +3175,7 @@ fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
 
 /// Whether `variable` occurs free in `predicate`, without collecting its free variables.
 pub(crate) fn mentions_free(predicate: &Predicate, variable: &Variable) -> bool {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True | Predicate::False => false,
         Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
@@ -3294,6 +3297,7 @@ pub(crate) fn collect_all_variables<'a>(
 }
 
 fn collect_binders(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
             variables.insert(variable.clone());

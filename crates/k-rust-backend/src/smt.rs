@@ -279,7 +279,7 @@ impl TranslationState {
                         // The power's value outside the integers is an uninterpreted function.
                         self.approximate(Exactness::Approximate);
                     }
-                    fill_placeholders(&template, &arguments)
+                    fill_placeholders(&template, arguments)
                 }
             },
             TermKind::DomainValue { sort, value }
@@ -1242,7 +1242,23 @@ const HOOK_ARGUMENT: &str = "KRUST-HOOK-ARGUMENT-";
 /// binding. `let` denotes substitution, so the formula is the one the copies write. No binding
 /// captures a name: an argument's translation is closed (it binds every `let` name it uses), and
 /// the template names only its own bindings.
-fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, TranslationError> {
+///
+/// The translations are taken by value and each is moved to the one place that states it, its
+/// single occurrence or its binding; only an atom named several times is copied. A nesting of
+/// hooks then builds each level from its own template and its arguments' translations, and
+/// copies none of the levels below it.
+fn fill_placeholders(expression: &SExpr, arguments: Vec<SExpr>) -> Result<SExpr, TranslationError> {
+    /// How the template states one argument.
+    enum Slot {
+        /// The translation itself, with the occurrences that still name it: an atom, or a list
+        /// named at most once. The last occurrence takes it.
+        Stated {
+            value: Option<SExpr>,
+            remaining: usize,
+        },
+        /// A list named more than once: the name of its `let` binding.
+        Bound(SExpr),
+    }
     fn count(expression: &SExpr, uses: &mut [usize]) {
         match expression {
             SExpr::Atom(atom) => {
@@ -1256,31 +1272,35 @@ fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, T
             SExpr::List(items) => items.iter().for_each(|item| count(item, uses)),
         }
     }
-    fn substitute(
-        expression: &SExpr,
-        arguments: &[SExpr],
-        names: &[Option<SExpr>],
-    ) -> Result<SExpr, TranslationError> {
+    fn substitute(expression: &SExpr, slots: &mut [Slot]) -> Result<SExpr, TranslationError> {
         match expression {
             SExpr::Atom(atom) => {
                 let Some(index) = placeholder(atom) else {
                     return Ok(expression.clone());
                 };
-                if index == 0 || index > arguments.len() {
+                if index == 0 || index > slots.len() {
                     return Err(TranslationError::PlaceholderOutOfBounds {
                         placeholder: index,
-                        arguments: arguments.len(),
+                        arguments: slots.len(),
                     });
                 }
-                Ok(names[index - 1]
-                    .as_ref()
-                    .unwrap_or(&arguments[index - 1])
-                    .clone())
+                Ok(match &mut slots[index - 1] {
+                    Slot::Bound(name) => name.clone(),
+                    Slot::Stated { value, remaining } => {
+                        *remaining -= 1;
+                        if *remaining == 0 {
+                            value.take()
+                        } else {
+                            value.clone()
+                        }
+                        .expect("an argument is taken by its last occurrence only")
+                    }
+                })
             }
             SExpr::List(items) => Ok(SExpr::List(
                 items
                     .iter()
-                    .map(|item| substitute(item, arguments, names))
+                    .map(|item| substitute(item, slots))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
         }
@@ -1288,24 +1308,25 @@ fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, T
 
     let mut uses = vec![0; arguments.len()];
     count(expression, &mut uses);
-    let names = arguments
-        .iter()
-        .zip(&uses)
+    let mut bindings = Vec::new();
+    let mut slots = arguments
+        .into_iter()
+        .zip(uses)
         .enumerate()
         .map(|(index, (argument, uses))| {
-            (*uses > 1 && matches!(argument, SExpr::List(_)))
-                .then(|| SExpr::atom(format!("{HOOK_ARGUMENT}{}", index + 1)))
+            if uses > 1 && matches!(argument, SExpr::List(_)) {
+                let name = SExpr::atom(format!("{HOOK_ARGUMENT}{}", index + 1));
+                bindings.push(SExpr::List(vec![name.clone(), argument]));
+                Slot::Bound(name)
+            } else {
+                Slot::Stated {
+                    value: Some(argument),
+                    remaining: uses,
+                }
+            }
         })
         .collect::<Vec<_>>();
-    let body = substitute(expression, arguments, &names)?;
-    let bindings = names
-        .iter()
-        .zip(arguments)
-        .filter_map(|(name, argument)| {
-            name.as_ref()
-                .map(|name| SExpr::List(vec![name.clone(), argument.clone()]))
-        })
-        .collect::<Vec<_>>();
+    let body = substitute(expression, &mut slots)?;
     Ok(if bindings.is_empty() {
         body
     } else {
@@ -1801,7 +1822,7 @@ mod tests {
     #[test]
     fn rejects_out_of_range_placeholders() {
         assert_eq!(
-            fill_placeholders(&SExpr::atom("#2"), &[SExpr::atom("one")]),
+            fill_placeholders(&SExpr::atom("#2"), vec![SExpr::atom("one")]),
             Err(TranslationError::PlaceholderOutOfBounds {
                 placeholder: 2,
                 arguments: 1,

@@ -109,11 +109,11 @@ endmodule
 /// `f` is total, and its only equation has a variable its left-hand side does not bind, so an
 /// attempt at `f(N)` is reported when the call stays in the result. The condition
 /// `f(N) >Int N orBool f(N) <=Int N` holds for every value of `f(N)`. Wherever it sits (an
-/// equation's `requires`, or a rule's `requires` that the solver or the simplifier decides),
+/// equation's `requires`, a rule's `requires` that the solver or the simplifier decides, or a
+/// rule's `ensures`, which the right-hand side's own unit of the rule attempt decides),
 /// every run ends in `done(20)`, with no call left anywhere, so the report of a call that no
 /// state and no result holds explains nothing: the runs report alike, and none reports.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: prover F1: a solver-decided rewrite-rule requires keeps the passed-over-equation reports"]
 fn a_condition_decided_for_every_value_of_a_call_reports_alike_wherever_it_sits() {
     let header = r"
 module MAIN
@@ -147,6 +147,12 @@ module MAIN
             "rule requires, simplifier-decided",
             r"
   rule <k> step(N) => step(N +Int 1) </k> requires N <Int 20 andBool (N >=Int 0 orBool f(N) ==Int 4)
+",
+        ),
+        (
+            "rule ensures, solver-decided",
+            r"
+  rule <k> step(N) => step(N +Int 1) </k> requires N <Int 20 ensures f(N) >Int N orBool f(N) <=Int N
 ",
         ),
     ];

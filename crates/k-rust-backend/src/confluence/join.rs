@@ -798,14 +798,15 @@ impl Join<'_, '_> {
                 if !simplified.effects.is_empty() || simplified.exhausted.is_some() {
                     return Step::Residual;
                 }
-                let constraints = simplified.constraints();
-                if constraints.contains(&crate::rule::Predicate::False)
+                if simplified
+                    .conjoined()
+                    .any(|predicate| *predicate == crate::rule::Predicate::False)
                     || simplified.undefined_term.is_some()
                 {
                     return Step::To(None);
                 }
-                if constraints
-                    .iter()
+                if simplified
+                    .conjoined()
                     .all(|predicate| *predicate == crate::rule::Predicate::True)
                     && matches!(simplified.term.kind(), TermKind::DomainValue { .. })
                 {

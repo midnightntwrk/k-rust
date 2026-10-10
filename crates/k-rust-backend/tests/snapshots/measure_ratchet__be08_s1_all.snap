@@ -11,6 +11,7 @@ simplify.rounds = 104
 simplify.invocations = 81
 simplify.nodes_skipped_evaluated = 180
 simplify.assumption_nodes = 1138
+simplify.predicate_nodes_visited = 186
 smt.queries = 128
 smt.solver_runs = 108
 smt.rlimit_count = 21843

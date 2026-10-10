@@ -502,6 +502,10 @@ pub enum Counter {
     /// Predicate nodes the predicate simplifier's assumption lookups walked: counted against
     /// the largest assumed conjunct, and hashed or copied when no larger.
     SimplifyAssumptionNodes,
+    /// Predicate nodes visited by the walks that ask which variables a predicate mentions
+    /// (whether it mentions some, or one free; the variables and binders it holds; its binders
+    /// renamed apart) and by matching a predicate equation's left-hand side against a predicate.
+    SimplifyPredicateNodesVisited,
     /// SMT queries issued, including result-cache hits.
     SmtQueries,
     /// SMT queries that ran a solver instance.
@@ -550,7 +554,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 92;
+    pub const COUNT: usize = 93;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -624,6 +628,7 @@ impl Counter {
         Counter::SimplifyBuiltinEvaluations,
         Counter::SimplifyRetractionNodes,
         Counter::SimplifyAssumptionNodes,
+        Counter::SimplifyPredicateNodesVisited,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
@@ -723,6 +728,7 @@ impl Counter {
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SimplifyRetractionNodes => "simplify.retraction_nodes",
             Counter::SimplifyAssumptionNodes => "simplify.assumption_nodes",
+            Counter::SimplifyPredicateNodesVisited => "simplify.predicate_nodes_visited",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",
