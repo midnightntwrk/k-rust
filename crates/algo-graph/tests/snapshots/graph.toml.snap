@@ -5811,7 +5811,7 @@ symbol = "SortInjector::term_sort_with_arity"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/sort_injections.rs"
-symbol = "SortInjector::sort_and_downcast"
+symbol = "SortInjector::cast_sort"
 
 [[node.sites]]
 crate = "k-rust"

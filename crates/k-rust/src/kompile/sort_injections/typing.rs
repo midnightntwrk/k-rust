@@ -82,10 +82,8 @@ pub struct SentenceTyping {
     /// The sort of each named variable that semantic-cast resolution determines.
     pub variables: BTreeMap<String, Sort>,
     /// The instance injection gives the label of each application of a parametric production,
-    /// one entry per sort parameter (`None` where it leaves the parameter open). It is the
-    /// label's own instance, which a downcast placing the application at a narrower sort does
-    /// not change. A path typed with different instances in the two branches of a rewrite has
-    /// no entry.
+    /// one entry per sort parameter (`None` where it leaves the parameter open). A path typed
+    /// with different instances in the two branches of a rewrite has no entry.
     pub(crate) instances: PathMap<Vec<Option<Sort>>>,
 }
 
@@ -344,13 +342,13 @@ pub fn sentence_typing(
 /// The typing is a read of compilation's own computation. Semantic casts are resolved by the
 /// resolution pass (its variable sorts and errors), a body with a rewrite is projected into its
 /// branches as injection projects it, and every sort and requirement comes from the injector on
-/// that resolved and projected term: the sort it places a term at (a downcast's target, an
-/// upcast's operand sort), a production's instantiated argument sorts (the selected overload,
+/// that resolved and projected term: the sort it places a term at (an upcast's operand sort),
+/// a production's instantiated argument sorts (the selected overload,
 /// the joint parametric solver), the least upper bound of a rewrite's branches, the sort of an
 /// as-pattern's sides, sequence items at `KItem` or `K`, and conditions at `Bool`. Each term is
 /// checked at its position with the injector's decision (one injection, the `K` sequence, the
 /// sequence injected above `K`, or a collection or user-list wrapper), so a sentence compilation
-/// rejects for an ill-sorted term, an incomparable cast, an ambiguous instantiation, or
+/// rejects for an ill-sorted term, a cast that is not an upcast, an ambiguous instantiation, or
 /// disagreeing variable annotations returns that error here.
 ///
 /// The injector runs after cell concretization, which a loaded sentence has not had; the view
@@ -361,8 +359,7 @@ pub fn sentence_typing(
 /// is declared below `KItem`.
 ///
 /// The view does not infer: a variable nothing types reports no sort, though its position still
-/// reports its requirement. A cast's operand reports the cast's sort as its requirement; below a
-/// downcast the operand's own sort is above it.
+/// reports its requirement. A cast's operand reports the cast's sort as its requirement.
 pub struct SentenceTyper<'a> {
     injector: SortInjector<'a, 'a>,
     declared: PartialOrder<Sort>,
@@ -1077,27 +1074,8 @@ impl<'a, 'view, 'definition, 't> Walk<'a, 'view, 'definition, 't> {
     ) -> Result<Slot<'r>, SortInjectionError> {
         let injector = self.injector;
         let term = self.projected(resolved);
-        let (sort, downcast) = self.infer(&term, |term| {
-            injector.sort_and_downcast(term, Some(hint), false)
-        })?;
-        // A downcast is injected as `project:S` over the term without its cast sort, whose
-        // children are then placed by that term's own sort.
-        let stripped;
-        let (children_of, actual) = if downcast.is_some() {
-            let mut without_cast = term.as_ref().clone().into_unannotated();
-            if let Some(metadata) = term.metadata() {
-                let mut metadata = metadata.clone();
-                metadata.sort = None;
-                without_cast = without_cast.with_metadata(metadata);
-            }
-            stripped = Cow::Owned(without_cast);
-            let natural = self.infer(&stripped, |term| {
-                injector.term_sort(term, Some(&Sort::builtin(BuiltinSort::K)))
-            })?;
-            (&stripped, natural)
-        } else {
-            (&term, sort.clone())
-        };
+        let sort = self.infer(&term, |term| injector.term_sort(term, Some(hint)))?;
+        let (children_of, actual) = (&term, sort.clone());
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "Term is not a sentence kind; only the listed variants are special here"

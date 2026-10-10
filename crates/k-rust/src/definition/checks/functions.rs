@@ -10,7 +10,7 @@ use super::term_position::{TermPosition, positioned_children};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{InternalLabel, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Term};
 
 const COLLECTION_HOOKS: [&str; 13] = [
     "LIST.element",
@@ -118,8 +118,13 @@ fn visit_term(
         return;
     }
 
+    // A sort projection `project:S`, written `{T}:>S`, is a function compilation declares for
+    // every sort that has one: it computes the value of its operand read in `S`, and is defined
+    // only where that value is in `S`. It is judged like any other function symbol, whether the
+    // definition declares its production yet or not.
+    let sort_projection = matches!(label.generated(), Some(GeneratedLabel::Projection { .. }));
     let attributes = productions.attributes_for(&LabelHead::from(label));
-    if internal_labels.contains(&label.name) || attributes.is_none() {
+    if !sort_projection && (internal_labels.contains(&label.name) || attributes.is_none()) {
         *at_top = false;
         visit_arguments(
             term,
@@ -133,19 +138,26 @@ fn visit_term(
         return;
     }
 
-    let attributes = attributes.expect("checked above");
-    let hook = attributes.string(AttributeKey::Hook).unwrap_or("");
-    if attributes.has(AttributeKey::Function)
-        && position.lhs
-        && !*at_top
-        && !COLLECTION_HOOKS.contains(&hook)
-    {
-        diagnostics.push(Diagnostic::error(
-            DiagnosticCode::IllegalFunctionOnLhs,
+    let hook = attributes
+        .and_then(|attributes| attributes.string(AttributeKey::Hook))
+        .unwrap_or("");
+    let function = sort_projection
+        || attributes.is_some_and(|attributes| attributes.has(AttributeKey::Function));
+    if function && position.lhs && !*at_top && !COLLECTION_HOOKS.contains(&hook) {
+        let message = if sort_projection {
+            format!(
+                "Illegal sort projection {} on LHS of rule: `{{T}}:>S` computes the value of T read in S, and a left-hand side is matched; a variable `X:S` matches the terms of sort S. Consider adding `simplification` attribute to the rule if this is intended.",
+                label.name
+            )
+        } else {
             format!(
                 "Illegal function symbol {} on LHS of rule. Consider adding `simplification` attribute to the rule if this is intended.",
                 label.name
-            ),
+            )
+        };
+        diagnostics.push(Diagnostic::error(
+            DiagnosticCode::IllegalFunctionOnLhs,
+            message,
             sentence,
         ));
     }
