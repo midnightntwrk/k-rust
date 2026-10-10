@@ -7628,27 +7628,34 @@ fn places_a_bag_cell_written_beside_its_only_possible_parent_beside_written_inst
     );
 }
 
-// <top> holds one <threads>, but that <threads> holds many <thread> cells, and the rule does not
-// state which of them holds the <env> written beside <threads>: thread 1 or another one. Likewise
-// for the <d> of some <a2> in some <r> of the one <a>. Such a rule stays rejected.
+// <top> holds one <threads>, and that <threads> holds many <thread> cells; likewise for the
+// <d> of some <a2> in some <r> of the one <a>. A cell written beside the one <threads> (or <a>)
+// states nothing its spelling inside that cell does not, so it is moved there and both spellings
+// compile to one rule, whatever completion reads inside that cell.
 #[test]
-fn rejects_a_cell_written_beside_its_only_possible_ancestor_through_a_repeated_cell() {
-    for (configuration, rule) in [
+fn compiles_a_cell_beside_its_only_possible_ancestor_through_a_repeated_cell_as_inside_it() {
+    for (configuration, beside, inside) in [
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E => 0 </env> ... </threads>",
         ),
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="List"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E </env>",
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E </env> ... </threads>",
         ),
         (
             r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#,
             "<k> 0 => 1 </k> <a> <x> X </x> ... </a> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d>",
+            "<k> 0 => 1 </k> <a> <x> X </x> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d> ... </a>",
         ),
     ] {
-        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
-        assert_eq!(errors, ["Ambiguous completion: <top>"], "{rule}");
+        let placed = concretized_cell_rule(configuration, beside)
+            .unwrap_or_else(|errors| panic!("{beside}: {errors:?}"));
+        let in_place = concretized_cell_rule(configuration, inside)
+            .unwrap_or_else(|errors| panic!("{inside}: {errors:?}"));
+        assert_eq!(placed, in_place, "{beside}");
     }
 }
 
@@ -7973,39 +7980,53 @@ fn places_a_cell_written_beside_its_only_possible_ancestor_in_a_fresh_commutativ
     );
 }
 
-// The <d> written beside the one <a> would need a fresh <r> in it, and the rule does not state
-// that <d> is in that one rather than in an <r> that is in <a> already or may be: one written
-// there, one a variable of <a> may stand for, or one completion builds around another cell moved
-// into <a> with <d>. A List <r> would also give the fresh <r> a position the rule does not state.
-// The <d> then stays beside <a>, where it needs a second <a>.
+// The <d> written beside the one <a> is moved into it whatever <a> holds: a written <r>, a
+// variable that may stand for <r> cells, another cell moved into <a> with <d>, or a List <r>. The
+// rule is the one written with <d> inside <a>, compiled or rejected alike. With a List <r> and no
+// other item of the list in <a>, the fresh <r> holding <d> is the only item written in the list
+// and is placed before the rest of it.
 #[test]
-fn rejects_a_cell_written_beside_its_only_possible_ancestor_when_its_repeated_parent_is_not_fresh()
-{
+fn compiles_a_cell_beside_its_only_possible_ancestor_as_inside_it_whatever_the_ancestor_holds() {
     let map = r#"<top> <k> 0 </k> <a> <x> 0 </x> <w> <u> 0 </u> </w> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#;
     let list = r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="List"> <d> 0 </d> </r> </a> </top>"#;
-    let rejection = r#"Attempting to concatenate cells not of multiplicity="*": TopCell"#;
-    for (configuration, rule, moved) in [
+    for (configuration, beside, inside) in [
         (
             map,
             "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> ... </a> <d> 5 => 6 </d>",
-            "",
+            "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d> ... </a>",
         ),
-        (map, "<a> <x> X </x> B:Bag ... </a> <d> 5 => 6 </d>", ""),
+        (
+            map,
+            "<a> <x> X </x> B:Bag ... </a> <d> 5 => 6 </d>",
+            "<a> <x> X </x> B:Bag <d> 5 => 6 </d> ... </a>",
+        ),
         (
             map,
             "<a> <x> X </x> ... </a> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d>",
-            "",
+            "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d> ... </a>",
         ),
         (
             map,
             "<a> <x> X </x> ... </a> <w> <u> 1 </u> <r> <rid> 1 </rid> ... </r> </w> <d> 5 => 6 </d>",
-            " (after moving <r> written inside <w> to where the configuration declares it)",
+            "<a> <x> X </x> <w> <u> 1 </u> <r> <rid> 1 </rid> ... </r> </w> <d> 5 => 6 </d> ... </a>",
         ),
-        (list, "<a> <x> X </x> ... </a> <d> 5 => 6 </d>", ""),
+        (
+            list,
+            "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+            "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+        ),
     ] {
-        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
-        assert_eq!(errors, [format!("{rejection}{moved}")], "{rule}");
+        assert_eq!(
+            concretized_cell_rule(configuration, beside),
+            concretized_cell_rule(configuration, inside),
+            "{beside}"
+        );
     }
+    let body = concretized_cell_rule(list, "<a> <x> X </x> ... </a> <d> 5 => 6 </d>").unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(`<x>`(X),`_RCellList_`(`<r>`(`<d>`(#token("5","Int")=>#token("6","Int"))),_DotVar2))),_DotVar0)"#
+    );
 }
 
 // The <a> written in <top> is in one of many <r> cells, and the rule does not state that the <d>

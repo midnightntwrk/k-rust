@@ -593,7 +593,6 @@ const REPEATED_BELOW_A: &str = r#"<T> <k> 0 </k> <A> <x> 0 </x> <R multiplicity=
 /// only reading, so they compile under every O4 option) must compile; the others, and every List
 /// case (which depends on O7, the fresh List position), may be rejected alike.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: a `*` cell gets a fresh instance the rule does not state"]
 fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
     let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
