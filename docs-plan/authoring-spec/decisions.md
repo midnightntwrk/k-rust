@@ -216,6 +216,13 @@ bug — report it, don't guess.
   both reject, and one that matches a whole configuration cell name or cell
   property name at a `prec` at least as high as K's strongest token for it,
   which Java K's configuration parser then cannot read.
+  *Note (2026-10 follow-up, symbol collisions):* a production's emitted
+  symbol is its variant or struct name with a lowercase first letter. When
+  two enum variants of one definition would derive the same symbol, each of
+  them takes its enum's name as a prefix instead (`ExpSyntax::Dot` is
+  `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`); a variant with a
+  unique name keeps the short symbol, and a symbol that still collides is
+  rejected (`krs::analysis::symbol-name-collision`).
 
 ## D. Configuration
 

@@ -4,8 +4,8 @@
     "krs-grammar-partition": "91351b472852bc451f64a4cdc2c4ca8451ae07171a247ced7a096eeb65259282",
     "krs-grammar-format": "e7e75d0ac707631752b351fb0dfaf3d51af2141018a18c6efbb88b95ce6b68f4",
     "krs-grammar-prefer": "12aa841c355d010c8f5db122211ac01d24eae64f440da105064650f14a508151",
-    "krs-grammar-overload": "cf72b4bf201a32820fc08eaf05e4ca6ff94a9509d054011cc75e7eaafeb3693d",
-    "krs-grammar-overload-ambiguous": "120f8a6261c10c6bb821f07491881e2ab1fd09c8192d71c91ffe899faeaee588",
+    "krs-grammar-overload": "ee127ee1258546bd786e2485a8818073c76dcf0d75881eb794da312d3716408d",
+    "krs-grammar-overload-ambiguous": "914c8e1bc684ca6d0438fc2996f5d2ec6e9f1a3ec553dcd8c554c3a8987f9799",
     "krs-grammar-visibility": "ff411851741b7f03e512aa4eb0be8a290c3e316c958cd23268d718748a073cce",
     "krs-grammar-memo": "f9f98147d5603d1462625f8cd37abb7244a5f70ebd1e75c9957b4164cfbb2a70",
     "krs-grammar-tokens": "d77547a86c535387135e586f5f855dcdaba28164242dab0b1aa085a234307f5a",
@@ -28,10 +28,10 @@
       "definition.k": "67edfbe87cfcc6c657016bb16f8ddeed61c6f3e2c9e11e0668daadd77ba85966"
     },
     "krs-grammar-overload": {
-      "definition.k": "ab71641453cbb99b24ce6ce0c7516812db756b68750903e92c896b2bfd02be72"
+      "definition.k": "ec483c5c9101ee634d97080ee5437ba75b6dffdb5ecd860f15f7088289afbb60"
     },
     "krs-grammar-overload-ambiguous": {
-      "definition.k": "221131bcd5c71af8eaea99e3629d6cef2233d3625ec7536860da1308424d0bd2"
+      "definition.k": "0ebae8d6d1e443b1646a924402f0a5264b23cf043639d6d1c2c501c363b6ba3a"
     },
     "krs-grammar-visibility": {
       "definition.k": "6f80127fe9961ab5505f8259da4fbda130ebe1fdac0883958524f53b48a7f36a"
@@ -75,8 +75,8 @@
     "krs-grammar-kevm-case": "cd3b6a00d3e958f904a49796b8d252b6ec46ded60fdea007d54bfe7b8245f0ab",
     "krs-grammar-format": "f579f9fbe1cfa7110ca96492451bb829b78f9369883b8e64d8f67d401e558961",
     "krs-grammar-prefer": "39f07f13a344cae9b693afdf630972b3f0c7abbe6ab1eac56fbfcba9d2c071c0",
-    "krs-grammar-overload": "0f11b9406b0de0cfe1f0274e303ac8adef387b5e70ee05a3314c52117d9d99d1",
-    "krs-grammar-overload-ambiguous": "17e9281d0b410b8f373560cfe5acd7f690841b09677c8c6b49f1873c8a1ce8fa",
+    "krs-grammar-overload": "9ee345597e98a86fe7dbaa301c7b382edf9c88144af2895bbc3a56540f2ab11d",
+    "krs-grammar-overload-ambiguous": "2aaf7e7034a69124bfb346ba66d29c9ac51d4815c2d7cf5a84cf9424da451679",
     "krs-grammar-visibility": "bb5f2b50211ff0e96e03b6feaf4f9ebc2635773e2082a31700bb8a09e34ffc80",
     "visibility-induced": "5a303ef0dbc2a7c973c9a5a29e4d420ed2739cf1286b34c3ba0f80b209d76b8f",
     "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73",
@@ -398,8 +398,8 @@
   },
   "kore_attributes": {
     "krs-grammar-prefer": "ifThen \nifThenElse \n",
-    "krs-grammar-overload": "dot \nlvalDot \noverload Lbldot LbllvalDot\n",
-    "krs-grammar-overload-ambiguous": "dot \nlvalDot \n",
+    "krs-grammar-overload": "expSyntaxDot \nlValSyntaxDot \noverload LblexpSyntaxDot LbllValSyntaxDot\n",
+    "krs-grammar-overload-ambiguous": "expSyntaxDot \nlValSyntaxDot \n",
     "krs-grammar-visibility": "inc \nwrap \n",
     "krs-grammar-memo": "square memo=''\n",
     "krs-grammar-strict-lists": "expsCons \nexpsNil \nvalsCons \nvalsNil \noverload LblexpsCons LblvalsCons\noverload LblexpsNil LblvalsNil\n",

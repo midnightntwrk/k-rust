@@ -2,10 +2,12 @@
 //!
 //! `a.b` reads as an `Exp` field access and as an `LVal` field access: the two
 //! productions have the same text in different sorts. `overload =
-//! ExpSyntax::Dot` puts `LValSyntax::LvalDot` in the family of
-//! `ExpSyntax::Dot`, so parsing picks the most specific production, `LvalDot`,
-//! and the rule `lval` fires on `a.b`. `1.b` has a base that is not an `LVal`,
-//! so it parses as `Dot`. Both definitions carry K's overload axiom.
+//! ExpSyntax::Dot` puts `LValSyntax::Dot` in the family of
+//! `ExpSyntax::Dot`, so parsing picks the most specific production,
+//! `LValSyntax::Dot`, and the rule `lval` fires on `a.b`. `1.b` has a base
+//! that is not an `LVal`, so it parses as `ExpSyntax::Dot`. Both definitions
+//! carry K's overload axiom. The two variants share the name `Dot`, so each
+//! symbol takes its enum's name: `expSyntaxDot` and `lValSyntaxDot`.
 
 use k::KResult;
 use k::builtin::{Id, Int, KSequence};
@@ -27,12 +29,12 @@ pub enum ExpSyntax {
 }
 
 #[k::constructors(sort = LVal, result = KResult)]
-#[k::precedence((LvalDot))]
+#[k::precedence((Dot))]
 #[rustfmt::skip]
 pub enum LValSyntax {
     /// The same `.` syntax, but an `LVal` when its base is an `LVal`.
     #[k::syntax("{base}.{field}", overload = ExpSyntax::Dot)]
-    LvalDot { base: LVal, field: Id },
+    Dot { base: LVal, field: Id },
 }
 
 #[k::constructors(sort = Kind, result = KResult)]
@@ -69,5 +71,5 @@ k::rules! {
     for Exp;
     use LValSyntax::*;
 
-    lval: LvalDot { base: _, field: _ } => Kinds::IsLval();
+    lval: Dot { base: _, field: _ } => Kinds::IsLval();
 }

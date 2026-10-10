@@ -30,12 +30,13 @@ partition end to end on both routes:
   `second`, and an unambiguous program is unaffected; `prefer` is a parser
   attribute that K 7.1.337 does not write to KORE, and the native
   `syntaxDefinition.kore` agrees (pinned);
-- `overload`: `LValSyntax::LvalDot` overloads `ExpSyntax::Dot`, so `a.b`
-  parses as `lvalDot(a, b)` on both routes and the rule written on the `LVal`
-  production fires, while `1.b` stays a `dot`; both KOREs carry the one
-  `symbol-overload` axiom of the family. `overload-ambiguous`, the same
-  grammar without the key, makes `a.b` ambiguous on both routes and has no
-  axiom;
+- `overload`: `LValSyntax::Dot` overloads `ExpSyntax::Dot`; the same-named
+  variants derive the symbols `lValSyntaxDot` and `expSyntaxDot`, so `a.b`
+  parses as `lValSyntaxDot(a, b)` on both routes and the rule written on the
+  `LVal` production fires, while `1.b` stays an `expSyntaxDot`; both KOREs
+  carry the one `symbol-overload` axiom of the family. `overload-ambiguous`,
+  the same grammar without the key, makes `a.b` ambiguous on both routes and
+  has no axiom;
 - `visibility`: the non-`pub` `Helper::Wrap` is emitted `private`; `inc 1`
   runs to `2` through it on both routes, a program `helper(1)` is rejected on
   both, and a module importing the definition cannot use `helper(..)` in a
@@ -269,18 +270,18 @@ PREFER_ATTRIBUTES = (("ifThen", "ifThenElse"), ("prefer", "avoid"))
 OVERLOAD_PROGRAMS = (
     Program(
         "lval-access", "a.b", "accepted", "lvalue",
-        kast='lvalDot(#token("a","Id"),#token("b","Id"))',
+        kast='lValSyntaxDot(#token("a","Id"),#token("b","Id"))',
     ),
     Program(
         "value-access", "1.b", "accepted", "value",
-        kast='dot(#token("1","Int"),#token("b","Id"))',
+        kast='expSyntaxDot(#token("1","Int"),#token("b","Id"))',
     ),
 )
 OVERLOAD_AMBIGUOUS_PROGRAMS = (
     Program("lval-access", "a.b", "rejected"),
     Program("value-access", "1.b", "accepted", "value"),
 )
-OVERLOAD_ATTRIBUTES = (("dot", "lvalDot"), ("overload",))
+OVERLOAD_ATTRIBUTES = (("expSyntaxDot", "lValSyntaxDot"), ("overload",))
 KEVM_PROGRAMS = (
     Program("emit", "emit(1)", "accepted", "done"),
     Program("log-entry", "logEntry(1, .List, .Bytes)", "rejected"),
@@ -552,7 +553,7 @@ def main() -> int:
         }
         if len(axioms[OVERLOAD.package]) != 1 or axioms[OVERLOAD_AMBIGUOUS.package]:
             raise GateError(f"expected one overload axiom with the key and none without it: {axioms}")
-        print("PASS overload: a.b is lvalDot on both routes and the LVal rule fires; one overload axiom; ambiguous without the key")
+        print("PASS overload: a.b is lValSyntaxDot on both routes and the LVal rule fires; one overload axiom; ambiguous without the key")
 
         harness.check(VISIBILITY)
         harness.expand(VISIBILITY)

@@ -564,6 +564,7 @@ impl NamingPass {
         let mut modules = BTreeMap::<String, String>::new();
         let mut list_owners = BTreeMap::<String, String>::new();
         let mut production_displays = BTreeMap::<String, String>::new();
+        let qualified = qualified_variant_symbols(theory);
 
         for module in theory.modules() {
             validate_module_name(module.id().as_str())?;
@@ -607,7 +608,11 @@ impl NamingPass {
                 claim(
                     &mut emitted,
                     name.clone(),
-                    owner,
+                    format!(
+                        "sort `{}` of {}",
+                        sort.id().item_name(),
+                        sort.id().package().k_namespace()
+                    ),
                     CollisionNamespace::EmittedSymbol,
                     sort.origin(),
                 )?;
@@ -619,7 +624,8 @@ impl NamingPass {
             for production in module.productions() {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", lower_hex(owner.as_bytes())))?;
-                let name = production_symbol_name(production, &owner);
+                let name =
+                    production_symbol_name(production, &owner, qualified.contains(production.id()));
                 validate_label_name("production symbol", &name)?;
                 claim(
                     &mut identities,
@@ -633,7 +639,10 @@ impl NamingPass {
                 let claimed = claim(
                     &mut emitted,
                     name.clone(),
-                    owner,
+                    format!(
+                        "production `{display}` of {}",
+                        production.id().package().k_namespace()
+                    ),
                     CollisionNamespace::EmittedSymbol,
                     production.origin(),
                 );
@@ -2967,7 +2976,48 @@ fn list_enum_name(production: &krs_ir_levels::SemanticProduction) -> Option<&str
     }
 }
 
-fn production_symbol_name(production: &krs_ir_levels::SemanticProduction, owner: &str) -> String {
+/// Enum variants whose variant-derived symbol another production of the
+/// definition derives too (FU-19). Each takes its enum's name as a prefix
+/// (`ExpSyntax::Dot` is `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`),
+/// so same-named variants of different families do not collide; every other
+/// symbol keeps the variant or struct name alone.
+fn qualified_variant_symbols(theory: &SemanticTheory) -> BTreeSet<StableItemId> {
+    let mut derived = BTreeMap::<String, Vec<&StableItemId>>::new();
+    for production in theory
+        .modules()
+        .iter()
+        .flat_map(SemanticModule::productions)
+    {
+        if list_enum_name(production).is_none()
+            && production.explicit_symbol().is_none()
+            && !production.id().is_generated_production()
+        {
+            derived
+                .entry(lower_camel(production.id().item_name()))
+                .or_default()
+                .push(production.id());
+        }
+    }
+    derived
+        .into_values()
+        .filter(|ids| ids.len() > 1)
+        .flatten()
+        .filter(|id| enum_family(id).is_some())
+        .cloned()
+        .collect()
+}
+
+/// The enum of an enum-variant production.
+fn enum_family(id: &StableItemId) -> Option<&str> {
+    id.disambiguator()
+        .strip_prefix(krs_ir::ENUM_VARIANT_DISAMBIGUATOR_PREFIX)
+}
+
+fn production_symbol_name(
+    production: &krs_ir_levels::SemanticProduction,
+    owner: &str,
+    qualified: bool,
+) -> String {
     if let Some(list) = list_enum_name(production) {
         let is_cons = production
             .attributes()
@@ -2981,6 +3031,8 @@ fn production_symbol_name(production: &krs_ir_levels::SemanticProduction, owner:
     }
     if production.id().is_generated_production() {
         SymbolIdentity::generated_production_name(&short_hash(owner))
+    } else if let Some(family) = enum_family(production.id()).filter(|_| qualified) {
+        format!("{}{}", lower_camel(family), production.id().item_name())
     } else {
         lower_camel(production.id().item_name())
     }

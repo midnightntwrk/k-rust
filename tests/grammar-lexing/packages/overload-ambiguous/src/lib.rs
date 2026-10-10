@@ -1,6 +1,6 @@
 //! The `overload` fixture without the key.
 //!
-//! Without `overload`, `ExpSyntax::Dot` and `LValSyntax::LvalDot` are two
+//! Without `overload`, `ExpSyntax::Dot` and `LValSyntax::Dot` are two
 //! unrelated productions with the same text, so `a.b`, whose base is an `LVal`
 //! and therefore also an `Exp`, has two parses and both routes reject it.
 //! `1.b` still has one parse.
@@ -25,11 +25,11 @@ pub enum ExpSyntax {
 }
 
 #[k::constructors(sort = LVal, result = KResult)]
-#[k::precedence((LvalDot))]
+#[k::precedence((Dot))]
 #[rustfmt::skip]
 pub enum LValSyntax {
     #[k::syntax("{base}.{field}")]
-    LvalDot { base: LVal, field: Id },
+    Dot { base: LVal, field: Id },
 }
 
 #[k::constructors(sort = Kind, result = KResult)]
