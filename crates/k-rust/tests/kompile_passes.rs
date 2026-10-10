@@ -6895,28 +6895,47 @@ fn concretized_cell_rule_in(
 
 const OPTIONAL_IN_THREADS: &str = r#"<top> <k> 0 </k> <ts> <th multiplicity="*" type="Map"> <tid> 0 </tid> <o multiplicity="?"> <ov> 0 </ov> </o> </th> </ts> </top>"#;
 
+/// A conditional term as the K prelude declares it: its sort is a parameter of the production.
+const CONDITIONAL: &str = "syntax Bool ::= \"true\"\n syntax {Sort} Sort ::= \"#if\" Bool \"#then\" Sort \"#else\" Sort \"#fi\" [function, symbol(ite)]";
+
+// What completion places among a cell's children, wherever the item stands: terms of a cell sort,
+// variables, the empty bag. Every message that rejects an item says so, so the list must include
+// what completion does place.
+const PLACED: &str = "completion places among a cell's children only terms of a cell sort";
+
 // Completion places each item of a rewrite side among the children of the cell whose body holds
-// the rewrite. An item that is neither a cell, a variable nor the empty bag is a term the rule
-// writes that no child holds: the rule is rejected with an error naming it, never compiled
-// without it. `.Bag` writes no child, so on a rewrite side it stands for the unit of the slot the
-// other side occupies.
+// the rewrite. An item that is neither of a cell sort, a variable nor the empty bag is a term the
+// rule writes that no child holds: the rule is rejected with an error naming it as written, never
+// compiled without it. `.Bag` writes no child, so on a rewrite side it stands for the unit of the
+// slot the other side occupies. A production whose sort is one of its parameters fixes no sort for
+// its terms, so the message names none.
 #[test]
 fn rejects_a_rewrite_side_item_that_no_child_holds_and_names_it() {
     for (syntax, rule, named) in [
         (
             "syntax Bag ::= mko(Int) [function]",
             "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> => mko(2)) ... </th>",
-            "the function `mko(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+            "the function `mko(_)` of sort Bag, written on the right side of a rewrite in <th>",
         ),
         (
             "syntax Bag ::= bago(Int)",
             "<th> <tid> 1 </tid> (.Bag => bago(2)) ... </th>",
-            "the symbol `bago(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+            "the symbol `bago(_)` of sort Bag, written on the right side of a rewrite in <th>",
         ),
         (
             "",
             "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> #as O => <o> <ov> 2 </ov> </o>) ... </th>",
-            "the alias `O`, written on the left side",
+            "the alias `O`, written on the left side of a rewrite in <th>",
+        ),
+        (
+            CONDITIONAL,
+            "<th> <tid> 1 </tid> (.Bag => #if C:Bool #then <o> <ov> 1 </ov> </o> #else .Bag #fi) ... </th>",
+            "the function `#if _ #then _ #else _ #fi`, written on the right side of a rewrite in <th>",
+        ),
+        (
+            "syntax {S} S ::= idb(S) [function]",
+            "<th> <tid> 1 </tid> (.Bag => idb(.Bag)) ... </th>",
+            "the function `idb(_)`, written on the right side of a rewrite in <th>",
         ),
     ] {
         let errors = concretized_cell_rule_in(syntax, OPTIONAL_IN_THREADS, rule, "")
@@ -6924,7 +6943,69 @@ fn rejects_a_rewrite_side_item_that_no_child_holds_and_names_it() {
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains(named) && error.contains("<th>")),
+                .any(|error| error.contains(named) && error.contains(PLACED)),
+            "{rule}: {errors:?}"
+        );
+    }
+    // Completion places an alias of one cell only where it stands in the body itself, and says so.
+    let errors = concretized_cell_rule_in(
+        "",
+        OPTIONAL_IN_THREADS,
+        "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> #as O => .Bag) ... </th>",
+        "",
+    )
+    .expect_err("an alias on a rewrite side is not placed");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("(an alias of one cell only outside a rewrite)")),
+        "{errors:?}"
+    );
+}
+
+// A cell-sorted function stands among a cell's children like the cell it denotes, so the list of
+// what completion places names terms of a cell sort, not only cells.
+#[test]
+fn places_a_cell_sorted_function_on_a_rewrite_side_by_its_sort() {
+    let body = concretized_cell_rule_in(
+        "syntax OCell ::= mkoc(Int) [function]",
+        OPTIONAL_IN_THREADS,
+        "<th> <tid> 1 </tid> (.Bag => mkoc(2)) ... </th>",
+        "",
+    )
+    .unwrap();
+    assert!(body.contains("`.OCell`(.KList)=>"), "{body}");
+    assert!(body.contains("mkoc"), "{body}");
+}
+
+// An item written among a cell's children outside any rewrite is placed by the same rule as one
+// on a rewrite side, so an item no child holds is rejected with the same message, located in the
+// cell's body.
+#[test]
+fn rejects_a_body_item_that_no_child_holds_and_names_it() {
+    for (syntax, rule, named) in [
+        (
+            "syntax Bag ::= mko(Int) [function]",
+            "<th> <tid> 1 </tid> mko(2) ... </th>",
+            "the function `mko(_)` of sort Bag, written in <th>",
+        ),
+        (
+            "syntax Bag ::= bago(Int)",
+            "<th> <tid> 1 </tid> bago(2) ... </th>",
+            "the symbol `bago(_)` of sort Bag, written in <th>",
+        ),
+        (
+            CONDITIONAL,
+            "<th> <tid> 1 </tid> #if C:Bool #then <o> <ov> 1 </ov> </o> #else .Bag #fi ... </th>",
+            "the function `#if _ #then _ #else _ #fi`, written in <th>",
+        ),
+    ] {
+        let errors = concretized_cell_rule_in(syntax, OPTIONAL_IN_THREADS, rule, "")
+            .expect_err("the body holds an item that no child holds");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains(named) && error.contains(PLACED)),
             "{rule}: {errors:?}"
         );
     }

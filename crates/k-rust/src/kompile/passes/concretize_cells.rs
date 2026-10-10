@@ -2786,10 +2786,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 };
                 self.insert_child(&mut ordered, sort, item, cell)?;
             } else {
-                return Err(format!(
-                    "Unexpected term in parent cell {} during child ordering",
-                    label.name
-                ));
+                return Err(self.unplaceable_item(&item, None, cell));
             }
         }
         // Invariant: `ordered` holds the children placed for the variables of `unknown` before `variable`; each variable without a fragment split scans `cell.children` once, O(|unknown| * |cell.children|).
@@ -2980,7 +2977,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 if is_empty_cell_bag(item) {
                     continue;
                 }
-                return Err(self.unplaceable_rewrite_item(item, right, parent));
+                let side = if right { Side::Right } else { Side::Left };
+                return Err(self.unplaceable_item(item, Some(side), parent));
             };
             if let Some(fragment) = self.fragments.get(name) {
                 for (sort, term) in &fragment.split {
@@ -2995,16 +2993,17 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         Ok(split)
     }
 
-    /// The error for `item`, an item of the left (`right` false) or right side of a rewrite in
-    /// `parent`'s body that is neither a cell, a variable nor the empty bag. It names the item:
-    /// a symbol by its label (and sort, when one production declares it), an alias by its
-    /// variable.
-    fn unplaceable_rewrite_item(&self, item: &Term, right: bool, parent: &Cell) -> String {
+    /// The error for `item`, an item of `parent`'s body (`side` `None`) or of the `side` side of a
+    /// rewrite in it, that completion places in no child: it is neither of a cell sort, nor a
+    /// variable, nor the empty bag. It names the item as written: a symbol by the syntax of its
+    /// production (and the production's sort, unless that sort is one of the production's
+    /// parameters, which the declaration does not fix), an alias by its variable.
+    fn unplaceable_item(&self, item: &Term, side: Option<Side>, parent: &Cell) -> String {
         #[expect(
             clippy::wildcard_enum_match_arm,
             reason = "Term is syntax; only applications and aliases are named specially"
         )]
-        let item = match item.unannotated() {
+        let named = match item.unannotated() {
             Term::Apply { label, .. } => {
                 let head = LabelHead::from(label);
                 let kind = if self.productions.function_labels().contains(&head) {
@@ -3012,9 +3011,21 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 } else {
                     "symbol"
                 };
-                let sort = match self.productions.productions_for(&head) {
+                let (name, sort) = match self.productions.productions_for(&head) {
                     [production] => match self.productions.production(*production) {
-                        Sentence::Production { sort, .. } => format!(" of sort {sort}"),
+                        Sentence::Production {
+                            parameters,
+                            sort,
+                            items,
+                            ..
+                        } => (
+                            written_syntax(items).unwrap_or_else(|| label.name.clone()),
+                            if parameters.contains(sort) {
+                                String::new()
+                            } else {
+                                format!(" of sort {sort}")
+                            },
+                        ),
                         Sentence::SyntaxSort { .. }
                         | Sentence::SortSynonym { .. }
                         | Sentence::SyntaxLexical { .. }
@@ -3025,20 +3036,36 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         | Sentence::Rule { .. }
                         | Sentence::Claim { .. }
                         | Sentence::Configuration { .. }
-                        | Sentence::Bubble { .. } => String::new(),
+                        | Sentence::Bubble { .. } => (label.name.clone(), String::new()),
                     },
-                    _ => String::new(),
+                    _ => (label.name.clone(), String::new()),
                 };
-                format!("the {kind} `{}`{sort}", label.name)
+                format!("the {kind} `{name}`{sort}")
             }
             Term::As { alias, .. } => format!("the alias `{alias}`"),
             other => format!("`{other}`"),
         };
+        let place = match side {
+            Some(side) => format!(
+                "on the {} side of a rewrite in",
+                match side {
+                    Side::Left => "left",
+                    Side::Right => "right",
+                }
+            ),
+            None => "in".to_owned(),
+        };
+        // An alias of one cell is placed in its cell's slot where it stands in the body itself
+        // (`order_children`); on a rewrite side completion reads only the items' own sorts.
+        let alias = if side.is_some() && matches!(item.unannotated(), Term::As { .. }) {
+            " (an alias of one cell only outside a rewrite)"
+        } else {
+            ""
+        };
         format!(
-            "Cell completion cannot place {item}, written on the {} side of a rewrite in {}: \
-             only cells, variables and the empty bag `.Bag` stand among a cell's children, and \
-             the rule compiled without it would not be the rule written",
-            if right { "right" } else { "left" },
+            "Cell completion cannot place {named}, written {place} {}: completion places among a \
+             cell's children only terms of a cell sort{alias}, variables and the empty bag \
+             `.Bag`, and the rule compiled without it would not be the rule written",
             parent.label.name
         )
     }
@@ -3267,6 +3294,35 @@ fn rewrite_side_variable(term: &Term, right: bool, child: &Child) -> Option<Term
     let side = if right { rhs.as_ref() } else { left.as_ref() };
     matches!(side.unannotated(), Term::Variable { .. })
         .then(|| set_variable_sort(side.clone(), child.value_sort.clone()))
+}
+
+/// The syntax a production gives its terms, as a user writes one: its terminals, with `_` for
+/// each argument (`#if _ #then _ #else _ #fi`). `None` for a production without a terminal, whose
+/// syntax names nothing.
+fn written_syntax(items: &[ProductionItem]) -> Option<String> {
+    items
+        .iter()
+        .any(|item| matches!(item, ProductionItem::Terminal(_)))
+        .then(|| {
+            let mut written = String::new();
+            for item in items {
+                let part = match item {
+                    ProductionItem::Terminal(terminal) => terminal.as_str(),
+                    ProductionItem::NonTerminal { .. } | ProductionItem::RegexTerminal { .. } => {
+                        "_"
+                    }
+                };
+                // Write a call as one (`mko(_, _)`) and space every other part apart.
+                if !written.is_empty()
+                    && !written.ends_with('(')
+                    && !matches!(part, "(" | ")" | ",")
+                {
+                    written.push(' ');
+                }
+                written.push_str(part);
+            }
+            written
+        })
 }
 
 fn is_empty_cell_bag(term: &Term) -> bool {
