@@ -18,8 +18,12 @@
 //!   element of a collection, or an operand of a collection's concatenation, by value: it
 //!   matches the collection entry whose key or element equals the value the application
 //!   computes once the variables in it are bound. That reading is the same at every argument of
-//!   a collection constructor, and covers everything below it. Elsewhere on a rewrite rule's
-//!   left-hand side a function application is rejected as before.
+//!   a collection constructor, and covers everything below it. It needs the rule to bind every
+//!   variable of the application elsewhere on its left-hand side, outside every application
+//!   read by value: a match chooses an entry or element by what is written there, but it cannot
+//!   invert a function to find the arguments that compute a given value, so an application with
+//!   a variable bound nowhere else is rejected. Elsewhere on a rewrite rule's left-hand side a
+//!   function application is rejected as before.
 //!
 //! `LIST.update` is not a collection constructor: an update `L[I <- V]` is a function of a list,
 //! not a way to write one, so it is admitted on a left-hand side where a function application
@@ -28,6 +32,9 @@
 //! exactly when `I` indexes `S` and `S` holds `V` there, so a rewrite rule decides that match
 //! by value (with `S` itself as the updated list) as long as nothing reads which list was
 //! updated: the list argument is a variable that occurs nowhere else in the rule, such as `_`.
+//! The index is read by value, so like the arguments of an application read by value its
+//! variables must be bound elsewhere on the left-hand side; the value is the element `S` holds
+//! there, so it may bind its own variables.
 //! A list argument the rule uses elsewhere would be bound to one of the many lists that differ
 //! from `S` at `I`, so that shape stays rejected; so does every update below an equation's
 //! root, which an equation matches as written.
@@ -83,12 +90,23 @@ enum Reading {
     Rewrite,
 }
 
+/// What one walk of a sentence's body does. Both passes take the same path through the body.
+enum Pass {
+    /// Collect the variables the left-hand side binds: those it holds outside every
+    /// application read by value (and outside the index of a list update matched by value).
+    /// No diagnostic is reported.
+    Collect(BTreeSet<String>),
+    /// Report the illegal function applications, given the variables the left-hand side binds.
+    Check(BTreeSet<String>),
+}
+
 /// The state of the walk of one sentence's body.
 struct Walk<'a> {
     reading: Reading,
     internal_labels: &'a BTreeSet<String>,
     productions: &'a ProductionCatalog<'a>,
     sentence: &'a Sentence,
+    pass: Pass,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -130,15 +148,30 @@ pub(crate) fn check_functions_with_internal_labels(
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => continue,
         };
-        let mut walk = Walk {
+        let mut collected = Vec::new();
+        let mut collect = Walk {
             reading,
             internal_labels,
             productions,
             sentence,
+            pass: Pass::Collect(BTreeSet::new()),
+            diagnostics: &mut collected,
+        };
+        let mut at_top = true;
+        collect.visit_term(body, TermPosition::BODY, &mut at_top, false);
+        let Pass::Collect(bound) = collect.pass else {
+            unreachable!("the collecting pass keeps its kind");
+        };
+        let mut check = Walk {
+            reading,
+            internal_labels,
+            productions,
+            sentence,
+            pass: Pass::Check(bound),
             diagnostics: &mut diagnostics,
         };
         let mut at_top = true;
-        walk.visit_term(body, TermPosition::BODY, &mut at_top, false);
+        check.visit_term(body, TermPosition::BODY, &mut at_top, false);
     }
     diagnostics
 }
@@ -157,6 +190,15 @@ impl Walk<'_> {
         by_value: bool,
     ) {
         let Term::Apply { label, .. } = term.unannotated() else {
+            // Each occurrence of the anonymous variable is a variable of its own, which binds
+            // nothing another position could read.
+            if let (Pass::Collect(bound), Term::Variable { name, .. }) =
+                (&mut self.pass, term.unannotated())
+                && position.lhs
+                && name != "_"
+            {
+                bound.insert(name.clone());
+            }
             self.visit_arguments(term, position, at_top, by_value);
             return;
         };
@@ -201,12 +243,39 @@ impl Walk<'_> {
 
         let hook = attributes.string(AttributeKey::Hook);
         let constructor = is_collection_constructor(hook);
+        if by_value && function && position.lhs && !constructor {
+            // An application read by value is evaluated, so it binds none of its variables, and
+            // everything below it is read with it.
+            self.require_bound(
+                term,
+                &format!(
+                    "Illegal function symbol {} on LHS of rule: a rewrite rule reads a function application by value only when the rule binds its variables elsewhere on the left-hand side",
+                    label.name
+                ),
+            );
+            return;
+        }
         if self.reading == Reading::Rewrite
             && position.lhs
             && hook == Some("LIST.update")
             && self.updates_an_unread_list(term)
         {
-            self.visit_arguments(term, position, at_top, true);
+            // The list argument is read nowhere, the index by value, and the value binds.
+            for (index, (child, child_position)) in
+                positioned_children(term, position).into_iter().enumerate()
+            {
+                if index == 1 {
+                    self.require_bound(
+                        child,
+                        &format!(
+                            "Illegal function symbol {} on LHS of rule: a rewrite rule matches a list update only at an index whose variables the rule binds elsewhere on the left-hand side",
+                            label.name
+                        ),
+                    );
+                } else {
+                    self.visit_term(child, child_position, at_top, true);
+                }
+            }
             return;
         }
         if function && position.lhs && !by_value && !constructor {
@@ -234,6 +303,31 @@ impl Walk<'_> {
         }
         let by_value = by_value || (self.reading == Reading::Rewrite && constructor);
         self.visit_arguments(term, position, at_top, by_value);
+    }
+
+    /// In the checking pass, reports `message` when a variable of `term` is not one the
+    /// left-hand side binds; the collecting pass collects nothing from `term`.
+    fn require_bound(&mut self, term: &Term, message: &str) {
+        let Pass::Check(bound) = &self.pass else {
+            return;
+        };
+        let mut unbound = BTreeSet::new();
+        term.visit_preorder(&mut |subterm| {
+            if let Term::Variable { name, .. } = subterm
+                && (name == "_" || !bound.contains(name))
+            {
+                unbound.insert(name.clone());
+            }
+        });
+        if unbound.is_empty() {
+            return;
+        }
+        let unbound = unbound.into_iter().collect::<Vec<_>>().join(", ");
+        self.diagnostics.push(Diagnostic::error(
+            DiagnosticCode::IllegalFunctionOnLhs,
+            format!("{message}; this rule binds {unbound} nowhere else."),
+            self.sentence,
+        ));
     }
 
     /// Whether the list argument of the update `term` is a variable that occurs nowhere else in

@@ -1695,6 +1695,146 @@ fn a_rewrite_rule_matches_a_list_update_by_value_only_when_it_reads_no_updated_l
 }
 
 #[test]
+fn a_rewrite_rule_reads_an_application_by_value_only_when_it_binds_its_variables_elsewhere() {
+    // A match chooses a collection entry or element by what is written there; it cannot invert
+    // a function to find the arguments that compute a given value. So an application read by
+    // value, and the index of a list update matched by value, need every variable bound
+    // elsewhere on the left-hand side, outside every application read by value.
+    let mut productions = collection_position_productions();
+    productions.push(production(
+        Some("pair"),
+        "Int",
+        &["K", "K"],
+        Attributes::default(),
+    ));
+    productions.push(production(
+        Some("mapConcat"),
+        "Map",
+        &["Map", "Map"],
+        attrs(&[("function", json!("")), ("hook", json!("MAP.concat"))]),
+    ));
+    productions.push(production(
+        Some("lookup"),
+        "Int",
+        &["Int", "Int"],
+        attrs(&[("function", json!(""))]),
+    ));
+    let productions = productions.iter().collect::<Vec<_>>();
+    let variable = |name: &str| Term::Variable {
+        name: name.to_owned(),
+        sort: None,
+    };
+    let f = |name: &str| Term::apply("f", vec![variable(name)]);
+    // `pattern` beside a cell that holds `other`, as in `<k> .. </k> <m> pattern </m>`.
+    let rule = |pattern: Term, other: Term| {
+        rule_with_body(Term::apply(
+            "pair",
+            vec![
+                rewrite(Term::apply("wrap", vec![pattern]), token("1")),
+                Term::apply("wrap", vec![other]),
+            ],
+        ))
+    };
+    let update =
+        |index: Term, value: Term| Term::apply("listUpdate", vec![variable("_"), index, value]);
+    let cases = [
+        (
+            "map value",
+            Term::apply("mapElement", vec![token("1"), f("X")]),
+            token("0"),
+            1,
+        ),
+        (
+            "map key",
+            Term::apply("mapElement", vec![f("X"), token("1")]),
+            token("0"),
+            1,
+        ),
+        (
+            "set element",
+            Term::apply("setElement", vec![f("X")]),
+            token("0"),
+            1,
+        ),
+        (
+            "list element",
+            Term::apply("listElement", vec![f("X")]),
+            token("0"),
+            1,
+        ),
+        (
+            "anonymous argument",
+            Term::apply("setElement", vec![f("_")]),
+            variable("_"),
+            1,
+        ),
+        (
+            "bound in another cell",
+            Term::apply(
+                "mapElement",
+                vec![
+                    Term::apply("lookup", vec![variable("IDS"), variable("TFIDX")]),
+                    variable("ADDR"),
+                ],
+            ),
+            Term::apply("pair", vec![variable("IDS"), variable("TFIDX")]),
+            0,
+        ),
+        (
+            "bound beside it in the same collection",
+            Term::apply(
+                "mapConcat",
+                vec![
+                    Term::apply("mapElement", vec![token("1"), variable("X")]),
+                    Term::apply("mapElement", vec![f("X"), token("2")]),
+                ],
+            ),
+            token("0"),
+            0,
+        ),
+        (
+            "bound only by another application read by value",
+            Term::apply("setElement", vec![f("X")]),
+            Term::apply("setElement", vec![f("X")]),
+            2,
+        ),
+        (
+            "list update index bound nowhere else",
+            update(variable("I"), variable("V")),
+            token("0"),
+            1,
+        ),
+        (
+            "list update index bound in another cell, value binding",
+            update(variable("I"), variable("V")),
+            variable("I"),
+            0,
+        ),
+        (
+            "list update value reading an unbound application",
+            update(token("0"), f("J")),
+            token("0"),
+            1,
+        ),
+    ];
+    for (case, pattern, other, expected) in cases {
+        let diagnostics = function_diagnostics(&[&rule(pattern, other)], &productions);
+        assert_eq!(diagnostics.len(), expected, "{case}: {diagnostics:?}");
+        for diagnostic in &diagnostics {
+            assert_eq!(diagnostic.code, DiagnosticCode::IllegalFunctionOnLhs);
+            assert!(
+                diagnostic.message.contains("binds its variables elsewhere")
+                    || diagnostic
+                        .message
+                        .contains("whose variables the rule binds elsewhere"),
+                "{case}: {}",
+                diagnostic.message
+            );
+        }
+    }
+}
+
+#[test]
 fn with_config_keeps_its_first_argument_at_the_top_of_the_rule() {
     let function = production(
         Some("f"),
