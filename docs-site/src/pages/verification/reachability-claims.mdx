@@ -150,7 +150,31 @@ The name defaults to `<k-namespace>-<UPPER-KEBAB(mod name)>`.
 
 An identifier in a spec-module claim must be lexed by a token production the module sees, because K parses the module's claims with its own grammar and `Id` has no identifier syntax outside programs.
 That is why the definition adds the `$`-identifier token: the claim can write `$n` where a claim outside a spec module needs `#token("$n","Id")`.
-The token may instead live in the spec module itself when only its proofs need the names.
+The token may instead live in the spec module itself when only its proofs need the names; `kompile` then never sees it:
+
+```rust
+#[k::spec_module(name = "LESSON-SPEC", imports = [crate])]
+mod lesson_spec {
+    use super::*;
+    #[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+    pub type DollarId = k::builtin::Id;
+    #[k::claim(all_paths, label = "dollar-assign")]
+    fn dollar_assign(/* $n = N; $m = M; stores N and M under $n and $m */) -> Machine { /* .. */ }
+}
+```
+
+```text
+module LESSON-SPEC
+  imports KRS-L22
+  ...
+  syntax Id ::= r"\\$[a-zA-Z0-9_]+" [token]
+
+  claim [dollar-assign]:
+    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>
+    <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>
+endmodule
+```
+
 KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
 Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
 

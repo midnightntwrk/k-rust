@@ -3,7 +3,11 @@
 //! evaluates only for a nonzero divisor, and the partial function `pf`,
 //! defined on positive integers. Its claims and lemmas live in the
 //! `krs-verification-surface-l22-verification` package, which adds the
-//! `$`-identifier token, as the lesson's spec file does.
+//! `$`-identifier token to its definition, as upstream IMP-VERIFICATION does.
+//!
+//! The `LESSON-SPEC` spec module below takes the other route: it declares the
+//! token itself, so the token is part of the proof input only and `kompile`
+//! never sees it, and its claim writes `$n` bare.
 
 use k::builtin::{Id, Int, KSequence, Map, int, map};
 use k::{KResult, Term};
@@ -115,4 +119,43 @@ k::rules! {
         store: map::update(s, name, value),
     }
     where value: Value;
+}
+
+/// A lesson's proof module that needs `$` identifiers only in its claims.
+#[k::spec_module(name = "LESSON-SPEC", imports = [crate])]
+mod lesson_spec {
+    use super::{Int, Machine, Map, StmtSyntax, Term, map};
+
+    /// Every `$`-prefixed identifier, for this module's claims only.
+    #[k::token(regex = r"\$[a-zA-Z0-9_]+")]
+    pub type DollarId = k::builtin::Id;
+
+    /// `$n = n; $m = m;` stores both values under their names.
+    #[k::claim(all_paths, label = "dollar-assign")]
+    fn dollar_assign(
+        n: Term<Int>,
+        m: Term<Int>,
+        s: Term<Map>,
+        k::cells! {
+            k: k::configuration::KCell(
+                StmtSyntax::Seq(
+                    StmtSyntax::Assign(k::id!("$n"), n),
+                    StmtSyntax::Assign(k::id!("$m"), m),
+                ),
+                tail @ ..
+            ),
+            store: k::configuration::Cell(s),
+            state @ ..
+        }: Machine,
+    ) -> Machine {
+        k::cells! {
+            k: k::configuration::KCell(..tail),
+            store: k::configuration::Cell(map::update(
+                map::update(s, k::id!("$n"), n),
+                k::id!("$m"),
+                m,
+            )),
+            ..state
+        }
+    }
 }

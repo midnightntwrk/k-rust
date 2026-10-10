@@ -93,13 +93,16 @@ IMP's loose claims; `definition.k` holds neither. `krs prove --spec-module
 IMP-SUM-SPEC` proves the claim natively (k-rust proves the spec module's own
 proof definition), and Java `kprove --spec-module IMP-SUM-SPEC` of the
 emitted files gives `#Top`. An unknown spec module and a spec module without
-claims are refused. Negative fixtures pin a sort in a spec module, an import
-cycle, an identifier no visible token lexes,
-one lexed only by a private (non-`pub`) token alias of the definition, an
-`smt_lemma` lemma in a spec module, a spec module that never imports the
-definition, and a spec-module simplification lemma that names a private
-(non-`pub`) production, which K's private syntax hides from every proof
-module.
+claims are refused. The language package `l22` holds `LESSON-SPEC`, a spec
+module that declares the regex `$`-identifier token itself, so `kompile`
+never sees it: `definition.k` has no token, and the claim `dollar-assign`
+(`$n = N ; $m = M ;`) is proved natively and by `kprove --spec-module
+LESSON-SPEC`. Negative fixtures pin a sort in a spec module, an import
+cycle, an identifier no visible token lexes, one lexed only by a private
+(non-`pub`) token alias of the definition, an `smt_lemma` lemma in a spec
+module, a spec module that never imports the definition, and a spec-module
+simplification lemma that names a private (non-`pub`) production, which K's
+private syntax hides from every proof module.
 
 Matching-logic predicates (KF-039): `l22` is K tutorial lesson 1.22's
 language (assignments to a store, sequencing, a strict `if` and `<`, a `div`
@@ -287,6 +290,17 @@ IMP_SUM_FRAGMENTS = (
     "    <env> $n |-> N:Int $s |-> S:Int => $n |-> 0 $s |-> S:Int +Int (((N:Int +Int 1) *Int N:Int) /Int 2) </env>\n"
     "    requires N:Int >=Int 0\n"
     "    [circularity]\n",
+)
+
+L22_LANGUAGE = Fixture(MANIFEST, "krs-verification-surface-l22")
+LESSON_SPEC = "LESSON-SPEC"
+LESSON_SPEC_FRAGMENT = (
+    "module LESSON-SPEC\n  imports ID-SYNTAX\n  imports INT-SYNTAX\n  imports KRS-L22\n  imports MAP\n\n"
+    + IMP_SUM_TOKEN
+    + "\n  claim [dollar-assign]:\n"
+    "    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>\n"
+    "    <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>\n"
+    "endmodule\n"
 )
 
 NEGATIVE = (
@@ -1092,6 +1106,30 @@ def verify_spec_modules(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: {IMP_SUM_SPEC} proven natively and by kprove --spec-module")
 
 
+def verify_lesson_spec(harness: FixtureGate, fixture: Fixture) -> None:
+    """A spec module that declares its own regex token: the definition never sees it."""
+
+    harness.check(fixture)
+    emitted = harness.emit(fixture)
+    definition = emitted.source.read_text(encoding="utf-8")
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    if "[token]" in definition:
+        raise GateError(f"{fixture.package}: definition.k holds a token production:\n{definition}")
+    if LESSON_SPEC_FRAGMENT not in spec:
+        raise GateError(f"{fixture.package}: emitted spec.k omits:\n{LESSON_SPEC_FRAGMENT}")
+
+    native = native_trusted_proof(harness, fixture, LESSON_SPEC, "--spec-module", LESSON_SPEC)
+    if native["statuses"] != {"dollar-assign": "proven"} or native["exit"] != 0 or native["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove --spec-module {LESSON_SPEC} reported {json.dumps(native)}")
+    harness.pins.expect(("spec_module_proofs", fixture.package), native)
+
+    java = java_trusted_proof(harness, emitted, LESSON_SPEC)
+    if not (java["proven"] and java["top"]):
+        raise GateError(f"{fixture.package}: kprove --spec-module {LESSON_SPEC} reported {json.dumps(java)}")
+    harness.pins.expect(("spec_module_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: {LESSON_SPEC} declares its own token and is proven natively and by kprove")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -1125,6 +1163,7 @@ def main() -> int:
         verify_conc(harness, CONC_UNRESTRICTED)
         verify_conc(harness, CONC_SMT_LEMMA)
         verify_spec_modules(harness, IMP_SUM)
+        verify_lesson_spec(harness, L22_LANGUAGE)
         verify_ml_predicates(harness, L22)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
