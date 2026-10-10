@@ -40,8 +40,7 @@ from support.process import compact, run  # noqa: E402
 from support.imp_oracle import reduce_stored_definition  # noqa: E402
 from support.reference import (  # noqa: E402
     Cache, Key, Output, Pin, Promotion, Snapshot, add_refresh_argument, child_arguments,
-    reduce_kprove_temp, reduce_store_paths, renumbered_kore_generated_variables, repository_inputs,
-    sorted_kore_claims, sorted_kore_imports,
+    reduce_kore_definition, reduce_kprove_temp, repository_inputs, sorted_kore_claims,
 )
 from support.tools import checkout_scratch, executable, k_executable, k_version_matches, z3_environment  # noqa: E402
 
@@ -75,17 +74,6 @@ REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
 EMITTED_DEFINITION_INPUT = "emitted/definition.k"
 """The key name of the KRS-emitted `definition.k` the actual route compiles."""
 
-
-def reduce_source_kore(text: str) -> str:
-    """The stored actual `definition.kore` of IMP.4, which IMP.5 compares.
-
-    It replaces K's install path, sorts each run of `import` lines, and
-    renumbers the generated `_Gen` variables of each sentence; K writes the
-    last two in a run-dependent order, and the comparator reads sentences as an
-    alpha-normalized multiset.
-    """
-
-    return renumbered_kore_generated_variables(sorted_kore_imports(reduce_store_paths(text)))
 
 BASE_TOOLS = ("cargo", "rustc", "rustfmt", "clippy-driver", "git")
 """Tools every run needs: the Rust checks and the checkout verification."""
@@ -583,7 +571,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
             (
                 Output(actual / "parsed.json", reduce_stored_definition),
                 Output(actual / "compiled.json", reduce_stored_definition),
-                Output(actual / "definition.kore", reduce_source_kore),
+                Output(actual / "definition.kore", reduce_kore_definition),
             ),
         ),
         (
@@ -761,7 +749,8 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     expected_summary = (
         "PASS native KORE: reference=1188 native=1188 "
         "reference_projector_pairs=0 native_projector_pairs=39 "
-        "reference_injective_withheld=1 native_transport_rewrites=35\n"
+        "reference_injective_withheld=1 native_transport_rewrites=35 "
+        "reference_lambda_symbols=0 native_lambda_symbols=0\n"
     )
     require_exact_summary(result, expected_summary, "native comparator")
     return result.stdout.strip()

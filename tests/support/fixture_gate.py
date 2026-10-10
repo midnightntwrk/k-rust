@@ -22,6 +22,16 @@ A fixture may pin a named divergence in its ledger's `known_divergences` table,
 with the native and Java outcomes recorded separately. The gate fails closed when
 either side changes, and when a pinned divergence disappears.
 
+A fixture compared with `kore=True` also compares its native `definition.kore`
+with the one Java K kompiled, as normalized sentence multisets of the main
+module (`krs-gate kore-compare`, the IMP comparator). The stored Java
+`definition.kore` passes through `krs-gate kore-canonicalize`, because Java K
+numbers generated lambdas in an order that varies between runs. The comparator's summary
+line and the digest of its whole report are pinned as
+`kore_comparison.<package>`. A difference fails unless the ledger declares it
+as `known_divergences.<package>."definition.kore"`, the first line of the
+comparator's report.
+
 Negative fixtures pin the first diagnostic line of a failing `krs check`
 (`diagnostics.<name>`), with absolute paths of the repository replaced.
 """
@@ -40,13 +50,15 @@ from support.hashing import sha256_file
 from support.krs import Invocation
 from support.pins import Ledger
 from support.process import run
-from support.reference import Key, Output, Pin, Snapshot, repository_inputs, substitute
+from support.reference import Key, Output, Pin, Snapshot, reduce_kore_definition, repository_inputs, substitute
 
 
 UNDEFINED = "undefined"
 ACCEPTED = "accepted"
 REJECTED = "rejected"
 JAVA_TOOLS = ("kompile", "kast", "krun")
+KORE_DIVERGENCE = "definition.kore"
+"""The `known_divergences.<package>` key that declares a pinned KORE comparison difference."""
 LLVM_PARTIAL_FUNCTION_ABORT = 113
 _K_CELL = re.compile(r"<k>\s*(.*?)\s*</k>", re.DOTALL)
 _SOURCE_LOCATION = substitute(r"\n\tSource\([^\n]*\)[\s\S]*", "\n")
@@ -201,7 +213,7 @@ class FixtureGate:
 
     def compare(
         self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
-        attributes: tuple[Sequence[str], Sequence[str]] | None = None,
+        attributes: tuple[Sequence[str], Sequence[str]] | None = None, kore: bool = False,
     ) -> dict[str, Any]:
         """Run every program on both routes and require the pinned outcomes to agree.
 
@@ -214,12 +226,19 @@ class FixtureGate:
         the labels' KORE symbol declarations must also agree between the
         native `syntaxDefinition.kore` and Java's; the agreed lines are pinned
         as `kore_attributes.<package>`.
+
+        With `kore`, the native and Java `definition.kore` are compared too
+        (`compare_kore`).
         """
 
         native = self._native_outcomes(emitted, programs)
-        java = self._java_outcomes(emitted, programs, sort=sort, search=search, attributes=attributes)
+        java = self._java_outcomes(
+            emitted, programs, sort=sort, search=search, attributes=attributes, kore=kore,
+        )
         if attributes is not None:
             self._compare_kore_attributes(emitted, attributes)
+        if kore:
+            self.compare_kore(emitted)
         observed: dict[str, Any] = {}
         known = self.divergences.get(emitted.fixture.package, {})
         for program in programs:
@@ -332,9 +351,66 @@ class FixtureGate:
 
         return reduce
 
+    def _java_kore(self, emitted: Emitted) -> Path:
+        return self.workspace / "java-kore" / emitted.fixture.package / "definition.kore"
+
+    def _kore_reducer(self, emitted: Emitted):
+        """Reduce Java K's `definition.kore` and renumber its lambda families with `krs-gate kore-canonicalize`.
+
+        Java K numbers the lambdas of one family in an order that varies
+        between runs of one kompile, and orders their sentences by it.
+        """
+
+        def reduce(text: str) -> str:
+            directory = self.workspace / "java-kore-canonical" / emitted.fixture.package
+            directory.mkdir(parents=True, exist_ok=True)
+            source = directory / "reduced.kore"
+            canonical = directory / "canonical.kore"
+            source.write_text(reduce_kore_definition(text), encoding="utf-8")
+            run(
+                [os.fspath(self.gate), "kore-canonicalize", os.fspath(source), os.fspath(canonical)],
+                environment=self.environment, timeout=600,
+            )
+            return canonical.read_text(encoding="utf-8")
+
+        return reduce
+
+    def compare_kore(self, emitted: Emitted) -> dict[str, str]:
+        """Compare the native `definition.kore` with Java K's in the main module, and pin the result.
+
+        Java K's definition is the one `_java_outcomes(..., kore=True)` stored.
+        The comparison must pass, or fail with the first line the ledger
+        declares as `known_divergences.<package>."definition.kore"`.
+        """
+
+        package = emitted.fixture.package
+        java = self._java_kore(emitted)
+        if not java.is_file():
+            raise GateError(f"{package}: Java K's definition.kore was not stored; run its programs with kore=True")
+        native = self.build(emitted.fixture) / "definition.kore"
+        process = subprocess.run(
+            [os.fspath(self.gate), "kore-compare", os.fspath(java), os.fspath(native), emitted.main_module],
+            cwd=ROOT, env={**os.environ, **self.environment}, text=True,
+            capture_output=True, timeout=600, check=False,
+        )
+        report = process.stdout if process.returncode == 0 else process.stderr
+        summary = report.splitlines()[0] if report else f"exit status {process.returncode} without a report"
+        declared = self.divergences.get(package, {}).get(KORE_DIVERGENCE)
+        if declared is None and process.returncode != 0:
+            raise GateError(f"{package}: native and Java K definition.kore differ in {emitted.main_module}:\n{report}")
+        if declared is not None and process.returncode == 0:
+            raise GateError(f"{package}: the pinned definition.kore divergence disappeared: {summary}")
+        if declared is not None and summary != declared:
+            raise GateError(
+                f"{package}: pinned definition.kore divergence changed: expected {declared!r}, observed:\n{report}"
+            )
+        observed = {"summary": summary, "report_sha256": _sha256_text(report)}
+        self.pins.expect(("kore_comparison", package), observed)
+        return observed
+
     def _java_outcomes(
         self, emitted: Emitted, programs: Sequence[Program], *, sort: str, search: bool = False,
-        attributes: tuple[Sequence[str], Sequence[str]] | None = None,
+        attributes: tuple[Sequence[str], Sequence[str]] | None = None, kore: bool = False,
     ) -> dict[str, dict[str, Any]]:
         sources = [emitted.source]
         program_directory = self.workspace / "programs" / emitted.fixture.package
@@ -361,6 +437,10 @@ class FixtureGate:
                 self._attribute_reducer(emitted, attributes),
                 lambda: compiled / "syntaxDefinition.kore",
             ),)
+        if kore:
+            outputs = (*outputs, Output(
+                self._java_kore(emitted), self._kore_reducer(emitted), lambda: compiled / "definition.kore",
+            ))
         process = k.run(
             "kompile/definition", "kompile",
             [

@@ -433,6 +433,18 @@ def renumbered_kore_generated_variables(text: str) -> str:
     return "".join(renumber("".join(chunk)) for chunk in _kore_sentences(text))
 
 
+def reduce_kore_definition(text: str) -> str:
+    """A reducer for a kompiled `definition.kore` that `krs-gate kore-compare` reads.
+
+    It replaces K's install path, sorts each run of `import` lines, and
+    renumbers the generated `_Gen` variables of each sentence; K writes the
+    last two in a run-dependent order, and the comparator reads sentences as an
+    alpha-normalized multiset.
+    """
+
+    return renumbered_kore_generated_variables(sorted_kore_imports(reduce_store_paths(text)))
+
+
 def repository_inputs(paths: Sequence[Path]) -> dict[str, Path]:
     """Name each input file by its repository-relative path."""
 

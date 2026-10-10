@@ -6,7 +6,7 @@ IMP.5 `native-kore` (`phase_native` in `tests/imp/verify.py`) proves it on
 every gate run and requires exactly this comparator summary:
 
 ```text
-PASS native KORE: reference=1188 native=1188 reference_projector_pairs=0 native_projector_pairs=39 reference_injective_withheld=1 native_transport_rewrites=35
+PASS native KORE: reference=1188 native=1188 reference_projector_pairs=0 native_projector_pairs=39 reference_injective_withheld=1 native_transport_rewrites=35 reference_lambda_symbols=0 native_lambda_symbols=0
 ```
 
 All non-claim sentences and all 20 claims match.

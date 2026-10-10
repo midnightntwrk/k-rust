@@ -30,10 +30,10 @@
     "krs-patterns-functions-alternatives": "ed745b3725c8e07face30b7b8dce7c8ed2a58d7ecc17baf144f94cfd4dfda219",
     "krs-patterns-functions-alternatives-reference": "3145e8c0f545cd877e4b12990233676f6181a07de30fba7fe4d97c061b6af7e4",
     "krs-patterns-functions-alternatives-haskell": "de71f4e64a8a68b6883fad685ceaaeb1eb52c80854728e39cc9e744320f33b6d",
-    "krs-patterns-functions-matches": "14e473f378070e603ff6d217fe712043c6dd58eeb5a6d575cb3eeb7f3b9e89c4",
+    "krs-patterns-functions-matches": "7c4d6f77738f365292c6314a3c161cda392a6142e6734a893149cae58c380910",
     "krs-patterns-functions-matches-reference": "c4a5e1108b5807aa9101369670cafe128b6e76ed18d08ac61202bdaf2fa3ef3a",
     "krs-patterns-functions-matches-haskell": "385e0af84bf0022c40ec9283f65cd6949a3a243d19f4255267701f2c7c44c98d",
-    "krs-patterns-functions-lets": "258c6ac5cae972e86377a24222ff9b2a2a9723e1e7217a78bf3f929a98393a75",
+    "krs-patterns-functions-lets": "65a4ebec15692491d509614ec2dca560f3122e5fe4aebff4c73a039a20a58a3e",
     "krs-patterns-functions-lets-reference": "2e8e5c5ad6854161966280c965b30376bc2b3296a3e6da965545fcd80b3c834b",
     "krs-patterns-functions-lets-haskell": "effc1eacf4a8ea6c52d7bc39aec55b10692039228b3155886c10b6090e42b54d",
     "krs-patterns-functions-contexts": "0db1d665dbc2da044716b5e874a76edbe1c34c4cf63ec09bbb18dc37e5d78d66",
@@ -272,7 +272,18 @@
           "parse": "accepted",
           "run": "undefined"
         }
-      }
+      },
+      "definition.kore": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=401, missing=21, extra=17"
+    }
+  },
+  "kore_comparison": {
+    "krs-patterns-functions-matches": {
+      "summary": "PASS native KORE: reference=344 native=344 reference_projector_pairs=0 native_projector_pairs=4 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=6 native_lambda_symbols=6",
+      "report_sha256": "95e82c419dab7304bd3cd67a18b96310d6b64bfb02b82e3fc2d7301cfab03eea"
+    },
+    "krs-patterns-functions-lets": {
+      "summary": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=401, missing=21, extra=17",
+      "report_sha256": "01cba5a9a31e5a23f5bd82d2573a4ad608102277e9bd60a11a9d7efd91eb2ad9"
     }
   }
 }

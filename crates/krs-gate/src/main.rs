@@ -7,6 +7,7 @@ const USAGE: &str = "usage:
   krs-gate collector-bundle COLLECTOR-STDOUT DESCRIPTOR-BUNDLE
   krs-gate session
   krs-gate kore-compare REFERENCE NATIVE MODULE [--label FROM=CANONICAL]... [--reference-claims PATH MODULE]
+  krs-gate kore-canonicalize INPUT OUTPUT
   krs-gate proof split DEFINITION OUTPUT-DIR MODULE SPEC-MODULE LABEL...
   krs-gate proof classify RESULT
   krs-gate proof assert-spec SPEC SPEC-MODULE MODULE LABEL
@@ -42,6 +43,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             krs_gate::session::run()
         }
         Some(command) if command == "kore-compare" => krs_gate::kore_compare::run(arguments),
+        Some(command) if command == "kore-canonicalize" => {
+            krs_gate::kore_compare::run_canonicalize(arguments)
+        }
         Some(command) if command == "proof" => krs_gate::proof::run(arguments),
         _ => Err(USAGE.into()),
     }
@@ -52,6 +56,7 @@ fn main() {
         let prefix = match env::args_os().nth(1).as_deref() {
             Some(command) if command == "collector-bundle" => "krs-gate collector-bundle",
             Some(command) if command == "kore-compare" => "krs-gate kore-compare",
+            Some(command) if command == "kore-canonicalize" => "krs-gate kore-canonicalize",
             Some(command) if command == "proof" => "krs-gate proof",
             _ => "Error",
         };

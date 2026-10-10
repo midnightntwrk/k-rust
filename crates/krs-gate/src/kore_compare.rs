@@ -5,6 +5,7 @@
 //! A projector-looking prefix is never sufficient.
 //! It also applies two declared k-rust differences, `scripts/reference-normalisations.toml` N33 and N37.
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
+//! It names the generated lambda symbols of `#fun`, `#let`, and `:=K` after their definitions and uses rather than by the `#lambda<hints>_<n>` spelling each frontend chooses (`lambda_labels`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -15,8 +16,10 @@ use k_rust::kore::ast::{
     Attributes, Module, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
 };
 use k_rust::kore::parser::parse_definition;
+use k_rust::kore::printer::Printer;
 
 mod declared_differences;
+mod lambda_labels;
 
 const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
 const PROJECTOR_SEPARATOR: &str = "'Coln'";
@@ -91,15 +94,80 @@ pub fn run(
     };
     println!(
         "PASS native KORE: reference={} native={} reference_projector_pairs={} native_projector_pairs={} \
-         reference_injective_withheld={} native_transport_rewrites={}",
+         reference_injective_withheld={} native_transport_rewrites={} reference_lambda_symbols={} \
+         native_lambda_symbols={}",
         report.reference_sentences,
         report.actual_sentences,
         report.reference_projector_pairs,
         report.actual_projector_pairs,
         report.reference_injective_withheld,
         report.native_transport_rewrites,
+        report.reference_lambda_symbols,
+        report.actual_lambda_symbols,
     );
     Ok(())
+}
+
+/// Canonicalize the generated lambda symbols and sentence order of one KORE definition file.
+///
+/// The arguments after `kore-canonicalize` are the input and output paths.
+///
+/// # Errors
+///
+/// Returns an error for invalid arguments, unreadable or malformed KORE, or lambda symbols that [`canonicalize_definition`] cannot number.
+pub fn run_canonicalize(
+    mut arguments: impl Iterator<Item = OsString>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let input = PathBuf::from(arguments.next().ok_or("missing input KORE path")?);
+    let output = PathBuf::from(arguments.next().ok_or("missing output KORE path")?);
+    if let Some(argument) = arguments.next() {
+        return Err(format!("unknown argument {}", argument.display()).into());
+    }
+    fs::write(
+        output,
+        canonicalize_definition(&fs::read_to_string(input)?)?,
+    )?;
+    Ok(())
+}
+
+/// Rewrite a KORE definition a K tool wrote into a form that does not depend on the order in which the tool met its sentences.
+///
+/// Within each module, the generated lambda symbols of each `#lambda<hint1>_<hint2>_` family are renumbered by content, as the comparator pairs them, and the sentences are ordered by their printed form.
+/// The comparator reads a module as a sentence multiset and names lambdas by content, so it reads the result as it reads the input.
+/// Java K numbers a lambda family in an order that varies between runs of one kompile, so a stored `definition.kore` passes through this rewrite.
+///
+/// # Errors
+///
+/// Returns an error when the definition is malformed or two lambda symbols cannot be numbered by content.
+pub fn canonicalize_definition(source: &str) -> Result<String, CompareError> {
+    let mut definition = parse_definition(source)
+        .map_err(|error| CompareError::new(format!("cannot parse KORE: {error}")))?;
+    let printer = Printer::pretty(100);
+    for module in &mut definition.modules {
+        let mut normalized = module.clone();
+        normalize_module(&mut normalized, &ComparePolicy::default())?;
+        lambda_labels::renumber_lambda_families(module, &normalized)?;
+        // Order by the normalized sentence first, so that the paths in source
+        // attributes order only sentences that are otherwise equal.
+        let mut normalized = module.clone();
+        normalize_module(&mut normalized, &ComparePolicy::default())?;
+        let mut keyed = std::mem::take(&mut module.sentences)
+            .into_iter()
+            .zip(normalized.sentences)
+            .map(|(sentence, normal)| {
+                (
+                    (
+                        printer.print_sentence(&normal),
+                        printer.print_sentence(&sentence),
+                    ),
+                    sentence,
+                )
+            })
+            .collect::<Vec<_>>();
+        keyed.sort_by(|left, right| left.0.cmp(&right.0));
+        module.sentences = keyed.into_iter().map(|(_, sentence)| sentence).collect();
+    }
+    Ok(printer.print_definition(&definition))
 }
 
 fn utf8_argument(value: OsString, name: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -131,6 +199,10 @@ pub struct ComparisonReport {
     pub reference_injective_withheld: usize,
     /// Number of native configuration-value transport sentences, alternatives, and reads removed or translated (k-rust N37).
     pub native_transport_rewrites: usize,
+    /// Number of reference generated lambda symbols named by content.
+    pub reference_lambda_symbols: usize,
+    /// Number of native generated lambda symbols named by content.
+    pub actual_lambda_symbols: usize,
 }
 
 /// A malformed input or a visible KORE comparison difference.
@@ -261,6 +333,11 @@ fn compare_modules(
         declared_differences::withhold_reference_injective(&mut reference, &actual);
     normalize_module(&mut reference, policy)?;
     normalize_module(&mut actual, policy)?;
+    // Renaming a symbol leaves the per-sentence variable and sort-variable
+    // normalization unchanged, and no constructor axiom mentions a lambda.
+    let reference_lambda_symbols =
+        lambda_labels::canonicalize_lambda_labels(&mut reference, "reference")?;
+    let actual_lambda_symbols = lambda_labels::canonicalize_lambda_labels(&mut actual, "native")?;
     validate_claims(&reference, "reference")?;
     validate_claims(&actual, "native")?;
 
@@ -289,6 +366,8 @@ fn compare_modules(
         actual_projector_pairs,
         reference_injective_withheld,
         native_transport_rewrites,
+        reference_lambda_symbols,
+        actual_lambda_symbols,
     })
 }
 
@@ -1205,6 +1284,138 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// A module with two `:=K` lambdas that share both hints, numbered `first` and `second`.
+    ///
+    /// `isPair` uses a lambda whose pattern is `pair(_, _)`; `twin` uses one whose pattern is `pair(X, X)`.
+    fn lambda_module(first: &str, second: &str) -> String {
+        let declare = |suffix: &str| {
+            format!(
+                "symbol Lbl'Hash'lambdaE'Unds'pair'Unds'{suffix}{{}}(SortExp{{}}) : SortBool{{}} [function{{}}()]"
+            )
+        };
+        let define = |suffix: &str, pattern: &str| {
+            format!(
+                "axiom{{R}} \\implies{{R}}(\\and{{R}}(\\top{{R}}(), \\in{{SortExp{{}}, R}}(X0:SortExp{{}}, {pattern})),                  \\equals{{SortBool{{}}, R}}(Lbl'Hash'lambdaE'Unds'pair'Unds'{suffix}{{}}(X0:SortExp{{}}), \\dv{{SortBool{{}}}}(\"true\"))) []"
+            )
+        };
+        let apply = |head: &str, suffix: &str| {
+            format!(
+                "axiom{{R}} \\implies{{R}}(\\and{{R}}(\\top{{R}}(), \\in{{SortExp{{}}, R}}(X0:SortExp{{}}, VarE:SortExp{{}})),                  \\equals{{SortBool{{}}, R}}(Lbl{head}{{}}(X0:SortExp{{}}), Lbl'Hash'lambdaE'Unds'pair'Unds'{suffix}{{}}(VarE:SortExp{{}}))) []"
+            )
+        };
+        format!(
+            "[] module M {} {} {} {} {} {} endmodule []",
+            declare(first),
+            declare(second),
+            define(first, "Lblpair{}(VarA:SortExp{}, VarB:SortExp{})"),
+            define(second, "Lblpair{}(VarX:SortExp{}, VarX:SortExp{})"),
+            apply("isPair", first),
+            apply("twin", second),
+        )
+    }
+
+    #[test]
+    fn generated_lambda_symbols_pair_by_definition_and_use() {
+        let reference = lambda_module("", "2");
+        let native = lambda_module("2", "");
+        assert!(
+            reference != native,
+            "the routes number the two lambdas in opposite orders"
+        );
+        let report = compare_kore(&reference, &native, "M", &ComparePolicy::default()).unwrap();
+        assert_eq!(
+            (
+                report.reference_lambda_symbols,
+                report.actual_lambda_symbols
+            ),
+            (2, 2)
+        );
+    }
+
+    #[test]
+    fn generated_lambda_symbols_with_different_uses_still_differ() {
+        let reference = lambda_module("", "2");
+        // `isPair` now applies the `pair(X, X)` lambda: a real difference.
+        let native = lambda_module("2", "").replace(
+            "LblisPair{}(X0:SortExp{}), Lbl'Hash'lambdaE'Unds'pair'Unds'2{}",
+            "LblisPair{}(X0:SortExp{}), Lbl'Hash'lambdaE'Unds'pair'Unds'{}",
+        );
+        assert!(native.contains("LblisPair{}(X0:SortExp{}), Lbl'Hash'lambdaE'Unds'pair'Unds'{}"));
+        let error = compare_kore(&reference, &native, "M", &ComparePolicy::default()).unwrap_err();
+        assert!(
+            error.to_string().contains("KORE sentence multisets differ"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn canonical_definitions_do_not_depend_on_lambda_numbering() {
+        let with_ids = |first: &str, second: &str| {
+            lambda_module(first, second).replace(
+                "VarE:SortExp{}))) []",
+                "VarE:SortExp{}))) [UNIQUE'Unds'ID{}(\"run-dependent\")]",
+            )
+        };
+        let first = canonicalize_definition(&with_ids("", "2")).unwrap();
+        let second = canonicalize_definition(&with_ids("2", "")).unwrap();
+        assert_eq!(first, second);
+        assert!(!first.contains("UNIQUE'Unds'ID"));
+        assert!(first.contains("Lbl'Hash'lambdaE'Unds'pair'Unds'2"));
+        let report =
+            compare_kore(&first, &with_ids("2", ""), "M", &ComparePolicy::default()).unwrap();
+        assert_eq!(report.reference_lambda_symbols, 2);
+    }
+
+    #[test]
+    fn interchangeable_generated_lambda_symbols_are_named_in_either_order() {
+        // Two identical lambdas, each used once by the same rule, are exchanged by an automorphism.
+        let module = |first: &str, second: &str| {
+            lambda_module(first, second)
+                .replace(
+                    "VarX:SortExp{}, VarX:SortExp{}",
+                    "VarA:SortExp{}, VarB:SortExp{}",
+                )
+                .replace("LblisPair{}", "Lblsame{}")
+                .replace("Lbltwin{}", "Lblsame{}")
+        };
+        let report = compare_kore(
+            &module("", "2"),
+            &module("2", ""),
+            "M",
+            &ComparePolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(report.actual_lambda_symbols, 2);
+    }
+
+    #[test]
+    fn indistinguishable_but_not_interchangeable_lambda_symbols_fail_closed() {
+        // Rewrites between nine lambdas form one 3-cycle and one 6-cycle.
+        // Every lambda occurs once on each side of a rewrite whose other
+        // side is another lambda, so refinement cannot tell any two apart,
+        // but exchanging a 3-cycle lambda with a 6-cycle lambda changes
+        // the module.
+        let lambda =
+            |index: usize| format!("Lbl'Hash'lambda'UndsUnds'{index}{{}}(VarE:SortExp{{}})");
+        let edge = |from: usize, to: usize| {
+            format!(
+                "axiom{{}} \\rewrites{{SortExp{{}}}}({}, {}) []",
+                lambda(from),
+                lambda(to)
+            )
+        };
+        let mut sentences = (1..=9)
+            .map(|index| {
+                format!("symbol Lbl'Hash'lambda'UndsUnds'{index}{{}}(SortExp{{}}) : SortExp{{}} [function{{}}()]")
+            })
+            .collect::<Vec<_>>();
+        sentences.extend([edge(1, 2), edge(2, 3), edge(3, 1)]);
+        sentences.extend((4..=9).map(|index| edge(index, if index == 9 { 4 } else { index + 1 })));
+        let source = format!("[] module M {} endmodule []", sentences.join(" "));
+        let error = compare_kore(&source, &source, "M", &ComparePolicy::default()).unwrap_err();
+        assert!(error.to_string().contains("not interchangeable"), "{error}");
+    }
+
     #[test]
     fn non_utf8_text_arguments_return_errors() {
         use std::os::unix::ffi::OsStringExt;

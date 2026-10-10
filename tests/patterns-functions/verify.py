@@ -34,7 +34,10 @@ the outcomes must agree:
   alternatives make `known(unit())` `true` and `known(3)` `false`. The
   programs agree natively, on Java K's LLVM backend from the emitted K and
   from `reference.k` (whose negations use `:/=K`), and on Java K's Haskell
-  backend;
+  backend. The native `definition.kore` equals the one Java K kompiles from
+  the emitted K, module `KRS-MATCHES`, once `krs-gate kore-compare` names the
+  six generated `:=K` lambda symbols by their definitions and uses: the two
+  frontends number the lambdas that share hints in different orders;
 - `lets`: a block `{ let P = A; B }` is K's `( #let P = A #in B )`, always
   parenthesised, which K defines as `#fun(P => B)(A)`. A readable clause
   `Swap { e } => { let Pair(x, y) = e; Pair(y, x) }` makes `swap(pair(1, 2))`
@@ -51,7 +54,11 @@ the outcomes must agree:
   both sources; natively the failed ascription leaves the generated lambda's
   application stuck (a pinned divergence), and the failed constructor
   patterns, on which the pinned native backend does not terminate, run on
-  Java K only;
+  Java K only. The native and Java `definition.kore` differ in a pinned
+  divergence: k-rust lifts a `#let` whose pattern is a variable into a lambda
+  whose parameter sort is `K` and which it does not declare total, where K's
+  `ResolveFun` takes the least upper bound of the pattern's and the
+  argument's sorts and declares the lambda `functional` and `total`;
 - `contexts`: an equation whose last parameter is
   `k::cells! { bar: Cell(b), baz: Cell(0), .. }: Machine` reads the
   configuration it is evaluated in, K's function context
@@ -341,7 +348,7 @@ def verify_matches(harness: FixtureGate, workspace: Path) -> None:
         "rule twin ( E:Exp ) => ( pair ( X:Exp , X:Exp ) :=K E:Exp ) [label(",
         "rule known ( E:Exp ) => ( ( pair ( _ , _ ) #Or unit ( ) ) :=K E:Exp ) [label(",
     ))
-    observed = harness.compare(emitted, MATCHES_PROGRAMS, sort="Exp")
+    observed = harness.compare(emitted, MATCHES_PROGRAMS, sort="Exp", kore=True)
     agree_with_reference(
         harness, workspace, MATCHES_REFERENCE, "MATCHES-REFERENCE", MATCHES_PROGRAMS, observed,
     )
@@ -357,9 +364,9 @@ def verify_matches(harness: FixtureGate, workspace: Path) -> None:
 def compare_lets(harness: FixtureGate, emitted: Emitted) -> dict[str, dict[str, object]]:
     """Run the let programs on Java K, and those that terminate natively also natively.
 
-    This is `FixtureGate.compare` with the programs of `LETS_JAVA_ONLY` kept
-    off the native route; each program's outcome is the agreed one, or its
-    pinned divergence, or (Java only) the expected one.
+    This is `FixtureGate.compare(..., kore=True)` with the programs of
+    `LETS_JAVA_ONLY` kept off the native route; each program's outcome is the
+    agreed one, or its pinned divergence, or (Java only) the expected one.
     """
 
     native_programs = tuple(
@@ -375,7 +382,8 @@ def compare_lets(harness: FixtureGate, emitted: Emitted) -> dict[str, dict[str, 
                     "parse": ACCEPTED,
                     "run": f"stuck: {printed_cells(printed, (('k', ''),))['k']}",
                 }
-    java = harness._java_outcomes(emitted, LETS_PROGRAMS, sort="Exp")  # noqa: SLF001
+    java = harness._java_outcomes(emitted, LETS_PROGRAMS, sort="Exp", kore=True)  # noqa: SLF001
+    harness.compare_kore(emitted)
     known = harness.divergences.get(LETS.package, {})
     observed: dict[str, dict[str, object]] = {}
     for program in LETS_PROGRAMS:
