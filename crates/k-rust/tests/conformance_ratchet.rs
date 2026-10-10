@@ -3286,6 +3286,38 @@ print(json.dumps({
     );
 }
 
+/// A step exclusion names one step's divergence, so any other step that does not match keeps the
+/// case ranked, whatever its verdict: here the excluded recipe mismatches (the case's verdict)
+/// and another recipe of the same case is `krust-unsupported`, ranked better than `mismatch` but
+/// below a `match` floor. Excluding the case would hide that recipe's divergence.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: The conformance ratchet's exclusion rule hides other failures"]
+fn a_step_exclusion_keeps_the_case_ranked_when_another_step_fails_at_a_better_rank() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import ratchet
+
+EXCLUSION = {"step_exclusions": [{"step": "kompile", "out": "bad.k.out", "exclusion": "x", "reason": "r"}]}
+bad = {"step": "kompile", "out": "bad.k.out", "verdict": "mismatch"}
+for verdict in ("krust-unsupported", "skipped-with-reason"):
+    other = {"step": "kompile", "out": "other.k.out", "verdict": verdict}
+    print(json.dumps(ratchet.matching_step_exclusion({"verdict": "mismatch", "step": [bad, other]}, EXCLUSION)))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "\"\"\n\"\"\n");
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
