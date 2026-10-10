@@ -27,6 +27,7 @@
 //! KORE emission of one compiled K module.
 
 mod axioms;
+pub(super) use axioms::emitted_subsort_pair;
 mod equations;
 mod roles;
 
@@ -1427,12 +1428,14 @@ fn sort_declarations(
     Ok(declarations)
 }
 
-fn collection_attribute_overrides(
+/// The production of the collection sort `head` that carries the `element` attribute: its label
+/// is the sort declaration's `concat`, and its `element` and `unit` attributes name the sort's
+/// other two symbols.
+pub(super) fn collection_concatenation<'p>(
     head: &SortHead,
-    productions: &ProductionCatalog<'_>,
-    overrides: &mut BTreeMap<String, Vec<Pattern>>,
-) -> Result<(), DeclarationError> {
-    let production = productions
+    productions: &'p ProductionCatalog<'_>,
+) -> Option<&'p Sentence> {
+    productions
         .productions()
         .map(|(_, production)| production)
         .find(|production| {
@@ -1442,10 +1445,19 @@ fn collection_attribute_overrides(
                     if SortHead::from(sort) == *head && attributes.string(AttributeKey::Element).is_some()
             )
         })
-        .ok_or_else(|| DeclarationError::InvalidCollectionSort {
+}
+
+fn collection_attribute_overrides(
+    head: &SortHead,
+    productions: &ProductionCatalog<'_>,
+    overrides: &mut BTreeMap<String, Vec<Pattern>>,
+) -> Result<(), DeclarationError> {
+    let production = collection_concatenation(head, productions).ok_or_else(|| {
+        DeclarationError::InvalidCollectionSort {
             sort: head.to_string(),
             message: "no production carries the `element` attribute".into(),
-        })?;
+        }
+    })?;
     let Sentence::Production {
         label, attributes, ..
     } = production
@@ -2078,7 +2090,7 @@ pub(crate) fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String])
 /// `hooked-symbol` keyword and the `hook` attribute from this one predicate means a declaration
 /// carries the attribute exactly when it is a hooked symbol. A non-function production with a
 /// real hook is rejected before emission (`uninterpreted_hook_diagnostics` in `compile.rs`).
-fn interpreted_hook<'a>(
+pub(super) fn interpreted_hook<'a>(
     attributes: &'a KAttributes,
     hook_namespaces: &[String],
 ) -> Option<&'a Value> {

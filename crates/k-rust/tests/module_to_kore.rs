@@ -3199,6 +3199,151 @@ fn hooks_on_functions_and_on_undeclared_or_unadmitted_productions_compile_and_lo
     );
 }
 
+/// A hooked symbol `f : S1 ... Sn -> S` denotes a value of `S` whatever computes it, so a
+/// collection hook declared where it gives no value of its result sort is rejected at the
+/// production, by the rule the backend applies when it loads a definition: a definition that
+/// compiles declares no symbol the backend refuses.
+fn assert_collection_hook_misfit_is_a_located_error(declaration: &str, hook: &str, reason: &str) {
+    let source = format!(
+        "module MAIN\n  imports MAP\n  imports LIST\n  imports INT\n  syntax Stmt\n  syntax Op\n  syntax Op ::= Map\n  {declaration}\nendmodule\n"
+    );
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, 8, "{message}");
+    assert!(
+        message.contains(&format!("is hooked to {hook}"))
+            && message.contains("denotes no value of its result sort")
+            && message.contains(reason),
+        "{message}"
+    );
+}
+
+case_tests! {
+    a_collection_hook_that_gives_no_value_of_its_result_sort_is_a_located_error =>
+        assert_collection_hook_misfit_is_a_located_error {
+        // The generative-compile reproducer: one argument more than a map binding has.
+        map_element_arity: (
+            "syntax Op ::= bar1(K, Stmt, Map) [function, klabel(s2), hook(MAP.element)]",
+            "MAP.element",
+            "MAP.element takes 2 arguments, the symbol 3",
+        ),
+        // A map built at a sort that is no map sort.
+        map_element_result: (
+            "syntax Op ::= bar1(KItem, KItem) [function, symbol(bar1), hook(MAP.element)]",
+            "MAP.element",
+            "MAP.element gives a map, but the result sort Op is no map sort",
+        ),
+        // An element-returning hook: a list's element is a `KItem`, which is no `Int`.
+        list_get_result: (
+            "syntax Int ::= List \"<\" Int \">\" [function, symbol(at), hook(LIST.get)]",
+            "LIST.get",
+            "an element of argument 1 of LIST.get, of sort KItem, is the result, but KItem is not Int or a subsort of it",
+        ),
+        // The default of a lookup is a possible result, and a `K` is no `KItem`.
+        map_lookup_default: (
+            "syntax KItem ::= Map \"<\" KItem \",\" K \">\" [function, symbol(at), hook(MAP.lookupOrDefault)]",
+            "MAP.lookupOrDefault",
+            "argument 3 of MAP.lookupOrDefault, of sort K, is a possible result, but K is not KItem or a subsort of it",
+        ),
+        // No injection into `K` is emitted, so a `KItem` is no `K`: an element as a `K` result.
+        list_get_k_result: (
+            "syntax K ::= List \"<\" Int \">\" [function, symbol(at), hook(LIST.get)]",
+            "LIST.get",
+            "an element of argument 1 of LIST.get, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        map_lookup_k_result: (
+            "syntax K ::= Map \"<\" KItem \">\" [function, symbol(at), hook(MAP.lookup)]",
+            "MAP.lookup",
+            "a value of argument 1 of MAP.lookup, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        map_lookup_default_k_result: (
+            "syntax K ::= Map \"<\" KItem \",\" K \">\" [function, symbol(at), hook(MAP.lookupOrDefault)]",
+            "MAP.lookupOrDefault",
+            "a value of argument 1 of MAP.lookupOrDefault, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        // A list whose element sort is `K` holds no `Foo` nor `KItem`, for the same reason.
+        list_element_into_k_elements: (
+            "syntax FL ::= mkf(Foo) [function, symbol(mkf), hook(LIST.element)]\n  syntax Foo\n  syntax FL [hook(LIST.List)]\n  syntax FL ::= FL FL [left, function, total, hook(LIST.concat), symbol(_FL_), assoc, unit(.FL), element(fItem)]\n  syntax FL ::= \".FL\" [function, total, hook(LIST.unit), symbol(.FL)]\n  syntax FL ::= fItem(K) [function, total, hook(LIST.element), symbol(fItem)]",
+            "LIST.element",
+            "argument 1 of LIST.element, of sort Foo, is an element of the result, but Foo is not K or a subsort of it",
+        ),
+        map_keys_into_k_elements: (
+            "syntax FL ::= kl(Map) [function, symbol(kl), hook(MAP.keys_list)]\n  syntax Foo\n  syntax FL [hook(LIST.List)]\n  syntax FL ::= FL FL [left, function, total, hook(LIST.concat), symbol(_FL_), assoc, unit(.FL), element(fItem)]\n  syntax FL ::= \".FL\" [function, total, hook(LIST.unit), symbol(.FL)]\n  syntax FL ::= fItem(K) [function, total, hook(LIST.element), symbol(fItem)]",
+            "MAP.keys_list",
+            "a key of argument 1 of MAP.keys_list, of sort KItem, is an element of the result, but KItem is not K or a subsort of it",
+        ),
+    }
+}
+
+/// The backend's collection metadata names a collection's element (key, value) sorts by sort
+/// name, so it cannot hold a closed instance of a parametric sort such as `MInt{64}`; a
+/// collection whose `element` symbol takes one would compile and then be refused at load. It is
+/// rejected at the element production, with the backend's reason.
+fn assert_parametric_collection_element_is_a_located_error(
+    kind: &str,
+    element: &str,
+    reason: &str,
+) {
+    let (unit_hook, concat) = match kind {
+        "MAP" => (
+            "MAP.unit",
+            "syntax C ::= C C [left, function, hook(MAP.concat), symbol(_C_), assoc, comm, unit(.C), element(cItem), index(0)]",
+        ),
+        "SET" => (
+            "SET.unit",
+            "syntax C ::= C C [left, function, total, hook(SET.concat), symbol(_C_), assoc, comm, unit(.C), element(cItem)]",
+        ),
+        _ => (
+            "LIST.unit",
+            "syntax C ::= C C [left, function, total, hook(LIST.concat), symbol(_C_), assoc, unit(.C), element(cItem)]",
+        ),
+    };
+    let collection = match kind {
+        "MAP" => "Map",
+        "SET" => "Set",
+        _ => "List",
+    };
+    let source = format!(
+        "module MAIN\n  imports MINT\n  imports INT\n  syntax C [hook({kind}.{collection})]\n  {concat}\n  syntax C ::= \".C\" [function, total, hook({unit_hook}), symbol(.C)]\n  syntax C ::= cItem({element}) [function, total, hook({kind}.element), symbol(cItem)]\n  syntax MInt{{64}}\nendmodule\n"
+    );
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, 7, "{message}");
+    assert!(
+        message.contains("Production cItem is the element symbol of collection sort C")
+            && message.contains(reason),
+        "{message}"
+    );
+}
+
+case_tests! {
+    a_collection_element_of_a_parametric_sort_is_a_located_error =>
+        assert_parametric_collection_element_is_a_located_error {
+        list: ("LIST", "MInt{64}", "parametric collection element sorts are not supported"),
+        set: ("SET", "MInt{64}", "parametric collection element sorts are not supported"),
+        map_key: ("MAP", "MInt{64}, Int", "parametric map element sorts are not supported"),
+        map_value: ("MAP", "Int, MInt{64}", "parametric map element sorts are not supported"),
+    }
+}
+
+/// A collection hook declared at sorts under which it gives a value of its result sort compiles
+/// and loads: an element of a strict subsort of the result is injected.
+#[test]
+fn collection_hooks_that_give_a_value_of_their_result_sort_compile_and_load() {
+    assert_compiles_and_loads(
+        indoc! {r#"
+            module MAIN
+              imports MAP
+              imports LIST
+              imports INT
+              syntax Op ::= Map
+              syntax KItem ::= List "<" Int ">" [function, symbol(at), hook(LIST.get)]
+              syntax Map ::= bind(Int, Int) [function, symbol(bind), hook(MAP.element)]
+              syntax KItem ::= Map "<" KItem "," Int ">" [function, symbol(lookup), hook(MAP.lookupOrDefault)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+}
+
 /// B3 of the generated-input experiment: `owise` is itself a priority, so a rule carrying both
 /// `owise` and `priority` is rejected at the rule, whatever the priority's value.
 #[test]

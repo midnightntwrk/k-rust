@@ -3479,6 +3479,10 @@ fn reject_collection_hook_misfits(
         }
         Sort::Application { .. } | Sort::Variable(_) => None,
     };
+    let facts = crate::builtin::LoadedSorts {
+        collection,
+        sorts: sort_graph,
+    };
     for module in ordered {
         for sentence in &module.sentences {
             let kore::Sentence::SymbolDeclaration {
@@ -3497,8 +3501,7 @@ fn reject_collection_hook_misfits(
                 hook,
                 &declared.argument_sorts,
                 &declared.result_sort,
-                collection,
-                sort_graph,
+                &facts,
             ) {
                 return Err(DefinitionError::CollectionHookMisfit {
                     symbol: symbol.name.clone(),
