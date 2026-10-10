@@ -4661,6 +4661,38 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_is_the_least_reading_whatever_the_order_of_alternatives() {
+        let (grammar, node) = readings_fixture();
+        // An ambiguity keeps its alternatives as trees, where `wrapper(a)` comes before `outer`
+        // (its production is declared first), but `outer` is the lesser term. The `pair` entry
+        // is the least `pair` reading, `pair(c, outer)`, both when the choice is packed inside
+        // `pair`, with `wrapper(a)` as the union's first alternative, and when it is flat.
+        let c = || node("c", vec![], 1);
+        let wrapped = || node("wrapper", vec![node("a", vec![], 3)], 2);
+        let outer = || node("outer", vec![], 2);
+        let couple = || node("couple", vec![c(), node("c", vec![], 2)], 0);
+        let packed = ambiguity([
+            node("pair", vec![c(), ambiguity([wrapped(), outer()])], 0),
+            couple(),
+        ]);
+        let flat = ambiguity([
+            node("pair", vec![c(), wrapped()], 0),
+            node("pair", vec![c(), outer()], 0),
+            couple(),
+        ]);
+        let report = grammar.resolve_ambiguities(packed).unwrap_err();
+        assert_eq!(grammar.resolve_ambiguities(flat).unwrap_err(), report);
+        let (alternatives, _, _) = ambiguous_parts(report);
+        assert_eq!(
+            entries(&alternatives),
+            [
+                ("couple(c(.KList),c(.KList))", false),
+                ("pair(c(.KList),outer(.KList))", true),
+            ]
+        );
+    }
+
+    #[test]
     fn two_packings_of_one_set_of_readings_report_alike() {
         let (grammar, node) = readings_fixture();
         let leaf = |name| node(name, vec![], 10);
