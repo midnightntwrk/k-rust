@@ -27,9 +27,9 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; L = predicate nodes of the largest assumed conjunct other than the one being simplified"
-//! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes"]
+//! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
@@ -40,6 +40,10 @@
 //! [[cost]]
 //! mode = "assumption lookups"
 //! bound = "per visited sub-predicate and its simplified form: O(min(s, L)) to count its nodes against L, then a hash of it, and of a copy of its negation, only when s <= L; a connective chain of depth d beside assumptions of at most L nodes costs O(d x L), not O(d^2)"
+//!
+//! [[cost]]
+//! mode = "predicate equations (apply_predicate_theory)"
+//! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
 //!
 //! [[cost]]
 //! mode = "ceil conjunct (known_defined_subterms)"
@@ -60,7 +64,8 @@
 //! Conjunct-set predicate normalisation with an `FxHashSet` conjunct index (`ConjunctIndex`, which
 //! also counts its conjuncts' sizes so that a sub-predicate larger than every assumption is looked
 //! up without hashing it), one predicate simplification per conjunct per round, budget-bounded
-//! re-entry through the ceil and predicate theories; `Counter::SimplifyAssumptionNodes`.
+//! re-entry through the ceil and predicate theories; `Counter::SimplifyAssumptionNodes`,
+//! `Counter::SimplifyPredicateNodesVisited`.
 
 use std::{
     borrow::Cow,
@@ -87,7 +92,7 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
     matching::{
-        CollectionMatches, InjectionEquality, MatchFailed, MatchMode, MatchResult,
+        CollectionMatches, FailReason, InjectionEquality, MatchFailed, MatchMode, MatchResult,
         match_collection_remainders_all_in_definition, match_injection_equality,
         match_term_pairs_in_definition, match_terms_in_definition,
     },
@@ -1036,8 +1041,14 @@ impl UnshadowedAssumptions {
     /// the binder as it is.
     fn under_binder(variable: &Variable, assumptions: &PredicateAssumptions<'_>) -> Option<Self> {
         let holds = |predicate: &Predicate| !crate::rule::mentions_free(predicate, variable);
+        // A conjunct the view hides (the one being simplified, which holds this binder) is not
+        // an assumption, so whether it mentions the variable does not matter.
         let shadowed = !assumptions.terms.predicates.iter().all(holds)
-            || !assumptions.conjuncts.iter().all(holds);
+            || !assumptions
+                .conjuncts
+                .iter()
+                .filter(|predicate| assumptions.contains(predicate))
+                .all(holds);
         if !shadowed {
             return None;
         }
@@ -2695,7 +2706,13 @@ fn apply_predicate_theory(
     solver: &dyn SmtSolver,
     indeterminate: &mut IndeterminateAttempts,
 ) -> SimplifyResult<Option<Predicate>> {
-    for rules in definition.predicate_simplification_theory().values() {
+    // An equation of another top connective does not match `predicate`, so only the equations
+    // of its own are tried; each priority group keeps its order, and an equation that does not
+    // match adds nothing to a group's scan.
+    let Some(theory) = definition.predicate_equations_for(predicate) else {
+        return Ok(None);
+    };
+    for rules in theory.values() {
         match scan_group(rules, indeterminate, |rule| {
             apply_predicate_equation(
                 definition,
@@ -2724,7 +2741,28 @@ fn apply_predicate_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
-    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates) {
+    debug_assert!(
+        same_connective(&rule.lhs, predicate),
+        "only an equation of the predicate's top connective is tried"
+    );
+    // The equation is matched as loaded, and renamed apart from the subject and the path only
+    // when its names can matter. Matching binds the equation's variables to the subject's terms,
+    // which it never substitutes into, so the names of the equation's variables decide nothing
+    // where the subject has no variable of the same name: a match that fails without meeting a
+    // shared name (`PredicateMatch::Failed { shared_names: false }`) fails renamed too, as the
+    // renamed problem has the same pairs up to the renaming and possibly more. Otherwise the
+    // clash is checked, once per equation that matched or could, not per equation tried, and on
+    // one the attempt is made renamed (`rename_predicate_rule_apart`), as before; the renaming
+    // also keeps the variables the left-hand side does not bind apart from the path, which
+    // matching does not read.
+    let matched = match_predicate(definition, &rule.lhs, predicate);
+    if !matches!(
+        matched,
+        PredicateMatch::Failed {
+            shared_names: false
+        }
+    ) && let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates)
+    {
         return apply_predicate_equation(
             definition,
             &renamed,
@@ -2735,17 +2773,8 @@ fn apply_predicate_equation(
             solver,
         );
     }
-    // A left-hand side matches only a predicate of its own top-level connective
-    // (`collect_predicate_term_pairs`), so an equation of another connective does not apply,
-    // whatever the rest of the attempt would decide. The check follows the renaming, which a full
-    // attempt makes too, so the `!apart` counter and the fresh names of later renamings do not
-    // move. For the `\top` and `\bottom` subjects left by condition evaluation, most subjects
-    // here, the renaming finds no clash from the cached variable sets and builds nothing.
-    if !same_connective(&rule.lhs, predicate) {
-        return Ok(EquationAttempt::NotApplicable(()));
-    }
-    let substitution = match match_predicate(definition, &rule.lhs, predicate) {
-        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable(())),
+    let substitution = match matched {
+        PredicateMatch::Failed { .. } => return Ok(EquationAttempt::NotApplicable(())),
         PredicateMatch::Indeterminate => {
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
@@ -2972,28 +3001,45 @@ fn contains_term_conjunction(term: &Term) -> bool {
 
 enum PredicateMatch {
     Success(Substitution),
-    Failed,
+    /// No match. `shared_names` is whether the term matcher refused because a variable of the
+    /// pattern and one of the subject have one name ([`FailReason::SharedVariables`]); any other
+    /// failure is one of the predicates' shapes or terms, whatever the names.
+    Failed {
+        shared_names: bool,
+    },
     Indeterminate,
 }
 
 /// Match a predicate equation's left-hand side against a predicate.
 ///
 /// The two predicates must have one logical shape; their terms are matched as one problem.
-/// Quantifiers are matched by scope. First every quantifier of either side gets its own fresh
-/// variable (`rename_binders_apart`), distinct from every other variable of both sides, so a
-/// bound variable shares its name with no free variable and no other binder, and an occurrence
-/// of it is exactly an occurrence under its quantifier. Corresponding quantifiers relate their
-/// variables: the rule's is matched as a pattern variable and must be bound to the subject's
-/// exactly, and a binding of a free rule variable may not mention a subject quantifier's
-/// variable, which would move that variable out of its scope. The quantifier variables'
-/// bindings are not part of the result.
+/// Quantifiers are matched by scope. When the pattern has one (and the shapes agree), first
+/// every quantifier of either side gets its own fresh variable (`rename_binders_apart`),
+/// distinct from every other variable of both sides, so a bound variable shares its name with no
+/// free variable and no other binder, and an occurrence of it is exactly an occurrence under its
+/// quantifier. Corresponding quantifiers relate their variables: the rule's is matched as a
+/// pattern variable and must be bound to the subject's exactly, and a binding of a free rule
+/// variable may not mention a subject quantifier's variable, which would move that variable out
+/// of its scope. The quantifier variables' bindings are not part of the result.
 fn match_predicate(
     definition: &BackendDefinition,
     pattern: &Predicate,
     subject: &Predicate,
 ) -> PredicateMatch {
+    let mut pairs = Vec::new();
+    let mut binders = Vec::new();
+    // The shapes are compared first, on the predicates as written: the comparison reads no
+    // name, and walks the subject only as deep as the pattern, so a pattern of another shape
+    // costs nothing more. Without a quantifier in the pattern, a subject quantifier is in no
+    // pair (its connective meets another of the pattern's), so nothing needs renaming.
+    if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
+        return PredicateMatch::Failed {
+            shared_names: false,
+        };
+    }
     let renamed;
-    let (pattern, subject) = if has_quantifier(pattern) || has_quantifier(subject) {
+    if has_quantifier(pattern) {
+        // The shapes agree, so the subject's quantifiers are those the pattern pairs with.
         let mut variables = BTreeSet::new();
         crate::rule::collect_all_variables(&[pattern.clone(), subject.clone()], &mut variables);
         let mut avoid = variables
@@ -3005,14 +3051,10 @@ fn match_predicate(
             rename_binders_apart(pattern, &mut avoid, &mut counter, &mut Vec::new()),
             rename_binders_apart(subject, &mut avoid, &mut counter, &mut Vec::new()),
         );
-        (&renamed.0, &renamed.1)
-    } else {
-        (pattern, subject)
-    };
-    let mut pairs = Vec::new();
-    let mut binders = Vec::new();
-    if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
-        return PredicateMatch::Failed;
+        pairs.clear();
+        binders.clear();
+        let paired = collect_predicate_term_pairs(&renamed.0, &renamed.1, &mut pairs, &mut binders);
+        debug_assert!(paired, "renaming binders keeps the shapes");
     }
     match match_term_pairs_in_definition(
         MatchMode::Evaluate,
@@ -3026,7 +3068,11 @@ fn match_predicate(
                 match substitution.remove(*pattern_bound) {
                     None => {}
                     Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
-                    Some(_) => return PredicateMatch::Failed,
+                    Some(_) => {
+                        return PredicateMatch::Failed {
+                            shared_names: false,
+                        };
+                    }
                 }
             }
             if substitution.values().any(|value| {
@@ -3034,11 +3080,15 @@ fn match_predicate(
                     .iter()
                     .any(|(_, bound)| value.attributes().variables.contains(*bound))
             }) {
-                return PredicateMatch::Failed;
+                return PredicateMatch::Failed {
+                    shared_names: false,
+                };
             }
             PredicateMatch::Success(substitution)
         }
-        MatchResult::Failed(_) => PredicateMatch::Failed,
+        MatchResult::Failed(reason) => PredicateMatch::Failed {
+            shared_names: matches!(reason, FailReason::SharedVariables(_)),
+        },
         MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
     }
 }
@@ -3088,6 +3138,7 @@ fn rename_binders_apart(
     let mut recurse = |inner: &Predicate, scope: &mut Vec<(Variable, Variable)>| {
         Box::new(rename_binders_apart(inner, avoid, counter, scope))
     };
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
@@ -3142,6 +3193,7 @@ fn collect_predicate_term_pairs<'a>(
     pairs: &mut Vec<(&'a Term, &'a Term)>,
     binders: &mut Vec<(&'a Variable, &'a Variable)>,
 ) -> bool {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
     match (pattern, subject) {
         (Predicate::True, Predicate::True) | (Predicate::False, Predicate::False) => true,
         (Predicate::Term(left), Predicate::Term(right))

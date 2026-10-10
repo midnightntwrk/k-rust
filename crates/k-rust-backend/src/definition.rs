@@ -59,6 +59,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt,
+    mem::Discriminant,
     sync::{Arc, OnceLock},
 };
 
@@ -66,6 +67,7 @@ use k_rust_kore::kore::ast as kore;
 use k_rust_kore::kore::string as kore_string;
 use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
+use rustc_hash::FxHashMap;
 
 use crate::{
     alias::{
@@ -585,6 +587,11 @@ pub struct BackendDefinition {
     function_theory: Theory,
     simplification_theory: Theory,
     predicate_simplification_theory: PredicateTheory,
+    /// `predicate_simplification_theory` by the top connective of each equation's left-hand
+    /// side, each group in the same order: an equation matches only a predicate of its own top
+    /// connective, so the simplifier tries a predicate's equations here. Built by `internalize`
+    /// from the theory, which is fixed from then on.
+    predicate_theory_by_connective: FxHashMap<Discriminant<Predicate>, PredicateTheory>,
     ceil_theory: Theory,
     /// The symbols declared with the KORE `value-production` attribute, which states that an
     /// application no equation reduces is a value of its sort; read by
@@ -1157,6 +1164,7 @@ impl Drop for BackendDefinition {
             std::mem::take(&mut self.function_theory),
             std::mem::take(&mut self.simplification_theory),
             std::mem::take(&mut self.predicate_simplification_theory),
+            std::mem::take(&mut self.predicate_theory_by_connective),
             std::mem::take(&mut self.ceil_theory),
             std::mem::take(&mut self.finite_sort_constructors),
             std::mem::take(&mut self.inhabited_sorts),
@@ -1800,6 +1808,7 @@ impl BackendDefinition {
             function_theory: Theory::new(),
             simplification_theory: Theory::new(),
             predicate_simplification_theory: PredicateTheory::new(),
+            predicate_theory_by_connective: FxHashMap::default(),
             ceil_theory: Theory::new(),
             value_productions,
             impure_symbols,
@@ -1863,6 +1872,17 @@ impl BackendDefinition {
             .values()
             .flatten()
             .any(|rule| has_term_component(&rule.lhs));
+        for (priority, rules) in &result.predicate_simplification_theory {
+            for rule in rules {
+                result
+                    .predicate_theory_by_connective
+                    .entry(std::mem::discriminant(&rule.lhs))
+                    .or_default()
+                    .entry(*priority)
+                    .or_default()
+                    .push(Arc::clone(rule));
+            }
+        }
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
         // The check runs while the definition still withholds every claim, and before the
         // rewrite rules' definedness is discharged, which reads the claims.
@@ -1959,6 +1979,16 @@ impl BackendDefinition {
     /// ```
     pub fn predicate_simplification_theory(&self) -> &PredicateTheory {
         &self.predicate_simplification_theory
+    }
+
+    /// The predicate equations whose left-hand side has the top connective of `predicate`, by
+    /// priority: the only ones that can match it.
+    pub(crate) fn predicate_equations_for(
+        &self,
+        predicate: &Predicate,
+    ) -> Option<&PredicateTheory> {
+        self.predicate_theory_by_connective
+            .get(&std::mem::discriminant(predicate))
     }
 
     /// Whether the term simplifier's equation selection (`rule::applicable_groups` on

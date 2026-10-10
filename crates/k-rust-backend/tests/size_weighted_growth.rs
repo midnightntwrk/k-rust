@@ -22,6 +22,11 @@
 //!   computation that copies at each level what the levels below built allocates about 64 times
 //!   as much. The bound is the linear class with its doubling allowance, not a budget.
 //!
+//! A walk that allocates nothing is not seen by bytes. The predicate walks (which variables a
+//! predicate mentions, matching a predicate equation's left-hand side) are counted instead, by
+//! `Counter::SimplifyPredicateNodesVisited`, with the same linear-class check over a chain of one
+//! connective (`assert_linear`).
+//!
 //! The allocator counts every thread of the test binary, so the checks take one lock and run one
 //! at a time.
 
@@ -32,8 +37,8 @@ use std::sync::Mutex;
 use k_rust_backend::{
     definition::BackendDefinition,
     rewrite::{ExecutionOptions, Pattern, execute},
-    simplify::{SimplificationOptions, simplify},
-    smt::TranslationState,
+    simplify::{SimplificationOptions, simplify, simplify_pattern_with_solver},
+    smt::{NoSolver, TranslationState},
     term::Term,
 };
 use k_rust_kore::{
@@ -67,35 +72,38 @@ fn bytes_of<T>(work: impl FnOnce() -> T) -> u64 {
     after - before
 }
 
-/// Asserts that `bytes(units)` beyond `bytes(0)` is in the linear class between `units` and
-/// `SCALE * units`.
+/// Asserts that `measured(units)` beyond `measured(0)` is in the linear class between `units`
+/// and `SCALE * units`; `quantity` names what is measured (bytes, or a counter's visits, where
+/// no vector doubles, so a linear walk stays near `SCALE` times).
 ///
 /// The runs go a few thousand levels deep, and the term readers and the SMT translation recurse
 /// once per level on the caller's stack, so they run on a thread with room for that.
-fn assert_linear(shape: &str, units: u64, bytes: impl Fn(u64) -> u64 + Sync) {
+fn assert_linear(shape: &str, quantity: &str, units: u64, measured: impl Fn(u64) -> u64 + Sync) {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(1 << 30)
-            .spawn_scoped(scope, || assert_linear_here(shape, units, &bytes))
+            .spawn_scoped(scope, || {
+                assert_linear_here(shape, quantity, units, &measured)
+            })
             .expect("the thread starts")
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
     });
 }
 
-fn assert_linear_here(shape: &str, units: u64, bytes: &dyn Fn(u64) -> u64) {
-    let base = bytes(0);
-    let small = bytes(units).saturating_sub(base);
-    let large = bytes(SCALE * units).saturating_sub(base);
+fn assert_linear_here(shape: &str, quantity: &str, units: u64, measured: &dyn Fn(u64) -> u64) {
+    let base = measured(0);
+    let small = measured(units).saturating_sub(base);
+    let large = measured(SCALE * units).saturating_sub(base);
     eprintln!(
-        "{shape}: {small} bytes at {units}, {large} at {}, ratio {:.1}",
+        "{shape}: {small} {quantity} at {units}, {large} at {}, ratio {:.1}",
         SCALE * units,
         large as f64 / small.max(1) as f64
     );
-    assert!(small > 0, "{shape}: the measured work allocates nothing");
+    assert!(small > 0, "{shape}: the measured work has no {quantity}");
     assert!(
         large <= LINEAR_WITH_DOUBLING * small,
-        "{shape}: {large} bytes at {} units against {small} at {units}: more than {LINEAR_WITH_DOUBLING} times",
+        "{shape}: {large} {quantity} at {} units against {small} at {units}: more than {LINEAR_WITH_DOUBLING} times",
         SCALE * units
     );
 }
@@ -428,7 +436,7 @@ fn a_non_tail_recursion_allocates_linearly_in_its_depth() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(NON_TAIL);
-    assert_linear("size(c^n(z))", 500, |depth| {
+    assert_linear("size(c^n(z))", "bytes", 500, |depth| {
         let subject = term(
             &definition,
             &format!("size{{}}({})", nested("c{}", depth, "z{}()")),
@@ -460,7 +468,7 @@ fn translating_nested_hook_templates_allocates_linearly_in_their_depth() {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(TEMPLATES);
-    assert_linear("absInt^n(X) to SMT-LIB", 250, |depth| {
+    assert_linear("absInt^n(X) to SMT-LIB", "bytes", 250, |depth| {
         let subject = term(&definition, &nested("absInt{}", depth, "X:SortInt{}"));
         bytes_of(|| {
             TranslationState::new()
@@ -468,4 +476,146 @@ fn translating_nested_hook_templates_allocates_linearly_in_their_depth() {
                 .expect("translates")
         })
     });
+}
+
+// ---------- predicate chains: one level of one connective per unit ----------
+
+/// Two partial functions `f` and `g` for the chains, and predicate equations of every top
+/// connective the chains have, over a third partial function `h` that no chain mentions, so none
+/// applies: at each level of a chain the simplifier tries the equations of that level's
+/// connective, and only those.
+const PREDICATE_CHAINS: &str = r#"[]
+module MAIN
+    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+    symbol f{}(SortInt{}) : SortInt{} [function{}()]
+    symbol g{}(SortInt{}) : SortInt{} [function{}()]
+    symbol h{}(SortInt{}) : SortInt{} [function{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(\ceil{SortInt{}, Q}(h{}(Z:SortInt{})), \and{Q}(\top{Q}(), \top{Q}()))
+    ) [label{}("ceil-h"), simplification{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(
+            \exists{Q}(Y:SortInt{}, \equals{SortInt{}, Q}(h{}(Y:SortInt{}), Z:SortInt{})),
+            \and{Q}(\top{Q}(), \top{Q}())
+        )
+    ) [label{}("exists-h"), simplification{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(
+            \forall{Q}(Y:SortInt{}, \equals{SortInt{}, Q}(h{}(Y:SortInt{}), Z:SortInt{})),
+            \and{Q}(\top{Q}(), \top{Q}())
+        )
+    ) [label{}("forall-h"), simplification{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(
+            \implies{Q}(\ceil{SortInt{}, Q}(h{}(Z:SortInt{})), \ceil{SortInt{}, Q}(h{}(W:SortInt{}))),
+            \and{Q}(\top{Q}(), \top{Q}())
+        )
+    ) [label{}("implies-h"), simplification{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(
+            \or{Q}(\ceil{SortInt{}, Q}(h{}(Z:SortInt{})), \ceil{SortInt{}, Q}(h{}(W:SortInt{}))),
+            \and{Q}(\top{Q}(), \top{Q}())
+        )
+    ) [label{}("or-h"), simplification{}()]
+    axiom{R, Q} \implies{R}(
+        \top{R}(),
+        \equals{Q, R}(
+            \not{Q}(\ceil{SortInt{}, Q}(h{}(Z:SortInt{}))),
+            \and{Q}(\top{Q}(), \top{Q}())
+        )
+    ) [label{}("not-h"), simplification{}()]
+endmodule []"#;
+
+/// `X /\ \floor(f(X)) /\ chain`, the chain `depth` levels of `shape`'s connective over
+/// `\ceil(f(X))`: `\exists` or `\forall` binding a fresh variable per level, `\implies` and `\or`
+/// with `\ceil(g(X))` as the other operand (the `\or` over a `\not`), or `\not` alone.
+fn predicate_chain(shape: &str, depth: u64) -> String {
+    let ceil = |function: &str| {
+        format!("\\ceil{{SortInt{{}}, SortInt{{}}}}({function}{{}}(X:SortInt{{}}))")
+    };
+    let mut chain = ceil("f");
+    for level in 0..depth {
+        chain = match shape {
+            "exists" | "forall" => {
+                format!("\\{shape}{{SortInt{{}}}}(Y{level}:SortInt{{}}, {chain})")
+            }
+            "implies" => format!("\\implies{{SortInt{{}}}}({}, {chain})", ceil("g")),
+            "ornot" => format!(
+                "\\or{{SortInt{{}}}}({}, \\not{{SortInt{{}}}}({chain}))",
+                ceil("g")
+            ),
+            "not" => format!("\\not{{SortInt{{}}}}({chain})"),
+            _ => unreachable!("no chain shape {shape}"),
+        };
+    }
+    format!(
+        "\\and{{SortInt{{}}}}(X:SortInt{{}}, \\and{{SortInt{{}}}}(\\floor{{SortInt{{}}, SortInt{{}}}}(f{{}}(X:SortInt{{}})), {chain}))"
+    )
+}
+
+/// Asserts that simplifying the `shape` chain visits predicate nodes linearly in its depth.
+///
+/// Whether a predicate mentions a variable is a fact a parent derives from its children, and a
+/// predicate equation of another connective does not match, so trying the equations at a level
+/// needs that level, not the chain below it: the walks of one simplification of the chain visit
+/// a number of nodes linear in its depth.
+fn assert_predicate_walks_linear(shape: &str, depth: u64) {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(PREDICATE_CHAINS);
+    assert_linear(
+        &format!("{shape} chain"),
+        "predicate nodes visited",
+        depth,
+        |depth| {
+            let subject = pattern(&definition, &predicate_chain(shape, depth));
+            let before = snapshot();
+            let result = simplify_pattern_with_solver(
+                &definition,
+                &subject,
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .expect("no stop")
+            .expect("simplifies");
+            let visited = snapshot()
+                .delta(&before)
+                .get(Counter::SimplifyPredicateNodesVisited);
+            drop(result);
+            visited
+        },
+    );
+}
+
+#[test]
+fn an_existential_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("exists", 200);
+}
+
+#[test]
+fn a_universal_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("forall", 200);
+}
+
+#[test]
+fn an_implication_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("implies", 200);
+}
+
+#[test]
+fn a_disjunction_negation_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("ornot", 100);
+}
+
+/// The control: a negation chain, linear before the predicate equations were indexed by
+/// connective, stays linear.
+#[test]
+fn a_negation_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("not", 400);
 }
