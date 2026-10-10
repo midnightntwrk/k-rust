@@ -1607,8 +1607,11 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
     templates
 }
 
-/// A random definition of [`random_definition`], with the classes of [`axiom_templates`] added
-/// at random.
+/// A random definition of [`random_definition`], with some of the classes of [`axiom_templates`]
+/// added at random: two maximal common subsorts, maps and sets with self pairs, hooked
+/// equations, an overload family read through its lesser productions, an inner pair across
+/// priority groups, and an equation at a bare-variable index. The templates that must stand
+/// alone, with no other pair that fails to join, are not added.
 pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     let (mut definition, _) = random_definition(rng);
     let has_head = definition.symbols.iter().any(Symbol::is_head);
