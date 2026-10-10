@@ -1,8 +1,10 @@
 //! What a priority conjunct of a rewrite axiom excludes, read from the written definition.
 //!
 //! A *priority conjunct* is a left-hand-side component `\not{S}(A{}())` of a rewrite axiom with
-//! `A` a nullary alias (no sort parameters, no parameters), recognised by shape. It states that
-//! the rule applies only outside what `A` denotes. The *applicability pattern* `App(ρ)` of a
+//! `A` a nullary alias (no sort parameters, no parameters) whose written body has a term pattern
+//! in predicate position (`rule::has_term_in_predicate_position`), so it denotes a set of
+//! configurations. It states that the rule applies only outside what `A` denotes. A negated
+//! nullary alias of a predicate is a condition like any other and is not one. The *applicability pattern* `App(ρ)` of a
 //! rewrite axiom ρ is its written left-hand-side components (nested `\and` flattened) other than
 //! priority conjuncts and `\top`s, in written order; the requires is among them, so a
 //! configuration satisfies `App(ρ)` exactly when ρ applies to it.
@@ -24,10 +26,14 @@
 //!
 //! Soundness, by induction on alias nesting: every configuration `A` denotes satisfies `App(ρ')`
 //! for an executable ρ' whose priority is at most the summary's. A naming disjunct denotes exactly
-//! where its rule applies, a nested alias holds by hypothesis, and a union keeps the bound. Since a
-//! rule of priority `p` is offered only subjects to which no executable rule of smaller priority
-//! applies, a conjunct whose alias summarises below `p` holds on every subject the rule is offered.
-//! The check is sufficient, not complete.
+//! where its rule applies, a nested alias holds by hypothesis, and a union keeps the bound. In
+//! `--strategy all`, and for a concrete subject in either strategy, a rule of priority `p` is
+//! offered only subjects to which no executable rule of smaller priority applies, so a conjunct
+//! whose alias summarises below `p` holds on every subject the rule is offered. Whether a symbolic
+//! `any` step can pass to a lower priority instances that a later application group of a higher
+//! rule covers is open and independent of these conjuncts. A non-executable rule is offered no
+//! subject, so its conjuncts are left as written without a summary. The check is sufficient, not
+//! complete.
 //!
 //! "Names a rule" is tried before "nested alias" because a rule without variables can be named by
 //! a bare application of the alias that is its whole left-hand side: read as a nested alias, that
@@ -52,7 +58,8 @@ use crate::{
     alias::AliasDefinition,
     definition::DefinitionError,
     rule::{
-        AxiomError, RuleAttributes, SentenceKey, VariableRenaming, flatten_and, hash_pattern_shape,
+        AxiomError, RuleAttributes, SentenceKey, VariableRenaming, flatten_and,
+        has_term_in_predicate_position, hash_pattern_shape,
     },
     term::Name,
 };
@@ -369,7 +376,7 @@ impl<'m, 'a> Discharge<'m, 'a> {
 
     /// The axiom `pattern`, written with `attributes` as the sentence `sentence`, with each
     /// priority conjunct of its rewrite left-hand side replaced by `\top` of its sort: borrowed
-    /// when it has none. Refused when one is not discharged; a malformed attribute of the axiom
+    /// when it has none or the axiom is non-executable. Refused when one is not discharged; a malformed attribute of the axiom
     /// or of a rule a disjunct names gives the error classifying that axiom gives.
     pub(crate) fn discharge(
         &mut self,
@@ -390,9 +397,12 @@ impl<'m, 'a> Discharge<'m, 'a> {
         if carried.peek().is_none() {
             return Ok(Cow::Borrowed(pattern));
         }
-        let own = RuleAttributes::parse(attributes)
-            .map_err(DefinitionError::Axiom)?
-            .priority;
+        let own = RuleAttributes::parse(attributes).map_err(DefinitionError::Axiom)?;
+        // A non-executable axiom is offered no subject, so its conjuncts hold vacuously.
+        if !own.executable {
+            return Ok(Cow::Borrowed(pattern));
+        }
+        let own = own.priority;
         let modules = self.modules;
         let conjuncts = self
             .conjuncts
@@ -461,7 +471,9 @@ enum Named {
     Nothing,
 }
 
-/// The nullary alias whose negation `component` is, when it is a priority conjunct.
+/// The nullary alias whose negation `component` is, when it is a priority conjunct: the alias's
+/// written body denotes a set of configurations ([`denotes_configurations`]). A nullary alias of
+/// any other predicate, negated, is a condition on the subject, read as any other.
 pub(crate) fn priority_conjunct<'p>(
     component: &'p kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
@@ -469,7 +481,18 @@ pub(crate) fn priority_conjunct<'p>(
     let kore::Pattern::Not { argument, .. } = component else {
         return None;
     };
-    nested_alias(argument, aliases)
+    nested_alias(argument, aliases).filter(|alias| denotes_configurations(&aliases[*alias].right))
+}
+
+/// Whether the body of a nullary alias denotes a set of configurations: it has a term pattern in
+/// predicate position, or it is `\bottom` (nested `\or` of `\bottom`s), the empty set, which is
+/// also the false predicate. For `\bottom` both readings of the negation are `\top`, so
+/// discharging it is the predicate reading, and the rules an empty priority group precedes are
+/// named without it, as their priority aliases write them.
+fn denotes_configurations(body: &kore::Pattern) -> bool {
+    let mut disjuncts = Vec::new();
+    flatten_or(body, &mut disjuncts);
+    disjuncts.is_empty() || has_term_in_predicate_position(body)
 }
 
 /// The alias `pattern` applies when it is an application `A{}()` of a nullary alias.

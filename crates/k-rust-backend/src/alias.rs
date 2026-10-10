@@ -92,10 +92,11 @@ pub(crate) const UNFOLDING_LIMIT: u64 = 1 << 22;
 /// whatever the aliases, while a small input still gets only the floor.
 ///
 /// Unfoldings polynomial in the definition are real: a closed alias applied by many axioms
-/// unfolds to a copy of its body at each application, as the alias that collects the left-hand
-/// sides of a priority group's rules does in every rule of a later group. A 15 MB EVM definition
-/// of 6.4 million units built that way spends about 51.5 million units on unfolding (8.1 times
-/// its own size): a release build loaded it in 2.4 s more, and with 1.4 GB more peak memory, than
+/// unfolds to a copy of its body at each application. Measured on a 15 MB EVM definition of 6.4
+/// million units before its priority conjuncts were discharged at load (they no longer unfold),
+/// where the alias collecting the left-hand sides of a priority group's rules was applied by
+/// every rule of a later group: it spent about 51.5 million units on unfolding (8.1 times its own
+/// size), and a release build loaded it in 2.4 s more, and with 1.4 GB more peak memory, than
 /// the same definition with those bodies emptied (about 47 ns and 28 bytes of peak memory per
 /// unit, the internal terms built from the unfolded axioms included). The factor leaves about
 /// four times that ratio for definitions of the same shape with more rules.

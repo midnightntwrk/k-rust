@@ -1,9 +1,11 @@
 //! Priority conjuncts of rewrite left-hand sides are discharged at load (`priority_conjunct`).
 //!
-//! A rule of priority `p` is offered only subjects to which no executable rule of smaller
-//! priority applies, so a conjunct `\not(A{}())` whose alias `A` denotes only configurations where
-//! such a rule applies holds on every subject the rule is offered: the load replaces it by `\top`
-//! and never unfolds `A`. One it cannot show so refuses the load, as does any other negated
+//! In `--strategy all`, and for a concrete subject in either strategy, a rule of priority `p` is
+//! offered only subjects to which no executable rule of smaller priority applies, so a conjunct
+//! `\not(A{}())` whose alias `A` denotes only configurations where such a rule applies holds on
+//! every subject the rule is offered: the load replaces it by `\top` and never unfolds `A`.
+//! Whether a symbolic `any` step can pass to a lower priority instances that a later application
+//! group of a higher rule covers is open and independent of these conjuncts. One it cannot show so refuses the load, as does any other negated
 //! configuration in a rewrite left-hand side, which no predicate of a rule expresses.
 
 use indoc::indoc;
@@ -380,11 +382,47 @@ fn a_negated_configuration_in_a_rewrite_left_hand_side_is_refused() {
         assert_eq!(
             refused.err(),
             Some(DefinitionError::RulePattern(
-                RulePatternError::NegatedConfiguration
+                RulePatternError::NegatedConfiguration {
+                    sentence: sentence(R3)
+                }
             )),
             "{negated}"
         );
     }
+}
+
+/// A negated nullary alias of a predicate is a condition, not a priority conjunct: it is read as
+/// the condition its body states, here one that holds, so `r3` takes `f(d)` to `c`.
+#[test]
+fn a_negated_nullary_alias_of_a_predicate_is_read_as_a_condition() {
+    let definition = loaded(&variant(&[
+        (
+            r"axiom{} \rewrites{SortS{}}(rule0LHS{}()",
+            concat!(
+                r"alias cond{}() : SortS{} where cond{}() := \equals{SortS{}, SortS{}}(a{}(), b{}()) []",
+                "\n",
+                r"axiom{} \rewrites{SortS{}}(rule0LHS{}()",
+            ),
+        ),
+        (
+            r"\not{SortS{}}(priorityLE40{}()), rule3LHS",
+            r"\not{SortS{}}(cond{}()), rule3LHS",
+        ),
+    ]));
+    assert_eq!(
+        one_step_terms(&definition, "f{}(d{}())", &NoSolver),
+        ["c{}()"]
+    );
+}
+
+/// A non-executable rule is offered no subject, so its conjunct is not checked, here one naming
+/// a rule of its own priority.
+#[test]
+fn a_conjunct_of_a_non_executable_rule_is_not_checked() {
+    loaded(&variant(&[(
+        r#"[priority{}("50"), label{}("r3")]"#,
+        r#"[priority{}("40"), label{}("r3"), non-executable{}()]"#,
+    )]));
 }
 
 /// A negated predicate states a condition on the rule's variables, not a set of configurations.
