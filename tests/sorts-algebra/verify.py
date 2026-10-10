@@ -18,8 +18,8 @@ natively through k-rust and through Java K, and the outcomes must agree:
   emitted K, and in both routes' KORE (read through `krs-gate`) the
   equations apply `choose` at exactly the instances Int, Bool, and Exp.
   `krs build --backend llvm` refuses the definition with the pinned
-  `krs::capability::unavailable` message: Java K's llvm-kompile crashes on
-  parametric function equations;
+  `krs::capability::unavailable` message: K's llvm-kompile crashes on
+  parametric function equations, in Java K's KORE and in k-rust's alike;
 - `constructors` (F2): `Wrap<S>` is the value-building schema
   `syntax {S} S ::= wrap(S)`. `go(7)` builds `wrap(v(7))`, at `Val`, and a
   rule on `Wrap::<Val>` makes it `v(-8)`; `fin(7)` builds `wrap(done(7))`, at

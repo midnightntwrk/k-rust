@@ -59,7 +59,7 @@
   },
   "diagnostics": {
     "functions-llvm": [
-      "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains equations of parametric functions [choose]; backend llvm cannot compile equations of a parametric function (Java K 7.1.337's llvm-kompile crashes on them); build with --backend haskell"
+      "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains equations of parametric functions [choose]; backend llvm cannot compile equations of a parametric function (K 7.1.337's llvm-kompile crashes on them, from Java K's KORE and from k-rust's alike); build with --backend haskell"
     ],
     "lifetime-parameter": [
       "error[krs::syntax::invalid-sort-parameter]: a production struct cannot have lifetime parameters: its generic parameters are K sort parameters `S: ?Sized`"

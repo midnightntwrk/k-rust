@@ -227,8 +227,8 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
     RouteCapability {
         feature: "ParametricFunctionEquations",
         unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
-        reason: "backend llvm cannot compile equations of a parametric function (Java K 7.1.337's llvm-kompile crashes on them); build with --backend haskell",
-        evidence: "llvm-kompile 7.1.337 exits 139 (segmentation fault) on `syntax {S} S ::= choose(Bool, S, S) [function, total]` with one equation per instance (KF-027 probe, 2026-10-09); whether k-rust's LLVM KORE crashes it too is unverified, so native-llvm refuses conservatively",
+        reason: "backend llvm cannot compile equations of a parametric function (K 7.1.337's llvm-kompile crashes on them, from Java K's KORE and from k-rust's alike); build with --backend haskell",
+        evidence: "llvm-kompile 7.1.337 exits 139 (segmentation fault) on `syntax {S} S ::= choose(Bool, S, S) [function, total]` with one equation per instance, both on Java kompile's KORE (KF-027 probe, 2026-10-09) and on the native LLVM KORE that `krs build --backend llvm` writes for tests/sorts-algebra's functions package with this row lifted (k-rust 195a7718, probe 2026-10-10: llvm-kompile-matching succeeds, then llvm-kompile segfaults; the constructors package's native LLVM KORE compiles)",
     },
     RouteCapability {
         feature: "ParametricConstructorSchema",
