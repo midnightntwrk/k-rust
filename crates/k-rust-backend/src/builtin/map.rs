@@ -1,7 +1,10 @@
 //! Concrete `MAP` hooks: per-call operations on the internal map representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use num_bigint::BigInt;
 
@@ -121,18 +124,38 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
         .into())
 }
 
-// Without a rest, every possible key is among the entries. Strict operands make
-// apartness a difference of values, so a key different from each entry is absent.
+/// The index of the entry of `entries` whose key is `key`, syntactically.
+///
+/// `entries` are the entries of a map argument as `Term::map` stores them, sorted by
+/// `(key, value)`, and `evaluate` answers `\bottom` before a hook sees a map that binds a key
+/// twice, so the keys are strictly increasing and the order of `Term` decides both whether
+/// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
+fn bound_at(entries: &[(Term, Term)], key: &Term) -> Option<usize> {
+    entries
+        .binary_search_by(|(existing, _)| existing.cmp(key))
+        .ok()
+}
+
+/// Whether `key`, which binds none of `entries` syntactically, is bound nowhere in the map.
+///
+/// Without a rest, every possible key is among the entries. Strict operands make apartness a
+/// difference of values, so a key different from each entry is absent. Two constructor-like
+/// terms denote different values exactly when they differ syntactically, so when the key and
+/// every entry are constructor-like (`entries_constructor_like`: the map's own attribute, the
+/// conjunction over its keys and values), the key differs from each entry already; otherwise it
+/// is compared with each entry.
 fn absent(
     sorts: Option<&SortGraph>,
     key: &Term,
     entries: &[(Term, Term)],
+    entries_constructor_like: bool,
     rest: &Option<Term>,
 ) -> bool {
     rest.is_none()
-        && entries
-            .iter()
-            .all(|(existing, _)| values_differ(sorts, key, existing))
+        && ((entries_constructor_like && key.attributes().constructor_like)
+            || entries
+                .iter()
+                .all(|(existing, _)| values_differ(sorts, key, existing)))
 }
 
 fn update(
@@ -164,20 +187,40 @@ fn update(
     ) else {
         return Ok(None);
     };
-    if let Some(index) = entries
-        .iter()
-        .position(|(existing_key, _)| *existing_key == key)
-    {
-        let mut updated = entries.into_owned();
-        updated[index] = (key, new_value);
-        return Ok(into.build(updated, rest.clone()));
+    // Entries of the result's sorts are the argument's own, in their stored order (`bound_at`);
+    // entries injected into the result's sorts may not keep that order, and are scanned.
+    let stored = matches!(entries, Cow::Borrowed(_));
+    let place = if stored {
+        entries.binary_search_by(|(existing_key, _)| existing_key.cmp(&key))
+    } else {
+        entries
+            .iter()
+            .position(|(existing_key, _)| *existing_key == key)
+            .ok_or(entries.len())
+    };
+    match place {
+        Ok(index) => {
+            let mut updated = entries.into_owned();
+            updated[index] = (key, new_value);
+            Ok(into.build(updated, rest.clone()))
+        }
+        Err(index) => {
+            if !absent(
+                sorts,
+                &key,
+                &entries,
+                stored && map.attributes().constructor_like,
+                rest,
+            ) {
+                return Ok(None);
+            }
+            let mut updated = Vec::with_capacity(entries.len() + 1);
+            updated.extend_from_slice(&entries[..index]);
+            updated.push((key, new_value));
+            updated.extend_from_slice(&entries[index..]);
+            Ok(into.build(updated, None))
+        }
     }
-    if !absent(sorts, &key, &entries, rest) {
-        return Ok(None);
-    }
-    let mut updated = vec![(key, new_value)];
-    updated.extend(entries.iter().cloned());
-    Ok(into.build(updated, None))
 }
 
 fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -313,15 +356,26 @@ fn remove(
     else {
         return Ok(None);
     };
-    if let Some(index) = entries
-        .iter()
-        .position(|(existing_key, _)| *existing_key == key)
-    {
+    let stored = matches!(entries, Cow::Borrowed(_));
+    let index = if stored {
+        bound_at(&entries, &key)
+    } else {
+        entries
+            .iter()
+            .position(|(existing_key, _)| *existing_key == key)
+    };
+    if let Some(index) = index {
         let mut updated = entries.into_owned();
         updated.remove(index);
         return Ok(into.build(updated, rest.clone()));
     }
-    if !absent(sorts, &key, &entries, rest) {
+    if !absent(
+        sorts,
+        &key,
+        &entries,
+        stored && map.attributes().constructor_like,
+        rest,
+    ) {
         Ok(None)
     } else {
         Ok(into.adopt(map))
@@ -398,14 +452,13 @@ fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinRe
     let TermKind::Map { entries, rest, .. } = map.kind() else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if let Some(value) = entries
-        .iter()
-        .find(|(existing_key, _)| existing_key == key)
-        .map(|(_, value)| value.clone())
-    {
-        return Ok(BuiltinResult::Value(value));
+    if let Some(index) = bound_at(entries, key) {
+        return Ok(BuiltinResult::Value(entries[index].1.clone()));
     }
-    if rest.is_none() && (entries.is_empty() || absent(sorts, key, entries, rest)) {
+    if rest.is_none()
+        && (entries.is_empty()
+            || absent(sorts, key, entries, map.attributes().constructor_like, rest))
+    {
         Ok(BuiltinResult::Bottom)
     } else {
         Ok(BuiltinResult::NotApplicable)
@@ -420,10 +473,10 @@ fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResul
     let TermKind::Map { entries, rest, .. } = map.kind() else {
         return Ok(None);
     };
-    if let Some((_, value)) = entries.iter().find(|(existing_key, _)| existing_key == key) {
-        return Ok(Some(value.clone()));
+    if let Some(index) = bound_at(entries, key) {
+        return Ok(Some(entries[index].1.clone()));
     }
-    if !absent(sorts, key, entries, rest) {
+    if !absent(sorts, key, entries, map.attributes().constructor_like, rest) {
         Ok(None)
     } else {
         Ok(Some(default.clone()))
@@ -438,10 +491,10 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
     let TermKind::Map { entries, rest, .. } = map.kind() else {
         return Ok(None);
     };
-    if entries.iter().any(|(existing_key, _)| existing_key == key) {
+    if bound_at(entries, key).is_some() {
         return Ok(Some(bool_term(true)));
     }
-    if absent(sorts, key, entries, rest) {
+    if absent(sorts, key, entries, map.attributes().constructor_like, rest) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
@@ -820,6 +873,137 @@ mod tests {
                 "{hook}"
             );
         }
+    }
+
+    fn hook(name: &str, arguments: &[Term]) -> BuiltinResult {
+        super::super::evaluate_hook(name, arguments)
+            .unwrap()
+            .unwrap()
+    }
+
+    fn bindings_map(definition: &Arc<MapDefinition>, bindings: &BTreeMap<u32, u32>) -> Term {
+        Term::map(
+            definition.clone(),
+            bindings
+                .iter()
+                .map(|(bound, to)| (key(&bound.to_string()), value(&to.to_string())))
+                .collect(),
+            None,
+        )
+    }
+
+    /// Maps of every size up to 33 bind `2i` to `2i + 1`; each hook that reads or changes one
+    /// key is applied at every bound key and at every key before, between and after them, and
+    /// answers what the bindings say. The keys' text order (`"10"` before `"2"`) is not their
+    /// numeric order, and the search follows the terms' order, not the numbers'.
+    #[test]
+    fn one_key_hooks_answer_the_bindings_at_every_place_in_maps_of_every_size() {
+        let definition = definition("SortMap");
+        for size in 0..=33_u32 {
+            let bindings = (0..size)
+                .map(|index| (2 * index, 2 * index + 1))
+                .collect::<BTreeMap<_, _>>();
+            let map = bindings_map(&definition, &bindings);
+            for probe in 0..=2 * size + 1 {
+                let probed = key(&probe.to_string());
+                let bound = bindings.get(&probe).map(|to| value(&to.to_string()));
+                let case = format!("size {size}, key {probe}");
+                assert_eq!(
+                    hook("MAP.lookup", &[map.clone(), probed.clone()]),
+                    bound
+                        .clone()
+                        .map_or(BuiltinResult::Bottom, BuiltinResult::Value),
+                    "{case}"
+                );
+                assert_eq!(
+                    hook(
+                        "MAP.lookupOrDefault",
+                        &[map.clone(), probed.clone(), value("default")]
+                    ),
+                    BuiltinResult::Value(bound.clone().unwrap_or_else(|| value("default"))),
+                    "{case}"
+                );
+                assert_eq!(
+                    hook("MAP.in_keys", &[probed.clone(), map.clone()]),
+                    BuiltinResult::Value(bool_term(bound.is_some())),
+                    "{case}"
+                );
+                let mut updated = bindings.clone();
+                updated.insert(probe, 1000);
+                assert_eq!(
+                    hook("MAP.update", &[map.clone(), probed.clone(), value("1000")]),
+                    BuiltinResult::Value(bindings_map(&definition, &updated)),
+                    "{case}"
+                );
+                let mut removed = bindings.clone();
+                removed.remove(&probe);
+                assert_eq!(
+                    hook("MAP.remove", &[map.clone(), probed]),
+                    BuiltinResult::Value(bindings_map(&definition, &removed)),
+                    "{case}"
+                );
+            }
+        }
+    }
+
+    /// Absence is decided without comparing the key with each entry only when the key and every
+    /// entry are constructor-like. A symbolic value leaves the keys constructor-like, and each
+    /// entry still separates an unbound ground key; a symbolic key among ground ones may be any
+    /// key, so an unbound ground key stays undecided while a bound one is still found.
+    #[test]
+    fn a_map_that_is_not_constructor_like_decides_absence_entry_by_entry() {
+        let definition = definition("SortMap");
+        let symbolic_value = Term::variable(Variable::new("V", Sort::simple("SortValue")));
+        let symbolic_key = Term::variable(Variable::new("K", Sort::simple("SortKey")));
+        let mut ground = (0..20_u32)
+            .map(|index| (key(&(2 * index).to_string()), value("1")))
+            .collect::<Vec<_>>();
+        ground[7].1 = symbolic_value.clone();
+        let symbolic_values = Term::map(definition.clone(), ground.clone(), None);
+        assert!(!symbolic_values.attributes().constructor_like);
+        assert_eq!(
+            hook("MAP.in_keys", &[key("15"), symbolic_values.clone()]),
+            BuiltinResult::Value(bool_term(false))
+        );
+        assert_eq!(
+            hook("MAP.lookup", &[symbolic_values.clone(), key("14")]),
+            BuiltinResult::Value(symbolic_value)
+        );
+        assert_eq!(
+            hook("MAP.lookup", &[symbolic_values, key("15")]),
+            BuiltinResult::Bottom
+        );
+
+        ground[7].1 = value("1");
+        ground.push((symbolic_key, value("2")));
+        let symbolic_keys = Term::map(definition, ground, None);
+        for (name, arguments) in [
+            ("MAP.in_keys", vec![key("15"), symbolic_keys.clone()]),
+            ("MAP.lookup", vec![symbolic_keys.clone(), key("15")]),
+            (
+                "MAP.lookupOrDefault",
+                vec![symbolic_keys.clone(), key("15"), value("0")],
+            ),
+            (
+                "MAP.update",
+                vec![symbolic_keys.clone(), key("15"), value("3")],
+            ),
+            ("MAP.remove", vec![symbolic_keys.clone(), key("15")]),
+        ] {
+            assert_eq!(
+                hook(name, &arguments),
+                BuiltinResult::NotApplicable,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            hook("MAP.in_keys", &[key("14"), symbolic_keys.clone()]),
+            BuiltinResult::Value(bool_term(true))
+        );
+        assert_eq!(
+            hook("MAP.lookup", &[symbolic_keys, key("14")]),
+            BuiltinResult::Value(value("1"))
+        );
     }
 
     #[test]
