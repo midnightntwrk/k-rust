@@ -2482,16 +2482,37 @@ fn drops_conjunction_operands_rewritten_to_top() {
     assert!(result.applied_rules.iter().any(|rule| rule == "erase-f"));
 }
 
+/// `\top /\ v = v` for either operand, so when a `\top` lemma applies to both operands of a
+/// conjunction, the conjunction drops one and keeps the other, which equals `\top` there.
 #[test]
-fn top_equation_outside_a_conjunction_is_an_explicit_error() {
+fn a_conjunction_of_two_operands_rewritten_to_top_keeps_one() {
+    let definition = definition(TOP_RHS_EQUATION);
+    let left = term(&definition, r#"f{}(\dv{SortS{}}("left"))"#);
+    let right = term(&definition, r#"f{}(\dv{SortS{}}("right"))"#);
+    let input = Term::and(left.clone(), right.clone());
+
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+    assert!(
+        result.term == left || result.term == right,
+        "{:?}",
+        result.term
+    );
+    assert!(result.applied_rules.iter().any(|rule| rule == "erase-f"));
+}
+
+/// `f(X) = \top` gives `f(t)` no term to be rewritten to; only a conjunction can drop such an
+/// operand. Elsewhere the equation is not used, which is sound: the subject is kept, equal to
+/// itself.
+#[test]
+fn a_top_equation_outside_a_conjunction_keeps_its_subject() {
     let definition = definition(TOP_RHS_EQUATION);
     let input = term(&definition, r#"f{}(\dv{SortS{}}("removed"))"#);
 
-    assert!(matches!(
-        simplify(&definition, &input, SimplificationOptions::default()),
-        Err(SimplificationError::TopEquationOutsideConjunction { rule_id })
-            if rule_id == "erase-f"
-    ));
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+
+    assert_eq!(result.term, input);
+    assert!(!result.applied_rules.iter().any(|rule| rule == "erase-f"));
 }
 
 #[test]

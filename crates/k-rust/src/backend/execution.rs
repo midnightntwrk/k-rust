@@ -1468,7 +1468,6 @@ fn describe_simplification_error(error: &SimplificationError, sort: &Sort) -> St
         ),
         SimplificationError::Builtin(_)
         | SimplificationError::DisjunctiveResult { .. }
-        | SimplificationError::TopEquationOutsideConjunction { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. } => error.to_string(),
     }
 }

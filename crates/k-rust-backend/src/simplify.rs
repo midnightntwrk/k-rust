@@ -63,6 +63,7 @@
 //! re-entry through the ceil and predicate theories; `Counter::SimplifyAssumptionNodes`.
 
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -271,7 +272,7 @@ pub(crate) struct PatternSimplification {
 /// ```
 /// use k_rust_backend::simplify::SimplificationError;
 ///
-/// let _ = SimplificationError::TopEquationOutsideConjunction { rule_id: "rule".into() };
+/// let _ = SimplificationError::DisjunctiveResult { rule_id: "rule".into(), alternatives: 2 };
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SimplificationError {
@@ -279,9 +280,6 @@ pub enum SimplificationError {
     DisjunctiveResult {
         rule_id: String,
         alternatives: usize,
-    },
-    TopEquationOutsideConjunction {
-        rule_id: String,
     },
     Smt {
         rule_id: String,
@@ -1401,7 +1399,6 @@ fn record_rule_condition_failure(rule_id: &str, failure: SimplificationError) {
         | SimplificationError::SmtPredicate { .. }
         | SimplificationError::Builtin(..)
         | SimplificationError::DisjunctiveResult { .. }
-        | SimplificationError::TopEquationOutsideConjunction { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
             diagnostic::emit(BackendDiagnostic::RuleConditionFailed {
                 rule_id: rule_id.to_owned(),
@@ -2596,68 +2593,34 @@ fn apply_ceil_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
-        return apply_ceil_equation(
-            definition,
-            &renamed,
-            term,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        );
-    }
-    let substitution =
-        match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
-            MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable(())),
-            MatchResult::Indeterminate {
-                substitution,
-                remainder,
-            } => match match_collection_remainders_all_in_definition(
-                MatchMode::Evaluate,
+    let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+    let instances = match instances {
+        EquationInstances::NotMatched(_) => return Ok(EquationAttempt::NotApplicable(())),
+        EquationInstances::Undecided => {
+            return Ok(EquationAttempt::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate,
+            ));
+        }
+        EquationInstances::Matched(instances) => instances,
+    };
+    scan_instances(instances, |instance| {
+        instance.attempt(|substitution| {
+            apply_ceil_equation_instance(
                 definition,
+                &rule,
+                term,
                 substitution,
-                &remainder,
-            ) {
-                // Each matching is an instance of the equation, which applies when one of them
-                // does (`scan_instances`).
-                CollectionMatches::Solutions(solutions) => {
-                    return scan_instances(solutions, |substitution| {
-                        apply_ceil_equation_instance(
-                            definition,
-                            rule,
-                            term,
-                            substitution,
-                            known_predicates,
-                            options,
-                            active_conditions,
-                            solver,
-                        )
-                    });
-                }
-                CollectionMatches::NoSolution(_) => return Ok(EquationAttempt::NotApplicable(())),
-                CollectionMatches::Undecided => {
-                    return Ok(EquationAttempt::Indeterminate(
-                        ConditionIndeterminacy::ImplicationIndeterminate,
-                    ));
-                }
-            },
-            MatchResult::Success(substitution) => substitution,
-        };
-    apply_ceil_equation_instance(
-        definition,
-        rule,
-        term,
-        substitution,
-        known_predicates,
-        options,
-        active_conditions,
-        solver,
-    )
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        })
+    })
 }
 
 /// Apply the instance of the ceil equation `rule` under `substitution`, one matching of its
-/// left-hand side against `term`.
+/// left-hand side against `term` that the evaluator may use ([`Instance::Usable`]).
 #[allow(clippy::too_many_arguments)]
 fn apply_ceil_equation_instance(
     definition: &BackendDefinition,
@@ -2669,19 +2632,6 @@ fn apply_ceil_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
-    if substitution
-        .keys()
-        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-        || check_concreteness(rule, &substitution).is_some()
-    {
-        return Ok(EquationAttempt::NotApplicable(()));
-    }
-    if binds_element_variable_to_set_pattern(&substitution) {
-        return Ok(EquationAttempt::Indeterminate(
-            ConditionIndeterminacy::NonFunctionalBinding,
-        ));
-    }
-
     let instance = EquationInstance::new(definition, &rule.requires, substitution);
     let matched = match evaluate_equation_condition(
         definition,
@@ -3948,6 +3898,9 @@ fn term_contains_replacement_original(term: &Term, replacements: &[(Term, Term)]
     false
 }
 
+/// The first `\top` lemma, in priority order, that applies to `term`, an operand of a term-level
+/// conjunction: its id and the constraints the conjunction keeps from the instance that applied.
+/// An equation applies when one of its instances does ([`scan_instances`]).
 fn matches_top_equation(
     definition: &BackendDefinition,
     term: &Term,
@@ -3961,90 +3914,91 @@ fn matches_top_equation(
             if !matches!(rule.rhs, RuleRhs::Top) {
                 continue;
             }
-            let renamed = rename_apart(rule, &term.attributes().variables, known_predicates);
-            let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
-            let substitution =
-                match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
-                    MatchResult::Failed(_) => continue,
-                    MatchResult::Indeterminate {
-                        substitution,
-                        remainder,
-                    } => match match_collection_remainders_all_in_definition(
-                        MatchMode::Evaluate,
-                        definition,
-                        substitution,
-                        &remainder,
-                    ) {
-                        CollectionMatches::Solutions(solutions) => solutions
-                            .into_iter()
-                            .next()
-                            .expect("collection solutions are never empty"),
-                        CollectionMatches::NoSolution(_) | CollectionMatches::Undecided => {
-                            continue;
-                        }
-                    },
-                    MatchResult::Success(substitution) => substitution,
-                };
-            if substitution
-                .keys()
-                .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-                || check_concreteness(rule, &substitution).is_some()
-                // A non-functional binding leaves the equation undecided; this path has no
-                // indeterminate channel and passes over it as it does an undecided `requires`.
-                || binds_element_variable_to_set_pattern(&substitution)
-            {
+            let (rule, EquationInstances::Matched(instances)) =
+                equation_instances(definition, rule, term, known_predicates)
+            else {
                 continue;
-            }
-            let instance = EquationInstance::new(definition, &rule.requires, substitution);
+            };
             // The attempt is speculative: its diagnostics are kept only if the equation is used.
             // An equation not used here is attempted again when the conjunct is simplified as a
             // child, and that attempt's diagnostics follow the child's own scan.
-            let used = diagnostic::attempt(
+            let attempt = diagnostic::attempt(
                 || {
-                    let EquationCondition::Satisfied(matched) = evaluate_equation_condition(
-                        definition,
-                        &rule.attributes.unique_id,
-                        &rule.computed_attributes.unbound_result_variables,
-                        &rule.computed_attributes.unbound_variables,
-                        Some(term),
-                        instance,
-                        known_predicates,
-                        options,
-                        active_conditions,
-                        solver,
-                    )?
-                    else {
-                        return Ok(None);
-                    };
-                    // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to
-                    // an element variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`:
-                    // an open obligation becomes a constraint of the conjunction and a refuted
-                    // one makes it `\bottom`.
-                    let constraints = match decide_equation_bindings(
-                        definition,
-                        &rule.attributes.unique_id,
-                        Some(term),
-                        matched,
-                        known_predicates,
-                        options,
-                        active_conditions,
-                        solver,
-                    )? {
-                        DecidedEquation::Defined(defined) => {
-                            defined.into_carried().into_predicates()
-                        }
-                        DecidedEquation::Refuted(_) => vec![Predicate::False],
-                    };
-                    Ok(Some(constraints))
+                    scan_instances(instances, |instance| {
+                        instance.attempt(|substitution| {
+                            top_equation_instance(
+                                definition,
+                                &rule,
+                                term,
+                                substitution,
+                                known_predicates,
+                                options,
+                                active_conditions,
+                                solver,
+                            )
+                        })
+                    })
                 },
-                |used: &SimplifyResult<Option<Vec<Predicate>>>| !matches!(used, Ok(None)),
+                |attempt| matches!(attempt, Ok(EquationAttempt::Applied(_)) | Err(_)),
             )?;
-            if let Some(constraints) = used {
+            if let EquationAttempt::Applied(constraints) = attempt {
                 return Ok(Some((rule.attributes.unique_id.clone(), constraints)));
             }
         }
     }
     Ok(None)
+}
+
+/// Apply the instance of the `\top` lemma `rule` under `substitution` to `term`, an operand of a
+/// term-level conjunction: the constraints the conjunction keeps when the operand is dropped.
+#[allow(clippy::too_many_arguments)]
+fn top_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Vec<Predicate>, ()>> {
+    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let matched = match evaluate_equation_condition(
+        definition,
+        &rule.attributes.unique_id,
+        &rule.computed_attributes.unbound_result_variables,
+        &rule.computed_attributes.unbound_variables,
+        Some(term),
+        instance,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )? {
+        EquationCondition::Satisfied(matched) => matched,
+        EquationCondition::Refuted => return Ok(EquationAttempt::ContextDependent),
+        EquationCondition::Indeterminate(reason) => {
+            return Ok(EquationAttempt::Indeterminate(reason));
+        }
+    };
+    // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to an element
+    // variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`: an open obligation becomes a
+    // constraint of the conjunction and a refuted one makes it `\bottom`.
+    Ok(EquationAttempt::Applied(
+        match decide_equation_bindings(
+            definition,
+            &rule.attributes.unique_id,
+            Some(term),
+            matched,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )? {
+            DecidedEquation::Defined(defined) => defined.into_carried().into_predicates(),
+            DecidedEquation::Refuted(_) => vec![Predicate::False],
+        },
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4090,41 +4044,32 @@ fn simplify_children(
     };
     let rebuilt = match term.kind() {
         TermKind::And(left, right) => {
-            let left_top = matches_top_equation(
-                definition,
-                left,
-                assumptions.predicates,
-                options,
-                active_conditions,
-                solver,
-            )?;
-            let right_top = matches_top_equation(
-                definition,
-                right,
-                assumptions.predicates,
-                options,
-                active_conditions,
-                solver,
-            )?;
-            match (left_top, right_top) {
-                (Some((rule_id, obligations)), None) => {
+            // `\top /\ v = v`: an operand a `\top` lemma applies to is dropped, and the
+            // conjunction keeps the constraints of the instance that applied. When the lemmas
+            // apply to both operands, the right one is kept: it equals `\top` there, so keeping
+            // it is sound, as not applying an equation always is.
+            let top = |operand| {
+                matches_top_equation(
+                    definition,
+                    operand,
+                    assumptions.predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )
+            };
+            let dropped = match top(left)? {
+                Some(applied) => Some((applied, right)),
+                None => top(right)?.map(|applied| (applied, left)),
+            };
+            match dropped {
+                Some(((rule_id, obligations), retained)) => {
                     children_unchanged.set(false);
-                    let retained = child(right)?;
+                    let retained = child(retained)?;
                     accumulated.top_equation(rule_id, obligations);
                     retained
                 }
-                (None, Some((rule_id, obligations))) => {
-                    children_unchanged.set(false);
-                    let retained = child(left)?;
-                    accumulated.top_equation(rule_id, obligations);
-                    retained
-                }
-                (None, None) => Term::and(child(left)?, child(right)?),
-                (Some((rule_id, _)), Some(_)) => {
-                    return Err(
-                        SimplificationError::TopEquationOutsideConjunction { rule_id }.into(),
-                    );
-                }
+                None => Term::and(child(left)?, child(right)?),
             }
         }
         TermKind::Application {
@@ -5809,78 +5754,141 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
-        return apply_equation(
-            definition,
-            &renamed,
-            term,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        );
-    }
     measure::bump(Counter::SimplifyEquationAttempts);
+    let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
+    let instances = match instances {
+        EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
+        EquationInstances::Undecided => {
+            return Ok(EquationAttempt::Indeterminate(
+                ConditionIndeterminacy::ImplicationIndeterminate,
+            ));
+        }
+        EquationInstances::Matched(instances) => instances,
+    };
+    scan_instances(instances, |instance| {
+        instance.attempt(|substitution| {
+            apply_equation_instance(
+                definition,
+                &rule,
+                term,
+                substitution,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        })
+    })
+}
+
+/// The instances of an equation at a subject, one per matching of its left-hand side, or why
+/// there is none.
+enum EquationInstances {
+    /// The left-hand side does not match the subject: no instance of the equation is the subject.
+    NotMatched(MatchFailed),
+    /// Matching modulo the map and set axioms could not decide whether the left-hand side
+    /// matches the subject.
+    Undecided,
+    /// The instances in the matcher's order; never empty.
+    Matched(Vec<Instance>),
+}
+
+/// One matching of an equation's left-hand side against a subject, as the checks every use of
+/// the equation shares classify it. They decide whether the evaluator may use the instance, not
+/// whether the equation holds, so none of them refutes it.
+enum Instance {
+    /// The evaluator may use the instance under this substitution.
+    Usable(Substitution),
+    /// The matching binds a variable outside the left-hand side, or a `concrete` or `symbolic`
+    /// attribute rejects its binding: the evaluator does not use the equation on this instance.
+    Unused,
+    /// The matching binds an element variable to a pattern with a set variable
+    /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
+    NonFunctionalBinding,
+}
+
+impl Instance {
+    /// The outcome of the instance: `attempt` under its substitution when it is usable, and
+    /// otherwise the outcome its classification gives every use of the equation.
+    fn attempt<T, N>(
+        self,
+        attempt: impl FnOnce(Substitution) -> SimplifyResult<EquationAttempt<T, N>>,
+    ) -> SimplifyResult<EquationAttempt<T, N>> {
+        match self {
+            Instance::Usable(substitution) => attempt(substitution),
+            Instance::Unused => Ok(EquationAttempt::Unused),
+            Instance::NonFunctionalBinding => Ok(EquationAttempt::Indeterminate(
+                ConditionIndeterminacy::NonFunctionalBinding,
+            )),
+        }
+    }
+}
+
+/// The instances of `rule` at `term`, the one enumeration that equation evaluation, ceil
+/// equations and `\top` lemmas share, and the equation they instantiate: `rule` renamed apart
+/// from the subject and its constraints when it has to be.
+///
+/// Matching modulo the map and set axioms can decompose one subject in several ways; each
+/// decomposition `σ` is an instance `f(t) = rhs σ requires R σ` of the equation, which holds by
+/// itself, so a caller applies the equation when one instance does ([`scan_instances`]),
+/// whichever the matcher enumerates first. A match without a collection remainder has one
+/// instance.
+fn equation_instances<'r>(
+    definition: &BackendDefinition,
+    rule: &'r RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+) -> (Cow<'r, RewriteRule>, EquationInstances) {
+    let rule = match rename_apart(rule, &term.attributes().variables, known_predicates) {
+        Some((renamed, _)) => Cow::Owned(renamed),
+        None => Cow::Borrowed(rule),
+    };
     let matched = match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term);
-    let substitution = match matched {
+    let substitutions = match matched {
         MatchResult::Failed(_) => {
             let failed = matched
                 .refutation()
                 .expect("a failed match states its refutation");
-            return Ok(EquationAttempt::NotApplicable(failed));
+            return (rule, EquationInstances::NotMatched(failed));
         }
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => {
-            let solutions = match match_collection_remainders_all_in_definition(
-                MatchMode::Evaluate,
-                definition,
-                substitution.clone(),
-                &remainder,
-            ) {
-                CollectionMatches::Solutions(solutions) => solutions,
-                CollectionMatches::NoSolution(failed) => {
-                    return Ok(EquationAttempt::NotApplicable(failed));
-                }
-                CollectionMatches::Undecided => {
-                    return Ok(EquationAttempt::Indeterminate(
-                        ConditionIndeterminacy::ImplicationIndeterminate,
-                    ));
-                }
-            };
-            // Matching modulo the map and set axioms can decompose one subject in several ways;
-            // each decomposition is an instance of the equation, and the equation applies when
-            // one of them does (`scan_instances`).
-            return scan_instances(solutions, |substitution| {
-                apply_equation_instance(
-                    definition,
-                    rule,
-                    term,
-                    substitution,
-                    known_predicates,
-                    options,
-                    active_conditions,
-                    solver,
-                )
-            });
-        }
-        MatchResult::Success(substitution) => substitution,
+        } => match match_collection_remainders_all_in_definition(
+            MatchMode::Evaluate,
+            definition,
+            substitution,
+            &remainder,
+        ) {
+            CollectionMatches::Solutions(solutions) => solutions,
+            CollectionMatches::NoSolution(failed) => {
+                return (rule, EquationInstances::NotMatched(failed));
+            }
+            CollectionMatches::Undecided => return (rule, EquationInstances::Undecided),
+        },
+        MatchResult::Success(substitution) => vec![substitution],
     };
-    apply_equation_instance(
-        definition,
-        rule,
-        term,
-        substitution,
-        known_predicates,
-        options,
-        active_conditions,
-        solver,
-    )
+    let instances = substitutions
+        .into_iter()
+        .map(|substitution| {
+            if substitution
+                .keys()
+                .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+                || check_concreteness(&rule, &substitution).is_some()
+            {
+                Instance::Unused
+            } else if binds_element_variable_to_set_pattern(&substitution) {
+                Instance::NonFunctionalBinding
+            } else {
+                Instance::Usable(substitution)
+            }
+        })
+        .collect();
+    (rule, EquationInstances::Matched(instances))
 }
 
 /// Apply the instance of `rule` under `substitution`, one matching of its left-hand side against
-/// `term`.
+/// `term` that the evaluator may use ([`Instance::Usable`]).
 #[allow(clippy::too_many_arguments)]
 fn apply_equation_instance(
     definition: &BackendDefinition,
@@ -5892,22 +5900,6 @@ fn apply_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    // The left-hand side matched. The two checks below decide whether the evaluator uses the
-    // equation here, not whether it holds, so a rejection is `Unused`, never `NotApplicable`.
-    if substitution
-        .keys()
-        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-    {
-        return Ok(EquationAttempt::Unused);
-    }
-    if check_concreteness(rule, &substitution).is_some() {
-        return Ok(EquationAttempt::Unused);
-    }
-    if binds_element_variable_to_set_pattern(&substitution) {
-        return Ok(EquationAttempt::Indeterminate(
-            ConditionIndeterminacy::NonFunctionalBinding,
-        ));
-    }
     let instance = EquationInstance::new(definition, &rule.requires, substitution);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
@@ -5982,13 +5974,11 @@ fn apply_equation_instance(
                 .collect(),
             true,
         ),
-        RuleRhs::Top => {
-            return Err(SimplificationError::TopEquationOutsideConjunction {
-                rule_id: rule.attributes.unique_id.clone(),
-            }
-            .into());
-        }
-        RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
+        // The result is not a term the subject can be rewritten to. A `\top` lemma is used
+        // where its subject is an operand of a term-level conjunction, which drops the operand
+        // (`matches_top_equation`); elsewhere the evaluator does not use it, which is sound,
+        // since the subject is kept, equal to itself.
+        RuleRhs::Top | RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
     };
     let mut live = Vec::new();
     for (rhs, ensures, rhs_is_bottom) in alternatives {

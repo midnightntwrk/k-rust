@@ -1,14 +1,29 @@
-//! Class tests of the taint closure's inputs (`draft/open-issues-2026-10/TICKETS.md` K5).
+//! Class tests of the definedness cluster (`draft/open-issues-2026-10/tickets/definedness-tickets.md`).
 //!
-//! Each test states one invariant that follows from what the closure means, and checks krust
-//! against itself on small definitions; none compares with another implementation.
+//! Each test states one invariant that follows from what the construct means, and checks krust
+//! against itself on small definitions; none compares with another implementation. They are
+//! ignored until the ticket that fixes their class lands, and each fails on `934d29e7`.
 //!
+//! - An equation states nothing at an undefined argument: it binds each argument by membership
+//!   in its argument pattern, and an undefined term is a member of no pattern. So a step never
+//!   drops an argument subterm whose definedness it cannot show; it keeps the subterm or carries
+//!   its `\ceil`, whether the equation consumes that subterm with a variable or with a pattern,
+//!   and whether the subterm is an application or a collection whose distinctness the pattern
+//!   splits.
+//! - A pattern denotes the values it can be instantiated to, so an application of a computed
+//!   symbol in a pattern matches the value it computes, as the same pattern with that value
+//!   written in its place does.
 //! - The taint closure is a least fixpoint of its rules: an equation whose left-hand side
-//!   mentions a withdrawn symbol is withdrawn (T1), a withdrawn equation withdraws every equation
-//!   head it mentions, hooked or not (T-sym), and an equation the check does not reason about is
-//!   withdrawn like a pair that does not join.
+//!   mentions a withdrawn symbol is withdrawn (T1), and an equation the check does not reason
+//!   about is withdrawn like a pair that does not join.
+//! - The critical pairs the check classifies include every two equations the evaluator can offer
+//!   at one subject.
+//! - Every admission route refuses the patterns the verifier refuses for their sorts.
 //! - A claim the load keeps is true in every model: two equations that equate two terms leave
 //!   no freeness claim that tells them apart.
+//! - An equation applies to a term when one of its instances does, whichever instance the
+//!   matcher enumerates first; and not applying an equation is always sound, so a simplification
+//!   never fails because an equation whose result is not a term matches.
 
 use std::collections::BTreeSet;
 
@@ -18,7 +33,7 @@ use k_rust_backend::{
     rewrite::Pattern,
     rule::{RuleRhs, TermIndex},
     simplify::SimplificationOptions,
-    term::{HeadRole, Term},
+    term::{HeadRole, Term, TermKind},
 };
 use k_rust_kore::kore::{parser::parse_definition, printer::Printer};
 
@@ -123,6 +138,10 @@ fn int(value: i64) -> String {
     format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
 }
 
+fn printed_term(term: &Term) -> String {
+    Printer::compact().print_pattern(&externalize::term(term))
+}
+
 /// The simplification of `subject`, printed with the conditions it carries.
 fn simplified(definition: &BackendDefinition, subject: &str) -> String {
     let term = internal_term(definition, subject);
@@ -137,6 +156,255 @@ fn simplified(definition: &BackendDefinition, subject: &str) -> String {
         Err(error) => format!("error: {error:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// DF-1: a step never drops an argument subterm whose definedness it cannot show.
+
+/// A partial function `pf`, defined at `c` only, so `pf(d)` is undefined: no equation reduces
+/// it, and a declared function's application no equation reduces is `\bottom`.
+const PARTIAL: &str = r"
+    symbol box{}(SortFoo{}) : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+    symbol pf{}(SortFoo{}) : SortFoo{} [function{}()]
+    symbol fv{}(SortFoo{}) : SortS{} [function{}()]
+    symbol fa{}(SortFoo{}, SortFoo{}) : SortS{} [function{}()]
+    symbol fb{}(SortFoo{}, SortFoo{}) : SortS{} [function{}()]
+    symbol fk{}(SortFoo{}, SortMap{}) : SortS{} [function{}()]
+    symbol fs{}(SortFoo{}, SortSet{}) : SortS{} [function{}()]
+    symbol fmv{}(SortMap{}) : SortS{} [function{}()]
+    symbol fmr{}(SortMap{}) : SortS{} [function{}()]
+    symbol fsr{}(SortSet{}) : SortS{} [function{}()]
+";
+
+fn pf_equation() -> String {
+    equation(
+        "pf",
+        &["SortFoo{}"],
+        "SortFoo{}",
+        &["c{}()"],
+        "c{}()",
+        TOP,
+        "",
+    )
+}
+
+fn function_equation(head: &str, sorts: &[&str], patterns: &[&str]) -> String {
+    equation(head, sorts, "SortS{}", patterns, "one{}()", TOP, "")
+}
+
+/// `{c |-> c, Y |-> d}`, with `Y` a variable: defined exactly where `Y` is not `c`.
+fn symbolic_map() -> String {
+    let entry = |key: &str, value: &str| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}({key}), inj{{SortFoo{{}}, SortKItem{{}}}}({value}))"
+        )
+    };
+    format!(
+        "Lbl'Unds'Map'Unds'{{}}({}, {})",
+        entry("c{}()", "c{}()"),
+        entry("VarY:SortFoo{}", "d{}()")
+    )
+}
+
+/// Each case: a label, the definition, the subject, and a subterm `u` of the subject that every
+/// term stating the subject's definedness mentions: the application nothing shows defined, or,
+/// for a collection, the variable its distinctness depends on.
+fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, String)> {
+    let pf_d = "pf{}(d{}())".to_owned();
+    let partial = |head: &str, sorts: &[&str], patterns: &[&str]| {
+        definition(
+            PARTIAL,
+            &[pf_equation(), function_equation(head, sorts, patterns)],
+        )
+    };
+    let key = |key: &str| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}({key}), inj{{SortFoo{{}}, SortKItem{{}}}}(c{{}}()))"
+        )
+    };
+    let element =
+        |element: &str| format!("LblSetItem{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}({element}))");
+    vec![
+        // The control: a variable consumes `pf(d)`, and the step carries `\ceil(pf(d))`.
+        (
+            "variable",
+            partial("fv", &["SortFoo{}"], &["VarX:SortFoo{}"]),
+            "fv{}(pf{}(d{}()))".to_owned(),
+            pf_d.clone(),
+        ),
+        (
+            "argument pattern",
+            partial(
+                "fa",
+                &["SortFoo{}", "SortFoo{}"],
+                &["VarX:SortFoo{}", "pf{}(VarX:SortFoo{})"],
+            ),
+            "fa{}(d{}(), pf{}(d{}()))".to_owned(),
+            pf_d.clone(),
+        ),
+        (
+            "below a constructor",
+            partial(
+                "fb",
+                &["SortFoo{}", "SortFoo{}"],
+                &["VarX:SortFoo{}", "box{}(pf{}(VarX:SortFoo{}))"],
+            ),
+            "fb{}(d{}(), box{}(pf{}(d{}())))".to_owned(),
+            pf_d.clone(),
+        ),
+        (
+            "map key",
+            partial(
+                "fk",
+                &["SortFoo{}", "SortMap{}"],
+                &[
+                    "VarX:SortFoo{}",
+                    "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(pf{}(VarX:SortFoo{})), VarV:SortKItem{}), VarM:SortMap{})",
+                ],
+            ),
+            format!("fk{{}}(d{{}}(), {})", key("pf{}(d{}())")),
+            pf_d.clone(),
+        ),
+        (
+            "set element",
+            partial(
+                "fs",
+                &["SortFoo{}", "SortSet{}"],
+                &[
+                    "VarX:SortFoo{}",
+                    "Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortFoo{}, SortKItem{}}(pf{}(VarX:SortFoo{}))), VarS:SortSet{})",
+                ],
+            ),
+            format!("fs{{}}(d{{}}(), {})", element("pf{}(d{}())")),
+            pf_d,
+        ),
+        // A map or set is defined only where its keys (elements) are distinct, so
+        // `{c |-> c, Y |-> d}` is undefined at `Y = c`, with no function symbol anywhere. The
+        // control binds the whole map to a variable and carries `\not(c = Y)`; the pattern
+        // `(c |-> V) M` consumes the map's concatenation and binds only `V = c` and
+        // `M = {Y |-> d}`, each defined on its own. Reachable from K source
+        // (`rule f((c() |-> V) _M) => V`).
+        (
+            "map bound by a variable",
+            partial("fmv", &["SortMap{}"], &["VarM:SortMap{}"]),
+            format!("fmv{{}}({})", symbolic_map()),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        (
+            "map entry beside a rest",
+            partial(
+                "fmr",
+                &["SortMap{}"],
+                &[
+                    "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(c{}()), VarV:SortKItem{}), VarM:SortMap{})",
+                ],
+            ),
+            format!("fmr{{}}({})", symbolic_map()),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        (
+            "set element beside a rest",
+            partial(
+                "fsr",
+                &["SortSet{}"],
+                &[
+                    "Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortFoo{}, SortKItem{}}(c{}())), VarS:SortSet{})",
+                ],
+            ),
+            format!(
+                "fsr{{}}(Lbl'Unds'Set'Unds'{{}}({}, {}))",
+                element("c{}()"),
+                element("VarY:SortFoo{}")
+            ),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        // Evaluator limit 1: `h(m(0), Y) = Y` makes `g(c) = g(h(m(0), c)) = m(1 /Int 0)`
+        // undefined in every model; the pair of `g`'s and `h`'s equations does not join, so `g`
+        // has no claim, and `k(g(c)) = d` consumes `g(c)` with its pattern.
+        (
+            "withdrawn equation head",
+            definition(
+                r"
+                symbol m{}(SortInt{}) : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+                symbol h{}(SortFoo{}, SortFoo{}) : SortFoo{} [anywhere{}(), value-production{}()]
+                symbol g{}(SortFoo{}) : SortFoo{} [anywhere{}(), value-production{}()]
+                symbol k{}(SortFoo{}) : SortFoo{} [anywhere{}(), value-production{}()]
+                ",
+                &[
+                    equation(
+                        "h",
+                        &["SortFoo{}", "SortFoo{}"],
+                        "SortFoo{}",
+                        &["m{}(VarI:SortInt{})", "VarY:SortFoo{}"],
+                        "VarY:SortFoo{}",
+                        &format!(
+                            r#"\equals{{SortBool{{}}, R}}(eqInt{{}}(VarI:SortInt{{}}, {}), \dv{{SortBool{{}}}}("true"))"#,
+                            int(0)
+                        ),
+                        "anywhere{}()",
+                    ),
+                    anywhere(
+                        "g",
+                        &["SortFoo{}"],
+                        "SortFoo{}",
+                        &[&format!("h{{}}(m{{}}({}), VarY:SortFoo{{}})", int(0))],
+                        &format!("m{{}}(divInt{{}}({}, {}))", int(1), int(0)),
+                    ),
+                    anywhere("k", &["SortFoo{}"], "SortFoo{}", &["g{}(c{}())"], "d{}()"),
+                ],
+            ),
+            "k{}(g{}(c{}()))".to_owned(),
+            "g{}(c{}())".to_owned(),
+        ),
+    ]
+}
+
+/// An equation binds each argument of its head by membership in its argument pattern, and an
+/// undefined term is a member of no pattern, so a step at a subject one of whose argument
+/// subterms `u` may be undefined either is not taken (the result still holds `u`) or carries
+/// `\ceil(u)` (a constraint mentions `u`). That does not depend on whether the equation consumes
+/// `u` with a variable or with a pattern; the variable case is the control.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns); Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side; a collection pattern drops its collection's distinctness (definedness-stepback.md)"]
+fn a_step_keeps_or_carries_every_consumed_subterm_it_cannot_show_defined() {
+    let mut failures = Vec::new();
+    for (label, definition, subject, undefined) in consumed_subterm_cases() {
+        let printed_undefined = printed_term(&internal_term(&definition, &undefined));
+        let result = simplified(&definition, &subject);
+        if !result.contains(&printed_undefined) {
+            failures.push(format!(
+                "{label}: {subject} simplifies to {result}, which neither holds nor carries the definedness of {printed_undefined}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A pattern denotes the values its instances take, so an application of the partial function
+/// `pf` in a pattern matches the value it computes: with `pf(c) = c`, the subject `fa(c, c)`
+/// is an instance of `fa(X, pf(X))` at `X = c`, as it is of `fa(X, c)`, and so for a map key and
+/// a set element. The subject is written `fa(c, pf(c))` and evaluates innermost to `fa(c, c)`.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side"]
+fn a_computed_pattern_position_matches_the_value_it_computes() {
+    let mut failures = Vec::new();
+    let one = printed_term(&internal_term(&definition(PARTIAL, &[]), "one{}()"));
+    for (label, definition, subject, _) in consumed_subterm_cases()
+        .into_iter()
+        .filter(|(label, ..)| ["argument pattern", "map key", "set element"].contains(label))
+    {
+        let subject = subject.replace("d{}()", "c{}()");
+        let result = simplified(&definition, &subject);
+        if result != one {
+            failures.push(format!(
+                "{label}: {subject} simplifies to {result}, not {one}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// DF-3: the taint closure's seeds and edges (K5).
 
 /// Whether `term` mentions a symbol named in `names`.
 fn mentions(term: &Term, names: &BTreeSet<String>) -> bool {
@@ -505,4 +773,105 @@ fn no_kept_claim_is_contradicted_by_two_equations() {
         failures.is_empty(),
         "a kept claim gives a value no model has: {failures:#?}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// DF-5: the instances of an equation have one enumeration.
+
+/// `fm((K |-> V) M) = \top requires K = n`, a simplification lemma whose map pattern matches
+/// `{1 |-> 0, 2 |-> 0}` with `K = 1` and with `K = 2`: each matching is an instance of the
+/// lemma, and the lemma applies when one instance does. So `e /\ fm({1 |-> 0, 2 |-> 0})`
+/// simplifies alike for `n = 1` and `n = 2`, whichever key the matcher enumerates first.
+#[test]
+fn a_top_lemma_applies_whichever_instance_holds() {
+    let entry = |key: i64| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}), inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+            int(key),
+            int(0)
+        )
+    };
+    let subject = format!(
+        r"\and{{SortFoo{{}}}}(e{{}}(), fm{{}}(Lbl'Unds'Map'Unds'{{}}({}, {})))",
+        entry(1),
+        entry(2)
+    );
+    let results = [1, 2]
+        .map(|key| {
+            let lemma = format!(
+                r#"axiom{{R}} \implies{{R}}(\equals{{SortKItem{{}}, R}}(VarK:SortKItem{{}}, inj{{SortInt{{}}, SortKItem{{}}}}({})), \equals{{SortFoo{{}}, R}}(fm{{}}(Lbl'Unds'Map'Unds'{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}(VarK:SortKItem{{}}, VarV:SortKItem{{}}), VarM:SortMap{{}})), \and{{SortFoo{{}}}}(\top{{SortFoo{{}}}}(), \top{{SortFoo{{}}}}()))) [UNIQUE'Unds'ID{{}}("top-{key}"), simplification{{}}()]"#,
+                int(key)
+            );
+            let definition = definition(
+                r"
+                symbol e{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+                symbol fm{}(SortMap{}) : SortFoo{} [function{}(), functional{}(), total{}()]
+                ",
+                &[lemma],
+            );
+            simplified(&definition, &subject)
+        });
+    assert_eq!(
+        results[0], results[1],
+        "the lemma's result depends on the key"
+    );
+    assert!(!results[0].starts_with("error"), "{results:?}");
+}
+
+/// Not applying an equation is always sound (the subject stays equal to itself), so a
+/// simplification never fails because an equation whose result is not a term matches where no
+/// conjunction can absorb it. `fm(M) = \top` (from K source, `rule fm((K |-> _) _) => #Top
+/// requires K ==K 2 [simplification]`) matches `wrap(fm({1 |-> 0, 2 |-> 0}))` below a
+/// constructor; the subject must come back, unevaluated or not, but not as an error. `krun` of
+/// that K definition halted with an error on `934d29e7`.
+#[test]
+fn a_top_lemma_outside_a_conjunction_is_not_an_error() {
+    let entry = |key: i64| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}), inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+            int(key),
+            int(0)
+        )
+    };
+    let map = format!("Lbl'Unds'Map'Unds'{{}}({}, {})", entry(1), entry(2));
+    let lemma = format!(
+        r#"axiom{{R}} \implies{{R}}(\equals{{SortKItem{{}}, R}}(VarK:SortKItem{{}}, inj{{SortInt{{}}, SortKItem{{}}}}({})), \equals{{SortFoo{{}}, R}}(fm{{}}(Lbl'Unds'Map'Unds'{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}(VarK:SortKItem{{}}, VarV:SortKItem{{}}), VarM:SortMap{{}})), \and{{SortFoo{{}}}}(\top{{SortFoo{{}}}}(), \top{{SortFoo{{}}}}()))) [UNIQUE'Unds'ID{{}}("top-2"), simplification{{}}()]"#,
+        int(2)
+    );
+    let definition = definition(
+        r"
+        symbol e{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+        symbol wrap{}(SortFoo{}) : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+        symbol fm{}(SortMap{}) : SortFoo{} [function{}(), functional{}(), total{}()]
+        ",
+        &[lemma],
+    );
+    let mut errors = Vec::new();
+    for subject in [
+        format!("wrap{{}}(fm{{}}({map}))"),
+        format!("fm{{}}({map})"),
+        format!(r"\and{{SortFoo{{}}}}(fm{{}}({map}), fm{{}}({map}))"),
+    ] {
+        let result = simplified(&definition, &subject);
+        if result.starts_with("error") {
+            errors.push((subject, result));
+        }
+    }
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+#[test]
+fn the_fixtures_load() {
+    // The fixtures above must stay meaningful when their tests are ignored: each loads, and
+    // the shapes they rely on internalize as the tests assume.
+    for (label, definition, subject, _) in consumed_subterm_cases() {
+        let term = internal_term(&definition, &subject);
+        assert!(
+            matches!(term.kind(), TermKind::Application { .. }),
+            "{label}: {subject}"
+        );
+    }
+    for hooked in [false, true] {
+        let _ = t1_definition(hooked);
+    }
 }
