@@ -94,6 +94,24 @@ fn smoke_relation_covers_emitted_ids_and_authors() {
     }));
 }
 
+#[test]
+fn the_relation_round_trips_through_its_serde_form() {
+    let artifacts = compile_definition(&smoke_definition(), CompileOptions::default()).unwrap();
+    let relation = &artifacts.sentence_provenance;
+    let json = serde_json::to_string(relation).unwrap();
+    let decoded: crate::SentenceProvenance = serde_json::from_str(&json).unwrap();
+    assert_eq!(&decoded, relation);
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), json);
+
+    // Names from another k-rust pin are refused, not misread.
+    let unknown_pass = json.replacen("\"generate-sort-predicate-rules\"", "\"no-such-pass\"", 1);
+    assert_ne!(unknown_pass, json);
+    assert!(serde_json::from_str::<crate::SentenceProvenance>(&unknown_pass).is_err());
+    let unknown_kind = json.replacen("\"kind\":\"rule\"", "\"kind\":\"no-such-kind\"", 1);
+    assert_ne!(unknown_kind, json);
+    assert!(serde_json::from_str::<crate::SentenceProvenance>(&unknown_kind).is_err());
+}
+
 /// The smoke definition with one authored one-path claim, and that claim's origin.
 fn smoke_definition_with_claim() -> (DefinitionIr, NodeOrigin) {
     let ir = smoke_definition();

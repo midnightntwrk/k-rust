@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{NodeOrigin, SourceMapKey};
 use krs_ir_levels::{DefinitionIr, DefinitionSentence};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 use crate::{
     EmittedSentenceProvenance, GeneratingPass, InputAddress, InputSentenceKind, InputSpace,
@@ -88,6 +89,182 @@ impl SentenceProvenance {
             .iter()
             .map(|(id, provenance)| (id.as_str(), provenance))
     }
+}
+
+/// The serde form, which lets a caller cache a compiled definition with its relation.
+///
+/// Sentence kinds and generating passes are written by their stable k-rust wire names;
+/// an unknown name is a decoding error, so a cache written by another k-rust pin is refused
+/// rather than misread.
+impl Serialize for SentenceProvenance {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let by_id = self
+            .by_id
+            .iter()
+            .map(|(id, provenance)| {
+                let authors = provenance
+                    .authors
+                    .iter()
+                    .map(|author| match author {
+                        Author::Krs {
+                            module,
+                            index,
+                            kind,
+                            origin,
+                        } => WireAuthor::Krs {
+                            module: module.clone(),
+                            index: *index,
+                            kind: kind.as_str().to_owned(),
+                            origin: origin.clone(),
+                        },
+                        Author::Builtin {
+                            module,
+                            index,
+                            kind,
+                        } => WireAuthor::Builtin {
+                            module: module.clone(),
+                            index: *index,
+                            kind: kind.as_str().to_owned(),
+                        },
+                    })
+                    .collect();
+                let wire = WireEmittedProvenance {
+                    authors,
+                    generated_by: provenance.generated_by.map(|pass| pass.as_str().to_owned()),
+                };
+                (id.as_str(), wire)
+            })
+            .collect::<BTreeMap<_, _>>();
+        WireProvenance {
+            by_id,
+            by_source: self
+                .by_source
+                .iter()
+                .map(|(key, ids)| (key.clone(), ids.clone()))
+                .collect(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SentenceProvenance {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = WireProvenance::<String>::deserialize(deserializer)?;
+        let kind = |name: &str| {
+            input_sentence_kind(name).ok_or_else(|| {
+                de::Error::custom(format_args!("unknown input sentence kind `{name}`"))
+            })
+        };
+        let mut by_id = BTreeMap::new();
+        for (id, provenance) in wire.by_id {
+            let authors = provenance
+                .authors
+                .into_iter()
+                .map(|author| {
+                    Ok(match author {
+                        WireAuthor::Krs {
+                            module,
+                            index,
+                            kind: name,
+                            origin,
+                        } => Author::Krs {
+                            module,
+                            index,
+                            kind: kind(&name)?,
+                            origin,
+                        },
+                        WireAuthor::Builtin {
+                            module,
+                            index,
+                            kind: name,
+                        } => Author::Builtin {
+                            module,
+                            index,
+                            kind: kind(&name)?,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, D::Error>>()?;
+            let generated_by = provenance
+                .generated_by
+                .map(|name| {
+                    GeneratingPass::from_name(&name).ok_or_else(|| {
+                        de::Error::custom(format_args!("unknown generating pass `{name}`"))
+                    })
+                })
+                .transpose()?;
+            if authors.is_empty() == generated_by.is_none() {
+                return Err(de::Error::custom(format_args!(
+                    "emitted identity `{id}` needs exactly one of authors and a generating pass"
+                )));
+            }
+            by_id.insert(
+                id,
+                EmittedProvenance {
+                    authors,
+                    generated_by,
+                },
+            );
+        }
+        Ok(Self {
+            by_id,
+            by_source: wire.by_source,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireProvenance<K: Ord> {
+    by_id: BTreeMap<K, WireEmittedProvenance>,
+    by_source: BTreeMap<SourceMapKey, Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireEmittedProvenance {
+    authors: Vec<WireAuthor>,
+    generated_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "author", rename_all = "snake_case", deny_unknown_fields)]
+enum WireAuthor {
+    Krs {
+        module: String,
+        index: u32,
+        kind: String,
+        origin: NodeOrigin,
+    },
+    Builtin {
+        module: String,
+        index: u32,
+        kind: String,
+    },
+}
+
+/// The input sentence kind with the stable wire name `name`.
+fn input_sentence_kind(name: &str) -> Option<InputSentenceKind> {
+    use InputSentenceKind::{
+        Bubble, Claim, Configuration, Context, ContextAlias, Production, Rule, SortSynonym,
+        SyntaxAssociativity, SyntaxLexical, SyntaxPriority, SyntaxSort,
+    };
+    [
+        SyntaxSort,
+        SortSynonym,
+        SyntaxLexical,
+        Production,
+        SyntaxAssociativity,
+        SyntaxPriority,
+        ContextAlias,
+        Context,
+        Rule,
+        Claim,
+        Configuration,
+        Bubble,
+    ]
+    .into_iter()
+    .find(|kind| kind.as_str() == name)
 }
 
 /// Invalid relationship between native input addresses and KRS source sentences.

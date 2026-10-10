@@ -334,6 +334,8 @@ pub struct RawCompiledArtifacts {
 pub struct ConfigurationContext {
     /// Prepared frontend definition used by the compiler.
     pub frontend_definition: NativeDefinition,
+    /// Source table the prepared definition's origin receipts index, which its provenance JSON encoding needs.
+    pub source_table: k_rust::provenance::SourceTable,
     /// Configuration variable sorts collected after compiler transformations.
     pub configuration_variables: BTreeMap<String, NativeSort>,
 }
@@ -480,8 +482,10 @@ fn compile_ir(
         join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
             .map_err(DefinitionCompileError::Provenance)
     })?;
+    let loaded = loaded.into_parts();
     let context = ConfigurationContext {
-        frontend_definition: loaded.into_definition(),
+        frontend_definition: loaded.definition,
+        source_table: loaded.source_table,
         configuration_variables: artifacts.configuration_variables,
     };
     Ok((

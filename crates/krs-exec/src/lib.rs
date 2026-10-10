@@ -19,6 +19,7 @@ mod configuration;
 mod console;
 mod origin;
 mod report;
+mod stage;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -39,6 +40,7 @@ use krs_k_rust::{
     NativeDefinition, SentenceProvenance, compile_definition_with_context_timed,
     compile_spec_definition_with_context_timed,
 };
+pub use stage::{CompiledStage, STAGE_FORMAT};
 
 pub use configuration::Configuration;
 pub use k_rust::backend::BackendError;
@@ -418,28 +420,40 @@ impl Semantics {
         sources: Option<SourceText>,
         timings: &mut Timings,
     ) -> Result<Self, ExecError> {
-        let (artifacts, context) =
-            compile_definition(definition, timings).map_err(ExecError::Compile)?;
-        let CompiledArtifacts {
+        let stage = CompiledStage::compile(definition, timings)?;
+        Self::from_stage(definition, stage, sources, timings)
+    }
+
+    /// Build the semantics of `definition` from its compiled stage, which [`CompiledStage::compile`] made from the same Definition IR (or [`CompiledStage::decode`] read back), recording `exec.*` spans.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Backend`] when the backend, the program grammar, or the printer cannot load the stage.
+    pub fn from_stage(
+        definition: &DefinitionIr,
+        stage: CompiledStage,
+        sources: Option<SourceText>,
+        timings: &mut Timings,
+    ) -> Result<Self, ExecError> {
+        let CompiledStage {
             definition_kore,
             syntax_definition_kore,
             macros_kore,
-            sentence_provenance,
-            ..
-        } = artifacts;
+            provenance: sentence_provenance,
+            frontend_definition,
+            source_table: _,
+            configuration_variables,
+        } = stage;
 
-        let main_module = context.frontend_definition.main_module.clone();
-        let variables = config_variables(&context.configuration_variables);
+        let main_module = frontend_definition.main_module.clone();
+        let variables = config_variables(&configuration_variables);
         let configuration = timings.try_span("exec.configuration", |_| {
-            Configuration::new(
-                &context.frontend_definition,
-                context.configuration_variables,
-            )
-            .map_err(|error| ExecError::Backend(error.to_string()))
+            Configuration::new(&frontend_definition, configuration_variables)
+                .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let unparser = timings.try_span("exec.unparser", |_| {
             krs_unparse::Unparser::from_kore(&syntax_definition_kore, &macros_kore)
-                .map(|unparser| unparser.with_program_grammar(&context.frontend_definition))
+                .map(|unparser| unparser.with_program_grammar(&frontend_definition))
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let backend = timings.try_span("exec.backend", |_| {
@@ -450,7 +464,7 @@ impl Semantics {
             )
             .map_err(ExecError::from)
         })?;
-        let user_sorts = user_sorts(definition, &context.frontend_definition);
+        let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
         let mut origins = origin::Origins::new(sources);
         let claims = claims::catalog(
@@ -470,7 +484,7 @@ impl Semantics {
             backend,
             unparser,
             configuration,
-            frontend_definition: context.frontend_definition,
+            frontend_definition,
             main_module,
             definition_kore,
             provenance: sentence_provenance,
