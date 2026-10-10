@@ -12983,9 +12983,6 @@ fn kcompile_for_proving(
     compiled
 }
 
-/// `kcompile` of `source` with the compile options `options` (modules, include directories) into
-/// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
-/// once with this and passes `output` to `krun --definition`.
 /// domains.md makes a map concatenation undefined exactly when its operands share a key (and a
 /// set concatenation when they share an element). A configuration map or set of pairwise
 /// distinct literal keys is therefore defined, and so is the initializer that builds it
@@ -13084,6 +13081,9 @@ fn kcompile_judges_token_precedence_in_the_module_s_own_view() {
     }
 }
 
+/// `kcompile` of `source` with the compile options `options` (modules, include directories) into
+/// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
+/// once with this and passes `output` to `krun --definition`.
 fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
     let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")
