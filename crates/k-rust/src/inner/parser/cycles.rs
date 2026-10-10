@@ -597,7 +597,7 @@ mod tests {
         grammar.add_right_associative("post");
         let error = parse(&grammar, "Exp", "1").unwrap_err();
         assert!(
-            matches!(&error, ParseError::Ambiguous { parses: 2, .. }),
+            matches!(&error, ParseError::Ambiguous { alternatives, .. } if alternatives.len() == 2),
             "{error:?}"
         );
         // Without the declaration the same input repeats without end.

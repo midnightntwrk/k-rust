@@ -2281,12 +2281,16 @@ mod tests {
             ),
             Err(ParseError::SortInference { ref message }) if message == "Z3 rejection"
         ));
-        let ambiguity = |parses| ParseError::Ambiguous {
-            parses,
-            alternatives: Vec::new(),
+        let ambiguity = |entries: usize| ParseError::Ambiguous {
+            alternatives: (0..entries)
+                .map(|entry| super::super::AmbiguousParse {
+                    production: None,
+                    term: entry.to_string(),
+                    more_with_same_root: false,
+                })
+                .collect(),
             span: None,
             places: Vec::new(),
-            independent: false,
         };
         assert_eq!(
             checked_lowered_result(Err(ambiguity(2)), Err(ambiguity(2))),

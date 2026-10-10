@@ -1333,7 +1333,10 @@ mod tests {
         PARSE_ATTEMPTS.set(0);
         let ambiguity = filtered(&ambiguous_beside_it, "");
         assert!(
-            matches!(&ambiguity, Err(ParseError::Ambiguous { parses: 2, .. })),
+            matches!(
+                &ambiguity,
+                Err(ParseError::Ambiguous { alternatives, .. }) if alternatives.len() == 2
+            ),
             "{ambiguity:?}"
         );
         assert_eq!(PARSE_ATTEMPTS.get(), 1);
@@ -1419,7 +1422,7 @@ mod tests {
     /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous. A first attempt that skipped every item
     /// whose edge the filter rejects, the deferred ones included, built a smaller forest than an
     /// unfiltered recognition, with other readings. The report is a function of the readings
-    /// (the smallest subterm outside which they all agree, and their count), so it is pinned
+    /// (the smallest subterm outside which they all agree, and where they differ), so it is pinned
     /// once for both engines, and the forests are compared directly. The input holds three
     /// `c`, each a token a rewrite node can hold, so
     /// the full parse skips no edge to a doomed node either (`DoomedEdges`).
@@ -1474,22 +1477,28 @@ mod tests {
         );
         assert_eq!(forest(PredictionMode::Filtered), unfiltered_forest);
 
-        // The 14 readings already differ at the root, so the whole input is reported, whichever
-        // engine decided the forest and however it packed the readings.
-        let (parses, start, end) = (14, 100, 107);
+        // The readings differ at both children of the root's `S2 S0`, so the whole input is
+        // reported, with those two subterms, whichever engine decided the forest and however
+        // it packed the readings.
+        let (start, end) = (100, 107);
         let expected = unfiltered(&grammar, "a c c c");
         assert!(
             matches!(
                 &expected,
                 Err(ParseError::Ambiguous {
-                    parses: reported,
+                    alternatives,
                     span: Some(TermSpan {
                         start: reported_start,
                         end: reported_end,
                         ..
                     }),
-                    ..
-                }) if (*reported, *reported_start, *reported_end) == (parses, start, end)
+                    places,
+                }) if alternatives.is_empty()
+                    && places
+                        .iter()
+                        .map(|place| place.alternatives.len())
+                        .eq([2, 2])
+                    && (*reported_start, *reported_end) == (start, end)
             ),
             "{expected:?}"
         );
@@ -1880,7 +1889,7 @@ mod tests {
 
     /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
     /// decision (which readings of a forest are the parse), so on one forest they reject alike:
-    /// the same error, the same reported ambiguity, span and number of readings. The forest is
+    /// the same error, the same reported ambiguity, span and subterms. The forest is
     /// the one `edges_below_a_deferred_scope_error_are_kept` pins per engine; both engines are
     /// run on it in one build, after the same recognition and pre-inference passes.
     #[cfg(feature = "z3-inference")]
