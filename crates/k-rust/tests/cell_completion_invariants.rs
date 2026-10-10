@@ -317,7 +317,6 @@ const PLAIN: &str = "<T> <k> 0 </k> <a> <y> 0 </y> <z> 0 </z> <w> 0 </w> </a> <b
 /// (Stepback additions: the merged and factored forms, the cross-level form and the forms inside
 /// a written `multiplicity="*"` instance.)
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: mixed-sort rewrite bags written without their parent are not completed"]
 fn a_rewrite_of_several_cells_compiles_as_one_rewrite_per_cell() {
     let mut cases = Vec::new();
     let cells: &[(&str, &str, &str)] = &[("y", "1", "2"), ("z", "3", "4"), ("w", "5", "6")];
@@ -422,7 +421,6 @@ const THREADS_OPTIONAL: &str = r#"<T> <k> 0 </k> <ts> <th multiplicity="*" type=
 /// the compiled rule, and changes nothing else (the cells here are leaves or complete on every
 /// side, so no side needs an initializer).
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cell separation compares only each rewrite's left side"]
 fn completion_commutes_with_mirroring_every_rewrite() {
     let items = [
         "<o> <ov> 1 </ov> </o>",
@@ -486,7 +484,6 @@ fn completion_commutes_with_mirroring_every_rewrite() {
 /// those children between the variable and the frame gives the same rule, which is the rule
 /// without the variable. Writing it must not change the compiled rule.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: a `Bag` variable silently leaves the compiled rule (residual over-rejection)"]
 fn a_bag_variable_beside_the_frame_names_part_of_the_frame() {
     assert_compile_alike(&[
         (
@@ -508,6 +505,39 @@ fn a_bag_variable_beside_the_frame_names_part_of_the_frame() {
     ]);
 }
 
+/// Owner decision O1 (TQ20). A `Bag` variable that can stand for a free child beside the frame
+/// (or beside another such variable) and is not carried (written once on each side, in that
+/// body, and nowhere else) has several readings: it is that child, or it is empty. Nothing in
+/// the rule chooses, so the rule is rejected, naming the variable and the child. A carried
+/// variable (the test above) is accepted.
+#[test]
+fn a_bag_variable_not_carried_that_competes_for_a_free_cell_is_rejected_naming_both() {
+    let mut failures = Vec::new();
+    for (rule, variable, cell) in [
+        ("<a> <y> Y </y> (B => .Bag) ... </a>", "B", "<z>"),
+        (
+            "<a> <y> Y </y> B:Bag (<w> W </w> C:Bag => <w> W </w>) </a>",
+            "C",
+            "<z>",
+        ),
+        ("<a> <y> Y </y> <z> Z </z> B:Bag B:Bag </a>", "B", "<w>"),
+        ("<a> <y> Y </y> B:Bag ... </a> <k> B => .K </k>", "B", "<z>"),
+    ] {
+        let expected = format!("Cell variable {variable} in <a> can stand for the cell {cell}");
+        match completed(PLAIN, rule) {
+            Err(errors)
+                if errors.iter().any(|error| {
+                    error.contains(&expected)
+                        && error.contains(
+                            "is not kept unchanged by the rule (written once on each side, in <a>, and nowhere else)",
+                        )
+                }) => {}
+            outcome => failures.push(format!("\n  {rule}\n    -> {outcome:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join(""));
+}
+
 const LIST_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <z> 0 </z> <p> <y> 0 </y> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </T>"#;
 const MAP_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> <e> 0 </e> </r> </p> </a> </T>"#;
 
@@ -516,7 +546,6 @@ const MAP_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multip
 /// stands only for the holder's children that no written cell occupies; when the written cells
 /// occupy them all, it can hold no instance of a list below them.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: conservative over-rejections (holder-side unknown items)"]
 fn a_cell_beside_its_only_holder_compiles_as_written_inside_it_despite_a_bag_variable() {
     assert_compile_alike(&[
         (
@@ -543,11 +572,23 @@ fn a_cell_beside_its_only_holder_compiles_as_written_inside_it_despite_a_bag_var
     ]);
 }
 
+/// Owner decision O3 (TQ22). An alias of several cells in a body names a part of an instance
+/// that is not one child; it has no term of its own there, so the rule is rejected naming the
+/// alias.
+#[test]
+fn an_alias_of_several_cells_is_rejected_naming_the_alias() {
+    let errors = completed(PLAIN, "<a> ((<y> Y </y> <z> Z </z>) #as F) ... </a>").unwrap_err();
+    assert!(
+        errors.iter().any(|error| error
+            .contains("The alias F in <a> names the cells <y> <z>; an alias written in a cell body names one cell")),
+        "{errors:?}"
+    );
+}
+
 /// Ticket C1 (item "`#as` of cells in a bag"). An alias names the term it is written around; the
 /// rule without the name is the same rule with one variable less. Completing the aliased rule
 /// and then removing the alias gives the completion of the rule written without it.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: conservative over-rejections (#as alias of cells in a bag)"]
 fn an_alias_of_a_cell_does_not_change_its_completion() {
     const THREADS: &str = r#"<T> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>"#;
     let mut failures = Vec::new();
@@ -593,7 +634,6 @@ const REPEATED_BELOW_A: &str = r#"<T> <k> 0 </k> <A> <x> 0 </x> <R multiplicity=
 /// only reading, so they compile under every O4 option) must compile; the others, and every List
 /// case (which depends on O7, the fresh List position), may be rejected alike.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: a `*` cell gets a fresh instance the rule does not state"]
 fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
     let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
@@ -673,50 +713,61 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
 
 /// Ticket C2 (item 6). When completion rejects a rule because the rule does not state which
 /// instance of a `multiplicity="*"` cell holds a cell written outside every instance, the message
-/// names that cell and the `multiplicity="*"` cell, so the author knows what to write.
+/// names that cell and the `multiplicity="*"` cell, so the author knows what to write. A rule
+/// with a written instance that may hold the cell is rejected (TQ23 (b)); one with no written
+/// instance (the last row) builds a fresh one, and is checked only for the message if rejected.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: `*`-cell rejections give generic messages"]
 fn a_rejection_for_an_unstated_instance_names_the_cell_and_the_repeated_cell() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
     let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
     let mut failures = Vec::new();
-    for (configuration, rule, cell, repeated) in [
+    for (configuration, rule, cell, repeated, must_reject) in [
         (
             THREADS_MAP,
             "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             "<env>",
             "<thread>",
+            true,
         ),
         (
             threads_list.as_str(),
             "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             "<env>",
             "<thread>",
+            true,
         ),
         (
             REPEATED_BELOW_A,
             "<A> <x> X </x> ... </A> <A2> <y> 1 </y> ... </A2> <d> 5 => 6 </d>",
             "<d>",
             "<R>",
+            true,
         ),
         (
             list_in_p.as_str(),
             "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
             "<d>",
             "<r>",
+            false,
         ),
     ] {
-        if let Err(errors) = completed(configuration, rule)
-            && !errors
-                .iter()
-                .any(|error| error.contains(cell) && error.contains(repeated))
-        {
-            failures.push(format!("\n  {rule}\n    -> {errors:?}"));
+        match completed(configuration, rule) {
+            Err(errors)
+                if !errors
+                    .iter()
+                    .any(|error| error.contains(cell) && error.contains(repeated)) =>
+            {
+                failures.push(format!("\n  {rule}\n    -> {errors:?}"));
+            }
+            Ok(_) if must_reject => {
+                failures.push(format!("\n  {rule}\n    -> compiled, not rejected"));
+            }
+            Err(_) | Ok(_) => {}
         }
     }
     assert!(
         failures.is_empty(),
-        "rejections that do not name the cell and its repeated ancestor:{}",
+        "rules not rejected, or rejected without naming the cell and its repeated ancestor:{}",
         failures.join("")
     );
 }
@@ -797,7 +848,6 @@ fn projection_variables(term: &Term, right: bool, output: &mut BTreeMap<String, 
 /// written variable of a data sort is in the compiled rule, and a written variable on both sides
 /// of the rule is on both sides of the compiled rule or on neither.
 #[test]
-#[ignore = "guard of cells-tickets C1 (I0): passes on 934d29e7; un-ignore with C1"]
 fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
     let rules: &[(&str, &str)] = &[
         (PLAIN, "<a> <y> Y </y> <z> Z </z> <w> W </w> B:Bag </a>"),
@@ -807,7 +857,9 @@ fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
             "(<a> <y> Y </y> B:Bag </a> => <a> <y> 1 </y> B:Bag </a>)",
         ),
         (PLAIN, "<a> (<y> 1 </y> B:Bag => <y> 2 </y> B:Bag) </a>"),
-        (PLAIN, "<a> <y> Y </y> (B:Bag => C:Bag) </a>"),
+        // Unannotated: the z3 build's sort inference rejects `(B:Bag => C:Bag)` here, which the
+        // portable build parses (a parser issue, not a completion one).
+        (PLAIN, "<a> <y> Y </y> (B => C) </a>"),
         (
             PLAIN,
             "<a> <y> Y </y> (<z> Z </z> => <z> Z </z>) ... </a> <b> V => V </b>",
@@ -890,7 +942,6 @@ fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
 /// `<o> 1 </o>` to `<o> 3 </o>`. The rule compiles like that spelling with written instances; the
 /// tickets' "otherwise ambiguous" rejects it, as `934d29e7` does.
 #[test]
-#[ignore = "reproduces cells-stepback: grouping of loose cells as an equivalence (O5)"]
 fn loose_cells_share_an_instance_exactly_as_compatibility_partitions_them() {
     assert_compile_alike(&[(
         THREADS_OPTIONAL,

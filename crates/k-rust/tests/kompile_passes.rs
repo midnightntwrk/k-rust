@@ -6902,28 +6902,47 @@ fn concretized_cell_rule_in(
 
 const OPTIONAL_IN_THREADS: &str = r#"<top> <k> 0 </k> <ts> <th multiplicity="*" type="Map"> <tid> 0 </tid> <o multiplicity="?"> <ov> 0 </ov> </o> </th> </ts> </top>"#;
 
+/// A conditional term as the K prelude declares it: its sort is a parameter of the production.
+const CONDITIONAL: &str = "syntax Bool ::= \"true\"\n syntax {Sort} Sort ::= \"#if\" Bool \"#then\" Sort \"#else\" Sort \"#fi\" [function, symbol(ite)]";
+
+// What completion places among a cell's children, wherever the item stands: terms of a cell sort,
+// variables, the empty bag. Every message that rejects an item says so, so the list must include
+// what completion does place.
+const PLACED: &str = "completion places among a cell's children only terms of a cell sort";
+
 // Completion places each item of a rewrite side among the children of the cell whose body holds
-// the rewrite. An item that is neither a cell, a variable nor the empty bag is a term the rule
-// writes that no child holds: the rule is rejected with an error naming it, never compiled
-// without it. `.Bag` writes no child, so on a rewrite side it stands for the unit of the slot the
-// other side occupies.
+// the rewrite. An item that is neither of a cell sort, a variable nor the empty bag is a term the
+// rule writes that no child holds: the rule is rejected with an error naming it as written, never
+// compiled without it. `.Bag` writes no child, so on a rewrite side it stands for the unit of the
+// slot the other side occupies. A production whose sort is one of its parameters fixes no sort for
+// its terms, so the message names none.
 #[test]
 fn rejects_a_rewrite_side_item_that_no_child_holds_and_names_it() {
     for (syntax, rule, named) in [
         (
             "syntax Bag ::= mko(Int) [function]",
             "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> => mko(2)) ... </th>",
-            "the function `mko(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+            "the function `mko(_)` of sort Bag, written on the right side of a rewrite in <th>",
         ),
         (
             "syntax Bag ::= bago(Int)",
             "<th> <tid> 1 </tid> (.Bag => bago(2)) ... </th>",
-            "the symbol `bago(_)_MAIN_Bag_Int` of sort Bag, written on the right side",
+            "the symbol `bago(_)` of sort Bag, written on the right side of a rewrite in <th>",
         ),
         (
             "",
             "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> #as O => <o> <ov> 2 </ov> </o>) ... </th>",
-            "the alias `O`, written on the left side",
+            "the alias `O`, written on the left side of a rewrite in <th>",
+        ),
+        (
+            CONDITIONAL,
+            "<th> <tid> 1 </tid> (.Bag => #if C:Bool #then <o> <ov> 1 </ov> </o> #else .Bag #fi) ... </th>",
+            "the function `#if _ #then _ #else _ #fi`, written on the right side of a rewrite in <th>",
+        ),
+        (
+            "syntax {S} S ::= idb(S) [function]",
+            "<th> <tid> 1 </tid> (.Bag => idb(.Bag)) ... </th>",
+            "the function `idb(_)`, written on the right side of a rewrite in <th>",
         ),
     ] {
         let errors = concretized_cell_rule_in(syntax, OPTIONAL_IN_THREADS, rule, "")
@@ -6931,7 +6950,137 @@ fn rejects_a_rewrite_side_item_that_no_child_holds_and_names_it() {
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains(named) && error.contains("<th>")),
+                .any(|error| error.contains(named) && error.contains(PLACED)),
+            "{rule}: {errors:?}"
+        );
+    }
+    // Completion places an alias of one cell only where it stands in the body itself, and says so.
+    let errors = concretized_cell_rule_in(
+        "",
+        OPTIONAL_IN_THREADS,
+        "<th> <tid> 1 </tid> (<o> <ov> 1 </ov> </o> #as O => .Bag) ... </th>",
+        "",
+    )
+    .expect_err("an alias on a rewrite side is not placed");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("(an alias of one cell only outside a rewrite)")),
+        "{errors:?}"
+    );
+}
+
+// A cell-sorted function stands among a cell's children like the cell it denotes, so the list of
+// what completion places names terms of a cell sort, not only cells.
+#[test]
+fn places_a_cell_sorted_function_on_a_rewrite_side_by_its_sort() {
+    let body = concretized_cell_rule_in(
+        "syntax OCell ::= mkoc(Int) [function]",
+        OPTIONAL_IN_THREADS,
+        "<th> <tid> 1 </tid> (.Bag => mkoc(2)) ... </th>",
+        "",
+    )
+    .unwrap();
+    assert!(body.contains("`.OCell`(.KList)=>"), "{body}");
+    assert!(body.contains("mkoc"), "{body}");
+}
+
+// An alias `P #as V` of one cell names that cell, so `V` is a term of the cell's sort whatever
+// sort parsing gave it from the cell body it is written in (`Bag`), at every occurrence of `V`
+// in the rule. The rule compiles, through the whole pipeline, as the one that writes `V` with the
+// cell's sort.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_alias_of_one_cell_compiles_as_the_alias_written_with_the_cells_sort() {
+    let probe = |rule: &str| {
+        let source = format!(
+            r#"module TEST
+  imports INT
+  configuration <T> <k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a> <b> .K </b> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>
+  rule {rule} [label(probe)]
+endmodule
+"#
+        );
+        let kore = compile_fixture("alias.k", &source, "TEST").definition_kore;
+        let axiom = kore
+            .split("axiom")
+            .find(|axiom| axiom.contains(r#"label{}("probe")"#))
+            .unwrap_or_else(|| panic!("{rule}: no probe axiom"));
+        // The axiom without its attributes, which locate it in the source.
+        axiom[..axiom.rfind('[').unwrap()].to_owned()
+    };
+    for (inferred, written) in [
+        (
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) ... </a>",
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC:YCell) ... </a>",
+        ),
+        (
+            "<k> 0 => 1 </k> <threads> (<thread> <id> 1 </id> ... </thread> #as TC) ... </threads>",
+            "<k> 0 => 1 </k> <threads> (<thread> <id> 1 </id> ... </thread> #as TC:ThreadCell) ... </threads>",
+        ),
+        // `V` read elsewhere: in another cell, and in the cell `<k>`.
+        (
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) ... </a> <b> _ => YC </b>",
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC:YCell) ... </a> <b> _ => YC:YCell </b>",
+        ),
+        (
+            "<k> 0 => YC ... </k> <a> (<y> Y </y> #as YC) ... </a>",
+            "<k> 0 => YC:YCell ... </k> <a> (<y> Y </y> #as YC:YCell) ... </a>",
+        ),
+    ] {
+        assert_eq!(probe(inferred), probe(written), "{inferred}");
+    }
+}
+
+// One variable written as the alias of a `<y>` and of a `<z>` would be one term that is both
+// cells; cells of two sorts have two labels, so no term is, and the rule never applies. It is
+// rejected naming the variable and both cells, whether the cells are written open or closed.
+#[test]
+fn rejects_an_alias_variable_of_cells_of_two_sorts_naming_both() {
+    let configuration = "<k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a>";
+    for rule in [
+        "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) (<z> Z </z> #as YC) ... </a>",
+        "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) (<z> Z </z> #as YC) </a>",
+    ] {
+        let errors = concretized_cell_rule(configuration, rule)
+            .expect_err("one alias variable cannot name two cells");
+        assert!(
+            errors.iter().any(|error| error.contains(
+                "Alias variable YC names a <y> and a <z>; one term is not two cells, so the rule never applies"
+            )),
+            "{rule}: {errors:?}"
+        );
+    }
+}
+
+// An item written among a cell's children outside any rewrite is placed by the same rule as one
+// on a rewrite side, so an item no child holds is rejected with the same message, located in the
+// cell's body.
+#[test]
+fn rejects_a_body_item_that_no_child_holds_and_names_it() {
+    for (syntax, rule, named) in [
+        (
+            "syntax Bag ::= mko(Int) [function]",
+            "<th> <tid> 1 </tid> mko(2) ... </th>",
+            "the function `mko(_)` of sort Bag, written in <th>",
+        ),
+        (
+            "syntax Bag ::= bago(Int)",
+            "<th> <tid> 1 </tid> bago(2) ... </th>",
+            "the symbol `bago(_)` of sort Bag, written in <th>",
+        ),
+        (
+            CONDITIONAL,
+            "<th> <tid> 1 </tid> #if C:Bool #then <o> <ov> 1 </ov> </o> #else .Bag #fi ... </th>",
+            "the function `#if _ #then _ #else _ #fi`, written in <th>",
+        ),
+    ] {
+        let errors = concretized_cell_rule_in(syntax, OPTIONAL_IN_THREADS, rule, "")
+            .expect_err("the body holds an item that no child holds");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains(named) && error.contains(PLACED)),
             "{rule}: {errors:?}"
         );
     }
@@ -7635,27 +7784,41 @@ fn places_a_bag_cell_written_beside_its_only_possible_parent_beside_written_inst
     );
 }
 
-// <top> holds one <threads>, but that <threads> holds many <thread> cells, and the rule does not
-// state which of them holds the <env> written beside <threads>: thread 1 or another one. Likewise
-// for the <d> of some <a2> in some <r> of the one <a>. Such a rule stays rejected.
+// <top> holds one <threads>, and that <threads> holds many <thread> cells; likewise for the
+// <d> of some <a2> in some <r> of the one <a>. A cell written beside the one <threads> (or <a>)
+// states nothing its spelling inside that cell does not, so it is moved there and both spellings
+// are one rule. Inside it the written <thread> (or the <r> of the written <a2>) may hold the
+// moved cell, as may another instance, and the rule does not state which: both spellings are
+// rejected alike, naming the cell, the repeated cell and the written instance.
 #[test]
-fn rejects_a_cell_written_beside_its_only_possible_ancestor_through_a_repeated_cell() {
-    for (configuration, rule) in [
+fn rejects_a_cell_beside_its_only_possible_ancestor_through_a_repeated_cell_as_inside_it() {
+    for (configuration, beside, inside, error) in [
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E => 0 </env> ... </threads>",
+            "Ambiguous completion: <env>, written outside every <thread>, can be in the written <thread> (holding <id>) or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it",
         ),
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="List"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E </env>",
+            "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E </env> ... </threads>",
+            "Ambiguous completion: <env>, written outside every <thread>, can be in the written <thread> (holding <id>) or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it",
         ),
         (
             r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#,
             "<k> 0 => 1 </k> <a> <x> X </x> ... </a> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d>",
+            "<k> 0 => 1 </k> <a> <x> X </x> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d> ... </a>",
+            "Ambiguous completion: <d>, written outside every <a2>, can be in the <r> of the written <a2> (holding <y>) or in another <r>, and the rule does not state which; write <d> inside the <a2> that holds it",
         ),
     ] {
-        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
-        assert_eq!(errors, ["Ambiguous completion: <top>"], "{rule}");
+        let placed = concretized_cell_rule(configuration, beside);
+        assert_eq!(placed, Err(vec![error.to_owned()]), "{beside}");
+        assert_eq!(
+            placed,
+            concretized_cell_rule(configuration, inside),
+            "{inside}"
+        );
     }
 }
 
@@ -7690,8 +7853,9 @@ const LIST_ITEM_SYNTAX: &str = "syntax Bag ::= bag(Int) [function]
 // Every shape an item of a cell body can have after parsing (a cell, a variable, a rewrite, an
 // alias, an empty bag, a function application, which a left side may not hold outside a rewrite),
 // each written in <stack> beside a <fr> placed there, with whether it may be or hold an instance
-// of <stack>'s list of <fr> cells. A term of unknown cell sort may; a rewrite or an alias may if
-// any part of it may. (An alias of other cells is rejected by child ordering, whatever it holds.)
+// of <stack>'s list of <fr> cells. A term of unknown cell sort may (the <fr> slot of <stack> is
+// `multiplicity="*"`, so always free); a rewrite or an alias may if any part of it may. (An alias
+// of several cells is rejected by child ordering, whatever it holds.)
 const LIST_ITEM_SHAPES: &[(&str, bool)] = &[
     ("<fr> <v> 1 </v> </fr>", true),
     ("(<fr> <v> 1 </v> </fr> => .Bag)", true),
@@ -7980,59 +8144,511 @@ fn places_a_cell_written_beside_its_only_possible_ancestor_in_a_fresh_commutativ
     );
 }
 
-// The <d> written beside the one <a> would need a fresh <r> in it, and the rule does not state
-// that <d> is in that one rather than in an <r> that is in <a> already or may be: one written
-// there, one a variable of <a> may stand for, or one completion builds around another cell moved
-// into <a> with <d>. A List <r> would also give the fresh <r> a position the rule does not state.
-// The <d> then stays beside <a>, where it needs a second <a>.
+// The <d> written beside the one <a> is moved into it whatever <a> holds: a written <r>, a
+// variable that may stand for <r> cells, another cell moved into <a> with <d>, or a List <r>. The
+// rule is the one written with <d> inside <a>, compiled or rejected alike. With a List <r> and no
+// other item of the list in <a>, the fresh <r> holding <d> is the only item written in the list
+// and is placed before the rest of it.
 #[test]
-fn rejects_a_cell_written_beside_its_only_possible_ancestor_when_its_repeated_parent_is_not_fresh()
-{
+fn compiles_a_cell_beside_its_only_possible_ancestor_as_inside_it_whatever_the_ancestor_holds() {
     let map = r#"<top> <k> 0 </k> <a> <x> 0 </x> <w> <u> 0 </u> </w> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> </r> </a> </top>"#;
     let list = r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="List"> <d> 0 </d> </r> </a> </top>"#;
-    let rejection = r#"Attempting to concatenate cells not of multiplicity="*": TopCell"#;
-    for (configuration, rule, moved) in [
+    for (configuration, beside, inside) in [
         (
             map,
             "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> ... </a> <d> 5 => 6 </d>",
-            "",
+            "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d> ... </a>",
         ),
-        (map, "<a> <x> X </x> B:Bag ... </a> <d> 5 => 6 </d>", ""),
+        (
+            map,
+            "<a> <x> X </x> B:Bag ... </a> <d> 5 => 6 </d>",
+            "<a> <x> X </x> B:Bag <d> 5 => 6 </d> ... </a>",
+        ),
         (
             map,
             "<a> <x> X </x> ... </a> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d>",
-            "",
+            "<a> <x> X </x> <r> <rid> 1 </rid> ... </r> <d> 5 => 6 </d> ... </a>",
         ),
         (
             map,
             "<a> <x> X </x> ... </a> <w> <u> 1 </u> <r> <rid> 1 </rid> ... </r> </w> <d> 5 => 6 </d>",
-            " (after moving <r> written inside <w> to where the configuration declares it)",
+            "<a> <x> X </x> <w> <u> 1 </u> <r> <rid> 1 </rid> ... </r> </w> <d> 5 => 6 </d> ... </a>",
         ),
-        (list, "<a> <x> X </x> ... </a> <d> 5 => 6 </d>", ""),
+        (
+            list,
+            "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+            "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+        ),
     ] {
-        let errors = concretized_cell_rule(configuration, rule).unwrap_err();
-        assert_eq!(errors, [format!("{rejection}{moved}")], "{rule}");
+        assert_eq!(
+            concretized_cell_rule(configuration, beside),
+            concretized_cell_rule(configuration, inside),
+            "{beside}"
+        );
+    }
+    let body = concretized_cell_rule(list, "<a> <x> X </x> ... </a> <d> 5 => 6 </d>").unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_DotVar1,`<a>`(`<x>`(X),`_RCellList_`(`<r>`(`<d>`(#token("5","Int")=>#token("6","Int"))),_DotVar2))),_DotVar0)"#
+    );
+}
+
+// The <a> written in <top> is in one of many <r> cells, and the rule does not state whether the
+// <d> written beside it is in that <r>: the written <a> may hold it (its <d> is free and its frame
+// open), and so may an <a> in another <r>. The rule is rejected naming <d>, <r> and the written
+// <a>, before the <s> is grouped. When the written <a> already holds a <d>, only another <r> can
+// hold the loose one, which completion builds.
+#[test]
+fn rejects_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
+    let configuration = r#"<top> <k> 0 </k> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s> 0 </s> <a> <e> 0 </e> <d> 0 </d> </a> </r> </top>"#;
+    for rule in [
+        "<s> 1 </s> <a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
+        "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
+    ] {
+        assert_eq!(
+            concretized_cell_rule(configuration, rule),
+            Err(vec!["Ambiguous completion: <d>, written outside every <a>, can be in the <r> of the written <a> (holding <e>) or in another <r>, and the rule does not state which; write <d> inside the <a> that holds it".to_owned()]),
+            "{rule}"
+        );
+    }
+    let body = concretized_cell_rule(
+        configuration,
+        "<a> <e> 1 </e> <d> D </d> ... </a> <d> 5 => 6 </d>",
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),`<d>`(D))),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
+    );
+}
+
+// A written instance of the parent may stand inside a written cell above it: here the <a2>
+// written in the written <r> may hold the <d> written outside every <a2> (its <d> is free and its
+// frame open), and so may an <a2> in another <r>. Written beside the <r> or inside <a>, <d> is
+// rejected as when the <a2> is written directly beside it. A rewrite of the <r> replaces that one
+// <r>, so its one <a2> is on both sides, written on each or left unwritten in the open <r> on one
+// (in the frame on the left, built with its initial values on the right), and may hold <d> either
+// way. When that <a2> already holds a <d>, or the written <r> is removed, only another <r> can hold
+// the loose <d>, which completion builds.
+#[test]
+fn rejects_a_cell_that_a_written_instance_inside_a_written_repeated_cell_may_hold() {
+    let configuration = r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#;
+    for rule in [
+        "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> ... </a> <d> 5 => 6 </d>",
+        "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> <d> 5 => 6 </d> ... </a>",
+        "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> => <r> <rid> 1 </rid> <a2> <y> 2 </y> ... </a2> ... </r>) ... </a> <d> 5 => 6 </d>",
+        "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> => <r> <rid> 2 </rid> ... </r>) ... </a> <d> 5 => 6 </d>",
+        "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <a2> <y> 2 </y> ... </a2> ... </r>) ... </a> <d> 5 => 6 </d>",
+    ] {
+        let errors =
+            concretized_cell_rule(configuration, rule).expect_err("the written <a2> may hold <d>");
+        assert!(
+            errors.iter().any(|error| error.starts_with("Ambiguous completion: <d>, written outside every <a2>, can be in the <r> of the written <a2> (holding <y>) or in another <r>")),
+            "{rule}: {errors:?}"
+        );
+    }
+    // The written <r> cells, and the one built for <d>.
+    for (rule, cells) in [
+        (
+            "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> <d> D </d> ... </a2> ... </r> ... </a> <d> 5 => 6 </d>",
+            2,
+        ),
+        (
+            "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> => .Bag) ... </a> <d> 5 => 6 </d>",
+            2,
+        ),
+        (
+            "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> <d> D </d> ... </a2> ... </r> => <r> <rid> 2 </rid> ... </r>) ... </a> <d> 5 => 6 </d>",
+            3,
+        ),
+    ] {
+        let body = concretized_cell_rule(configuration, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        assert_eq!(body.matches("`<r>`(").count(), cells, "{rule}: {body}");
     }
 }
 
-// The <a> written in <top> is in one of many <r> cells, and the rule does not state that the <d>
-// written beside it is in that <r>: <d> is not placed in the written <a>. Completion then needs a
-// second <r> for it, and cannot also group the <s> into one.
+// The class of rules where a rewrite of a cell X, at or below the repeated <r> and above the <p>
+// that holds the loose cell, writes the nest down to that <p> on one side only, or only partly on
+// the other, which leaves the <p> unwritten in an open X. X is one instance on both sides, so the
+// <p> it holds is too, and the loose cell may be in it or in another <r>. These rows are the
+// smallest of each shape the class search found compiled (`w3-cells-class-search.md`): the
+// rewritten cell at each level, the nest on the left, on the right, or partly on the other side, a
+// cell or a variable at its bottom, and the loose cell a child of <p> or one level deeper; then the
+// other locations of the loose cell, and the rewritten <r> written as an alias or a variable. The
+// configuration has <p> at depth 1, 2 or 3 below <r>.
 #[test]
-fn leaves_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
-    let configuration = r#"<top> <k> 0 </k> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s> 0 </s> <a> <e> 0 </e> <d> 0 </d> </a> </r> </top>"#;
-    let errors = concretized_cell_rule(
-        configuration,
-        "<s> 1 </s> <a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
-    )
-    .unwrap_err();
-    assert_eq!(errors, ["Ambiguous completion: <r>"]);
-    let body =
-        concretized_cell_rule(configuration, "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>").unwrap();
-    assert_eq!(
-        body,
-        r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),_DotVar3)),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
-    );
+fn rejects_a_cell_that_an_instance_a_rewrite_writes_on_one_side_only_may_hold() {
+    let configuration = |depth: usize| {
+        let p = "<p> <px> 0 </px> <c> 0 </c> <q> <qx> 0 </qx> <e> 0 </e> </q> </p>";
+        let chain = match depth {
+            1 => p.to_owned(),
+            2 => format!("<m1> <m1x> 0 </m1x> {p} </m1>"),
+            _ => format!("<m1> <m1x> 0 </m1x> <m2> <m2x> 0 </m2x> {p} </m2> </m1>"),
+        };
+        format!(
+            r#"<top> <k> 0 </k> <u> <ux> 0 </ux> <r multiplicity="*" type="Map"> <rid> 0 </rid> {chain} </r> </u> </top>"#
+        )
+    };
+    let mut failures = Vec::new();
+    for (depth, rule, message) in [
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <p> <px> 1 </px> ... </p> ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        // The loose cell beside <u>, and with <u> not written.
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <p> <px> 1 </px> ... </p> ... </r> => <r> <rid> 2 </rid> ... </r>) ... </u> <c> 5 => 6 </c>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <p> <px> 1 </px> ... </p> ... </r>) <c> 5 => 6 </c>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        // The rewritten <r> as an alias of its pattern, and as a variable that stands for one
+        // whole <r>, and so for its one <p>.
+        (
+            1,
+            "<k> 0 => 1 </k> <u> ((<r> <rid> 1 </rid> <p> <px> 1 </px> ... </p> ... </r> #as A0) => <r> <rid> 2 </rid> ... </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (V:RCell => <r> <rid> 2 </rid> <p> <px> 1 </px> ... </p> ... </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <p> <px> 1 </px> ... </p> ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:PCell ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> V1 or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:PCell ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> V1 or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <p> <px> 1 </px> ... </p> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            1,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <p> <px> 1 </px> ... </p> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:M1Cell ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m1>, can be in the <r> of the written <m1> V1 or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:M1Cell ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m1>, can be in the <r> of the written <m1> V1 or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> </r>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <p> <px> 1 </px> ... </p> ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> V2:PCell ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> V2 or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> V2:PCell ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> V2 or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> ... </m1> => <m1> <m1x> 2 </m1x> <p> <px> 1 </px> ... </p> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            2,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> ... </m1> => <m1> <m1x> 2 </m1x> <p> <px> 1 </px> ... </p> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <c>)), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <q> (holding <e>))), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:M1Cell ... </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <c>)), written outside every <m1>, can be in the <r> of the written <m1> V1 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:M1Cell ... </r> => <r> <rid> 2 </rid> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <q> (holding <e>))), written outside every <m1>, can be in the <r> of the written <m1> V1 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <c>)), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> ... </m1> ... </r>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <m2> (holding <p> (holding <q> (holding <e>))), written outside every <m1>, can be in the <r> of the written <m1> (holding <m1x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> </r>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <m1> <m1x> 1 </m1x> ... </m1> </r> => <r> <rid> 2 </rid> <m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> </r>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> V2:M2Cell ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m2>, can be in the <r> of the written <m2> V2 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> V2:M2Cell ... </m1> => <m1> <m1x> 2 </m1x> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m2>, can be in the <r> of the written <m2> V2 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> ... </m2> </m1>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> ... </m2> </m1>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> ... </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <p> (holding <c>), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> ... </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> ... </m2> ... </m1>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <p> (holding <q> (holding <e>)), written outside every <m2>, can be in the <r> of the written <m2> (holding <m2x>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> </m1>) <c> 5 => 6 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m1> <m1x> 1 </m1x> <m2> <m2x> 1 </m2x> ... </m2> </m1> => <m1> <m1x> 2 </m1x> <m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> </m1>) <e> 5 => 6 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> => <m2> <m2x> 2 </m2x> ... </m2>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> <p> <px> 1 </px> ... </p> ... </m2> => <m2> <m2x> 2 </m2x> ... </m2>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> V3:PCell ... </m2> => <m2> <m2x> 2 </m2x> ... </m2>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> V3 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> V3:PCell ... </m2> => <m2> <m2x> 2 </m2x> ... </m2>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> V3 or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> ... </m2> => <m2> <m2x> 2 </m2x> <p> <px> 1 </px> ... </p> ... </m2>) <c> 5 </c> ... </u>",
+            "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+        (
+            3,
+            "<k> 0 => 1 </k> <u> (<m2> <m2x> 1 </m2x> ... </m2> => <m2> <m2x> 2 </m2x> <p> <px> 1 </px> ... </p> ... </m2>) <e> 5 </e> ... </u>",
+            "Ambiguous completion: <q> (holding <e>), written outside every <p>, can be in the <r> of the written <p> (holding <px>) or in another <r>",
+        ),
+    ] {
+        match concretized_cell_rule(&configuration(depth), rule) {
+            Err(errors) if errors.iter().any(|error| error.starts_with(message)) => {}
+            outcome => failures.push(format!("{rule}: {outcome:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// With a repeated <s> inside the repeated <r>, a rewrite of the <r> or of an <s> that writes the
+// <p> on one side only holds that <p> on both sides all the same, so the loose <c> may be in the
+// <s> of that <p> or in another <s>; when the written <p> already holds a <c>, or the <s> is
+// removed, it may not.
+#[test]
+fn rejects_a_cell_that_an_instance_a_rewrite_writes_on_one_side_only_may_hold_below_two_repeated_cells()
+ {
+    let configuration = r#"<top> <k> 0 </k> <u> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s multiplicity="*" type="Map"> <sid> 0 </sid> <p> <px> 0 </px> <c> 0 </c> </p> </s> </r> </u> </top>"#;
+    for rule in [
+        "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <s> <sid> 1 </sid> <p> <px> 1 </px> ... </p> </s> </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> <r> <rid> 1 </rid> (<s> <sid> 1 </sid> <p> <px> 1 </px> ... </p> </s> => <s> <sid> 2 </sid> ... </s>) </r> <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> ... </r> => <r> <rid> 2 </rid> <s> <sid> 1 </sid> <p> <px> 1 </px> ... </p> </s> </r>) <c> 5 => 6 </c> ... </u>",
+    ] {
+        let errors = concretized_cell_rule(configuration, rule)
+            .expect_err("the <p> of the rewritten cell may hold <c>");
+        assert!(
+            errors.iter().any(|error| error.starts_with("Ambiguous completion: <c>, written outside every <p>, can be in the <s> of the written <p> (holding <px>) or in another <s>")),
+            "{rule}: {errors:?}"
+        );
+    }
+    for rule in [
+        "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> <s> <sid> 1 </sid> <p> <px> 1 </px> <c> 7 </c> </p> </s> </r> => <r> <rid> 2 </rid> ... </r>) <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> <r> <rid> 1 </rid> (<s> <sid> 1 </sid> <p> <px> 1 </px> <c> 7 </c> </p> </s> => <s> <sid> 2 </sid> ... </s>) </r> <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> (<s> <sid> 1 </sid> <p> <px> 1 </px> ... </p> </s> => .Bag) <c> 5 => 6 </c> ... </u>",
+    ] {
+        concretized_cell_rule(configuration, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+    }
+}
+
+// Whether an item of <thread>'s sort written beside a loose <env> may be the <thread> that holds
+// it, by the shape of that item. The <thread> completion builds for the <env> is on both sides of
+// the rule, so an item may be it only when it is a <thread> on both sides that leaves <env> free on
+// each, with a frame or a term of unknown cell sort to stand for it, or a term that stands for one
+// whole <thread> (a variable of its sort). A term of unknown cell sort (a `Bag` variable, the
+// frame) stands for any number of instances, and a built instance beside it already denotes the
+// one among them that holds the <env>, so it is no other reading.
+#[test]
+fn rejects_a_loose_cell_only_where_a_written_instance_may_hold_it() {
+    let configuration = r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> <o> 0 </o> </thread> </threads> </top>"#;
+    let mut failures = Vec::new();
+    for (written, holder) in [
+        (
+            "<thread> <id> 1 </id> ... </thread>",
+            Some("<thread> (holding <id>)"),
+        ),
+        (
+            "(<thread> <id> 1 </id> ... </thread> #as T)",
+            Some("<thread> (holding <id>) #as T"),
+        ),
+        ("T:ThreadCell", Some("<thread> T")),
+        (
+            "<thread> <id> 1 </id> <o> 0 </o> B:Bag </thread>",
+            Some("<thread> (holding an item <id> <o>)"),
+        ),
+        (
+            "(<thread> <id> 1 </id> ... </thread> => <thread> <id> 2 </id> ... </thread>)",
+            Some("<thread> (holding <id>)"),
+        ),
+        ("<thread> <id> 1 </id> <env> X </env> ... </thread>", None),
+        (
+            "<thread> <id> 1 </id> <env> X </env> <o> 0 </o> </thread>",
+            None,
+        ),
+        ("(<thread> <id> 1 </id> ... </thread> => .Bag)", None),
+        ("(.Bag => <thread> <id> 1 </id> ... </thread>)", None),
+        ("B:Bag", None),
+    ] {
+        let rule = format!("<threads> {written} ... </threads> <env> E => 0 </env>");
+        let outcome = concretized_cell_rule(configuration, &rule);
+        let expected = holder.map(|holder| {
+            vec![format!(
+                "Ambiguous completion: <env>, written outside every <thread>, can be in the written {holder} or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it"
+            )]
+        });
+        let agrees = match (&outcome, expected) {
+            (Ok(_), None) => true,
+            (Err(errors), Some(expected)) => *errors == expected,
+            _ => false,
+        };
+        if !agrees {
+            failures.push(format!("\n  {written}\n    -> {outcome:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join(""));
 }
 
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {
