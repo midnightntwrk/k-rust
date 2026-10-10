@@ -431,6 +431,19 @@ pub(super) fn random_definition(rng: &mut Rng) -> (Definition, Vec<Pat>) {
     (definition, seeds)
 }
 
+/// Writes some of the equation heads of `definition` that no `total` declaration covers as
+/// hooked symbols ([`Definition::hooked_heads`]), each with probability `percent`, drawing from
+/// `rng`. A total head is left unhooked: an application of a total hooked symbol that no
+/// evaluator and no equation reduces is refused as an uncomputed value, which is not the
+/// equation head's reading.
+pub(super) fn hook_some_heads(definition: &mut Definition, rng: &mut Rng, percent: usize) {
+    for symbol in &definition.symbols {
+        if matches!(symbol.kind, Kind::Head { total: false, .. }) && rng.percent(percent) {
+            definition.hooked_heads.push(symbol.name.clone());
+        }
+    }
+}
+
 /// Whether two left-hand sides may have a common instance, read syntactically with every
 /// variable a wildcard (an over-approximation of unifiability).
 fn compatible(left: &Pat, right: &Pat) -> bool {
@@ -1182,6 +1195,38 @@ pub(super) fn claim_dependent() -> Definition {
         .equation(app("f", vec![var("VarX", "A")]), cons("c2"))
 }
 
+/// A refutation with a claim that another pair withdraws: `f(X) = hv(1) requires isD(g(2))`
+/// beside `f(X) = hv(2)`, where the total `isD` is `true` on `d` and `false` otherwise
+/// (`owise`), and `g(1) = d` beside `g(1) = g(2)`. Refuting `f`'s pair needs `g(2)` to be a value
+/// other than `d`, a claim about `g` that `g`'s own pair withdraws: every model has
+/// `g(2) = g(1) = d`, so `isD(g(2))` holds, `f(X)` is both `hv(1)` and `hv(2)`, and `hv(1) =
+/// hv(2)`. So `hv` must keep no claim.
+pub(super) fn withdrawn_claim_refutation() -> Definition {
+    Definition::new(&["A", "B"])
+        .constructor("d", &[], "A")
+        .constructor("cb", &[], "B")
+        .head("g", &["Int"], "A")
+        .head("hv", &["Int"], "S")
+        .total_function("isD", &["A"], "Bool")
+        .equation(app("isD", vec![cons("d")]), boolean(true))
+        .full(
+            app("isD", vec![var("VarY", "A")]),
+            boolean(false),
+            None,
+            None,
+            OWISE_PRIORITY,
+        )
+        .equation(app("g", vec![int(1)]), cons("d"))
+        .equation(app("g", vec![int(1)]), app("g", vec![int(2)]))
+        .function("f", &["B"], "S")
+        .conditional(
+            app("f", vec![var("VarX", "B")]),
+            app("hv", vec![int(1)]),
+            Some(app("isD", vec![app("g", vec![int(2)])])),
+        )
+        .equation(app("f", vec![var("VarX", "B")]), app("hv", vec![int(2)]))
+}
+
 /// Two maximal common subsorts: `C1, C2 < Al, Bl < Tl`, so that `inj{Al,Tl}(Z)` and
 /// `inj{Bl,Tl}(Y)` unify in two ways, one per common subsort. `gl(inj{Bl,Tl}(Y)) = kl requires
 /// pl(Y)`, with `pl` true on the subsorts in `true_on`; `fl(kl) = hi`, `fl(X) = lo [owise]`; and
@@ -1333,6 +1378,25 @@ pub(super) fn hooked_equations(definition: Definition) -> (Definition, Vec<Pat>)
             app("listConcat", vec![var("VarL", "List"), cons("listUnit")]),
             var("VarL", "List"),
         );
+    (definition, Vec::new())
+}
+
+/// An equation indexed at a bare variable whose sort holds an equation head:
+/// `M mapConcat .Map = mapUpdate(M, 0, mv(2)) requires mapInKeys(0, M)`, whose left-hand side
+/// the collection laws normalize to the bare variable `M`. A map with the key `0` equals itself
+/// with that key's value replaced by `mv(2)`, and a map's values are fixed by the map, so every
+/// `Mv` value is `mv(2)` in every model: `mv(1)` and `mv(2)` are one element, and `mv` keeps no
+/// claim. The definition has a model, `Mv` with the one element `mv0`, so the instances judge
+/// claims, not the absence of a model.
+pub(super) fn variable_indexed_head(definition: Definition) -> (Definition, Vec<Pat>) {
+    let definition = definition.with_collections().conditional(
+        app("mapConcat", vec![var("VarM", "Map"), cons("mapUnit")]),
+        app(
+            "mapUpdate",
+            vec![var("VarM", "Map"), int(0), app("mv", vec![int(2)])],
+        ),
+        Some(app("mapInKeys", vec![int(0), var("VarM", "Map")])),
+    );
     (definition, Vec::new())
 }
 
@@ -1540,6 +1604,10 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
         hooked_equations(base()).0,
     ));
     templates.push((
+        "axiom template variable-indexed head".into(),
+        variable_indexed_head(base()).0,
+    ));
+    templates.push((
         "axiom template lowered family".into(),
         lowered_family(base()).0,
     ));
@@ -1571,8 +1639,11 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
     templates
 }
 
-/// A random definition of [`random_definition`], with the classes of [`axiom_templates`] added
-/// at random.
+/// A random definition of [`random_definition`], with some of the classes of [`axiom_templates`]
+/// added at random: two maximal common subsorts, maps and sets with self pairs, hooked
+/// equations, an overload family read through its lesser productions, an inner pair across
+/// priority groups, and an equation at a bare-variable index. The templates that must stand
+/// alone, with no other pair that fails to join, are not added.
 pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     let (mut definition, _) = random_definition(rng);
     let has_head = definition.symbols.iter().any(Symbol::is_head);
@@ -1591,6 +1662,9 @@ pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     }
     if rng.percent(10) {
         definition = chain_across_priorities(definition).0;
+    }
+    if rng.percent(10) {
+        definition = variable_indexed_head(definition).0;
     }
     definition
 }

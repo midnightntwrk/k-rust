@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -1086,7 +1086,7 @@ impl fmt::Display for DefinitionError {
             ),
             Self::StackSegmentRefused { depth, refused } => write!(
                 formatter,
-                "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, and {refused}",
+                "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, a native stack segment the system refused to map",
                 refused.size
             ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
@@ -1229,11 +1229,17 @@ impl BackendDefinition {
     }
 }
 
-/// The equation-head applications written strictly below the root of the left-hand side of an
-/// executable function, simplification or ceil equation that denote one ground term, grouped by
-/// that term, each written application once, in the order a depth-first walk of the theories
-/// meets them: the subterms equation matching may read as values
-/// (`BackendDefinition::record_pattern_tokens`).
+/// The equation-head applications that denote one ground term, written strictly below the root
+/// of the left-hand side of an executable function, simplification or ceil equation, or at or
+/// below a term of the left-hand side of a predicate simplification lemma, grouped by that term,
+/// each written application once, in the order a depth-first walk of the theories meets them:
+/// the subterms equation matching may read as values (`BackendDefinition::record_pattern_tokens`).
+///
+/// The root of a term equation's left-hand side is compared, by its arguments, with the
+/// application the equation is tried on, which has its symbol; a term of a predicate lemma's
+/// left-hand side is compared with a term of the subject predicate (`simplify::match_predicate`),
+/// which may have any root, so the term itself is a subterm equation matching may read as a
+/// value.
 ///
 /// An application denotes one ground term when it is ground once each `\and` in it is replaced
 /// by its structured conjunct (`confluence::collapse_conjunctions`): a left-hand side may name a
@@ -1250,13 +1256,24 @@ fn ground_equation_head_patterns(definition: &BackendDefinition) -> Vec<(Term, V
         &definition.simplification_theory,
         &definition.ceil_theory,
     ];
-    for rule in theories
+    let mut predicate_terms = Vec::new();
+    for rule in definition
+        .predicate_simplification_theory
+        .values()
+        .flatten()
+    {
+        rule.lhs
+            .visit_terms(&mut |term| predicate_terms.push(term.clone()));
+    }
+    let starts = theories
         .into_iter()
         .flat_map(BTreeMap::values)
         .flat_map(BTreeMap::values)
         .flatten()
-    {
-        work.extend(crate::term::immediate_children(rule.lhs.kind()));
+        .map(|rule| crate::term::immediate_children(rule.lhs.kind()))
+        .chain(predicate_terms.iter().map(|term| vec![term]));
+    for start in starts {
+        work.extend(start);
         while let Some(term) = work.pop() {
             if term.shape() == crate::term::head::Shape::Application(HeadRole::EquationHead) {
                 if !seen.insert(term) {
@@ -1283,16 +1300,17 @@ fn ground_equation_head_patterns(definition: &BackendDefinition) -> Vec<(Term, V
 
 impl BackendDefinition {
     /// After the check, record in the verdict an instance-normal token for each equation-head
-    /// application written below the root of an executable equation's left-hand side that
-    /// denotes one ground term, when that term has one (`confluence::ValueClaims::pattern_token`).
+    /// application written below the root of an executable equation's left-hand side, or in a
+    /// term of a predicate simplification lemma's left-hand side, that denotes one ground term,
+    /// when that term has one (`confluence::ValueClaims::pattern_token`).
     /// Equation matching reads a recorded application as the value it denotes
     /// (`term::head::RecordedPatterns`), so that a ground normal form is compared by the same
     /// evidence whether the equation writes it or the subject holds it.
     ///
     /// A ground term is its own only instance, so its token is a fact about the one value it
-    /// denotes, the fact the scan establishes for an equal subject. The root of a left-hand side
-    /// is not recorded: it is compared with the application the equation is tried on, which has
-    /// its symbol, by its arguments.
+    /// denotes, the fact the scan establishes for an equal subject. The root of a term
+    /// equation's left-hand side is not recorded: it is compared with the application the
+    /// equation is tried on, which has its symbol, by its arguments.
     ///
     /// The scan of a term matches the left-hand sides of the equations that could reach it, and
     /// those may hold applications of this record, so a token recorded here can let the scan of

@@ -184,7 +184,8 @@ reference_scope_placement() {
 #     `${REFERENCE_GHCRTS--N1}` for a binary of the threaded runtime and none otherwise;
 #   - the whole job runs in a new user systemd scope in its caller's slice, under memory limits no
 #     larger than the guard's and than those of every cgroup it leaves (reference_scope_placement),
-#     so the guard only tightens, whether or not its caller is already bounded; without a user
+#     so the guard never loosens a memory limit, whether or not its caller is already bounded
+#     (a left cgroup's CPU, task and runtime limits do not follow the job); without a user
 #     manager it runs under an RLIMIT_AS ceiling no larger than the caller's.
 #   It exports REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND (systemd-scope or rlimit-as) for the processes
 #   the gate starts; it never reads that variable.

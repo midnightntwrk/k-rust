@@ -16,8 +16,11 @@
 //!   --test build_agreement -- --ignored
 //! ```
 //!
-//! The first run records each case's outcome; the second computes its own and fails on every case
-//! both builds compiled to different KORE, on every case one build rejects for a reason other
+//! Each run fails on every case it did not compile that the manifest expects to compile (an
+//! `expect` other than `"reject"`), unless the error is `Z3InferenceRequired`: an error there
+//! means no build compiled the definition, so the comparison did not happen, even when both builds
+//! fail alike. The first run records each case's outcome; the second computes its own and fails
+//! on every case both builds compiled to different KORE, on every case one build rejects for a reason other
 //! than the portable build's documented `Z3InferenceRequired`, and on every case only one of the
 //! runs compiled. It prints the cases refused with `Z3InferenceRequired`: they are not a
 //! disagreement, but each is a definition the portable hosts cannot compile. The real-semantics
@@ -26,7 +29,7 @@
 //! resolves them, and a named case whose source cannot be read fails the run.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env, fs,
     path::{Path, PathBuf},
 };
@@ -214,6 +217,11 @@ fn both_builds_compile_every_local_manifest_case_alike() {
             "BUILD_AGREEMENT_CASES names no compile case: {unknown:?}"
         );
     }
+    let rejected = cases
+        .iter()
+        .filter(|case| case.get("expect").and_then(Value::as_str) == Some("reject"))
+        .filter_map(|case| case["name"].as_str())
+        .collect::<BTreeSet<_>>();
     let (outcomes, unread): (Vec<_>, Vec<_>) = cases
         .into_iter()
         .filter(|case| {
@@ -239,6 +247,23 @@ fn both_builds_compile_every_local_manifest_case_alike() {
         .filter_map(Result::ok)
         .collect::<BTreeMap<_, _>>();
     assert!(!outcomes.is_empty(), "no local compile case");
+    // A case the manifest does not expect to be rejected is a definition that compiles, so any
+    // other error than the portable build's documented refusal means this build did not compile
+    // it and nothing was compared; an error both builds share would otherwise read as agreement.
+    let not_compiled = outcomes
+        .iter()
+        .filter(|(name, outcome)| {
+            outcome.starts_with("error ")
+                && outcome.as_str() != "error Z3InferenceRequired"
+                && !rejected.contains(name.as_str())
+        })
+        .map(|(name, outcome)| format!("{name}: {outcome}"))
+        .collect::<Vec<_>>();
+    assert!(
+        not_compiled.is_empty(),
+        "cases expected to compile that this build did not compile:\n{}",
+        not_compiled.join("\n")
+    );
     let build = if cfg!(feature = "z3-inference") {
         "z3-inference"
     } else {

@@ -1103,6 +1103,66 @@ mod tests {
         assert_eq!(payload.downcast_ref::<&str>(), Some(&"from the work"));
     }
 
+    /// The address space, in KiB, under which [`a_refused_segment_is_reported_as_refused`]
+    /// reruns this test binary: far below the 1 GiB segment the inner test asks for.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    const ADDRESS_SPACE_KIB: u32 = 800_000;
+
+    /// Run the ignored test `name` of this test binary in a copy of it whose address space is
+    /// limited to [`ADDRESS_SPACE_KIB`], and assert that it ran and passed.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    fn run_with_limited_address_space(name: &str) {
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                r#"ulimit -S -v {ADDRESS_SPACE_KIB} && exec "$0" --ignored --exact "$1" --test-threads 1"#
+            ))
+            .arg(std::env::current_exe().expect("the test binary has a path"))
+            .arg(name)
+            .output()
+            .expect("the test binary starts");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{name} under a {ADDRESS_SPACE_KIB} KiB address space: {}\n{stdout}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// [`with_stack`] reports a segment within [`STACK_LIMIT`] that the system refuses as that
+    /// refusal, with the segment the depth needs, and not as a depth limit the work did not
+    /// reach; the work does not run. Run by [`a_refused_segment_is_reported_as_refused`] under an
+    /// address space smaller than the segment.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    #[ignore = "needs an address space smaller than its segment: run by a_refused_segment_is_reported_as_refused"]
+    fn with_stack_reports_a_segment_the_system_refuses() {
+        let depth = (1 << 30) / STACK_PER_LEVEL;
+        assert!(stack_for_depth(depth) <= STACK_LIMIT);
+        let mut ran = false;
+        let outcome = with_stack(depth, || ran = true);
+        assert!(!ran);
+        assert!(
+            matches!(
+                outcome,
+                Err(DefinitionError::StackSegmentRefused {
+                    depth: refused,
+                    refused: SegmentRefused { size },
+                }) if refused == depth && size == stack_for_depth(depth)
+            ),
+            "{outcome:?}"
+        );
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    fn a_refused_segment_is_reported_as_refused() {
+        run_with_limited_address_space(
+            "nesting::tests::with_stack_reports_a_segment_the_system_refuses",
+        );
+    }
+
     /// Every shape the bound was measured on runs every entry point on a thread whose stack
     /// is far smaller than the shape needs, on a segment of exactly the size `stack_for_depth`
     /// gives for its height: a pass whose frames outgrew `STACK_PER_LEVEL` overflows the segment

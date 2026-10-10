@@ -61,6 +61,9 @@ REFERENCE_ERROR = object()
 # The reference-output cache (scripts/reference_cache.py); None runs every reference command.
 # conformance-ratchet.sh enables it after its pin checks (--reference-cache).
 CACHE = None
+# The whole-job memory guard the caller entered, from --memory-guard: the gate's shell states it on
+# the command line, so a value exported by whatever started this process cannot.
+MEMORY_GUARD = ""
 # The digest of the pinned K trees the work tree copies: a recipe may read any file of them.
 SOURCE_TREE_DIGEST = None
 
@@ -411,8 +414,7 @@ def is_reference_crash(text):
 
 
 def memory_guard_suffix():
-    guard = os.environ.get("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "").strip()
-    return f" under the {guard} memory guard" if guard else ""
+    return f" under the {MEMORY_GUARD} memory guard" if MEMORY_GUARD else ""
 
 
 def reference_failure_reason(prefix, rc, timed_out, stderr, empty_output=False):
@@ -2705,7 +2707,7 @@ def ensure_work_tree(work_tree, source_tree, cases, force=False):
 
 def main():
     global BISON_PARSER_ONLY, BUILTIN, CACHE, CASE_BUDGET, CASE_BUDGETS, EXPECTATIONS, IGNORE_UNIQUE_ID
-    global KBIN, K_CHECKOUT, K_OPTS, KORE_PARSER, KR, KRUST, LOGS
+    global KBIN, K_CHECKOUT, K_OPTS, KORE_PARSER, KR, KRUST, LOGS, MEMORY_GUARD
     global RESULTS, SOURCE_TREE_DIGEST, SRC_TREE, TEST_BINARY, WORK_TREE
 
     ap = argparse.ArgumentParser()
@@ -2741,12 +2743,15 @@ def main():
     ap.add_argument("--fresh-copy", action="store_true", help="re-copy the regression tree to the scratch directory")
     ap.add_argument("--postprocess", action="store_true", help="only reclassify/trim an existing results file")
     ap.add_argument("--merge", help="replace the cases of --results by the cases found in this results file, then postprocess")
+    ap.add_argument("--memory-guard", choices=reference_cache.MEMORY_GUARDS, default="",
+                    help="the whole-job memory guard the caller entered (reference-memory-guard.sh)")
     ap.add_argument("--reference-cache", choices=reference_cache.MODES, default="off",
                     help="reference-output cache mode; the caller must have checked the pins")
     ap.add_argument("--previous-results", action="append", default=[], metavar="RESULTS",
                     help="earlier results.toml files, oldest first; cases start longest first by their latest seconds")
     a = ap.parse_args()
     BISON_PARSER_ONLY = a.bison_parsers
+    MEMORY_GUARD = a.memory_guard
 
     if a.rank:
         print(VERDICT_RANK[a.rank])
@@ -2919,7 +2924,7 @@ def main():
                 pins,
                 reference_cache.max_age_seconds(os.environ),
                 placeholders={"logs": LOGS},
-                guard_kind=os.environ.get("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", ""),
+                guard_kind=MEMORY_GUARD,
                 log_path=os.environ.get("REFERENCE_CACHE_LOG"),
                 context={"script": "conformance/run.py"},
             )

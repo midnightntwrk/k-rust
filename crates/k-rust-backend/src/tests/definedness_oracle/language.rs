@@ -159,7 +159,16 @@ pub(super) struct Definition {
     /// that never applies to an `A`: its value on an `A` is given by its equations alone. For the
     /// axiom-instance harness only (`axioms`).
     pub(super) opaque_hook: bool,
+    /// The equation heads written as hooked symbols, with a hook ([`HEAD_HOOK`]) no evaluator
+    /// implements: the hook never computes a value, so such a head is interpreted by its
+    /// equations as an unhooked one is, and the oracle reads it as one. The backend must
+    /// withdraw its claims by the same rules as an unhooked head's (a hook fixes the
+    /// interpretation of a function, not of an equation head).
+    pub(super) hooked_heads: Vec<String>,
 }
+
+/// The hook of [`Definition::hooked_heads`]: a name in no namespace the backend evaluates.
+pub(super) const HEAD_HOOK: &str = "ORACLE.opaque";
 
 /// The hooked symbols of [`Definition::with_collections`]: name, arguments, result, hook,
 /// attributes besides `function` and `hook`.
@@ -601,9 +610,18 @@ impl Definition {
                 Kind::Functional => "functional{}()".to_owned(),
                 Kind::Hook => unreachable!("hooks are in the prelude"),
             };
+            let (keyword, attributes) = if self.hooked_heads.contains(&symbol.name) {
+                assert!(symbol.is_head(), "only an equation head is written hooked");
+                (
+                    "hooked-symbol",
+                    format!("{attributes}, hook{{}}(\"{HEAD_HOOK}\")"),
+                )
+            } else {
+                ("symbol", attributes)
+            };
             writeln!(
                 source,
-                "symbol {}{{}}({}) : {} [{attributes}]",
+                "{keyword} {}{{}}({}) : {} [{attributes}]",
                 symbol.name,
                 symbol
                     .arguments

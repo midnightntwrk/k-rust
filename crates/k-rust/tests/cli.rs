@@ -2896,13 +2896,13 @@ fn krun_io_off_preserves_non_utf8_stdin_bytes() {
     );
 }
 
-/// K's krun builds `$STDIN` under `--io off` from `$(</dev/stdin)` fed through a bash
-/// here-string into its escaping awk script (krun:557-558): the command substitution strips
-/// every trailing newline, the here-string appends one, and awk emits every record with `ORS`.
-/// The buffered text is therefore standard input with its trailing newlines replaced by exactly
-/// one, also when standard input is empty (`#buffer("\n")` in regression-new/imp++-llvm
-/// div.imp.out; `printf 'ab' | krun ... --io off` gives `"ab\n"` in
-/// tests/fixtures/reference/cli/io/off.kore). Interior newlines and other bytes are kept.
+/// Under `--io off` a definition's `$STDIN` is standard input read to end of file as text, with
+/// its trailing newlines replaced by exactly one (`docs/compatibility.md`, "Backend scope"): the
+/// buffer always ends in one newline, also when standard input is empty (`"\n"`) or does not end
+/// in one (`"ab"` gives `"ab\n"`), and keeps no empty line after its last line (`"ab\n\n\n"`
+/// gives `"ab\n"`).
+/// Interior newlines, carriage returns and every other byte are kept as read. Search runs with
+/// the console off, so `--search-final` buffers alike.
 #[test]
 fn krun_io_off_buffers_stdin_with_its_trailing_newlines_replaced_by_one() {
     let fixtures =
@@ -4596,14 +4596,15 @@ fn krun_repeats_the_effects_of_a_value_a_failed_attempt_computed() {
 }
 
 /// A rule condition's verdict does not depend on whether the execution happened to compute a
-/// value it reads before. The console's own checks are pinned by
-/// `a_value_read_from_the_console_is_not_reused_without_it` and
-/// `a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on`; this test passes
-/// with either of them removed (the console position not compared, or a console hook not noted as
-/// read), because `Record::holds` also refuses the execution's record on its simplification
-/// options: the execution simplifies its term keeping a partial result when the budget runs out
-/// (`BudgetPolicy::KeepPartial`), and a rule condition is simplified failing then
-/// (`BudgetPolicy::Fail`). It fails only when that comparison is removed as well.
+/// value it reads before. The console's own checks (the console position compared, and a console
+/// hook noted as read) are pinned by `a_value_read_from_the_console_is_not_reused_without_it` and
+/// `a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on`, and on a run by
+/// `krun_does_not_reuse_a_failed_evaluation_that_read_stdin_after_the_console_moved_on`. This
+/// test passes with either check removed, because `Record::holds` also refuses the execution's
+/// record on its simplification options: the execution simplifies its term keeping a partial
+/// result when the budget runs out (`BudgetPolicy::KeepPartial`), and a rule condition is
+/// simplified failing then (`BudgetPolicy::Fail`). It fails only when that comparison is removed
+/// as well.
 /// `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether `A`
 /// computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g` stays
 /// unevaluated.
@@ -4636,6 +4637,37 @@ fn krun_decides_a_condition_alike_whether_the_execution_computed_its_value_befor
         stdout
     });
     assert_eq!(results[0], results[1]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A failed evaluation that read standard input is not reused once the console has moved on:
+/// its attempts read input that a later evaluation reads differently. `F = substr("abc", 4, 1)`
+/// is `g` of one byte read, with `g("x") = F +String ""` (no value: `F` is open) and `g("y") =
+/// "v"`; `A = substr("abc", 2, 1)` is `F +String (read +String F)` on the input `"xy"`. The
+/// first `F` reads `"x"` and fails, its read undone; the read in `A` takes `"x"`; the second `F`
+/// reads `"y"` and is `"v"`. Both evaluations of `F` are made by the execution's own
+/// simplification, under the same options, solver and assumptions, so only the console's checks
+/// tell them apart: the test fails when the console position is not compared, or when a console
+/// hook is not noted as read.
+#[test]
+fn krun_does_not_reuse_a_failed_evaluation_that_read_stdin_after_the_console_moved_on() {
+    const RULES: &str = r#"
+  syntax String ::= rd(IOString) [function]
+  rule rd(S:String) => S
+  syntax String ::= g(String) [function]
+  rule g(Z) => substrString("abc", 4, 1) +String "" requires Z ==String "x"
+  rule g(Z) => "v" requires Z ==String "y"
+  rule substrString(_, 4, J) => g(rd(#read(#stdin, 1))) requires J <Int 4
+  rule substrString(S, 2, J) => substrString(S, 4, J) +String (rd(#read(#stdin, 1)) +String substrString(S, 4, J)) requires J <Int 2
+"#;
+    let (root, definition) = fixture();
+    let input = root.join("a.attempt");
+    fs::write(&input, "a").unwrap();
+    let output = run_attempt_module(&definition, &input, RULES, b"xy");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}{stderr}");
+    assert!(stdout.contains(r#"\dv{SortString{}}("xv")"#), "{stdout}");
     fs::remove_dir_all(root).unwrap();
 }
 

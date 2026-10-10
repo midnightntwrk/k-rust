@@ -151,7 +151,8 @@ pub(super) enum EquationAttempt<T, N> {
     /// The equation's left-hand side matched, or its shape keeps the evaluator from using it as
     /// a term rewrite, and the evaluator does not use it on this term: a `concrete` or
     /// `symbolic` attribute rejected the binding, the match bound a variable outside the
-    /// left-hand side, or the right-hand side is a predicate. These are choices of when the
+    /// left-hand side, or the right-hand side is a predicate or `\top` (a `\top` lemma is used
+    /// only on an operand of a term-level conjunction). These are choices of when the
     /// evaluator uses an equation, not of what the definition means: the equation still holds,
     /// so the term may equal its right-hand side. Like `ContextDependent`, this lets
     /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.

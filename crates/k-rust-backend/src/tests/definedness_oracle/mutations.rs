@@ -70,6 +70,32 @@ fn claim_dependent_failures(switches: Switches) -> Vec<String> {
     })
 }
 
+/// The failures of the refutation with a withdrawn claim
+/// (`generator::withdrawn_claim_refutation`) under `switches`: `hv` keeps a claim that holds in
+/// no model unless the check refutes no pair with a claim another pair withdraws.
+fn withdrawn_claim_failures(switches: Switches) -> Vec<String> {
+    let definition = super::generator::withdrawn_claim_refutation();
+    switches::with(switches, || match super::checks::backend(&definition) {
+        Ok(backend) => {
+            let tainted = backend.value_claims().tainted_symbols();
+            if tainted.iter().any(|symbol| symbol.as_ref() == "hv") {
+                Vec::new()
+            } else {
+                vec![format!("hv is not tainted: {tainted:?}")]
+            }
+        }
+        Err(error) => vec![format!("rejected: {error}")],
+    })
+}
+
+#[test]
+fn a_refutation_with_a_claim_another_pair_withdraws_taints_the_head() {
+    super::on_large_stack(|| {
+        let failures = withdrawn_claim_failures(Switches::default());
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
 #[test]
 fn the_claim_dependent_refutation_probe_taints_the_head() {
     super::on_large_stack(|| {
@@ -168,6 +194,16 @@ mutation!(
     claims_during_check,
     claim_dependent_failures
 );
+mutation!(
+    checking_with_claims_another_pair_withdraws_is_caught,
+    claims_during_check,
+    withdrawn_claim_failures
+);
+mutation!(
+    discharging_before_the_check_keeps_a_withdrawn_claim,
+    discharge_before_check,
+    withdrawn_claim_failures
+);
 mutation!(dropping_t1_is_caught, drop_t1, contract_failures);
 mutation!(
     dropping_tsym_on_right_hand_sides_is_caught,
@@ -262,25 +298,126 @@ fn axiom_failures(switches: Switches) -> Vec<String> {
     switches::with(switches, || super::run_axioms(0, DEFAULT_SEED).failures)
 }
 
+/// The three switches that drop an overlap modulo the overload axioms withdraw no fewer claims:
+/// on the oracle's templates, the harness's definitions and random definitions, the heads a
+/// switch leaves tainted include those the check taints without it, and where they are the same
+/// the claims are the same. Each switch still changes the pairs named somewhere, so the run
+/// reaches the overlaps it drops. This is why the axiom-instance harness, which judges claims,
+/// cannot see them (`axiom_mutation!`).
+#[test]
+fn the_overload_switches_withdraw_no_fewer_claims() {
+    super::on_large_stack(|| {
+        let mut definitions = super::generator::templates()
+            .into_iter()
+            .map(|(name, definition, _)| (name, definition))
+            .collect::<Vec<_>>();
+        definitions.extend(super::axiom_definitions(DEFAULT_CASES, DEFAULT_SEED));
+        for case in 0..DEFAULT_CASES * 20 {
+            let mut rng = Rng(DEFAULT_SEED ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+            definitions.push((
+                format!("random case {case}"),
+                super::generator::random_definition(&mut rng).0,
+            ));
+        }
+        let mut failures = Vec::new();
+        for (name, switches) in [
+            (
+                "drop_injected_inner",
+                Switches {
+                    drop_injected_inner: true,
+                    ..Switches::default()
+                },
+            ),
+            (
+                "drop_lifting",
+                Switches {
+                    drop_lifting: true,
+                    ..Switches::default()
+                },
+            ),
+            (
+                "drop_lesser_productions",
+                Switches {
+                    drop_lesser_productions: true,
+                    ..Switches::default()
+                },
+            ),
+        ] {
+            let mut pairs_changed = false;
+            for (label, definition) in &definitions {
+                let (Ok(off), Ok(on)) = (
+                    super::checks::backend(definition),
+                    switches::with(switches, || super::checks::backend(definition)),
+                ) else {
+                    continue;
+                };
+                let (off_tainted, on_tainted) = (
+                    off.value_claims().tainted_symbols(),
+                    on.value_claims().tainted_symbols(),
+                );
+                let differences = off
+                    .value_claims()
+                    .claim_differences(on.value_claims(), &off);
+                pairs_changed |= differences
+                    .iter()
+                    .any(|difference| difference.starts_with("warned pairs"));
+                let claims = differences
+                    .iter()
+                    .filter(|difference| !difference.starts_with("warned pairs"))
+                    .collect::<Vec<_>>();
+                let fewer = off_tainted
+                    .iter()
+                    .any(|symbol| !on_tainted.contains(symbol));
+                let rows = claims
+                    .iter()
+                    .any(|difference| difference.starts_with("tainted indexes of the rows"));
+                if fewer || rows || (off_tainted == on_tainted && !claims.is_empty()) {
+                    failures.push(format!("{name} on {label}: {claims:?}"));
+                }
+            }
+            if !pairs_changed {
+                failures.push(format!("{name} changes no pair named"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
 /// The harness's own acceptance: each switch below makes a claim false, or makes the check
 /// accept a definition that has no model or whose evaluation depends on its axioms' order, on
 /// one of the definitions the harness runs, and the harness sees it. That is 25 of the 31 defect
 /// switches of `confluence::switches` (`no_condition_memo` configures the load and seeds no
-/// defect). The other six change no claim the harness can judge:
+/// defect). The other six it cannot see:
 ///
-/// - `drop_injected_inner`, `drop_lifting` and `drop_lesser_productions`: the overload equations'
-///   own inner pairs reach the overlaps they drop, so the check still names a pair and taints the
-///   same heads;
-/// - `claims_during_check`: a pair refuted with a claim forces nothing that contradicts that
-///   claim; `discharge_before_check` runs the check the same way, and its other effect is on the
-///   rewrite rules' definedness, which no equation instance reads;
+/// - `drop_injected_inner`, `drop_lifting` and `drop_lesser_productions` make no claim false:
+///   each drops a pair whose overlap exists only modulo an overload axiom, and the check also
+///   pairs the same outer equation with that overload axiom at the position where it applies
+///   (`len2`'s second equation with `consE`'s overload axiom in `generator::lowered_family`,
+///   `use`'s equation with `go`'s in `generator::injected_inner`). That pair's overlap is one
+///   overload step from the dropped one, and its lowered side holds the subterm the dropped
+///   pair's other equation rewrites, so it fails to join where the dropped pair does and
+///   withdraws the same heads. `drop_lifting` also takes lifting out of the join, so pairs that
+///   join modulo the overload axioms are named, which withdraws more claims, never fewer.
+///   `the_overload_switches_withdraw_no_fewer_claims` measures this;
+/// - `claims_during_check`, and `discharge_before_check`, which runs the check the same way (its
+///   other effect is on the rewrite rules' definedness, which no equation instance reads): the
+///   check refutes a pair with a claim that another pair withdraws, and so keeps a false claim
+///   (`generator::withdrawn_claim_refutation`: `f(X) = hv(1) requires isD(g(2))` beside
+///   `f(X) = hv(2)`, with `g(1) = d` beside `g(1) = g(2)`; every model has `g(2) = d` and so
+///   `hv(1) = hv(2)`, but `hv` keeps its claims). The harness's judge is the backend's
+///   evaluation, which applies an equation from left to right only: `g(2) = d` follows from
+///   `g(1) = g(2)` read from right to left, so `isD(g(2))` stays undecided and every instance
+///   that would show `hv(1) = hv(2)` is skipped. Deciding it takes equational reasoning in both
+///   directions, a second engine;
 /// - `self_pair_reads_opaque_rhs_as_nothing`: its self pairs have a disjunction, `\top` or
 ///   predicates as right-hand side, which the harness does not instantiate.
 ///
-/// The oracle sees the first four only by comparing the pairs or the taint set with its own,
-/// `discharge_before_check` by the rewrite rule's definedness obligation
-/// (`confluence::tests::discharging_before_the_check_is_caught`), and the last by V3c's
-/// brute-force self pairs (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`).
+/// The oracle sees the overload switches by comparing the pairs with its own (V2 and the
+/// completeness run), `claims_during_check` with the claim-dependent probe and both check
+/// switches with `withdrawn_claim_failures`, `discharge_before_check` also by the rewrite rule's
+/// definedness obligation (`confluence::tests::discharging_before_the_check_is_caught`), and the
+/// last by V3c's brute-force self pairs
+/// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`).
 macro_rules! axiom_mutation {
     ($test:ident, $field:ident) => {
         #[test]

@@ -56,8 +56,9 @@
 //!
 //! [`axioms`] checks the claims against the axioms instead, with the backend's own evaluation as
 //! the judge and no second engine, on the same templates, probes and variants, on its own
-//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, two
-//! maximal common subsorts), on random definitions with those classes added, and on the FUN
+//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, an
+//! equation indexed at a bare variable whose sort holds an equation head, two maximal common
+//! subsorts), on random definitions with those classes added, and on the FUN
 //! fixtures. `KRUST_AXIOM_HARNESS_CASES` (default [`AXIOM_CASES`]) sets its random run; the
 //! mutation tests show which switches it sees.
 
@@ -221,17 +222,38 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
     }
 }
 
-/// Runs the checks on the templates and `cases` random definitions from `seed`.
+/// The share of the equation heads of a random definition, in percent, written as hooked symbols
+/// ([`generator::hook_some_heads`]).
+const HOOKED_HEADS: usize = 20;
+
+/// Runs the checks on the templates, each also with its equation heads hooked, and `cases`
+/// random definitions from `seed`, some of whose heads are hooked.
 fn run_random(first: u64, cases: u64, seed: u64) -> Tally {
     let mut total = Tally::default();
     for (name, definition, seeds) in generator::templates() {
         let mut rng = Rng(seed);
         let (tally, _) = check_definition(&name, &definition, &seeds, &[], &mut rng);
         total.add(tally);
+        let mut hooked = definition;
+        generator::hook_some_heads(&mut hooked, &mut Rng(seed), 100);
+        if !hooked.hooked_heads.is_empty() {
+            let mut rng = Rng(seed);
+            let (tally, _) = check_definition(
+                &format!("{name}, heads hooked"),
+                &hooked,
+                &seeds,
+                &[],
+                &mut rng,
+            );
+            total.add(tally);
+        }
     }
     for case in first..first + cases {
         let mut rng = Rng(seed ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        let (definition, seeds) = generator::random_definition(&mut rng);
+        let (mut definition, seeds) = generator::random_definition(&mut rng);
+        // Drawn from a stream of its own, so that the definitions and queries of the run are
+        // those of the same seed without hooked heads.
+        generator::hook_some_heads(&mut definition, &mut Rng(rng.0 ^ 0x5eed_400c), HOOKED_HEADS);
         let (tally, _) = check_definition(
             &format!("case {case} (seed {seed:#x})"),
             &definition,
@@ -531,14 +553,15 @@ fn axiom_definitions(cases: u64, seed: u64) -> Vec<(String, Definition)> {
     definitions
 }
 
-/// Runs the axiom-instance harness on [`axiom_definitions`] and on the checked-in FUN fixtures.
+/// Runs the axiom-instance harness on [`axiom_definitions`], each also without the equations that
+/// show it to have no model ([`axioms::check_with_a_model`]), and on the checked-in FUN fixtures.
 fn run_axioms(cases: u64, seed: u64) -> axioms::AxiomTally {
     let mut total = axioms::AxiomTally::default();
     let progress = std::env::var_os("KRUST_DEFINEDNESS_ORACLE_PROGRESS").is_some();
     for (label, definition) in axiom_definitions(cases, seed) {
         let mut rng = Rng(seed);
         let started = std::time::Instant::now();
-        total.add(axioms::check_definition(&label, &definition, &mut rng));
+        total.add(axioms::check_with_a_model(&label, &definition, &mut rng));
         if progress {
             eprintln!("{label}: {:?}", started.elapsed());
         }
@@ -569,6 +592,10 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
             (total.compared, "instance compared"),
             (total.hooked, "instance at a hooked root"),
             (total.without_model, "definition shown to have no model"),
+            (
+                total.judged_without_model,
+                "definition judged without the equations that show it has no model",
+            ),
             (total.withheld_decided, "result decided without claims"),
             (total.reordered, "term evaluated in two axiom orders"),
             (total.generalizations, "generalization checked"),
@@ -578,6 +605,22 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
+/// The axiom-instance harness on an equation indexed at a bare variable whose sort holds an
+/// equation head (`generator::variable_indexed_head`): every model makes `mv(1)` and `mv(2)` one
+/// element, so a kept claim on `mv` is contradicted by an instance, and the load must withdraw
+/// it.
+#[test]
+fn an_equation_indexed_at_a_bare_variable_keeps_no_claim_on_the_heads_its_sort_holds() {
+    on_large_stack(|| {
+        let mut rng = Rng(DEFAULT_SEED);
+        let (definition, _) =
+            generator::variable_indexed_head(Definition::new(&["A"]).constructor("c", &[], "A"));
+        let tally = axioms::check_definition("variable-indexed head", &definition, &mut rng);
+        eprintln!("{}", tally.summary("variable-indexed head"));
+        assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
     });
 }
 
@@ -596,5 +639,97 @@ fn an_equation_on_a_hooked_collection_agrees_with_the_hook_where_claims_are_kept
         );
         eprintln!("{}", tally.summary("hooked disagreement"));
         assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
+    });
+}
+
+/// A definition without a model is judged without the equations that show it has none
+/// (`axioms::check_with_a_model`): `g(5) = c1` beside `g(5) = c2` has no model, and beside it a
+/// map self pair (`generator::isolated_self_pair`) whose claims the load must withdraw. With the
+/// self pair dropped from the check (`drop_several_matches`), `hv` keeps a false claim, which
+/// the harness sees only once `g`'s refuted equation is dropped.
+#[test]
+fn a_definition_without_a_model_is_judged_without_the_equations_that_show_it() {
+    use crate::confluence::switches::{self, Switches};
+    use language::{app, cons, int};
+    on_large_stack(|| {
+        let definition = generator::isolated_self_pair(
+            Definition::new(&["A"])
+                .constructor("c1", &[], "A")
+                .constructor("c2", &[], "A")
+                .head("g", &["Int"], "A")
+                .equation(app("g", vec![int(5)]), cons("c1"))
+                .equation(app("g", vec![int(5)]), cons("c2")),
+            false,
+        );
+        let label = "no model beside a self pair";
+        let tally = axioms::check_with_a_model(label, &definition, &mut Rng(DEFAULT_SEED));
+        assert_eq!(
+            (tally.without_model, tally.judged_without_model),
+            (1, 1),
+            "{}",
+            tally.summary(label)
+        );
+        assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
+        let switches = Switches {
+            drop_several_matches: true,
+            ..Switches::default()
+        };
+        let whole = switches::with(switches, || {
+            axioms::check_definition(label, &definition, &mut Rng(DEFAULT_SEED))
+        });
+        assert_eq!(whole.without_model, 1, "{}", whole.summary(label));
+        assert!(whole.failures.is_empty(), "{}", whole.failures.join("\n"));
+        let reduced = switches::with(switches, || {
+            axioms::check_with_a_model(label, &definition, &mut Rng(DEFAULT_SEED))
+        });
+        assert!(
+            !reduced.failures.is_empty(),
+            "the false claim on hv went unnoticed: {}",
+            reduced.summary(label)
+        );
+    });
+}
+
+/// A valuation under which a left-hand side's map pattern binds a key twice is no instance:
+/// `get(1 |-> V M) = wrap(V)` says nothing where `M` binds `1`, since `1 |-> V M` is `\bottom`
+/// there and the axiom's argument is an element of its pattern. Judging it would read `\bottom`
+/// as the left value, against `wrap(V)`.
+#[test]
+fn a_valuation_under_which_a_map_pattern_repeats_a_key_is_no_instance() {
+    use language::{app, int, var};
+    on_large_stack(|| {
+        let definition = Definition::new(&["A"])
+            .with_collections()
+            .head("get", &["Map"], "S")
+            .equation(
+                app(
+                    "get",
+                    vec![app(
+                        "mapConcat",
+                        vec![
+                            app("mapItem", vec![int(1), var("VarV", "Mv")]),
+                            var("VarM", "Map"),
+                        ],
+                    )],
+                ),
+                app("wrap", vec![var("VarV", "Mv")]),
+            );
+        let label = "a map pattern at a fixed key";
+        let mut total = axioms::AxiomTally::default();
+        for seed in 0..8 {
+            total.add(axioms::check_definition(
+                label,
+                &definition,
+                &mut Rng(DEFAULT_SEED ^ seed),
+            ));
+        }
+        eprintln!("{}", total.summary(label));
+        assert!(total.failures.is_empty(), "{}", total.failures.join("\n"));
+        assert_eq!(
+            (total.without_model, total.repeating > 0, total.compared > 0),
+            (0, true, true),
+            "{}",
+            total.summary(label)
+        );
     });
 }

@@ -26,7 +26,9 @@
 //!   counts as the declaration's) rests on no claim: it shows that the definition has no model.
 //!   Then the full check must name a pair, since a definition whose every pair joins has the
 //!   model of its normal forms, and the definition gets no further guarantee, so nothing else of
-//!   it is judged. Every other contradiction is a claim that holds in no model.
+//!   it is judged. Its equations without the one whose instance showed this are another
+//!   definition, which the harness runs in turn, until what is left is not shown to have no model
+//!   ([`check_with_a_model`]). Every other contradiction is a claim that holds in no model.
 //! - **Withheld claims.** A claim is an extra true fact: a ground result the evaluator decides
 //!   with every claim withheld (a claimed value or `\bottom`) is not contradicted by the result
 //!   it decides with them (which may stay undecided).
@@ -84,6 +86,9 @@ pub(super) struct AxiomTally {
     pub(super) rejected: usize,
     /// Executable equations whose instances were drawn.
     pub(super) equations: usize,
+    /// Valuations under which a left-hand side's pattern builds a map that binds a key twice or
+    /// a set that holds an element twice: no instances.
+    pub(super) repeating: usize,
     /// Instances where the `requires` held and no higher group applied.
     pub(super) instances: usize,
     /// Instances skipped because the backend left their `requires`, `ensures`, priority or a
@@ -97,6 +102,10 @@ pub(super) struct AxiomTally {
     pub(super) hooked: usize,
     /// Definitions a contradiction resting on no claim shows to have no model.
     pub(super) without_model: usize,
+    /// Of those, definitions judged in part: run again without the equations whose instances
+    /// showed that they have no model, until what is left is not shown to have none
+    /// ([`check_with_a_model`]).
+    pub(super) judged_without_model: usize,
     /// Definitions where an evaluation found a `total` symbol undefined on defined arguments.
     pub(super) outside_totality: usize,
     /// Definitions where an evaluation did not end within the bounds.
@@ -108,6 +117,9 @@ pub(super) struct AxiomTally {
     /// Generalizations with a decision checked at some value.
     pub(super) generalizations: usize,
     pub(super) failures: Vec<String>,
+    /// The index of the equation whose instance showed this one definition to have no model
+    /// (`language::equation_index`), when it has one.
+    refuted_equation: Option<usize>,
 }
 
 impl AxiomTally {
@@ -115,11 +127,13 @@ impl AxiomTally {
         self.definitions += other.definitions;
         self.rejected += other.rejected;
         self.equations += other.equations;
+        self.repeating += other.repeating;
         self.instances += other.instances;
         self.undecided += other.undecided;
         self.compared += other.compared;
         self.hooked += other.hooked;
         self.without_model += other.without_model;
+        self.judged_without_model += other.judged_without_model;
         self.outside_totality += other.outside_totality;
         self.outside_termination += other.outside_termination;
         self.withheld_decided += other.withheld_decided;
@@ -130,13 +144,15 @@ impl AxiomTally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} shown to have no model, {} outside P2, {} outside P0), {} equations, {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
+            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations ({} valuations that repeat a key), {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
             self.definitions,
             self.rejected,
             self.without_model,
+            self.judged_without_model,
             self.outside_totality,
             self.outside_termination,
             self.equations,
+            self.repeating,
             self.instances,
             self.undecided,
             self.compared,
@@ -188,8 +204,12 @@ pub(super) fn show(term: &Term) -> String {
 }
 
 /// A term the backend claims as a value: an application, injection or literal it marks as one,
-/// or a collection without a rest whose entries are claimed values.
+/// or a collection without a rest whose entries are claimed values. A map that binds a key twice
+/// or a set that holds an element twice is `\bottom` (`Term::map`, `Term::set`), not a value.
 fn claimed_value(term: &Term) -> bool {
+    if term.repeated_collection_key().is_some() {
+        return false;
+    }
     match term.kind() {
         TermKind::List { heads, rest, .. } => rest.is_none() && heads.iter().all(claimed_value),
         TermKind::Set { elements, rest, .. } => {
@@ -321,6 +341,15 @@ thread_local! {
     static STOPPED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// `call`, a call of the backend; a panic in it is recorded as a stop ([`STOPPED`]) and decides
+/// nothing.
+fn guarded<T>(call: impl FnOnce() -> Option<T>) -> Option<T> {
+    catch_unwind(AssertUnwindSafe(call)).unwrap_or_else(|_| {
+        STOPPED.set(true);
+        None
+    })
+}
+
 /// The outcome of a simplification.
 fn outcome(result: &Simplification) -> Outcome {
     if result.contradicted_total.is_some() {
@@ -338,7 +367,7 @@ fn outcome(result: &Simplification) -> Outcome {
 /// The backend's evaluation of the ground term `term` in `definition`; a stop or a panic
 /// decides nothing.
 fn evaluate(definition: &BackendDefinition, term: &Term) -> Outcome {
-    catch_unwind(AssertUnwindSafe(|| {
+    guarded(|| {
         let _deadline = deadline();
         match simplify(
             definition,
@@ -348,25 +377,22 @@ fn evaluate(definition: &BackendDefinition, term: &Term) -> Outcome {
                 ..SimplificationOptions::default()
             },
         ) {
-            Ok(Ok(result)) => outcome(&result),
-            Ok(Err(_)) => Outcome::Open,
+            Ok(Ok(result)) => Some(outcome(&result)),
+            Ok(Err(_)) => None,
             Err(stop) => {
                 stop.into_cause();
                 STOPPED.set(true);
-                Outcome::Open
+                None
             }
         }
-    }))
-    .unwrap_or_else(|_| {
-        STOPPED.set(true);
-        Outcome::Open
     })
+    .unwrap_or(Outcome::Open)
 }
 
 /// The backend's simplification of the term `term` with variables, when it ends without
 /// conditions.
 fn simplified(definition: &BackendDefinition, term: &Term) -> Option<Term> {
-    catch_unwind(AssertUnwindSafe(|| {
+    guarded(|| {
         let _deadline = deadline();
         match simplify(
             definition,
@@ -388,9 +414,7 @@ fn simplified(definition: &BackendDefinition, term: &Term) -> Option<Term> {
                 None
             }
         }
-    }))
-    .ok()
-    .flatten()
+    })
 }
 
 /// The backend's decision of `predicates` (their conjunction): `None` when it decides nothing.
@@ -398,7 +422,7 @@ fn decide(definition: &BackendDefinition, predicates: Vec<Predicate>) -> Option<
     if predicates.is_empty() {
         return Some(true);
     }
-    catch_unwind(AssertUnwindSafe(|| {
+    guarded(|| {
         let _deadline = deadline();
         match simplify_predicate_with_solver(
             definition,
@@ -419,9 +443,7 @@ fn decide(definition: &BackendDefinition, predicates: Vec<Predicate>) -> Option<
                 None
             }
         }
-    }))
-    .ok()
-    .flatten()
+    })
 }
 
 /// `term` read again from its KORE text in `definition`: the same term without the marks the
@@ -713,6 +735,35 @@ fn collapse(term: &Term) -> Option<Term> {
     }
 }
 
+/// Whether `term` holds a map that binds a key twice or a set that holds an element twice, at
+/// any depth: a `\bottom` subterm.
+fn holds_repeat(term: &Term) -> bool {
+    if term.repeated_collection_key().is_some() {
+        return true;
+    }
+    match term.kind() {
+        TermKind::Application { arguments, .. } => arguments.iter().any(holds_repeat),
+        TermKind::Injection { term, .. } => holds_repeat(term),
+        TermKind::And(left, right) => holds_repeat(left) || holds_repeat(right),
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(holds_repeat)
+                || rest.as_ref().is_some_and(|(middle, tail)| {
+                    holds_repeat(middle) || tail.iter().any(holds_repeat)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(holds_repeat) || rest.as_ref().is_some_and(holds_repeat)
+        }
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|(key, value)| holds_repeat(key) || holds_repeat(value))
+                || rest.as_ref().is_some_and(holds_repeat)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
+}
+
 /// The valuations of the variables `sampled` (each with its candidate values) an equation is
 /// instantiated with: all of them when there are at most [`VALUATIONS`], otherwise
 /// [`VALUATIONS`] distinct random ones.
@@ -764,10 +815,14 @@ fn higher_group_applies(
         higher.attributes.priority < rule.attributes.priority
             && root(&higher.lhs).is_none_or(|name| Some(name) == root(instance))
     }) {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            match_terms_in_definition(MatchMode::Evaluate, backend, &higher.lhs, instance)
-        }))
-        .ok()?;
+        let result = guarded(|| {
+            Some(match_terms_in_definition(
+                MatchMode::Evaluate,
+                backend,
+                &higher.lhs,
+                instance,
+            ))
+        })?;
         match result {
             MatchResult::Failed(_) => {}
             MatchResult::Success(substitution) => {
@@ -789,6 +844,8 @@ fn higher_group_applies(
 struct Contradiction {
     text: String,
     claim_free: bool,
+    /// The index of the instance's equation in the oracle definition, when it is one of its.
+    equation: Option<usize>,
 }
 
 /// What one definition's run collected.
@@ -814,8 +871,9 @@ fn collection(term: &Term) -> bool {
 /// where the hook does not apply, the equations alone give the symbol's value, and the backend's
 /// evaluation is the judge as at any other root. A collection term (the instance of a left-hand
 /// side the collection laws normalize to a collection pattern or a bare variable) denotes itself
-/// modulo those laws, so its value is the instance when it is a collection of claimed values;
-/// evaluating it would apply the equation under test to it.
+/// modulo those laws, so its value is the instance when it is a collection of claimed values
+/// that repeats no key or element (one that does is `\bottom`, and is left undecided, as on the
+/// right side); evaluating it would apply the equation under test to it.
 fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (Outcome, bool) {
     if collection(instance) {
         let outcome = if claimed_value(instance) {
@@ -828,26 +886,24 @@ fn left_value(backend: &BackendDefinition, instance: &Term, run: &mut Run) -> (O
     if let TermKind::Application { symbol, .. } = instance.kind()
         && symbol.attributes.hook.is_some()
     {
-        let hooked = catch_unwind(AssertUnwindSafe(|| {
+        let hooked = guarded(|| {
             let _deadline = deadline();
-            evaluate_in_definition(instance, backend)
-        }));
+            Some(evaluate_in_definition(instance, backend))
+        });
         let outcome = match hooked {
-            Ok(Ok(Ok(BuiltinResult::NotApplicable))) => None,
-            Ok(Ok(Ok(BuiltinResult::Value(value)))) if claimed_value(&value) => {
+            Some(Ok(Ok(BuiltinResult::NotApplicable))) => None,
+            Some(Ok(Ok(BuiltinResult::Value(value)))) if claimed_value(&value) => {
                 Some(Outcome::Value(value))
             }
-            Ok(Ok(Ok(BuiltinResult::Bottom))) => Some(Outcome::Bottom),
-            Ok(Err(stop)) => {
+            Some(Ok(Ok(BuiltinResult::Bottom))) => Some(Outcome::Bottom),
+            Some(Err(stop)) => {
                 stop.into_cause();
                 STOPPED.set(true);
                 Some(Outcome::Open)
             }
-            Err(_) => {
-                STOPPED.set(true);
-                Some(Outcome::Open)
-            }
-            Ok(Ok(_)) => Some(Outcome::Open),
+            // A panic, recorded as a stop.
+            None => Some(Outcome::Open),
+            Some(Ok(_)) => Some(Outcome::Open),
         };
         if let Some(outcome) = outcome {
             return (outcome, true);
@@ -950,12 +1006,7 @@ fn collection_value(backend: &BackendDefinition, term: &Term, run: &mut Run) -> 
             return outcome;
         }
     };
-    let repeats = match built.kind() {
-        TermKind::Map { entries, .. } => entries.windows(2).any(|pair| pair[0].0 == pair[1].0),
-        TermKind::Set { .. } => built.repeated_set_element().is_some(),
-        _ => false,
-    };
-    if !repeats && claimed_value(&built) {
+    if claimed_value(&built) {
         Outcome::Value(built)
     } else {
         Outcome::Open
@@ -1018,9 +1069,16 @@ fn instances(
                 break;
             }
             bind_aliases(&rule.lhs, &mut valuation);
+            // An argument of the left-hand side is an element of its pattern (the axiom's
+            // membership `\in(X, p)`), so a valuation under which a pattern builds a map that binds
+            // a key twice or a set that holds an element twice, `\bottom`, is no instance.
             let Some(instance) = collapse(&substitute(&rule.lhs, &valuation)) else {
                 continue;
             };
+            if holds_repeat(&instance) {
+                tally.repeating += 1;
+                continue;
+            }
             let requires = rule
                 .requires
                 .instantiate(&valuation)
@@ -1135,6 +1193,7 @@ fn instances(
                         shown(&right, right_defined),
                     ),
                     claim_free,
+                    equation: super::language::equation_index(rule.attributes.label.as_deref()),
                 });
             }
         }
@@ -1258,10 +1317,8 @@ fn generalizations(
             if !seen.insert(generalized.clone()) {
                 continue;
             }
-            let token = catch_unwind(AssertUnwindSafe(|| {
-                backend.instance_normal(&generalized).is_some()
-            }))
-            .unwrap_or(false);
+            let token =
+                guarded(|| Some(backend.instance_normal(&generalized).is_some())).unwrap_or(false);
             let defined = holds_equation_head(&generalized)
                 && decide(backend, vec![Predicate::Ceil(generalized.clone())]) == Some(true);
             let reduct = simplified(backend, &generalized).filter(|reduct| *reduct != generalized);
@@ -1340,6 +1397,7 @@ pub(super) fn check_axioms(
     if STOPPED.get() {
         tally.outside_termination = 1;
         tally.without_model = 0;
+        tally.refuted_equation = None;
         tally.failures.clear();
         return tally;
     }
@@ -1388,10 +1446,15 @@ fn shown_normal(definition: &BackendDefinition, term: &Term) -> bool {
                     if root.name != symbol.name {
                         continue;
                     }
-                    let result = catch_unwind(AssertUnwindSafe(|| {
-                        match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, &term)
-                    }));
-                    if !matches!(result, Ok(MatchResult::Failed(_))) {
+                    let result = guarded(|| {
+                        Some(match_terms_in_definition(
+                            MatchMode::Evaluate,
+                            definition,
+                            &rule.lhs,
+                            &term,
+                        ))
+                    });
+                    if !matches!(result, Some(MatchResult::Failed(_))) {
                         return false;
                     }
                 }
@@ -1428,7 +1491,7 @@ fn shown_normal(definition: &BackendDefinition, term: &Term) -> bool {
 /// match ([`shown_normal`]); `None` otherwise, or when the evaluation ends with conditions or not
 /// at all.
 fn normal_form(definition: &BackendDefinition, term: &Term) -> Option<String> {
-    catch_unwind(AssertUnwindSafe(|| {
+    guarded(|| {
         let _deadline = deadline();
         match simplify(
             definition,
@@ -1452,9 +1515,7 @@ fn normal_form(definition: &BackendDefinition, term: &Term) -> Option<String> {
                 None
             }
         }
-    }))
-    .ok()
-    .flatten()
+    })
 }
 
 /// Whether the full check accepts `backend`: it classifies pairs, and names none and no
@@ -1531,6 +1592,7 @@ fn check_claims(
             ));
         } else {
             tally.without_model = 1;
+            tally.refuted_equation = proof.equation;
         }
         return;
     }
@@ -1558,5 +1620,94 @@ pub(super) fn check_definition(label: &str, definition: &Definition, rng: &mut R
             failures: vec![format!("{label}: rejected: {error}")],
             ..AxiomTally::default()
         },
+    }
+}
+
+/// Runs the harness on `definition` as [`check_definition`] does and, when it is shown to have
+/// no model, again without the equation whose instance showed it, until what is left is not
+/// shown to have none. A definition without a model gets no guarantee, so nothing of it is
+/// judged; its equations without the refuted one form another definition, whose claims the
+/// contract does cover. Dropping an equation removes the instance that refuted the model, so the
+/// runs end: with no equation left, the free terms are a model. Only the first run counts as a
+/// definition; a later one that is rejected or falls outside P0 or P2 ends the runs and is not
+/// counted, since the reduced definition is the harness's, not the case's.
+pub(super) fn check_with_a_model(
+    label: &str,
+    definition: &Definition,
+    rng: &mut Rng,
+) -> AxiomTally {
+    let mut total = check_definition(label, definition, rng);
+    let mut reduced = definition.clone();
+    let mut dropped = 0;
+    let mut refuted = total.refuted_equation;
+    while let Some(index) = refuted.filter(|&index| index < reduced.equations.len()) {
+        reduced.equations.remove(index);
+        dropped += 1;
+        let tally = check_definition(
+            &format!("{label} without {dropped} equations"),
+            &reduced,
+            rng,
+        );
+        if tally.rejected + tally.outside_termination + tally.outside_totality > 0 {
+            break;
+        }
+        refuted = tally.refuted_equation;
+        let judged = tally.without_model == 0;
+        total.add(AxiomTally {
+            definitions: 0,
+            without_model: 0,
+            ..tally
+        });
+        if judged {
+            total.judged_without_model += 1;
+        }
+    }
+    total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A set that holds a claimed value twice is `\bottom`, so it is no claimed value, though
+    /// each of its elements is one; with the element once it is one.
+    #[test]
+    fn a_collection_that_repeats_an_element_is_no_claimed_value() {
+        let definition = super::super::language::Definition::new(&["A"]).with_collections();
+        let backend = backend(&definition).expect("the definition loads");
+        let pattern = parse_pattern(r"setItem{}(mv0{}())").expect("the pattern parses");
+        let term = backend
+            .internalize_term(&pattern, &[])
+            .expect("the pattern internalizes");
+        let Outcome::Value(single) = evaluate(&backend, &term) else {
+            panic!("`setItem(mv0)` evaluates to a value")
+        };
+        let TermKind::Set {
+            definition: set,
+            elements,
+            ..
+        } = single.kind()
+        else {
+            panic!("`setItem(mv0)` evaluates to a set")
+        };
+        assert!(claimed_value(&single));
+        let repeated = Term::set(Arc::clone(set), vec![elements[0].clone(); 2], None);
+        assert!(repeated.repeated_collection_key().is_some());
+        assert!(!claimed_value(&repeated));
+    }
+
+    /// A panic in a backend call is recorded as a stop, so the definition is counted outside P0
+    /// instead of its instance being skipped as undecided.
+    #[test]
+    fn a_panic_in_a_backend_call_is_a_stop() {
+        STOPPED.set(false);
+        assert_eq!(
+            guarded(|| -> Option<()> { panic!("a backend call panics") }),
+            None
+        );
+        assert!(STOPPED.get());
+        STOPPED.set(false);
+        assert_eq!(guarded(|| Some(1)), Some(1));
+        assert!(!STOPPED.get());
     }
 }

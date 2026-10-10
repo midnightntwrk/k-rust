@@ -3339,6 +3339,39 @@ reference_run_rust_frontend bash -c '
         "a nonzero fallback child must never be retried",
     );
 
+    // A caller's tighter address-space limit is a bound the guard must not loosen: the fallback
+    // keeps it, even when only the soft limit is set (the hard limit would allow raising it).
+    fs::write(&calls, "").expect("clear call log");
+    fs::write(&payload_runs, "").expect("clear payload run log");
+    let base = fixture_command();
+    let mut tighter = Command::new("bash");
+    tighter
+        .args(["-c", r#"ulimit -S -v 1048576; exec bash "$@""#, "caller"])
+        .arg(&fixture_script);
+    for (name, value) in base.get_envs() {
+        match value {
+            Some(value) => tighter.env(name, value),
+            None => tighter.env_remove(name),
+        };
+    }
+    let tighter = tighter
+        .env("PAYLOAD_STATUS", "0")
+        .env("SYSTEMD_PROBE_STATUS", "1")
+        .output()
+        .expect("run fallback guard fixture under a tighter caller limit");
+    assert_eq!(tighter.status.code(), Some(0));
+    assert_eq!(
+        tighter.stdout, b"rlimit-as\n1048576\n",
+        "keep the caller's tighter soft virtual-address limit for the entire job",
+    );
+    assert!(
+        String::from_utf8_lossy(&tighter.stderr).starts_with(
+            "warning: user systemd scopes unavailable; keeping the caller's tighter 1048576 KiB virtual-address limit (RLIMIT_AS) as the whole-job fallback, not a resident-memory limit\n"
+        ),
+        "announce that the caller's tighter limit is kept: {}",
+        String::from_utf8_lossy(&tighter.stderr)
+    );
+
     // What a guarded caller exports names the caller's guard, not this job's: the job still
     // enters its own scope, and runs once.
     fs::write(&calls, "").expect("clear call log");
@@ -4170,6 +4203,29 @@ fn rpc_gate_reads_each_server_port_from_the_server_it_started() {
     }
 }
 
+/// Every request of an RPC session goes through the pinned `kore-rpc-client` or a raw socket,
+/// whichever server answers, so the session is a reference call like the gate's others: its
+/// function body is one subshell that applies the reference memory bound before any request.
+#[test]
+fn rpc_gate_sessions_run_under_the_reference_memory_bound() {
+    let start = RPC_SCRIPT
+        .find("\ncollect_responses() (\n")
+        .expect("the RPC session is a function whose body is a subshell");
+    let body = &RPC_SCRIPT[start + 1..];
+    let end = body.find("\n)\n").expect("the session subshell ends");
+    let body = &body[..end];
+    let bound = body
+        .find("ulimit -v \"$reference_memory_kib\"")
+        .expect("the session applies the reference memory bound");
+    let first_request = body
+        .find("\"$rpc_client\"")
+        .expect("the session sends requests through the reference client");
+    assert!(
+        bound < first_request,
+        "the bound must precede every request"
+    );
+}
+
 /// The RPC gate's request states are functions of the case's program and definition, so its
 /// reference `krun` calls run on an empty standard input, the reference-output cache's default
 /// without `--stdin`, rather than reading (or, for a terminal or an open pipe, blocking on and
@@ -4319,6 +4375,56 @@ rm -f "$log"
     );
 }
 
+/// `scripts/benchmark.sh` measures the reference under the GHC runtime options its recorded
+/// canonical figures carry, so those options are part of the measurement: they come from the
+/// benchmark's own `REFERENCE_GHCRTS` (empty by default), and a caller's `GHCRTS` never reaches
+/// the reference it times.
+#[test]
+fn benchmark_gives_the_reference_its_own_ghc_runtime_options_not_the_callers() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("benchmark-ghcrts");
+    let kompile = fixture.join("kompile");
+    write_environment_probe(&kompile, "kompile", "");
+    let work = fixture.join("work");
+    fs::create_dir(&work).expect("create benchmark work directory");
+    let calls = fixture.join("calls");
+    let mut failures = Vec::new();
+    for (description, stated, expected) in [
+        ("no REFERENCE_GHCRTS", None, "kompile|<empty>"),
+        ("REFERENCE_GHCRTS=-N2", Some("-N2"), "kompile|-N2"),
+    ] {
+        fs::write(&calls, "").expect("clear call log");
+        let mut command = Command::new("bash");
+        command
+            .arg(workspace.join("scripts/benchmark.sh"))
+            .args(["__run", "compile", "canonical-haskell", "imp"])
+            .arg(&work)
+            .env("GHCRTS", "-N4")
+            .env("ENVIRONMENT_CALLS", &calls)
+            .env("BENCHMARK_WORK_ROOT", &fixture)
+            .env("K_KOMPILE", &kompile)
+            .env("IMP_SEMANTICS_CHECKOUT", fixture.join("imp-semantics"))
+            .env_remove("REFERENCE_GHCRTS")
+            .stdin(std::process::Stdio::null());
+        if let Some(stated) = stated {
+            command.env("REFERENCE_GHCRTS", stated);
+        }
+        let output = command
+            .output()
+            .expect("run the benchmark's reference compile");
+        let log = fs::read_to_string(&calls).unwrap_or_default();
+        if !output.status.success() || log.trim_end() != expected {
+            failures.push(format!(
+                "{description}, caller GHCRTS=-N4: exit {:?}, reference saw {log:?}, not {expected:?}: {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+    fs::remove_dir_all(&fixture).expect("remove benchmark fixture");
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// A caller that leaks into what a gate starts: it exports `GHCRTS` and holds a listening socket
 /// without close-on-exec, then execs its arguments.
 const LEAKING_CALLER: &str = r#"
@@ -4392,6 +4498,87 @@ fn a_gate_reaches_the_same_verdict_whatever_its_caller_leaks() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// The guard sets a gate's process state before anything runs, whatever its caller leaves it:
+/// standard input is `/dev/null`, no descriptor above 2 is open but the shell's own script
+/// descriptor (255), and `GHCRTS` is unset. That is what the gate's children inherit, so it holds
+/// in both of the guard's paths (a scope, and the address-space fallback), from a caller that
+/// pipes standard input, holds an inheritable listening socket and exports `GHCRTS`.
+#[test]
+fn the_guard_starts_a_gate_without_its_callers_input_descriptors_or_ghcrts() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("guard-process-state");
+    let fake_systemd_run = fixture.join("systemd-run");
+    fs::write(
+        &fake_systemd_run,
+        r#"#!/usr/bin/env bash
+if [[ "${*: -1}" == true ]]; then
+  exit "$SYSTEMD_PROBE_STATUS"
+fi
+while (($#)) && [[ "$1" != -- ]]; do
+  shift
+done
+shift
+exec "$@"
+"#,
+    )
+    .expect("write fake systemd-run");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&fake_systemd_run, fs::Permissions::from_mode(0o755))
+            .expect("make fake systemd-run executable");
+    }
+    let gate = fixture.join("gate.sh");
+    fs::write(
+        &gate,
+        format!(
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+source {guard:?}
+reference_enter_whole_job "$@"
+# A simple command with its own redirection: in a substitution or a pipeline the shell would hold
+# a pipe open while the listing runs.
+listing=${{BASH_SOURCE[0]%/*}}/descriptors
+ls /proc/$$/fd >"$listing"
+echo "descriptors $(sort -n "$listing" | tr '\n' ' ')"
+echo "input $(readlink /proc/$$/fd/0)"
+echo "ghcrts ${{GHCRTS-unset}}"
+"#,
+            guard = workspace.join("scripts/reference-memory-guard.sh"),
+        ),
+    )
+    .unwrap();
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let mut failures = Vec::new();
+    for (description, probe) in [("a scope", "0"), ("the address-space fallback", "1")] {
+        let output = Command::new("python3")
+            .args(["-I", "-c", LEAKING_CALLER, "bash"])
+            .arg(&gate)
+            .env("PATH", &path)
+            .env("SYSTEMD_PROBE_STATUS", probe)
+            .env("GHCRTS", "-N1")
+            .env_remove("REFERENCE_DIFFERENTIAL_JOB_GUARD_PROCESS")
+            .stdin(std::process::Stdio::piped())
+            .output()
+            .expect("run the guard from a leaking caller");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let expected = "descriptors 0 1 2 255 \ninput /dev/null\nghcrts unset\n";
+        if !output.status.success() || stdout != expected {
+            failures.push(format!(
+                "{description}: exit {:?}, printed {stdout:?}, not {expected:?}: {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+    fs::remove_dir_all(&fixture).expect("remove guard fixture");
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// The whole-job memory guard bounds a gate's memory; it must not loosen a bound the gate's
 /// caller already set, so after the guard the gate still runs inside its caller's slice and
 /// under a memory limit no larger than the caller's. That holds however the caller starts the
@@ -4435,7 +4622,9 @@ echo "guard $REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND cgroup $cgroup limit $limit"
         ),
     )
     .unwrap();
-    let slice = format!("k-rust-guard-test-{}.slice", std::process::id());
+    // No dash in the name: systemd reads each dash of a slice name as a parent slice and loads the
+    // whole chain, so a dashed name would leave its parents loaded after the stop below.
+    let slice = format!("krustguardtest{}.slice", std::process::id());
     let caller_limit: u64 = 1 << 30;
     let mut failures = Vec::new();
     for (description, between) in [
@@ -4480,7 +4669,8 @@ echo "guard $REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND cgroup $cgroup limit $limit"
         }
     }
     fs::remove_dir_all(&fixture).expect("remove guard fixture");
-    // A slice stays loaded once its last scope ends; stop the one this test created.
+    // A slice stays loaded once its last scope ends; stop the one this test created, which has no
+    // parent slice of its own.
     let _ = Command::new("systemctl")
         .args(["--user", "stop", &slice])
         .stdin(std::process::Stdio::null())

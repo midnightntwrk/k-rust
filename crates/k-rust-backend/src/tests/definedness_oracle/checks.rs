@@ -75,10 +75,12 @@ pub(super) enum Class {
     Erasing,
     IrrelevantCluster,
     NoHead,
+    /// An equation head written as a hooked symbol ([`Definition::hooked_heads`]).
+    HookedHead,
 }
 
 impl Class {
-    pub(super) const ALL: [Self; 12] = [
+    pub(super) const ALL: [Self; 13] = [
         Self::Conditional,
         Self::Ensures,
         Self::Collection,
@@ -91,6 +93,7 @@ impl Class {
         Self::Erasing,
         Self::IrrelevantCluster,
         Self::NoHead,
+        Self::HookedHead,
     ];
 }
 
@@ -235,6 +238,9 @@ pub(super) fn classes(definition: &Definition) -> BTreeSet<Class> {
         .collect::<HashSet<_>>();
     if heads.is_empty() {
         classes.insert(Class::NoHead);
+    }
+    if !definition.hooked_heads.is_empty() {
+        classes.insert(Class::HookedHead);
     }
     for equation in &definition.equations {
         if equation.requires.is_some() {

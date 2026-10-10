@@ -21,7 +21,12 @@ K_KOMPILE=${K_KOMPILE:-}
 K_KPROVE=${K_KPROVE:-}
 HYPERFINE=${HYPERFINE:-hyperfine}
 REFERENCE_K_OPTS=${REFERENCE_K_OPTS:-'-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1'}
-GHCRTS=${GHCRTS-}
+# The GHC runtime options of the reference's backend processes are part of what is measured (the
+# recorded canonical figures carry them), so they are stated by REFERENCE_GHCRTS, empty by default
+# as recorded. A caller's GHCRTS is removed: it would reach the reference and change the measured
+# run, or stop a non-threaded tool from starting.
+unset GHCRTS
+REFERENCE_GHCRTS=${REFERENCE_GHCRTS-}
 BENCHMARK_MEMORY_METHOD=${BENCHMARK_MEMORY_METHOD:-auto}
 
 usage() {
@@ -47,6 +52,9 @@ Options:
 
 Required tools: hyperfine, jq, and a release krust binary. --measure-canonical
 also requires matching kompile/kprove selected with K_KOMPILE and K_KPROVE.
+
+REFERENCE_K_OPTS and REFERENCE_GHCRTS (default empty) set the reference's JVM
+and GHC runtime options; a caller's GHCRTS is not passed on.
 
 Peak memory of each run's whole process tree is recorded when a user systemd
 manager can delegate a cgroup v2 scope; otherwise it is reported as unknown.
@@ -184,7 +192,7 @@ run_compile() {
     append_source_args reference
     [[ -z "$hook_namespaces" ]] || reference_args+=(--hook-namespaces "$hook_namespaces")
     [[ -z "$markdown_selector" ]] || reference_args+=(--md-selector "$markdown_selector")
-    K_OPTS=$REFERENCE_K_OPTS GHCRTS=$GHCRTS "${reference_args[@]}"
+    K_OPTS=$REFERENCE_K_OPTS GHCRTS=$REFERENCE_GHCRTS "${reference_args[@]}"
   elif [[ "$engine" == krust ]]; then
     rust_args=(
       "$KRUST_BIN" kcompile "$compile_source"
@@ -224,7 +232,7 @@ prepare_proof() {
   append_source_args reference
   [[ -z "$hook_namespaces" ]] || reference_args+=(--hook-namespaces "$hook_namespaces")
   [[ -z "$markdown_selector" ]] || reference_args+=(--md-selector "$markdown_selector")
-  K_OPTS=$REFERENCE_K_OPTS GHCRTS=$GHCRTS "${reference_args[@]}"
+  K_OPTS=$REFERENCE_K_OPTS GHCRTS=$REFERENCE_GHCRTS "${reference_args[@]}"
 }
 
 prepare_krust_proof() {
@@ -260,7 +268,7 @@ run_proof() {
       --warnings none
     )
     append_source_args reference
-    K_OPTS=$REFERENCE_K_OPTS GHCRTS=$GHCRTS "${reference_args[@]}"
+    K_OPTS=$REFERENCE_K_OPTS GHCRTS=$REFERENCE_GHCRTS "${reference_args[@]}"
   elif [[ "$engine" == krust ]]; then
     rust_args=(
       "$KRUST_BIN" kprove "$specification"
@@ -597,7 +605,7 @@ recorded_case() {
     --arg kevm "$(manifest_value reference.kevm revision)" \
     --arg plugin "$(manifest_value reference.kevm-plugin revision)" \
     --arg version "$(manifest_value reference.k version)" \
-    --arg k_opts "$REFERENCE_K_OPTS" --arg ghcrts "$GHCRTS" \
+    --arg k_opts "$REFERENCE_K_OPTS" --arg ghcrts "$REFERENCE_GHCRTS" \
     '.schema_version == 1 and
      (.cases[$suite][$case_name] as $c |
        $c != null and $c.provenance.pins == {k:$k, imp:$imp, kevm:$kevm, kevm_plugin:$plugin} and
@@ -605,7 +613,7 @@ recorded_case() {
        $c.provenance.K_OPTS == $k_opts and $c.provenance.GHCRTS == $ghcrts and
        ($c.result.times | length) == $c.result.run_count and
        $c.result.run_count > 0 and $c.result.mean > 0)' \
-    "$canonical_data" >/dev/null || fail "recorded canonical $suite/$case_name is missing or its pins, K version, K_OPTS, or GHCRTS differ; run --measure-canonical to refresh it"
+    "$canonical_data" >/dev/null || fail "recorded canonical $suite/$case_name is missing or its pins, K version, K_OPTS, or GHC runtime options (REFERENCE_GHCRTS) differ; run --measure-canonical to refresh it"
 }
 
 inject_recorded_canonical() {
@@ -732,7 +740,7 @@ write_metadata() {
     --arg rustc_version "$(rustc --version 2>/dev/null || echo unavailable)" \
     --arg canonical_version "$canonical_version" \
     --arg hyperfine_version "$($HYPERFINE --version)" \
-    --arg ghcrts "$GHCRTS" \
+    --arg ghcrts "$REFERENCE_GHCRTS" \
     --arg k_opts "$REFERENCE_K_OPTS" \
     --arg memory_method "$([[ "$tree_memory" == 1 ]] && echo "$tree_memory_description" || echo unknown)" \
     '{
@@ -1175,7 +1183,7 @@ fi
 BENCHMARK_WORK_ROOT=${BENCHMARK_WORK_ROOT:-"$workspace/target/benchmarks/work"}
 [[ "$BENCHMARK_WORK_ROOT" == /* ]] || BENCHMARK_WORK_ROOT="$workspace/$BENCHMARK_WORK_ROOT"
 export K_CHECKOUT IMP_SEMANTICS_CHECKOUT EVM_SEMANTICS_CHECKOUT KRUST_BIN K_KOMPILE K_KPROVE
-export HYPERFINE REFERENCE_K_OPTS GHCRTS BENCHMARK_WORK_ROOT
+export HYPERFINE REFERENCE_K_OPTS REFERENCE_GHCRTS BENCHMARK_WORK_ROOT
 
 suites=()
 phases=()

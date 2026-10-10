@@ -1659,13 +1659,13 @@ fn repeats_a_key(entries: &[(Term, Term)]) -> bool {
 }
 
 /// The entries of a pattern map and of a subject map, split by their keys.
-pub(super) struct CommonKeys {
+pub(super) struct CommonKeys<K, V> {
     /// The pattern's and the subject's values of each key both bind, in key order.
-    pub(super) values: Vec<(Term, Term)>,
+    pub(super) values: Vec<(V, V)>,
     /// The pattern's entries whose key the subject does not bind, in key order.
-    pub(super) pattern_only: Vec<(Term, Term)>,
+    pub(super) pattern_only: Vec<(K, V)>,
     /// The subject's entries whose key the pattern does not bind, in key order.
-    pub(super) subject_only: Vec<(Term, Term)>,
+    pub(super) subject_only: Vec<(K, V)>,
 }
 
 /// The keys `pattern` and `subject` bind both, syntactically, and the entries of each outside
@@ -1676,7 +1676,10 @@ pub(super) struct CommonKeys {
 /// the subject by binary search, after the place of the previous one, and the subject's entries
 /// are copied once, around the places found, without comparing them. A step that reads one
 /// binding of an `n`-entry map makes `O(log n)` key comparisons here.
-pub(super) fn split_common_keys(pattern: &[(Term, Term)], subject: &[(Term, Term)]) -> CommonKeys {
+pub(super) fn split_common_keys<K: Ord + Clone, V: Clone>(
+    pattern: &[(K, V)],
+    subject: &[(K, V)],
+) -> CommonKeys<K, V> {
     let mut values = Vec::new();
     let mut pattern_only = Vec::new();
     let mut found = Vec::new();
@@ -1739,5 +1742,68 @@ impl MapRemainder {
             .cloned()
             .collect();
         Term::map(definition, entries, self.rest.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::counted::Counted;
+
+    /// A pattern that binds one key of an `n`-entry subject finds it with at most
+    /// `ilog2(n) + 1` key comparisons, the binary search's own count, and the subject's other
+    /// entries are copied around the place found without being compared: one comparison per entry
+    /// would mean the subject was scanned or reordered. A key the subject does not bind costs no
+    /// more, and leaves the subject whole.
+    #[test]
+    fn one_pattern_key_is_found_in_the_subject_by_binary_search() {
+        const ENTRIES: u32 = 4096;
+        let comparisons = Cell::new(0);
+        let counted = |value| Counted {
+            value,
+            comparisons: &comparisons,
+        };
+        let subject = (1..=ENTRIES)
+            .map(|index| (counted(2 * index), index))
+            .collect::<Vec<_>>();
+        let bound = ENTRIES.ilog2() as usize + 1;
+        let values_of = |entries: &[(Counted<'_>, u32)]| -> Vec<u32> {
+            entries.iter().map(|(key, _)| key.value).collect()
+        };
+        for (probe, bound_in_subject) in [
+            (2, true),
+            (ENTRIES, true),
+            (2 * ENTRIES, true),
+            (1, false),
+            (ENTRIES + 1, false),
+            (2 * ENTRIES + 1, false),
+        ] {
+            let pattern = [(counted(probe), 0)];
+            comparisons.set(0);
+            let CommonKeys {
+                values,
+                pattern_only,
+                subject_only,
+            } = split_common_keys(&pattern, &subject);
+            let made = comparisons.get();
+            assert!(
+                made <= bound,
+                "key {probe}: {made} comparisons, bound {bound}"
+            );
+            let expected_rest: Vec<u32> = (1..=ENTRIES)
+                .map(|index| 2 * index)
+                .filter(|&key| key != probe)
+                .collect();
+            assert_eq!(values_of(&subject_only), expected_rest, "key {probe}");
+            if bound_in_subject {
+                assert_eq!(values, [(0, probe / 2)], "key {probe}");
+                assert!(pattern_only.is_empty(), "key {probe}");
+            } else {
+                assert!(values.is_empty(), "key {probe}");
+                assert_eq!(values_of(&pattern_only), [probe], "key {probe}");
+            }
+        }
     }
 }

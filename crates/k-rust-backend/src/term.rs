@@ -3414,36 +3414,10 @@ impl Term {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::counted::Counted;
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")
-    }
-
-    /// An item that counts the comparisons made on it.
-    struct Counted<'a> {
-        value: u32,
-        comparisons: &'a Cell<usize>,
-    }
-
-    impl PartialEq for Counted<'_> {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmp(other) == Ordering::Equal
-        }
-    }
-
-    impl Eq for Counted<'_> {}
-
-    impl PartialOrd for Counted<'_> {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for Counted<'_> {
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.comparisons.set(self.comparisons.get() + 1);
-            self.value.cmp(&other.value)
-        }
     }
 
     /// One item inserted before or after `n` ordered ones, the entries a hook that adds one

@@ -73,8 +73,16 @@ fn bytes_of<T>(work: impl FnOnce() -> T) -> u64 {
 }
 
 /// Asserts that `measured(units)` beyond `measured(0)` is in the linear class between `units`
-/// and `SCALE * units`; `quantity` names what is measured (bytes, or a counter's visits, where
-/// no vector doubles, so a linear walk stays near `SCALE` times).
+/// and `SCALE * units`; `quantity` names what is measured (bytes, or a counter's visits).
+///
+/// Both quantities are held to [`LINEAR_WITH_DOUBLING`]. The question the check answers is
+/// whether a level costs what it adds (about `SCALE` times at `SCALE` times the levels) or
+/// redoes what the levels below it did (about `SCALE * SCALE` times), and any bound between the
+/// two classes answers it. A counter's visits do not double as a vector does, so a linear walk
+/// stays near `SCALE` times; its own bound could be lower, but one at `SCALE` itself would leave
+/// no margin for the work of a run that is not proportional to its levels and that subtracting
+/// `measured(0)` does not remove, and the doubled bound is still a factor `SCALE / 2` below the
+/// quadratic class. So one bound states the class boundary for both quantities.
 ///
 /// The runs go a few thousand levels deep, and the term readers and the SMT translation recurse
 /// once per level on the caller's stack, so they run on a thread with room for that.

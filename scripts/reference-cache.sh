@@ -40,7 +40,11 @@ reference_cached() {
   local tool=$1
   local label=$2
   shift 2
+  # The guard this gate's shell entered (reference_enter_whole_job sets it in this shell); passed
+  # as an argument, never through the environment, which a caller could also have set.
+  # shellcheck disable=SC2154  # reference-memory-guard.sh, sourced by every gate, defines it
   python3 "$reference_cache_tool" run --tool "$tool" --label "$label" \
+    --memory-guard "${reference_job_guard_kind:-}" \
     --placeholder "work=$reference_cache_work" "$@"
 }
 
