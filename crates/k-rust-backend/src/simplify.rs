@@ -80,7 +80,9 @@ use crate::{
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
-    condition::{DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation},
+    condition::{
+        Conjunct, DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation,
+    },
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, Occurrences, Subject},
@@ -110,9 +112,11 @@ use crate::{
     transition::{ExecutionEvaluationContext, ExecutionIoState},
 };
 
+mod log;
 mod result;
 pub(crate) mod scan;
 
+pub use log::{Iter as LogIter, Log};
 use result::{Accumulated, AccumulatedMark, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
@@ -393,9 +397,10 @@ fn simplify_with_optional_execution(
             )
         },
         |result| {
-            result.as_ref().ok().map(|simplified| {
-                Occurrences::of([&simplified.term], simplified.conditions().as_slice())
-            })
+            result
+                .as_ref()
+                .ok()
+                .map(|simplified| Occurrences::of([&simplified.term], simplified.conjoined()))
         },
     )
 }
@@ -1911,15 +1916,15 @@ fn simplify_predicate_on_stack(
                 })
             };
             let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
-                if simplified.conditions().is_empty() {
+                if simplified.is_unconditional() {
                     simplified.term.clone()
                 } else {
                     original.clone()
                 }
             };
-            let use_left = simplified_left.conditions().is_empty()
+            let use_left = simplified_left.is_unconditional()
                 || provably_defined(&witness(right, &simplified_right));
-            let use_right = simplified_right.conditions().is_empty()
+            let use_right = simplified_right.is_unconditional()
                 || provably_defined(&witness(left, &simplified_left));
             let mut constraints = Vec::new();
             let left = if use_left {
@@ -2032,7 +2037,7 @@ fn simplify_predicate_on_stack(
             let simplified = simplify_term(term)?;
             // `\floor(C /\ t')` is `\not C \/ \floor(t')`, not `C /\ \floor(t')`, because
             // `\floor(\bottom)` is `\top`; a rewrite that carries constraints is not used.
-            if simplified.conditions().is_empty() {
+            if simplified.is_unconditional() {
                 Predicate::Floor(simplified.term)
             } else {
                 Predicate::Floor(term.clone())
@@ -4319,12 +4324,11 @@ fn simplify_root(
             (Some(history), _) => history,
             (None, Some((RecordedOutcome::Value(result, rule), reads))) => {
                 UnspecifiedEvaluation::reach(&reads);
-                let step =
-                    if term.attributes().variables.is_empty() && result.conditions().is_empty() {
-                        RootStep::DeterminedFunctionStep
-                    } else {
-                        RootStep::Other
-                    };
+                let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
+                    RootStep::DeterminedFunctionStep
+                } else {
+                    RootStep::Other
+                };
                 return Ok((result, step, Some(rule), None));
             }
             (
@@ -4379,7 +4383,10 @@ fn simplify_root(
                     EquationAttempt::Applied(result) => {
                         if result.term != *term {
                             opened = Some(evaluation);
-                        } else if !result.constraints().contains(&Predicate::False) {
+                        } else if !result
+                            .conjoined()
+                            .any(|predicate| *predicate == Predicate::False)
+                        {
                             // The equation's result is the application itself (`A = A`): it
                             // states the application through itself and gives no value, as a
                             // result that still holds it after more steps does.
@@ -4407,7 +4414,7 @@ fn simplify_root(
                 }
             })?;
         if let TheoryScan::Applied(result, rule) = scan {
-            let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+            let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
                 RootStep::DeterminedFunctionStep
             } else {
                 RootStep::Other
@@ -4428,7 +4435,7 @@ fn simplify_root(
         scan
     };
     if let TheoryScan::Applied(result, rule) = function_scan {
-        let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
+        let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
             RootStep::DeterminedFunctionStep
         } else {
             RootStep::Other
@@ -4716,7 +4723,10 @@ fn failed_unspecified_frame(
         let held = held_cuts(
             &cuts,
             end,
-            accumulated.constraints_since(&frame.before.accumulated),
+            accumulated
+                .constraints_since(&frame.before.accumulated)
+                .iter()
+                .map(Conjunct::predicate),
         );
         (!held.is_empty()).then(|| FailedFrame {
             index,
@@ -4736,7 +4746,11 @@ struct FailedFrame {
 }
 
 /// The stack depths of the cut occurrences `cuts` that `term` or `conditions` still hold.
-fn held_cuts(cuts: &[(Term, usize)], term: &Term, conditions: &[Predicate]) -> Vec<usize> {
+fn held_cuts<'a>(
+    cuts: &[(Term, usize)],
+    term: &Term,
+    conditions: impl IntoIterator<Item = &'a Predicate>,
+) -> Vec<usize> {
     let cut = cuts.iter().cloned().collect::<FxHashMap<Term, usize>>();
     let mut held = Vec::new();
     let mut visited = FxHashSet::default();

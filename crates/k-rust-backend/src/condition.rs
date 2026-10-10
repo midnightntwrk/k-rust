@@ -692,8 +692,8 @@ impl CarriedObligations {
 ///
 /// The role is recorded once, where the conjunct is produced (the constructors below), as an index
 /// into the one conjunct list: no copy of the assumptions exists that a transformation of the list
-/// could leave behind, and outside this module conjuncts join a result only through
-/// `ResultConditions::append`, which keeps every role.
+/// could leave behind, and outside this module conjuncts join a result only as `Conjunct`s,
+/// each of which carries its role.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ResultConditions {
     conjuncts: Vec<Predicate>,
@@ -800,48 +800,44 @@ impl ResultConditions {
     }
 
     /// `other`'s conjuncts after this result's, each keeping its role.
+    #[cfg(test)]
     pub(crate) fn append(&mut self, other: Self) {
-        let Self {
-            conjuncts,
-            assumptions,
-        } = other;
-        if !assumptions.is_empty() {
-            let offset = conjunct_index(self.conjuncts.len());
-            self.assumptions
-                .extend(assumptions.into_iter().map(|index| index + offset));
+        let mut conjuncts = std::mem::take(self).into_conjuncts();
+        conjuncts.extend(other.into_conjuncts());
+        *self = Self::from_conjuncts(conjuncts);
+    }
+
+    /// The conjuncts in order, each with its role.
+    pub(crate) fn into_conjuncts(self) -> Vec<Conjunct> {
+        let mut assumptions = self.assumptions.into_iter().peekable();
+        self.conjuncts
+            .into_iter()
+            .enumerate()
+            .map(|(index, predicate)| Conjunct {
+                predicate,
+                assumption: assumptions
+                    .next_if(|&assumption| assumption as usize == index)
+                    .is_some(),
+            })
+            .collect()
+    }
+
+    /// The conditions of `conjuncts`, in order, each with its role.
+    pub(crate) fn from_conjuncts(conjuncts: impl IntoIterator<Item = Conjunct>) -> Self {
+        let mut conditions = Self::default();
+        for (
+            index,
+            Conjunct {
+                predicate,
+                assumption,
+            },
+        ) in conjuncts.into_iter().enumerate()
+        {
+            conditions.conjuncts.push(predicate);
+            if assumption {
+                conditions.assumptions.push(conjunct_index(index));
+            }
         }
-        self.conjuncts.extend(conjuncts);
-        debug_assert!(self.assumptions_are_indices());
-    }
-
-    /// The number of conjuncts, a mark that [`Self::truncate`] and [`Self::since`] take.
-    pub(crate) fn len(&self) -> usize {
-        self.conjuncts.len()
-    }
-
-    /// Drop every conjunct appended after the first `len`, with its role: the conditions as they
-    /// were when [`Self::len`] was `len`.
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.conjuncts.truncate(len);
-        let kept = self
-            .assumptions
-            .partition_point(|&index| (index as usize) < len);
-        self.assumptions.truncate(kept);
-        debug_assert!(self.assumptions_are_indices());
-    }
-
-    /// The conjuncts appended after the first `len`, each keeping its role.
-    pub(crate) fn since(&self, len: usize) -> Self {
-        let offset = conjunct_index(len);
-        let conditions = Self {
-            conjuncts: self.conjuncts[len..].to_vec(),
-            assumptions: self
-                .assumptions
-                .iter()
-                .filter(|&&index| index >= offset)
-                .map(|&index| index - offset)
-                .collect(),
-        };
         debug_assert!(conditions.assumptions_are_indices());
         conditions
     }
@@ -853,6 +849,22 @@ impl ResultConditions {
                 .assumptions
                 .last()
                 .is_none_or(|&last| (last as usize) < self.conjuncts.len())
+    }
+}
+
+/// One conjunct of a [`ResultConditions`] with its role, the form in which a simplification
+/// accumulates the conditions of its parts (`simplify::Log`): appending conjuncts keeps every
+/// role without renumbering the assumptions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Conjunct {
+    predicate: Predicate,
+    /// Whether it is an assumption; otherwise it is an obligation.
+    assumption: bool,
+}
+
+impl Conjunct {
+    pub(crate) fn predicate(&self) -> &Predicate {
+        &self.predicate
     }
 }
 

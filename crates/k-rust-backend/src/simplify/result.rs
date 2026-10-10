@@ -8,24 +8,29 @@
 //! outside this module assembles a result's conditions by hand: the parent module builds a result
 //! through the constructors below and accumulates the parts of a fixed point through
 //! [`Accumulated`], which appends whole results and keeps every role.
+//!
+//! A result's applied rules, effects and conditions are [`Log`]s, so appending a part's results
+//! shares them: a level of a nested term pays for its own node, not for what the levels below it
+//! produced, and the flat lists are built once, where a caller takes the result apart
+//! ([`Simplification::into_parts`]).
 
 use crate::{
     builtin::BuiltinEffect,
-    condition::{CarriedObligations, ResultConditions},
+    condition::{CarriedObligations, Conjunct, ResultConditions},
     definition::BackendDefinition,
     rule::{Predicate, RewriteRule},
     term::Term,
 };
 
-use super::{BudgetExhaustion, ContradictedTotal};
+use super::{BudgetExhaustion, ContradictedTotal, Log};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Simplification {
     pub term: Term,
     /// The conjuncts the simplification conjoins to `term`, each an obligation or an assumption.
-    conditions: ResultConditions,
-    pub applied_rules: Vec<String>,
-    pub effects: Vec<BuiltinEffect>,
+    conditions: Log<Conjunct>,
+    pub applied_rules: Log<String>,
+    pub effects: Log<BuiltinEffect>,
     pub exhausted: Option<BudgetExhaustion>,
     /// The innermost partial builtin application that evaluated to bottom, or the innermost
     /// set or map that holds an element or key twice (`simplify_root`).
@@ -64,22 +69,32 @@ pub(super) enum HookOutcome {
 
 impl Simplification {
     /// The conjuncts the simplification conjoins to its term, with their roles.
-    pub fn conditions(&self) -> &ResultConditions {
-        &self.conditions
+    pub fn conditions(&self) -> ResultConditions {
+        ResultConditions::from_conjuncts(self.conditions.iter().cloned())
     }
 
-    /// Every conjunct the simplification conjoins to its term, in order
-    /// (`conditions().as_slice()`).
-    pub fn constraints(&self) -> &[Predicate] {
-        self.conditions.as_slice()
+    /// Whether the simplification conjoins nothing to its term.
+    pub fn is_unconditional(&self) -> bool {
+        self.conditions.is_empty()
     }
 
+    /// Every conjunct the simplification conjoins to its term, in order.
+    pub fn constraints(&self) -> Vec<Predicate> {
+        self.conjoined().cloned().collect()
+    }
+
+    /// Every conjunct the simplification conjoins to its term, in order, read in place.
+    pub(crate) fn conjoined(&self) -> impl ExactSizeIterator<Item = &Predicate> {
+        self.conditions.iter().map(Conjunct::predicate)
+    }
+
+    /// The result taken apart, its lists built once.
     pub fn into_parts(self) -> SimplificationParts {
         SimplificationParts {
             term: self.term,
-            conditions: self.conditions,
-            applied_rules: self.applied_rules,
-            effects: self.effects,
+            conditions: ResultConditions::from_conjuncts(self.conditions),
+            applied_rules: self.applied_rules.into_vec(),
+            effects: self.effects.into_vec(),
             exhausted: self.exhausted,
             undefined_term: self.undefined_term,
             contradicted_total: self.contradicted_total,
@@ -90,9 +105,9 @@ impl Simplification {
     pub(super) fn irreducible(term: Term) -> Self {
         Self {
             term,
-            conditions: ResultConditions::default(),
-            applied_rules: Vec::new(),
-            effects: Vec::new(),
+            conditions: Log::new(),
+            applied_rules: Log::new(),
+            effects: Log::new(),
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
@@ -104,9 +119,9 @@ impl Simplification {
     pub(super) fn repeated_collection(term: &Term) -> Self {
         Self {
             term: term.clone(),
-            conditions: ResultConditions::refuted(),
-            applied_rules: Vec::new(),
-            effects: Vec::new(),
+            conditions: conjuncts(ResultConditions::refuted()),
+            applied_rules: Log::new(),
+            effects: Log::new(),
             exhausted: None,
             undefined_term: Some(term.clone()),
             contradicted_total: None,
@@ -145,9 +160,9 @@ impl Simplification {
         };
         Self {
             term,
-            conditions,
-            applied_rules: vec![format!("builtin:{hook}")],
-            effects,
+            conditions: conjuncts(conditions),
+            applied_rules: Log::from(vec![format!("builtin:{hook}")]),
+            effects: Log::from(effects),
             exhausted: None,
             undefined_term,
             contradicted_total: None,
@@ -166,9 +181,9 @@ impl Simplification {
     ) -> Self {
         Self {
             term,
-            conditions: ResultConditions::equation(ensures, carried),
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
+            conditions: conjuncts(ResultConditions::equation(ensures, carried)),
+            applied_rules: Log::from(vec![rule.attributes.unique_id.clone()]),
+            effects: Log::new(),
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
@@ -181,9 +196,9 @@ impl Simplification {
     pub(super) fn bottom_subject(rule: &RewriteRule, term: &Term) -> Self {
         Self {
             term: term.clone(),
-            conditions: ResultConditions::refuted(),
-            applied_rules: vec![rule.attributes.unique_id.clone()],
-            effects: Vec::new(),
+            conditions: conjuncts(ResultConditions::refuted()),
+            applied_rules: Log::from(vec![rule.attributes.unique_id.clone()]),
+            effects: Log::new(),
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
@@ -191,29 +206,38 @@ impl Simplification {
     }
 }
 
+/// The conjuncts of `conditions` as a log.
+fn conjuncts(conditions: ResultConditions) -> Log<Conjunct> {
+    Log::from(conditions.into_conjuncts())
+}
+
 /// The running result of a fixed point over parts (`simplify_with_budget`, `simplify_children`).
 ///
 /// [`Accumulated::absorb`] appends a part's conditions, applied rules and effects, and keeps the
 /// first budget exhaustion; the caller resolves the part's undefined-term reports, which depend on
-/// the lineage, and sets `undefined_term` and `contradicted_total` itself.
+/// the lineage, and sets `undefined_term` and `contradicted_total` itself. Appending shares the
+/// part's logs ([`Log::append`]), so absorbing a part costs the same whatever it holds.
+///
+/// The methods `simplify_on_stack` calls between its recursive calls are not inlined: inlined,
+/// their temporaries would be part of every frame of that recursion, whose stack per level
+/// `nesting::STACK_PER_LEVEL` bounds.
 #[derive(Default)]
 pub(super) struct Accumulated {
-    conditions: ResultConditions,
-    pub(super) applied_rules: Vec<String>,
-    pub(super) effects: Vec<BuiltinEffect>,
+    conditions: Log<Conjunct>,
+    applied_rules: Log<String>,
+    effects: Log<BuiltinEffect>,
     pub(super) exhausted: Option<BudgetExhaustion>,
     pub(super) undefined_term: Option<Term>,
     pub(super) contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
-/// A point of an [`Accumulated`] result ([`Accumulated::mark`]): how many conditions, applied
-/// rules and effects it held, and its reports then. The reports may be updated after the mark is
-/// taken ([`AccumulatedMark::refresh_reports`]), for a caller that settles them later in the same
-/// step.
+/// A point of an [`Accumulated`] result ([`Accumulated::mark`]): its conditions, applied rules and
+/// effects then, shared, and its reports then. The reports may be updated after the mark is taken
+/// ([`AccumulatedMark::refresh_reports`]), for a caller that settles them later in the same step.
 pub(super) struct AccumulatedMark {
-    conditions: usize,
-    applied_rules: usize,
-    effects: usize,
+    conditions: Log<Conjunct>,
+    applied_rules: Log<String>,
+    effects: Log<BuiltinEffect>,
     exhausted: Option<BudgetExhaustion>,
     undefined_term: Option<Term>,
     contradicted_total: Option<Box<ContradictedTotal>>,
@@ -239,6 +263,7 @@ pub(super) struct Absorbed {
 impl Accumulated {
     /// Append `part`'s conditions, applied rules and effects, and keep the first exhaustion.
     /// It takes a whole [`Simplification`], so every conjunct keeps the role its producer gave it.
+    #[inline(never)]
     pub(super) fn absorb(&mut self, part: Simplification) -> Absorbed {
         let Simplification {
             term,
@@ -250,8 +275,8 @@ impl Accumulated {
             contradicted_total,
         } = part;
         self.conditions.append(conditions);
-        self.applied_rules.extend(applied_rules);
-        self.effects.extend(effects);
+        self.applied_rules.append(applied_rules);
+        self.effects.append(effects);
         self.exhausted = self.exhausted.or(exhausted);
         Absorbed {
             term,
@@ -265,16 +290,17 @@ impl Accumulated {
     pub(super) fn top_equation(&mut self, rule_id: String, obligations: Vec<Predicate>) {
         self.applied_rules.push(rule_id);
         self.conditions
-            .append(ResultConditions::top_equation(obligations));
+            .append(conjuncts(ResultConditions::top_equation(obligations)));
     }
 
     /// Where the running result stands now, for [`Accumulated::rewind`] and
     /// [`Accumulated::since`].
+    #[inline(never)]
     pub(super) fn mark(&self) -> AccumulatedMark {
         AccumulatedMark {
-            conditions: self.conditions.len(),
-            applied_rules: self.applied_rules.len(),
-            effects: self.effects.len(),
+            conditions: self.conditions.clone(),
+            applied_rules: self.applied_rules.clone(),
+            effects: self.effects.clone(),
             exhausted: self.exhausted,
             undefined_term: self.undefined_term.clone(),
             contradicted_total: self.contradicted_total.clone(),
@@ -283,28 +309,29 @@ impl Accumulated {
 
     /// Return to `mark`: every part absorbed since is dropped, and the reports are those `mark`
     /// holds.
+    #[inline(never)]
     pub(super) fn rewind(&mut self, mark: &AccumulatedMark) {
-        self.conditions.truncate(mark.conditions);
-        self.applied_rules.truncate(mark.applied_rules);
-        self.effects.truncate(mark.effects);
+        self.conditions.clone_from(&mark.conditions);
+        self.applied_rules.clone_from(&mark.applied_rules);
+        self.effects.clone_from(&mark.effects);
         self.exhausted = mark.exhausted;
         self.undefined_term.clone_from(&mark.undefined_term);
         self.contradicted_total.clone_from(&mark.contradicted_total);
     }
 
     /// The conditions absorbed since `mark`.
-    pub(super) fn constraints_since(&self, mark: &AccumulatedMark) -> &[Predicate] {
-        &self.conditions.as_slice()[mark.conditions..]
+    pub(super) fn constraints_since(&self, mark: &AccumulatedMark) -> Log<Conjunct> {
+        self.conditions.since(&mark.conditions)
     }
 
     /// What was absorbed since `mark`, as the result for `term`, without reports: the caller
-    /// takes it only where no report was raised.
+    /// takes it only where no report was raised. It shares what was absorbed.
     pub(super) fn since(&self, mark: &AccumulatedMark, term: Term) -> Simplification {
         Simplification {
             term,
-            conditions: self.conditions.since(mark.conditions),
-            applied_rules: self.applied_rules[mark.applied_rules..].to_vec(),
-            effects: self.effects[mark.effects..].to_vec(),
+            conditions: self.conditions.since(&mark.conditions),
+            applied_rules: self.applied_rules.since(&mark.applied_rules),
+            effects: self.effects.since(&mark.effects),
             exhausted: None,
             undefined_term: None,
             contradicted_total: None,
@@ -312,6 +339,7 @@ impl Accumulated {
     }
 
     /// The accumulated result for `term`.
+    #[inline(never)]
     pub(super) fn finish(self, term: Term) -> Simplification {
         Simplification {
             term,
