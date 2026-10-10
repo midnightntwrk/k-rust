@@ -86,6 +86,9 @@ pub(super) struct AxiomTally {
     pub(super) rejected: usize,
     /// Executable equations whose instances were drawn.
     pub(super) equations: usize,
+    /// Valuations under which a left-hand side's pattern builds a map that binds a key twice or
+    /// a set that holds an element twice: no instances.
+    pub(super) repeating: usize,
     /// Instances where the `requires` held and no higher group applied.
     pub(super) instances: usize,
     /// Instances skipped because the backend left their `requires`, `ensures`, priority or a
@@ -124,6 +127,7 @@ impl AxiomTally {
         self.definitions += other.definitions;
         self.rejected += other.rejected;
         self.equations += other.equations;
+        self.repeating += other.repeating;
         self.instances += other.instances;
         self.undecided += other.undecided;
         self.compared += other.compared;
@@ -140,7 +144,7 @@ impl AxiomTally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations, {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
+            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations ({} valuations that repeat a key), {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
             self.definitions,
             self.rejected,
             self.without_model,
@@ -148,6 +152,7 @@ impl AxiomTally {
             self.outside_totality,
             self.outside_termination,
             self.equations,
+            self.repeating,
             self.instances,
             self.undecided,
             self.compared,
@@ -730,6 +735,35 @@ fn collapse(term: &Term) -> Option<Term> {
     }
 }
 
+/// Whether `term` holds a map that binds a key twice or a set that holds an element twice, at
+/// any depth: a `\bottom` subterm.
+fn holds_repeat(term: &Term) -> bool {
+    if term.repeated_collection_key().is_some() {
+        return true;
+    }
+    match term.kind() {
+        TermKind::Application { arguments, .. } => arguments.iter().any(holds_repeat),
+        TermKind::Injection { term, .. } => holds_repeat(term),
+        TermKind::And(left, right) => holds_repeat(left) || holds_repeat(right),
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().any(holds_repeat)
+                || rest.as_ref().is_some_and(|(middle, tail)| {
+                    holds_repeat(middle) || tail.iter().any(holds_repeat)
+                })
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().any(holds_repeat) || rest.as_ref().is_some_and(holds_repeat)
+        }
+        TermKind::Map { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|(key, value)| holds_repeat(key) || holds_repeat(value))
+                || rest.as_ref().is_some_and(holds_repeat)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
+}
+
 /// The valuations of the variables `sampled` (each with its candidate values) an equation is
 /// instantiated with: all of them when there are at most [`VALUATIONS`], otherwise
 /// [`VALUATIONS`] distinct random ones.
@@ -1035,9 +1069,16 @@ fn instances(
                 break;
             }
             bind_aliases(&rule.lhs, &mut valuation);
+            // An argument of the left-hand side is an element of its pattern (the axiom's
+            // membership `\in(X, p)`), so a valuation under which a pattern builds a map that binds
+            // a key twice or a set that holds an element twice, `\bottom`, is no instance.
             let Some(instance) = collapse(&substitute(&rule.lhs, &valuation)) else {
                 continue;
             };
+            if holds_repeat(&instance) {
+                tally.repeating += 1;
+                continue;
+            }
             let requires = rule
                 .requires
                 .instantiate(&valuation)

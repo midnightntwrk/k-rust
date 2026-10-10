@@ -689,3 +689,47 @@ fn a_definition_without_a_model_is_judged_without_the_equations_that_show_it() {
         );
     });
 }
+
+/// A valuation under which a left-hand side's map pattern binds a key twice is no instance:
+/// `get(1 |-> V M) = wrap(V)` says nothing where `M` binds `1`, since `1 |-> V M` is `\bottom`
+/// there and the axiom's argument is an element of its pattern. Judging it would read `\bottom`
+/// as the left value, against `wrap(V)`.
+#[test]
+fn a_valuation_under_which_a_map_pattern_repeats_a_key_is_no_instance() {
+    use language::{app, int, var};
+    on_large_stack(|| {
+        let definition = Definition::new(&["A"])
+            .with_collections()
+            .head("get", &["Map"], "S")
+            .equation(
+                app(
+                    "get",
+                    vec![app(
+                        "mapConcat",
+                        vec![
+                            app("mapItem", vec![int(1), var("VarV", "Mv")]),
+                            var("VarM", "Map"),
+                        ],
+                    )],
+                ),
+                app("wrap", vec![var("VarV", "Mv")]),
+            );
+        let label = "a map pattern at a fixed key";
+        let mut total = axioms::AxiomTally::default();
+        for seed in 0..8 {
+            total.add(axioms::check_definition(
+                label,
+                &definition,
+                &mut Rng(DEFAULT_SEED ^ seed),
+            ));
+        }
+        eprintln!("{}", total.summary(label));
+        assert!(total.failures.is_empty(), "{}", total.failures.join("\n"));
+        assert_eq!(
+            (total.without_model, total.repeating > 0, total.compared > 0),
+            (0, true, true),
+            "{}",
+            total.summary(label)
+        );
+    });
+}
