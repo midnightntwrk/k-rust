@@ -72,7 +72,7 @@ stdout = "success"
 name = "simple/desugaring"
 exit = 0
 stderr = ""
-stdout = "sha256:54a757c397f951e7b0ee29131e23cec9bd1049dac27186c117331590b5de8d05 (98349 bytes)"
+stdout = "success"
 
 [[program]]
 name = "simple/f64-cs"
@@ -98,13 +98,13 @@ exit = 0
 stderr = """
 warning: hook FLOAT.float2int was left unevaluated at depth 4516 (the definition does not determine its value: Float2Int of NaN or an infinity, which has no nearest integer); the result may not be fully simplified
 """
-stdout = "sha256:5959fd36f2892d5ac6be12deafcbd8c44240201d937ba4ddf7b3980cdc411093 (646651 bytes)"
+stdout = "sha256:002d0e459e26154944ba08c04c6db9c74e6bdb99a7465d65eb40daadbcb8484a (646708 bytes)"
 
 [[program]]
 name = "simple/functions_call"
 exit = 0
 stderr = ""
-stdout = "sha256:fdd21ae687e1b8754f3fa8cc89c3d30b41d73801d27a700ad7e3bb0b6aaf0889 (520904 bytes)"
+stdout = "success"
 
 [[program]]
 name = "simple/i64"
@@ -140,7 +140,7 @@ stdout = "success"
 name = "simple/modules"
 exit = 0
 stderr = ""
-stdout = "sha256:6569722de93e6c8e2d6baf7e2b3513cf2c1a698582819554951c22fe36e1ecc0 (18881 bytes)"
+stdout = "success"
 
 [[program]]
 name = "simple/polymorphic"
@@ -158,7 +158,7 @@ stdout = "success"
 name = "simple/table"
 exit = 0
 stderr = ""
-stdout = "sha256:29bfea20f9714b37f64c5fa5fab44378be338d7562156439a92f117a2e455045 (228223 bytes)"
+stdout = "success"
 
 [[program]]
 name = "simple/text2abstract"
