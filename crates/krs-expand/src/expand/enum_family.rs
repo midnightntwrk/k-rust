@@ -42,7 +42,6 @@ pub(crate) fn constructors(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attributes)?;
     let item: ItemEnum = syn::parse2(item)?;
     let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)?;
@@ -62,20 +61,16 @@ pub(crate) fn constructors(
     }
     let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
-    let nonce = expansion_nonce(env, "constructors", declaration.sort_name(), fallback);
+    let nonce = expansion_nonce(env, "constructors", declaration.enum_name(), fallback);
     let cfg = call_site_cfg_attributes(&declaration.item().attrs)?;
-    let enum_ident = call_site_ident(declaration.sort_name())?;
-    let enum_name = declaration.sort_name().to_string();
+    let enum_ident = call_site_ident(declaration.enum_name())?;
+    let enum_name = declaration.enum_name().to_string();
     let enum_key = format_ident!("__krs_enum_type_{nonce:016x}");
-    let sort_factory = format_ident!("__krs_enum_sort_descriptor_{nonce:016x}");
-    let membership_factory = format_ident!("__krs_enum_membership_descriptor_{nonce:016x}");
-    let membership_key = format_ident!("__krs_enum_membership_super_{nonce:016x}");
-    // Keep the enum family's authored membership sort attached to the
+    // Keep the family's authored sort attached to the
     // `constructors(sort = ...)` token. This witness is the semantic bridge
     // rust-analyzer needs for definition and rename through the consumed
     // procedural-attribute argument.
-    let outer_path = declaration.membership_sort();
-    let outer_spelling = spelling(declaration.membership_sort());
+    let outer_path = declaration.sort();
     let family_sort_key = format_ident!("__krs_enum_family_sort_{nonce:016x}");
     let item = declaration.item();
 
@@ -145,11 +140,7 @@ pub(crate) fn constructors(
             &declaration,
             variant,
             &enum_key,
-            if declaration.is_open_family() {
-                &family_sort_key
-            } else {
-                &enum_key
-            },
+            &family_sort_key,
             &variant_key,
             nonce,
             index,
@@ -157,101 +148,13 @@ pub(crate) fn constructors(
         )?);
     }
 
-    let membership_name = format!("__krs_grammar_membership_{enum_name}");
-    let mut membership_slots = WireSlots::new(&facade);
-    let membership_subsort = wire_sort_reference(
-        &mut membership_slots,
-        &facade,
-        ProvenanceRole::SubsortSubSort,
-        0,
-        &enum_key,
-        &enum_name,
-    );
-    let membership_supersort = wire_sort_reference(
-        &mut membership_slots,
-        &facade,
-        ProvenanceRole::SubsortSuperSort,
-        0,
-        &membership_key,
-        &outer_spelling,
-    );
-    let membership_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: wire_key(subsort_declaration_role, 0),
-        subsort: membership_subsort,
-        supersort: membership_supersort,
-    }));
-    let membership_wire =
-        serde_json::to_string(&membership_wire).expect("KRS wire values serialize");
-    let membership_slot_tokens = membership_slots.tokens();
-
-    let closed_sort = if declaration.is_open_family() {
-        TokenStream::new()
-    } else {
-        let sort_anchors = declaration.sort_provenance()?;
-        let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
-        let membership_anchors = declaration.membership_provenance()?;
-        let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors);
-        let sort_wire =
-            serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
-                parents: Vec::new(),
-            }))
-            .expect("KRS wire values serialize");
-        let sort_factory_tokens = DescriptorFactory {
-            facade: &facade,
-            factory: &sort_factory,
-            name: quote!(#enum_name),
-            item_kind: quote!(#facade::ItemKind::Sort),
-            disambiguator: quote!(""),
-            identity_label: "Cargo and Rust macro context form a valid enum-sort identity",
-            declared_type: quote! {
-                ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#enum_key)),
-                )
-            },
-            payload: FactoryPayload::wire(sort_wire, quote!(#facade::__KrsSlots::default())),
-            cfg: quote!(::core::default::Default::default()),
-            attributes: quote!(#(#cfg)*),
-            provenance: quote!(#sort_provenance),
-            prelude: TokenStream::new(),
-        }
-        .render();
-        let membership_factory_tokens = DescriptorFactory {
-            facade: &facade,
-            factory: &membership_factory,
-            name: quote!(#membership_name),
-            item_kind: quote!(#facade::ItemKind::Grammar),
-            disambiguator: quote!("enum-membership"),
-            identity_label: "Cargo and Rust macro context form a valid enum-membership identity",
-            declared_type: quote!(::core::option::Option::None),
-            payload: FactoryPayload::wire(membership_wire, membership_slot_tokens),
-            cfg: quote!(::core::default::Default::default()),
-            attributes: quote!(#(#cfg)*),
-            provenance: quote!(#membership_provenance),
-            prelude: TokenStream::new(),
-        }
-        .render();
-
-        quote! {
-            #(#cfg)*
-            #[doc(hidden)]
-            fn #membership_key() -> ::core::any::TypeId {
-                ::core::any::TypeId::of::<#outer_path>()
-            }
-
-            #sort_factory_tokens
-
-            #membership_factory_tokens
+    let open_sort_key = quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        fn #family_sort_key() -> ::core::any::TypeId {
+            ::core::any::TypeId::of::<#outer_path>()
         }
     };
-    let open_sort_key = declaration.is_open_family().then(|| {
-        quote! {
-            #(#cfg)*
-            #[doc(hidden)]
-            fn #family_sort_key() -> ::core::any::TypeId {
-                ::core::any::TypeId::of::<#outer_path>()
-            }
-        }
-    });
     let family_grammar = expand_enum_family_grammar(
         env,
         &facade,
@@ -288,8 +191,6 @@ pub(crate) fn constructors(
 
         #(#rule_applications)*
 
-        #closed_sort
-
         #(#variant_expansions)*
         #family_grammar
     })
@@ -303,13 +204,9 @@ fn enum_precedence_group_name(
         .precedence_groups()
         .nth(ordinal)
         .expect("enum precedence ordinal identifies a parsed group")
-        .emitted_name(declaration.sort_name(), ordinal)
+        .emitted_name(declaration.enum_name(), ordinal)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Family productions and their provenance are emitted together."
-)]
 fn expand_enum_family_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
@@ -325,9 +222,6 @@ fn expand_enum_family_grammar(
     let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
     let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
     let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
-    if !declaration.is_open_family() {
-        return Ok(TokenStream::new());
-    }
     let mut output = Vec::new();
     if let Some(precedence) = declaration.precedence_descriptor()? {
         let provenance = host_provenance(env, facade, fallback, &precedence.provenance);
@@ -337,11 +231,11 @@ fn expand_enum_family_grammar(
         let groups = precedence.groups.try_map_ref(|group| -> crate::Result<_> {
             let ordinal = group_ordinal;
             group_ordinal += 1;
-            let name = group.emitted_name(declaration.sort_name(), ordinal);
+            let name = group.emitted_name(declaration.enum_name(), ordinal);
             let ordinal = u32::try_from(ordinal).map_err(|_| {
                 ExpandError::new(
                     expand::DESCRIPTOR_CAPACITY,
-                    declaration.sort_name().span(),
+                    declaration.enum_name().span(),
                     "too many groups",
                 )
             })?;
@@ -443,7 +337,7 @@ fn expand_enum_variant(
 ) -> crate::Result<TokenStream> {
     let constructor_syntax_role = ProvenanceRole::ConstructorSyntax;
     let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
-    let enum_name = declaration.sort_name().to_string();
+    let enum_name = declaration.enum_name().to_string();
     let variant_name = variant.name().to_string();
     let descriptor_factory = format_ident!("__krs_enum_constructor_{nonce:016x}_{index}");
     let grammar_factory = format_ident!("__krs_enum_grammar_{nonce:016x}_{index}");

@@ -7,7 +7,8 @@ k::sorts! {
     impl Exp for Int;
 }
 
-#[k::constructors(sort = Exp)]
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[k::precedence((Pick))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("pick({cond}, {first}, {second})")]

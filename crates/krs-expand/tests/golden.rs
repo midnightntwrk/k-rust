@@ -272,13 +272,13 @@ pub enum LValSyntax {
     (
         "constructors_records",
         r#"
-#[k::constructors(sort = Value)]
+#[k::constructors(sort = Value, reference)]
 pub enum Boolean {
-    #[k::syntax("true", group = "atoms")]
+    #[k::syntax("true", group = "atoms", format = "true")]
     True,
-    #[k::syntax("false", group = "atoms")]
+    #[k::syntax("false", group = "atoms", format = "false")]
     False,
-    #[k::syntax("tag {value}", group = "atoms", format = "%1%2")]
+    #[k::syntax("tag {value}", group = "atoms", format = "tag{value}")]
     Tagged { value: Term<dyn ExprSort> },
 }
 "#,

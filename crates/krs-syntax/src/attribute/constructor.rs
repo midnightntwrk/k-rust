@@ -514,14 +514,14 @@ impl Parse for FunctionAttribute {
     }
 }
 
-/// Checked payload of `#[k::constructors(sort = ...[, result = ...])]`.
+/// Checked payload of `#[k::constructors(sort = ..., result = ... | reference)]`.
 ///
-/// Without `result`, the attributed enum retains the legacy closed-sort
-/// behavior and `sort` is its membership supersort. With `result`, the enum is
-/// only a Rust authoring family: every variant constructs `sort` directly and
-/// `result` is inherited by readable strictness helpers. The mutually
-/// exclusive bare `reference` marker selects the materialized open-family
-/// layer-2 form, where each variant already carries explicit metadata.
+/// The enum is only a Rust authoring family: every variant constructs `sort`
+/// directly. With `result`, the family is readable and `result` is inherited
+/// by its strictness helpers. The mutually exclusive bare `reference` marker
+/// selects the materialized layer-2 form, where each variant already carries
+/// explicit metadata. One of the two is required: a family that needs a sort
+/// of its own declares that sort in `k::sorts!` and names it with `sort`.
 #[derive(Clone, Debug)]
 pub struct ConstructorsAttribute {
     sort: Path,
@@ -531,7 +531,6 @@ pub struct ConstructorsAttribute {
 
 #[derive(Clone, Debug)]
 pub(crate) enum ConstructorFamilyMode {
-    Legacy,
     Readable { result: Path },
     Reference,
 }
@@ -549,7 +548,7 @@ impl ConstructorsAttribute {
     pub const fn result(&self) -> Option<&Path> {
         match &self.mode {
             ConstructorFamilyMode::Readable { result } => Some(result),
-            ConstructorFamilyMode::Legacy | ConstructorFamilyMode::Reference => None,
+            ConstructorFamilyMode::Reference => None,
         }
     }
 
@@ -557,12 +556,6 @@ impl ConstructorsAttribute {
     #[must_use]
     pub const fn is_reference(&self) -> bool {
         matches!(self.mode, ConstructorFamilyMode::Reference)
-    }
-
-    /// Whether variants construct the outer sort directly.
-    #[must_use]
-    pub const fn is_open_family(&self) -> bool {
-        !matches!(self.mode, ConstructorFamilyMode::Legacy)
     }
 
     pub(crate) const fn mode(&self) -> &ConstructorFamilyMode {
@@ -971,13 +964,13 @@ impl KrsSyntax for FunctionAttribute {
 }
 
 impl KrsSyntax for ConstructorsAttribute {
-    /// Parses the payload of `#[k::constructors(sort = OuterSort)]`.
+    /// Parses the payload of `#[k::constructors(sort = OuterSort, result = R)]`.
     ///
     /// # Errors
     ///
-    /// Requires exactly one plain Rust path-valued `sort` argument, accepts either
-    /// `result = ResultSort` or bare `reference` open-family mode, and rejects
-    /// unknown, repeated, or mutually exclusive arguments at their own tokens.
+    /// Requires exactly one plain Rust path-valued `sort` argument and exactly
+    /// one of `result = ResultSort` or bare `reference`, and rejects unknown,
+    /// repeated, or mutually exclusive arguments at their own tokens.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         structured(tokens, parse_constructors_stream)
     }
@@ -1619,20 +1612,28 @@ fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttri
             break;
         }
     }
+    let sort = sort.ok_or_else(|| {
+        SyntaxError::new(
+            SyntaxErrorKind::MissingArgument { name: "sort" },
+            missing_span,
+        )
+    })?;
+    let mode = if let Some(result) = result {
+        ConstructorFamilyMode::Readable { result }
+    } else if reference.is_some() {
+        ConstructorFamilyMode::Reference
+    } else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "a constructor family is readable (`result = KResult`) or reference (`reference`); a family that needs a sort of its own declares it in `k::sorts!` (`Name: Outer;`) and names it with `sort = Name`",
+            },
+            sort.span(),
+        )
+        .into());
+    };
     Ok(ConstructorsAttribute {
-        sort: sort.ok_or_else(|| {
-            SyntaxError::new(
-                SyntaxErrorKind::MissingArgument { name: "sort" },
-                missing_span,
-            )
-        })?,
-        mode: if let Some(result) = result {
-            ConstructorFamilyMode::Readable { result }
-        } else if reference.is_some() {
-            ConstructorFamilyMode::Reference
-        } else {
-            ConstructorFamilyMode::Legacy
-        },
+        sort,
+        mode,
         internal,
     })
 }

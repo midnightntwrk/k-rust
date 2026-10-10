@@ -349,7 +349,7 @@ fn materialize_enum_productions(
         .map_err(ReferenceExpansionError::KrsSyntax)?;
     // A family already written in the reference form, such as the KItem
     // freezers of hand-written heating rules (KF-014), is its own expansion.
-    if !declaration.is_open_family() || declaration.is_reference_family() {
+    if declaration.is_reference_family() {
         return Ok(Vec::new());
     }
     materialize_reference_family_attribute(item, &declaration)?;
@@ -377,7 +377,7 @@ fn materialize_enum_productions(
             .precedence_groups()
             .nth(group_ordinal)
             .expect("enum precedence ordinal identifies a parsed group")
-            .emitted_name(declaration.sort_name(), group_ordinal);
+            .emitted_name(declaration.enum_name(), group_ordinal);
         let group = syn::LitStr::new(&group, Span::call_site());
         let template = syntax.syntax();
         let format = syntax.format().ok_or_else(|| {
@@ -425,7 +425,7 @@ fn materialize_enum_productions(
         output_variant.attrs[syntax_index] = materialized;
         materialize_reference_variant_fields(
             output_variant,
-            declaration.sort_name(),
+            declaration.enum_name(),
             package,
             module_path,
             bundle,
@@ -522,7 +522,7 @@ fn materialize_reference_family_attribute(
     item: &mut syn::ItemEnum,
     declaration: &krs_syntax::EnumConstructorDeclaration,
 ) -> Result<(), ReferenceExpansionError> {
-    let sort = declaration.membership_sort();
+    let sort = declaration.sort();
     let constructors = item
         .attrs
         .iter()
@@ -788,7 +788,7 @@ fn materialize_reference_strictness(
 fn render_family_grammar(
     declaration: &krs_syntax::EnumConstructorDeclaration,
 ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
-    let owner = declaration.sort_name();
+    let owner = declaration.enum_name();
     let groups = declaration
         .precedence_groups()
         .enumerate()

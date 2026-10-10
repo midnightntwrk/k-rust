@@ -4,10 +4,7 @@ use krs_ir::AtLeastTwo;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{
-    Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant, parenthesized,
-    parse_quote,
-};
+use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant, parenthesized};
 
 use crate::attribute::{
     ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, StaticMode,
@@ -70,12 +67,11 @@ impl EnumPrecedenceGroup {
     }
 }
 
-/// One validated constructor production in a legacy closed or readable open
-/// Rust enum family.
+/// One validated constructor production in a readable or reference Rust enum
+/// family.
 #[derive(Clone, Debug)]
 pub struct EnumConstructorVariant {
     variant: Variant,
-    result_sort: Ident,
     fields: Vec<ConstructorField>,
     syntax: Option<VariantSyntaxAttribute>,
     constructor_sort: Path,
@@ -100,15 +96,8 @@ impl EnumConstructorVariant {
         &self.variant.ident
     }
 
-    /// Returns the owning enum identifier retained for legacy parser clients.
-    /// Use [`Self::constructor_sort`] for the semantic result sort.
-    #[must_use]
-    pub const fn result_sort(&self) -> &Ident {
-        &self.result_sort
-    }
-
-    /// Returns the sort constructed by the variant. In readable mode this is
-    /// the outer open sort rather than the enum's Rust name.
+    /// Returns the sort constructed by the variant: the family's `sort`, not
+    /// the enum's Rust name.
     #[must_use]
     pub const fn constructor_sort(&self) -> &Path {
         &self.constructor_sort
@@ -279,13 +268,13 @@ impl EnumPrecedenceGroups {
     }
 }
 
-/// A validated closed constructor family and its generated sort membership.
+/// A validated constructor family: an enum whose variants construct one
+/// declared sort.
 #[derive(Clone, Debug)]
 pub struct EnumConstructorDeclaration {
     item: ItemEnum,
-    membership_sort: Path,
+    sort: Path,
     variants: Vec<EnumConstructorVariant>,
-    open_family: bool,
     reference_family: bool,
     precedence_groups: Option<EnumPrecedenceGroups>,
     precedence_declaration_range: Option<TokenRange>,
@@ -337,7 +326,7 @@ impl EnumConstructorDeclaration {
         item.attrs = retained;
         let attribute = constructors.ok_or_else(|| {
             unsupported_enum(
-                "the enum requires `#[k::constructors(sort = OuterSort)]`",
+                "the enum requires `#[k::constructors(sort = Sort, result = KResult)]` or `#[k::constructors(sort = Sort, reference)]`",
                 item.ident.span(),
             )
         })?;
@@ -365,22 +354,15 @@ impl EnumConstructorDeclaration {
                 where_clause.span(),
             ));
         }
-        let result_sort = item.ident.clone();
-        let open_family = attribute.is_open_family();
         let reference_family = attribute.is_reference();
-        let precedence = take_enum_precedence(&mut item.attrs, open_family)?;
+        let precedence = take_enum_precedence(&mut item.attrs)?;
         if reference_family && precedence.is_some() {
             return Err(invalid_enum_precedence(
                 "a reference constructor family carries precedence in freestanding family-owned grammar blocks",
                 item.ident.span(),
             ));
         }
-        let constructor_sort: Path = if open_family {
-            attribute.sort().clone()
-        } else {
-            let ident = item.ident.clone();
-            parse_quote!(#ident)
-        };
+        let constructor_sort = attribute.sort().clone();
         let mut variants = Vec::with_capacity(item.variants.len());
         for variant in &mut item.variants {
             if let Some((_, expression)) = &variant.discriminant {
@@ -390,7 +372,7 @@ impl EnumConstructorDeclaration {
                 ));
             }
             let helpers = take_variant_helpers(&mut variant.attrs, attribute.mode())?;
-            let fields = parse_variant_fields(&variant.fields, open_family, reference_family)?;
+            let fields = parse_variant_fields(&variant.fields, reference_family)?;
             let documentation = production_documentation(&variant.attrs)?;
             let mut syntax = helpers.syntax;
             if let Some(syntax) = &mut syntax {
@@ -398,39 +380,32 @@ impl EnumConstructorDeclaration {
                 if let Some(internal) = attribute.internal() {
                     syntax.inherit_placement(PlacementFlag::Internal, internal.clone())?;
                 }
-                if open_family {
-                    if reference_family && helpers.format.is_some() {
-                        return Err(unsupported_enum(
-                            "a reference variant materializes format inside `syntax`, not as a sibling helper",
-                            variant.ident.span(),
-                        ));
-                    }
-                    if reference_family && syntax.group().is_none() {
-                        return Err(unsupported_enum(
-                            "a reference variant requires an explicit `group` in `syntax`",
-                            variant.ident.span(),
-                        ));
-                    }
-                    if reference_family && syntax.format().is_none() {
-                        return Err(unsupported_enum(
-                            "a reference variant requires an explicit `format` in `syntax`",
-                            variant.ident.span(),
-                        ));
-                    }
-                    if syntax.structured_format().is_some() && helpers.format.is_some() {
-                        return Err(unsupported_enum(
-                            "a readable variant cannot declare format both inside `syntax` and as a sibling helper",
-                            variant.ident.span(),
-                        ));
-                    }
-                    let explicit = helpers.format.or_else(|| syntax.format().cloned());
-                    syntax.apply_readable_format(explicit)?;
-                } else if helpers.format.is_some() {
+                if reference_family && helpers.format.is_some() {
                     return Err(unsupported_enum(
-                        "sibling `format` is available only in readable `result = ...` families",
+                        "a reference variant materializes format inside `syntax`, not as a sibling helper",
                         variant.ident.span(),
                     ));
                 }
+                if reference_family && syntax.group().is_none() {
+                    return Err(unsupported_enum(
+                        "a reference variant requires an explicit `group` in `syntax`",
+                        variant.ident.span(),
+                    ));
+                }
+                if reference_family && syntax.format().is_none() {
+                    return Err(unsupported_enum(
+                        "a reference variant requires an explicit `format` in `syntax`",
+                        variant.ident.span(),
+                    ));
+                }
+                if syntax.structured_format().is_some() && helpers.format.is_some() {
+                    return Err(unsupported_enum(
+                        "a readable variant cannot declare format both inside `syntax` and as a sibling helper",
+                        variant.ident.span(),
+                    ));
+                }
+                let explicit = helpers.format.or_else(|| syntax.format().cloned());
+                syntax.apply_readable_format(explicit)?;
             } else if helpers.format.is_some() {
                 return Err(unsupported_enum(
                     "a sibling `format` requires `syntax` on the same variant",
@@ -460,7 +435,6 @@ impl EnumConstructorDeclaration {
             };
             variants.push(EnumConstructorVariant {
                 variant: variant.clone(),
-                result_sort: result_sort.clone(),
                 fields,
                 syntax,
                 constructor_sort: constructor_sort.clone(),
@@ -471,7 +445,7 @@ impl EnumConstructorDeclaration {
                 precedence_member_range: None,
             });
         }
-        if open_family && variants.is_empty() {
+        if variants.is_empty() {
             return Err(unsupported_enum(
                 "a readable constructor family must contain at least one variant",
                 item.ident.span(),
@@ -479,7 +453,9 @@ impl EnumConstructorDeclaration {
         }
 
         let (precedence_groups, precedence_declaration_range, precedence_chain_range) =
-            if open_family && !reference_family {
+            if reference_family {
+                (None, None, None)
+            } else {
                 let precedence = precedence.ok_or_else(|| {
                     invalid_enum_precedence(
                         "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain",
@@ -492,15 +468,12 @@ impl EnumConstructorDeclaration {
                     Some(precedence.declaration_range),
                     Some(precedence.chain_range),
                 )
-            } else {
-                (None, None, None)
             };
 
         Ok(Self {
             item,
-            membership_sort: attribute.sort().clone(),
+            sort: attribute.sort().clone(),
             variants,
-            open_family,
             reference_family,
             precedence_groups,
             precedence_declaration_range,
@@ -515,28 +488,23 @@ impl EnumConstructorDeclaration {
         &self.item
     }
 
-    /// Returns the closed object-language sort name declared by the enum.
+    /// Returns the enum identifier, which names the family's generated
+    /// precedence groups and keys; it is not a sort.
     #[must_use]
-    pub const fn sort_name(&self) -> &Ident {
+    pub const fn enum_name(&self) -> &Ident {
         &self.item.ident
     }
 
-    /// Returns the authored open sort into which the enum sort is injected.
+    /// Returns the authored sort every variant constructs.
     #[must_use]
-    pub const fn membership_sort(&self) -> &Path {
-        &self.membership_sort
+    pub const fn sort(&self) -> &Path {
+        &self.sort
     }
 
     /// Returns constructor variants in Rust declaration order.
     #[must_use]
     pub fn variants(&self) -> &[EnumConstructorVariant] {
         &self.variants
-    }
-
-    /// Whether variants contribute directly to the authored outer sort.
-    #[must_use]
-    pub const fn is_open_family(&self) -> bool {
-        self.open_family
     }
 
     /// Whether this is a fully materialized deterministic-reference family.
@@ -671,40 +639,6 @@ impl EnumConstructorDeclaration {
         }
         Ok(Some(anchors))
     }
-
-    /// Returns provenance for the enum's generated sort declaration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if the enum name emits no token leaves.
-    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![ProvenanceAnchor::new(
-            ProvenanceRole::SortDeclaration,
-            0,
-            TokenRange::for_tokens(&self.item.ident)?,
-        )])
-    }
-
-    /// Returns provenance for the generated enum-sort-to-outer-sort subsort.
-    ///
-    /// The declaration and sub-sort roles both point to the enum identifier;
-    /// the super-sort role points to the exact authored outer path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if a parsed node emits no token leaves.
-    pub fn membership_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let enum_range = TokenRange::for_tokens(&self.item.ident)?;
-        Ok(vec![
-            ProvenanceAnchor::new(ProvenanceRole::SubsortDeclaration, 0, enum_range),
-            ProvenanceAnchor::new(ProvenanceRole::SubsortSubSort, 0, enum_range),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSuperSort,
-                0,
-                TokenRange::for_tokens(&self.membership_sort)?,
-            ),
-        ])
-    }
 }
 
 impl KrsSyntax for EnumConstructorDeclaration {
@@ -716,7 +650,7 @@ impl KrsSyntax for EnumConstructorDeclaration {
 fn parse_outer_attribute(attribute: &Attribute) -> Result<ConstructorsAttribute, SyntaxError> {
     let Meta::List(list) = &attribute.meta else {
         return Err(unsupported_enum(
-            "`k::constructors` requires `(sort = OuterSort)`",
+            "`k::constructors` requires `(sort = Sort, result = KResult)` or `(sort = Sort, reference)`",
             attribute.span(),
         ));
     };
@@ -823,18 +757,11 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
 
 fn take_enum_precedence(
     attributes: &mut Vec<Attribute>,
-    open_family: bool,
 ) -> Result<Option<EnumPrecedenceChain>, SyntaxError> {
     let mut precedence = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         if let Some(marker) = helper_marker(&attribute, "precedence") {
-            if !open_family {
-                return Err(unsupported_enum(
-                    "enum-level precedence is available only in readable `result = ...` families",
-                    attribute.span(),
-                ));
-            }
             if precedence.is_some() {
                 return Err(invalid_enum_precedence(
                     "a readable constructor family may declare only one precedence chain",
@@ -856,11 +783,7 @@ fn take_enum_precedence(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                if open_family {
-                    "readable constructor-family enums support only the invoking `constructors` attribute and one enum-level `precedence` chain"
-                } else {
-                    "legacy constructor-family enums support only the invoking `constructors` attribute"
-                },
+                "readable constructor-family enums support only the invoking `constructors` attribute and one enum-level `precedence` chain",
                 attribute.span(),
             ));
         } else {
@@ -1024,7 +947,6 @@ fn variant_strictness_helper(
             marker: marker.clone(),
         },
         ConstructorFamilyMode::Reference => VariantStrictnessMode::Reference,
-        ConstructorFamilyMode::Legacy => return None,
     };
     Some((kind, mode))
 }
@@ -1033,7 +955,6 @@ fn take_variant_helpers(
     attributes: &mut Vec<Attribute>,
     family: &ConstructorFamilyMode,
 ) -> Result<VariantHelpers, SyntaxError> {
-    let open_family = !matches!(family, ConstructorFamilyMode::Legacy);
     let mut helpers = VariantHelpers::default();
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -1051,7 +972,7 @@ fn take_variant_helpers(
                 ));
             };
             helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
-        } else if open_family && is_helper_named(&attribute, "format") {
+        } else if is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(
                     "an enum constructor variant may carry only one `#[k::format]` helper",
@@ -1079,10 +1000,7 @@ fn take_variant_helpers(
             }
             let tokens = marker_tokens(&attribute)?;
             helpers.strictness = Some(VariantStrictness { kind, tokens, mode });
-        } else if let Some(mode) = open_family
-            .then(|| variant_static_mode(&attribute))
-            .flatten()
-        {
+        } else if let Some(mode) = variant_static_mode(&attribute) {
             if let Some(previous) = &helpers.static_marker {
                 return Err(unsupported_enum(
                     if previous.attribute.mode() == mode {
@@ -1119,11 +1037,7 @@ fn take_variant_helpers(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                if open_family {
-                    "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum"
-                } else {
-                    "legacy enum variants support only the `#[k::syntax]` KRS helper"
-                },
+                "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
                 attribute.span(),
             ));
         } else {
@@ -1147,7 +1061,6 @@ fn marker_tokens(attribute: &Attribute) -> Result<TokenStream, SyntaxError> {
 
 fn parse_variant_fields(
     fields: &Fields,
-    open_family: bool,
     reference_family: bool,
 ) -> Result<Vec<ConstructorField>, SyntaxError> {
     match fields {
@@ -1167,7 +1080,7 @@ fn parse_variant_fields(
                         field.span(),
                     ));
                 };
-                let term_sort = if reference_family || !open_family {
+                let term_sort = if reference_family {
                     parse_term_sort(field.ty.clone())?
                 } else {
                     parse_readable_sort(field.ty.clone())?
@@ -1181,7 +1094,7 @@ fn parse_variant_fields(
             }
             Ok(parsed)
         }
-        Fields::Unnamed(fields) if open_family && fields.unnamed.is_empty() => Ok(Vec::new()),
+        Fields::Unnamed(fields) if fields.unnamed.is_empty() => Ok(Vec::new()),
         Fields::Unnamed(fields) => Err(unsupported_enum(
             "tuple enum constructor variants are unsupported; readable families permit only zero-field tuple variants",
             fields.span(),

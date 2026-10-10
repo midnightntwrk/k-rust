@@ -33,7 +33,8 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
 Standalone constructors are structs annotated with `#[k::constructor(sort = ..., syntax = ...)]`.
-Constructor families put `#[k::constructors(sort = ...)]` on an enum and attach syntax to its variants.
+Constructor families put `#[k::constructors(sort = ..., result = ...)]` (readable) or `#[k::constructors(sort = ..., reference)]` on an enum and attach syntax to its variants; every variant constructs `sort` itself, and the enum is not a sort.
+A family whose productions need a sort of their own declares that sort in `k::sorts!`, for example `Freezer: KItem;`, and names it with `sort = Freezer`.
 The family form is preferred when a closed set of alternatives shares an open result sort; the standalone form remains useful for declarations owned independently.
 
 ## Helper attributes

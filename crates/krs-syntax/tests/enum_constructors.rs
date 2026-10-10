@@ -1,4 +1,4 @@
-//! Closed-enum constructor-family parser and provenance contract tests.
+//! Enum constructor-family parser and provenance contract tests.
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
@@ -10,23 +10,20 @@ use krs_syntax::{
 fn multiple_unit_and_record_variants_preserve_rust_and_metadata() {
     let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[doc = "kept enum"]
-#[k::constructors(sort = model::Value)]
+#[k::constructors(sort = model::Value, reference)]
 pub enum BooleanExpr {
     #[allow(dead_code)]
-    #[k::syntax("true")]
+    #[k::syntax("true", group = "boolean_true", format = "true")]
     True,
-    #[k::syntax("{rhs} && {lhs}", group = "boolean_and", avoid = true, format = "%1 %2 %3")]
+    #[k::syntax("{rhs} && {lhs}", group = "boolean_and", avoid = true, format = "{rhs} && {lhs}")]
     And { pub lhs: Term<dyn ExprAlias>, rhs: crate::Term<AliasValue> },
 }"#,
     )
     .unwrap();
 
-    assert_eq!(declaration.sort_name(), "BooleanExpr");
-    let membership_sort = declaration.membership_sort();
-    assert_eq!(
-        quote::quote!(#membership_sort).to_string(),
-        "model :: Value"
-    );
+    assert_eq!(declaration.enum_name(), "BooleanExpr");
+    let sort = declaration.sort();
+    assert_eq!(quote::quote!(#sort).to_string(), "model :: Value");
     assert_eq!(declaration.item().attrs.len(), 1);
     assert_eq!(declaration.variants().len(), 2);
     assert_eq!(declaration.variants()[0].name(), "True");
@@ -35,7 +32,11 @@ pub enum BooleanExpr {
 
     let record = &declaration.variants()[1];
     assert_eq!(record.name(), "And");
-    assert_eq!(record.result_sort(), "BooleanExpr");
+    let constructor_sort = record.constructor_sort();
+    assert_eq!(
+        quote::quote!(#constructor_sort).to_string(),
+        "model :: Value"
+    );
     assert_eq!(record.fields().len(), 2);
     assert_eq!(record.fields()[0].name(), "lhs");
     assert_eq!(
@@ -80,15 +81,15 @@ pub enum BooleanExpr {
 #[test]
 fn aliases_remain_authored_paths_and_are_not_a_parser_resolution_concern() {
     let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
-        r#"#[k::constructors(sort = OuterAlias)]
+        r#"#[k::constructors(sort = OuterAlias, reference)]
 enum Family {
-    #[k::syntax("wrap {value}")]
+    #[k::syntax("wrap {value}", group = "wrap", format = "wrap {value}")]
     Wrap { value: Term<InnerAlias> },
 }"#,
     )
     .unwrap();
-    let membership_sort = declaration.membership_sort();
-    assert_eq!(quote::quote!(#membership_sort).to_string(), "OuterAlias");
+    let sort = declaration.sort();
+    assert_eq!(quote::quote!(#sort).to_string(), "OuterAlias");
     assert_eq!(
         declaration.variants()[0].fields()[0]
             .term_sort()
@@ -97,55 +98,28 @@ enum Family {
     );
 
     let split_attribute =
-        krs_syntax::ConstructorsAttribute::parse_source("sort = renamed::Outer").unwrap();
-    let split_item: syn::ItemEnum =
-        syn::parse_str(r#"#[doc = "ordinary"] enum ViaMacro { #[k::syntax("unit")] Unit }"#)
+        krs_syntax::ConstructorsAttribute::parse_source("sort = renamed::Outer, reference")
             .unwrap();
+    let split_item: syn::ItemEnum = syn::parse_str(
+        r#"#[doc = "ordinary"] enum ViaMacro { #[k::syntax("unit", group = "unit", format = "unit")] Unit }"#,
+    )
+    .unwrap();
     let split = EnumConstructorDeclaration::from_parts(&split_attribute, split_item).unwrap();
     assert_eq!(split.item().attrs.len(), 1);
     assert_eq!(split.variants()[0].name(), "Unit");
 }
 
 #[test]
-fn semantic_descriptors_have_separate_exact_provenance_catalogs() {
+fn variant_descriptors_have_exact_provenance_catalogs() {
     let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
-        "#[k::constructors(sort = outer::Value)]\n\
+        "#[k::constructors(sort = outer::Value, reference)]\n\
          pub enum Boolean {\n\
              /// Equality production.\n\
-             #[k::syntax(\"{rhs} == {lhs}\")]\n\
+             #[k::syntax(\"{rhs} == {lhs}\", group = \"equality\", format = \"{rhs} == {lhs}\")]\n\
              Equal { lhs: Term<left::Expr>, rhs: Term<right::Expr> },\n\
          }",
     )
     .unwrap();
-
-    let sort = declaration.sort_provenance().unwrap();
-    assert_eq!(sort.len(), 1);
-    assert_eq!(sort[0].role(), ProvenanceRole::SortDeclaration);
-    assert_eq!(
-        (sort[0].range().start().line, sort[0].range().start().column),
-        (2, 9)
-    );
-
-    let membership = declaration.membership_provenance().unwrap();
-    assert_eq!(
-        membership
-            .iter()
-            .map(krs_syntax::ProvenanceAnchor::role)
-            .collect::<Vec<_>>(),
-        [
-            ProvenanceRole::SubsortDeclaration,
-            ProvenanceRole::SubsortSubSort,
-            ProvenanceRole::SubsortSuperSort,
-        ]
-    );
-    assert_eq!(membership[0].range().start(), membership[1].range().start());
-    assert_eq!(
-        (
-            membership[2].range().start().line,
-            membership[2].range().start().column
-        ),
-        (1, 25)
-    );
 
     let production = declaration.variants()[0].provenance().unwrap();
     let roles = production
@@ -189,15 +163,16 @@ fn semantic_descriptors_have_separate_exact_provenance_catalogs() {
 fn unsupported_enum_shapes_and_helpers_are_rejected_locally() {
     let cases = [
         "enum Missing { Unit }",
-        "#[k::constructors(sort = Value)] #[k::other] enum ExtraOuter { Unit }",
-        "#[k::constructors(sort = Value)] #[k::constructors(sort = Other)] enum Duplicate { Unit }",
-        "#[k::constructors(sort = Value)] enum Generic<T> { Unit }",
-        "#[k::constructors(sort = Value)] enum Where where Value: Sort { Unit }",
-        "#[k::constructors(sort = Value)] enum Tuple { Value(Term<Expr>) }",
-        "#[k::constructors(sort = Value)] enum Discriminant { Value = 1 }",
-        "#[k::constructors(sort = Value)] enum VariantHelper { #[k::strict(sequence = [value], result = Value)] Value { value: Term<Value> } }",
-        "#[k::constructors(sort = Value)] enum DuplicateSyntax { #[k::syntax(\"x\")] #[k::syntax(\"y\")] Value }",
-        "#[k::constructors(sort = Value)] enum FieldAttribute { Value { #[cfg(any())] value: Term<Value> } }",
+        "#[k::constructors(sort = Value)] enum NeitherReadableNorReference { Unit }",
+        "#[k::constructors(sort = Value, reference)] #[k::other] enum ExtraOuter { Unit }",
+        "#[k::constructors(sort = Value, reference)] #[k::constructors(sort = Other, reference)] enum Duplicate { Unit }",
+        "#[k::constructors(sort = Value, reference)] enum Generic<T> { Unit }",
+        "#[k::constructors(sort = Value, reference)] enum Where where Value: Sort { Unit }",
+        "#[k::constructors(sort = Value, reference)] enum Tuple { Value(Term<Expr>) }",
+        "#[k::constructors(sort = Value, reference)] enum Discriminant { Value = 1 }",
+        "#[k::constructors(sort = Value, reference)] enum VariantHelper { #[k::other] Value { value: Term<Value> } }",
+        "#[k::constructors(sort = Value, reference)] enum DuplicateSyntax { #[k::syntax(\"x\")] #[k::syntax(\"y\")] Value }",
+        "#[k::constructors(sort = Value, reference)] enum FieldAttribute { Value { #[cfg(any())] value: Term<Value> } }",
     ];
     for source in cases {
         let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
@@ -214,7 +189,7 @@ fn unsupported_enum_shapes_and_helpers_are_rejected_locally() {
 #[test]
 fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
     let invalid_term = krs_syntax::EnumConstructorDeclaration::parse_source(
-        "#[k::constructors(sort = Value)] enum Raw { Value { value: Int } }",
+        "#[k::constructors(sort = Value, reference)] enum Raw { Value { value: Int } }",
     )
     .unwrap_err();
     assert!(matches!(
@@ -223,9 +198,9 @@ fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
     ));
 
     for source in [
-        "#[k::constructors(sort = Value)] enum Missing { #[k::syntax(\"prefix\")] Value { value: Term<Value> } }",
-        "#[k::constructors(sort = Value)] enum Repeated { #[k::syntax(\"{value} {value}\")] Value { value: Term<Value> } }",
-        "#[k::constructors(sort = Value)] enum Unknown { #[k::syntax(\"{other}\")] Value { value: Term<Value> } }",
+        "#[k::constructors(sort = Value, reference)] enum Missing { #[k::syntax(\"prefix\")] Value { value: Term<Value> } }",
+        "#[k::constructors(sort = Value, reference)] enum Repeated { #[k::syntax(\"{value} {value}\")] Value { value: Term<Value> } }",
+        "#[k::constructors(sort = Value, reference)] enum Unknown { #[k::syntax(\"{other}\")] Value { value: Term<Value> } }",
     ] {
         let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(matches!(
@@ -266,7 +241,6 @@ enum Op {
     )
     .unwrap();
 
-    assert!(declaration.is_open_family());
     assert_eq!(declaration.precedence_groups().count(), 2);
     assert_eq!(declaration.precedence_chain_groups().unwrap().len(), 2);
     assert_eq!(
@@ -308,7 +282,7 @@ enum Op {
             .precedence_groups()
             .next()
             .unwrap()
-            .emitted_name(declaration.sort_name(), 0),
+            .emitted_name(declaration.enum_name(), 0),
         "op_tier0"
     );
     assert_eq!(
@@ -316,7 +290,7 @@ enum Op {
             .precedence_groups()
             .nth(1)
             .unwrap()
-            .emitted_name(declaration.sort_name(), 1),
+            .emitted_name(declaration.enum_name(), 1),
         "remainder"
     );
     let constructor_sort = declaration.variants()[0].constructor_sort();
@@ -504,7 +478,6 @@ enum Op {
     )
     .unwrap();
 
-    assert!(declaration.is_open_family());
     assert!(declaration.is_reference_family());
     assert!(declaration.precedence_groups().next().is_none());
     assert!(declaration.precedence_provenance().unwrap().is_none());

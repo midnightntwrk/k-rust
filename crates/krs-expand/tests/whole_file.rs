@@ -324,7 +324,7 @@ fn attribute_order_and_form_are_checked() {
     assert_eq!(diagnostics[0].code, whole_file::ATTRIBUTE_ORDER);
     assert_eq!(diagnostics[0].authored, Some(br(17, 36)));
 
-    let helper_first = "#[k::precedence((A))]\n#[k::constructors(sort = S)]\npub enum E { A() }\n";
+    let helper_first = "#[k::precedence((A))]\n#[k::constructors(sort = S, result = KResult)]\npub enum E { A() }\n";
     let diagnostics = expand(helper_first).unwrap_err();
     assert_eq!(diagnostics[0].code, whole_file::NOT_AN_ATTRIBUTE_MACRO);
     assert_eq!(diagnostics[0].authored, Some(br(2, 15)));

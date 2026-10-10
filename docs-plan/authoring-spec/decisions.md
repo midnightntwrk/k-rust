@@ -116,6 +116,16 @@ bug — report it, don't guess.
   (`#[k::constructors(sort = …, result = …)]`); per-production structs are
   the exception, reserved for productions needing standalone Rust type
   identity or their own rustdoc page. [r4]
+  *Note (2026-10, one family form):* a family names `result = …`
+  (readable) or bare `reference`; every variant constructs `sort`, and
+  the enum is never a sort. The older closed form, `#[k::constructors(sort
+  = X)]` alone, which made the enum a sort of its own beneath `X`, is
+  removed: no port used it, and `k::sorts!` (`Name: X;`) with
+  `sort = Name` writes the same K. Struct productions
+  (`#[k::constructor(sort = …, syntax = …)]`) stay as the exception above;
+  they are also the only spelling of a parametric production (KF-027):
+  a K sort parameter belongs to one production, so enum families reject
+  generics. [user decision 2026-10-10, C8.3]
 - **C2 — Family naming**: a natural name when one exists (`Op`), else
   `<Sort>Syntax` (`StmtSyntax`). `<Sort>Kind` rejected: under the open-sort
   model an enum is a *contribution* to a sort, never its definition, and

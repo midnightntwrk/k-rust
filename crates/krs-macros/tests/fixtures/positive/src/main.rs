@@ -550,20 +550,15 @@ impl KResultSort for Identifier {}
 #[language_host::subsort(sort = Value)]
 impl ValueSort for Identifier {}
 
-#[language_host::constructors(sort = Value)]
+#[language_host::constructors(sort = Value, reference)]
 pub enum Boolean {
-    #[k::syntax("true", group = "atoms")]
+    #[k::syntax("true", group = "atoms", format = "true")]
     True,
-    #[k::syntax("false", group = "atoms")]
+    #[k::syntax("false", group = "atoms", format = "false")]
     False,
-    #[k::syntax("tag {value}", group = "atoms", format = "%1%2")]
+    #[k::syntax("tag {value}", group = "atoms", format = "tag{value}")]
     Tagged { value: Term<dyn ExprSort> },
 }
-
-impl KItemSort for Boolean {}
-impl ExprSort for Boolean {}
-impl KResultSort for Boolean {}
-impl ValueSort for Boolean {}
 
 use Boolean as Truth;
 
@@ -719,12 +714,12 @@ pub fn binder_gap(
 }
 
 #[language_host::rule(label = "enum-false")]
-pub fn enum_alias(Truth::False: Term<Boolean>) -> Term<Boolean> {
+pub fn enum_alias(Truth::False: Term<dyn ValueSort>) -> Term<dyn ValueSort> {
     Truth::True
 }
 
 #[language_host::rule]
-pub fn enum_record(Truth::Tagged { value }: Term<Boolean>) -> Term<Boolean> {
+pub fn enum_record(Truth::Tagged { value }: Term<dyn ValueSort>) -> Term<dyn ValueSort> {
     Truth::Tagged { value }
 }
 
@@ -908,10 +903,10 @@ mod tests {
     #[test]
     fn registry_counts_and_provenance() {
         let descriptors = sorted_descriptors();
-        assert_eq!(descriptors.len(), 160);
-        assert_eq!(kind_count(&descriptors, ItemKind::Sort), 15);
+        assert_eq!(descriptors.len(), 158);
+        assert_eq!(kind_count(&descriptors, ItemKind::Sort), 14);
         assert_eq!(kind_count(&descriptors, ItemKind::Constructor), 35);
-        assert_eq!(kind_count(&descriptors, ItemKind::Grammar), 50);
+        assert_eq!(kind_count(&descriptors, ItemKind::Grammar), 49);
         assert_eq!(kind_count(&descriptors, ItemKind::Rule), 50);
         assert_eq!(kind_count(&descriptors, ItemKind::Equation), 1);
         assert_eq!(

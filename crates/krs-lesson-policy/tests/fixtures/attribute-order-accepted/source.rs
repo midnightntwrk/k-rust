@@ -1,4 +1,4 @@
-#[k::constructors(sort = Expr)]
+#[k::constructors(sort = Expr, result = KResult)]
 #[derive(Clone, Debug)]
 #[rustfmt::skip]
 pub enum Op {

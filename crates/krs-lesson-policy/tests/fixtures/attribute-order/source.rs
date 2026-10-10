@@ -1,5 +1,5 @@
 #[derive(Clone, Debug)]
-#[k::constructors(sort = Expr)]
+#[k::constructors(sort = Expr, result = KResult)]
 pub enum Op {
     Neg { value: Expr },
 }

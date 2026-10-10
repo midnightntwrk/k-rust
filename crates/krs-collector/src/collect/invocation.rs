@@ -562,20 +562,6 @@ fn collect_enum_invocations(
         .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::Constructors));
     let declaration =
         EnumConstructorDeclaration::from_parts(&attribute, reparsed).map_err(source_syntax)?;
-    if !declaration.is_open_family() {
-        output.push(parsed_invocation(
-            ProvenanceRole::SortDeclaration,
-            declaration.sort_name().to_string(),
-            declaration.sort_provenance().map_err(source_syntax)?,
-            ParsedInvocationPayload::Declaration,
-        )?);
-        output.push(parsed_invocation(
-            ProvenanceRole::SubsortDeclaration,
-            declaration.sort_name().to_string(),
-            declaration.membership_provenance().map_err(source_syntax)?,
-            ParsedInvocationPayload::Declaration,
-        )?);
-    }
     let variant_visibility = rust_visibility(&item_enum.vis)?;
     for variant in declaration.variants() {
         let anchors = declaration

@@ -10,5 +10,5 @@ sorts! {
     M: KResult;
 }
 
-#[constructors(sort = M)]
+#[constructors(sort = M, result = KResult)]
 pub enum E {}

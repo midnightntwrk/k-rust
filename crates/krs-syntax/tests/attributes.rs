@@ -177,15 +177,18 @@ fn subsort_reference_attribute_requires_one_semantic_sort_path() {
 }
 
 #[test]
-fn constructors_distinguishes_closed_readable_and_reference_families() {
-    let closed = krs_syntax::ConstructorsAttribute::parse_source("sort = Expr").unwrap();
-    assert!(!closed.is_open_family());
-    assert!(!closed.is_reference());
-    assert!(closed.result().is_none());
+fn constructors_distinguishes_readable_and_reference_families() {
+    for source in ["sort = Expr", "sort = Expr, internal"] {
+        let error = krs_syntax::ConstructorsAttribute::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::UnsupportedEnumConstructorDeclaration { reason } = error.kind() else {
+            panic!("{source}: {:?}", error.kind());
+        };
+        assert!(reason.contains("`result = KResult`"), "{reason}");
+        assert!(reason.contains("`k::sorts!`"), "{reason}");
+    }
 
     let readable =
         krs_syntax::ConstructorsAttribute::parse_source("result = KResult, sort = Expr,").unwrap();
-    assert!(readable.is_open_family());
     assert!(!readable.is_reference());
     assert_eq!(
         readable.result().unwrap().to_token_stream().to_string(),
@@ -194,7 +197,6 @@ fn constructors_distinguishes_closed_readable_and_reference_families() {
 
     let reference =
         krs_syntax::ConstructorsAttribute::parse_source("reference, sort = Expr").unwrap();
-    assert!(reference.is_open_family());
     assert!(reference.is_reference());
     assert!(reference.result().is_none());
     assert_eq!(reference.sort().to_token_stream().to_string(), "Expr");

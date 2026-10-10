@@ -104,9 +104,10 @@ pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Function, attributes, item)
 }
 
-/// Declares a Rust enum as a family of K constructors.
+/// Declares a Rust enum as a family of K constructors, each of which
+/// constructs `sort`; the enum itself is not a sort.
 ///
-/// Readable open families (`sort = ..., result = ...`) require a following
+/// Readable families (`sort = ..., result = ...`) require a following
 /// exhaustive enum-level precedence chain. `>` means “binds tighter than”;
 /// `left`, `right`, and `non_assoc` prefix tiers with explicit associativity.
 /// A bare tier carries no associativity constraint; `non_assoc` lowers to K's

@@ -8,6 +8,10 @@ fn __krs_enum_type_01bc3d1b6dad6040() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Boolean>()
 }
 #[doc(hidden)]
+fn __krs_enum_family_sort_01bc3d1b6dad6040() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Value>()
+}
+#[doc(hidden)]
 struct __KrsEnumVariant_01bc3d1b6dad6040_0;
 #[doc(hidden)]
 fn __krs_enum_variant_01bc3d1b6dad6040_0() -> ::core::any::TypeId {
@@ -88,163 +92,6 @@ impl ::k::__KrsRuleApplication<15748873300391606157u64> for Boolean {
     }
 }
 #[doc(hidden)]
-fn __krs_enum_membership_super_01bc3d1b6dad6040() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Value>()
-}
-#[doc(hidden)]
-fn __krs_enum_sort_descriptor_01bc3d1b6dad6040() -> ::core::result::Result<
-    ::k::HostDescriptor,
-    ::k::HostProvenanceError,
-> {
-    ::core::result::Result::Ok(::k::HostDescriptor {
-        protocol_version: ::k::SchemaVersion::CURRENT,
-        id: ::k::HostItemId::from_macro_context(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_MANIFEST_DIR"),
-                module_path!(),
-                "Boolean",
-                ::k::ItemKind::Sort,
-                "",
-            )
-            .expect("Cargo and Rust macro context form a valid enum-sort identity"),
-        declared_type: ::core::option::Option::Some(
-            ::k::HostDeclarationIdentity::Nominal(
-                ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
-            ),
-        ),
-        payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[]}}",
-            ::k::__KrsSlots::default(),
-        ),
-        cfg: ::core::default::Default::default(),
-        provenance: ::k::__krs_host_provenance(
-            "",
-            const {
-                const __KRS_AUTHORED: &[(
-                    ::k::ProvenanceRole,
-                    u32,
-                    ::k::__KrsRawAnchor,
-                )] = &[
-                    (
-                        ::k::ProvenanceRole::SortDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
-                            true,
-                        ),
-                    ),
-                ];
-                &::k::__KrsRawProvenance::new(
-                    &["src/lib.rs"],
-                    ::k::__KrsRawAnchor::new(
-                        0usize,
-                        false,
-                        (2u32, 1u32),
-                        (2u32, 33u32),
-                        true,
-                    ),
-                    __KRS_AUTHORED,
-                )
-            },
-        )?,
-    })
-}
-::k::__register_host_descriptor!(__krs_enum_sort_descriptor_01bc3d1b6dad6040);
-#[doc(hidden)]
-fn __krs_enum_membership_descriptor_01bc3d1b6dad6040() -> ::core::result::Result<
-    ::k::HostDescriptor,
-    ::k::HostProvenanceError,
-> {
-    ::core::result::Result::Ok(::k::HostDescriptor {
-        protocol_version: ::k::SchemaVersion::CURRENT,
-        id: ::k::HostItemId::from_macro_context(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_MANIFEST_DIR"),
-                module_path!(),
-                "__krs_grammar_membership_Boolean",
-                ::k::ItemKind::Grammar,
-                "enum-membership",
-            )
-            .expect(
-                "Cargo and Rust macro context form a valid enum-membership identity",
-            ),
-        declared_type: ::core::option::Option::None,
-        payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Value\"}}}}}",
-            ::k::__KrsSlots {
-                types: &[
-                    ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
-                    ::k::HostTypeKey(__krs_enum_membership_super_01bc3d1b6dad6040),
-                ],
-                items: &[],
-                targets: &[],
-            },
-        ),
-        cfg: ::core::default::Default::default(),
-        provenance: ::k::__krs_host_provenance(
-            "",
-            const {
-                const __KRS_AUTHORED: &[(
-                    ::k::ProvenanceRole,
-                    u32,
-                    ::k::__KrsRawAnchor,
-                )] = &[
-                    (
-                        ::k::ProvenanceRole::SubsortDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::SubsortSubSort,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::SubsortSuperSort,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 26u32),
-                            (2u32, 31u32),
-                            true,
-                        ),
-                    ),
-                ];
-                &::k::__KrsRawProvenance::new(
-                    &["src/lib.rs"],
-                    ::k::__KrsRawAnchor::new(
-                        0usize,
-                        false,
-                        (2u32, 1u32),
-                        (2u32, 33u32),
-                        true,
-                    ),
-                    __KRS_AUTHORED,
-                )
-            },
-        )?,
-    })
-}
-::k::__register_host_descriptor!(__krs_enum_membership_descriptor_01bc3d1b6dad6040);
-#[doc(hidden)]
 fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -270,9 +117,9 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}},\"fields\":[]}}",
             ::k::__KrsSlots {
-                types: &[::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040)],
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040)],
                 items: &[],
                 targets: &[],
             },
@@ -292,8 +139,8 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -331,6 +178,28 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 51u32),
+                            (4u32, 57u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 51u32),
+                            (4u32, 57u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -348,7 +217,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -379,9 +248,9 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::True\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"true\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::True\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"true\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}}]}]}}}",
             ::k::__KrsSlots {
-                types: &[::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040)],
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040)],
                 items: &[],
                 targets: &[
                     ::k::__KrsTargetSlot::Variant {
@@ -406,8 +275,8 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -445,6 +314,28 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 51u32),
+                            (4u32, 57u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (4u32, 51u32),
+                            (4u32, 57u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -462,7 +353,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -498,9 +389,9 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}},\"fields\":[]}}",
             ::k::__KrsSlots {
-                types: &[::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040)],
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040)],
                 items: &[],
                 targets: &[],
             },
@@ -520,8 +411,8 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -559,6 +450,28 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 52u32),
+                            (6u32, 59u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 52u32),
+                            (6u32, 59u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -576,7 +489,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -607,9 +520,9 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::False\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"false\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::False\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"false\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}}]}]}}}",
             ::k::__KrsSlots {
-                types: &[::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040)],
+                types: &[::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040)],
                 items: &[],
                 targets: &[
                     ::k::__KrsTargetSlot::Variant {
@@ -634,8 +547,8 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -673,6 +586,28 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         ),
                     ),
                     (
+                        ::k::ProvenanceRole::ConstructorFormat,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 52u32),
+                            (6u32, 59u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConstructorFormatFragment,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (6u32, 52u32),
+                            (6u32, 59u32),
+                            true,
+                        ),
+                    ),
+                    (
                         ::k::ProvenanceRole::ConstructorDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -690,7 +625,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -702,7 +637,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::core::result::Result<
 ::k::__register_host_descriptor!(__krs_enum_grammar_01bc3d1b6dad6040_1);
 #[doc(hidden)]
 fn __krs_enum_field_01bc3d1b6dad6040_2_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::Term<dyn ExprSort>>()
+    ::core::any::TypeId::of::<Term<dyn ExprSort>>()
 }
 #[doc(hidden)]
 fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
@@ -730,10 +665,10 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
-                    ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
+                    ::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040),
                     ::k::HostTypeKey(__krs_enum_field_01bc3d1b6dad6040_2_0),
                 ],
                 items: &[],
@@ -755,8 +690,8 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -822,7 +757,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -833,7 +768,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -844,7 +779,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -888,7 +823,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
@@ -919,11 +854,11 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
             ),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::Tagged\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Boolean\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"tag\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ExprSort\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]}]}}}",
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":0,\"authored_path\":\"Boolean::Tagged\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Value\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"tag\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ExprSort\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"atoms\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":2}}]}]}}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_enum_field_01bc3d1b6dad6040_2_0),
-                    ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
+                    ::k::HostTypeKey(__krs_enum_family_sort_01bc3d1b6dad6040),
                 ],
                 items: &[],
                 targets: &[
@@ -949,8 +884,8 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                         ::k::__KrsRawAnchor::new(
                             0usize,
                             false,
-                            (3u32, 10u32),
-                            (3u32, 17u32),
+                            (2u32, 26u32),
+                            (2u32, 31u32),
                             true,
                         ),
                     ),
@@ -1016,7 +951,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -1027,7 +962,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -1038,7 +973,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                             0usize,
                             false,
                             (8u32, 58u32),
-                            (8u32, 64u32),
+                            (8u32, 70u32),
                             true,
                         ),
                     ),
@@ -1082,7 +1017,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::core::result::Result<
                         0usize,
                         false,
                         (2u32, 1u32),
-                        (2u32, 33u32),
+                        (2u32, 44u32),
                         true,
                     ),
                     __KRS_AUTHORED,
