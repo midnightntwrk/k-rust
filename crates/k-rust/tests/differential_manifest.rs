@@ -1529,7 +1529,7 @@ fn execution_gate_compares_against_the_reference_simplifier_only_for_opted_in_ca
     assert_eq!(
         stdout
             .lines()
-            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: Without SMT"))
+            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: The pinned krun reports heating branches"))
             .count(),
         2,
         "{stdout}"
