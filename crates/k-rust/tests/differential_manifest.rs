@@ -3742,6 +3742,74 @@ wait
     assert_eq!(lines[2], "taken refused", "{stdout}{stderr}");
 }
 
+/// The WASM execution gate reports every difference of a recorded case and exits 3. A proof
+/// recorded as failed (exit 1, with the digest of its output under `stdout`) that now passes has
+/// no measured `stdout`, a key the case still records: that is a difference to report like any
+/// other, not a reason for the report to stop. The test runs the gate's report step on such a
+/// case, with the measured outputs written where the gate's run step writes them.
+#[test]
+fn wasm_execution_gate_reports_a_recorded_key_that_is_no_longer_measured() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let gate = fs::read_to_string(workspace.join("scripts/wasm-execution-gate.sh"))
+        .expect("read the WASM execution gate");
+    let report = gate
+        .split_once("python3 - \"$manifest\" \"$success_configuration\"")
+        .and_then(|(_, rest)| rest.split_once("<<'EOF'"))
+        .and_then(|(_, rest)| rest.split_once('\n'))
+        .and_then(|(_, rest)| rest.split_once("\nEOF\n"))
+        .map(|(body, _)| body.to_owned())
+        .expect("the gate's report step");
+    let fixture = environment_fixture("wasm-report");
+    fs::write(
+        fixture.join("manifest.toml"),
+        r#"# header
+
+[[program]]
+name = "simple/unused"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[proof]]
+name = "proofs/x"
+module = "X-SPEC"
+definition_module = "X"
+exit = 1
+stderr = ""
+verdict = """
+claim a: failed
+"""
+stdout = "sha256:00 (1 bytes)"
+"#,
+    )
+    .unwrap();
+    fs::write(fixture.join("success.kore"), "").unwrap();
+    let work = fixture.join("work");
+    fs::create_dir(&work).unwrap();
+    for (suffix, content) in [
+        (".stdout", "claim a: proven\n"),
+        (".exit", "0\n"),
+        (".stderr", ""),
+        (".milliseconds", "1000\n"),
+    ] {
+        fs::write(work.join(format!("proofs-x{suffix}")), content).unwrap();
+    }
+    let output = Command::new("python3")
+        .args(["-I", "-c", &report])
+        .arg(fixture.join("manifest.toml"))
+        .arg(fixture.join("success.kore"))
+        .arg(&work)
+        .args(["false", "proofs/x"])
+        .output()
+        .expect("run the gate's report step");
+    fs::remove_dir_all(&fixture).expect("remove the report fixture");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{stdout}{stderr}");
+    assert!(stdout.contains("proofs/x: DIFFERS"), "{stdout}{stderr}");
+    assert!(stdout.contains("stdout"), "{stdout}{stderr}");
+}
+
 /// The RPC gate starts both of its servers on a kernel-assigned port unless the caller pins one,
 /// and sends every request to the port the server it started listens on
 /// (`scripts/reference-server-port.sh`), so concurrent runs never share or steal a server.
