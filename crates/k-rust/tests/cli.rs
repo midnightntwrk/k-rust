@@ -11316,6 +11316,269 @@ fn a_line_marker_production_means_one_thing_to_both_parsers() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The term a successful parser run printed, as the KORE of the program with every injection
+/// removed (an injection places a term at a sort; it is not part of what was written), or why
+/// there is none.
+#[cfg(unix)]
+fn program_term(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
+            program_term(&arguments[0])
+        }
+        Pattern::Application { symbol, arguments } => format!(
+            "{}({})",
+            symbol.name,
+            arguments
+                .iter()
+                .map(program_term)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        other => other.to_string(),
+    }
+}
+
+/// The program inside the `<k>` cell of an initial configuration: `kseq{}(T, dotk{}())`'s `T`.
+#[cfg(unix)]
+fn k_cell_program(pattern: &Pattern) -> Option<&Pattern> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return None;
+    };
+    if symbol.name == "Lbl'-LT-'k'-GT-'" {
+        let [Pattern::Application { symbol, arguments }] = arguments.as_slice() else {
+            return None;
+        };
+        return (symbol.name == "kseq").then(|| &arguments[0]);
+    }
+    arguments.iter().find_map(k_cell_program)
+}
+
+/// Class test for the two-parser ticket, list rendering: `kcompile --bison-lists` changes how the
+/// generated parser recognizes a user list (left recursion, to bound its stack), not what the
+/// list is, so each program must get the term the default rendering and the in-process parser
+/// give it.
+#[cfg(unix)]
+#[test]
+fn bounded_stack_lists_give_each_program_the_term_of_the_default_lists() {
+    const LISTS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | "y" [symbol(y)]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Pgm ::= "n" Toks [symbol(n)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, LISTS).unwrap();
+    let input = root.join("program.pgm");
+    fs::write(&input, "n x, y, y").unwrap();
+    let mut terms = Vec::new();
+    for (name, flags) in [
+        ("default", &[][..]),
+        ("bounded-stack", &["--bison-lists"][..]),
+    ] {
+        let kompiled = root.join(format!("{name}-kompiled"));
+        let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kcompile", definition.to_str().unwrap()])
+            .args(["--main-module", "LISTS", "--syntax-module", "LISTS-SYNTAX"])
+            .arg("--output-directory")
+            .arg(&kompiled)
+            .arg("--gen-bison-parser")
+            .args(flags)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        let parsed = Command::new(kompiled.join("parser_PGM"))
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(
+            parsed.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&parsed.stderr)
+        );
+        let pattern = parse_pattern(&String::from_utf8_lossy(&parsed.stdout)).unwrap();
+        terms.push((name, program_term(&pattern)));
+        if name == "default" {
+            let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .arg("krun")
+                .arg("--definition")
+                .arg(&kompiled)
+                .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+                .arg(&input)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(
+                in_process.status.success(),
+                "{}",
+                String::from_utf8_lossy(&in_process.stderr)
+            );
+            let configuration =
+                parse_pattern(&String::from_utf8_lossy(&in_process.stdout)).unwrap();
+            terms.push((
+                "in-process",
+                program_term(k_cell_program(&configuration).expect("a <k> cell")),
+            ));
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+    let (_, first) = &terms[0];
+    assert!(
+        terms.iter().all(|(_, term)| term == first),
+        "{}",
+        terms
+            .iter()
+            .map(|(name, term)| format!("{name}: {term}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// `kcompile --bison-lists` recognizes possibly-empty lists as well as non-empty ones, and it
+/// changes neither a list's term nor its locations: for a `NeList` and a `List` of
+/// `[locations]` sorts, in the LR and in the GLR parser, each program gets from the
+/// bounded-stack parser what the default parser gives it. When the list is ambiguous, both GLR
+/// parsers print its readings merged (`Lblamb`), the same readings, merged at the places where
+/// each parser read them two ways. A list longer than the stack bound is read by the
+/// bounded-stack parser and refused by the default one.
+#[cfg(unix)]
+#[test]
+fn bounded_stack_lists_read_every_list_with_the_terms_and_locations_of_the_default_lists() {
+    const LISTS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | "y" [symbol(y)]
+  syntax Toks [locations]
+  syntax Opt [locations]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Opt ::= List{Tok, ";"} [symbol(opt)]
+  syntax Pgm ::= "n" Toks [symbol(n)] | "m" Opt "." [symbol(m)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    const AMBIGUOUS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | Tok "," Tok [symbol(pair)]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Pgm ::= "n" Toks [symbol(n)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    /// The terms a printed term with merged readings stands for.
+    fn readings(pattern: &Pattern) -> BTreeSet<String> {
+        let Pattern::Application { symbol, arguments } = pattern else {
+            return BTreeSet::from([pattern.to_string()]);
+        };
+        if symbol.name == "Lblamb" {
+            return arguments.iter().flat_map(readings).collect();
+        }
+        arguments
+            .iter()
+            .fold(BTreeSet::from([Vec::new()]), |prefixes, argument| {
+                let readings = readings(argument);
+                prefixes
+                    .iter()
+                    .flat_map(|prefix| {
+                        readings.iter().map(move |reading| {
+                            let mut arguments: Vec<String> = prefix.clone();
+                            arguments.push(reading.clone());
+                            arguments
+                        })
+                    })
+                    .collect()
+            })
+            .into_iter()
+            .map(|arguments| format!("{}({})", symbol.name, arguments.join(",")))
+            .collect()
+    }
+    let (root, definition) = fixture();
+    let compile = |source: &str, name: &str, flags: &[&str]| {
+        fs::write(&definition, source).unwrap();
+        let kompiled = root.join(format!("{name}-kompiled"));
+        let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kcompile", definition.to_str().unwrap()])
+            .args(["--main-module", "LISTS", "--syntax-module", "LISTS-SYNTAX"])
+            .arg("--output-directory")
+            .arg(&kompiled)
+            .args(flags)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        kompiled.join("parser_PGM")
+    };
+    let parse = |parser: &Path, program: &str| {
+        let input = root.join("program.pgm");
+        fs::write(&input, program).unwrap();
+        let parsed = Command::new(parser).arg(&input).output().unwrap();
+        parsed
+            .status
+            .success()
+            .then(|| parse_pattern(&String::from_utf8_lossy(&parsed.stdout)).unwrap())
+    };
+    let long = format!("n {}x", "x, ".repeat(200));
+    for mode in ["--gen-bison-parser", "--gen-glr-bison-parser"] {
+        let default = compile(LISTS, "default", &[mode]);
+        let bounded = compile(
+            LISTS,
+            "bounded",
+            &[mode, "--bison-lists", "--bison-stack-max-depth", "64"],
+        );
+        for program in [
+            "n x",
+            "n x, y,y",
+            "n x ,\n y\n",
+            "m .",
+            "m\n.",
+            "m x .",
+            "m x; y ;x .",
+            "m x;\n y\n.",
+            &long,
+        ] {
+            let expected = parse(&default, program);
+            assert!(expected.is_some(), "{mode}: default: {program:?}");
+            assert_eq!(parse(&bounded, program), expected, "{mode}: {program:?}");
+        }
+        let shallow = compile(LISTS, "shallow", &[mode, "--bison-stack-max-depth", "64"]);
+        assert_eq!(
+            parse(&shallow, &long),
+            None,
+            "{mode}: the stack bound holds"
+        );
+
+        if mode == "--gen-glr-bison-parser" {
+            let default = compile(AMBIGUOUS, "default", &[mode]);
+            let bounded = compile(AMBIGUOUS, "bounded", &[mode, "--bison-lists"]);
+            for (program, count) in [("n x", 1), ("n x, x", 2), ("n x, x, x", 5)] {
+                let expected = readings(&parse(&default, program).expect(program));
+                assert_eq!(expected.len(), count, "ambiguous: default: {program:?}");
+                let bounded = readings(&parse(&bounded, program).expect(program));
+                assert_eq!(bounded, expected, "ambiguous: {program:?}");
+            }
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The arguments of the `<k>` cell of a configuration.
 fn k_cell(pattern: &Pattern) -> Option<&[Pattern]> {
     let Pattern::Application { symbol, arguments } = pattern else {
@@ -11687,7 +11950,7 @@ endmodule
 
 #[cfg(unix)]
 #[test]
-fn kcompile_generates_a_bounded_left_associative_nonempty_list_parser() {
+fn kcompile_generates_a_bounded_stack_nonempty_list_parser() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -11740,7 +12003,7 @@ endmodule
     );
     assert_eq!(
         String::from_utf8(parsed.stdout).unwrap(),
-        "inj{SortEs{}, SortPgm{}}(Lbles{}(Lbles{}(Lbl'Stop'List'LBraQuot'es'QuotRBra'{}(),\\dv{SortE{}}(\"e\")),\\dv{SortE{}}(\"e\")))\n"
+        "inj{SortEs{}, SortPgm{}}(Lbles{}(\\dv{SortE{}}(\"e\"),Lbles{}(\\dv{SortE{}}(\"e\"),Lbl'Stop'List'LBraQuot'es'QuotRBra'{}())))\n"
     );
 
     fs::remove_dir_all(root).unwrap();

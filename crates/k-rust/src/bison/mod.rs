@@ -33,10 +33,25 @@ pub enum Artifact {
     SharedLibrary,
 }
 
+/// How the generated grammar recognizes a user list. Both build the list's terms: a list of
+/// `e1 ... en` is the constructor applied to `e1` and the list of `e2 ... en`, ending in the
+/// terminator.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ListRecursion {
+    /// Each element is followed by the rest of the list. An LR parser holds every element of a
+    /// list on its stack until the list ends.
+    #[default]
+    Right,
+    /// Each element follows the list before it, so an LR parser reduces as it reads and its
+    /// stack does not grow with a list's length; the list's term is built when the list ends.
+    Left,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
     pub mode: Mode,
     pub stack_max_depth: u64,
+    pub lists: ListRecursion,
     pub artifact: Artifact,
 }
 
@@ -45,6 +60,7 @@ impl Default for Options {
         Self {
             mode: Mode::Glr,
             stack_max_depth: 10_000,
+            lists: ListRecursion::Right,
             artifact: Artifact::Executable,
         }
     }
@@ -114,7 +130,7 @@ pub fn generate_parser(
     let start_sort = &crate::inner::program_start_sort(definition, module_id, start_sort);
     let sentences =
         concrete_program_sentences(prepared_bison_program_sentences(definition, module_id));
-    let grammar = grammar::prepare(&sentences)?;
+    let grammar = grammar::prepare(&sentences, options.lists)?;
     let scanner = Scanner::new(&grammar.scanner_sentences())?;
     let scanner_source = scanner.render()?;
     let parser_source = grammar::render(

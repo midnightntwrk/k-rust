@@ -187,6 +187,7 @@ krust kcompile definition.k --main-module MAIN --gen-glr-bison-parser --bison-pa
 ```
 
 The shared-library form installs `libparser_<Sort>_<Module>` with the platform extension and a relative `parser_PGM` link.
+`--bison-lists` recognizes user lists by left recursion, so a list's length does not grow the generated parser's stack (`--bison-stack-max-depth`); the definition and each program's term stay those without the flag ([compatibility](docs/compatibility.md#generated-parser-list-recursion)).
 
 Prepare semantics once, then prove new specifications against that parsed definition:
 

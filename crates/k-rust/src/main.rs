@@ -372,7 +372,8 @@ struct KcompileArgs {
     #[arg(long, default_value_t = 10_000, value_name = "SIZE")]
     bison_stack_max_depth: u64,
 
-    /// Make generated Bison list grammars left associative to bound parser stack use.
+    /// Recognize user lists by left recursion in the generated Bison parser, so that a list's
+    /// length does not grow the parser stack; each program gets the same term.
     #[arg(long)]
     bison_lists: bool,
 
@@ -1775,8 +1776,7 @@ fn load_definition(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    load_definition_impl(options, backend, configuration_module, None, false)
-        .map(|(loaded, _, _)| loaded)
+    load_definition_impl(options, backend, configuration_module, None).map(|(loaded, _, _)| loaded)
 }
 
 /// Load a definition from the command line, recording entry-source resolution and every loader
@@ -1786,7 +1786,6 @@ fn load_definition_impl(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
     compilation_syntax: Option<Option<&str>>,
-    bison_lists: bool,
 ) -> Result<
     (
         k_rust::outer::LoadedDefinition,
@@ -1823,7 +1822,6 @@ fn load_definition_impl(
                 configuration_module: configuration_module.map(str::to_owned),
                 project_root: None,
                 diagnostics: options.diagnostics,
-                bison_lists,
             };
             Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
         })?;
@@ -1880,7 +1878,6 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             &options.common,
             configuration_module.expect("--compiled-definition requires --for-proving"),
             prepared,
-            options.bison_lists,
         )?;
         let syntax = resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         (loaded, syntax, load_timings)
@@ -1890,7 +1887,6 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             Some(options.backend),
             configuration_module,
             Some(options.syntax_module.as_deref()),
-            options.bison_lists,
         )?;
         (
             loaded,
@@ -1972,6 +1968,11 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 k_rust::bison::Options {
                     mode,
                     stack_max_depth: options.bison_stack_max_depth,
+                    lists: if options.bison_lists {
+                        k_rust::bison::ListRecursion::Left
+                    } else {
+                        k_rust::bison::ListRecursion::Right
+                    },
                     artifact: if options.bison_parser_library {
                         k_rust::bison::Artifact::SharedLibrary
                     } else {
@@ -2210,6 +2211,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
             k_rust::bison::Options {
                 mode,
                 stack_max_depth: options.bison_stack_max_depth,
+                lists: k_rust::bison::ListRecursion::Right,
                 artifact: k_rust::bison::Artifact::Executable,
             },
         )
@@ -2360,7 +2362,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             return Err("--main-module is required with a source definition".into());
         }
         let (mut loaded, _, load_timings) =
-            load_definition_impl(common, Some(CompilationBackend::Rust), None, None, false)?;
+            load_definition_impl(common, Some(CompilationBackend::Rust), None, None)?;
         let syntax_module =
             resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         if let Some(warning) = syntax_module.fallback_warning {
@@ -3240,7 +3242,7 @@ fn compile_proof_source(
     prepared: Option<&Path>,
 ) -> Result<KoreDefinition, Box<dyn Error>> {
     let loaded = if let Some(prepared) = prepared {
-        load_definition_against_prepared(common, definition_module, prepared, false)?.0
+        load_definition_against_prepared(common, definition_module, prepared)?.0
     } else {
         load_definition(
             common,
@@ -3278,7 +3280,6 @@ fn load_definition_against_prepared(
     options: &CommonOptions,
     definition_module: &str,
     prepared: &Path,
-    bison_lists: bool,
 ) -> Result<(k_rust::outer::LoadedDefinition, PhaseTimings), Box<dyn Error>> {
     let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
@@ -3311,7 +3312,6 @@ fn load_definition_against_prepared(
             configuration_module: Some(definition_module.into()),
             project_root: None,
             diagnostics: options.diagnostics,
-            bison_lists,
         },
         &base,
         &manifest.sources,

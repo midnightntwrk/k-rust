@@ -323,6 +323,16 @@ The pinned K's generated parsers copy a `String` token's text into the KORE outp
 krust's frontend also reads a hexadecimal escape only from hexadecimal digits, so `"\x+1"` is no `String` literal; the pinned K reads the digits as a signed number there. K's `String` token regex admits only hexadecimal digits after `\x`, `\u` and `\U`, so only a definition that declares its own token regex for a hooked sort can write such a token.
 (`kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
+## Generated parser list recursion
+
+`kcompile --bison-lists` chooses how a generated parser recognizes user lists, not what a list is: the definition is the one compiled without the flag, so a list's constructor keeps its signature (element, list), `syntaxDefinition.kore`, the rules, `krun`'s in-process program parser and every other artifact are unchanged, and each program gets the term the parser generated without the flag gives it, with the same `#location` wrappers.
+Without the flag a list is recognized by right recursion, each element followed by the rest of the list, and an LR parser holds every element of a list on its stack until the list ends; with it, by left recursion, each element following the elements before it, so the parser reduces as it reads and a list's length does not grow its stack.
+The elements are collected in reading order, and when the list ends its term is built from the last element back: the constructor applied to each element and the list after it, from the terminator, each application written and located as the constructor's own production writes and locates it, so a list `e1, ..., en` is `cons(e1, cons(..., cons(en, nil)))`.
+A possibly-empty list (`List`) is read as its terminator or as a non-empty list, as without the flag.
+A GLR parser that reads the elements two ways merges the two readings of the elements read so far, where the parser without the flag merges the two readings of the rest of the list; both print the same readings, packed at different places.
+This diverges from the pinned K, whose `--bison-lists` changes the definition: the list's constructor is declared over (list, element), its generated parser builds `cons(cons(nil, e1), e2)`, a rule written over the constructor means something else with the flag than without it, and a `List` is rejected (`Cannot use List with --bison-lists`).
+(`bounded_stack_lists_give_each_program_the_term_of_the_default_lists` and `bounded_stack_lists_read_every_list_with_the_terms_and_locations_of_the_default_lists` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
 ## Line marker productions
 
 A production of sort `#LineMarker` (`syntax #LineMarker ::= r"#line [0-9]+\\n"`) declares which text is a line marker: text that is not a token and that relocates the text after it.

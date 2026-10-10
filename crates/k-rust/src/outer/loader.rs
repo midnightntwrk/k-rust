@@ -61,8 +61,7 @@ use crate::{
 use super::{MarkdownError, extract_fenced_k_code_with_map};
 use super::{
     ParseError, Position, Sentence as OuterSentence, SourceFile, Span, SyntaxBody,
-    lower::{LowerOptions, lower_files},
-    parse,
+    lower::lower_files, parse,
 };
 
 mod selection;
@@ -109,8 +108,6 @@ pub struct LoadOptions {
     pub project_root: Option<String>,
     /// Filtering and severity policy for diagnostics produced while loading sources.
     pub diagnostics: DiagnosticPolicy,
-    /// Lower user-list sugar with the left-recursive orientation required by Bison parsers.
-    pub bison_lists: bool,
 }
 
 impl Default for LoadOptions {
@@ -122,7 +119,6 @@ impl Default for LoadOptions {
             configuration_module: None,
             project_root: None,
             diagnostics: DiagnosticPolicy::default(),
-            bison_lists: false,
         }
     }
 }
@@ -978,14 +974,7 @@ fn load_impl(
     let files_to_lower = unprepared_files.as_deref().unwrap_or(files_to_lower);
 
     let mut definition = timings.time(load_phase::LOWER_FILES, || {
-        lower_files(
-            files_to_lower,
-            &main_module,
-            LowerOptions {
-                bison_lists: options.bison_lists,
-            },
-        )
-        .map_err(LoadError::SourceDiagnostics)
+        lower_files(files_to_lower, &main_module).map_err(LoadError::SourceDiagnostics)
     })?;
     if let Some(base) = base {
         let base_modules = base
@@ -1075,14 +1064,8 @@ pub fn load_structured(
     let files_to_lower = selected_files.as_deref().unwrap_or(&loader.files);
 
     let mut implicit = timings.time(load_phase::LOWER_FILES, || {
-        lower_files(
-            files_to_lower,
-            definition.main_module.clone(),
-            LowerOptions {
-                bison_lists: options.bison_lists,
-            },
-        )
-        .map_err(LoadError::SourceDiagnostics)
+        lower_files(files_to_lower, definition.main_module.clone())
+            .map_err(LoadError::SourceDiagnostics)
     })?;
     implicit.modules.append(&mut definition.modules);
     implicit.main_module = definition.main_module;

@@ -314,7 +314,6 @@ pub fn compile_definition_native(
             configuration_module: None,
             project_root: None,
             diagnostics: Default::default(),
-            bison_lists: false,
         },
     )
     .map_err(napi_error)?;
@@ -361,7 +360,6 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
             configuration_module: None,
             project_root: None,
             diagnostics: Default::default(),
-            bison_lists: false,
         },
     )
     .map_err(napi_error)?;

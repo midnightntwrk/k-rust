@@ -318,7 +318,6 @@ fn compile_definition(options: &str) -> Result<String, String> {
             configuration_module: None,
             project_root: None,
             diagnostics: Default::default(),
-            bison_lists: false,
         },
     )
     .map_err(display_error)?;
@@ -374,7 +373,6 @@ fn parse_program(options: &str) -> Result<String, String> {
             configuration_module: None,
             project_root: None,
             diagnostics: Default::default(),
-            bison_lists: false,
         },
     )
     .map_err(display_error)?;
