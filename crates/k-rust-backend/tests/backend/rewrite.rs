@@ -6421,8 +6421,8 @@ fn run_equation_requires_budget(
     max_simplification_iterations: usize,
 ) -> EquationRequiresRun {
     // The chain is a deep constructor term and `size` recurses once per element. Run on the
-    // 64 MiB stack the CLI and RPC workers use, or more for chains whose recursion needs it in a
-    // debug build (about 16 KiB of stack per level).
+    // 64 MiB stack the CLI and RPC workers use, or more for chains whose recursion needs it
+    // unoptimized (opt-level 0, the `debugging` profile; about 16 KiB of stack per level).
     let stack_size = (64 * 1024 * 1024).max(depth * 32 * 1024);
     on_thread_with_stack("equation-requires-budget", stack_size, move || {
         let definition = equation_requires_budget_definition(size);
