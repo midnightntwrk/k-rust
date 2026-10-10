@@ -132,6 +132,9 @@ pub(super) struct Tally {
     /// The conditions the full check simplified, and those of them the memo answered.
     pub(super) memo_conditions: usize,
     pub(super) memo_hits: usize,
+    /// Definitions whose load skipped a pair the full check classifies (`CheckCounts::skipped`):
+    /// those on which V9 compares the two scopes where they could differ.
+    pub(super) with_skipped_pair: usize,
     pub(super) failures: Vec<String>,
 }
 
@@ -156,6 +159,7 @@ impl Tally {
         self.without_model += other.without_model;
         self.memo_conditions += other.memo_conditions;
         self.memo_hits += other.memo_hits;
+        self.with_skipped_pair += other.with_skipped_pair;
         if self.divergences.len() < 5 {
             self.divergences.extend(other.divergences);
             self.divergences.truncate(5);
@@ -192,8 +196,8 @@ impl Tally {
             self.classes,
             self.failures.len()
         ) + &format!(
-            "; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo",
-            self.reasons, self.memo_hits, self.memo_conditions
+            "; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped",
+            self.reasons, self.memo_hits, self.memo_conditions, self.with_skipped_pair
         )
     }
 }
@@ -801,7 +805,7 @@ pub(super) fn sort_name(sort: &Sort) -> Option<String> {
 /// I)`), which need not end. A stopped call claims nothing.
 const BACKEND_SECONDS: u64 = 2;
 
-fn deadline() -> crate::stop::DeadlineGuard {
+pub(super) fn deadline() -> crate::stop::DeadlineGuard {
     let limit = std::time::Duration::from_secs(BACKEND_SECONDS);
     crate::stop::arm_deadline(
         std::time::Instant::now() + limit,
@@ -1002,6 +1006,7 @@ pub(super) fn check_definition(
     // the tainted set of V6) are statements about the full check, so they are read from its
     // verdict; the claims are read from the loaded definition below.
     let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+    tally.with_skipped_pair += usize::from(backend.value_claims().counts().skipped > 0);
     for difference in backend.value_claims().claim_differences(&full, &backend) {
         tally.failures.push(format!(
             "{label}: {SCOPES}: the load's scope and the full check differ: {difference}\n{}",

@@ -58,8 +58,11 @@ jobs:
   # The value contract's oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000
   # random definitions, with a seed derived from the date and printed in hexadecimal, so that a
   # failure is reproduced with `KRUST_DEFINEDNESS_ORACLE_SEED=<seed>`. The mutation switches run
-  # at their default size on every push (ci.yml); each takes under a second, so none is held back
-  # for this run.
+  # at their default size on every push (ci.yml), so none is held back for this run: the oracle's
+  # each take under a second, and the axiom-instance harness's (`the_axiom_harness_sees_*`, each
+  # one run of the harness over its definitions other than the random ones) about 14 seconds
+  # each. This run leaves the harness's random definitions at their default count
+  # (`KRUST_AXIOM_HARNESS_CASES`).
   value-contract-oracle:
     name: Value-contract oracle, long run
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

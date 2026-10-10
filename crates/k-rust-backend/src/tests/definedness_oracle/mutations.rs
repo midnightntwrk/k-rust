@@ -47,30 +47,8 @@ fn unifier_failures(switches: Switches) -> Vec<String> {
 /// The check runs with every claim withheld, so it does not refute the pair, and `h` must be
 /// tainted.
 fn claim_dependent_failures(switches: Switches) -> Vec<String> {
-    use super::language::{Definition, OWISE_PRIORITY, app, cons, int, var};
-    let definition = Definition::new(&["A", "B"])
-        .constructor("c1", &[], "B")
-        .constructor("c2", &[], "B")
-        .head("h", &["Int"], "A")
-        .total_function("isH1", &["A"], "Bool")
-        .equation(
-            app("isH1", vec![app("h", vec![int(1)])]),
-            super::generator::boolean(true),
-        )
-        .full(
-            app("isH1", vec![var("VarY", "A")]),
-            super::generator::boolean(false),
-            None,
-            None,
-            OWISE_PRIORITY,
-        )
-        .function("f", &["A"], "B")
-        .conditional(
-            app("f", vec![var("VarX", "A")]),
-            cons("c1"),
-            Some(app("isH1", vec![app("h", vec![int(2)])])),
-        )
-        .equation(app("f", vec![var("VarX", "A")]), cons("c2"));
+    use super::language::{app, int};
+    let definition = super::generator::claim_dependent();
     switches::with(switches, || {
         let mut rng = Rng(DEFAULT_SEED);
         let (mut tally, verdict) = check_definition(
@@ -276,4 +254,134 @@ mutation!(
     relevance_without_t_obs_is_caught_by_the_scope_comparison,
     relevance_ignores_tobs,
     scope_failures_on_observation_by_a_function
+);
+
+/// The failures of the axiom-instance harness (`axioms`) under `switches`, on the oracle's and
+/// the harness's templates, the probes and their variants, and the fixtures.
+fn axiom_failures(switches: Switches) -> Vec<String> {
+    switches::with(switches, || super::run_axioms(0, DEFAULT_SEED).failures)
+}
+
+/// The harness's own acceptance: each switch below makes a claim false, or makes the check
+/// accept a definition that has no model or whose evaluation depends on its axioms' order, on
+/// one of the definitions the harness runs, and the harness sees it. That is 25 of the 31 defect
+/// switches of `confluence::switches` (`no_condition_memo` configures the load and seeds no
+/// defect). The other six change no claim the harness can judge:
+///
+/// - `drop_injected_inner`, `drop_lifting` and `drop_lesser_productions`: the overload equations'
+///   own inner pairs reach the overlaps they drop, so the check still names a pair and taints the
+///   same heads;
+/// - `claims_during_check`: a pair refuted with a claim forces nothing that contradicts that
+///   claim; `discharge_before_check` runs the check the same way, and its other effect is on the
+///   rewrite rules' definedness, which no equation instance reads;
+/// - `self_pair_reads_opaque_rhs_as_nothing`: its self pairs have a disjunction, `\top` or
+///   predicates as right-hand side, which the harness does not instantiate.
+///
+/// The oracle sees the first four only by comparing the pairs or the taint set with its own,
+/// `discharge_before_check` by the rewrite rule's definedness obligation
+/// (`confluence::tests::discharging_before_the_check_is_caught`), and the last by V3c's
+/// brute-force self pairs (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`).
+macro_rules! axiom_mutation {
+    ($test:ident, $field:ident) => {
+        #[test]
+        fn $test() {
+            super::on_large_stack(|| {
+                let switches = Switches {
+                    $field: true,
+                    ..Switches::default()
+                };
+                assert!(
+                    !axiom_failures(switches).is_empty(),
+                    "the switch {} went unnoticed by the axiom-instance harness",
+                    stringify!($field)
+                );
+            });
+        }
+    };
+}
+
+axiom_mutation!(
+    the_axiom_harness_sees_dropped_inner_positions,
+    drop_inner_positions
+);
+axiom_mutation!(
+    the_axiom_harness_sees_dropped_glb_branches,
+    drop_glb_branches
+);
+axiom_mutation!(
+    the_axiom_harness_sees_inner_pairs_separated_by_priority,
+    separate_inner_by_priority
+);
+axiom_mutation!(
+    the_axiom_harness_sees_every_condition_refuted,
+    refute_every_condition
+);
+axiom_mutation!(the_axiom_harness_sees_ignored_ensures, ignore_ensures);
+axiom_mutation!(
+    the_axiom_harness_sees_erased_partial_residuals,
+    erase_partial_residuals
+);
+axiom_mutation!(
+    the_axiom_harness_sees_a_decomposed_refused_redex,
+    decompose_refused_redex
+);
+axiom_mutation!(
+    the_axiom_harness_sees_ignored_higher_groups,
+    ignore_higher_groups
+);
+axiom_mutation!(
+    the_axiom_harness_sees_joins_with_symbolic_equations,
+    join_with_symbolic
+);
+axiom_mutation!(
+    the_axiom_harness_sees_skipped_renaming_apart,
+    no_rename_apart
+);
+axiom_mutation!(the_axiom_harness_sees_a_dropped_t1, drop_t1);
+axiom_mutation!(
+    the_axiom_harness_sees_a_dropped_tsym_on_right_hand_sides,
+    drop_tsym_rhs
+);
+axiom_mutation!(the_axiom_harness_sees_a_dropped_tobs, drop_tobs);
+axiom_mutation!(the_axiom_harness_sees_heads_only_seeding, seed_heads_only);
+axiom_mutation!(
+    the_axiom_harness_sees_admitted_equation_heads,
+    admit_equation_heads
+);
+axiom_mutation!(
+    the_axiom_harness_sees_admitted_certificates,
+    admit_certificates
+);
+axiom_mutation!(
+    the_axiom_harness_sees_every_total_symbol_collapsed,
+    collapse_every_total
+);
+axiom_mutation!(
+    the_axiom_harness_sees_stuck_totals_read_as_bottom,
+    stuck_total_is_bottom
+);
+axiom_mutation!(
+    the_axiom_harness_sees_a_dropped_supersort_closure,
+    drop_supersort_inhabitation
+);
+axiom_mutation!(
+    the_axiom_harness_sees_relevance_without_tobs,
+    relevance_ignores_tobs
+);
+axiom_mutation!(
+    the_axiom_harness_sees_several_matches_dropped,
+    drop_several_matches
+);
+axiom_mutation!(
+    the_axiom_harness_sees_self_pairs_that_ignore_ensures,
+    self_pair_ignores_ensures
+);
+axiom_mutation!(the_axiom_harness_sees_a_misread_int_le, misread_int_le);
+axiom_mutation!(
+    the_axiom_harness_sees_relevance_that_needs_both_equations,
+    relevance_needs_both
+);
+axiom_mutation!(
+    the_axiom_harness_sees_dropped_collection_edges,
+    drop_collection_edges
 );

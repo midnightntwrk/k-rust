@@ -1918,6 +1918,16 @@ impl BackendDefinition {
         crate::confluence::check(&copy, scope, memo)
     }
 
+    /// Test builds: this definition with every value claim withheld, as while its check runs, so
+    /// that a test can compare what the evaluator decides without claims with what it decides
+    /// with them.
+    #[cfg(test)]
+    pub(crate) fn with_claims_withheld(&self) -> Self {
+        let mut copy = self.clone();
+        copy.value_claims = crate::confluence::ValueClaims::withheld();
+        copy
+    }
+
     /// Returns the equations for function applications.
     pub fn function_theory(&self) -> &Theory {
         &self.function_theory

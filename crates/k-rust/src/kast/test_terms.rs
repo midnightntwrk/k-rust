@@ -192,3 +192,54 @@ pub(crate) fn paired<'a>(left: &'a Term, right: &'a Term) -> Vec<(&'a Term, &'a 
     }
     pairs
 }
+
+/// Every constructor [`every_constructor`]'s documentation names occurs in its terms: nullary
+/// applications, variables, tokens and injected labels, and rewrites, aliases, sequences and
+/// applications with arguments.
+#[test]
+fn every_constructor_produces_every_constructor() {
+    use std::collections::BTreeMap;
+
+    use proptest::{
+        strategy::ValueTree,
+        test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+    };
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let strategy = every_constructor();
+    let mut found = BTreeMap::<&str, usize>::new();
+    for _ in 0..256 {
+        let term = strategy.new_tree(&mut runner).expect("a case").current();
+        for (_, node) in positions(&term) {
+            let constructor = match node.unannotated() {
+                Term::Apply { arguments, .. } if arguments.is_empty() => "nullary application",
+                Term::Apply { .. } => "application with arguments",
+                Term::Variable { .. } => "variable",
+                Term::Token { .. } => "token",
+                Term::InjectedLabel(_) => "injected label",
+                Term::Rewrite { .. } => "rewrite",
+                Term::As { .. } => "alias",
+                Term::Sequence(_) => "sequence",
+                Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
+            };
+            *found.entry(constructor).or_default() += 1;
+        }
+    }
+    for constructor in [
+        "nullary application",
+        "application with arguments",
+        "variable",
+        "token",
+        "injected label",
+        "rewrite",
+        "alias",
+        "sequence",
+    ] {
+        assert!(
+            found.contains_key(constructor),
+            "no {constructor}: {found:?}"
+        );
+    }
+}
