@@ -1510,6 +1510,67 @@ mod tests {
         assert_eq!(filtered(&grammar, "a c c c"), expected);
     }
 
+    /// Two witnesses: a doomed node the preference reads. `Start ::= S` passes its child
+    /// through, so the readings of `S` are the readings of the root, among which the preference
+    /// keeps those rooted at a rewrite. `S ::= A "=>" X` is a rewrite and
+    /// `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X` derives only
+    /// `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first child, and
+    /// `times > plus`. In `a => a => a * a + a` the only `X` is
+    /// `times(rewrite(a, a), plus(a, a))`: the filter meets the rewrite below `times` (a scope
+    /// error it defers) before the sum below it (a priority violation), so that node is doomed
+    /// and stays in the forest. It lies inside `rewrite(a, times(..))`, the one reading of `S`
+    /// rooted at a rewrite, and `imp(a, ytail(a, a, plus(a, a)))` is the other. The preference
+    /// keeps the rewrite reading, whose doomed node fails the filter, so the input has no
+    /// parse. A recognition that skipped the edge from `times` to the sum would not build that
+    /// reading, and would accept the input through `imp`. So in an input with two witnesses
+    /// (here the two `=>`, the first lexical item of each rewrite), the first attempt keeps
+    /// the edges to doomed nodes (`DoomedEdges`).
+    #[test]
+    fn a_doomed_node_inside_a_rewrite_with_two_witnesses_is_kept() {
+        let grammar = Grammar::from_sentences(&[
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("Start"),
+                items: vec![nt("S")],
+                attributes: Attributes::default(),
+            },
+            production("A", vec![terminal("a")], "atom"),
+            production("A", vec![nt("A"), terminal("+"), nt("A")], "plus"),
+            production(
+                "S",
+                vec![nt("A"), terminal("=>"), nt("X")],
+                InternalLabel::KRewrite.as_str(),
+            ),
+            production("S", vec![nt("A"), terminal("=>"), nt("Y")], "imp"),
+            production("X", vec![nt("Q"), terminal("*"), nt("A")], "times"),
+            production(
+                "Q",
+                vec![nt("A"), terminal("=>"), nt("A")],
+                InternalLabel::KRewrite.as_str(),
+            ),
+            production(
+                "Y",
+                vec![nt("A"), terminal("=>"), nt("A"), terminal("*"), nt("A")],
+                "ytail",
+            ),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["times".to_owned()], vec!["plus".to_owned()]],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        let input = "a => a => a * a + a";
+        let expected = unfiltered(&grammar, input);
+        assert!(
+            matches!(&expected, Err(ParseError::Scope { parent, child })
+                if parent == "times" && child == InternalLabel::KRewrite.as_str()),
+            "{expected:?}"
+        );
+        assert_eq!(filtered(&grammar, input), expected);
+        pruning_agrees_with_unfiltered_recognition(&grammar, input).unwrap();
+    }
+
     /// An operator whose operands are recognized at a sort that derives the operator's own sort
     /// through an unlabelled production (`R ::= E`, as a rule grammar's `#RuleE ::= E` where
     /// argument positions admit rewrites) holds the operand node itself: that production adds
