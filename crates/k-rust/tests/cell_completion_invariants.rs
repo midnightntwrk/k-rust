@@ -506,11 +506,12 @@ fn a_bag_variable_beside_the_frame_names_part_of_the_frame() {
 }
 
 /// Owner decision O1 (TQ20). A `Bag` variable that can stand for a free child beside the frame
-/// (or beside another such variable) and is read elsewhere has several readings: it is that
-/// child, or it is empty. Nothing in the rule chooses, so the rule is rejected, naming the
-/// variable and the child. A variable read nowhere else (the test above) is accepted.
+/// (or beside another such variable) and is not carried (written once on each side, in that
+/// body, and nowhere else) has several readings: it is that child, or it is empty. Nothing in
+/// the rule chooses, so the rule is rejected, naming the variable and the child. A carried
+/// variable (the test above) is accepted.
 #[test]
-fn a_bag_variable_read_elsewhere_that_competes_for_a_free_cell_is_rejected_naming_both() {
+fn a_bag_variable_not_carried_that_competes_for_a_free_cell_is_rejected_naming_both() {
     let mut failures = Vec::new();
     for (rule, variable, cell) in [
         ("<a> <y> Y </y> (B => .Bag) ... </a>", "B", "<z>"),
@@ -526,7 +527,10 @@ fn a_bag_variable_read_elsewhere_that_competes_for_a_free_cell_is_rejected_namin
         match completed(PLAIN, rule) {
             Err(errors)
                 if errors.iter().any(|error| {
-                    error.contains(&expected) && error.contains("is read elsewhere in the rule")
+                    error.contains(&expected)
+                        && error.contains(
+                            "is not kept unchanged by the rule (written once on each side, in <a>, and nowhere else)",
+                        )
                 }) => {}
             outcome => failures.push(format!("\n  {rule}\n    -> {outcome:?}")),
         }
@@ -709,49 +713,61 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
 
 /// Ticket C2 (item 6). When completion rejects a rule because the rule does not state which
 /// instance of a `multiplicity="*"` cell holds a cell written outside every instance, the message
-/// names that cell and the `multiplicity="*"` cell, so the author knows what to write.
+/// names that cell and the `multiplicity="*"` cell, so the author knows what to write. A rule
+/// with a written instance that may hold the cell is rejected (TQ23 (b)); one with no written
+/// instance (the last row) builds a fresh one, and is checked only for the message if rejected.
 #[test]
 fn a_rejection_for_an_unstated_instance_names_the_cell_and_the_repeated_cell() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
     let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
     let mut failures = Vec::new();
-    for (configuration, rule, cell, repeated) in [
+    for (configuration, rule, cell, repeated, must_reject) in [
         (
             THREADS_MAP,
             "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             "<env>",
             "<thread>",
+            true,
         ),
         (
             threads_list.as_str(),
             "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             "<env>",
             "<thread>",
+            true,
         ),
         (
             REPEATED_BELOW_A,
             "<A> <x> X </x> ... </A> <A2> <y> 1 </y> ... </A2> <d> 5 => 6 </d>",
             "<d>",
             "<R>",
+            true,
         ),
         (
             list_in_p.as_str(),
             "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
             "<d>",
             "<r>",
+            false,
         ),
     ] {
-        if let Err(errors) = completed(configuration, rule)
-            && !errors
-                .iter()
-                .any(|error| error.contains(cell) && error.contains(repeated))
-        {
-            failures.push(format!("\n  {rule}\n    -> {errors:?}"));
+        match completed(configuration, rule) {
+            Err(errors)
+                if !errors
+                    .iter()
+                    .any(|error| error.contains(cell) && error.contains(repeated)) =>
+            {
+                failures.push(format!("\n  {rule}\n    -> {errors:?}"));
+            }
+            Ok(_) if must_reject => {
+                failures.push(format!("\n  {rule}\n    -> compiled, not rejected"));
+            }
+            Err(_) | Ok(_) => {}
         }
     }
     assert!(
         failures.is_empty(),
-        "rejections that do not name the cell and its repeated ancestor:{}",
+        "rules not rejected, or rejected without naming the cell and its repeated ancestor:{}",
         failures.join("")
     );
 }

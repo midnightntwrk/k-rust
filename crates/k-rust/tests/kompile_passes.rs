@@ -6979,8 +6979,9 @@ fn places_a_cell_sorted_function_on_a_rewrite_side_by_its_sort() {
 }
 
 // An alias `P #as V` of one cell names that cell, so `V` is a term of the cell's sort whatever
-// sort parsing gave it from the cell body it is written in (`Bag`). The rule compiles, through
-// the whole pipeline, as the one that writes `V` with the cell's sort.
+// sort parsing gave it from the cell body it is written in (`Bag`), at every occurrence of `V`
+// in the rule. The rule compiles, through the whole pipeline, as the one that writes `V` with the
+// cell's sort.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn an_alias_of_one_cell_compiles_as_the_alias_written_with_the_cells_sort() {
@@ -6988,8 +6989,8 @@ fn an_alias_of_one_cell_compiles_as_the_alias_written_with_the_cells_sort() {
         let source = format!(
             r#"module TEST
   imports INT
-  configuration <T> <k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>
-  rule <k> 0 => 1 </k> {rule} [label(probe)]
+  configuration <T> <k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a> <b> .K </b> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>
+  rule {rule} [label(probe)]
 endmodule
 "#
         );
@@ -7003,12 +7004,21 @@ endmodule
     };
     for (inferred, written) in [
         (
-            "<a> (<y> Y </y> #as YC) ... </a>",
-            "<a> (<y> Y </y> #as YC:YCell) ... </a>",
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) ... </a>",
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC:YCell) ... </a>",
         ),
         (
-            "<threads> (<thread> <id> 1 </id> ... </thread> #as TC) ... </threads>",
-            "<threads> (<thread> <id> 1 </id> ... </thread> #as TC:ThreadCell) ... </threads>",
+            "<k> 0 => 1 </k> <threads> (<thread> <id> 1 </id> ... </thread> #as TC) ... </threads>",
+            "<k> 0 => 1 </k> <threads> (<thread> <id> 1 </id> ... </thread> #as TC:ThreadCell) ... </threads>",
+        ),
+        // `V` read elsewhere: in another cell, and in the cell `<k>`.
+        (
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC) ... </a> <b> _ => YC </b>",
+            "<k> 0 => 1 </k> <a> (<y> Y </y> #as YC:YCell) ... </a> <b> _ => YC:YCell </b>",
+        ),
+        (
+            "<k> 0 => YC ... </k> <a> (<y> Y </y> #as YC) ... </a>",
+            "<k> 0 => YC:YCell ... </k> <a> (<y> Y </y> #as YC:YCell) ... </a>",
         ),
     ] {
         assert_eq!(probe(inferred), probe(written), "{inferred}");
@@ -8182,6 +8192,35 @@ fn rejects_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_th
         body,
         r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),`<d>`(D))),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
     );
+}
+
+// A written instance of the parent may stand inside a written cell above it: here the <a2>
+// written in the written <r> may hold the <d> written outside every <a2> (its <d> is free and its
+// frame open), and so may an <a2> in another <r>. Written beside the <r> or inside <a>, <d> is
+// rejected as when the <a2> is written directly beside it. When that <a2> already holds a <d>, or
+// the written <r> is removed, only another <r> can hold the loose <d>, which completion builds.
+#[test]
+fn rejects_a_cell_that_a_written_instance_inside_a_written_repeated_cell_may_hold() {
+    let configuration = r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#;
+    for rule in [
+        "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> ... </a> <d> 5 => 6 </d>",
+        "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> <d> 5 => 6 </d> ... </a>",
+    ] {
+        let errors =
+            concretized_cell_rule(configuration, rule).expect_err("the written <a2> may hold <d>");
+        assert!(
+            errors.iter().any(|error| error.starts_with("Ambiguous completion: <d>, written outside every <a2>, can be in the <r> of the written <a2> (holding <y>) or in another <r>")),
+            "{rule}: {errors:?}"
+        );
+    }
+    for rule in [
+        "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> <d> D </d> ... </a2> ... </r> ... </a> <d> 5 => 6 </d>",
+        "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> => .Bag) ... </a> <d> 5 => 6 </d>",
+    ] {
+        let body = concretized_cell_rule(configuration, rule)
+            .unwrap_or_else(|errors| panic!("{rule}: {errors:?}"));
+        assert_eq!(body.matches("`<r>`(").count(), 2, "{rule}: {body}");
+    }
 }
 
 // Whether an item of <thread>'s sort written beside a loose <env> may be the <thread> that holds

@@ -676,6 +676,38 @@ impl CellModel {
         }
     }
 
+    /// The cell sort of each variable `V` of the alias `P #as V` of one cell `P`, written
+    /// anywhere in `roots` (a rule's body and conditions), when `V` has no cell sort: `V` names
+    /// the one cell `P`, so its value is a term of `P`'s sort wherever `V` occurs, whatever
+    /// sort it took from where it is written (`Bag`, which a term of any number of cells has,
+    /// in a cell body). A variable that aliases cells of two sorts is left out; the rule keeps
+    /// the sorts it is written with.
+    fn one_cell_alias_sorts(&self, roots: &[&Term]) -> BTreeMap<String, Sort> {
+        let mut sorts = BTreeMap::<String, Option<Sort>>::new();
+        for root in roots {
+            root.visit_preorder(&mut |term| {
+                if let Term::As { alias, .. } = term.unannotated()
+                    && let Term::Variable { name, .. } = alias.unannotated()
+                    && self.sort_for_term(alias).is_none()
+                    && let Some(sort) = self.slot_sort(term)
+                {
+                    sorts
+                        .entry(name.clone())
+                        .and_modify(|known| {
+                            if known.as_ref() != Some(&sort) {
+                                *known = None;
+                            }
+                        })
+                        .or_insert(Some(sort));
+                }
+            });
+        }
+        sorts
+            .into_iter()
+            .filter_map(|(name, sort)| Some((name, sort?)))
+            .collect()
+    }
+
     fn sort_for_side(&self, term: &Term) -> Option<Sort> {
         let mut sorts = flatten_cells(term)
             .into_iter()
@@ -797,6 +829,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 ensures,
                 attributes,
             } => {
+                let [body, requires, ensures] =
+                    self.sort_one_cell_aliases([body, requires, ensures]);
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 let ensures = self.close(ensures, false)?;
@@ -814,6 +848,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 ensures,
                 attributes,
             } => {
+                let [body, requires, ensures] =
+                    self.sort_one_cell_aliases([body, requires, ensures]);
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 let ensures = self.close(ensures, false)?;
@@ -830,6 +866,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 requires,
                 attributes,
             } => {
+                let [body, requires] = self.sort_one_cell_aliases([body, requires]);
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
@@ -844,6 +881,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 requires,
                 attributes,
             } => {
+                let [body, requires] = self.sort_one_cell_aliases([body, requires]);
                 let body = self.concretize_body(body, skip_root_wrapping(&attributes))?;
                 let requires = self.close(requires, false)?;
                 self.analyze_fragments([&body, &requires])?;
@@ -862,6 +900,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             | sentence @ Sentence::Configuration { .. }
             | sentence @ Sentence::Bubble { .. } => Ok(sentence),
         }
+    }
+
+    /// `roots`, a sentence's body and conditions, with the variable of each alias of one cell
+    /// given that cell's sort wherever it occurs ([`CellModel::one_cell_alias_sorts`]).
+    fn sort_one_cell_aliases<const N: usize>(&self, roots: [Term; N]) -> [Term; N] {
+        let sorts = self.model.one_cell_alias_sorts(&roots.each_ref());
+        if sorts.is_empty() {
+            return roots;
+        }
+        roots.map(|root| sort_one_cell_aliases(root, &sorts, self.model))
     }
 
     fn concretize_body(&mut self, body: Term, skip_root: bool) -> Result<Term, String> {
@@ -943,7 +991,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// reading denotes the same relation: what a carried term stands for is matched and kept
     /// unchanged, and read nowhere. The child then goes to the first variable that can take it in
     /// written order, the frame taking it only when no variable can, and the others stand for
-    /// nothing there. Otherwise a variable that can take the child is read elsewhere, its
+    /// nothing there. Otherwise a variable that can take the child is not carried, its
     /// readings differ (it is the child, or it is empty), nothing in the rule chooses between
     /// them, and the rule is rejected naming the variable and the child.
     fn share_free_slots(&mut self, roots: &[&Term], bodies: &[BodyUnknowns]) -> Result<(), String> {
@@ -1016,9 +1064,9 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         } else {
                             others.join(" and ")
                         };
+                        let parent = &parent.label.name;
                         return Err(format!(
-                            "Cell variable {read} in {} can stand for the cell {} {} the rule, as can {competitors}, and {read} is read elsewhere in the rule, so the rule does not state whether {read} is that cell",
-                            parent.label.name,
+                            "Cell variable {read} in {parent} can stand for the cell {} {} the rule, as can {competitors}, and {read} is not kept unchanged by the rule (written once on each side, in {parent}, and nowhere else), so the rule does not state whether {read} is that cell",
                             self.model.cells[&sort].label.name,
                             if index == 0 {
                                 "on the left side of"
@@ -1419,13 +1467,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             for (parent, items) in grouped {
                 let parent = &self.model.cells[&parent];
                 // Instances of `parent` are built only here, once per completion, so every item
-                // of its sort in `retained` or `others` (an alias) is written.
-                let written = retained
-                    .iter()
-                    .map(|(item, _)| item)
-                    .chain(&others)
-                    .filter(|item| self.model.slot_sort(item).as_ref() == Some(&parent.sort))
-                    .collect::<Vec<_>>();
+                // of its sort in `retained` or `others` (an alias), or in the body of a written
+                // cell above `parent` among them, is written.
+                let mut written = Vec::new();
+                for item in retained.iter().map(|(item, _)| item).chain(&others) {
+                    self.written_instances(item, &parent.sort, &mut written);
+                }
                 let built =
                     self.make_parents(cell, parent, open_left || open_right, items, &written)?;
                 retained.extend(built);
@@ -2200,6 +2247,38 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         None
     }
 
+    /// Push onto `out` the written instances of the cell sort `parent` that `item`, an item of
+    /// a cell body, is or holds: `item` itself when it is of that sort, and otherwise, when
+    /// `item` is a cell above `parent` written as a cell body (or a one-cell `#as` of one, which
+    /// denotes its pattern), the instances its body items are or hold. A cell inside a rewrite
+    /// is on one side only, so the walk does not enter a rewrite: such a cell is no instance the
+    /// rule keeps.
+    fn written_instances<'t>(&self, item: &'t Term, parent: &Sort, out: &mut Vec<&'t Term>) {
+        if self.model.slot_sort(item).as_ref() == Some(parent) {
+            out.push(item);
+            return;
+        }
+        let cell = match item.unannotated() {
+            Term::As { pattern, .. } => pattern,
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => item,
+        };
+        if let Some(sort) = self.model.sort_for_term(cell)
+            && self.model.is_strictly_below(parent, &sort)
+            && let Some((_, body, _)) = self.cell_body(cell)
+        {
+            // Invariant: `out` holds the instances found in `item`'s body items before `inner`; the walk descends one configured level per call, so it ends.
+            for inner in flatten_cells(body) {
+                self.written_instances(inner, parent, out);
+            }
+        }
+    }
+
     /// Whether `holder`, an item of `parent`'s sort written beside `group` (a class of
     /// [`Self::instance_classes`] of cells whose configured parent is `parent`), may be the
     /// instance of `parent` that holds `group`.
@@ -2784,7 +2863,6 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         }
                     ));
                 };
-                let item = alias_of_cell_sort(item, &sort, self.model);
                 self.insert_child(&mut ordered, sort, item, cell)?;
             } else {
                 return Err(self.unplaceable_item(&item, None, cell));
@@ -2937,11 +3015,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 | Term::Sequence(_)
                 | Term::Annotated { .. } => unreachable!("a one-sided item is a rewrite"),
             };
-            let rewrite = Term::Rewrite {
-                left: Box::new(side(removal, false)),
-                right: Box::new(side(addition, true)),
-            };
             let (first, second) = (removal.min(addition), removal.max(addition));
+            let rewrite = with_metadata(
+                Term::Rewrite {
+                    left: Box::new(side(removal, false)),
+                    right: Box::new(side(addition, true)),
+                },
+                arguments[first].metadata().cloned(),
+            );
             arguments[first] = rewrite;
             dropped.insert(second);
         }
@@ -3549,23 +3630,41 @@ fn set_variable_sort(term: Term, sort: Sort) -> Term {
     )
 }
 
-/// The alias `P #as V` of one cell `P` of sort `sort`, placed in `P`'s child slot, with `V` of
-/// sort `sort` when it has no cell sort. `V` names the one cell `P`, so its value is a term of
-/// `sort`; a sort it took from the cell body it is written in (`Bag`, which a term of any number
-/// of cells has) would type the placed alias as a bag where the slot holds one cell.
-fn alias_of_cell_sort(item: Term, sort: &Sort, model: &CellModel) -> Term {
-    let metadata = item.metadata().cloned();
-    let TermParts::As { pattern, alias } = item.into_unannotated().into_parts() else {
-        unreachable!("only an alias is given a cell sort")
-    };
-    let alias = if matches!(alias.unannotated(), Term::Variable { .. })
-        && model.sort_for_term(&alias).is_none()
+/// `term` with every variable named in `sorts` that has no cell sort given the sort `sorts`
+/// names for it (see [`CellModel::one_cell_alias_sorts`]).
+fn sort_one_cell_aliases(term: Term, sorts: &BTreeMap<String, Sort>, model: &CellModel) -> Term {
+    if let Term::Variable { name, .. } = term.unannotated()
+        && let Some(sort) = sorts.get(name)
     {
-        Box::new(set_variable_sort(*alias, sort.clone()))
-    } else {
-        alias
-    };
-    with_metadata(Term::As { pattern, alias }, metadata)
+        return if model.sort_for_term(&term).is_none() {
+            set_variable_sort(term, sort.clone())
+        } else {
+            term
+        };
+    }
+    let resort = |term: Term| sort_one_cell_aliases(term, sorts, model);
+    match term.into_parts() {
+        TermParts::Annotated { term, metadata } => Term::Annotated {
+            term: Box::new(resort(*term)),
+            metadata,
+        },
+        TermParts::Apply { label, arguments } => Term::Apply {
+            label,
+            arguments: arguments.into_iter().map(resort).collect(),
+        },
+        TermParts::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(resort(*left)),
+            right: Box::new(resort(*right)),
+        },
+        TermParts::As { pattern, alias } => Term::As {
+            pattern: Box::new(resort(*pattern)),
+            alias: Box::new(resort(*alias)),
+        },
+        TermParts::Sequence(items) => Term::Sequence(items.into_iter().map(resort).collect()),
+        parts @ (TermParts::Variable { .. }
+        | TermParts::Token { .. }
+        | TermParts::InjectedLabel(_)) => Term::from(parts),
+    }
 }
 
 fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Term {
