@@ -1845,7 +1845,12 @@ fn load_definition_impl(
         Ok((loaded, Some(syntax), timings))
     } else {
         let (loaded, loader_timings) =
-            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)?;
+            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)
+                .inspect_err(|error| {
+                    if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
+                        emit_diagnostics(diagnostics);
+                    }
+                })?;
         timings.extend(loader_timings);
         timings.set_span_seconds(span_started.elapsed().as_secs_f64());
         Ok((loaded, None, timings))

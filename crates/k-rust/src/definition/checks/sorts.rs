@@ -886,6 +886,7 @@ pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
         diagnostics.extend(super::production_shapes::check_cell_attributes(
             module, &sorts,
         ));
+        diagnostics.extend(super::production_shapes::check_line_markers(module));
         diagnostics.extend(check_kernel_sort_positions(
             &visible,
             &mut reported_kernel_contradictions,

@@ -11182,6 +11182,140 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A `#LineMarker` production says which text is a marker but not what the marker sets for the
+/// text after it, so krust gives it no meaning and refuses the definition at load, alike on every
+/// parser route: in-process parsing, the generated parser of `kast --gen-parser`, and the parser
+/// `kcompile --gen-bison-parser` builds. Each refusal is krust's own diagnostic, located at the
+/// production, whether the production is in the parsed module or in a module it imports, and no
+/// parser is written. Declaring the same text as `#Layout`, the suggested replacement, skips it
+/// alike in both parsers.
+#[cfg(unix)]
+#[test]
+fn a_line_marker_production_means_one_thing_to_both_parsers() {
+    const MARKER: &str = r##"syntax #LineMarker ::= r"#line [0-9]+\\n" [token]"##;
+    for (case, source, location) in [
+        (
+            "main",
+            format!(
+                "module LM-SYNTAX\n  {MARKER}\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n"
+            ),
+            "definition.k:2:",
+        ),
+        (
+            "imported",
+            format!(
+                "module LM\n  {MARKER}\nendmodule\n\nmodule LM-SYNTAX\n  imports LM\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n"
+            ),
+            "definition.k:2:",
+        ),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, &source).unwrap();
+        let parser = root.join("line-marker-parser");
+        let kompiled = root.join("lm-kompiled");
+        let routes = [
+            (
+                "in-process",
+                vec!["kast", "--expression", "a", "--sort", "Pgm"],
+            ),
+            (
+                "kast --gen-parser",
+                vec![
+                    "kast",
+                    "--sort",
+                    "Pgm",
+                    "--gen-parser",
+                    parser.to_str().unwrap(),
+                ],
+            ),
+            (
+                "kcompile --gen-bison-parser",
+                vec![
+                    "kcompile",
+                    "--main-module",
+                    "LM-SYNTAX",
+                    "--syntax-module",
+                    "LM-SYNTAX",
+                    "--output-directory",
+                    kompiled.to_str().unwrap(),
+                    "--gen-bison-parser",
+                ],
+            ),
+        ];
+        for (route, arguments) in routes {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+            command.arg(arguments[0]).arg(&definition);
+            if arguments[0] == "kast" {
+                command.args(["--module", "LM-SYNTAX"]);
+            }
+            let output = command
+                .args(&arguments[1..])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success(), "{case}, {route}: accepted");
+            assert!(
+                stderr.contains(location) && stderr.contains("Error[UnsupportedLineMarker]"),
+                "{case}, {route}: not refused at the production: {stderr}"
+            );
+            assert!(
+                !stderr.contains("undefined reference"),
+                "{case}, {route}: refused by the linker: {stderr}"
+            );
+        }
+        assert!(!parser.exists() && !kompiled.join("parser_PGM").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        "module LM-SYNTAX\n  syntax #Layout ::= r\"(#line [0-9]+\\\\n|[ \\\\t\\\\n])+\"\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n",
+    )
+    .unwrap();
+    let parser = root.join("layout-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LM-SYNTAX", "--sort", "Pgm", "--gen-parser"])
+        .arg(&parser)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let input = root.join("marked.pgm");
+    fs::write(&input, "#line 7\na").unwrap();
+    let standalone = Command::new(&parser).arg(&input).output().unwrap();
+    let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LM-SYNTAX", "--sort", "Pgm"])
+        .arg(&input)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        standalone.status.success() && in_process.status.success(),
+        "generated: {}\nin-process: {}",
+        String::from_utf8_lossy(&standalone.stderr),
+        String::from_utf8_lossy(&in_process.stderr)
+    );
+    assert_eq!(
+        parse_pattern(String::from_utf8_lossy(&standalone.stdout).trim()).unwrap(),
+        parse_pattern("Lbla{}()").unwrap()
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&in_process.stdout).trim(),
+        "a(.KList)"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The arguments of the `<k>` cell of a configuration.
 fn k_cell(pattern: &Pattern) -> Option<&[Pattern]> {
     let Pattern::Application { symbol, arguments } = pattern else {

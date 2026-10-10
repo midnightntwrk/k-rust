@@ -323,6 +323,15 @@ The pinned K's generated parsers copy a `String` token's text into the KORE outp
 krust's frontend also reads a hexadecimal escape only from hexadecimal digits, so `"\x+1"` is no `String` literal; the pinned K reads the digits as a signed number there. K's `String` token regex admits only hexadecimal digits after `\x`, `\u` and `\U`, so only a definition that declares its own token regex for a hooked sort can write such a token.
 (`kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
+## Line marker productions
+
+A production of sort `#LineMarker` (`syntax #LineMarker ::= r"#line [0-9]+\\n"`) declares which text is a line marker: text that is not a token and that relocates the text after it.
+The production fixes only that much: a token regex has no groups, so it does not say where the line number or a file name is in the marker, whether the number names the marker's own line or the next one, whether columns restart, or what `#location` and diagnostics then report.
+Any meaning krust gave it would be invented, and the two parsers krust builds must give each program one term, so krust rejects every `#LineMarker` production when it loads the definition, in the module that declares it or in any module the parsed one imports, with `UnsupportedLineMarker` located at the production; `kast`, `kast --gen-parser`, `kcompile --gen-bison-parser` and `krun` refuse the definition alike.
+To skip marker lines without renumbering, declare their text as `#Layout`.
+The pinned K accepts the production: its generated scanner calls a C function `line_marker` that the user links in (`--bison-file`); krust has no such option.
+(`a_line_marker_production_means_one_thing_to_both_parsers` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.

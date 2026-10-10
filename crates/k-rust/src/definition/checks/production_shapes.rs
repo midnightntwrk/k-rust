@@ -8,7 +8,7 @@ use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
 use crate::definition::{ProductionCatalog, ResolvedModule, SortCatalog, SortHead};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{GeneratedLabel, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, Sort, Term};
 use crate::names::BuiltinSort;
 
 const CELL_BAG_MESSAGE: &str = "Cell bags are only supported on the Java backend. If you want this feature, comment on https://github.com/runtimeverification/k/issues/1419 . As a workaround, you can add the attribute type=\"Set\" and add a unique identifier to each element in the set.";
@@ -128,6 +128,36 @@ fn is_cell_collection(sort: &Sort, sorts: &SortCatalog<'_>) -> bool {
     sorts
         .attributes_for(&SortHead::from(sort))
         .is_some_and(|attributes| attributes.has(AttributeKey::CellCollection))
+}
+
+const LINE_MARKER_MESSAGE: &str = "Productions of sort #LineMarker are not supported: the production fixes which text is a line marker, but not what the marker does to the positions of the text after it (which line its number names, where in the marker the number is, whether it names a file, whether columns restart), so no parser krust builds can give it a meaning. To skip such lines without renumbering, declare their text as a #Layout production instead.";
+
+/// Reject every production of sort `#LineMarker`, at load, so that every parser krust builds
+/// from the definition refuses it alike.
+///
+/// Such a production says that the text its regex matches is a marker, not a token, and that it
+/// relocates the text after it. The production fixes the first part only: a regex has no groups,
+/// so it does not say where the line number or a file name is in the marker, nor whether the
+/// number names the marker's line or the next, nor what happens to columns. Any meaning would be
+/// invented, so the production is refused rather than read one way by one parser and another way
+/// by the other.
+pub fn check_line_markers(module: &ResolvedModule) -> Vec<Diagnostic> {
+    module
+        .local_sentences
+        .iter()
+        .map(std::sync::Arc::as_ref)
+        .filter(|sentence| {
+            matches!(sentence, Sentence::Production { sort, .. }
+                if sort.is_frontend(FrontendSort::LineMarker))
+        })
+        .map(|sentence| {
+            Diagnostic::error(
+                DiagnosticCode::UnsupportedLineMarker,
+                LINE_MARKER_MESSAGE,
+                sentence,
+            )
+        })
+        .collect()
 }
 
 /// A `strict` or `seqstrict` position and a context's `HOLE` may not have sort `K`: heating puts
