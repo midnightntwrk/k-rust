@@ -3318,6 +3318,68 @@ for verdict in ("krust-unsupported", "skipped-with-reason"):
     assert_eq!(String::from_utf8_lossy(&output.stdout), "\"\"\n\"\"\n");
 }
 
+/// A step exclusion accepts the divergence of the steps it names, so excluding them must rank the
+/// case exactly as if those steps had not been run: the case is flagged (a regression or below its
+/// floor) when, and only when, the worst of its other steps would be. The property is checked on
+/// random cases (one to four steps of random verdicts, a random subset excluded by `out`, a
+/// random floor), comparing `build_run` on the case with its exclusions against `build_run` on the
+/// same case with the excluded steps removed and its verdict recomputed from the rest.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: The conformance ratchet's exclusion rule hides other failures (class: an exclusion is not the deletion of the steps it names)"]
+fn a_step_exclusion_ranks_a_case_as_if_its_named_steps_were_absent() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, random, sys
+sys.path.insert(0, sys.argv[1])
+import ratchet
+
+VERDICTS = sorted(ratchet.RANK)
+
+def worst(steps):
+    return min((step["verdict"] for step in steps), key=ratchet.RANK.__getitem__) if steps else "match"
+
+def flagged(result, expectation, floor):
+    run = ratchet.build_run(
+        sequence=1, label="t", workspace_revision="w", k_revision="k", driver_version="d",
+        krust_sha256="", test_binary_sha256="", selection="all", jobs=1, wall_seconds=0.0,
+        peak_rss_mib=0, artifacts="", results=[result], expectations={"c": expectation},
+        previous_runs=[{"driver_version": "d", "case": [{"name": "c", "rank": ratchet.RANK[floor]}]}],
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+    return "c" in run["regressions"] or "c" in run["below_floor"]
+
+rng = random.Random(20261010)
+failures = []
+for _ in range(3000):
+    steps = [{"step": "kompile", "out": f"s{i}.out", "verdict": rng.choice(VERDICTS)}
+             for i in range(rng.randint(1, 4))]
+    named = [step for step in steps if rng.random() < 0.5]
+    floor = rng.choice([verdict for verdict in VERDICTS if ratchet.RANK[verdict] >= 0])
+    exclusions = [{"step": "kompile", "out": step["out"], "exclusion": "x", "reason": "r"} for step in named]
+    rest = [step for step in steps if step not in named]
+    with_exclusion = flagged({"name": "c", "verdict": worst(steps), "step": steps},
+                             {"name": "c", "step_exclusions": exclusions}, floor)
+    without_steps = flagged({"name": "c", "verdict": worst(rest), "step": rest}, {"name": "c"}, floor)
+    if with_exclusion != without_steps:
+        failures.append({"steps": steps, "excluded": [step["out"] for step in named], "floor": floor,
+                         "flagged with the exclusion": with_exclusion,
+                         "flagged without the steps": without_steps})
+print(json.dumps({"failures": len(failures), "first": failures[:3]}, indent=1))
+"#;
+    let output = Command::new("python3")
+        .args(["-I", "-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("\"failures\": 0,"), "{stdout}");
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),
