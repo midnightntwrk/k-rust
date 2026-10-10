@@ -342,13 +342,19 @@ fn remove_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
         return Ok(None);
     };
     let TermKind::Set {
+        definition: set_definition,
         elements,
         rest: None,
-        ..
     } = set.kind()
     else {
         return Ok(None);
     };
+    // The set's elements are compared with the keys as terms, which says whether they are the
+    // same key only when both are of one sort: a key of a narrower sort is held injected in the
+    // set and bare in the map.
+    if set_definition.element_sort != definition.key_sort {
+        return Ok(None);
+    }
     if entries
         .iter()
         .any(|(key, _)| !key.attributes().constructor_like)
@@ -1093,6 +1099,20 @@ mod tests {
                 None,
             )))
         );
+    }
+
+    /// A set of another element sort holds a key differently from the map (injected, not bare),
+    /// so comparing them as terms would keep keys the set names; the removal is left unevaluated.
+    #[test]
+    fn bulk_removal_waits_for_a_set_of_the_key_sort() {
+        let map = Term::map(
+            definition("SortMap"),
+            vec![(key("a"), value("one")), (key("b"), value("two"))],
+            None,
+        );
+        let wider = Term::set(elements("SortKItemSet", "SortKItem"), vec![key("a")], None);
+
+        assert_eq!(remove_all(&[map, wider], undeclared()), Ok(None));
     }
 
     /// The order of `keys_list` and `values` must be a function of the map's value; with a

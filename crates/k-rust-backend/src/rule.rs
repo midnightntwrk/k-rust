@@ -998,7 +998,8 @@ pub type SentenceKey = (Name, usize);
 ///
 /// The first axiom of a class in declaration order is kept with its variable names and sentence
 /// key for load diagnostics, and the origins of the others are appended to its origin list in
-/// declaration order. A sentence visited again through another import path adds no origin.
+/// declaration order. Each module is read once (`visit_module`), so a sentence reaches this function at most once
+/// and one key is never an origin twice.
 /// Axioms that share a `UNIQUE_ID` but differ in anything compared above stay separate rules.
 /// Each axiom is hashed once by its `UNIQUE_ID` and a shape that ignores variable names
 /// (`axiom_shape`), and comparisons, each one traversal of the smaller axiom, run only between
