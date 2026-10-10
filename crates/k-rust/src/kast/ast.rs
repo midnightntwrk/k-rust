@@ -1202,4 +1202,83 @@ mod tests {
         drop((nodes, metadata));
         assert_eq!(Arc::strong_count(&record), 1);
     }
+
+    /// A term without its annotations, in a type whose comparison is derived: variants in the
+    /// order `Term` declares them, then each variant's fields in order, children included.
+    #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum Derived {
+        InjectedLabel(Label),
+        Rewrite(Box<Self>, Box<Self>),
+        As(Box<Self>, Box<Self>),
+        Variable(String, Option<Sort>),
+        Sequence(Vec<Self>),
+        Apply(Label, Vec<Self>),
+        Token(String, Sort),
+    }
+
+    impl From<&Term> for Derived {
+        fn from(term: &Term) -> Self {
+            let boxed = |term: &Term| Box::new(Self::from(term));
+            match term.unannotated() {
+                Term::InjectedLabel(label) => Self::InjectedLabel(label.clone()),
+                Term::Rewrite { left, right } => Self::Rewrite(boxed(left), boxed(right)),
+                Term::As { pattern, alias } => Self::As(boxed(pattern), boxed(alias)),
+                Term::Variable { name, sort } => Self::Variable(name.clone(), sort.clone()),
+                Term::Sequence(items) => Self::Sequence(items.iter().map(Self::from).collect()),
+                Term::Apply { label, arguments } => {
+                    Self::Apply(label.clone(), arguments.iter().map(Self::from).collect())
+                }
+                Term::Token { token, sort } => Self::Token(token.clone(), sort.clone()),
+                Term::Annotated { .. } => unreachable!("unannotated strips annotations"),
+            }
+        }
+    }
+
+    /// The comparison of terms, and so `Term::eq`, is the derived comparison of the terms without
+    /// their annotations. A field is decided only by pairs that agree on every field before it, so
+    /// each term is compared with each of its one-edit neighbours (one token text or sort,
+    /// variable name or sort, label name or parameter changed at any depth), and with the
+    /// previous draw for the order of variants and of children; one side of each pair carries
+    /// annotations on some of its nodes.
+    #[test]
+    fn the_comparison_is_the_derived_comparison_on_one_edit_neighbours() {
+        use proptest::{
+            strategy::{Strategy, ValueTree},
+            test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+        };
+
+        use crate::kast::test_terms::{decorated, one_edit_neighbours, varied_fields};
+
+        let check = |left: &Term, right: &Term| {
+            let mut count = 0_u32;
+            let annotated = decorated(left, &mut || {
+                count += 1;
+                count.is_multiple_of(2).then(|| TermMetadata {
+                    sort: Some(Sort::new("K")),
+                    ..TermMetadata::default()
+                })
+            });
+            let derived = Derived::from(left).cmp(&Derived::from(right));
+            for left in [left, &annotated] {
+                assert_eq!(left.cmp(right), derived, "{left:?} and {right:?}");
+                assert_eq!(right.cmp(left), derived.reverse(), "{right:?} and {left:?}");
+                assert_eq!(left == right, derived.is_eq(), "{left:?} and {right:?}");
+            }
+        };
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+        );
+        let strategy = varied_fields();
+        let mut previous = Term::Sequence(Vec::new());
+        for _ in 0..1024 {
+            let term = strategy.new_tree(&mut runner).expect("a case").current();
+            check(&term, &term.clone());
+            check(&term, &previous);
+            for (_, neighbour) in one_edit_neighbours(&term) {
+                check(&term, &neighbour);
+            }
+            previous = term;
+        }
+    }
 }
