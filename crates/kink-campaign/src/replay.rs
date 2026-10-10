@@ -7,8 +7,9 @@
 //! gives `Reproduced`. Refusals and divergences never return or alter a verdict.
 
 use crate::{
-    CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestInput, MutantId, OperatorId,
-    ScheduleMode, SelectionPolicy, TestCase, campaign_manifest, campaign_report, run_campaign_with,
+    CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator, MultiManifestInput,
+    MutantId, OperatorId, ScheduleMode, SelectionPolicy, TestCase, campaign_manifest_multi,
+    campaign_report_multi, run_campaign_multi,
 };
 use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
 use kink_native::{
@@ -18,8 +19,9 @@ use kink_native::{
 };
 use kink_patch::{
     Baseline, CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN,
-    CandidateFailure, CandidateGeneration, FINGERPRINT_DOMAIN, Patch, PatchFailureKind,
-    SemanticInput, apply, canonical_json, payload_digest, sha256, structure_sha256,
+    CandidateFailure, CandidateGeneration, FINGERPRINT_DOMAIN, OperatorSpec, Patch,
+    PatchFailureKind, SemanticInput, Universe, apply, canonical_json, generate, payload_digest,
+    resolve_universe, sha256, structure_sha256,
 };
 use kink_pattern::ExecutionTerminalKind;
 use serde_json::{Value, json};
@@ -34,9 +36,22 @@ pub struct ReplayDeclaration<'a> {
     pub budget: ExecutionBudget,
     pub schedule: ScheduleMode,
     pub selection: SelectionPolicy,
-    pub operator: OperatorId<'a>,
-    pub select:
-        &'a dyn for<'b> Fn(&'b Baseline) -> Result<CandidateGeneration<'b>, CandidateFailure>,
+    pub operators: &'a [ReplayOperator<'a>],
+}
+
+/// Data operators rebuild from the recorded spec; code operators retain the closure route.
+pub enum ReplayOperator<'a> {
+    Spec {
+        spec: &'a OperatorSpec,
+        cap: usize,
+    },
+    Code {
+        id: &'a str,
+        version: u32,
+        policy: kink_patch::SelectionPolicy,
+        select:
+            &'a dyn for<'b> Fn(&'b Baseline) -> Result<CandidateGeneration<'b>, CandidateFailure>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,34 +124,93 @@ fn replay_checked(
         tests: declaration.tests,
         budget: declaration.budget,
     };
-    let generation = (declaration.select)(validator.baseline())
+    let entries = manifest["operators"]
+        .as_array()
+        .ok_or(ReplayRefusal::Declaration)?;
+    if entries.len() != declaration.operators.len() {
+        return Err(ReplayRefusal::Declaration);
+    }
+    let has_specs = declaration
+        .operators
+        .iter()
+        .any(|op| matches!(op, ReplayOperator::Spec { .. }));
+    let universe = has_specs.then(|| resolve_universe(validator.baseline(), &Universe::v1()));
+    // Decode the manifest data, but require its identity to match the caller's declaration.
+    // This prevents a self-consistent forged spec from becoming a new replay declaration.
+    let specs = entries
+        .iter()
+        .zip(declaration.operators)
+        .map(|(entry, operator)| match operator {
+            ReplayOperator::Spec { spec, .. } => {
+                if entry["kind"] != "spec" || entry["spec"] != spec.canonical_value() {
+                    return Err(ReplayRefusal::Declaration);
+                }
+                OperatorSpec::from_canonical_json(&canonical_json(&entry["spec"]))
+                    .map(Some)
+                    .map_err(|_| ReplayRefusal::Declaration)
+            }
+            ReplayOperator::Code { .. } => {
+                if entry["kind"] != "code" {
+                    return Err(ReplayRefusal::Declaration);
+                }
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut generations = Vec::new();
+    let mut operators = Vec::new();
+    for (operator, spec) in declaration.operators.iter().zip(&specs) {
+        let generation = match operator {
+            ReplayOperator::Spec { cap, .. } => {
+                let spec = spec.as_ref().ok_or(ReplayRefusal::Declaration)?;
+                operators.push(ManifestOperator::Spec(spec));
+                generate(
+                    validator.baseline(),
+                    universe.as_ref().ok_or(ReplayRefusal::Declaration)?,
+                    spec,
+                    *cap,
+                )
+            }
+            ReplayOperator::Code {
+                id,
+                version,
+                policy,
+                select,
+            } => {
+                operators.push(ManifestOperator::Code(OperatorId {
+                    id,
+                    version: *version,
+                    policy: *policy,
+                }));
+                select(validator.baseline())
+            }
+        }
         .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
-    let regenerated_manifest = campaign_manifest(&ManifestInput {
+        generations.push(generation);
+    }
+    let regenerated_manifest = campaign_manifest_multi(&MultiManifestInput {
         campaign: &campaign,
-        generation: &generation,
+        generations: &generations,
+        operators: &operators,
+        universe: universe.as_ref(),
         schedule: declaration.schedule,
         selection: declaration.selection,
-        operator: OperatorId {
-            id: declaration.operator.id,
-            version: declaration.operator.version,
-            policy: declaration.operator.policy,
-        },
         classifier: declaration.classifier,
     })
     .map_err(|_| ReplayRefusal::Declaration)?;
     if regenerated_manifest.text() != manifest_text {
         return Err(ReplayRefusal::Declaration);
     }
-    let run = run_campaign_with(
+    let run = run_campaign_multi(
         &campaign,
-        &generation,
+        &generations,
         &CampaignOptions {
             schedule: declaration.schedule,
             selection: declaration.selection,
         },
     )
     .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;
-    let regenerated = campaign_report(&regenerated_manifest, &campaign, &generation, &run)
+    let regenerated = campaign_report_multi(&regenerated_manifest, &campaign, &generations, &run)
         .map_err(|e| ReplayRefusal::Report(e.to_string()))?;
     if regenerated.text() == report {
         return Ok(ReplayOutcome::Reproduced);

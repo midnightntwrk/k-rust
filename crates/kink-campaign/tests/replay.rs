@@ -446,12 +446,12 @@ fn counter_declaration<'a>(
         budget: BUDGET,
         schedule,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
+        operators: &[kink_campaign::ReplayOperator::Code {
             id: "test",
             version: 1,
             policy: SelectionPolicy::Each,
-        },
-        select: &select_counter,
+            select: &select_counter,
+        }],
     }
 }
 fn coupled_declaration<'a>(
@@ -467,15 +467,15 @@ fn coupled_declaration<'a>(
         budget: BUDGET,
         schedule: ScheduleMode::Full,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
+        operators: &[kink_campaign::ReplayOperator::Code {
             id: "release-after-access",
             version: 1,
             policy: SelectionPolicy::Exact {
                 expected_tuple_count: 1,
                 expected_tuple_arity: 2,
             },
-        },
-        select: &select_coupled,
+            select: &select_coupled,
+        }],
     }
 }
 fn build(file: &str, declaration: &ReplayDeclaration<'_>) -> (CampaignReport, String) {
@@ -488,17 +488,26 @@ fn build(file: &str, declaration: &ReplayDeclaration<'_>) -> (CampaignReport, St
         tests: declaration.tests,
         budget: declaration.budget,
     };
-    let generation = (declaration.select)(validator.baseline()).unwrap();
+    let kink_campaign::ReplayOperator::Code {
+        id,
+        version,
+        policy,
+        select,
+    } = &declaration.operators[0]
+    else {
+        unreachable!()
+    };
+    let generation = select(validator.baseline()).unwrap();
     let manifest = campaign_manifest(&ManifestInput {
         campaign: &campaign,
         generation: &generation,
         schedule: declaration.schedule,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
-            id: declaration.operator.id,
-            version: declaration.operator.version,
-            policy: declaration.operator.policy,
-        },
+        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
+            id,
+            version: *version,
+            policy: *policy,
+        })],
         classifier: declaration.classifier,
     })
     .unwrap();
@@ -610,7 +619,22 @@ fn equivalent_clone_reproduces() {
             oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
         }];
         let mut declaration = counter_declaration(&specs, &tests, ScheduleMode::Full);
-        declaration.select = &select_equivalent;
+        let kink_campaign::ReplayOperator::Code {
+            id,
+            version,
+            policy,
+            ..
+        } = &declaration.operators[0]
+        else {
+            unreachable!()
+        };
+        let changed_operators = [kink_campaign::ReplayOperator::Code {
+            id,
+            version: *version,
+            policy: *policy,
+            select: &select_equivalent,
+        }];
+        declaration.operators = &changed_operators;
         let (report, artifact) = build("counter.k", &declaration);
         assert_eq!(report.value()["mutants"][0]["status"], "equivalent");
         reproduced("equivalent", &report.text(), &artifact, &declaration);
@@ -695,7 +719,19 @@ fn counter_tampers_are_refused_or_diverge_before_any_verdict() {
             replay(&canonical_json(&changed), &artifact, &declaration),
             ReplayOutcome::Refused(ReplayRefusal::Declaration)
         );
-        declaration.operator.version = 2;
+        let kink_campaign::ReplayOperator::Code {
+            id, policy, select, ..
+        } = &declaration.operators[0]
+        else {
+            unreachable!()
+        };
+        let changed_operators = [kink_campaign::ReplayOperator::Code {
+            id,
+            version: 2,
+            policy: *policy,
+            select: *select,
+        }];
+        declaration.operators = &changed_operators;
         assert_eq!(
             replay(&report.text(), &artifact, &declaration),
             ReplayOutcome::Refused(ReplayRefusal::Declaration)
@@ -723,7 +759,7 @@ fn malformed_reports_and_digest_mismatches_fail_in_check_order() {
             );
         }
         let mut changed = report.value().clone();
-        changed["version"] = json!(3);
+        changed["version"] = json!(4);
         assert_eq!(
             replay(&canonical_json(&changed), "invalid artifact", &declaration),
             ReplayOutcome::Refused(ReplayRefusal::Schema)

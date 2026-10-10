@@ -9,11 +9,16 @@
 mod campaign;
 mod manifest;
 mod oracle;
-pub use manifest::{CampaignManifest, ManifestError, ManifestInput, OperatorId, campaign_manifest};
+pub use manifest::{
+    CampaignManifest, ManifestError, ManifestInput, ManifestOperator, MultiManifestInput,
+    OperatorId, campaign_manifest, campaign_manifest_multi,
+};
 mod report;
-pub use report::{CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_report};
+pub use report::{
+    CAMPAIGN_REPORT_VERSION, CampaignReport, ReportError, campaign_report, campaign_report_multi,
+};
 mod replay;
-pub use replay::{ReplayDeclaration, ReplayOutcome, ReplayRefusal, replay};
+pub use replay::{ReplayDeclaration, ReplayOperator, ReplayOutcome, ReplayRefusal, replay};
 mod runner;
 pub mod selection;
 pub use selection::{Coupled, MutantSelection, Sel, SelectionPolicy};
@@ -29,6 +34,6 @@ pub use oracle::{
 };
 pub use runner::{
     Campaign, CampaignOptions, CampaignRun, MutantRun, OracleDeclaration, Projection, SideRun,
-    StateProjection, Tally, TestCase, TestEvidence, pattern_side, run_campaign, run_campaign_with,
-    slot_outcome, state_side, tally,
+    StateProjection, Tally, TestCase, TestEvidence, pattern_side, run_campaign, run_campaign_multi,
+    run_campaign_with, slot_outcome, state_side, tally,
 };

@@ -475,11 +475,12 @@ fn check_manifest(manifest: &CampaignManifest) {
             "selection",
             "module",
             "classifier",
-            "operator",
+            "operators",
+            "universe",
+            "admission",
             "baseline",
             "tests",
             "observation_sha256",
-            "generation",
             "mutants",
         ],
     );
@@ -504,10 +505,16 @@ fn check_manifest(manifest: &CampaignManifest) {
             "max_breadth",
         ],
     );
-    keys(&value["operator"], &["id", "version", "policy"]);
-    if value["operator"]["policy"].is_object() {
-        keys(&value["operator"]["policy"], &["exact"]);
-        keys(&value["operator"]["policy"]["exact"], &["tuples", "arity"]);
+    keys(
+        &value["operators"][0],
+        &["kind", "id", "version", "policy", "generation"],
+    );
+    if value["operators"][0]["policy"].is_object() {
+        keys(&value["operators"][0]["policy"], &["exact"]);
+        keys(
+            &value["operators"][0]["policy"]["exact"],
+            &["tuples", "arity"],
+        );
     }
     keys(
         &value["baseline"],
@@ -520,7 +527,7 @@ fn check_manifest(manifest: &CampaignManifest) {
     );
     keys(&value["tests"], &["count", "sha256"]);
     keys(
-        &value["generation"],
+        &value["operators"][0]["generation"],
         &[
             "origins",
             "rejected_origins",
@@ -539,12 +546,14 @@ fn check_manifest(manifest: &CampaignManifest) {
                 "structure_sha256",
                 "kore_sha256",
                 "validation",
+                "operator",
+                "census",
             ],
         );
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 2);
+    assert_eq!(value["version"], 3);
     assert_eq!(
         value["profile"],
         if cfg!(feature = "z3") { "z3" } else { "no-z3" }
@@ -617,11 +626,11 @@ fn build<'a>(
         generation,
         schedule: ScheduleMode::Full,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
+        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
             id: "test",
             version,
             policy: SelectionPolicy::Each,
-        },
+        })],
         classifier: "normal",
     })
 }
@@ -685,7 +694,7 @@ fn counter_manifest_is_deterministic_and_declaration_changes_are_local() {
         let changed_version = build(&campaign, &generation, 2).unwrap();
         assert_eq!(
             different_keys(original.value(), changed_version.value()),
-            ["operator"]
+            ["operators"]
         );
         campaign.budget.max_depth = Some(123);
         let changed_budget = build(&campaign, &generation, 1).unwrap();
@@ -736,14 +745,14 @@ fn coupled_manifest_is_deterministic() {
             generation: &generation,
             schedule: ScheduleMode::Full,
             selection: kink_campaign::SelectionPolicy::None,
-            operator: OperatorId {
+            operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                 id: "release-after-access",
                 version: 1,
                 policy: SelectionPolicy::Exact {
                     expected_tuple_count: 1,
                     expected_tuple_arity: 2,
                 },
-            },
+            })],
             classifier: "normal",
         })
         .unwrap();
@@ -796,11 +805,11 @@ fn foreign_generation_operator_mismatch_and_nondefault_options_are_refused() {
         generation: &generation,
         schedule: ScheduleMode::Full,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
+        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
             id: "other",
             version: 1,
             policy: SelectionPolicy::Each,
-        },
+        })],
         classifier: "normal",
     };
     assert_eq!(

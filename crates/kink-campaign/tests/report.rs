@@ -538,7 +538,7 @@ fn check_report(report: &CampaignReport) {
         ],
     );
     assert_eq!(v["schema"], "kink-campaign-report");
-    assert_eq!(v["version"], 2);
+    assert_eq!(v["version"], 3);
     for baseline in array(&v["baseline"]) {
         keys(baseline, &["test_id", "run"]);
         check_side_run(&baseline["run"]);
@@ -546,7 +546,13 @@ fn check_report(report: &CampaignReport) {
     for origin in array(&v["origins"]) {
         keys(
             origin,
-            &["ordinal", "site_tuple", "discovery_tuples", "disposition"],
+            &[
+                "operator",
+                "ordinal",
+                "site_tuple",
+                "discovery_tuples",
+                "disposition",
+            ],
         );
         for site in array(&origin["site_tuple"]) {
             keys(site, &["module", "index", "path"]);
@@ -647,7 +653,7 @@ fn check_report(report: &CampaignReport) {
             }
         }
     }
-    keys(&v["summary"], &["tally", "score"]);
+    keys(&v["summary"], &["tally", "score", "per_operator"]);
     keys(
         &v["summary"]["tally"],
         &[
@@ -717,11 +723,11 @@ fn build(
         generation,
         schedule,
         selection: kink_campaign::SelectionPolicy::None,
-        operator: OperatorId {
+        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
             id: operator,
             version: 1,
             policy,
-        },
+        })],
         classifier: "normal",
     })
     .unwrap();
@@ -836,11 +842,11 @@ fn counter_reports_are_identical_and_match_runs_in_both_schedules() {
                     generation: &generation,
                     schedule,
                     selection: kink_campaign::SelectionPolicy::None,
-                    operator: OperatorId {
+                    operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                         id: "test",
                         version: 1,
                         policy: SelectionPolicy::Each,
-                    },
+                    })],
                     classifier: "normal",
                 })
                 .unwrap();
@@ -1182,11 +1188,11 @@ fn supplied_evidence_and_claims_keep_their_exact_schema() {
             generation: &generation,
             schedule: ScheduleMode::Full,
             selection: kink_campaign::SelectionPolicy::None,
-            operator: OperatorId {
+            operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                 id: "test",
                 version: 1,
                 policy: SelectionPolicy::Each,
-            },
+            })],
             classifier: "normal",
         })
         .unwrap();

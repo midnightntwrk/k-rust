@@ -456,11 +456,11 @@ fn prioritize_replay_recomputes_coverage_and_order_in_both_schedules() {
                     generation: &generation,
                     schedule,
                     selection: PRIORITIZE,
-                    operator: OperatorId {
+                    operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                         id: "selection-test",
                         version: 1,
                         policy: CandidatePolicy::Each,
-                    },
+                    })],
                     classifier: "all-normal",
                 })
                 .expect("manifest");
@@ -490,12 +490,12 @@ fn prioritize_replay_recomputes_coverage_and_order_in_both_schedules() {
                     budget: BUDGET,
                     schedule,
                     selection: PRIORITIZE,
-                    operator: OperatorId {
+                    operators: &[kink_campaign::ReplayOperator::Code {
                         id: "selection-test",
                         version: 1,
                         policy: CandidatePolicy::Each,
-                    },
-                    select: &|b| Ok(replay_generation(b, killing)),
+                        select: &|b| Ok(replay_generation(b, killing)),
+                    }],
                 };
                 assert_eq!(
                     replay(&report.text(), artifact, &declaration),
@@ -12824,7 +12824,7 @@ mod theorem_report {
             ],
         );
         assert_eq!(v["schema"], "kink-campaign-report");
-        assert_eq!(v["version"], 2);
+        assert_eq!(v["version"], 3);
         for baseline in array(&v["baseline"]) {
             keys(baseline, &["test_id", "run"]);
             check_side_run(&baseline["run"]);
@@ -12832,7 +12832,13 @@ mod theorem_report {
         for origin in array(&v["origins"]) {
             keys(
                 origin,
-                &["ordinal", "site_tuple", "discovery_tuples", "disposition"],
+                &[
+                    "operator",
+                    "ordinal",
+                    "site_tuple",
+                    "discovery_tuples",
+                    "disposition",
+                ],
             );
             for site in array(&origin["site_tuple"]) {
                 keys(site, &["module", "index", "path"]);
@@ -12933,7 +12939,7 @@ mod theorem_report {
                 }
             }
         }
-        keys(&v["summary"], &["tally", "score"]);
+        keys(&v["summary"], &["tally", "score", "per_operator"]);
         keys(
             &v["summary"]["tally"],
             &[
@@ -13003,11 +13009,11 @@ mod theorem_report {
             generation,
             schedule,
             selection: kink_campaign::SelectionPolicy::None,
-            operator: OperatorId {
+            operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                 id: operator,
                 version: 1,
                 policy,
-            },
+            })],
             classifier: "normal",
         })
         .unwrap();
@@ -13125,11 +13131,11 @@ mod theorem_report {
                         generation: &generation,
                         schedule,
                         selection: kink_campaign::SelectionPolicy::None,
-                        operator: OperatorId {
+                        operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                             id: "test",
                             version: 1,
                             policy: SelectionPolicy::Each,
-                        },
+                        })],
                         classifier: "normal",
                     })
                     .unwrap();
@@ -13478,11 +13484,11 @@ mod theorem_report {
                 generation: &generation,
                 schedule: ScheduleMode::Full,
                 selection: kink_campaign::SelectionPolicy::None,
-                operator: OperatorId {
+                operators: &[kink_campaign::ManifestOperator::Code(OperatorId {
                     id: "test",
                     version: 1,
                     policy: SelectionPolicy::Each,
-                },
+                })],
                 classifier: "normal",
             })
             .unwrap();

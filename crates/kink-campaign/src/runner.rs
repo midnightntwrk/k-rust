@@ -341,6 +341,23 @@ pub fn run_campaign_with(
     generation: &CandidateGeneration<'_>,
     options: &CampaignOptions,
 ) -> Result<CampaignRun, CampaignFailure> {
+    run_campaign_multi(campaign, std::slice::from_ref(generation), options)
+}
+
+/// Admits and runs the baseline once, then executes candidates in generation order.
+/// Every generation must derive from the validator's own baseline. The global score
+/// is available only when every generation is scored; candidate ids are global.
+pub fn run_campaign_multi(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+) -> Result<CampaignRun, CampaignFailure> {
+    if generations.is_empty() {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            "a campaign needs at least one generation",
+        ));
+    }
     let schedule = options.schedule;
     let manifest = campaign
         .tests
@@ -357,7 +374,10 @@ pub fn run_campaign_with(
             format!("{failure:?}"),
         )
     })?;
-    if !generation.derived_from(campaign.validator.baseline()) {
+    if generations
+        .iter()
+        .any(|generation| !generation.derived_from(campaign.validator.baseline()))
+    {
         return Err(CampaignFailure::new(
             CampaignFailureKind::ForeignGeneration,
             "the generation was derived from another baseline than the validator's",
@@ -468,8 +488,12 @@ pub fn run_campaign_with(
         observation,
     };
 
-    let mut runs = Vec::with_capacity(generation.candidates().len());
-    for (index, candidate) in generation.candidates().iter().enumerate() {
+    let candidates = generations
+        .iter()
+        .flat_map(|generation| generation.candidates())
+        .collect::<Vec<_>>();
+    let mut runs = Vec::with_capacity(candidates.len());
+    for (index, candidate) in candidates.into_iter().enumerate() {
         let execution = run_mutant(
             campaign,
             &candidate.patch,
@@ -501,7 +525,10 @@ pub fn run_campaign_with(
         baseline: baseline_evidence,
         baseline_coverage,
         mutants: runs,
-        score: generation.scored().then(|| score(&statuses)),
+        score: generations
+            .iter()
+            .all(CandidateGeneration::scored)
+            .then(|| score(&statuses)),
     })
 }
 

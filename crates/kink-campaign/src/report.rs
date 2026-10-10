@@ -19,7 +19,7 @@ use kink_patch::{
 };
 use serde_json::{Value, json};
 
-pub const CAMPAIGN_REPORT_VERSION: u64 = 2;
+pub const CAMPAIGN_REPORT_VERSION: u64 = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignReport {
@@ -180,7 +180,69 @@ pub fn campaign_report(
     generation: &CandidateGeneration<'_>,
     run: &CampaignRun,
 ) -> Result<CampaignReport, ReportError> {
-    let counts = tally(generation, run).ok_or(ReportError::MutantCountMismatch)?;
+    campaign_report_multi(manifest, campaign, std::slice::from_ref(generation), run)
+}
+
+pub fn campaign_report_multi(
+    manifest: &CampaignManifest,
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    run: &CampaignRun,
+) -> Result<CampaignReport, ReportError> {
+    if generations.is_empty()
+        || generations
+            .iter()
+            .map(|g| g.candidates().len())
+            .sum::<usize>()
+            != run.mutants.len()
+    {
+        return Err(ReportError::MutantCountMismatch);
+    }
+    let operators = manifest.value()["operators"]
+        .as_array()
+        .ok_or(ReportError::ManifestMismatch)?;
+    if operators.len() != generations.len() {
+        return Err(ReportError::ManifestMismatch);
+    }
+    let mut counts = crate::Tally::default();
+    let mut per_operator = Vec::new();
+    let mut offset = 0;
+    for (operator, generation) in generations.iter().enumerate() {
+        let end = offset + generation.candidates().len();
+        let statuses = run.mutants[offset..end]
+            .iter()
+            .map(|m| m.report.status)
+            .collect::<Vec<_>>();
+        let partial = CampaignRun {
+            selection: run.selection,
+            baseline: Vec::new(),
+            baseline_coverage: Vec::new(),
+            mutants: run.mutants[offset..end].to_vec(),
+            score: generation.scored().then(|| crate::score(&statuses)),
+        };
+        let count = tally(generation, &partial).ok_or(ReportError::MutantCountMismatch)?;
+        counts.killed += count.killed;
+        counts.survived += count.survived;
+        counts.equivalent += count.equivalent;
+        counts.invalid += count.invalid;
+        counts.timeout += count.timeout;
+        counts.unknown += count.unknown;
+        counts.error += count.error;
+        counts.rejected_origins += count.rejected_origins;
+        per_operator.push(json!({"operator":operator,"tally":tally_value(count),"score":score_value(partial.score)}));
+        offset = end;
+    }
+    let expected_score = generations.iter().all(|g| g.scored()).then(|| {
+        crate::score(
+            &run.mutants
+                .iter()
+                .map(|m| m.report.status)
+                .collect::<Vec<_>>(),
+        )
+    });
+    if run.score != expected_score {
+        return Err(ReportError::ManifestMismatch);
+    }
     if manifest.value()["selection"] != run.selection.value() {
         return Err(ReportError::ManifestMismatch);
     }
@@ -202,59 +264,86 @@ pub fn campaign_report(
     let entries = manifest.value()["mutants"]
         .as_array()
         .ok_or(ReportError::ManifestMismatch)?;
-    if entries.len() != generation.candidates().len() {
+    if entries.len() != run.mutants.len() {
         return Err(ReportError::ManifestMismatch);
     }
-    for (entry, candidate) in entries.iter().zip(generation.candidates()) {
+    for (entry, (operator, candidate)) in entries.iter().zip(
+        generations
+            .iter()
+            .enumerate()
+            .flat_map(|(operator, g)| g.candidates().iter().map(move |c| (operator, c))),
+    ) {
+        if entry["operator"] != operator {
+            return Err(ReportError::ManifestMismatch);
+        }
         if entry["patch_sha256"] != candidate.patch.digest().map_err(encode)?.to_string() {
             return Err(ReportError::ManifestMismatch);
         }
     }
     let baseline = campaign.validator.baseline();
-    let origins = generation.selected_origins().iter().zip(generation.dispositions()).enumerate().map(|(ordinal, (origin, disposition))| {
-        let disposition = match disposition { CandidateDisposition::Mutant(id) => json!({"mutant":id}), CandidateDisposition::Rejected(f) => json!({"rejected":f.kind().as_str()}) };
-        Ok(json!({"ordinal":ordinal,"site_tuple":origin.site_tuple.iter().map(|at| json!({"module":at.sentence.module,"index":at.sentence.index,"path":at.path.0})).collect::<Vec<_>>(),
+    let mut origins = Vec::new();
+    let mut mutant_offset = 0;
+    let mut origin_offset = 0;
+    for (operator, generation) in generations.iter().enumerate() {
+        let generated_origins = generation.selected_origins().iter().zip(generation.dispositions()).enumerate().map(|(ordinal, (origin, disposition))| {
+        let disposition = match disposition { CandidateDisposition::Mutant(id) => json!({"mutant":id + mutant_offset}), CandidateDisposition::Rejected(f) => json!({"rejected":f.kind().as_str()}) };
+        Ok(json!({"ordinal":ordinal + origin_offset,"operator":operator,"site_tuple":origin.site_tuple.iter().map(|at| json!({"module":at.sentence.module,"index":at.sentence.index,"path":at.path.0})).collect::<Vec<_>>(),
             "discovery_tuples":origin.discovery_tuples.iter().map(|tuple| Ok(json!({"sites":tuple.sites.iter().map(|site| json!({"role":site.role,"module":site.at.sentence.module,"index":site.at.sentence.index,"path":site.at.path.0})).collect::<Vec<_>>(),"bindings":tuple.bindings.as_slice().iter().map(|(name, bound)| Ok(json!({"name":name,"term":term(bound)?}))).collect::<Result<Vec<_>, ReportError>>()?}))).collect::<Result<Vec<_>, ReportError>>()?,"disposition":disposition}))
     }).collect::<Result<Vec<_>, ReportError>>()?;
+        origin_offset += generated_origins.len();
+        origins.extend(generated_origins);
+        mutant_offset += generation.candidates().len();
+    }
     let mut mutants = Vec::new();
-    for (id, ((candidate, mutant_run), entry)) in generation
-        .candidates()
-        .iter()
-        .zip(&run.mutants)
-        .zip(entries)
-        .enumerate()
-    {
-        let output = apply(baseline, &candidate.patch).map_err(encode)?;
-        let output_sentence = |at: &SentenceRef| {
-            output
-                .definition()
-                .modules
-                .iter()
-                .find(|m| m.name == at.module)
-                .and_then(|m| m.local_sentences.get(at.index as usize))
-                .map(std::sync::Arc::as_ref)
-                .ok_or_else(|| encode("missing output sentence"))
-        };
-        let affected = mutant_run.written_sentences.iter().map(|at| {
+    let mut offset = 0;
+    let mut origin_offset = 0;
+    for generation in generations {
+        for (id, ((candidate, mutant_run), entry)) in generation
+            .candidates()
+            .iter()
+            .zip(&run.mutants[offset..offset + generation.candidates().len()])
+            .zip(&entries[offset..offset + generation.candidates().len()])
+            .enumerate()
+        {
+            if mutant_run.report.mutant_id.0 != offset + id
+                || mutant_run.operator != candidate.operator
+            {
+                return Err(ReportError::ManifestMismatch);
+            }
+            let output = apply(baseline, &candidate.patch).map_err(encode)?;
+            let output_sentence = |at: &SentenceRef| {
+                output
+                    .definition()
+                    .modules
+                    .iter()
+                    .find(|m| m.name == at.module)
+                    .and_then(|m| m.local_sentences.get(at.index as usize))
+                    .map(std::sync::Arc::as_ref)
+                    .ok_or_else(|| encode("missing output sentence"))
+            };
+            let affected = mutant_run.written_sentences.iter().map(|at| {
             let sentence = baseline.sentence(at).ok_or_else(|| encode("missing baseline sentence"))?;
             let attrs = sentence.attributes();
             let new = output.origins().iter().find(|(_, origin)| **origin == SentenceOrigin::Baseline(at.clone())).map(|(out, _)| SentenceFingerprint::of(output_sentence(out)?).map(|f| f.to_string()).map_err(encode)).transpose()?;
             Ok(json!({"module":at.module,"index":at.index,"label":attrs.string(AttributeKey::Label),"source":attrs.source(),"location":attrs.location().map(|l| [l.start_line,l.start_column,l.end_line,l.end_column]),"old_fingerprint":baseline.fingerprint(at).map_err(encode)?.to_string(),"new_fingerprint":new}))
         }).collect::<Result<Vec<_>, ReportError>>()?;
-        let inserted = output.origins().iter().filter(|(_, origin)| matches!(origin, SentenceOrigin::Inserted { .. })).map(|(at, _)| Ok(json!({"module":at.module,"index":at.index,"fingerprint":SentenceFingerprint::of(output_sentence(at)?).map_err(encode)?.to_string()}))).collect::<Result<Vec<_>, ReportError>>()?;
-        let patch = candidate.patch.canonical_value().map_err(encode)?;
-        let edits = patch["edits"]
-            .as_array()
-            .ok_or_else(|| encode("missing canonical edits"))?;
-        let diffs = candidate
-            .patch
-            .edits()
-            .iter()
-            .zip(edits)
-            .map(|(edit, canonical)| diff(baseline, edit, canonical))
-            .collect::<Result<Vec<_>, _>>()?;
-        let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
-        mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()}}));
+            let inserted = output.origins().iter().filter(|(_, origin)| matches!(origin, SentenceOrigin::Inserted { .. })).map(|(at, _)| Ok(json!({"module":at.module,"index":at.index,"fingerprint":SentenceFingerprint::of(output_sentence(at)?).map_err(encode)?.to_string()}))).collect::<Result<Vec<_>, ReportError>>()?;
+            let patch = candidate.patch.canonical_value().map_err(encode)?;
+            let edits = patch["edits"]
+                .as_array()
+                .ok_or_else(|| encode("missing canonical edits"))?;
+            let diffs = candidate
+                .patch
+                .edits()
+                .iter()
+                .zip(edits)
+                .map(|(edit, canonical)| diff(baseline, edit, canonical))
+                .collect::<Result<Vec<_>, _>>()?;
+            let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
+            mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":enum_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()}}));
+        }
+        offset += generation.candidates().len();
+        origin_offset += generation.selected_origins().len();
     }
     let baseline_runs = run
         .baseline
@@ -272,6 +361,13 @@ pub fn campaign_report(
     };
     let score = run.score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))}));
     Ok(CampaignReport {
-        value: json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score}}),
+        value: json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":{"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins},"score":score,"per_operator":per_operator}}),
     })
+}
+
+fn tally_value(counts: crate::Tally) -> Value {
+    json!({"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins})
+}
+fn score_value(score: Option<crate::Score>) -> Value {
+    score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))})).unwrap_or(Value::Null)
 }
