@@ -353,7 +353,8 @@ fn generated_collection_collisions_have_negative_shape_flags() {
 /// small alphabet (domain values of two sorts, injections with two sources and two targets,
 /// free constructors of one and two arguments, an `anywhere` symbol with and without the
 /// evaluated mark), so that keys of one skeleton, equal keys and keys of different skeletons
-/// are all frequent, and keys that are not rigid (variables, function applications, maps).
+/// are all frequent, and keys that are not rigid (variables, function applications, and maps,
+/// sets and lists, bare or below a constructor). [`KeyCoverage`] counts these classes.
 fn grouping_key() -> impl Strategy<Value = Term> {
     use proptest::prelude::*;
     let sorts = || {
@@ -428,10 +429,18 @@ fn grouping_key() -> impl Strategy<Value = Term> {
             },
         )
     };
+    let collections = collection_definitions();
     let random = leaf.prop_recursive(3, 24, 2, move |inner| {
         let (loc, pair, norm, function) =
             (loc.clone(), pair.clone(), norm.clone(), function.clone());
+        let (maps, sets, lists) = collections.clone();
         prop_oneof![
+            1 => prop::collection::vec((inner.clone(), inner.clone()), 0..3)
+                .prop_map(move |entries| Term::map(maps.clone(), entries, None)),
+            1 => prop::collection::vec(inner.clone(), 0..3)
+                .prop_map(move |elements| Term::set(sets.clone(), elements, None)),
+            1 => prop::collection::vec(inner.clone(), 0..3)
+                .prop_map(move |items| Term::list(lists.clone(), items, None)),
             3 => (sorts(), sorts(), inner.clone())
                 .prop_map(|(source, target, term)| Term::injection(source, target, term)),
             3 => inner.clone().prop_map(move |term| Term::application(loc.clone(), vec![], vec![term])),
@@ -449,6 +458,102 @@ fn grouping_key() -> impl Strategy<Value = Term> {
         ]
     });
     prop_oneof![3 => templates, 1 => random]
+}
+
+/// A map, a set and a list definition over the sort `SortKItem`, for keys that hold a
+/// collection.
+fn collection_definitions() -> (Arc<MapDefinition>, Arc<ListDefinition>, Arc<ListDefinition>) {
+    let symbols = |prefix: &str| CollectionSymbols {
+        unit: format!("{prefix}unit").into(),
+        element: format!("{prefix}element").into(),
+        concat: format!("{prefix}concat").into(),
+    };
+    (
+        Arc::new(MapDefinition {
+            symbols: symbols("Map"),
+            key_sort: "SortKItem".into(),
+            value_sort: "SortKItem".into(),
+            map_sort: "SortMap".into(),
+        }),
+        Arc::new(ListDefinition {
+            symbols: symbols("Set"),
+            element_sort: "SortKItem".into(),
+            list_sort: "SortSet".into(),
+        }),
+        Arc::new(ListDefinition {
+            symbols: symbols("List"),
+            element_sort: "SortKItem".into(),
+            list_sort: "SortList".into(),
+        }),
+    )
+}
+
+/// The classes of keys [`grouping_key`]'s documentation names that a property's keys held.
+#[derive(Debug, Default)]
+struct KeyCoverage {
+    variables: usize,
+    function_applications: usize,
+    collections: usize,
+    collections_below_a_constructor: usize,
+}
+
+impl KeyCoverage {
+    fn count(&mut self, key: &Term) {
+        fn holds(term: &Term, found: &mut dyn FnMut(&Term, bool) -> bool, below: bool) -> bool {
+            if found(term, below) {
+                return true;
+            }
+            match term.kind() {
+                TermKind::Application { arguments, .. } => arguments
+                    .iter()
+                    .any(|argument| holds(argument, found, true)),
+                TermKind::Injection { term, .. } => holds(term, found, below),
+                TermKind::Map { entries, .. } => entries
+                    .iter()
+                    .any(|(key, value)| holds(key, found, below) || holds(value, found, below)),
+                TermKind::Set { elements, .. } => {
+                    elements.iter().any(|element| holds(element, found, below))
+                }
+                TermKind::List { heads, .. } => heads.iter().any(|item| holds(item, found, below)),
+                _ => false,
+            }
+        }
+        let collection = |term: &Term| {
+            matches!(
+                term.kind(),
+                TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. }
+            )
+        };
+        self.variables += usize::from(!key.attributes().variables.is_empty());
+        self.function_applications += usize::from(holds(
+            key,
+            &mut |term, _| {
+                matches!(term.kind(), TermKind::Application { symbol, .. }
+                    if matches!(symbol.attributes.symbol_type, crate::term::SymbolType::Function(_)))
+            },
+            false,
+        ));
+        self.collections += usize::from(holds(key, &mut |term, _| collection(term), false));
+        self.collections_below_a_constructor += usize::from(holds(
+            key,
+            &mut |term, below| below && collection(term),
+            false,
+        ));
+    }
+
+    fn assert_covered(&self) {
+        eprintln!("grouping key coverage: {self:?}");
+        assert!(self.variables > 0, "no key holds a variable");
+        assert!(
+            self.function_applications > 0,
+            "no key holds a function application"
+        );
+        assert!(self.collections > 0, "no key holds a collection");
+        assert!(
+            self.collections_below_a_constructor > 0,
+            "no key holds a collection below a constructor"
+        );
+    }
 }
 
 /// The grouping by apartness skeleton states the disequalities that `elements_are_apart` states
@@ -475,8 +580,12 @@ fn grouped_disequalities_are_the_pairwise_ones() {
     });
     // Pairs skipped by the grouping, pairs with a disequality, and collections with a repeat.
     let (mut skipped, mut stated, mut repeats) = (0, 0, 0);
+    let mut coverage = KeyCoverage::default();
     for case in 0..CASES {
         let keys = strategy.new_tree(&mut runner).expect("a case").current();
+        for key in &keys {
+            coverage.count(key);
+        }
         let set = Term::set(set_definition.clone(), keys, None);
         let TermKind::Set { elements, .. } = set.kind() else {
             unreachable!("a set without a rest is a set");
@@ -501,6 +610,50 @@ fn grouped_disequalities_are_the_pairwise_ones() {
     }
     eprintln!("pairs skipped {skipped}, disequalities stated {stated}, repeats {repeats}");
     assert!(skipped > 0 && stated > 0 && repeats > 0);
+    coverage.assert_covered();
+}
+
+/// The grouping states the pairwise disequalities on each generated key beside its one-edit
+/// neighbours (`generators::one_edit_neighbours`: a collection's rest or definition, one sort, a
+/// variable's name, one symbol or one domain value changed at any depth), keys that agree on
+/// every field but one and so share a skeleton or differ in it by that field alone.
+#[test]
+fn grouped_disequalities_are_the_pairwise_ones_on_one_edit_neighbours() {
+    use proptest::prelude::*;
+
+    use super::lean_bridge::generators::one_edit_neighbours;
+    let definition = definition();
+    let (_, set_definition, _) = collection_definitions();
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let mut neighbours = 0usize;
+    for case in 0..CASES {
+        let key = grouping_key()
+            .new_tree(&mut runner)
+            .expect("a case")
+            .current();
+        let mut keys = vec![key.clone()];
+        keys.extend(
+            one_edit_neighbours(&key)
+                .into_iter()
+                .map(|(_, neighbour)| neighbour),
+        );
+        neighbours += keys.len() - 1;
+        let set = Term::set(set_definition.clone(), keys, None);
+        let TermKind::Set { elements, .. } = set.kind() else {
+            unreachable!("a set without a rest is a set");
+        };
+        let keys = elements.iter().collect::<Vec<_>>();
+        let pairwise = crate::definedness::collection_disequalities(&definition, &keys, false);
+        let grouped = crate::definedness::collection_disequalities(&definition, &keys, true);
+        assert_eq!(
+            grouped, pairwise,
+            "case {case}: the grouping changed the disequalities of {keys:?}"
+        );
+    }
+    assert!(neighbours > 0, "no key has a neighbour");
 }
 
 /// R-def: the ceil of a map whose keys are rigid with one skeleton makes no apartness check
@@ -580,4 +733,40 @@ fn keys_of_one_skeleton_need_no_apartness_check() {
     }));
     let (made, _) = checks(entries);
     assert_eq!(made, 3 * 201);
+}
+
+/// `grouping_key`'s keys that are not rigid include collections, as its doc states: a key holding
+/// a collection is not rigid (`rigid_apart_skeleton_hash` gives `None` at a
+/// `FixedRoot::Collection`), so the grouping must check it pairwise, and a grouping that read a
+/// collection as rigid would skip a pair `elements_are_apart` does not separate, which
+/// `grouped_disequalities_are_the_pairwise_ones` sees only on keys that hold one.
+#[test]
+fn grouping_keys_include_keys_that_hold_a_collection() {
+    use proptest::prelude::*;
+    fn holds_a_collection(term: &Term) -> bool {
+        let mut pending = vec![term];
+        // Invariant: `pending` holds the unvisited subterms of the visited ones.
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
+                    return true;
+                }
+                TermKind::Application { arguments, .. } => pending.extend(arguments),
+                TermKind::Injection { term, .. } => pending.push(term),
+                _ => {}
+            }
+        }
+        false
+    }
+    let strategy = prop::collection::vec(grouping_key(), 0..12);
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    let mut with_collection = 0usize;
+    for _ in 0..CASES {
+        let keys = strategy.new_tree(&mut runner).expect("a case").current();
+        with_collection += keys.iter().filter(|key| holds_a_collection(key)).count();
+    }
+    assert!(with_collection > 0, "no generated key holds a collection");
 }

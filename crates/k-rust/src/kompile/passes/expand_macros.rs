@@ -3064,3 +3064,223 @@ endmodule
         assert_eq!(render(labelled(run.output(), "MAIN", "use")[0]), added[0]);
     }
 }
+
+#[cfg(test)]
+mod identity_tests {
+    use proptest::{
+        prelude::*,
+        strategy::ValueTree,
+        test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+    };
+
+    use super::{Identities, Shape, children_of};
+    use crate::kast::{
+        Label, Sort, Term,
+        test_terms::{at_path_mut, positions},
+    };
+
+    /// The identity expansion gives `term` when it records `term` and its subterms, children
+    /// first, as `Expander` records a node after its children.
+    fn recorded(identities: &mut Identities, term: &Term) -> Shape {
+        let children = children_of(term)
+            .into_iter()
+            .map(|child| recorded(identities, child))
+            .collect::<Vec<_>>();
+        let identity = identities.identify(term, &children);
+        Shape {
+            settled: false,
+            depth: 0,
+            identity,
+            children,
+        }
+    }
+
+    fn sort() -> impl Strategy<Value = Sort> {
+        prop_oneof![
+            Just(Sort::new("Int")),
+            Just(Sort::new("Bool")),
+            Just(Sort::with_parameters("List", vec![Sort::new("Int")])),
+        ]
+    }
+
+    /// Terms over a small alphabet that varies every field `Term::eq` compares besides the
+    /// children: token texts and sorts, variable names and sorts (or none), label names and
+    /// label sort parameters.
+    fn label() -> BoxedStrategy<Label> {
+        (0_u8..2, prop::collection::vec(sort(), 0..2))
+            .prop_map(|(name, parameters)| Label::with_parameters(format!("l{name}"), parameters))
+            .boxed()
+    }
+
+    fn term() -> impl Strategy<Value = Term> {
+        let leaf = prop_oneof![
+            (0_u8..2, sort()).prop_map(|(token, sort)| Term::Token {
+                token: token.to_string(),
+                sort,
+            }),
+            (0_u8..2, prop::option::of(sort())).prop_map(|(name, sort)| Term::Variable {
+                name: format!("X{name}"),
+                sort,
+            }),
+            label().prop_map(Term::InjectedLabel),
+            label().prop_map(|label| Term::Apply {
+                label,
+                arguments: Vec::new()
+            }),
+        ];
+        leaf.prop_recursive(3, 24, 3, |inner| {
+            prop_oneof![
+                (label(), prop::collection::vec(inner.clone(), 1..3))
+                    .prop_map(|(label, arguments)| Term::Apply { label, arguments }),
+                prop::collection::vec(inner.clone(), 0..3).prop_map(Term::Sequence),
+                (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::Rewrite {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }),
+                (inner.clone(), inner).prop_map(|(pattern, alias)| Term::As {
+                    pattern: Box::new(pattern),
+                    alias: Box::new(alias),
+                }),
+            ]
+        })
+    }
+
+    fn other_sort(sort: &Sort) -> Sort {
+        if *sort == Sort::new("Int") {
+            Sort::new("Bool")
+        } else {
+            Sort::new("Int")
+        }
+    }
+
+    /// A change of one field of a node.
+    type Edit = Box<dyn Fn(&mut Term)>;
+
+    /// Each term that differs from `term` in exactly one field of one node other than its
+    /// children, with the name of the field: every field `Term::cmp_level` compares besides the
+    /// children (the variant is changed by the generator's independent draws).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the structural nodes have no field besides their children"
+    )]
+    fn one_edit_neighbours(term: &Term) -> Vec<(&'static str, Term)> {
+        let mut neighbours = Vec::new();
+        for (steps, _) in positions(term) {
+            let mut edits: Vec<(&'static str, Edit)> = Vec::new();
+            match at_path_mut(&mut term.clone(), &steps) {
+                Term::Token { .. } => {
+                    edits.push((
+                        "token text",
+                        Box::new(|node| {
+                            if let Term::Token { token, .. } = node {
+                                token.push('\'');
+                            }
+                        }),
+                    ));
+                    edits.push((
+                        "token sort",
+                        Box::new(|node| {
+                            if let Term::Token { sort, .. } = node {
+                                *sort = other_sort(sort);
+                            }
+                        }),
+                    ));
+                }
+                Term::Variable { .. } => {
+                    edits.push((
+                        "variable name",
+                        Box::new(|node| {
+                            if let Term::Variable { name, .. } = node {
+                                name.push('\'');
+                            }
+                        }),
+                    ));
+                    edits.push((
+                        "variable sort",
+                        Box::new(|node| {
+                            if let Term::Variable { sort, .. } = node {
+                                *sort = match sort {
+                                    None => Some(Sort::new("Int")),
+                                    Some(sort) => Some(other_sort(sort)),
+                                };
+                            }
+                        }),
+                    ));
+                }
+                Term::InjectedLabel(_) | Term::Apply { .. } => {
+                    edits.push((
+                        "label name",
+                        Box::new(|node| {
+                            if let Term::InjectedLabel(label) | Term::Apply { label, .. } = node {
+                                label.name.push('\'');
+                            }
+                        }),
+                    ));
+                    edits.push((
+                        "label parameters",
+                        Box::new(|node| {
+                            if let Term::InjectedLabel(label) | Term::Apply { label, .. } = node {
+                                match label.parameters.first_mut() {
+                                    Some(parameter) => *parameter = other_sort(parameter),
+                                    None => label.parameters.push(Sort::new("Int")),
+                                }
+                            }
+                        }),
+                    ));
+                }
+                _ => {}
+            }
+            for (field, edit) in edits {
+                let mut neighbour = term.clone();
+                edit(at_path_mut(&mut neighbour, &steps));
+                neighbours.push((field, neighbour));
+            }
+        }
+        neighbours
+    }
+
+    /// Two recorded terms get one identity exactly when they are equal under `Term::eq`
+    /// (`Identities`' own statement), checked on each term against each of its one-edit
+    /// neighbours, which differ from it in one token text or sort, variable name or sort, or
+    /// label name or parameter: the pairs a head comparison blind to that field would merge. A
+    /// wrong merge turns a terminating expansion into "Macro expansion does not terminate"; a
+    /// head comparison that ignores the variable sort, or the variable name, passes every other
+    /// test of the crate. Every edited field occurs.
+    #[test]
+    fn identities_are_term_equality_on_one_edit_neighbours() {
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+        );
+        let strategy = term();
+        let mut fields = std::collections::BTreeMap::<&str, usize>::new();
+        for _ in 0..1024 {
+            let term = strategy.new_tree(&mut runner).expect("a case").current();
+            for (field, neighbour) in one_edit_neighbours(&term) {
+                assert_ne!(term, neighbour);
+                let mut identities = Identities::default();
+                let identity = recorded(&mut identities, &term).identity;
+                assert_eq!(recorded(&mut identities, &term.clone()).identity, identity);
+                assert_ne!(
+                    recorded(&mut identities, &neighbour).identity,
+                    identity,
+                    "{field}: {term:?} and {neighbour:?} got one identity"
+                );
+                *fields.entry(field).or_default() += 1;
+            }
+        }
+        for field in [
+            "token text",
+            "token sort",
+            "variable name",
+            "variable sort",
+            "label name",
+            "label parameters",
+        ] {
+            assert!(
+                fields.get(field).is_some_and(|count| *count > 0),
+                "{fields:?}"
+            );
+        }
+    }
+}
