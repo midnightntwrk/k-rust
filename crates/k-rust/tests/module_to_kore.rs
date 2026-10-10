@@ -3244,6 +3244,33 @@ case_tests! {
             "MAP.lookupOrDefault",
             "argument 3 of MAP.lookupOrDefault, of sort K, is a possible result, but K is not KItem or a subsort of it",
         ),
+        // No injection into `K` is emitted, so a `KItem` is no `K`: an element as a `K` result.
+        list_get_k_result: (
+            "syntax K ::= List \"<\" Int \">\" [function, symbol(at), hook(LIST.get)]",
+            "LIST.get",
+            "an element of argument 1 of LIST.get, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        map_lookup_k_result: (
+            "syntax K ::= Map \"<\" KItem \">\" [function, symbol(at), hook(MAP.lookup)]",
+            "MAP.lookup",
+            "a value of argument 1 of MAP.lookup, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        map_lookup_default_k_result: (
+            "syntax K ::= Map \"<\" KItem \",\" K \">\" [function, symbol(at), hook(MAP.lookupOrDefault)]",
+            "MAP.lookupOrDefault",
+            "a value of argument 1 of MAP.lookupOrDefault, of sort KItem, is the result, but KItem is not K or a subsort of it",
+        ),
+        // A list whose element sort is `K` holds no `Foo` nor `KItem`, for the same reason.
+        list_element_into_k_elements: (
+            "syntax FL ::= mkf(Foo) [function, symbol(mkf), hook(LIST.element)]\n  syntax Foo\n  syntax FL [hook(LIST.List)]\n  syntax FL ::= FL FL [left, function, total, hook(LIST.concat), symbol(_FL_), assoc, unit(.FL), element(fItem)]\n  syntax FL ::= \".FL\" [function, total, hook(LIST.unit), symbol(.FL)]\n  syntax FL ::= fItem(K) [function, total, hook(LIST.element), symbol(fItem)]",
+            "LIST.element",
+            "argument 1 of LIST.element, of sort Foo, is an element of the result, but Foo is not K or a subsort of it",
+        ),
+        map_keys_into_k_elements: (
+            "syntax FL ::= kl(Map) [function, symbol(kl), hook(MAP.keys_list)]\n  syntax Foo\n  syntax FL [hook(LIST.List)]\n  syntax FL ::= FL FL [left, function, total, hook(LIST.concat), symbol(_FL_), assoc, unit(.FL), element(fItem)]\n  syntax FL ::= \".FL\" [function, total, hook(LIST.unit), symbol(.FL)]\n  syntax FL ::= fItem(K) [function, total, hook(LIST.element), symbol(fItem)]",
+            "MAP.keys_list",
+            "a key of argument 1 of MAP.keys_list, of sort KItem, is an element of the result, but KItem is not K or a subsort of it",
+        ),
     }
 }
 

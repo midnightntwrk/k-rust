@@ -937,14 +937,18 @@ fn marker_attribute(attribute: KoreAttribute) -> Attributes {
     }])
 }
 
-fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
+/// The `(child, parent)` pair whose subsort axiom `production` emits: an unparametric
+/// injection into any sort but `K`.
+pub(in crate::kompile) fn emitted_subsort_pair(production: &Sentence) -> Option<(&Sort, &Sort)> {
     let Some(SubsortDeclaration::Pair { child, parent }) = SubsortDeclaration::of(production)
     else {
         return None;
     };
-    if !has_subsort_axiom(parent) {
-        return None;
-    }
+    has_subsort_axiom(parent).then_some((child, parent))
+}
+
+fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
+    let (child, parent) = emitted_subsort_pair(production)?;
 
     let subsort = encode_kore_sort(child);
     let sort = encode_kore_sort(parent);

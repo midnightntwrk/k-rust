@@ -8,14 +8,14 @@
 //! emitted declarations state: the emitted symbol's argument and result sorts are the production's
 //! non-terminal and result sorts, a collection sort's element (key, value) sorts are the argument
 //! sorts of the symbol its `element` attribute names, and the subsort order is the one the
-//! emitted subsort axioms state. So a definition that compiles declares no symbol the backend
+//! emitted subsort axioms state, which has no pair into `K`. So a definition that compiles declares no symbol the backend
 //! refuses to load, and the error names the production rather than its KORE symbol.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust_backend::builtin::{CollectionShape, SortFacts, collection_hook_misfit};
 
-use super::module_to_kore::{collection_concatenation, interpreted_hook};
+use super::module_to_kore::{collection_concatenation, emitted_subsort_pair, interpreted_hook};
 use crate::{
     definition::{
         AttributeKey, LabelHead, PartialOrder, ProductionItem, ResolvedDefinition, Sentence,
@@ -65,11 +65,16 @@ pub(super) fn collection_hook_misfit_diagnostics(
     admitted: &[String],
 ) -> Vec<Diagnostic> {
     let module = definition.main_module_id();
-    // A cyclic subsort relation is reported by emission, which needs the order too.
-    let Ok(subsorts) = definition.subsorts(module) else {
+    let productions = definition.production_catalog(module);
+    // The order the emitted subsort axioms state; a cyclic relation is reported by emission.
+    let Ok(subsorts) = PartialOrder::new(
+        productions
+            .productions()
+            .filter_map(|(_, production)| emitted_subsort_pair(production))
+            .map(|(child, parent)| (child.clone(), parent.clone())),
+    ) else {
         return Vec::new();
     };
-    let productions = definition.production_catalog(module);
     let sorts = definition.sort_catalog(module);
     let mut collections = BTreeMap::new();
     for (head, attributes) in sorts.attributes_by_head() {

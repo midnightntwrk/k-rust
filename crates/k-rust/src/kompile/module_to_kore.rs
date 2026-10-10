@@ -27,6 +27,7 @@
 //! KORE emission of one compiled K module.
 
 mod axioms;
+pub(super) use axioms::emitted_subsort_pair;
 mod equations;
 mod roles;
 
