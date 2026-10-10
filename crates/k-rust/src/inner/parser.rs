@@ -1500,6 +1500,9 @@ struct AssociativityIndex {
     /// The `(parent, child)` pairs where `child` may not be `parent`'s left child (`right`
     /// associativity).
     right: rustc_hash::FxHashSet<(u32, u32)>,
+    /// For each production and each dot position before its end, the edge
+    /// [`Grammar::associativity_edge`] selects there, computed once per grammar.
+    edges: Vec<Box<[AssociativityEdge]>>,
 }
 
 impl AssociativityIndex {
@@ -1525,12 +1528,22 @@ impl AssociativityIndex {
                     .as_deref()
                     .and_then(|label| ids.get(label).copied())
             })
+            .collect::<Vec<_>>();
+        let edges = productions
+            .iter()
+            .enumerate()
+            .map(|(index, recognizer)| {
+                (0..recognizer.items.len())
+                    .map(|dot| associativity_edge_at(productions, &production_labels, index, dot))
+                    .collect()
+            })
             .collect();
         Self {
             ids,
             production_labels,
             left,
             right,
+            edges,
         }
     }
 
@@ -1540,6 +1553,38 @@ impl AssociativityIndex {
         } else {
             self.left.contains(&(parent, child))
         }
+    }
+}
+
+/// An edge the associativity relations judge: the production of the node, and whether the
+/// child is its left (`true`) or its right child; `None` where they judge none.
+type AssociativityEdge = Option<(usize, bool)>;
+
+/// [`Grammar::associativity_edge`] at `dot` of `production`, computed once per grammar.
+fn associativity_edge_at(
+    productions: &[Production],
+    production_labels: &[Option<u32>],
+    production: usize,
+    dot: usize,
+) -> AssociativityEdge {
+    let recognizer = &productions[production];
+    if recognizer.passes_child_through() {
+        return None;
+    }
+    let node = recognizer.term_production.unwrap_or(production);
+    production_labels[node]?;
+    // A node's children are the recognizer's nonterminals, in order (`build_packed_term`).
+    let nonterminals = |items: &[Item]| {
+        items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count()
+    };
+    let position = nonterminals(&recognizer.items[..dot]) + 1;
+    match productions[node].judged_side(position, nonterminals(&recognizer.items)) {
+        Some(Side::Left) => Some((node, true)),
+        Some(Side::Right) => Some((node, false)),
+        Some(Side::Middle) | None => None,
     }
 }
 
@@ -3177,25 +3222,10 @@ impl Grammar {
     /// child through (it builds no node, so the child is judged at its caller's edge), and
     /// below a production whose label is in no associativity relation.
     fn associativity_edge(&self, caller: State) -> Option<(usize, bool)> {
-        let recognizer = &self.productions[caller.production];
-        if recognizer.passes_child_through() {
-            return None;
-        }
-        let node = recognizer.term_production.unwrap_or(caller.production);
-        self.associativity_index().production_labels[node]?;
-        // A node's children are the recognizer's nonterminals, in order (`build_packed_term`).
-        let nonterminals = |items: &[Item]| {
-            items
-                .iter()
-                .filter(|item| matches!(item, Item::NonTerminal(_)))
-                .count()
-        };
-        let position = nonterminals(&recognizer.items[..caller.dot]) + 1;
-        match self.productions[node].judged_side(position, nonterminals(&recognizer.items)) {
-            Some(Side::Left) => Some((node, true)),
-            Some(Side::Right) => Some((node, false)),
-            Some(Side::Middle) | None => None,
-        }
+        self.associativity_index().edges[caller.production]
+            .get(caller.dot)
+            .copied()
+            .flatten()
     }
 
     fn associativity_index(&self) -> &AssociativityIndex {
