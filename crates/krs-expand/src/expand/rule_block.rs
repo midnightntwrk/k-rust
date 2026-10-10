@@ -93,7 +93,8 @@ fn expand_head_rule(
         .collect::<Vec<_>>();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_enum_import(enum_owner, enum_variant)
-        .with_lexical_rule_head(enum_owner.is_none());
+        .with_lexical_rule_head(enum_owner.is_none())
+        .with_readable_instances();
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
     let mut binding_checks = Vec::new();

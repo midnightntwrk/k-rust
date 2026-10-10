@@ -119,6 +119,8 @@ NEGATIVE = (
     "head-binder-sort",
     "undetermined-instance",
     "native-instance",
+    "turbofish-alias",
+    "readable-turbofish-marker",
 )
 
 

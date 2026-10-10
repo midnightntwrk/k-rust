@@ -123,6 +123,12 @@
     ],
     "native-instance": [
       "error[krs::analysis::native-instance]: label sort parameters cannot be written natively, so k-rust fixes this head's instance from its argument sorts: it would solve S = Int, not the turbofish's S = Exp. Give at least one parametric argument a variable of sort Exp."
+    ],
+    "turbofish-alias": [
+      "error[E0277]: a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `Exp`: write `Choose::<dyn ExpSort>`"
+    ],
+    "readable-turbofish-marker": [
+      "error[krs::rust-expansion::uncoded-error]: a readable clause names the sort in a turbofish, not its marker `dyn ExpSort`: write `crate::Choose::<Exp>`; `krs expand` renders the marker"
     ]
   },
   "capability_requirements": {

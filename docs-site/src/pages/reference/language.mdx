@@ -246,7 +246,9 @@ fn choose_true_int(
 ```
 
 It emits `syntax {S} S ::= "choose" "(" Bool "," S "," S ")" [symbol(choose), function, total]`, and the equation `rule choose ( true , A::Int , _::Int ) => A:Int`.
-Rust generics are monomorphised, so one generic fn body would serve every instance; a K rule never quantifies over sorts, so each equation or rule head names its instance with a turbofish, whose argument is the sort marker that goes inside `k::Term<..>` (`Choose::<Int>`, `Choose::<dyn ExpSort>`; a readable clause writes the sort, `Choose::<Exp>`, and `krs expand` renders `Choose::<dyn crate::ExpSort>`).
+Rust generics are monomorphised, so one generic fn body would serve every instance; a K rule never quantifies over sorts, so each equation or rule head names its instance with a turbofish, and each layer has one spelling for its argument.
+Reference code writes the sort marker that goes inside `k::Term<..>` (`Choose::<Int>`, `Choose::<dyn ExpSort>`); the alias `Choose::<Exp>` there would mean `k::Term<k::Term<..>>` fields to rustc, so it is a compile error that names the marker.
+A readable `k::rules!` clause writes the sort (`Choose::<Exp>`), a marker there is rejected with the sort's name, and `krs expand` renders the marker, `Choose::<dyn crate::ExpSort>`.
 The emitted head writes each variable at a parameter position as K's strict cast to its own sort, `A::Int`, and a wildcard as `_::Int`: a semantic cast `A:Int` there would let K instantiate the parameter at `K`, and the equation would never apply.
 Natively, labels never carry sort parameters; those variables are sorted at the same sorts and k-rust solves the instance from them, bounded by the rewrite's sort, exactly as K's text solver does.
 A head whose binders all sit below its turbofish (`Choose::<dyn ExpSort>` over two `Term<Int>` binders) would be solved at `Int` instead, so it is rejected (`krs::analysis::native-instance`).

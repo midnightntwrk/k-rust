@@ -377,6 +377,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer or a `cells!` cell value.",
         UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",
         CELL_COLLECTION_PLACEMENT: "krs::expand::cell-collection-placement" => "An optional-cell `Some`/`None` entry or a cell-collection entry occurs in a context alias or an equation's function context, which read fixed cells only.",
+        TURBOFISH_SPELLING: "krs::expand::turbofish-spelling" => "A readable `k::rules!` clause writes a sort marker (`Choose::<dyn ExpSort>`) as a turbofish argument; readable clauses name the sort (`Choose::<Exp>`) and reference code the marker.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

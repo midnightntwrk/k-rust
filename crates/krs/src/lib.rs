@@ -117,6 +117,58 @@ where
     T::__krs_rule_application(authored_path)
 }
 
+/// Classifies a reference-layer turbofish argument (KF-027) by autoref
+/// method resolution: `(&&__KrsTurbofishProbe::<T>::new()).__krs_turbofish_kind()`
+/// is a [`__KrsTurbofishAlias`] when `T` is a `Term<..>` sort alias such as
+/// `Exp`, and a [`__KrsTurbofishMarker`] for a sort marker such as
+/// `dyn ExpSort` or `k::builtin::Int`. The expansion requires the latter
+/// with a diagnostic that names the marker.
+#[doc(hidden)]
+pub struct __KrsTurbofishProbe<T: ?Sized> {
+    marker: PhantomData<fn(&T)>,
+}
+
+impl<T: ?Sized> __KrsTurbofishProbe<T> {
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            marker: PhantomData,
+        }
+    }
+}
+
+/// The classification of a turbofish argument that is a `Term<..>` alias.
+#[doc(hidden)]
+pub struct __KrsTurbofishAlias;
+
+/// The classification of a turbofish argument that is a sort marker.
+#[doc(hidden)]
+pub struct __KrsTurbofishMarker;
+
+/// Selected first, through the extra reference, when the probed type is a
+/// `Term<..>` alias.
+#[doc(hidden)]
+pub trait __KrsTurbofishAliasKind {
+    #[doc(hidden)]
+    fn __krs_turbofish_kind(&self) -> __KrsTurbofishAlias {
+        __KrsTurbofishAlias
+    }
+}
+
+impl<S: ?Sized> __KrsTurbofishAliasKind for &__KrsTurbofishProbe<Term<S>> {}
+
+/// Selected for every other probed type, a sort marker.
+#[doc(hidden)]
+pub trait __KrsTurbofishMarkerKind {
+    #[doc(hidden)]
+    fn __krs_turbofish_kind(&self) -> __KrsTurbofishMarker {
+        __KrsTurbofishMarker
+    }
+}
+
+impl<T: ?Sized> __KrsTurbofishMarkerKind for __KrsTurbofishProbe<T> {}
+
 // Framework identities are ordinary readable sorts, requested lazily by a
 // definition whose sort graph names either one. The invocation lists their
 // factories only in `FRAMEWORK_FACTORIES`, which both entry points run when a

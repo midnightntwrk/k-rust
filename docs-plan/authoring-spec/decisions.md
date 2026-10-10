@@ -88,7 +88,12 @@ bug — report it, don't guess.
   (`ExprSort`) and a type alias (`type Expr = Term<dyn ExprSort>;`); the
   frequent job gets the good name. `Term<…>` never appears in layer 1
   (closed builtin sorts are self-denoting); the expansion spells it. [r3,
-  r6d]
+  r6d] A turbofish on a parametric production head has one spelling per
+  layer: layer 1 names the sort (`Choose::<Exp>`), layer 2 only the
+  marker that goes inside `Term<…>` (`Choose::<dyn ExpSort>`, which
+  `krs expand` renders). Each layer rejects the other's spelling with a
+  did-you-mean; in layer 2 the alias would make rustc read the fields as
+  `Term<Term<…>>`. [KF-027 follow-up; user decision 2026-10-10]
 - **B3 — Framework sorts are imported, not declared.** `use k::KResult;`
   — the sorts block declares only the language's own categories. [r7.1]
 - **B4 — `#[k::bracket("(", ")")]`** names the sort's grouping delimiters

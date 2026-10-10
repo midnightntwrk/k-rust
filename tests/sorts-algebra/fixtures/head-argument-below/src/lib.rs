@@ -39,7 +39,7 @@ pub struct Choose<S: ?Sized> {
 
 #[k::equation]
 fn choose_one(
-    k::term![Choose::<Exp> { cond: true, then_branch: 1, else_branch: b }]: Term<Exp>,
+    k::term![Choose::<dyn ExpSort> { cond: true, then_branch: 1, else_branch: b }]: Term<Exp>,
 ) -> Term<Exp> {
     b
 }

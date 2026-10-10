@@ -10,6 +10,7 @@ use krs_ir::wire::{
     WireTerm, WireTypeReference,
 };
 use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, ProvenanceKey};
+use krs_syntax::surface::path_text;
 use krs_syntax::{ProvenanceRole, TermArguments, TermTree};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -248,6 +249,10 @@ pub(super) struct TermBuilder<'a> {
     pub(super) application_instance_ordinal: u32,
     /// Whether this sentence kind admits turbofish instances (KF-027).
     application_instances: bool,
+    /// Whether turbofish arguments use the readable spelling, the sort
+    /// (`Choose::<Exp>`), rather than the reference spelling, the sort
+    /// marker (`Choose::<dyn ExpSort>`).
+    readable_instances: bool,
     /// Ordinals of the `_` in `k::matches!` patterns, side-neutral.
     pub(super) matches_wildcard_ordinal: u32,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
@@ -305,6 +310,7 @@ impl<'a> TermBuilder<'a> {
             matches_ordinal: 0,
             application_instance_ordinal: 0,
             application_instances: true,
+            readable_instances: false,
             matches_wildcard_ordinal: 0,
             local_binders: None,
             let_ordinal: 0,
@@ -413,6 +419,14 @@ impl<'a> TermBuilder<'a> {
     /// initializer builds a concrete value, whose syntax numbers no instance.
     pub(super) const fn without_application_instances(mut self) -> Self {
         self.application_instances = false;
+        self
+    }
+
+    /// Expands turbofish arguments in the readable spelling, the sort
+    /// (`Choose::<Exp>`), for a readable `k::rules!` clause; the reference
+    /// spelling is the sort marker (`Choose::<dyn ExpSort>`).
+    pub(super) const fn with_readable_instances(mut self) -> Self {
+        self.readable_instances = true;
         self
     }
 
@@ -1244,7 +1258,13 @@ impl<'a> TermBuilder<'a> {
             }
         });
         let mut references = Vec::with_capacity(instance.len());
-        for sort in instance {
+        for (index, sort) in instance.iter().enumerate() {
+            if self.readable_instances && sort.is_dynamic() {
+                return Err(readable_marker_error(application, index));
+            }
+            if !self.readable_instances && !sort.is_dynamic() {
+                self.reference_marker_check(application, index);
+            }
             let ordinal = self.application_instance_ordinal;
             self.application_instance_ordinal = ordinal.checked_add(1).ok_or_else(|| {
                 ExpandError::new(
@@ -1282,6 +1302,51 @@ impl<'a> TermBuilder<'a> {
             });
         }
         Ok(references)
+    }
+
+    /// Makes rustc reject a reference-layer turbofish argument that is a
+    /// sort's `Term<..>` alias (`Choose::<Exp>`, which rustc reads as
+    /// `Term<Term<..>>` fields) rather than its sort marker
+    /// (`Choose::<dyn ExpSort>`), with a did-you-mean (KF-027). A builtin
+    /// marker or a closed sort's own type passes.
+    fn reference_marker_check(&mut self, application: &krs_syntax::TermApplication, index: usize) {
+        let sort = &application.instance()[index];
+        let alias = path_text(sort.sort());
+        let marker = format!("dyn {alias}Sort");
+        let suggestion = turbofish_text(application, index, &marker);
+        let message = format!(
+            "a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `{alias}`: write `{suggestion}`"
+        );
+        let label = format!("`{alias}` is a `k::Term<..>` alias; did you mean `{marker}`?");
+        let cfg = self.cfg;
+        let facade = self.facade;
+        let ty = sort.ty();
+        let check_fn = format_ident!(
+            "__krs_rule_instance_marker_{:016x}_{}",
+            self.nonce,
+            self.next_key
+        );
+        self.next_key += 1;
+        let span = syn::spanned::Spanned::span(ty);
+        let call = quote::quote_spanned! {span=>
+            __krs_require_sort_marker(
+                (&&#facade::__KrsTurbofishProbe::<#ty>::new()).__krs_turbofish_kind(),
+            )
+        };
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            fn #check_fn() {
+                #[diagnostic::on_unimplemented(message = #message, label = #label)]
+                trait __KrsTurbofishSortMarker {}
+                impl __KrsTurbofishSortMarker for #facade::__KrsTurbofishMarker {}
+                fn __krs_require_sort_marker<T: __KrsTurbofishSortMarker>(_: T) {}
+                #[allow(unused_imports)]
+                use #facade::{__KrsTurbofishAliasKind as _, __KrsTurbofishMarkerKind as _};
+                #call;
+            }
+        });
     }
 
     pub(super) fn application_authored_path(&self, path: &Path) -> String {
@@ -1333,6 +1398,60 @@ impl<'a> TermBuilder<'a> {
             )
         }}
     }
+}
+
+/// Rejects a sort marker (`dyn ExpSort`) as a turbofish argument of a
+/// readable clause, which names the sort itself (`Choose::<Exp>`, KF-027).
+fn readable_marker_error(application: &krs_syntax::TermApplication, index: usize) -> ExpandError {
+    let sort = &application.instance()[index];
+    let marker = format!("dyn {}", path_text(sort.sort()));
+    let mut alias = sort.sort().clone();
+    let stripped = alias.segments.last_mut().and_then(|last| {
+        let name = last.ident.to_string();
+        let stem = name.strip_suffix("Sort").filter(|stem| !stem.is_empty())?;
+        last.ident = Ident::new(stem, last.ident.span());
+        Some(())
+    });
+    let message = if stripped.is_some() {
+        let suggestion = turbofish_text(application, index, &path_text(&alias));
+        format!(
+            "a readable clause names the sort in a turbofish, not its marker `{marker}`: write `{suggestion}`; `krs expand` renders the marker"
+        )
+    } else {
+        format!(
+            "a readable clause names the sort in a turbofish, not the sort marker `{marker}`: write the sort's name, such as `Choose::<Exp>`; `krs expand` renders the marker"
+        )
+    };
+    ExpandError::new(
+        expand::TURBOFISH_SPELLING,
+        syn::spanned::Spanned::span(sort.ty()),
+        message,
+    )
+}
+
+/// The text of `application`'s head and turbofish with the argument at
+/// `index` replaced by `replacement`, for a did-you-mean.
+fn turbofish_text(
+    application: &krs_syntax::TermApplication,
+    index: usize,
+    replacement: &str,
+) -> String {
+    let arguments = application
+        .instance()
+        .iter()
+        .enumerate()
+        .map(|(position, sort)| {
+            if position == index {
+                replacement.to_owned()
+            } else if sort.is_dynamic() {
+                format!("dyn {}", path_text(sort.sort()))
+            } else {
+                path_text(sort.sort())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{}::<{arguments}>", path_text(application.head()))
 }
 
 /// The head of `application` with its turbofish restored, for a readable
