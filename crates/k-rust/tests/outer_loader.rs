@@ -2172,17 +2172,25 @@ fn assert_synonym_overlap_error(
     diagnostic.clone()
 }
 
+/// A view that holds a cell also holds the counter cell compilation adds to the configuration,
+/// whose body sort is `Int`. A configuration's module imports MAP and so declares `Int`; `P8`
+/// holds a written cell instead and is not the main module, so `Int` reaches its view only through
+/// the counter cell.
 #[test]
 fn synonym_overlap_with_the_injected_counter_body_sort_is_rejected_without_int_import() {
     let source = indoc! {r#"
         module P8
           syntax Foo ::= "foo"
           syntax Int = Foo
+          syntax FooCell ::= "<foo>" Foo "</foo>" [cell, symbol(<foo>)]
           rule foo => foo
+        endmodule
+        module MAIN
+          imports P8
         endmodule
     "#};
     assert_synonym_overlap_error(
-        load_with_prelude(source, "P8"),
+        load_with_prelude(source, "MAIN"),
         3,
         "Int is given a sort position in generated or injected grammar syntax by syntax GeneratedCounterCell",
     );

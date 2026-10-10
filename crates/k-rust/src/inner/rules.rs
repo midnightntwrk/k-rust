@@ -510,8 +510,8 @@ fn up_sentence(
 }
 
 /// The sentences the rule grammar of `module` is built from: the module's signature plus
-/// ML-SYNTAX, plus the RULE-CELLS cell productions that no visible cell production already
-/// provides.
+/// ML-SYNTAX, plus, when the signature holds a configuration's cells, the RULE-CELLS cell
+/// productions that no visible cell production already provides.
 fn rule_grammar_view(resolved: &ResolvedDefinition, module: ModuleId) -> Vec<&Sentence> {
     let mut visible = resolved.signature_sentences(module);
     add_implicit_ml_syntax(resolved, &mut visible);
@@ -537,8 +537,18 @@ fn inject_rule_cell_sentences<'a>(
     visible: &mut Vec<&'a Sentence>,
 ) {
     // RULE-CELLS supplies parse-only cells, notably generatedCounter for claims
-    // about fresh constants. The compiler generates their real productions later.
+    // about fresh constants. The compiler generates their real productions later, as cells of
+    // the compiled configuration, beside the cells the definition's configurations declare. A
+    // view has them exactly when it has a cell of the configuration (a `cell` production): a module
+    // that sees no configuration names no cell of it, the added ones included, and the content
+    // sorts of the added cells come with the configuration, not into every module.
     // Import only these declarations into the grammar, preserving the source module.
+    let sees_configuration = visible.iter().any(|sentence| {
+        matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell))
+    });
+    if !sees_configuration {
+        return;
+    }
     if let Some(rule_cells) = resolved.module_id("RULE-CELLS") {
         for sentence in resolved
             .module(rule_cells)
@@ -1564,24 +1574,46 @@ endmodule
         }
     }
 
-    /// F10: every rule grammar sees the RULE-CELLS cell `<generatedCounter> Int
-    /// </generatedCounter>`, so `Int` is a sort of the rule grammar of BOOL-COMMON, whose visible
-    /// sentences declare no `Int`.
+    /// F10: a rule grammar whose view holds a cell also sees the RULE-CELLS cell
+    /// `<generatedCounter> Int </generatedCounter>`, so `Int` is a sort of that grammar although
+    /// the view declares no `Int`. A configuration's module imports MAP, which declares `Int`, so
+    /// the view here holds a written `cell` production instead.
     #[test]
     fn the_universe_of_a_view_with_the_injected_counter_cell_contains_int() {
-        let loaded = load_with_prelude("module MAIN\nendmodule\n");
+        let loaded = load_with_prelude(
+            "module CELLS\n  syntax Foo ::= \"foo\"\n  syntax FooCell ::= \"<foo>\" Foo \"</foo>\" [cell, symbol(<foo>)]\nendmodule\n\nmodule MAIN\n  imports CELLS\nendmodule\n",
+        );
 
-        let (universe, declared) = rule_grammar_universe(loaded.resolved(), "BOOL-COMMON");
+        let (universe, declared) = rule_grammar_universe(loaded.resolved(), "CELLS");
 
         let int = Sort::new("Int");
-        assert!(
-            !declared.contains(&int),
-            "BOOL-COMMON's view declares no Int"
-        );
+        assert!(!declared.contains(&int), "CELLS's view declares no Int");
         assert_eq!(
             universe.member(&int).map(|member| member.role()),
             Some(crate::kast::SortRole::Defined)
         );
+    }
+
+    /// A module whose view holds no configuration cell sees none of the cells compilation adds to
+    /// the configuration: BOOL-COMMON's rule grammar has no `<generatedCounter>`, and so no `Int`.
+    #[test]
+    fn a_view_without_a_configuration_has_no_compiler_added_cell() {
+        let loaded = load_with_prelude("module MAIN\nendmodule\n");
+        let resolved = loaded.resolved();
+        let module = resolved
+            .module_id("BOOL-COMMON")
+            .expect("the module is resolved");
+
+        assert!(
+            !rule_grammar_view(resolved, module)
+                .iter()
+                .any(|sentence| matches!(
+                    sentence,
+                    Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell)
+                ))
+        );
+        let (universe, _) = rule_grammar_universe(resolved, "BOOL-COMMON");
+        assert!(universe.member(&Sort::new("Int")).is_none());
     }
 
     /// F10: `updateArray(Array, Int, List)` is a public ARRAY-SYNTAX production whose module

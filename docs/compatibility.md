@@ -459,9 +459,12 @@ The two readings have different KORE and different proof behavior; a specificati
 
 A regular-expression terminal is one lexeme, and the `prec(N)` attribute orders lexemes when the scanner must choose between tokens of equal length (K user manual, "`prec` attribute"); two token productions with the same regular expression and different precedences therefore give one lexeme two contradictory orders, and Rust rejects that grammar ("Inconsistent token precedence detected.").
 Rust judges each module's grammar in the view its own imports give it: a sentence denotes in the syntax its own module sees, and the main module's grammar is checked even when the module has no rules.
+The imports compilation adds for configuration support are imports like any other: a main module that sees no configuration imports `DEFAULT-CONFIGURATION`, a module that declares a configuration imports `MAP`, and a module sees what these export to it, no more.
+`MAP` imports `INT-SYNTAX` privately, so these imports give a view the sort `Int` but not `Int`'s lexeme.
+The cells compilation adds to the configuration (the counter cell `<generatedCounter>`, see "Compiler-resolved fresh constants") are in exactly the views that hold a cell of the configuration: a module that sees no configuration can name none of its cells, the added ones included.
 A module that imports `INT-SYNTAX` and declares `syntax Foo ::= r"[0-9]+" [token]` is rejected; a module that declares the same production and imports nothing is accepted, since `Int`'s `[0-9]+` (with `prec(2)`) is not in its view, and a program or pattern written in it reads `12` as `Foo`.
-The pinned K frontend rejects the second definition as well (`checks/invalidPrec.k`), naming `Int`'s token from domains.md, which reaches the main module only through modules compilation adds to it (configuration support), not through the definition's imports.
-Rust does not count those modules as part of the syntax the definition's author declared; the conformance expectations record that recipe as `compiler-added-grammar`.
+The pinned K frontend rejects the second definition as well (`checks/invalidPrec.k`), naming `Int`'s token from domains.md, which reaches the main module only through modules compilation adds to it.
+In Rust no scanner holds both `Foo`'s and `Int`'s `[0-9]+`, so the definition gives no lexeme two orders; the conformance expectations record that recipe as `compiler-added-grammar`.
 
 A literal terminal is a lexeme as well.
 The manual's default precedence, 0, is the default of regular-expression tokens; a literal without `prec` has the largest precedence, so that a keyword wins over a regular-expression token of the same length (`if` over an identifier), which every grammar with keywords needs.
@@ -499,6 +502,8 @@ It is also rejected anywhere in a context: the heating step builds the context's
 A local function (`#fun`, `#let`) on the right-hand side of a rewrite rule may mention a `!` variable: its equation receives the value from the enclosing rule as an argument.
 
 The counter cell `<generatedCounter>` holds an `Int` that starts at the domain value `0`, so the configuration has it only when the main module sees a sort `Int` with domain values (token syntax).
+A rule or claim may name the counter cell in any module whose view holds a cell of the configuration, as it may name the configuration's other cells there; in a module that sees no configuration, `<generatedCounter>` is not syntax and the sentence is a parse error.
+The pinned K frontend parses the counter cell in every module and rejects it outside the main module after parsing ("Found klabel <generatedCounter> not defined in any production"); Rust accepts it in a module that sees the configuration and is not the main module, where the cell is a cell of the configuration the rule rewrites.
 A `--no-prelude` definition without such an `Int` gets a `<generatedTop>` around its own top cell alone, and its claims get no counter cell; nothing in it can draw a fresh value, since a `freshGenerator` takes an `Int`.
 A `!` variable in such a definition is rejected with `InvalidFreshConstant` at its sentence (with no `INT` module, the report is that the counter increment needs `INT`).
 
