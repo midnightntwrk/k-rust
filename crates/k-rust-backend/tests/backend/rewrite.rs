@@ -12951,8 +12951,11 @@ fn emits_frame_definedness_on_the_single_entry_path() {
 
 /// A rule that only updates the value bound to a key beside an opaque rest, in a definition
 /// without `MAP.in_keys`. The key's absence from the rest is a fact about the key and the rest
-/// alone, so the right-hand side's obligation is the one the left-hand side already carries:
-/// execution never branches and the path condition does not grow with the depth.
+/// alone. The first step consumes `a |-> zero() R`, so it carries that map's definedness, the
+/// absence, and the initial state's instances where it fails (whose definedness is not
+/// assumed) are its `Stuck` remainder at depth 0. From then on the path holds the absence, and
+/// each step's obligation, consumed or built, is that same fact: no later step branches and the
+/// path condition does not grow with the depth.
 #[cfg(feature = "z3")]
 #[test]
 fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
@@ -13010,18 +13013,28 @@ fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
         &solver,
     );
 
-    let [leaf] = result.leaves.as_slice() else {
+    let absence = absence_in(&internal_term(
+        &definition,
+        r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{})"#,
+    ));
+    let [leaf, initial] = result.leaves.as_slice() else {
         panic!(
-            "expected one depth-bounded leaf, found {} leaves",
+            "expected a depth-bounded leaf and the initial remainder, found {} leaves",
             result.leaves.len()
         );
     };
     assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
     assert_eq!(leaf.depth, 20);
-    assert!(
-        leaf.pattern.constraints.is_empty(),
-        "the path condition grew with the depth: {} constraints",
-        leaf.pattern.constraints.len()
+    assert_eq!(
+        leaf.pattern.constraints,
+        vec![absence.clone()],
+        "the path condition grew with the depth"
+    );
+    assert_eq!(initial.halt_reason, HaltReason::Stuck);
+    assert_eq!(initial.depth, 0);
+    assert_eq!(
+        initial.pattern.constraints,
+        vec![Predicate::Not(Box::new(absence))]
     );
 }
 
@@ -13262,8 +13275,13 @@ fn absence_update_leaves(
 /// branches on it and the path condition does not grow with the depth. The leaves are those of
 /// the backend that stated the absence with an ill-sorted `\in`, which was value-free too:
 /// `sReq` and `sHook` reach the depth bound in one leaf (beside the initial state's own `Stuck`
-/// remainder when its definedness is not assumed), and `sOther`, whose undefined `inc` application leaves a `Trivial` remainder and one
-/// more obligation at every step, keeps exactly that shape and no more than one absence.
+/// remainder when its definedness is not assumed), and `sOther`, whose undefined `inc`
+/// application leaves a `Trivial` remainder and one more obligation at every step, keeps
+/// exactly that shape and no more than one absence. Its first step consumes `a |-> zero() R`
+/// and so carries the absence, as every later step finds it on the path: its `Trivial`
+/// remainder holds one more constraint than the step count alone gives, and where the initial
+/// state's definedness is not assumed its instances without the absence are a `Stuck`
+/// remainder at depth 0, as for the other two states.
 #[cfg(feature = "z3")]
 #[test]
 fn updating_a_value_through_requires_or_hooks_restates_one_absence() {
@@ -13287,18 +13305,21 @@ fn updating_a_value_through_requires_or_hooks_restates_one_absence() {
             "{state}"
         );
     }
-    let other = |first: usize| {
+    let other = |first: usize, initial: Option<(&str, u64, usize)>| {
         let mut cases = (0..8)
-            .map(|depth| {
-                let constraints = if depth == 0 { 1 } else { depth + first };
-                ("Trivial".to_owned(), depth as u64, constraints)
-            })
+            .map(|depth| ("Trivial".to_owned(), depth as u64, depth + first))
             .collect::<Vec<_>>();
         cases.push(("DepthBound".to_owned(), 8, 7 + first - 1));
+        cases.extend(
+            initial.map(|(kind, depth, constraints)| (kind.to_owned(), depth, constraints)),
+        );
         cases
     };
-    assert_eq!(absence_update_leaves("sOther", false), (other(2), 1));
-    assert_eq!(absence_update_leaves("sOther", true), (other(1), 0));
+    assert_eq!(
+        absence_update_leaves("sOther", false),
+        (other(2, Some(("Stuck", 0, 1))), 1)
+    );
+    assert_eq!(absence_update_leaves("sOther", true), (other(1, None), 0));
 }
 
 #[cfg(feature = "z3")]
