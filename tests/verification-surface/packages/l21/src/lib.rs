@@ -8,10 +8,9 @@
 //! applies only on the branch where `?X >=Int 10`, so symbolic execution
 //! ends in two states. Concrete (LLVM) execution cannot run such a rule.
 //!
-//! The two rules never apply to one configuration (`0 >=Int 10` is false),
-//! but KRS's overlap check compares guards only with each other, not with
-//! the literal the other rule matched, so they share a `nondet` group. The
-//! group is check-only: the emitted K is the lesson's.
+//! The two rules never apply to one configuration: unifying their subjects
+//! binds `x` to `0`, and KRS's overlap check evaluates the guard `0 >=Int 10`
+//! that results, which is false, so they need no `nondet` group.
 
 use k::builtin::{Int, KSequence, int};
 use k::{KItem, Term};
@@ -42,7 +41,7 @@ impl Machine {
     }
 }
 
-#[k::rule(nondet = lesson, label = "zero-to-unknown")]
+#[k::rule(label = "zero-to-unknown")]
 #[k::exists(x: Int)]
 #[k::ensures(int::ne(x, 0))]
 pub fn zero_to_unknown(
@@ -51,7 +50,7 @@ pub fn zero_to_unknown(
     k::cells! { k: k::configuration::KCell(x, ..tail), ..state }
 }
 
-#[k::rule(nondet = lesson, label = "big-to-five")]
+#[k::rule(label = "big-to-five")]
 #[k::requires(int::ge(x, 10))]
 pub fn big_to_five(
     x: Term<Int>,

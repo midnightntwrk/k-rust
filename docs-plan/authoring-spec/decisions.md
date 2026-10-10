@@ -327,8 +327,15 @@ bug — report it, don't guess.
      syntactically after unification with the unifier's substitution: a
      conjunct `bool::not(g)` against a conjunct `g`; `int::lt`/`int::ge`,
      `int::le`/`int::gt`, `int::eq`/`int::ne`, and `bool::eq`/`bool::ne`
-     on identical operands, with operand swaps normalised. Any other guard
-     pair is treated as possibly overlapping.
+     on identical operands, with operand swaps normalised. A conjunct of
+     either guard that the substitution makes an Int comparison
+     (`int::lt`, `le`, `gt`, `ge`, `eq`, `ne`, or `bool::not` of one) of
+     two Int literals is evaluated, and a false one separates the rules on
+     its own: a rule on `0` and a rule on `x` with `int::ge(x, 10)` give
+     `0 >=Int 10` (K tutorial lesson 1.21, which therefore needs no
+     `nondet` group). Literals outside the 128-bit range and arithmetic
+     operands are not evaluated (decided 2026-10-10). Any other guard pair
+     is treated as possibly overlapping.
   5. *Disjoint footprints* are independent, because the rules commute
      (KF-015). The footprint of a rule is the cells it reads or writes
      (every cell in its pattern or result, the computation cell included

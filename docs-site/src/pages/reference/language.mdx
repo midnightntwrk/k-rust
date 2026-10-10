@@ -72,7 +72,9 @@ The standalone `#[k::priority(N)]` attribute is retired: KRS rejects it and name
 K does not forbid overlapping rules: when two rules can apply to one configuration, `krun` takes one and `krun --search` finds both.
 KRS reports such a pair, because in Rust two arms matching one input are usually a mistake (`krs::analysis::overlapping-rule-heads`).
 The check covers every transition: readable clauses, `#[k::rule]` functions (completed to the head of the computation cell), and `cells!` rules; equations are not checked.
-Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate; any other pair of guards is treated as possibly overlapping.
+Rules at different priorities never overlap, and two rules whose guards contain literal complements, such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)`, `int::lt` and `int::ge`, or `g` and `bool::not(g)`, are separate.
+So are two rules where unifying the patterns turns a guard into a false comparison of two Int literals: a rule on `0` and a rule on `x` with `int::ge(x, 10)` never apply to one configuration, because `0 >=Int 10` is false (K tutorial lesson 1.21).
+Any other pair of guards is treated as possibly overlapping; KRS does no arithmetic and asks no solver.
 Members of one `overload` family are one head, as K's overload axioms make them: a rule on `Dot` whose base is an `LVal` overlaps a rule on `LvalDot`, while a rule on `Dot` whose base is an `Int` does not.
 When the overlap is intended, put the rules in one group with `#[k::rule(nondet = toss)]`.
 The key is check-only and emits nothing; a group needs at least two rules at one priority, and each of its rules must overlap another (`krs::analysis::nondet-group`).

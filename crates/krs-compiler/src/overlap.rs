@@ -5,8 +5,9 @@
 //! simplifications, aliases, claims, anywhere rules, and heat and cool rules
 //! (K orders those by the result-sort condition it adds) are not. Rules at
 //! different priorities never overlap; rules of one `nondet` group may, and
-//! the group is validated instead; and literal complementary guards separate
-//! two rules after unification. Members of one `overload` family are one
+//! the group is validated instead; and literal complementary guards, or a
+//! guard conjunct that unification makes a false comparison of two Int
+//! literals, separate two rules after unification. Members of one `overload` family are one
 //! head: K's overload axioms identify `expDot(inj(L), F)` with
 //! `inj(lValDot(L, F))`, so their applications unify when their arguments do
 //! (clause 7c). An `A | B` or-pattern contributes the cross product of its
@@ -1400,6 +1401,68 @@ impl Unifier<'_> {
         })
     }
 
+    /// Whether the two guards cannot both hold under the current
+    /// substitution: a pair of conjuncts is complementary, or a conjunct of
+    /// either guard is a false ground Int comparison (F2 amendment, clause 4).
+    fn guards_separate(&self, left: Option<&Pattern>, right: Option<&Pattern>) -> bool {
+        self.guards_complementary(left, right)
+            || self.guard_refuted(left)
+            || self.guard_refuted(right)
+    }
+
+    /// Whether some conjunct of a guard, after the unifier's substitution, is
+    /// a comparison of two Int literals that is false, such as `x >=Int 10`
+    /// once the other rule's pattern binds `x` to `0`.
+    fn guard_refuted(&self, guard: Option<&Pattern>) -> bool {
+        guard.is_some_and(|guard| {
+            conjuncts(guard)
+                .into_iter()
+                .any(|conjunct| self.ground_truth(conjunct) == Some(false))
+        })
+    }
+
+    /// The value of a guard conjunct whose operands are Int literals under
+    /// the current substitution: an Int comparison, or `bool::not` of one.
+    /// Anything else, including a literal outside `i128`, has no value here
+    /// (conservative).
+    fn ground_truth(&self, pattern: &Pattern) -> Option<bool> {
+        let Pattern::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } = pattern
+        else {
+            return None;
+        };
+        if let (BuiltinOperation::BoolNot, [negated]) = (operation, arguments.as_slice()) {
+            return self.ground_truth(negated).map(|value| !value);
+        }
+        let [left, right] = arguments.as_slice() else {
+            return None;
+        };
+        let compare = || Some(self.int_literal(left)?.cmp(&self.int_literal(right)?));
+        match operation {
+            BuiltinOperation::IntLess => compare().map(std::cmp::Ordering::is_lt),
+            BuiltinOperation::IntLessEqual => compare().map(std::cmp::Ordering::is_le),
+            BuiltinOperation::IntGreater => compare().map(std::cmp::Ordering::is_gt),
+            BuiltinOperation::IntGreaterEqual => compare().map(std::cmp::Ordering::is_ge),
+            BuiltinOperation::IntEqual => compare().map(std::cmp::Ordering::is_eq),
+            BuiltinOperation::IntNotEqual => compare().map(std::cmp::Ordering::is_ne),
+            _ => None,
+        }
+    }
+
+    /// The value of an Int literal under the current substitution.
+    fn int_literal(&self, pattern: &Pattern) -> Option<i128> {
+        match self.resolve(pattern.clone()) {
+            Pattern::Token {
+                sort: SemanticSortRef::Builtin(BuiltinSort::Int),
+                value,
+            } => value.parse().ok(),
+            _ => None,
+        }
+    }
+
     fn complementary(&self, left: &Guard<'_>, right: &Guard<'_>) -> bool {
         match (left, right) {
             (Guard::Not(negated), other) | (other, Guard::Not(negated))
@@ -1485,7 +1548,8 @@ fn conjuncts(pattern: &Pattern) -> Vec<&Pattern> {
 }
 
 /// Whether two transitions can apply to one configuration: their shared cells
-/// unify, and no pair of literal guard conjuncts is complementary.
+/// unify, no pair of literal guard conjuncts is complementary, and no guard
+/// conjunct is a false ground Int comparison.
 fn transitions_overlap(
     left: &TransitionView<'_>,
     right: &TransitionView<'_>,
@@ -1598,7 +1662,7 @@ fn chosen_clauses_overlap(
     }
     let left_guard = left_requires.map(|term| pattern(term, 0, &mut catalog));
     let right_guard = right_requires.map(|term| pattern(term, 1, &mut catalog));
-    !unifier.guards_complementary(left_guard.as_ref(), right_guard.as_ref())
+    !unifier.guards_separate(left_guard.as_ref(), right_guard.as_ref())
 }
 
 /// A violation of the F2 overlap check (decisions.md, F2 amendment).

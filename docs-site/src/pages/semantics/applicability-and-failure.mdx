@@ -28,7 +28,7 @@ An unproved or false symbolic condition makes the rule inapplicable; it does not
 
 Transition rules have no source-order priority; their only order is an explicit `priority = N` or `owise`.
 When KRS can establish that two transitions can apply to one configuration at one priority, analysis rejects the ambiguity: K would take either rule.
-Literal complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)` separate two rules; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
+Literal complementary guards such as `int::ne(rhs, 0)` and `int::eq(rhs, 0)` separate two rules, as does a guard that unifying the patterns turns into a false comparison of two Int literals, such as `int::ge(x, 10)` against a rule on `0`; an intended choice is declared with `#[k::rule(nondet = NAME)]` on every rule of the group.
 
 This negative fixture deliberately gives two rules the same `Foo()` head:
 

@@ -252,6 +252,95 @@ fn non_complementary_guards_still_overlap() {
     assert!(!Unifier::new(&graph).guards_complementary(Some(&zero), None));
 }
 
+/// Unifies a left rule matching the literal `subject` with a right rule
+/// binding `X`, then asks whether the right rule's `guard` on `X` separates
+/// the two (lesson 1.21's `0` and `X` with `X >=Int 10`).
+fn literal_separated(subject: &str, guard: &Pattern) -> bool {
+    let graph = graph();
+    let mut unifier = Unifier::new(&graph);
+    assert!(unifier.unify(
+        sequence(vec![int(subject)]),
+        sequence(vec![variable(1, 0, BuiltinSort::Int)]),
+    ));
+    unifier.guards_separate(None, Some(guard))
+}
+
+#[test]
+fn a_ground_false_comparison_after_unification_separates() {
+    let at_least_ten = builtin(
+        BuiltinOperation::IntGreaterEqual,
+        vec![variable(1, 0, BuiltinSort::Int), int("10")],
+    );
+    assert!(literal_separated("0", &at_least_ten));
+    assert!(literal_separated("-3", &at_least_ten));
+    assert!(!literal_separated("10", &at_least_ten));
+    assert!(!literal_separated("12", &at_least_ten));
+    for (operation, separated_at_zero) in [
+        (BuiltinOperation::IntLess, false),
+        (BuiltinOperation::IntLessEqual, false),
+        (BuiltinOperation::IntGreater, true),
+        (BuiltinOperation::IntEqual, true),
+        (BuiltinOperation::IntNotEqual, false),
+    ] {
+        let guard = builtin(operation, vec![variable(1, 0, BuiltinSort::Int), int("1")]);
+        assert_eq!(
+            literal_separated("0", &guard),
+            separated_at_zero,
+            "{operation:?}"
+        );
+    }
+    // A negation and a conjunct inside a conjunction are evaluated too.
+    let below_ten = builtin(
+        BuiltinOperation::IntLess,
+        vec![variable(1, 0, BuiltinSort::Int), int("10")],
+    );
+    let not_below_ten = builtin(BuiltinOperation::BoolNot, vec![below_ten.clone()]);
+    assert!(literal_separated("0", &not_below_ten));
+    assert!(!literal_separated("0", &below_ten));
+    let conjunction = builtin(
+        BuiltinOperation::BoolAnd,
+        vec![
+            builtin(
+                BuiltinOperation::IntNotEqual,
+                vec![variable(1, 1, BuiltinSort::Int), int("0")],
+            ),
+            at_least_ten,
+        ],
+    );
+    assert!(literal_separated("0", &conjunction));
+}
+
+#[test]
+fn comparisons_that_stay_symbolic_or_exceed_i128_still_overlap() {
+    // The guard's operand is a variable the other rule does not bind.
+    let unbound = builtin(
+        BuiltinOperation::IntGreaterEqual,
+        vec![variable(1, 1, BuiltinSort::Int), int("10")],
+    );
+    assert!(!literal_separated("0", &unbound));
+    // An arithmetic operand is not evaluated.
+    let sum = builtin(
+        BuiltinOperation::IntGreaterEqual,
+        vec![
+            builtin(
+                BuiltinOperation::IntAdd,
+                vec![variable(1, 0, BuiltinSort::Int), int("20")],
+            ),
+            int("10"),
+        ],
+    );
+    assert!(!literal_separated("0", &sum));
+    // A literal outside `i128` is left undecided.
+    let huge = builtin(
+        BuiltinOperation::IntGreaterEqual,
+        vec![
+            variable(1, 0, BuiltinSort::Int),
+            int("1000000000000000000000000000000000000000000"),
+        ],
+    );
+    assert!(!literal_separated("0", &huge));
+}
+
 #[test]
 fn completed_heads_unify_with_longer_framed_sequences() {
     let graph = graph();

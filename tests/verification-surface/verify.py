@@ -15,6 +15,10 @@ The fixture packages are K tutorial lesson 1.21 in both layers:
   `#[k::exists]` and `#[k::ensures]` helpers `krs expand` keeps verbatim
   before `#[k::rule(..)]`.
 
+Neither package puts the two lesson rules in a `nondet` group: `krs check`
+accepts them because unifying their subjects turns `big_to_five`'s guard into
+`0 >=Int 10`, which the overlap check evaluates to false.
+
 Each package is checked, expanded, and emitted with pinned digests; the
 emitted `.k` must contain the lesson's rules and a
 `// krs-capability: RuleExistential` comment per rule, and `symbols.json`
@@ -204,7 +208,7 @@ REQUIREMENTS = {
 }
 READABLE_HELPERS = (
     "#[k::exists(x:Int)]\n#[k::ensures(int::ne(x, 0))]\n"
-    '#[k::rule(nondet = lesson, label = "zero-to-unknown")]\n'
+    '#[k::rule(label = "zero-to-unknown")]\n'
 )
 # (spec module, claim label): (proven, emitted claim). The lesson's claim is
 # provable; the gotcha's start already matches its target, so it is stuck.
