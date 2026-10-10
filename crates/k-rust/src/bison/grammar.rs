@@ -1105,16 +1105,20 @@ fn write_token_action(
     sort_catalog: &SortCatalog<'_>,
     has_location: bool,
 ) {
+    // The code points of the token's KORE literal are those the in-process frontend reads from
+    // it by its sort's hook (`kompile::term_to_kore`); `krust_kore_literal` reads and writes
+    // them by the escape tables of `literals`.
     let hook = sort_attributes(sort_catalog, sort).string(AttributeKey::Hook);
-    let symbol = match hook {
-        Some("STRING.String") => "$1.token",
-        Some("BYTES.Bytes") => "$1.token+1",
-        _ => "enquote($1.token)",
+    let kind = match hook {
+        Some("STRING.String") => "KRUST_TOKEN_STRING",
+        Some("BYTES.Bytes") => "KRUST_TOKEN_BYTES",
+        _ => "KRUST_TOKEN_TEXT",
     };
+    let sort_name = escape_c_string(&sort.to_string());
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node));\n  n->symbol = {symbol};\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1663,7 +1667,7 @@ fn module_sorts(sentences: &[Sentence]) -> BTreeSet<Sort> {
 fn write_prologue(output: &mut String, mode: Mode, stack_depth: u64) {
     write!(
         output,
-        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nchar *enquote(char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
+        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
         stack_depth
     )
     .expect("writing to a string cannot fail");

@@ -11216,6 +11216,154 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A generated parser writes each token as the KORE literal of the code points the in-process
+/// frontend reads from it: a `String` token's characters after its K escapes, a `Bytes` token's
+/// bytes as the code points of their values, any other token's characters; so the term it prints
+/// is the in-process conversion of the token, and its text is KORE's printable ASCII. A token
+/// text that is no literal of its hook is a located syntax error, as it is no term in-process.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points() {
+    let source = r##"
+module LITERALS
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Bytes [hook(BYTES.Bytes)]
+  syntax Bytes ::= r"b[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Name ::= r"~[^ \\n]+" [token]
+  syntax Pgm ::= String | Bytes | Name
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let parser = root.join("literals-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kast", definition.to_str().unwrap()])
+        .args(["--module", "LITERALS", "--sort", "Pgm", "--gen-parser"])
+        .arg(&parser)
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let parsed = k_rust::outer::parse("literals.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "LITERALS").unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&lowered).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "LITERALS").unwrap();
+    let in_process = |sort: &str, token: &str| {
+        converter
+            .convert(&k_rust::kast::Term::Token {
+                token: token.into(),
+                sort: k_rust::kast::Sort::new(sort),
+            })
+            .map(|pattern| k_rust::kore::printer::Printer::compact().print_pattern(&pattern))
+    };
+    let run = |index: usize, token: &str| {
+        let input = root.join(format!("token-{index}.pgm"));
+        fs::write(&input, token).unwrap();
+        Command::new(&parser).arg(&input).output().unwrap()
+    };
+
+    let accepted = [
+        ("String", "\"plain\"", Some(r#""plain""#)),
+        ("String", "\"q\\\"b\\\\n\\n t\\t f\\f r\\r\"", None),
+        (
+            "String",
+            "\"\u{e9}\u{2603}\u{1F642}\"",
+            Some(r#""\xe9\u2603\U0001f642""#),
+        ),
+        (
+            "String",
+            "\"a\tb\u{85}c\u{2028}d\ne\"",
+            Some(r#""a\tb\x85c\u2028d\ne""#),
+        ),
+        (
+            "String",
+            "\"\\x41\\xe9\\xE9\\u00e9\\u2603\\U0001F642\"",
+            Some(r#""A\xe9\xe9\xe9\u2603\U0001f642""#),
+        ),
+        (
+            "String",
+            "\"\\101\\351\\777\\000\"",
+            Some(r#""A\xe9\u01ff\x00""#),
+        ),
+        ("Bytes", "b\"\\x00\\x0f\\xff\"", Some(r#""\x00\x0f\xff""#)),
+        ("Bytes", "b\"\u{e9}\"", Some(r#""\xc3\xa9""#)),
+        (
+            "Bytes",
+            "b\"\\u00e9\\U0001f642\"",
+            Some(r#""\xc3\xa9\xf0\x9f\x99\x82""#),
+        ),
+        (
+            "Bytes",
+            "b\"\\101\\377 q\\\"\\\\\\n\"",
+            Some(r#""A\xff q\"\\\n""#),
+        ),
+        (
+            "Name",
+            "~\u{e9}\"\\\u{1F642}",
+            Some(r#""~\xe9\"\\\U0001f642""#),
+        ),
+    ];
+    for (index, (sort, token, literal)) in accepted.into_iter().enumerate() {
+        let output = run(index, token);
+        assert!(
+            output.status.success(),
+            "{token:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let printed = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            printed
+                .bytes()
+                .all(|byte| byte == b'\n' || (b' '..=b'~').contains(&byte)),
+            "{token:?}: {printed:?}"
+        );
+        let term = in_process(sort, token).unwrap_or_else(|error| panic!("{token:?}: {error}"));
+        assert_eq!(
+            printed,
+            format!("inj{{Sort{sort}{{}}, SortPgm{{}}}}({term})\n"),
+            "{token:?}"
+        );
+        if let Some(literal) = literal {
+            assert_eq!(
+                term,
+                format!("\\dv{{Sort{sort}{{}}}}({literal})"),
+                "{token:?}"
+            );
+        }
+    }
+
+    let rejected = [
+        ("String", "\"\\q\""),
+        ("String", "\"\\x4g\""),
+        ("String", "\"\\x+1\""),
+        ("String", "\"\\u12\""),
+        ("String", "\"\\uD800\""),
+        ("String", "\"\\U00110000\""),
+        ("String", "\"\\8aa\""),
+        ("Bytes", "b\"\\777\""),
+        ("Bytes", "b\"\\uDFFF\""),
+    ];
+    for (index, (sort, token)) in rejected.into_iter().enumerate() {
+        assert!(in_process(sort, token).is_err(), "{token:?}");
+        let output = run(accepted.len() + index, token);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{token:?}: {stderr}");
+        assert!(
+            stderr.contains(&format!(
+                ":1:1:1:{}:invalid {sort} token: ",
+                token.chars().count() + 1
+            )),
+            "{token:?}: {stderr}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();

@@ -7,9 +7,29 @@
 //! encoding for every other literal.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use super::ast::{KoreString, Sort};
 use crate::names::BuiltinSort;
+
+/// The escapes that name a code point by a letter, as (code point, letter): `\"`, `\\`, `\n`,
+/// `\r`, `\t` and `\f`. A literal writes these code points only so.
+pub const NAMED_ESCAPES: [(char, char); 6] = [
+    ('"', '"'),
+    ('\\', '\\'),
+    ('\n', 'n'),
+    ('\r', 'r'),
+    ('\t', 't'),
+    ('\u{c}', 'f'),
+];
+
+/// The escapes that name a code point by its value in exactly so many hexadecimal digits, as
+/// (letter, digits), shortest first: a writer writes a code point with the first that holds it.
+pub const HEX_ESCAPES: [(char, usize); 3] = [('x', 2), ('u', 4), ('U', 8)];
+
+/// The code points a literal writes as themselves, printable ASCII, except those
+/// [`NAMED_ESCAPES`] names.
+pub const UNESCAPED: RangeInclusive<char> = ' '..='~';
 
 /// How a [`KoreString`] stores the code points of a literal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -146,17 +166,14 @@ pub fn unquote_as(input: &str, encoding: LiteralEncoding) -> Result<KoreString, 
             return Err(error(escape_offset, "truncated escape"));
         };
         offset += escape.len_utf8();
-        let character = match escape {
-            '"' => '"',
-            '\\' => '\\',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            'f' => '\u{c}',
-            'x' => read_code_point(body, &mut offset, 2, escape_offset)?,
-            'u' => read_code_point(body, &mut offset, 4, escape_offset)?,
-            'U' => read_code_point(body, &mut offset, 8, escape_offset)?,
-            _ => return Err(error(escape_offset, "unknown escape")),
+        let character = if let Some((character, _)) =
+            NAMED_ESCAPES.iter().find(|(_, letter)| *letter == escape)
+        {
+            *character
+        } else if let Some((_, digits)) = HEX_ESCAPES.iter().find(|(letter, _)| *letter == escape) {
+            read_code_point(body, &mut offset, *digits, escape_offset)?
+        } else {
+            return Err(error(escape_offset, "unknown escape"));
         };
         push(character, escape_offset)?;
     }
@@ -196,24 +213,18 @@ pub fn quote_as(value: &KoreString, encoding: LiteralEncoding) -> String {
 
 fn push_quoted(result: &mut String, character: char) {
     use std::fmt::Write as _;
-    match character {
-        '"' => result.push_str("\\\""),
-        '\\' => result.push_str("\\\\"),
-        '\n' => result.push_str("\\n"),
-        '\r' => result.push_str("\\r"),
-        '\t' => result.push_str("\\t"),
-        '\u{c}' => result.push_str("\\f"),
-        ' '..='~' => result.push(character),
-        character => {
-            let code_point = u32::from(character);
-            let _ = if code_point <= 0xff {
-                write!(result, "\\x{code_point:02x}")
-            } else if code_point <= 0xffff {
-                write!(result, "\\u{code_point:04x}")
-            } else {
-                write!(result, "\\U{code_point:08x}")
-            };
-        }
+    if let Some((_, letter)) = NAMED_ESCAPES.iter().find(|(named, _)| *named == character) {
+        result.push('\\');
+        result.push(*letter);
+    } else if UNESCAPED.contains(&character) {
+        result.push(character);
+    } else {
+        let code_point = u32::from(character);
+        let (letter, digits) = HEX_ESCAPES
+            .iter()
+            .find(|(_, digits)| u64::from(code_point) >> (4 * digits) == 0)
+            .expect("eight hexadecimal digits hold every code point");
+        let _ = write!(result, "\\{letter}{code_point:0digits$x}");
     }
 }
 

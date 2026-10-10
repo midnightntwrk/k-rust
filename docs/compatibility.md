@@ -302,6 +302,16 @@ This diverges from the pinned K's generated parsers, whose Flex classes and `.` 
 The scanner's Bison token names keep each class as written (`[^a]`), since they name the token for a reader of the definition.
 (`kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters` in [cli.rs](../crates/k-rust/tests/cli.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
 
+## Generated parser token literals
+
+A generated parser prints each token as a domain value whose KORE string literal denotes the code points krust's frontend reads from the token's text, the same term the in-process route converts the token to (see [Strings and their literals](#strings-and-their-literals)): a token of a sort hooked `STRING.String` denotes the characters its K escapes write, one of a sort hooked `BYTES.Bytes` the bytes after its leading `b`, each as the code point of its value, and any other token its characters.
+The literal is written as krust's KORE writers write one: printable ASCII as itself, `\" \\ \n \r \t \f`, and any other code point by the shortest of `\xhh`, `\uhhhh` and `\Uhhhhhhhh` that holds it, so the output is printable ASCII as `kore-syntax.md` requires.
+The parser runtime reads and writes these escapes from tables krust prints from the constants its own K and KORE literal codecs use (`krust_literals.h`, from `bison::literals`), so the two routes cannot read a different set of escapes.
+A `String` or `Bytes` token whose text is not such a literal (an unknown escape, a hexadecimal escape whose digits are not all hexadecimal, a surrogate or a value above U+10FFFF, an octal `Bytes` escape above 255) denotes no term on either route: the generated parser reports a syntax error located at the token (`invalid String token: unsupported escape`) and exits with a failure status.
+The pinned K's generated parsers copy a `String` token's text into the KORE output unchanged, so a raw non-ASCII or control character, or an octal escape, reaches the KORE reader as written; they copy a `Bytes` token's text after the `b` unchanged, so `b"é"` denotes the one code point U+00E9 instead of the two bytes of its encoding; and they write every other token byte by byte, so a token `é` becomes the two code points U+00C3 U+00A9.
+krust's frontend also reads a hexadecimal escape only from hexadecimal digits, so `"\x+1"` is no `String` literal; the pinned K reads the digits as a signed number there. K's `String` token regex admits only hexadecimal digits after `\x`, `\u` and `\U`, so only a definition that declares its own token regex for a hooked sort can write such a token.
+(`kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
