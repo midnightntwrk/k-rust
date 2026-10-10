@@ -242,6 +242,12 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "no pinned backend matches modulo user-declared `assoc`, `comm`, `idem`, or `unit` axioms; use the builtin List, Set, or Map sorts, whose hooks implement them",
         evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust 195a7718 drops the axioms at load and leaves the symbol uninterpreted (k-rust-backend/src/rule.rs; docs/compatibility.md)",
     },
+    RouteCapability {
+        feature: "ConsoleWriteHook",
+        unavailable_on: &[Route::NativeRust, Route::Browser],
+        reason: "the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm",
+        evidence: "k-rust 195a7718 docs/compatibility.md (console IO): only ordinary committed execution performs IO.write and IO.putc, pure simplification gets no console state, and RPC performs no host IO; `krs run` stopped with `unsupported-hook` after rewriting to `#write(1, \"hi\\n\")` (probe, 2026-10-10). llvm-kompile 7.1.337 on the same definition's native LLVM KORE built an interpreter that printed `hi` and `A`, as Java K's krun does, so native-llvm keeps them",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

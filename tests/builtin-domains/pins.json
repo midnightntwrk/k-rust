@@ -15,7 +15,8 @@
     "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
     "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
-    "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a"
+    "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a",
+    "krs-builtin-io-hooks": "2dbfbf059defb2f31882024ebf8e65892b3194df8cafb5aa861288fcad750d7b"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -62,6 +63,9 @@
     },
     "krs-builtin-sort-tests": {
       "definition.k": "9e3a91ad4f7170aa710f52074e010e1571dea871e642caf597d5d822de98554a"
+    },
+    "krs-builtin-io-hooks": {
+      "definition.k": "5f5293bce73a52308dc0d482ced5d962118604cb2c58ae355fdaa4ebd30d5d0c"
     }
   },
   "reference_sha256": {
@@ -79,7 +83,8 @@
     "krs-builtin-io": "b98c7a3a7b80f04b4f4b6d14d49cf1d8d044269baea4c1c326e8729be87cb0e7",
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
-    "krs-builtin-sort-tests": "3ff046b38a8a259c8bd0f4e096a88b3010587d8d5ae6c13a49cb1dbbf89102f0"
+    "krs-builtin-sort-tests": "3ff046b38a8a259c8bd0f4e096a88b3010587d8d5ae6c13a49cb1dbbf89102f0",
+    "krs-builtin-io-hooks": "935a01ab48e30d381e565cc03e9547eebb2d6395027e5cc5f0e7352e74ec348d"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -936,6 +941,9 @@
     ],
     "sort-test-project-k": [
       "error[krs::analysis::invalid-sort-test]: `k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"
+    ],
+    "io-hooks-run": [
+      "error[krs::capability::unavailable]: route `native-rust` refuses this definition: definition contains direct console writes (`io::write`, `io::putc`) [bye, hello]; the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm"
     ]
   },
   "raw_warnings": {
@@ -951,5 +959,17 @@
       "warning[krs::analysis::trivial-sort-test]: projection is the identity: the operand already has sort `Int`, a subsort of `Exp`; remove `k::project!`",
       "warning[krs::analysis::trivial-sort-test]: `k::is!(K, ..)` is always true: every term has sort `K`"
     ]
+  },
+  "console_hooks": {
+    "krs-builtin-io-hooks": {
+      "hello": {
+        "stdout": "hi\n",
+        "status": 0
+      },
+      "bye": {
+        "stdout": "A",
+        "status": 0
+      }
+    }
   }
 }

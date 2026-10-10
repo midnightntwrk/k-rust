@@ -46,6 +46,9 @@ pub enum CapabilityFeature {
     /// axioms (KF-019). Reserved: KRS has no surface for these axioms yet, so
     /// nothing derives this feature, and every route lacks it.
     UserAlgebraicMatching,
+    /// A direct console write, `io::write` or `io::putc` (K's `#write` and
+    /// `#putc`), which only a backend with console state performs.
+    ConsoleWriteHook,
 }
 
 impl CapabilityFeature {
@@ -59,6 +62,7 @@ impl CapabilityFeature {
         Self::ParametricFunctionEquations,
         Self::ParametricConstructorSchema,
         Self::UserAlgebraicMatching,
+        Self::ConsoleWriteHook,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -73,6 +77,7 @@ impl CapabilityFeature {
             Self::ParametricFunctionEquations => "ParametricFunctionEquations",
             Self::ParametricConstructorSchema => "ParametricConstructorSchema",
             Self::UserAlgebraicMatching => "UserAlgebraicMatching",
+            Self::ConsoleWriteHook => "ConsoleWriteHook",
         }
     }
 
@@ -88,6 +93,7 @@ impl CapabilityFeature {
             Self::ParametricFunctionEquations => "equations of parametric functions",
             Self::ParametricConstructorSchema => "parametric constructors",
             Self::UserAlgebraicMatching => "productions matched modulo user axioms",
+            Self::ConsoleWriteHook => "direct console writes (`io::write`, `io::putc`)",
         }
     }
 }
@@ -157,6 +163,9 @@ pub fn sentence_features(sentence: &RuleSentence) -> Vec<CapabilityFeature> {
     {
         features.push(CapabilityFeature::ParametricFunctionEquations);
     }
+    if floats.console_write {
+        features.push(CapabilityFeature::ConsoleWriteHook);
+    }
     features
 }
 
@@ -202,10 +211,15 @@ fn token(term: &DefinitionTerm) -> Option<&str> {
 
 /// The Float and console capabilities one sentence's terms need.
 #[derive(Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent capability of the walked terms"
+)]
 struct TermUse {
     ground: bool,
     beyond_binary64: bool,
     console: bool,
+    console_write: bool,
 }
 
 impl TermUse {
@@ -289,6 +303,12 @@ impl TermUse {
     fn operation(&mut self, operation: BuiltinOperation, arguments: &[DefinitionTerm]) {
         if operation.spec().k_module == "K-IO" {
             self.console = true;
+        }
+        if matches!(
+            operation,
+            BuiltinOperation::IoWrite | BuiltinOperation::IoPutc
+        ) {
+            self.console_write = true;
         }
         // k-rust folds every hooked application whose arguments are all tokens
         // (`constant_folding.rs`); its FLOAT hooks need the MPFR build.
@@ -568,8 +588,37 @@ mod tests {
         let mut console = TermUse::default();
         console.term(&write);
         assert!(console.console);
+        assert!(console.console_write);
         let mut pure = TermUse::default();
         pure.term(&variable(BuiltinSort::Int));
         assert!(!pure.console);
+        assert!(!pure.console_write);
+    }
+
+    #[test]
+    fn only_write_and_putc_are_direct_console_writes() {
+        let apply_io = |operation, arguments| {
+            DefinitionTerm::application(
+                node("application"),
+                DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+                DefinitionApplicationRef::Builtin(operation),
+                arguments,
+            )
+        };
+        let putc = apply_io(
+            BuiltinOperation::IoPutc,
+            vec![token(BuiltinSort::Int, "1"), token(BuiltinSort::Int, "65")],
+        );
+        let mut console = TermUse::default();
+        console.term(&putc);
+        assert!(console.console && console.console_write);
+        // `#log` writes to the backend's log, which every route has.
+        let log = apply_io(
+            BuiltinOperation::IoLog,
+            vec![token(BuiltinSort::String, "\"note\"")],
+        );
+        let mut logged = TermUse::default();
+        logged.term(&log);
+        assert!(logged.console && !logged.console_write);
     }
 }

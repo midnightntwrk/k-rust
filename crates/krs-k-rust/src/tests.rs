@@ -289,3 +289,18 @@ fn the_route_table_reserves_user_algebraic_matching_on_every_route() {
         );
     }
 }
+
+#[test]
+fn the_route_table_refuses_direct_console_writes_without_console_state() {
+    for route in crate::Route::ALL {
+        assert_eq!(
+            matches!(
+                crate::route_capability("ConsoleWriteHook", route),
+                CapabilityAvailability::Unavailable(_)
+            ),
+            matches!(route, crate::Route::NativeRust | crate::Route::Browser),
+            "ConsoleWriteHook on {}",
+            route.name()
+        );
+    }
+}

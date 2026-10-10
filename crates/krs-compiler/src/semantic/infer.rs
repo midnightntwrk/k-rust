@@ -1105,11 +1105,8 @@ impl StructuredTermBuilder<'_> {
                 least_instance(&branches, expected_sort, self.sort_parents)
                     .map_err(|error| self.invalid_term(error.message(operation, &branches)))?
             }
-            OperationSort::K => {
-                return Err(
-                    self.invalid_term(format!("builtin operation {operation} has no result sort"))
-                );
-            }
+            // K's `K` sort: the computation the operation evaluates to (`.K`).
+            OperationSort::K => SemanticSortRef::Builtin(BuiltinSort::KSequence),
         };
         Ok(SemanticTerm::application(
             semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,

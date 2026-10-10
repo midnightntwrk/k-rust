@@ -37,6 +37,13 @@ operation, and a corpus of programs that apply them to concrete values:
   and through Java K's `krun --output none` on the LLVM backend; `krs search`
   on the definition gives the pinned refusal, and the browser route refuses
   it with the `ConsoleIO` requirement;
+- `io-hooks`: the direct console writes `io::write` and `io::putc` (K's
+  `#write` and `#putc`). The programs `hello` and `bye` print `hi` and a
+  newline, and `A`, through Java K's `krun --output none` on the LLVM backend.
+  KRS records the `ConsoleWriteHook` requirement, which the in-process k-rust
+  backend lacks because it has no console state: `krs run` refuses the
+  definition with the pinned `krs::capability::unavailable` message before
+  compiling it, while `krs build --backend llvm` accepts it;
 - `sort-tests`: K's generated sort predicates and projections (KF-013),
   `k::is!(S, t)` (`isS(T)`) and `k::project!(S, t)` (`{T}:>S`), in term rules
   and readable clauses, in results and guards: `chk(5)` is `true`,
@@ -306,6 +313,9 @@ IO_PROGRAM = "read; read; print(sum); halt(sum)"
 IO_STDIN = "3\n4\n"
 IO_EXPECTED = {"stdout": "7", "status": 7}
 
+HOOKS = Fixture(MANIFEST, "krs-builtin-io-hooks")
+HOOKS_EXPECTED = {"hello": {"stdout": "hi\n", "status": 0}, "bye": {"stdout": "A", "status": 0}}
+
 K_EQUAL = (
     case("if-true", "if (true) 1 else 2", "1"),
     case("if-false", "if (false) 1 else 2", "2"),
@@ -507,6 +517,80 @@ def console_io(harness: FixtureGate) -> None:
     )
 
 
+def console_hooks(harness: FixtureGate) -> None:
+    """Run the direct console writes on Java K and pin the native refusal."""
+
+    harness.check(HOOKS)
+    harness.expand(HOOKS)
+    emitted = harness.emit(HOOKS)
+    symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
+    requirements = sorted(
+        (row["feature"], row["symbol"]) for row in symbols.get("capability_requirements") or ()
+    )
+    if requirements != [
+        ("ConsoleIO", "bye"), ("ConsoleIO", "hello"),
+        ("ConsoleWriteHook", "bye"), ("ConsoleWriteHook", "hello"),
+    ]:
+        raise GateError(f"{HOOKS.package}: symbols.json records {requirements!r} as the capability requirements")
+    source = emitted.source.read_text(encoding="utf-8")
+    for line in (
+        "  // krs-capability: ConsoleWriteHook hello\n",
+        '<k> hello => #write(1, "hi\\n") ... </k>',
+        "<k> bye => #putc(1, 65) ... </k>",
+    ):
+        if line not in source:
+            raise GateError(f"{HOOKS.package}: emitted K lacks {line!r}")
+
+    directory = harness.workspace / "console-hooks" / HOOKS.package
+    directory.mkdir(parents=True, exist_ok=True)
+    k = Snapshot(
+        f"{harness.label}/{HOOKS.package}",
+        Key(tools=JAVA_TOOLS, inputs=repository_inputs([])),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, HOOKS.package),
+    )
+    compiled = harness.workspace / "kompiled" / HOOKS.package
+    kompiled = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--output-definition", compiled,
+        ],
+        timeout=900,
+    )
+    if kompiled.returncode != 0:
+        raise GateError(f"{HOOKS.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
+    java: dict[str, dict[str, Any]] = {}
+    for name in HOOKS_EXPECTED:
+        program = directory / f"{name}.pgm"
+        program.write_text(name + "\n", encoding="utf-8")
+        executed = k.run(
+            f"krun/{name}", "krun", ["--definition", compiled, "--output", "none", program], timeout=120,
+        )
+        java[name] = {"stdout": executed.stdout, "status": executed.returncode}
+    print(f"PASS builtin-domains {HOOKS.package} reference snapshot: {k.finish()}")
+    if java != HOOKS_EXPECTED:
+        raise GateError(f"{HOOKS.package}: Java K printed {java!r}, expected {HOOKS_EXPECTED!r}")
+    harness.pins.expect(("console_hooks", HOOKS.package), java)
+
+    refused = harness._krs(HOOKS, "run", "--output", "none", directory / "hello.pgm", check=False)  # noqa: SLF001
+    lines = diagnostic_lines(refused.stderr)
+    if refused.returncode == 0 or not lines or not lines[0].startswith("error[krs::capability::unavailable]: "):
+        raise GateError(f"{HOOKS.package}: krs run exited {refused.returncode} without the capability refusal:\n{refused.stderr}")
+    if refused.stdout:
+        raise GateError(f"{HOOKS.package}: krs run printed {refused.stdout!r} before refusing")
+    harness.pins.expect(("diagnostics", "io-hooks-run"), lines)
+    harness._krs(  # noqa: SLF001
+        HOOKS, "build", "--backend", "llvm", "--output", harness.workspace / "native-llvm" / HOOKS.package,
+    )
+    krs_gate.require_route(harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment)
+    print(
+        f"PASS {HOOKS.package}: Java K prints {HOOKS_EXPECTED['hello']['stdout']!r} and "
+        f"{HOOKS_EXPECTED['bye']['stdout']!r}; krs run refuses the definition and krs build --backend llvm accepts it"
+    )
+
+
 def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
     """Require `krs check` to pass with the raw K warning `code` and pin its warnings."""
 
@@ -660,6 +744,7 @@ def main() -> int:
         sort_test_diagnostics(harness)
         java_only_floats(harness)
         console_io(harness)
+        console_hooks(harness)
         raw_k(harness)
 
     pins.finish("builtin-domains")
