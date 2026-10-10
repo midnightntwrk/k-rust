@@ -4,8 +4,8 @@
 //! `crates/k-rust-backend/tests/backend/definedness_classes.rs`).
 //!
 //! Each test states one invariant that follows from what the construct means and checks krust
-//! against itself. They are ignored until the ticket that fixes their class lands, and each
-//! fails on `934d29e7`.
+//! against itself. Each failed on `934d29e7`; none is ignored now that the tickets fixing their
+//! classes have landed.
 
 use std::{
     fs,
