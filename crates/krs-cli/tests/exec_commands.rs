@@ -384,13 +384,22 @@ fn the_compiled_stage_is_reused_from_the_stage_cache_and_never_changes_a_result(
     let (_, reused) = krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &arguments);
     assert_eq!(reused, 1);
 
-    // A store inside the input's Cargo workspace is never used.
+    // A store inside the input's Cargo workspace is never used, and each command says so.
     let inside = manifest.parent().unwrap().join("stage-cache");
-    let (_, reused) =
-        krs_with_stage_cache(target.path(), &manifest, &inside, &counters, &arguments);
-    assert_eq!(reused, 0);
-    let (_, reused) =
-        krs_with_stage_cache(target.path(), &manifest, &inside, &counters, &arguments);
-    assert_eq!(reused, 0);
+    for _ in 0..2 {
+        let (uncached, reused) =
+            krs_with_stage_cache(target.path(), &manifest, &inside, &counters, &arguments);
+        assert_eq!(reused, 0);
+        assert_eq!(uncached.stdout, cold.stdout);
+        let warning = stderr(&uncached);
+        assert!(
+            warning.contains("warning[krs::exec::stage-cache]")
+                && warning.contains("KRS_STAGE_CACHE_DIR names `")
+                && warning.contains("inside the Cargo workspace"),
+            "{warning}"
+        );
+    }
     assert!(!inside.exists());
+    // The warning is the only difference from a run with a usable store.
+    assert!(!stderr(&cold).contains("krs::exec::stage-cache"));
 }

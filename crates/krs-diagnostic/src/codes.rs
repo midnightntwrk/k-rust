@@ -411,5 +411,6 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
         UNAVAILABLE: "krs::exec::unavailable" => "The requested operation is not available in this build.",
         RESULT: "krs::exec::result" => "The backend returned a result KRS cannot read.",
+        STAGE_CACHE: "krs::exec::stage-cache" => "The compiled-stage cache directory lies inside the input's Cargo workspace, so it is not used.",
     }
 }

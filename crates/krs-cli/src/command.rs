@@ -388,34 +388,14 @@ fn execute_with_sources(
         Command::EmitK { output } => emit(&prepared, output, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
         Command::Parse(_) | Command::Run(_) | Command::Search(_) | Command::Prove(_) => {
-            // krs-exec compiles the definition natively in the symbolic dialect.
-            require_route(
-                prepared.lowered.definition(),
-                krs_k_rust::Route::native(Backend::Haskell),
+            exec_command(
+                &prepared,
+                request,
+                sources,
+                metadata.workspace_root.as_deref().map(Path::new),
+                reuse,
+                measurement,
             )
-            .and_then(|()| {
-                let stage_cache = StageCache::new(
-                    prepared.lowered.definition(),
-                    metadata.workspace_root.as_deref().map(Path::new),
-                );
-                exec::execute(
-                    &prepared,
-                    &request.command,
-                    &*sources,
-                    exec::StageReuse {
-                        cache: stage_cache.as_ref(),
-                        restore: reuse,
-                    },
-                    measurement,
-                )
-            })
-            .map(|mut outcome| {
-                outcome.warnings = raw_k_warnings(&prepared);
-                if matches!(request.command, Command::Prove(_)) {
-                    push_trusted_claim_warnings(&prepared, &mut outcome.warnings);
-                }
-                CommandExecution::without_artifacts(outcome)
-            })
         }
     };
     measurement.timings.span("release", |_| drop(prepared));
@@ -431,6 +411,52 @@ fn execute_with_sources(
         );
     }
     outcome.map(|value| value.outcome)
+}
+
+/// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings.
+fn exec_command(
+    prepared: &PreparedDefinition,
+    request: &CommandRequest,
+    sources: &crate::DiagnosticSources,
+    workspace_root: Option<&Path>,
+    reuse: bool,
+    measurement: &mut Measurement,
+) -> Result<CommandExecution, CommandError> {
+    // krs-exec compiles the definition natively in the symbolic dialect.
+    require_route(
+        prepared.lowered.definition(),
+        krs_k_rust::Route::native(Backend::Haskell),
+    )?;
+    let (stage_cache, refused_store) =
+        match StageCache::new(prepared.lowered.definition(), workspace_root) {
+            Ok(cache) => (cache, None),
+            Err(refused) => (None, Some(refused)),
+        };
+    let mut outcome = exec::execute(
+        prepared,
+        &request.command,
+        sources,
+        exec::StageReuse {
+            cache: stage_cache.as_ref(),
+            restore: reuse,
+        },
+        measurement,
+    )?;
+    outcome.warnings = raw_k_warnings(prepared);
+    if matches!(request.command, Command::Prove(_)) {
+        push_trusted_claim_warnings(prepared, &mut outcome.warnings);
+    }
+    if let Some(refused) = refused_store {
+        outcome.warnings.unlocated.push(crate::UnlocatedDiagnostic {
+            code: krs_diagnostic::codes::exec::STAGE_CACHE.to_string(),
+            severity: crate::DiagnosticSeverity::Warning,
+            message: refused.message(),
+            source: None,
+            generated_range: None,
+            notes: Vec::new(),
+        });
+    }
+    Ok(CommandExecution::without_artifacts(outcome))
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {

@@ -5,7 +5,7 @@
 //! Results are never cached: a run still runs.
 //!
 //! The store is `KRS_STAGE_CACHE_DIR`, or `${XDG_CACHE_HOME:-~/.cache}/krs/compiled-stages/v1`, and belongs to one Unix user.
-//! A store inside the input's Cargo workspace is not used, so an entry is never committed with the package.
+//! A store inside the input's Cargo workspace is not used, so an entry is never committed with the package; the command warns (`krs::exec::stage-cache`) and compiles the stage.
 //! An entry unused for 30 days is deleted, at most once a day.
 //! Every failure to read or write the store only means the stage is compiled again.
 
@@ -58,10 +58,45 @@ pub(super) struct StageCache {
     key: Key,
 }
 
+/// A store directory that lies inside the input's Cargo workspace, which is therefore not used.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct StoreInsideWorkspace {
+    /// The store directory, resolved.
+    store: PathBuf,
+    /// The workspace root, resolved.
+    workspace: PathBuf,
+    /// Whether [`STAGE_CACHE_VARIABLE`] named the store.
+    explicit: bool,
+}
+
+impl StoreInsideWorkspace {
+    /// The warning text.
+    pub(super) fn message(&self) -> String {
+        let named = if self.explicit {
+            format!("{STAGE_CACHE_VARIABLE} names `{}`", self.store.display())
+        } else {
+            format!("the stage cache `{}`", self.store.display())
+        };
+        format!(
+            "{named}, which is inside the Cargo workspace `{}`, so the compiled stage is neither restored nor stored and every command compiles the definition again; set {STAGE_CACHE_VARIABLE} to a directory outside the workspace",
+            self.workspace.display()
+        )
+    }
+}
+
 impl StageCache {
-    /// The entry for `definition`, or `None` when there is no usable store.
-    pub(super) fn new(definition: &DefinitionIr, workspace_root: Option<&Path>) -> Option<Self> {
-        let root = store_root(std::env::var_os(STAGE_CACHE_VARIABLE), workspace_root)?;
+    /// The entry for `definition`: `Ok(None)` when there is no usable store, and an error when the store lies inside the input's Cargo workspace.
+    pub(super) fn new(
+        definition: &DefinitionIr,
+        workspace_root: Option<&Path>,
+    ) -> Result<Option<Self>, StoreInsideWorkspace> {
+        let Some(root) = store_root(std::env::var_os(STAGE_CACHE_VARIABLE), workspace_root)? else {
+            return Ok(None);
+        };
+        Ok(Self::at(root, definition))
+    }
+
+    fn at(root: PathBuf, definition: &DefinitionIr) -> Option<Self> {
         let krs = executable(&std::env::current_exe().ok()?, true)?;
         let ir = definition.to_canonical_json().ok()?;
         let key = Key {
@@ -171,15 +206,17 @@ impl StageCache {
     }
 }
 
-/// The store directory: `explicit` (from [`STAGE_CACHE_VARIABLE`]), or the per-user default; `None` when neither can be named or the store would lie inside the input's Cargo workspace.
+/// The store directory: `explicit` (from [`STAGE_CACHE_VARIABLE`]), or the per-user default; `Ok(None)` when neither can be named, and an error when the store would lie inside the input's Cargo workspace.
 fn store_root(
     explicit: Option<std::ffi::OsString>,
     workspace_root: Option<&Path>,
-) -> Option<PathBuf> {
-    let root = if let Some(explicit) = explicit.filter(|value| !value.is_empty()) {
+) -> Result<Option<PathBuf>, StoreInsideWorkspace> {
+    let explicit = explicit.filter(|value| !value.is_empty());
+    let is_explicit = explicit.is_some();
+    let root = if let Some(explicit) = explicit {
         PathBuf::from(explicit)
     } else {
-        let base = std::env::var_os("XDG_CACHE_HOME")
+        let Some(base) = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .filter(|base| base.is_absolute())
             .or_else(|| {
@@ -187,18 +224,27 @@ fn store_root(
                     .map(PathBuf::from)
                     .filter(|home| home.is_absolute())
                     .map(|home| home.join(".cache"))
-            })?;
+            })
+        else {
+            return Ok(None);
+        };
         base.join("krs").join("compiled-stages").join(LAYOUT)
     };
-    let root = std::path::absolute(root).ok()?;
+    let Ok(root) = std::path::absolute(root) else {
+        return Ok(None);
+    };
     if let Some(workspace) = workspace_root {
         let resolved = nearest_canonical(&root);
         let workspace = fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
         if resolved.starts_with(&workspace) {
-            return None;
+            return Err(StoreInsideWorkspace {
+                store: resolved,
+                workspace,
+                explicit: is_explicit,
+            });
         }
     }
-    Some(root)
+    Ok(Some(root))
 }
 
 /// `path` with its longest existing ancestor resolved, so a store that does not exist yet is still placed correctly.
@@ -256,12 +302,19 @@ mod tests {
         let explicit = outside.path().join("stages");
         assert_eq!(
             store_root(Some(explicit.clone().into()), Some(workspace.path())),
-            Some(explicit)
+            Ok(Some(explicit))
         );
         let inside = workspace.path().join("target").join("stages");
-        assert_eq!(
-            store_root(Some(inside.into()), Some(workspace.path())),
-            None
+        let refused = store_root(Some(inside.into()), Some(workspace.path()))
+            .expect_err("a store inside the workspace is refused");
+        let workspace = fs::canonicalize(workspace.path()).unwrap();
+        assert_eq!(refused.store, workspace.join("target").join("stages"));
+        assert_eq!(refused.workspace, workspace);
+        assert!(refused.explicit);
+        assert!(
+            refused.message().starts_with("KRS_STAGE_CACHE_DIR names `"),
+            "{}",
+            refused.message()
         );
     }
 }
