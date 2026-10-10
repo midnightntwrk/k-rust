@@ -588,11 +588,17 @@ const REPEATED_BELOW_A: &str = r#"<T> <k> 0 </k> <A> <x> 0 </x> <R multiplicity=
 /// instance of its ancestor, writes nothing new: the configuration already places the cell there.
 /// The compiled rule must not depend on it, whatever completion decides about the instance of a
 /// `multiplicity="*"` cell that holds the cell.
+///
+/// Stepback: the cases where no written instance can hold the cell (J2: a fresh instance is the
+/// only reading, so they compile under every O4 option) must compile; the others, and every List
+/// case (which depends on O7, the fresh List position), may be rejected alike.
 #[test]
 #[ignore = "reproduces FOLLOWUPS: Cells: a `*` cell gets a fresh instance the rule does not state"]
 fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
+    let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
     assert_no_disagreements(&[
+        // q6mu, its spelling in <threads>, q6m (O4).
         (
             THREADS_MAP,
             vec![
@@ -601,7 +607,7 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
                 "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             ],
         ),
-        // Stepback: the List variant (q6l), where the move refuses an ordered collection.
+        // The List variant (q6l): O4 and O7.
         (
             threads_list.as_str(),
             vec![
@@ -610,33 +616,7 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
                 "<threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             ],
         ),
-        // Stepback: the written `<thread>` already holds its one `<env>`, so `<env>` is in another
-        // instance whatever O4 decides (J2); only the spelling with `<threads>` written beside it
-        // is rejected, in a Map and in a List.
-        (
-            THREADS_MAP,
-            vec![
-                "<thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env>",
-                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env> ... </threads>",
-                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> ... </threads> <env> E => 0 </env>",
-            ],
-        ),
-        (
-            threads_list.as_str(),
-            vec![
-                "<thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env>",
-                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env> ... </threads>",
-                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> ... </threads> <env> E => 0 </env>",
-            ],
-        ),
-        // Stepback: the written `<thread>` is removed, so `<env>` (on both sides) is in another.
-        (
-            THREADS_MAP,
-            vec![
-                "<threads> (<thread> <id> 1 </id> ... </thread> => .Bag) <env> E => 0 </env> ... </threads>",
-                "<threads> (<thread> <id> 1 </id> ... </thread> => .Bag) ... </threads> <env> E => 0 </env>",
-            ],
-        ),
+        // q12 against its spelling in <A> (O4: the written <A2> could hold <d>).
         (
             REPEATED_BELOW_A,
             vec![
@@ -644,6 +624,43 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
                 "<A> <x> X </x> ... </A> <A2> <y> 1 </y> ... </A2> <d> 5 => 6 </d>",
             ],
         ),
+        // Forced, in a List (O7): the written <thread> already holds its one <env>.
+        (
+            threads_list.as_str(),
+            vec![
+                "<thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env>",
+                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env> ... </threads>",
+                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> ... </threads> <env> E => 0 </env>",
+            ],
+        ),
+        // s2l against s1l (O7): no written <r>, a List <r>.
+        (
+            list_in_p.as_str(),
+            vec![
+                "<a> <x> X </x> <d> 5 => 6 </d> ... </a>",
+                "<a> <x> X </x> ... </a> <d> 5 => 6 </d>",
+            ],
+        ),
+    ]);
+    assert_compile_alike(&[
+        // Forced: the written <thread> already holds its one <env>.
+        (
+            THREADS_MAP,
+            vec![
+                "<thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env>",
+                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> <env> E => 0 </env> ... </threads>",
+                "<threads> <thread> <id> 1 </id> <env> X </env> ... </thread> ... </threads> <env> E => 0 </env>",
+            ],
+        ),
+        // Forced: the written <thread> is removed, and <env> is on both sides.
+        (
+            THREADS_MAP,
+            vec![
+                "<threads> (<thread> <id> 1 </id> ... </thread> => .Bag) <env> E => 0 </env> ... </threads>",
+                "<threads> (<thread> <id> 1 </id> ... </thread> => .Bag) ... </threads> <env> E => 0 </env>",
+            ],
+        ),
+        // f4w against f4: no written <r>; <d> and <e> share one (O5).
         (
             MAP_IN_P,
             vec![
