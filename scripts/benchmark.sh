@@ -336,7 +336,7 @@ inherited_scope_properties() {
   local key
   local limit
   local value
-  current=/sys/fs/cgroup$(cut -d: -f3- /proc/self/cgroup 2>/dev/null | head -n 1)
+  current=/sys/fs/cgroup$(awk '/^0::/ { sub(/^0::/, ""); print; exit }' /proc/self/cgroup 2>/dev/null)
   for key in max high swap.max; do
     limit=
     directory=$current
@@ -373,7 +373,7 @@ memory_scope_properties() {
 enter_memory_scope() {
   local count=$1
   local index
-  memory_scope=/sys/fs/cgroup$(cut -d: -f3- /proc/self/cgroup | head -n 1)
+  memory_scope=/sys/fs/cgroup$(awk '/^0::/ { sub(/^0::/, ""); print; exit }' /proc/self/cgroup)
   [[ -w "$memory_scope/cgroup.procs" ]] || return 1
   mkdir "$memory_scope/supervisor" || return 1
   echo $$ >"$memory_scope/supervisor/cgroup.procs" || return 1
