@@ -49,7 +49,7 @@ use super::config::{
     add_kitem_subsort, add_sort_bracket, add_subsort, add_synonym_casts, implicit_kseq_bracket,
     nonterminal, reject_kernel_position_contradiction, truth,
 };
-use super::location::span_location;
+use super::location::{locate_ambiguity_places, span_location};
 use super::parser::{
     Grammar, ParseError, TokenPrecedenceDeclaration, named_projection_productions,
 };
@@ -342,8 +342,11 @@ fn bubble_error(
     sentence_type: &str,
     attributes: &Attributes,
     contents: Option<&str>,
-    error: ParseError,
+    mut error: ParseError,
 ) -> RuleError {
+    if let Some(contents) = contents {
+        locate_ambiguity_places(&mut error, attributes, contents);
+    }
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "ParseError is not a sentence kind; only the listed variants are special here"

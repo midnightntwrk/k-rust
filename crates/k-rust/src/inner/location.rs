@@ -15,7 +15,27 @@
 
 use crate::definition::AttributeKey;
 use crate::definition::{Attributes, Location};
+use crate::inner::{AmbiguityPlace, ParseError};
 use crate::kast::TermSpan;
+
+/// Locate in `contents` every subterm an ambiguity report names by its span.
+pub(super) fn locate_ambiguity_places(
+    error: &mut ParseError,
+    attributes: &Attributes,
+    contents: &str,
+) {
+    fn locate(places: &mut [AmbiguityPlace], attributes: &Attributes, contents: &str) {
+        for place in places {
+            place.location = place
+                .span
+                .and_then(|span| span_location(attributes, contents, span));
+            locate(&mut place.places, attributes, contents);
+        }
+    }
+    if let ParseError::Ambiguous { places, .. } = error {
+        locate(places, attributes, contents);
+    }
+}
 
 pub(super) fn span_location(
     attributes: &Attributes,

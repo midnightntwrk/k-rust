@@ -691,6 +691,22 @@ fn user_list_singletons_remain_ambiguous_without_an_overload_group() {
         [2, 2],
         "{error:?}"
     );
+    // Each subterm is located in the source, since both print the same readings.
+    assert_eq!(
+        places
+            .iter()
+            .map(|place| place
+                .location
+                .map(|location| (location.start_line, location.start_column)))
+            .collect::<Vec<_>>(),
+        [Some((7, 8)), Some((7, 21))],
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("\nSubterm 1 at 7:8:\n") && message.contains("\nSubterm 2 at 7:21:\n"),
+        "{message}"
+    );
 }
 
 #[cfg(feature = "z3-inference")]

@@ -721,20 +721,91 @@ struct Recognition {
     work_limit_reached: bool,
 }
 
-/// One reading of an ambiguous subterm: its rendered term and the text of the production its
-/// root came from, when the definition has one.
+/// One entry of the readings reported at an ambiguous subterm: a reading, rendered with the
+/// text of the production its root came from when the definition has one, or, when the
+/// readings there are listed one entry per root head, the least of the readings with its head
+/// and their number.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguousParse {
     pub production: Option<String>,
     pub term: String,
+    /// The readings the entry stands for: 1 for one reading. Saturates at `usize::MAX`.
+    pub readings: usize,
 }
 
-/// One of several subterms whose readings vary independently of each other's: the span it
-/// covers and its distinct readings.
+/// One of several subterms at which the readings of an ambiguous parse differ: the span it
+/// covers and its distinct readings, listed (`alternatives`) or, when they differ jointly at
+/// several subterms of it, reported as those subterms (`places`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguityPlace {
     pub span: Option<TermSpan>,
+    /// The source location of `span`, when the caller that knows the source sets it.
+    pub location: Option<crate::definition::Location>,
+    /// The number of distinct readings of the subterm. Saturates at `usize::MAX`.
+    pub parses: usize,
     pub alternatives: Vec<AmbiguousParse>,
+    /// The subterms at which the readings differ, of whose readings only some combinations
+    /// are readings; empty when the readings are listed.
+    pub places: Vec<AmbiguityPlace>,
+}
+
+/// The entries of a listed ambiguity, numbered from 1 (`ParseError::Ambiguous`).
+fn write_ambiguous_parses(
+    formatter: &mut fmt::Formatter<'_>,
+    alternatives: &[AmbiguousParse],
+) -> fmt::Result {
+    for (index, alternative) in alternatives.iter().enumerate() {
+        write!(
+            formatter,
+            "\n{}: {}\n    {}",
+            index + 1,
+            alternative.production.as_deref().unwrap_or(""),
+            alternative.term
+        )?;
+        match alternative.readings {
+            1 => {}
+            2 => formatter.write_str("\n    and 1 more reading with the same root")?,
+            readings => write!(
+                formatter,
+                "\n    and {} more readings with the same root",
+                readings.saturating_sub(1)
+            )?,
+        }
+    }
+    Ok(())
+}
+
+/// One subterm of an ambiguity reported as several (`ParseError::Ambiguous`), numbered
+/// `number` and located by its source location, or else by its span.
+fn write_ambiguity_place(
+    formatter: &mut fmt::Formatter<'_>,
+    number: &str,
+    place: &AmbiguityPlace,
+) -> fmt::Result {
+    write!(formatter, "\nSubterm {number}")?;
+    match (place.location, place.span) {
+        (Some(location), _) => write!(
+            formatter,
+            " at {}:{}",
+            location.start_line, location.start_column
+        )?,
+        (None, Some(span)) => write!(formatter, " at bytes {}..{}", span.start, span.end)?,
+        (None, None) => {}
+    }
+    if place.places.is_empty() {
+        formatter.write_str(":")?;
+        return write_ambiguous_parses(formatter, &place.alternatives);
+    }
+    write!(
+        formatter,
+        ": {} readings, which differ jointly in {} subterms.",
+        place.parses,
+        place.places.len()
+    )?;
+    for (index, inner) in place.places.iter().enumerate() {
+        write_ambiguity_place(formatter, &format!("{number}.{}", index + 1), inner)?;
+    }
+    Ok(())
 }
 
 /// Input encountered at the furthest point reached by the recognizer.
@@ -801,16 +872,19 @@ pub enum ParseError {
     },
     /// The input has several readings, the distinct terms its parses lower to.
     Ambiguous {
-        /// The number of distinct readings.
+        /// The number of distinct readings. Saturates at `usize::MAX`.
         parses: usize,
-        /// The distinct readings of the subterm at `span`, when the readings differ at one
-        /// place; empty when they differ at several (`places`).
+        /// The readings of the subterm at `span`, when they are listed there; empty when they
+        /// are reported as several subterms (`places`).
         alternatives: Vec<AmbiguousParse>,
         /// The smallest subterm outside which every reading agrees.
         span: Option<TermSpan>,
-        /// When the readings differ independently at several subterms of the one at `span`,
-        /// those subterms, each with its readings; `parses` is the product of their counts.
+        /// The subterms of the one at `span` at which the readings differ, each with its
+        /// readings, when they are reported so.
         places: Vec<AmbiguityPlace>,
+        /// Whether every combination of the readings of `places` is a reading, so that
+        /// `parses` is the product of their counts; otherwise only some are.
+        independent: bool,
     },
     /// A sort derives itself over a text without consuming input.
     CyclicDerivation(Box<CyclicDerivation>),
@@ -982,33 +1056,32 @@ impl fmt::Display for ParseError {
                 parses,
                 alternatives,
                 places,
+                independent,
                 ..
             } => {
-                let write_alternatives =
-                    |formatter: &mut fmt::Formatter<'_>, alternatives: &[AmbiguousParse]| {
-                        for (index, alternative) in alternatives.iter().enumerate() {
-                            write!(
-                                formatter,
-                                "\n{}: {}\n    {}",
-                                index + 1,
-                                alternative.production.as_deref().unwrap_or(""),
-                                alternative.term
-                            )?;
-                        }
-                        Ok(())
-                    };
                 if places.is_empty() {
-                    formatter.write_str("Parsing ambiguity.")?;
-                    return write_alternatives(formatter, alternatives);
+                    if alternatives
+                        .iter()
+                        .all(|alternative| alternative.readings == 1)
+                    {
+                        formatter.write_str("Parsing ambiguity.")?;
+                    } else {
+                        write!(formatter, "Parsing ambiguity: {parses} readings.")?;
+                    }
+                    return write_ambiguous_parses(formatter, alternatives);
                 }
                 write!(
                     formatter,
-                    "Parsing ambiguity: {parses} readings, which differ independently in {} subterms.",
+                    "Parsing ambiguity: {parses} readings, which differ {} in {} subterms.",
+                    if *independent {
+                        "independently"
+                    } else {
+                        "jointly"
+                    },
                     places.len()
                 )?;
                 for (index, place) in places.iter().enumerate() {
-                    write!(formatter, "\nSubterm {}:", index + 1)?;
-                    write_alternatives(formatter, &place.alternatives)?;
+                    write_ambiguity_place(formatter, &(index + 1).to_string(), place)?;
                 }
                 Ok(())
             }

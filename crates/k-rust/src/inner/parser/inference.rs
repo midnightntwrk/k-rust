@@ -2286,6 +2286,7 @@ mod tests {
             alternatives: Vec::new(),
             span: None,
             places: Vec::new(),
+            independent: false,
         };
         assert_eq!(
             checked_lowered_result(Err(ambiguity(2)), Err(ambiguity(2))),
