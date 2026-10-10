@@ -33,7 +33,7 @@ use crate::definition::{
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term, TermParts};
 
-use super::location::span_location;
+use super::location::{locate_ambiguity_places, span_location};
 use super::parser::{Grammar, ParseError};
 use super::sort_universe::configuration::{
     CONFIGURATION_BRACKET_SEED_ORDER, CONFIGURATION_GRAMMAR, configuration_kernel_seeds,
@@ -168,8 +168,11 @@ fn bubble_error(
     module: &str,
     attributes: &Attributes,
     contents: Option<&str>,
-    error: ParseError,
+    mut error: ParseError,
 ) -> ConfigError {
+    if let Some(contents) = contents {
+        locate_ambiguity_places(&mut error, attributes, contents);
+    }
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "ParseError is not a sentence kind; only the listed variants are special here"

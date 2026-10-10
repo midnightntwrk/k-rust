@@ -721,10 +721,66 @@ struct Recognition {
     work_limit_reached: bool,
 }
 
+/// One entry of the readings reported at an ambiguous subterm, one per root key (head and
+/// arity) of those readings: the least of the readings with that key in term order, rendered
+/// with the text of the production its root came from when the definition has one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguousParse {
     pub production: Option<String>,
     pub term: String,
+    /// Whether other readings have the root key of this one.
+    pub more_with_same_root: bool,
+}
+
+/// One of several subterms at which the readings of an ambiguous parse differ: the span it
+/// covers and one entry per root key of its readings, of which it has several.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmbiguityPlace {
+    pub span: Option<TermSpan>,
+    /// The source location of `span`, when the caller that knows the source sets it.
+    pub location: Option<crate::definition::Location>,
+    pub alternatives: Vec<AmbiguousParse>,
+}
+
+/// The entries of a reported subterm, numbered from 1 (`ParseError::Ambiguous`).
+fn write_ambiguous_parses(
+    formatter: &mut fmt::Formatter<'_>,
+    alternatives: &[AmbiguousParse],
+) -> fmt::Result {
+    for (index, alternative) in alternatives.iter().enumerate() {
+        write!(
+            formatter,
+            "\n{}: {}\n    {}",
+            index + 1,
+            alternative.production.as_deref().unwrap_or(""),
+            alternative.term
+        )?;
+        if alternative.more_with_same_root {
+            formatter.write_str("\n    and other readings with the same root")?;
+        }
+    }
+    Ok(())
+}
+
+/// One subterm of an ambiguity reported as several (`ParseError::Ambiguous`), numbered
+/// `number` and located by its source location, or else by its span.
+fn write_ambiguity_place(
+    formatter: &mut fmt::Formatter<'_>,
+    number: usize,
+    place: &AmbiguityPlace,
+) -> fmt::Result {
+    write!(formatter, "\nSubterm {number}")?;
+    match (place.location, place.span) {
+        (Some(location), _) => write!(
+            formatter,
+            " at {}:{}",
+            location.start_line, location.start_column
+        )?,
+        (None, Some(span)) => write!(formatter, " at bytes {}..{}", span.start, span.end)?,
+        (None, None) => {}
+    }
+    formatter.write_str(":")?;
+    write_ambiguous_parses(formatter, &place.alternatives)
 }
 
 /// Input encountered at the furthest point reached by the recognizer.
@@ -789,10 +845,16 @@ pub enum ParseError {
     InvalidParseShape {
         expected: String,
     },
+    /// The input has several readings, the distinct terms its parses lower to.
     Ambiguous {
-        parses: usize,
+        /// One entry per root key of the readings of the subterm at `span`, when they have
+        /// several there; empty when they are reported as several subterms (`places`).
         alternatives: Vec<AmbiguousParse>,
+        /// The smallest subterm outside which every reading agrees.
         span: Option<TermSpan>,
+        /// When the readings at `span` have one root key, the subterms below it at which they
+        /// differ, each with one entry per root key of its readings.
+        places: Vec<AmbiguityPlace>,
     },
     /// A sort derives itself over a text without consuming input.
     CyclicDerivation(Box<CyclicDerivation>),
@@ -836,8 +898,9 @@ pub enum ParseError {
     /// Checked inference only (`KRUST_TYPE_INFERENCE_MODE=checked`): the portable and Z3
     /// engines reached different outcomes on one term. Each engine's outcome is `Ok` with the
     /// `Debug` rendering of the term it inferred (for an ambiguous parse, of the term it
-    /// lowered the parse to) or `Err` with the message of its rejection. The checked
-    /// comparison never builds one in which both engines rejected: that is agreement.
+    /// lowered the parse to) or `Err` with the message of its rejection. Two rejections are
+    /// agreement unless one of them is an ambiguity the other does not report alike, since
+    /// an ambiguity is reported from the readings both engines must keep.
     ///
     /// It is kept apart from `SortInference`, so a caller that expects a rejection does not
     /// take a term that one engine accepted, or that the engines inferred differently, for one.
@@ -959,16 +1022,22 @@ impl fmt::Display for ParseError {
                     "parsed term does not have the expected {expected} shape"
                 )
             }
-            Self::Ambiguous { alternatives, .. } => {
-                formatter.write_str("Parsing ambiguity.")?;
-                for (index, alternative) in alternatives.iter().enumerate() {
-                    write!(
-                        formatter,
-                        "\n{}: {}\n    {}",
-                        index + 1,
-                        alternative.production.as_deref().unwrap_or(""),
-                        alternative.term
-                    )?;
+            Self::Ambiguous {
+                alternatives,
+                places,
+                ..
+            } => {
+                if places.is_empty() {
+                    formatter.write_str("Parsing ambiguity.")?;
+                    return write_ambiguous_parses(formatter, alternatives);
+                }
+                write!(
+                    formatter,
+                    "Parsing ambiguity: the readings differ in {} subterms.",
+                    places.len()
+                )?;
+                for (index, place) in places.iter().enumerate() {
+                    write_ambiguity_place(formatter, index + 1, place)?;
                 }
                 Ok(())
             }
@@ -3760,7 +3829,7 @@ mod chart_tests {
             let baseline = unfiltered(&grammar, "Start", "x");
             assert!(matches!(
                 &baseline,
-                Err(ParseError::Ambiguous { parses: 2, .. })
+                Err(ParseError::Ambiguous { alternatives, .. }) if alternatives.len() == 2
             ));
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
@@ -4084,15 +4153,10 @@ mod chart_tests {
 
     fn assert_incremental_ambiguity(result: Result<Term, ParseError>) {
         {
-            let ParseError::Ambiguous {
-                parses,
-                alternatives,
-                ..
-            } = result.unwrap_err()
-            else {
+            let ParseError::Ambiguous { alternatives, .. } = result.unwrap_err() else {
                 panic!("the two production-distinct alternatives must remain ambiguous");
             };
-            assert_eq!(parses, 2);
+            assert_eq!(alternatives.len(), 2);
             assert!(
                 alternatives
                     .iter()

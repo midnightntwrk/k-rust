@@ -1333,7 +1333,10 @@ mod tests {
         PARSE_ATTEMPTS.set(0);
         let ambiguity = filtered(&ambiguous_beside_it, "");
         assert!(
-            matches!(&ambiguity, Err(ParseError::Ambiguous { parses: 2, .. })),
+            matches!(
+                &ambiguity,
+                Err(ParseError::Ambiguous { alternatives, .. }) if alternatives.len() == 2
+            ),
             "{ambiguity:?}"
         );
         assert_eq!(PARSE_ATTEMPTS.get(), 1);
@@ -1418,10 +1421,10 @@ mod tests {
     /// part of the forest. Under `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and
     /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous. A first attempt that skipped every item
     /// whose edge the filter rejects, the deferred ones included, built a smaller forest than an
-    /// unfiltered recognition, and in the `z3-inference` build reported the ambiguity at
-    /// 104-107 instead of 102-106. Where an ambiguity is reported is decided by sort inference
-    /// after recognition, so the reported error is pinned per engine, and the forests are
-    /// compared directly. The input holds three `c`, each a token a rewrite node can hold, so
+    /// unfiltered recognition, with other readings. The report is a function of the readings
+    /// (the smallest subterm outside which they all agree, and where they differ), so it is pinned
+    /// once for both engines, and the forests are compared directly. The input holds three
+    /// `c`, each a token a rewrite node can hold, so
     /// the full parse skips no edge to a doomed node either (`DoomedEdges`).
     #[test]
     fn edges_below_a_deferred_scope_error_are_kept() {
@@ -1474,23 +1477,28 @@ mod tests {
         );
         assert_eq!(forest(PredictionMode::Filtered), unfiltered_forest);
 
-        #[cfg(feature = "z3-inference")]
-        let (parses, start, end) = (2, 102, 106);
-        #[cfg(not(feature = "z3-inference"))]
-        let (parses, start, end) = (14, 100, 107);
+        // The readings differ at both children of the root's `S2 S0`, so the whole input is
+        // reported, with those two subterms, whichever engine decided the forest and however
+        // it packed the readings.
+        let (start, end) = (100, 107);
         let expected = unfiltered(&grammar, "a c c c");
         assert!(
             matches!(
                 &expected,
                 Err(ParseError::Ambiguous {
-                    parses: reported,
+                    alternatives,
                     span: Some(TermSpan {
                         start: reported_start,
                         end: reported_end,
                         ..
                     }),
-                    ..
-                }) if (*reported, *reported_start, *reported_end) == (parses, start, end)
+                    places,
+                }) if alternatives.is_empty()
+                    && places
+                        .iter()
+                        .map(|place| place.alternatives.len())
+                        .eq([2, 2])
+                    && (*reported_start, *reported_end) == (start, end)
             ),
             "{expected:?}"
         );
@@ -1877,5 +1885,64 @@ mod tests {
         assert!(NONTERMINAL_PREDICTIONS_SKIPPED.get() > 0);
         assert_eq!(parsed, baseline);
         assert_eq!(metadata(&parsed), metadata(&baseline));
+    }
+
+    /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
+    /// decision (which readings of a forest are the parse), so on one forest they reject alike:
+    /// the same error, the same reported ambiguity, span and subterms. The forest is
+    /// the one `edges_below_a_deferred_scope_error_are_kept` pins per engine; both engines are
+    /// run on it in one build, after the same recognition and pre-inference passes.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn both_inference_engines_reject_one_ambiguous_forest_alike() {
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("S0")], "start"),
+            production("S1", vec![], "p0"),
+            production("S2", vec![terminal("a")], "p1"),
+            production("S2", vec![nt("S0"), terminal("c")], "p2"),
+            production(
+                "S2",
+                vec![nt("S2"), nt("S0"), terminal("c")],
+                InternalLabel::KRewrite.as_str(),
+            ),
+            production("S0", vec![nt("S2"), nt("S0")], "p4"),
+            production("S0", vec![], "p5"),
+        ])
+        .unwrap();
+        let input = "a c c c";
+        let start_sort = Sort::new("Start");
+        let start = grammar.sort_id(grammar.sort_denotations.denote(&start_sort));
+        let mut scanner_cache = vec![None; input.len() + 1];
+        let start_position = grammar.canonical_position(input, 0, &mut scanner_cache);
+        let memos = std::cell::RefCell::new(PackedPriorityMemos::default());
+        let recognition = grammar
+            .recognize(
+                start.unwrap(),
+                start_position,
+                input,
+                ParseProvenance {
+                    source: SourceId(7),
+                    base_offset: 100,
+                },
+                PredictionMode::Unfiltered,
+                PriorityFilter::Enforced,
+                None,
+                false,
+                DoomedEdges::Kept,
+                &mut false,
+                &mut WorkMeter::unlimited(),
+                &mut scanner_cache,
+                &memos,
+            )
+            .unwrap();
+        let forest = grammar
+            .prepare_packed_forest(PackedTerm::ambiguity(recognition.parses), &memos)
+            .unwrap();
+        let lower = |tree| grammar.lower_inferred(tree, &start_sort);
+        let portable = grammar.infer_ambiguous_sorts_portable(&forest, &start_sort, false, lower);
+        let z3 = grammar
+            .infer_packed_sorts_z3(std::rc::Rc::clone(&forest), &start_sort, false)
+            .and_then(&lower);
+        assert_eq!(portable, z3);
     }
 }

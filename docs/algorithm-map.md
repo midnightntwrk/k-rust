@@ -187,7 +187,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
 - parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
 - parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
-- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) plus, per… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
+- parser.disambiguation.resolve_ambiguity — O(N) lowering (parser.lower.term) when every… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
 - parser.disambiguation.resolve_applications — O(N x R) to find each label's arities, plus O(N x… — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
 - parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
 - parser.earley.recognize — O(B x s) chart allocation plus O(p x d) plus the… +3 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`

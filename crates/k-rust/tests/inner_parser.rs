@@ -712,15 +712,11 @@ fn prediction_reuse_propagates_later_nullable_alternatives() {
         production("Unit", vec![], Some("unit"), Attributes::default()),
     ];
     let grammar = Grammar::from_sentences(&sentences).unwrap();
-    let ParseError::Ambiguous {
-        parses,
-        alternatives,
-        ..
-    } = grammar.parse(&Sort::new("Start"), "ok").unwrap_err()
+    let ParseError::Ambiguous { alternatives, .. } =
+        grammar.parse(&Sort::new("Start"), "ok").unwrap_err()
     else {
         panic!("both nullable derivations must survive");
     };
-    assert_eq!(parses, 2);
     assert_eq!(
         alternatives
             .into_iter()

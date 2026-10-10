@@ -6622,6 +6622,21 @@ symbol = "Grammar::resolve_ambiguities_node"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::ambiguity_report"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::collect_places"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::least_reading"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "AmbiguousParse"
 
@@ -6928,7 +6943,7 @@ symbol = "Grammar::factor_ambiguities"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise each node's readings are an expression over its children's, built once per structure: a product, the union of an ambiguity node's alternatives (equal terms merged by hash, O(A) per node), or the concatenation a `~>` node splices, with only the string tokens of a #KToken node's two children paired; the report is polynomial in N and never lists or counts the readings: each question it asks a node (root keys, subterms at a position of the readings of one key, items at an index of the words of one length, least reading, least word of a length) is answered once per node and argument from its children's answers, an item of a concatenation in O(N^2) over its children and the lengths before them, and it builds one term per entry it lists"
 
 [[node]]
 kind = "algorithm"

@@ -672,13 +672,36 @@ fn user_list_singletons_remain_ambiguous_without_an_overload_group() {
     let error = resolve_rule_bubbles(&lowered(source))
         .expect_err("the synthetic list subsort alone must not select a production");
 
-    assert!(
-        matches!(
-            error,
-            RuleError::Parse(ref error)
-                if matches!(error.error, ParseError::Ambiguous { parses: 2, .. })
-        ),
+    // Each side reads `test(foo)` as `testFoo` or `testFoos`, independently of the other.
+    let RuleError::Parse(ref parse) = error else {
+        panic!("{error:?}")
+    };
+    let ParseError::Ambiguous { ref places, .. } = parse.error else {
+        panic!("{error:?}")
+    };
+    assert_eq!(
+        places
+            .iter()
+            .map(|place| place.alternatives.len())
+            .collect::<Vec<_>>(),
+        [2, 2],
         "{error:?}"
+    );
+    // Each subterm is located in the source, since both print the same readings.
+    assert_eq!(
+        places
+            .iter()
+            .map(|place| place
+                .location
+                .map(|location| (location.start_line, location.start_column)))
+            .collect::<Vec<_>>(),
+        [Some((7, 8)), Some((7, 21))],
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("\nSubterm 1 at 7:8:\n") && message.contains("\nSubterm 2 at 7:21:\n"),
+        "{message}"
     );
 }
 
@@ -1010,29 +1033,42 @@ fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let RuleError::Parse(error) = error else {
         panic!("expected a parse error, got {error:?}")
     };
+    // The two readings differ at the left-hand application and at the sorts of both
+    // variables on the right, each reported as a subterm.
     let ParseError::Ambiguous {
-        parses,
         alternatives,
         span,
+        places,
     } = error.error
     else {
         panic!("expected an ambiguity, got {:?}", error.error)
     };
 
-    assert_eq!(parses, 2);
     assert!(span.is_some());
-    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
-    assert!(
-        alternatives
+    assert!(alternatives.is_empty(), "{alternatives:#?}");
+    assert_eq!(
+        places
             .iter()
-            .any(|alternative| alternative.term.contains("aF")),
-        "{alternatives:#?}"
+            .map(|place| place
+                .alternatives
+                .iter()
+                .map(|alternative| alternative.term.as_str())
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        [
+            vec![
+                "aF(#SemanticCastToInt(X),#SemanticCastToFoo(Y))",
+                "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))"
+            ],
+            vec!["#SemanticCastToInt(X)", "#SemanticCastToK(X)"],
+            vec!["#SemanticCastToFoo(Y)", "#SemanticCastToInt(Y)"],
+        ],
+        "{places:#?}"
     );
+    // Each subterm is located, the variables by the text the casts inference added cover.
     assert!(
-        alternatives
-            .iter()
-            .any(|alternative| alternative.term.contains("aK")),
-        "{alternatives:#?}"
+        places.iter().all(|place| place.location.is_some()),
+        "{places:#?}"
     );
 }
 
@@ -1088,15 +1124,12 @@ fn rejects_non_function_rewrite_siblings_that_remain_ambiguous() {
             panic!("expected a parse error, got {error:?}")
         };
         let ParseError::Ambiguous {
-            parses,
-            alternatives,
-            span,
+            alternatives, span, ..
         } = error.error
         else {
             panic!("expected an ambiguity, got {:?}", error.error)
         };
 
-        assert_eq!(parses, 2);
         assert!(span.is_some());
         assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
         assert!(alternatives[0].term.contains("mapWriteRange"));
@@ -1135,7 +1168,10 @@ endmodule
             matches!(
                 error,
                 RuleError::Parse(ref error)
-                    if matches!(error.error, ParseError::Ambiguous { parses: 2, .. })
+                    if matches!(
+                        error.error,
+                        ParseError::Ambiguous { ref alternatives, .. } if alternatives.len() == 2
+                    )
             ),
             "{left}: {error:?}"
         );
@@ -5061,19 +5097,46 @@ fn resolved_rule_body(source: &str) -> Result<String, RuleError> {
     Ok(body.clone())
 }
 
-fn assert_ambiguous_between(result: Result<String, RuleError>, readings: [&str; 2]) {
+/// Assert that `result` is an ambiguity whose readings differ at subterms with these readings,
+/// one entry per root key each.
+fn assert_ambiguous_at<const N: usize>(result: Result<String, RuleError>, places: [&[&str]; N]) {
     let Err(RuleError::Parse(error)) = &result else {
         panic!("expected an ambiguity, got {result:?}")
     };
     let ParseError::Ambiguous {
-        parses,
         alternatives,
+        places: reported,
         ..
     } = &error.error
     else {
         panic!("expected an ambiguity, got {:?}", error.error)
     };
-    assert_eq!(*parses, 2, "{alternatives:#?}");
+    assert!(alternatives.is_empty(), "{alternatives:#?}");
+    assert_eq!(
+        reported
+            .iter()
+            .map(|place| place
+                .alternatives
+                .iter()
+                .map(|alternative| alternative.term.as_str())
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        places.map(<[&str]>::to_vec),
+        "{reported:#?}"
+    );
+}
+
+fn assert_ambiguous_between<const N: usize>(
+    result: Result<String, RuleError>,
+    readings: [&str; N],
+) {
+    let Err(RuleError::Parse(error)) = &result else {
+        panic!("expected an ambiguity, got {result:?}")
+    };
+    let ParseError::Ambiguous { alternatives, .. } = &error.error else {
+        panic!("expected an ambiguity, got {:?}", error.error)
+    };
+    assert_eq!(alternatives.len(), N, "{alternatives:#?}");
     let mut terms = alternatives
         .iter()
         .map(|alternative| alternative.term.as_str())
@@ -5098,14 +5161,23 @@ fn avoided_constructor_at_one_of_two_divergence_points_is_dropped() {
 // Both engines rank maximal typings in the subsort order, where `Id` and `Type` are
 // incomparable, so without an attribute nothing decides and `prefer` keeps the `class` reading.
 //
-// Without an attribute nothing decides. The error names the first undecided ambiguity, which is
-// inside the `T:Id` tree: its right-hand `T` is an `Exp` either through `Exp ::= Id` or as
-// `class(T)` through `Exp ::= Type`.
+// Without an attribute nothing decides. Inside the `T:Id` tree the right-hand `T` is an `Exp`
+// either through `Exp ::= Id` or as `class(T)` through `Exp ::= Type`.
 #[test]
 fn constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous() {
-    assert_ambiguous_between(
+    // The `Type` typing of `T` has one reading. The `Id` typing has two, which differ on the
+    // right side only. The readings differ at the left `T`, read as a `Type` or as `class` of
+    // an `Id`, and at the right one, read in those two ways or as an `Id`.
+    assert_ambiguous_at(
         resolved_rule_body(&class_constructor_source("")),
-        ["#SemanticCastToId(T)", "class(#SemanticCastToId(T))"],
+        [
+            &["#SemanticCastToType(T)", "class(#SemanticCastToId(T))"],
+            &[
+                "#SemanticCastToId(T)",
+                "#SemanticCastToType(T)",
+                "class(#SemanticCastToId(T))",
+            ],
+        ],
     );
 }
 
@@ -5251,14 +5323,19 @@ fn two_applications_source(k_attribute: &str, int_attribute: &str) -> String {
 
 const APPLICATION_K_READING: &str =
     "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>#SemanticCastToK(X)~>#SemanticCastToInt(Y)";
-const APPLICATION_F_READING: &str =
-    "aF(#SemanticCastToInt(X),#SemanticCastToFoo(Y))=>#SemanticCastToInt(X)~>#SemanticCastToFoo(Y)";
 
 #[test]
 fn maximal_trees_avoided_at_every_divergence_point_stay_ambiguous() {
-    assert_ambiguous_between(
+    assert_ambiguous_at(
         resolved_rule_body(&two_applications_source(", avoid", ", avoid")),
-        [APPLICATION_K_READING, APPLICATION_F_READING],
+        [
+            &[
+                "aF(#SemanticCastToInt(X),#SemanticCastToFoo(Y))",
+                "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))",
+            ],
+            &["#SemanticCastToInt(X)", "#SemanticCastToK(X)"],
+            &["#SemanticCastToFoo(Y)", "#SemanticCastToInt(Y)"],
+        ],
     );
 }
 
