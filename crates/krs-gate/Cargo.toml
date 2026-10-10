@@ -21,6 +21,7 @@ krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
+krs-unparse = { path = "../krs-unparse" }
 quote.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -8,8 +8,8 @@
 //!
 //! The pinned native frontend folds a FLOAT-hooked application whose arguments
 //! are all tokens, which it cannot do without MPFR, so every operation below is
-//! applied to a variable and the programs supply the values. Each function
-//! returns a Bool or an Int, so both routes print the same result.
+//! applied to a variable and the programs supply the values. `negate` leaves
+//! a Float in the computation cell, so both routes print a Float result.
 
 use k::builtin::{Bool, Float, Int, KSequence, bool, float, int, kequal};
 use k::{KResult, Term};
@@ -17,7 +17,7 @@ use k::{KResult, Term};
 k::sorts! {
     Exp;
     Value: Exp + KResult;
-    impl Value for Bool, Int;
+    impl Value for Bool, Float, Int;
 }
 
 /// A constructor matched against Float literals by readable rules.
@@ -270,4 +270,16 @@ fn ordered(k::term![Ordered(a, b)]: Term<Bool>) -> Term<Bool> {
         bool::or(float::lt(a, b), float::le(a, b)),
         bool::or(float::gt(a, b), float::ge(a, b)),
     )
+}
+
+/// The negation of a value, in its own format: the program's result is a
+/// Float, which both routes print as K's LLVM backend does.
+#[k::function(total, sort = Float, syntax = "negate({a})")]
+pub struct Negate {
+    pub a: Term<Float>,
+}
+
+#[k::equation]
+fn negate(k::term![Negate(a)]: Term<Float>) -> Term<Float> {
+    float::neg(a)
 }

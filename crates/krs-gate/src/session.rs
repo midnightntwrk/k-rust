@@ -707,10 +707,33 @@ impl Session {
         } else {
             actual
         };
-        Ok(
-            json!({"met": expected == actual, "expected": expected.to_string(), "actual": actual.to_string()}),
-        )
+        let met = expected == actual || float_text(&expected) == float_text(&actual);
+        Ok(json!({"met": met, "expected": expected.to_string(), "actual": actual.to_string()}))
     }
+}
+
+/// The KORE text of `pattern` with each binary32 and binary64 Float domain
+/// value as K's LLVM runtime prints it, so a native result compares by value
+/// with the literal an expectation spells (k-rust writes its own canonical
+/// Float token, `1.5000000000000000e+00p53x11` for `1.5`).
+fn float_text(pattern: &Pattern) -> String {
+    const FLOAT: &str = "\\dv{SortFloat{}}(\"";
+    let text = pattern.to_string();
+    let mut output = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(start) = rest.find(FLOAT) {
+        let (before, after) = rest.split_at(start + FLOAT.len());
+        output.push_str(before);
+        let end = after.find('"').unwrap_or(after.len());
+        let (token, tail) = after.split_at(end);
+        match krs_unparse::llvm_float_text(token) {
+            Some(printed) => output.push_str(&printed),
+            None => output.push_str(token),
+        }
+        rest = tail;
+    }
+    output.push_str(rest);
+    output
 }
 
 /// Serve a session using the given input and output streams.
@@ -758,12 +781,30 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, search};
+    use super::{Session, float_text, search};
     use k_rust::{
         backend::{Backend, BackendOptions},
         kore::parser::parse_pattern,
     };
     use serde_json::json;
+
+    #[test]
+    fn float_expectations_compare_by_value() {
+        let native = parse_pattern(
+            r#"inj{SortFloat{}, SortKItem{}}(\dv{SortFloat{}}("-1.5000000000000000e+00p53x11"))"#,
+        )
+        .unwrap();
+        let expected = parse_pattern(
+            r#"inj{SortFloat{}, SortKItem{}}(\dv{SortFloat{}}("-0.15000000000000000e1"))"#,
+        )
+        .unwrap();
+        let other = parse_pattern(
+            r#"inj{SortFloat{}, SortKItem{}}(\dv{SortFloat{}}("0.15000000000000000e1"))"#,
+        )
+        .unwrap();
+        assert_eq!(float_text(&native), float_text(&expected));
+        assert_ne!(float_text(&native), float_text(&other));
+    }
 
     fn search_backend() -> Backend {
         let definition = r#"[]

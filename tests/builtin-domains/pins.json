@@ -10,7 +10,7 @@
     "krs-builtin-int-sign-unsigned": "a1b724f11e7a58c236d6651b21645d08f23b31e991dc814fe60c44350bed7448",
     "krs-builtin-strings": "acd3d4df499c5de0289e99945fa5e7ee4809c84c497c51eb9c9de76e14809b35",
     "krs-builtin-k-equal": "b60322a703e2d37c1758791f4993e3e94a1c84eb3d85e7511558a441d4a6800f",
-    "krs-builtin-floats": "fe622b692165af7ea32128770c9bb8eb164d7bd50fb91247a2addac004821bdd",
+    "krs-builtin-floats": "5c895fcad626bf7020b00482f48e9ceb455dec60dc8742c969fdbe532665e2a2",
     "krs-builtin-float-java-only": "65ef7a40141e832aaf5757b254ddc09938d5fe2a833b8fdd15d7fe3ffee98ebd",
     "krs-builtin-io": "0240434b269985643cd8d980003bd6403d88a7073ba38d1cbad9c1913f50daaf",
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
@@ -47,7 +47,7 @@
       "definition.k": "5ef06537c311d5b2b74976ba09441717cfede6dbbea38f7b51506b7e93ef76b7"
     },
     "krs-builtin-floats": {
-      "definition.k": "51ce492ccda447cc1b6db62f9a2ec64b980825bd1b696fa4b27c2551ef3f013d"
+      "definition.k": "a48eee59bb370318495a44dc9c6fab9053d490329eba07e4d7329d569c1ea2fb"
     },
     "krs-builtin-float-java-only": {
       "definition.k": "0e30d56cd5343e9455d388e8214940ad127bfdcbf9ea8af0e6d5cd314c0ee694"
@@ -78,7 +78,7 @@
     "krs-builtin-int-sign-unsigned": "243df2ced4c3da8960392438b8619be7832a59800e04135360237226a6a95162",
     "krs-builtin-strings": "b792cc9d0a0f4f56467f329167aecce08a1235a7d2c48febb68bd934a960f4dd",
     "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
-    "krs-builtin-floats": "e48c2a4aa1f420331f22b4b8496eef9c19c2989d1b14734e6e37e923de0fc851",
+    "krs-builtin-floats": "f17d72f219227cd7c47ccff662f7dc672aa8c7e80b65826e5b1be81d7b23cb40",
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
     "krs-builtin-io": "e333da9bc908e1f5c3eb1efda65b63041e02e30c1aa92f0f45228d0ce9d60518",
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
@@ -735,6 +735,48 @@
       "match-negative-zero": {
         "parse": "accepted",
         "run": "5"
+      },
+      "negate-binary64": {
+        "parse": "accepted",
+        "run": "-0.15000000000000000e1",
+        "cells": {
+          "k": "-0.15000000000000000e1 ~> .K"
+        }
+      },
+      "negate-binary32": {
+        "parse": "accepted",
+        "run": "-0.100000001e0f",
+        "cells": {
+          "k": "-0.100000001e0f ~> .K"
+        }
+      },
+      "negate-infinity": {
+        "parse": "accepted",
+        "run": "Infinity",
+        "cells": {
+          "k": "Infinity ~> .K"
+        }
+      },
+      "negate-nan-binary32": {
+        "parse": "accepted",
+        "run": "NaNf",
+        "cells": {
+          "k": "NaNf ~> .K"
+        }
+      },
+      "negate-zero": {
+        "parse": "accepted",
+        "run": "-0.00000000000000000e0",
+        "cells": {
+          "k": "-0.00000000000000000e0 ~> .K"
+        }
+      },
+      "negate-subnormal": {
+        "parse": "accepted",
+        "run": "-0.25000000000000171e-309",
+        "cells": {
+          "k": "-0.25000000000000171e-309 ~> .K"
+        }
       }
     },
     "krs-builtin-float-java-only": {

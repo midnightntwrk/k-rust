@@ -561,6 +561,7 @@ As for integers, the sign belongs to the literal, so `-0.0` is one token and kee
 NaN has no sign in K's token syntax, so `-f64::NAN` is rejected, and `-f64::INFINITY` is rejected in favour of `f64::NEG_INFINITY`.
 The operations follow IEEE 754 in their operands' format: `float::eq(NaN, NaN)` is false and `float::eq(0.0, -0.0)` is true, while `kequal::eq` compares the terms, so it holds for two NaN tokens and fails for `0.0` and `-0.0`.
 `float::to_int` rounds ties to even, so `2.5` gives `2` and `3.5` gives `4`.
+A Float result prints as `krun` prints it with the LLVM backend: MPFR's correctly rounded significand digits after `0.`, the decimal exponent, and the format suffix, so `krs run` shows `-1.5` as `-0.15000000000000000e1` and `0.1f` as `0.100000001e0f`; `--output kast` and `--output kore` keep the native token.
 
 Not every Float runs on every route.
 The pinned k-rust frontend folds an application of a `FLOAT` operation whose arguments are all tokens, such as `float::add(0.1, 0.2)`, while compiling, and KRS builds it without the MPFR library that folding needs; it also evaluates only binary32 and binary64.

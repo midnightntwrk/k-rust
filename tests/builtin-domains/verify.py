@@ -25,8 +25,11 @@ operation, and a corpus of programs that apply them to concrete values:
 - `floats`: Float literals and constants (KF-033) in equations and readable
   patterns, and every FLOAT operation: `0.1 + 0.2` in binary32 and binary64,
   NaN under `float::eq` and `kequal::eq`, signed zero, `sqrt`, `to_int` ties,
-  and `max_value`. Programs supply every operand, so no application is ground,
-  and every result is a Bool or an Int;
+  and `max_value`. Programs supply every operand, so no application is ground.
+  `negate` leaves a Float in the computation cell, which both routes print as
+  K's LLVM runtime does (`-0.15000000000000000e1`, `-0.100000001e0f`,
+  `Infinity`, `NaNf`, `-0.00000000000000000e0`); every other result is a Bool
+  or an Int;
 - `float-java-only`: a ground FLOAT application and a binary128 token, which
   KRS records as the `GroundFloatFolding` and `FloatPrecisionBeyondBinary64`
   requirements; the native and browser routes refuse the definition before
@@ -122,6 +125,12 @@ PINS = HERE / "pins.json"
 
 def case(name: str, text: str, run: str) -> Program:
     return Program(name, text, "accepted", run)
+
+
+def float_case(name: str, text: str, printed: str) -> Program:
+    """A program whose result is a Float: both routes must print it alike."""
+
+    return Program(name, text, "accepted", printed, cells=(("k", f"{printed} ~> .K"),))
 
 
 INT_OPS = (
@@ -290,6 +299,12 @@ FLOATS = (
     case("match-infinity", "classify(Infinity)", "3"),
     case("match-negative-infinity", "classify(-Infinity)", "4"),
     case("match-negative-zero", "classify(-0.0)", "5"),
+    float_case("negate-binary64", "negate(1.5)", "-0.15000000000000000e1"),
+    float_case("negate-binary32", "negate(0.1f)", "-0.100000001e0f"),
+    float_case("negate-infinity", "negate(-Infinity)", "Infinity"),
+    float_case("negate-nan-binary32", "negate(NaNf)", "NaNf"),
+    float_case("negate-zero", "negate(0.0)", "-0.00000000000000000e0"),
+    float_case("negate-subnormal", "negate(2.5e-310)", "-0.25000000000000171e-309"),
 )
 
 FLOAT_JAVA_ONLY = Fixture(MANIFEST, "krs-builtin-float-java-only")

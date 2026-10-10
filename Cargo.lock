@@ -693,6 +693,7 @@ dependencies = [
  "krs-ir-levels",
  "krs-k-rust",
  "krs-test-support",
+ "krs-unparse",
  "quote",
  "serde",
  "serde_json",

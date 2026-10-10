@@ -16,6 +16,10 @@
 //! 6. each application is printed through its `format` (`%N %n %i %d %c %r`, assoc dedent),
 //!    with colours as 256-colour ANSI codes when enabled.
 //!
+//! [`Mode::Pretty`] first rewrites each binary32 and binary64 Float domain value in the form the
+//! LLVM runtime prints it, `0.15000000000000000e1` for `1.5`, since a native result carries
+//! k-rust's own canonical Float token.
+//!
 //! [`Mode::Program`] prints a parsed program as `kast --output program` does: no substitution
 //! filtering, and a child that needs brackets in a sort without a bracket production is printed
 //! bare, as the Java frontend's `AddBrackets` does.
@@ -30,6 +34,7 @@ mod abstract_term;
 mod alias;
 mod brackets;
 mod data;
+mod float;
 mod format;
 mod node;
 mod program;
@@ -50,6 +55,7 @@ use crate::data::{Macro, PrintData};
 use crate::format::{Printer, Problems, ProgramFormats};
 use crate::node::{Node, from_pattern, instantiate, to_pattern};
 
+pub use crate::float::llvm_float_text;
 pub use crate::format::{decode_kore, enquote};
 
 /// Which K printer to reproduce.
@@ -242,6 +248,10 @@ impl Unparser {
             let mut reverser = Reverser::new(&self.data, &self.macros);
             node = reverser.expand(&node);
             exceeded = reverser.exceeded;
+        }
+        // The LLVM runtime prints every Float it returns in MPFR's form.
+        if options.mode == Mode::Pretty {
+            node = float::llvm_floats(&self.data, &node);
         }
         let sort = |node: &Node, problems: &mut Problems| {
             if options.sort_collections {
