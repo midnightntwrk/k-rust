@@ -2876,7 +2876,7 @@ fn krun_io_off_preserves_non_utf8_stdin_bytes() {
 /// div.imp.out; `printf 'ab' | krun ... --io off` gives `"ab\n"` in
 /// tests/fixtures/reference/cli/io/off.kore). Interior newlines and other bytes are kept.
 #[test]
-fn krun_io_off_buffers_stdin_in_the_reference_here_string_shape() {
+fn krun_io_off_buffers_stdin_with_its_trailing_newlines_replaced_by_one() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
     let cases: [(&[u8], &[&str], &str); 5] = [
@@ -3792,7 +3792,7 @@ fn krun_surface_pattern_reports_command_line_parse_locations() {
 }
 
 #[test]
-fn symbolic_depth_two_result_covers_the_reference_leaves_and_the_depth_bound_frontier() {
+fn symbolic_depth_two_result_holds_the_stuck_leaves_and_the_path_at_the_depth_bound() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let (root, _) = fixture();
@@ -4381,6 +4381,53 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `replace` (hook `STRING.replace`) has no evaluator here and has equations in `domains.md`,
+/// which the compiled definition holds. Where none of them applies (a count that is not a value),
+/// the warning says that none applies, not that the definition has none.
+#[test]
+fn an_unevaluated_hook_with_equations_is_not_reported_as_having_none() {
+    const SOURCE: &str = r#"
+module REPLACE-COUNT
+  imports STRING
+  imports INT
+  syntax Int ::= count() [function, no-evaluators]
+  syntax Pgm ::= "go"
+  configuration <k> $PGM:Pgm </k> <out> "" </out>
+  rule <k> go => .K </k> <out> _ => replace("aa", "a", "b", count()) </out>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    fs::write(&definition, SOURCE).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "-m",
+            "REPLACE-COUNT",
+            "-s",
+            "Pgm",
+            "-e",
+            "go",
+            "--io",
+            "off",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("hook STRING.replace was left unevaluated")
+            && stderr.contains("no equation of the definition applies"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("no equations in the definition"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An equation attempt on an `Unspecified` application that fails is undone entirely, its
 /// console effects included: what it read is unread and what it wrote unwritten. Here the first
 /// equation writes, reads a byte, then needs the application's own value; the second reads a
@@ -4520,12 +4567,18 @@ fn krun_repeats_the_effects_of_a_value_a_failed_attempt_computed() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A rule condition is decided without the console, so a value computed with the console is not
-/// served to it, even one whose computation changed nothing (reading the empty input): otherwise
-/// the condition's verdict would depend on whether the execution happened to compute that value
-/// before. `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether
-/// `A` computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g`
-/// stays unevaluated.
+/// A rule condition's verdict does not depend on whether the execution happened to compute a
+/// value it reads before. The console's own checks are pinned by
+/// `a_value_read_from_the_console_is_not_reused_without_it` and
+/// `a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on`; this test passes
+/// with either of them removed (the console position not compared, or a console hook not noted as
+/// read), because `Record::holds` also refuses the execution's record on its simplification
+/// options: the execution simplifies its term keeping a partial result when the budget runs out
+/// (`BudgetPolicy::KeepPartial`), and a rule condition is simplified failing then
+/// (`BudgetPolicy::Fail`). It fails only when that comparison is removed as well.
+/// `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether `A`
+/// computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g` stays
+/// unevaluated.
 #[test]
 fn krun_decides_a_condition_alike_whether_the_execution_computed_its_value_before() {
     let rules = |a: &str| {
@@ -4900,7 +4953,7 @@ fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
 }
 
 #[test]
-fn default_search_binds_the_reference_result_variable() {
+fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -6092,7 +6145,7 @@ fn kore_implies_returns_the_matching_condition() {
 }
 
 #[test]
-fn kore_implies_follows_the_reference_special_case_matrix() {
+fn kore_implies_decides_bottom_and_top_operands_and_refuses_a_top_antecedent() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");
     fs::write(
@@ -12930,9 +12983,6 @@ fn kcompile_for_proving(
     compiled
 }
 
-/// `kcompile` of `source` with the compile options `options` (modules, include directories) into
-/// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
-/// once with this and passes `output` to `krun --definition`.
 /// domains.md makes a map concatenation undefined exactly when its operands share a key (and a
 /// set concatenation when they share an element). A configuration map or set of pairwise
 /// distinct literal keys is therefore defined, and so is the initializer that builds it
@@ -13031,6 +13081,9 @@ fn kcompile_judges_token_precedence_in_the_module_s_own_view() {
     }
 }
 
+/// `kcompile` of `source` with the compile options `options` (modules, include directories) into
+/// `output`, asserting that it succeeds. A test that runs one definition several times compiles it
+/// once with this and passes `output` to `krun --definition`.
 fn kcompile_for_krun(source: &Path, options: &[&str], output: &Path) -> Output {
     let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kcompile")

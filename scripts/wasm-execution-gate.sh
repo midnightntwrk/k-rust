@@ -232,7 +232,7 @@ for kind, case in cases:
     if measured["exit"] == 124:
         print("  timed out")
     for key in differing:
-        expected, actual = str(case.get(key)), str(measured[key])
+        expected, actual = str(case.get(key, "(absent)")), str(measured.get(key, "(absent)"))
         if "\n" in expected + actual or len(expected + actual) > 100:
             print(f"  {key}:")
             for line in difflib.unified_diff(expected.splitlines(), actual.splitlines(),

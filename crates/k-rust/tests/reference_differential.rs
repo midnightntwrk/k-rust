@@ -5511,11 +5511,10 @@ fn executed_kore_matches_the_reference_backend() {
     let definition = env::var_os("K_DIFFERENTIAL_DEFINITION");
     let module = env::var("K_DIFFERENTIAL_MODULE").unwrap_or_else(|_| "MAIN".into());
     let definition = definition.as_deref().map(Path::new);
-    let krust = implication_krust();
-    let oracle = definition.map(|definition| ImplicationOracle {
-        krust: &krust,
-        definition,
-    });
+    let krust = definition.map(|_| implication_krust());
+    let oracle = definition
+        .zip(krust.as_deref())
+        .map(|(definition, krust)| ImplicationOracle { krust, definition });
     // N26: an any-strategy port result is compared as a member of the reference all-strategy
     // result set; the exclusions are about reference leaves, which membership already tolerates.
     let strategy = env::var("K_DIFFERENTIAL_STRATEGY");
@@ -8285,12 +8284,14 @@ struct ImplicationOracle<'a> {
 }
 
 /// The `krust` executable the execution comparison proves implications with: `K_RUST_KRUST`,
-/// else the one Cargo built for this test, else `target/release/krust`.
+/// else the one Cargo built for this test.
 fn implication_krust() -> std::path::PathBuf {
     env::var_os("K_RUST_KRUST")
         .map(std::path::PathBuf::from)
         .or_else(|| option_env!("CARGO_BIN_EXE_krust").map(std::path::PathBuf::from))
-        .unwrap_or_else(|| std::path::PathBuf::from("target/release/krust"))
+        .expect(
+            "set K_RUST_KRUST: this build has no krust binary (cargo builds it only with the cli feature)",
+        )
 }
 
 fn prove_implication_both_ways(

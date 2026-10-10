@@ -626,7 +626,10 @@ fn render_items(items: &[ProductionItem]) -> String {
 /// useless, and the merge code of a GLR parser then depends on where that rule is rendered, so
 /// the export removes them. A production that already derives nothing in the source grammar
 /// (where each restricted sort `origins` maps is its unrestricted sort) is the definition's own
-/// and is kept, so the checks of rendering still report its errors.
+/// and is kept, so the checks of rendering still report its errors. This holds also when
+/// restriction has emptied another of its operands (`A ::= C#0 "*" B` with `B` unproductive): `B`
+/// already makes the production derive nothing, so it stays, and Bison reports it as useless with
+/// the definition's other useless rules.
 fn remove_rules_restriction_made_useless(
     productions: &mut Vec<GrammarProduction>,
     origins: &BTreeMap<Sort, Sort>,

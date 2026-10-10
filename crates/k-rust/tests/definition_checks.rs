@@ -1676,7 +1676,7 @@ fn strictness_checks_positions_semicolons_and_k_nonterminals() {
         &["K", "KItem"],
         attrs(&[("strict", json!("2"))]),
     );
-    let java_trailing_separators = production(
+    let trailing_separator_only = production(
         Some("separator"),
         "Foo",
         &["K"],
@@ -1688,7 +1688,7 @@ fn strictness_checks_positions_semicolons_and_k_nonterminals() {
         &bad_semicolons,
         &k_argument,
         &safe_argument,
-        &java_trailing_separators,
+        &trailing_separator_only,
     ]);
 
     assert_eq!(diagnostics.len(), 4);

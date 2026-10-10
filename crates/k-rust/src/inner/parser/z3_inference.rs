@@ -5354,12 +5354,7 @@ mod tests {
             kernel in proptest::option::of(proptest::bool::ANY),
             seeds in (1u32..1000, 1u32..1000),
         ) {
-            // The brute force checks every vector of the domain, `|domain|^parameters`. The
-            // kernel sorts add three sorts and a parameter, which with the `id` parameters of
-            // `shared` makes that tens of thousands of solver checks for one typing, so the
-            // kernel sorts are generated only without `shared`.
-            let kernel = kernel.filter(|_| shared.is_none());
-            let problem = conformance_problem(
+            check_admissible_conformance(
                 sort_count,
                 &semantic,
                 &extra_syntactic,
@@ -5367,57 +5362,134 @@ mod tests {
                 &productions,
                 &alternatives,
                 wrapper,
-                Some(parametric),
+                parametric,
                 shared,
                 &bracketed,
                 kernel,
-            );
-            for perturbation in [
-                Perturbation { random_seed: None, reverse_disjuncts: false, full_disjunction: false },
-                Perturbation { random_seed: Some(seeds.0), reverse_disjuncts: true, full_disjunction: false },
-                Perturbation { random_seed: Some(seeds.1), reverse_disjuncts: false, full_disjunction: true },
-            ] {
-                let Some((parameters, models)) = recorded_models(&problem, perturbation).unwrap()
-                else {
-                    continue;
-                };
-                prop_assert!(!parameters.is_empty());
-                for admissible in models {
-                    let first = admissible.first().expect("a recorded typing has a vector");
-                    let real = first
-                        .iter()
-                        .filter(|(name, _)| !parameters.contains(*name))
-                        .map(|(name, sort)| (name.clone(), sort.clone()))
-                        .collect::<BTreeMap<_, _>>();
-                    let vectors = admissible
-                        .iter()
-                        .map(|model| {
-                            prop_assert!(
-                                model.iter().all(|(name, sort)| parameters.contains(name)
-                                    || real.get(name) == Some(sort)),
-                                "{:?}: an admissible model moved a real variable: {:?}",
-                                perturbation,
-                                model
-                            );
-                            Ok(model
-                                .iter()
-                                .filter(|(name, _)| parameters.contains(*name))
-                                .map(|(name, sort)| (name.clone(), sort.clone()))
-                                .collect::<BTreeMap<_, _>>())
-                        })
-                        .collect::<Result<Vec<_>, TestCaseError>>()?;
-                    let set = vectors.iter().cloned().collect::<BTreeSet<_>>();
-                    prop_assert_eq!(set.len(), vectors.len(), "{:?}: duplicate vector", perturbation);
-                    prop_assert_eq!(
-                        &set,
-                        &brute_force_admissible(&problem, &real).unwrap(),
-                        "{:?} at {:?}",
-                        perturbation,
-                        real
-                    );
-                }
+                seeds,
+            )?;
+        }
+    }
+
+    /// The check of `admissible_parameters_conform_to_brute_force` on one generated problem.
+    #[allow(clippy::too_many_arguments)]
+    fn check_admissible_conformance(
+        sort_count: usize,
+        semantic: &[(usize, usize)],
+        extra_syntactic: &[(usize, usize)],
+        top: Option<usize>,
+        productions: &[(usize, usize, usize)],
+        alternatives: &[(usize, usize, usize)],
+        wrapper: Option<(usize, usize)>,
+        parametric: (usize, usize),
+        shared: Option<bool>,
+        bracketed: &[(usize, usize)],
+        kernel: Option<bool>,
+        seeds: (u32, u32),
+    ) -> Result<(), TestCaseError> {
+        // The brute force checks every vector of the domain, `|domain|^parameters`. The
+        // kernel sorts add three sorts and a parameter, which with the `id` parameters of
+        // `shared` makes that tens of thousands of solver checks for one typing, so the
+        // kernel sorts are generated only without `shared`.
+        let kernel = kernel.filter(|_| shared.is_none());
+        let problem = conformance_problem(
+            sort_count,
+            semantic,
+            extra_syntactic,
+            top,
+            productions,
+            alternatives,
+            wrapper,
+            Some(parametric),
+            shared,
+            bracketed,
+            kernel,
+        );
+        for perturbation in [
+            Perturbation {
+                random_seed: None,
+                reverse_disjuncts: false,
+                full_disjunction: false,
+            },
+            Perturbation {
+                random_seed: Some(seeds.0),
+                reverse_disjuncts: true,
+                full_disjunction: false,
+            },
+            Perturbation {
+                random_seed: Some(seeds.1),
+                reverse_disjuncts: false,
+                full_disjunction: true,
+            },
+        ] {
+            let Some((parameters, models)) = recorded_models(&problem, perturbation).unwrap()
+            else {
+                continue;
+            };
+            prop_assert!(!parameters.is_empty());
+            for admissible in models {
+                let first = admissible.first().expect("a recorded typing has a vector");
+                let real = first
+                    .iter()
+                    .filter(|(name, _)| !parameters.contains(*name))
+                    .map(|(name, sort)| (name.clone(), sort.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                let vectors = admissible
+                    .iter()
+                    .map(|model| {
+                        prop_assert!(
+                            model.iter().all(|(name, sort)| parameters.contains(name)
+                                || real.get(name) == Some(sort)),
+                            "{:?}: an admissible model moved a real variable: {:?}",
+                            perturbation,
+                            model
+                        );
+                        Ok(model
+                            .iter()
+                            .filter(|(name, _)| parameters.contains(*name))
+                            .map(|(name, sort)| (name.clone(), sort.clone()))
+                            .collect::<BTreeMap<_, _>>())
+                    })
+                    .collect::<Result<Vec<_>, TestCaseError>>()?;
+                let set = vectors.iter().cloned().collect::<BTreeSet<_>>();
+                prop_assert_eq!(
+                    set.len(),
+                    vectors.len(),
+                    "{:?}: duplicate vector",
+                    perturbation
+                );
+                prop_assert_eq!(
+                    &set,
+                    &brute_force_admissible(&problem, &real).unwrap(),
+                    "{:?} at {:?}",
+                    perturbation,
+                    real
+                );
             }
         }
+        Ok(())
+    }
+
+    /// A failure the property once shrank to, recorded before the generator had `kernel`: three
+    /// sorts, four identical productions, one alternative, the shared `id` subterm and one
+    /// bracketed copy. The seed file no longer regenerates it, so it is kept here.
+    #[test]
+    fn admissible_parameters_conform_to_brute_force_on_a_shared_bracketed_term() {
+        check_admissible_conformance(
+            3,
+            &[],
+            &[],
+            None,
+            &[(0, 0, 0); 4],
+            &[(4, 0, 0)],
+            None,
+            (0, 0),
+            Some(true),
+            &[(0, 0)],
+            None,
+            (1, 1),
+        )
+        .unwrap();
     }
 
     /// A formal parameter shared through a packed subterm by two alternatives that need it at

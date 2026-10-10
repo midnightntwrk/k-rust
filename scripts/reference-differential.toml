@@ -1427,7 +1427,7 @@ requires = ["reference-toolchain"]
 constructs = ["star-cell-variable", "set", "anywhere", "strictness"]
 reference-kompile-options = ["--allow-anywhere-haskell"]
 reference-kompile-options-reason = "The pinned Haskell kompile rejects an [anywhere] rule; --allow-anywhere-haskell removes the fixture's one, I:Int[J:Int] => I +Int J, from the reference definition. The comparison is unaffected: neither program contains _[_], and no rule's right-hand side builds one (the strictness of _[_] only rearranges an existing one), so no reachable configuration holds a redex of the removed rule."
-reference-result-simplification-reason = "Without SMT (N14) the pinned krun leaves heating branches whose side condition isKResult(n) = false it did not refute although n is an Int and KResult ::= Int; one simplify request to the Haskell backend's kore-rpc on the same definition evaluates isKResult and reduces every such branch to \\bottom."
+reference-result-simplification-reason = "The pinned krun reports heating branches whose side condition isKResult(n) = false it leaves in the result although n is an Int and KResult ::= Int, with or without an SMT solver (its output is byte-identical under --smt z3); one simplify request to the Haskell backend's kore-rpc on the same definition evaluates isKResult and reduces every such branch to \\bottom."
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/star-cell-heating/test.k"
 main-module = "STAR-CELL-HEATING-SET"
 syntax-module = "STAR-CELL-HEATING-SYNTAX"

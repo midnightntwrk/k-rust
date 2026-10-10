@@ -62,11 +62,13 @@ use crate::definition::DefinitionError;
 /// from it and every later pass over them multiply. A binder renamed to avoid capture gets
 /// `Alias` and an index added to its name, so the size spent counts each name that renaming can
 /// lengthen at the longest index the operation can reach ([`Size::bound`]): what is built never
-/// exceeds what is spent. On renaming shapes the bound is within 10% of what is built; where a
-/// body's one-byte binders could be renamed but are not, it can count up to about 4 times what is
-/// built. Time grows with the size too: unfolding builds nothing it does not count, and the size
-/// also counts the capture checks at the binders of the alias bodies it enters, the one part of
-/// its work that is not proportional to what it builds. Each unit is visited or checked once,
+/// exceeds what is spent. The bound gives every renamed name the digits of the largest index the
+/// operation could reach, so it over-counts each renamed binder by the digits its actual index
+/// lacks; where a body's one-byte binders could be renamed but are not, it can count up to about
+/// 4 times what is built. Time grows with the size too: unfolding builds nothing it does not
+/// count, and the size also counts the capture checks at the binders of the alias bodies it
+/// enters, the one part of its work that is not proportional to what it builds. Each unit is
+/// visited or checked once,
 /// with map and set operations of logarithmic cost, whatever the number of free variables of the
 /// arguments. The fresh names a renamed binder tries are not counted, but each candidate is tried
 /// at most once per operation, so the tries are one per renamed binder and one per name of the
@@ -3332,6 +3334,41 @@ mod tests {
             let spent = UNFOLDING_LIMIT - budget.available;
             assert!(spent >= added, "{shape}: spent {spent} for {added}");
         }
+    }
+
+    /// The size spent bounds what is built when every binder of an alias body is renamed: a body
+    /// nesting 100 distinct binders `Y0` .. `Y99` around its parameter, entered 8 times with an
+    /// argument in which every `Yi` is free, so every binder is renamed and each base name reaches
+    /// only the indices 0 to 7 while the bound counts the digits of the largest index the
+    /// operation could reach.
+    #[test]
+    fn the_bound_covers_many_distinct_renamed_binders() {
+        let body = format!(
+            "{}X:S{{}}{}",
+            (0..100)
+                .map(|index| format!("\\exists{{S{{}}}}(Y{index}:S{{}}, "))
+                .collect::<String>(),
+            ")".repeat(100)
+        );
+        let aliases = aliases_of(&format!(
+            "[]\nmodule MAIN\n    sort S{{}} []\n    alias c0{{}}(S{{}}) : S{{}} where c0{{}}(X:S{{}}) := {body} []\nendmodule []\n"
+        ));
+        let argument = format!(
+            "\\and{{S{{}}}}({})",
+            (0..100)
+                .map(|index| format!("Y{index}:S{{}}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let pattern = parse_pattern(&format!(
+            "\\and{{S{{}}}}({})",
+            vec![format!("c0{{}}({argument})"); 8].join(", ")
+        ))
+        .unwrap();
+        let (unfolded, entered, _) = unfold(&pattern, &aliases);
+        let built = size(&unfolded) + entered;
+        let bound = bounded(&pattern, &aliases);
+        assert!(built <= bound, "built {built}, bound {bound}");
     }
 
     /// A renamed binder takes the next fresh name of its base name that no variable of its body

@@ -343,9 +343,10 @@ pub fn check() -> Result<(), Stop> {
 /// consecutive checks along ground function chains `f^N(a)`, `h(…h(a, a)…, a)`, `g(w^N(a))` with
 /// `g(w(X)) = w(g(X))`, and list counts over `cons` that add with `INT.add` once or twice per
 /// level), plus the matching, builtin hooks, and SMT solver call that run on the thread between
-/// two checks. In a debug build a whole simplification of a conditional equation whose condition
-/// Z3 decides takes 62 KiB of stack from its entry, and the Z3 call on such a condition alone
-/// takes 23 KiB (both measured by stack painting); the zone is twice the whole simplification.
+/// two checks. Unoptimized (opt-level 0, the `debugging` profile), a whole simplification of a
+/// conditional equation whose condition Z3 decides takes 62 KiB of stack from its entry, and the
+/// Z3 call on such a condition alone takes 23 KiB (both measured by stack painting); the zone is
+/// twice the whole simplification.
 ///
 /// So a walk between two checks must not take stack in proportion to the height of a term: the
 /// simplifier reaches the zone with the rest of a deep term still below it whenever its descent

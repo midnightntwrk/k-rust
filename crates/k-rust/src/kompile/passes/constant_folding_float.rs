@@ -684,9 +684,10 @@ mod tests {
     }
 
     #[test]
-    fn folds_reference_float_edge_values_and_contexts() {
-        // Pinned K 4a46d123 agrees on each represented value and p/x context. Ordinary finite
-        // decimal presentation is frontend-specific and is not part of that comparison.
+    fn folds_float_edge_values_keeping_precision_and_exponent() {
+        // binary64 (p53x11): negating +0 gives -0; floor and ceil of -10.5 round toward -inf and
+        // +inf; `rem` is the IEEE remainder, 7 - 2 x 4 = -1 (the quotient 3.5 rounds to even);
+        // 0/0 is NaN and 1/0 is +inf. Each result keeps its operands' precision and exponent width.
         for (hook, operands, expected) in [
             ("FLOAT.neg", &["0.0"][..], "-0e+00p53x11"),
             (

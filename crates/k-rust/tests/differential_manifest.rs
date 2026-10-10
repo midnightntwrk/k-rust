@@ -1312,7 +1312,13 @@ fn lifted_cells_need_a_reason_and_an_accepted_compile_case() {
 /// with `FAKE_SIMPLIFIED_STATUS`). The gate chooses the server's port unless `environment` sets
 /// `REFERENCE_SIMPLIFIER_PORT`; the fake server records the port it bound (`kore-rpc-bound`).
 /// Returns the exit status, the call log, standard output and standard error, and whether a
-/// fake server still listened after the gate exited.
+/// fake server still listened after the gate exited. Two switches change the fakes, both off by
+/// default:
+/// - `FAKE_REFERENCE_RESULT`: what the fake reference `krun` prints;
+/// - `FAKE_ECHO_REFERENCE=1`: the fake `kore-parser` answers with a digest of the pattern file it
+///   read, the fake client answers `simplify` with the term it was sent, and the comparator logs
+///   `comparator-reference NAME DIGEST` for the reference input it received, so the log shows
+///   which result reached the comparison.
 fn execution_gate_with_reference_simplifier(
     case: &str,
     environment: &[(&str, &str)],
@@ -1325,13 +1331,30 @@ fn execution_gate_with_reference_simplifier(
     write_environment_probe(
         &fixture.join("krun"),
         "krun",
-        r#"printf '%s\n' '\or{S{}}(a{}(), b{}())'"#,
+        r#"
+if [[ -n ${FAKE_REFERENCE_RESULT:-} ]]; then
+  printf '%s\n' "$FAKE_REFERENCE_RESULT"
+else
+  printf '%s\n' '\or{S{}}(a{}(), b{}())'
+fi
+"#,
     );
     write_environment_probe(&fixture.join("kast"), "kast", "");
     write_environment_probe(
         &fixture.join("kore-parser"),
         "kore-parser $*",
-        r#"printf '%s\n' '{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}'"#,
+        r#"
+pattern=
+for ((i = 1; i <= $#; i++)); do
+  if [[ ${!i} == --pattern ]]; then j=$((i + 1)); pattern=${!j}; fi
+done
+if [[ ${FAKE_ECHO_REFERENCE:-0} == 1 ]]; then
+  printf '{"format":"KORE","version":1,"term":{"tag":"DV","sort":{"tag":"SortApp","name":"S","args":[]},"value":"%s"}}\n' \
+    "$(cksum <"$pattern" | cut -d' ' -f1)"
+else
+  printf '%s\n' '{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}'
+fi
+"#,
     );
     write_environment_probe(
         &fixture.join("kore-rpc"),
@@ -1354,8 +1377,10 @@ time.sleep(600)' "$port"
         "kore-rpc-client-done",
         r#"
 printf 'kore-rpc-client %s|\n' "$*" >>"$ENVIRONMENT_CALLS"
-while (($#)); do [[ $1 == -o ]] && out=$2; shift; done
-if [[ ${FAKE_RPC_ERROR:-0} == 1 ]]; then
+while (($#)); do [[ $1 == -o ]] && out=$2; [[ $1 == simplify ]] && request=$2; shift; done
+if [[ ${FAKE_ECHO_REFERENCE:-0} == 1 ]]; then
+  printf '{"jsonrpc":"2.0","id":1,"result":{"state":%s}}\n' "$(cat "$request")" >"$out"
+elif [[ ${FAKE_RPC_ERROR:-0} == 1 ]]; then
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Could not verify pattern"}}' >"$out"
 else
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"state":{"format":"KORE","version":1,"term":{"tag":"Bottom","sort":{"tag":"SortApp","name":"S","args":[]}}}}}' >"$out"
@@ -1367,6 +1392,10 @@ fi
         "",
         r#"
 printf 'comparator %s|\n' "$(basename "$K_REFERENCE_EXECUTION")" >>"$ENVIRONMENT_CALLS"
+if [[ ${FAKE_ECHO_REFERENCE:-0} == 1 ]]; then
+  printf 'comparator-reference %s %s|\n' "$(basename "$K_REFERENCE_EXECUTION")" \
+    "$(cksum <"$K_REFERENCE_EXECUTION" | cut -d' ' -f1)" >>"$ENVIRONMENT_CALLS"
+fi
 case $K_REFERENCE_EXECUTION in
   *.json) exit "${FAKE_SIMPLIFIED_STATUS:-0}" ;;
   *) exit "${FAKE_RAW_STATUS:-101}" ;;
@@ -1529,7 +1558,7 @@ fn execution_gate_compares_against_the_reference_simplifier_only_for_opted_in_ca
     assert_eq!(
         stdout
             .lines()
-            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: Without SMT"))
+            .filter(|line| line.contains("N41: comparing with the reference result as the reference simplifies it: The pinned krun reports heating branches"))
             .count(),
         2,
         "{stdout}"
@@ -1577,6 +1606,46 @@ fn execution_gate_compares_against_the_reference_simplifier_only_for_opted_in_ca
     assert_eq!(status, Some(0), "{stdout}{stderr}");
     assert!(!log.contains("kore-rpc"), "{log}");
     assert!(!log.contains(".json"), "{log}");
+}
+
+/// N41 compares the port's result with the reference result as the reference simplifies it, so
+/// the simplified result is a function of the reference result: two runs whose reference results
+/// differ, and nothing else, hand the comparison two different simplified results. A gate that
+/// simplified any other file (the port's own result, which makes the comparison a
+/// self-comparison) hands it the same one twice.
+#[test]
+fn execution_gate_simplifies_the_reference_result_it_received() {
+    let digests = |reference: &str| {
+        let (status, log, stdout, stderr, _) = execution_gate_with_reference_simplifier(
+            "star-cell-heating-set",
+            &[
+                ("FAKE_ECHO_REFERENCE", "1"),
+                ("FAKE_REFERENCE_RESULT", reference),
+                ("REFERENCE_CACHE", "off"),
+            ],
+        );
+        assert_eq!(status, Some(0), "{stdout}{stderr}");
+        let digests = log
+            .lines()
+            .filter_map(|line| line.strip_prefix("comparator-reference "))
+            .filter(|line| line.contains(".json "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            digests.len(),
+            2,
+            "one simplified comparison per program: {log}"
+        );
+        digests
+    };
+    let first = digests(r"\or{S{}}(a{}(), b{}())");
+    let second = digests(r"\or{S{}}(c{}(), d{}())");
+    for (first, second) in first.iter().zip(&second) {
+        assert_ne!(
+            first, second,
+            "the simplified result did not change with the reference result"
+        );
+    }
 }
 
 #[test]
@@ -3740,6 +3809,74 @@ wait
         );
     }
     assert_eq!(lines[2], "taken refused", "{stdout}{stderr}");
+}
+
+/// The WASM execution gate reports every difference of a recorded case and exits 3. A proof
+/// recorded as failed (exit 1, with the digest of its output under `stdout`) that now passes has
+/// no measured `stdout`, a key the case still records: that is a difference to report like any
+/// other, not a reason for the report to stop. The test runs the gate's report step on such a
+/// case, with the measured outputs written where the gate's run step writes them.
+#[test]
+fn wasm_execution_gate_reports_a_recorded_key_that_is_no_longer_measured() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let gate = fs::read_to_string(workspace.join("scripts/wasm-execution-gate.sh"))
+        .expect("read the WASM execution gate");
+    let report = gate
+        .split_once("python3 - \"$manifest\" \"$success_configuration\"")
+        .and_then(|(_, rest)| rest.split_once("<<'EOF'"))
+        .and_then(|(_, rest)| rest.split_once('\n'))
+        .and_then(|(_, rest)| rest.split_once("\nEOF\n"))
+        .map(|(body, _)| body.to_owned())
+        .expect("the gate's report step");
+    let fixture = environment_fixture("wasm-report");
+    fs::write(
+        fixture.join("manifest.toml"),
+        r#"# header
+
+[[program]]
+name = "simple/unused"
+exit = 0
+stderr = ""
+stdout = "success"
+
+[[proof]]
+name = "proofs/x"
+module = "X-SPEC"
+definition_module = "X"
+exit = 1
+stderr = ""
+verdict = """
+claim a: failed
+"""
+stdout = "sha256:00 (1 bytes)"
+"#,
+    )
+    .unwrap();
+    fs::write(fixture.join("success.kore"), "").unwrap();
+    let work = fixture.join("work");
+    fs::create_dir(&work).unwrap();
+    for (suffix, content) in [
+        (".stdout", "claim a: proven\n"),
+        (".exit", "0\n"),
+        (".stderr", ""),
+        (".milliseconds", "1000\n"),
+    ] {
+        fs::write(work.join(format!("proofs-x{suffix}")), content).unwrap();
+    }
+    let output = Command::new("python3")
+        .args(["-I", "-c", &report])
+        .arg(fixture.join("manifest.toml"))
+        .arg(fixture.join("success.kore"))
+        .arg(&work)
+        .args(["false", "proofs/x"])
+        .output()
+        .expect("run the gate's report step");
+    fs::remove_dir_all(&fixture).expect("remove the report fixture");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(3), "{stdout}{stderr}");
+    assert!(stdout.contains("proofs/x: DIFFERS"), "{stdout}{stderr}");
+    assert!(stdout.contains("stdout"), "{stdout}{stderr}");
 }
 
 /// The RPC gate starts both of its servers on a kernel-assigned port unless the caller pins one,

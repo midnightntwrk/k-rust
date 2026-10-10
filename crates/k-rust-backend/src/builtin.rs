@@ -143,8 +143,9 @@ pub enum UnsupportedHookReason {
 impl fmt::Display for UnsupportedHookReason {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotImplemented => formatter
-                .write_str("no evaluator in this backend and no equations in the definition"),
+            Self::NotImplemented => formatter.write_str(
+                "no evaluator in this backend, and no equation of the definition applies",
+            ),
             Self::ArgumentOutOfRange { detail } | Self::ResultTooLarge { detail } => {
                 formatter.write_str(detail)
             }

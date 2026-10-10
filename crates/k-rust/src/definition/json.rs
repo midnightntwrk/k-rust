@@ -82,7 +82,8 @@ pub enum Error {
     Json(serde_json::Error),
     Term(term_json::Error),
     UnsupportedFormat(String),
-    UnsupportedVersion(u32),
+    /// A KAST JSON envelope of a version this build does not read.
+    UnsupportedKastVersion(u32),
     /// A `KRUST-PROVENANCE` document of a version this build does not read.
     UnsupportedProvenanceVersion(u32),
     UnsupportedSentence(&'static str),
@@ -99,7 +100,7 @@ impl std::fmt::Display for Error {
             Self::UnsupportedFormat(format) => {
                 write!(formatter, "unsupported KAST format {format:?}")
             }
-            Self::UnsupportedVersion(version) => {
+            Self::UnsupportedKastVersion(version) => {
                 write!(formatter, "unsupported KAST version {version}")
             }
             Self::UnsupportedProvenanceVersion(version) => write!(
@@ -205,7 +206,7 @@ fn kast_v4_envelope<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, Er
         return Err(Error::UnsupportedFormat(envelope.format));
     }
     if envelope.version != term_json::VERSION {
-        return Err(Error::UnsupportedVersion(envelope.version));
+        return Err(Error::UnsupportedKastVersion(envelope.version));
     }
     Ok(envelope.term)
 }
