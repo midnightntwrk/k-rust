@@ -238,6 +238,7 @@ register_codes! {
         NOT_PROGRAM_SYNTAX: "krs::partition::not-program-syntax" => "A production marked `program` cannot be program syntax and is placed in the semantics module.",
         MIXED_GROUP: "krs::partition::mixed-group" => "A precedence or associativity group mixes `internal` and program-syntax productions.",
         SIGNED_INTEGER_LEAK: "krs::partition::signed-integer-leak" => "An unsigned package's program syntax imports a signed package's program syntax.",
+        CONFIGURATION_VISIBILITY: "krs::partition::configuration-visibility" => "A dependency package's rules need the configuration, but the configuration names a symbol its own module cannot import.",
     }
     /// Diagnostics from the backend capability table (V8).
     capability {

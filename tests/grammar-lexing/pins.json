@@ -53,6 +53,9 @@
     },
     "krs-grammar-strict-lists": {
       "definition.k": "4c50755c07c019cd83e1df1b193302af3b32e869944edacf6c4c23557127654a"
+    },
+    "krs-grammar-dependency-rules": {
+      "definition.k": "48849548976a93dbc6e5300f571b75147d33f85d0a4ec945dcd6e4bbaf29ed3b"
     }
   },
   "partition": {
@@ -81,7 +84,8 @@
     "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
     "krs-grammar-layout": "b2c919376686d4ef725d5e8e661707a4ca44b8c0c03b60e868e34487eeff2b7e",
     "krs-grammar-lists": "80798e106ac55d6a7fad01a51153dd1ce0f051e2ff744e813e1ad4cf6ecf483d",
-    "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec"
+    "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec",
+    "krs-grammar-dependency-rules": "fb70fb17733c54033c7bd6954bd58f5ca0dedb81faad1a0d3d30e4602d3bd29a"
   },
   "outcomes": {
     "krs-grammar-partition": {
@@ -287,6 +291,12 @@
         "parse": "rejected",
         "run": null
       }
+    },
+    "krs-grammar-dependency-rules": {
+      "double": {
+        "parse": "accepted",
+        "run": "42"
+      }
     }
   },
   "diagnostics": {
@@ -376,6 +386,9 @@
     ],
     "token-cell-name": [
       "error[krs::analysis::token-collision]: the token regex r\"[a-z][a-z0-9_]*\" at `prec(2)` lexes `k`, the name of the configuration cell `<k>`, at least as strongly as K's own `#LowerId` token (`prec(2)`), so Java K cannot parse the emitted configuration. Lower its `prec` below 2, or change the regex so it does not match `k`"
+    ],
+    "configuration-visibility": [
+      "error[krs::partition::configuration-visibility]: the rules of `KRS-CONFIGURATION-VISIBILITY-BASE` need the configuration, so it is emitted in `KRS-CONFIGURATION-VISIBILITY-CONFIGURATION`, which cannot import the configured package's semantics module or any module that imports it; the configuration names `ready`, which is declared outside the modules `KRS-CONFIGURATION-VISIBILITY-CONFIGURATION` imports, so make `ready` program syntax (`pub`, not `internal`) or move the rules of `KRS-CONFIGURATION-VISIBILITY-BASE` into the configured package"
     ]
   },
   "format": {

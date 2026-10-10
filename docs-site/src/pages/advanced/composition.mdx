@@ -25,6 +25,7 @@ The root package exposes `main` and renames two dependencies:
 ```
 
 A facet table needs no keys: every package emits a program-syntax module `<NS>-SYNTAX` and a semantics module `<NS>`, and each production chooses its module through its Rust visibility and `internal` flag.
+When a dependency's rules need the root's configuration, the root also emits `<NS>-CONFIGURATION`, so the dependency can import the configuration without importing the root ([program syntax and the module pair](/reference/language#program-syntax-and-the-module-pair)).
 The package-level `k-namespace` keeps emitted K names explicit.
 The package-level `int-literals` key selects the module that supplies integer literals to the package's program syntax: `"signed"` (the default, `INT-SYNTAX`) or `"unsigned"` (`UNSIGNED-INT-SYNTAX`).
 An unsigned package cannot compose a signed dependency whose program syntax uses integers, because K imports are unions and the signed literals would leak into programs.

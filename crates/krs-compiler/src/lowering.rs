@@ -28,8 +28,8 @@ use krs_ir_levels::{
 use sha2::{Digest, Sha256};
 
 use crate::partition::{
-    ModulePlacement, Partition, PartitionError, is_framework_module, production_display_name,
-    program_syntax_module_name,
+    CONFIGURATION_SUFFIX, ModulePlacement, Partition, PartitionError, is_framework_module,
+    production_display_name, program_syntax_module_name,
 };
 use crate::{SourceMap, SymbolMap};
 
@@ -225,6 +225,9 @@ impl ToDiagnostic for LoweringError {
             Self::Partition(PartitionError::SignedIntegerLeak { .. }) => {
                 codes::partition::SIGNED_INTEGER_LEAK
             }
+            Self::Partition(PartitionError::ConfigurationVisibility { .. }) => {
+                codes::partition::CONFIGURATION_VISIBILITY
+            }
         };
         let location = match self {
             Self::NameCollision { second_origin, .. }
@@ -302,11 +305,26 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
             let semantics = with_raw_builtin_sorts(semantics, Some(&syntax));
             lowered_modules.push(syntax);
             lowered_modules.push(semantics);
+            if let Some(split) = names
+                .configuration
+                .as_ref()
+                .filter(|split| split.configured == *module.id())
+            {
+                lowered_modules.push(lower_configuration_module(
+                    module,
+                    split,
+                    &names,
+                    &mut origins,
+                )?);
+            }
         } else {
             lowered_modules.push(with_raw_builtin_sorts(lower(ModulePart::Whole)?, None));
         }
     }
     check_signed_integer_leak(&lowered_modules)?;
+    if let Some(split) = &names.configuration {
+        check_configuration_visibility(&lowered_modules, split)?;
+    }
     let main_module = names.module(select_main_module(theory)?.id())?;
     let definition = DefinitionIr::new(main_module, lowered_modules)?;
     let symbol_map = SymbolMap::from_definition(&definition)
@@ -428,6 +446,109 @@ struct NamingPass {
     rules: BTreeMap<StableItemId, LabelIdentity>,
     /// The root of every overload family member, including each root itself.
     overload_roots: BTreeMap<StableItemId, StableItemId>,
+    /// The configured module's configuration module, when a dependency
+    /// package's rules import the configured module back (FU-18).
+    configuration: Option<ConfigurationSplit>,
+}
+
+/// The configuration of the configured module `<NS>`, moved into a module
+/// `<NS>-CONFIGURATION` of its own (FU-18).
+///
+/// A dependency package's rules name the definition's cells, so its module
+/// imports the configured module, which imports the dependency back: K
+/// rejects the cycle. Rust crates cannot depend on each other cyclically, so
+/// such an import exists only for the configuration. The dependency's module
+/// imports `<NS>-CONFIGURATION` instead, which imports `<NS>-SYNTAX` and every
+/// import of `<NS>` that does not reach `<NS>`, and `<NS>` imports it too.
+struct ConfigurationSplit {
+    /// The configured semantic module.
+    configured: ModuleId,
+    /// The emitted configuration module.
+    id: ModuleId,
+    /// The modules whose import of `configured` closes a cycle.
+    dependents: BTreeSet<ModuleId>,
+    /// Every module other than `configured` that reaches `configured`.
+    reaching: BTreeSet<ModuleId>,
+    /// The configured module's origin.
+    origin: NodeOrigin,
+}
+
+impl ConfigurationSplit {
+    /// Finds the dependency modules that import the configured module back,
+    /// and every module that reaches the configured module.
+    fn of(theory: &SemanticTheory) -> Result<Option<Self>, LoweringError> {
+        let definition = theory
+            .modules()
+            .iter()
+            .filter(|module| !module.is_spec())
+            .map(|module| (module.id(), module))
+            .collect::<BTreeMap<_, _>>();
+        let Some((configured, origin)) = definition
+            .values()
+            .find(|module| module.configuration().is_some())
+            .map(|module| (module.id().clone(), module.origin().clone()))
+        else {
+            return Ok(None);
+        };
+        // The modules `start` imports transitively; an import of the
+        // configured module by a module in `cut` is not followed.
+        let reach = |start: &ModuleId, cut: &BTreeSet<ModuleId>| {
+            let mut seen = BTreeSet::new();
+            let mut pending = vec![start];
+            while let Some(id) = pending.pop() {
+                let Some(module) = definition.get(id) else {
+                    continue;
+                };
+                for import in module.imports() {
+                    if !(cut.contains(id) && *import == configured) && seen.insert(import.clone()) {
+                        pending.push(import);
+                    }
+                }
+            }
+            seen
+        };
+        let from_configured = reach(&configured, &BTreeSet::new());
+        let dependents = definition
+            .iter()
+            .filter(|(id, module)| {
+                from_configured.contains(**id) && module.imports().contains(&configured)
+            })
+            .map(|(id, _)| (*id).clone())
+            .collect::<BTreeSet<_>>();
+        if dependents.is_empty() {
+            return Ok(None);
+        }
+        if let Some(id) = definition
+            .keys()
+            .find(|id| reach(id, &dependents).contains(**id))
+        {
+            return Err(LoweringError::UnsupportedShape {
+                node: "module import",
+                detail: format!(
+                    "`{id}` imports itself through a cycle that does not pass through the configuration"
+                ),
+            });
+        }
+        let reaching = definition
+            .keys()
+            .filter(|id| ***id != configured && reach(id, &BTreeSet::new()).contains(&configured))
+            .map(|id| (*id).clone())
+            .collect();
+        let id = ModuleId::new(format!("{configured}{CONFIGURATION_SUFFIX}"))?;
+        Ok(Some(Self {
+            configured,
+            id,
+            dependents,
+            reaching,
+            origin,
+        }))
+    }
+
+    /// The module `module`'s import of `import` names at Definition level:
+    /// the configuration module when it closes a cycle.
+    fn is_cut(&self, module: &ModuleId, import: &ModuleId) -> bool {
+        *import == self.configured && self.dependents.contains(module)
+    }
 }
 
 impl NamingPass {
@@ -607,6 +728,17 @@ impl NamingPass {
                     .insert(rule.id().clone(), LabelIdentity::new(id, name)?);
             }
         }
+        if let Some(split) = ConfigurationSplit::of(theory)? {
+            validate_module_name(split.id.as_str())?;
+            claim(
+                &mut modules,
+                split.id.as_str().to_owned(),
+                format!("configuration module of {}", split.configured.as_str()),
+                CollisionNamespace::Module,
+                &split.origin,
+            )?;
+            pass.configuration = Some(split);
+        }
         pass.overload_roots = overload_roots(theory)?;
         Ok(pass)
     }
@@ -652,6 +784,35 @@ impl NamingPass {
                 node: "production reference",
                 detail: format!("no naming entry for {id}"),
             })
+    }
+
+    /// The configuration module of `configured`, when its configuration has
+    /// a module of its own (FU-18).
+    fn configuration_module(&self, configured: &ModuleId) -> Option<&ModuleId> {
+        self.configuration
+            .as_ref()
+            .filter(|split| split.configured == *configured)
+            .map(|split| &split.id)
+    }
+
+    /// Whether `module`'s import of `import` exists only for the
+    /// configuration and would close a cycle (FU-18).
+    fn is_configuration_cut(&self, module: &ModuleId, import: &ModuleId) -> bool {
+        self.configuration
+            .as_ref()
+            .is_some_and(|split| split.is_cut(module, import))
+    }
+
+    /// The Definition module a semantics module imports for `import`.
+    fn semantics_import(
+        &self,
+        module: &ModuleId,
+        import: &ModuleId,
+    ) -> Result<ModuleId, LoweringError> {
+        match &self.configuration {
+            Some(split) if split.is_cut(module, import) => Ok(split.id.clone()),
+            _ => self.module(import),
+        }
     }
 
     fn module(&self, id: &ModuleId) -> Result<ModuleId, LoweringError> {
@@ -922,9 +1083,11 @@ fn lower_module(
 
     if !part.has_semantics() {
         let id = names.syntax_module(module.id())?;
+        // A dependency's program syntax never needs the configured package's.
         let imports = module
             .imports()
             .iter()
+            .filter(|import| !names.is_configuration_cut(module.id(), import))
             .map(|import| names.syntax_module(import))
             .collect::<Result<BTreeSet<_>, _>>()?;
         return Ok(DefinitionModule::new(
@@ -936,7 +1099,9 @@ fn lower_module(
         ));
     }
 
-    if let Some(configuration) = module.configuration() {
+    if let Some(configuration) = module.configuration()
+        && names.configuration_module(module.id()).is_none()
+    {
         sentences.push(lower_configuration(configuration, names, origins)?);
     }
 
@@ -1055,10 +1220,13 @@ fn lower_module(
     let mut imports = module
         .imports()
         .iter()
-        .map(|import| names.module(import))
+        .map(|import| names.semantics_import(module.id(), import))
         .collect::<Result<BTreeSet<_>, _>>()?;
     if matches!(part, ModulePart::Semantics(_)) {
         imports.insert(names.syntax_module(module.id())?);
+    }
+    if let Some(configuration) = names.configuration_module(module.id()) {
+        imports.insert(configuration.clone());
     }
     Ok(DefinitionModule::new(
         origins.lower(module.origin(), "module", None, Some(module.id().as_str()))?,
@@ -1067,6 +1235,118 @@ fn lower_module(
         production_groups,
         sentences,
     ))
+}
+
+/// Lowers the configured module's configuration into its own module
+/// (FU-18), which imports the module's program syntax and every import of the
+/// module that does not reach it.
+fn lower_configuration_module(
+    module: &SemanticModule,
+    split: &ConfigurationSplit,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<DefinitionModule, LoweringError> {
+    let configuration = module
+        .configuration()
+        .ok_or_else(|| LoweringError::UnsupportedShape {
+            node: "configuration module",
+            detail: format!("{} has no configuration", module.id()),
+        })?;
+    let sentence = lower_configuration(configuration, names, origins)?;
+    let mut imports = BTreeSet::from([names.syntax_module(module.id())?]);
+    for import in module.imports() {
+        if !split.reaching.contains(import) {
+            imports.insert(names.module(import)?);
+        }
+    }
+    Ok(DefinitionModule::new(
+        origins.lower(
+            module.origin(),
+            "configuration-module",
+            None,
+            Some(split.id.as_str()),
+        )?,
+        split.id.clone(),
+        imports.into_iter().collect(),
+        Vec::new(),
+        vec![sentence],
+    ))
+}
+
+/// Requires every sort and production the configuration names to be
+/// declared in its configuration module's import closure (FU-18).
+fn check_configuration_visibility(
+    modules: &[DefinitionModule],
+    split: &ConfigurationSplit,
+) -> Result<(), LoweringError> {
+    let by_id = modules
+        .iter()
+        .map(|module| (module.id(), module))
+        .collect::<BTreeMap<_, _>>();
+    let Some(configuration_module) = by_id.get(&split.id) else {
+        return Ok(());
+    };
+    let mut visible = BTreeSet::new();
+    let mut seen = BTreeSet::from([&split.id]);
+    let mut pending = vec![*configuration_module];
+    while let Some(module) = pending.pop() {
+        for sentence in module.sentences() {
+            match sentence {
+                DefinitionSentence::SyntaxSort(sentence) => {
+                    visible.insert(sentence.symbol().id().clone());
+                }
+                DefinitionSentence::Production(sentence) => {
+                    visible.insert(sentence.symbol().id().clone());
+                }
+                _ => {}
+            }
+        }
+        for import in module.imports() {
+            if seen.insert(import)
+                && let Some(imported) = by_id.get(import)
+            {
+                pending.push(imported);
+            }
+        }
+    }
+    let Some(configuration) = configuration_module
+        .sentences()
+        .iter()
+        .find_map(|sentence| match sentence {
+            DefinitionSentence::Configuration(configuration) => Some(configuration),
+            _ => None,
+        })
+    else {
+        return Ok(());
+    };
+    let names = modules
+        .iter()
+        .flat_map(DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::SyntaxSort(sentence) => Some(sentence.symbol()),
+            DefinitionSentence::Production(sentence) => Some(sentence.symbol()),
+            _ => None,
+        })
+        .map(|symbol| (symbol.id(), symbol.emitted_name()))
+        .collect::<BTreeMap<_, _>>();
+    if let Some(hidden) = krs_ir_levels::k_surface::configuration_symbols(configuration)
+        .into_iter()
+        .find(|symbol| !visible.contains(symbol))
+    {
+        return Err(LoweringError::Partition(
+            PartitionError::ConfigurationVisibility {
+                module: split.id.as_str().to_owned(),
+                dependent: split
+                    .dependents
+                    .first()
+                    .map_or_else(String::new, |id| id.as_str().to_owned()),
+                symbol: names
+                    .get(&hidden)
+                    .map_or_else(|| hidden.as_str().to_owned(), |name| (*name).to_owned()),
+            },
+        ));
+    }
+    Ok(())
 }
 
 fn lower_configuration(

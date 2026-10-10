@@ -227,6 +227,17 @@ bug — report it, don't guess.
   names derive from its parameters (`pgm` → `$PGM`); `main` defaults to
   the variable that initializes the computation cell. `#[k::config_var]`
   survives as override and `parser_module` carrier. [r6g]
+- **D3 — A configuration module only when a dependency needs it.** Each
+  package emits `<NS>-SYNTAX` and `<NS>`, and the configuration lives in the
+  configured package's `<NS>`. When a dependency package's rules need that
+  configuration (a `for Sort` rule names the computation cell), its module
+  would import `<NS>` while `<NS>` imports it, which K rejects. The
+  configuration then moves to `<NS>-CONFIGURATION`, importing `<NS>-SYNTAX`
+  and the imports of `<NS>` that do not reach `<NS>`; the dependency imports
+  it instead of `<NS>`, and `<NS>` imports it too. Rust crates cannot depend
+  on each other cyclically, so such an import exists only for the
+  configuration. A configuration that names a symbol outside its module's
+  imports is rejected (`krs::partition::configuration-visibility`).
 
 ## E. Rules
 

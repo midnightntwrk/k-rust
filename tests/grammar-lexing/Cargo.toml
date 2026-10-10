@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "packages/dependency-rules",
+    "packages/dependency-rules-base",
     "packages/format",
     "packages/kevm-case",
     "packages/layout",

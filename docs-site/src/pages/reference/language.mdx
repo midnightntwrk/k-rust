@@ -492,6 +492,12 @@ Only K rules construct the variants of a `#[k::constructors]` family that is not
 Builtin operations such as `+Int` and `andBool` are never program syntax, because `<NS>-SYNTAX` imports builtin sorts only through `INT-SYNTAX`, `BOOL-SYNTAX`, `ID-SYNTAX`, `STRING-SYNTAX`, and `BYTES-SYNTAX`.
 `int-literals = "unsigned"` in `[package.metadata.krs]` selects `UNSIGNED-INT-SYNTAX` instead, so a program's `-1` is a unary minus applied to `1`; rules keep signed literals because `<NS>` imports K's integer module.
 
+A dependency package may hold rules but no configuration: a `for Exp` rule rewrites the computation cell of whichever package declares the configuration.
+Its module must import that configuration, while the configured package's `<NS>` imports the dependency, and K rejects the cycle.
+KRS then emits the configuration in a third module, `<NS>-CONFIGURATION`, which imports `<NS>-SYNTAX` and every import of `<NS>` that does not import `<NS>` back; the dependency's module imports `<NS>-CONFIGURATION` instead of `<NS>`, and `<NS>` imports it too.
+A definition without such a dependency keeps the configuration in `<NS>`.
+The configuration may then name only what `<NS>-CONFIGURATION` imports: an initializer that names a production of `<NS>` that is not program syntax is rejected with `krs::partition::configuration-visibility`.
+
 ## Checked islands
 
 | Island | Result |

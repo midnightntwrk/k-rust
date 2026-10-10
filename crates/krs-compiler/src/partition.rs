@@ -26,6 +26,10 @@ pub(crate) const FRAMEWORK_NAMESPACE: &str = "KRS-FRAMEWORK";
 /// Suffix of a package's program-syntax module.
 pub const PROGRAM_SYNTAX_SUFFIX: &str = "-SYNTAX";
 
+/// Suffix of the configured package's configuration module, emitted only
+/// when a dependency package's rules need the configuration (FU-18).
+pub const CONFIGURATION_SUFFIX: &str = "-CONFIGURATION";
+
 /// Returns the program-syntax module name of a package module.
 #[must_use]
 pub fn program_syntax_module_name(module: &str) -> String {
@@ -202,6 +206,17 @@ pub enum PartitionError {
         /// The signed program-syntax module it imports.
         signed: String,
     },
+    /// A dependency package's rules need the configuration, so it is emitted
+    /// in a module of its own, but the configuration names a symbol that
+    /// module cannot import.
+    ConfigurationVisibility {
+        /// The configuration module.
+        module: String,
+        /// A dependency module whose rules need the configuration.
+        dependent: String,
+        /// The emitted name of the symbol the configuration names.
+        symbol: String,
+    },
 }
 
 impl fmt::Display for PartitionError {
@@ -219,6 +234,14 @@ impl fmt::Display for PartitionError {
             Self::SignedIntegerLeak { module, signed } => write!(
                 formatter,
                 "`{module}` uses `int-literals = \"unsigned\"` but imports `{signed}`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
+            ),
+            Self::ConfigurationVisibility {
+                module,
+                dependent,
+                symbol,
+            } => write!(
+                formatter,
+                "the rules of `{dependent}` need the configuration, so it is emitted in `{module}`, which cannot import the configured package's semantics module or any module that imports it; the configuration names `{symbol}`, which is declared outside the modules `{module}` imports, so make `{symbol}` program syntax (`pub`, not `internal`) or move the rules of `{dependent}` into the configured package"
             ),
         }
     }

@@ -11,6 +11,14 @@ partition end to end on both routes:
 - `partition`: `pub` productions are program syntax, the `internal` family is
   not, builtin operations such as `andBool` and `+Int` never are, and
   `int-literals = "unsigned"` makes a program's `-1` the term `Neg(1)`;
+- `dependency-rules`: the dependency `dependency-rules-base` has a `for Exp`
+  rule but no configuration, so its module needs the configuration of the
+  package that imports it. KRS emits that configuration in
+  `KRS-DEPENDENCY-RULES-CONFIGURATION`, which the dependency's module imports
+  instead of `KRS-DEPENDENCY-RULES`, so the imports have no cycle and
+  `double 21` runs to `42` on both routes. `configuration-visibility`, whose
+  configuration names a non-`pub` production that module cannot import, is
+  rejected with `krs::partition::configuration-visibility`;
 - `kevm-case`: KEVM's `LogRecord::Entry` and `BlockHashLookup` take a `List`,
   and K has no LIST-SYNTAX module, so both are placed in `KRS-EVM`; the
   `krs check --partition` text is pinned and programs cannot contain them;
@@ -119,6 +127,10 @@ PINS = HERE / "pins.json"
 FIXTURES = HERE / "fixtures"
 
 PARTITION = Fixture(MANIFEST, "krs-grammar-partition")
+DEPENDENCY_RULES = Fixture(
+    MANIFEST, "krs-grammar-dependency-rules", dependencies=("krs-grammar-dependency-rules-base:main",),
+)
+DEPENDENCY_RULES_PROGRAMS = (Program("double", "double 21", "accepted", "42"),)
 KEVM_CASE = Fixture(MANIFEST, "krs-grammar-kevm-case")
 PROGRAM_WARNING = Fixture(MANIFEST, "krs-grammar-program-warning")
 FORMAT = Fixture(MANIFEST, "krs-grammar-format")
@@ -295,6 +307,10 @@ NEGATIVE = (
         ("krs-grammar-visibility-dependent-base:main",),
     ),
     ("visibility-claim", "visibility-claim", "krs-grammar-visibility-claim", ()),
+    (
+        "configuration-visibility", "configuration-visibility", "krs-grammar-configuration-visibility",
+        ("krs-grammar-configuration-visibility-base:main",),
+    ),
     ("token-constructor", "token-constructor", "krs-grammar-token-constructor", ()),
     ("lexeme-not-token", "lexeme-not-token", "krs-grammar-lexeme-not-token", ()),
     ("lexeme-builtin", "lexeme-builtin", "krs-grammar-lexeme-builtin", ()),
@@ -485,6 +501,22 @@ def main() -> int:
         harness.partition(PARTITION)
         harness.compare(partition, PARTITION_PROGRAMS, sort="Exp")
         print("PASS partition: pub is program syntax; internal, andBool, and +Int are not; -1 is Neg(1)")
+
+        harness.check(DEPENDENCY_RULES)
+        dependency_rules = harness.emit(DEPENDENCY_RULES)
+        require_imports(dependency_rules, {
+            "KRS-DEPENDENCY-RULES-BASE-SYNTAX": ["INT-SYNTAX", "KRS-FRAMEWORK"],
+            "KRS-DEPENDENCY-RULES-BASE": [
+                "INT", "KRS-DEPENDENCY-RULES-BASE-SYNTAX", "KRS-DEPENDENCY-RULES-CONFIGURATION", "KRS-FRAMEWORK",
+            ],
+            "KRS-DEPENDENCY-RULES-SYNTAX": ["KRS-DEPENDENCY-RULES-BASE-SYNTAX"],
+            "KRS-DEPENDENCY-RULES-CONFIGURATION": ["KRS-DEPENDENCY-RULES-SYNTAX"],
+            "KRS-DEPENDENCY-RULES": [
+                "KRS-DEPENDENCY-RULES-BASE", "KRS-DEPENDENCY-RULES-CONFIGURATION", "KRS-DEPENDENCY-RULES-SYNTAX",
+            ],
+        }, gate, environment)
+        harness.compare(dependency_rules, DEPENDENCY_RULES_PROGRAMS, sort="Exp")
+        print("PASS dependency-rules: the configuration module breaks the import cycle; double 21 is 42 on both routes")
 
         partition_text, _ = harness.partition(KEVM_CASE)
         for production in ("LogRecord::Entry", "BlockHashLookup"):

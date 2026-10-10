@@ -72,6 +72,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-grammar-dependency-rules"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-grammar-dependency-rules-base",
+]
+
+[[package]]
+name = "krs-grammar-dependency-rules-base"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-grammar-format"
 version = "0.1.0"
 dependencies = [

@@ -245,6 +245,20 @@ pub const ML_SYNTAX_MODULE: &str = "ML-SYNTAX";
 /// predicates that uses maps (KF-039).
 pub const MAP_SYMBOLIC_MODULE: &str = "MAP-SYMBOLIC";
 
+/// Every declared sort and production symbol `configuration` names: the
+/// sorts of its cells and variables, and the sorts and productions of its
+/// initializer terms. Its own cells are not included.
+#[must_use]
+pub fn configuration_symbols(configuration: &crate::ConfigurationSentence) -> BTreeSet<SymbolId> {
+    let mut requirements = BuiltinRequirements::default();
+    requirements.fixed_cells(configuration.cells());
+    for variable in configuration.variables() {
+        requirements.sort(variable.sort());
+    }
+    requirements.initializer(configuration.initializer());
+    requirements.declared
+}
+
 /// Every builtin sort `module` mentions, whether or not it uses one of its
 /// operations.
 #[must_use]
@@ -381,6 +395,8 @@ struct BuiltinRequirements {
     modules: BTreeSet<&'static str>,
     /// Whether the module has a matching-logic predicate (KF-039).
     ml: bool,
+    /// Every declared sort and production symbol a term names.
+    declared: BTreeSet<SymbolId>,
 }
 
 impl BuiltinRequirements {
@@ -405,8 +421,14 @@ impl BuiltinRequirements {
     }
 
     fn sort(&mut self, sort: &DefinitionSortRef) {
-        if let DefinitionSortRef::Builtin(sort) = sort {
-            self.sorts.insert(*sort);
+        match sort {
+            DefinitionSortRef::Builtin(sort) => {
+                self.sorts.insert(*sort);
+            }
+            DefinitionSortRef::Declared(id) => {
+                self.declared.insert(id.clone());
+            }
+            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => {}
         }
     }
 
@@ -423,6 +445,9 @@ impl BuiltinRequirements {
                 // A head's strict casts name its instance (KF-027).
                 for sort in instance {
                     self.sort(sort);
+                }
+                if let ApplicationRef::Declared(symbol) = application {
+                    self.declared.insert(symbol.clone());
                 }
                 if let ApplicationRef::Builtin(operation) = application {
                     self.modules.insert(operation.spec().k_module);
