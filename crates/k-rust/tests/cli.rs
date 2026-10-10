@@ -10034,12 +10034,8 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `_ [ I <- J ]` would match a list only by finding some list whose update is the subject:
-/// the update is a function of a list, not a way to write one, and its list argument is bound
-/// nowhere else, so the rule reads it neither as written (no normal form is an update) nor by
-/// value. The definition checks reject it before any execution.
 #[test]
-fn krun_rejects_a_list_update_on_a_rewrite_rules_left_hand_side() {
+fn krun_recovers_evaluable_collection_function_patterns() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -10052,6 +10048,56 @@ module MAIN
   syntax KItem ::= l(Int, Int)
   rule <k> l(I, J) => .K ...</k>
        <list> _ [ I <- J ] </list>
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "krun",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "MAIN",
+            "--sort",
+            "KItem",
+            "--expression",
+            "l(1, 1)",
+            "--depth",
+            "20",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(output.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"), "{output}");
+    assert!(output.contains(r#"\dv{SortInt{}}("2")"#), "{output}");
+    assert!(!output.contains("Lbll'LPar"), "{output}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A list update whose list argument the rule reads elsewhere would bind it to one of the many
+/// lists that differ from the subject at the index, so the definition checks reject it.
+#[test]
+fn krun_rejects_a_list_update_whose_updated_list_the_rule_reads() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module MAIN
+  imports LIST
+  imports INT
+  configuration <k> $PGM:K </k>
+                <list> ListItem(0) ListItem(1) ListItem(2) </list>
+  syntax KItem ::= l(Int, Int) | wrapped(List)
+  rule <k> l(I, J) => wrapped(L) ...</k>
+       <list> L [ I <- J ] </list>
 endmodule
 "#,
     )

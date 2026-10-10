@@ -1643,6 +1643,58 @@ fn a_rewrite_rule_reads_a_function_application_by_value_at_every_collection_argu
 }
 
 #[test]
+fn a_rewrite_rule_matches_a_list_update_by_value_only_when_it_reads_no_updated_list() {
+    // `S` is an update of some list at `I` with `V` exactly when `I` indexes `S` and `S` holds
+    // `V` there, so a rewrite rule decides the match as long as nothing reads which list was
+    // updated. A list argument the rule reads elsewhere would be bound to one of many lists, and
+    // an equation matches its arguments as written.
+    let productions = collection_position_productions();
+    let productions = productions.iter().collect::<Vec<_>>();
+    let variable = |name: &str| Term::Variable {
+        name: name.to_owned(),
+        sort: None,
+    };
+    let update = |list: Term| Term::apply("listUpdate", vec![list, token("1"), token("2")]);
+    let cases = [
+        ("anonymous list", update(variable("_")), token("1"), 0),
+        (
+            "list read nowhere else",
+            update(variable("L")),
+            token("1"),
+            0,
+        ),
+        (
+            "list read on the right",
+            update(variable("L")),
+            variable("L"),
+            1,
+        ),
+        ("ground list", update(token("0")), token("1"), 1),
+    ];
+    for (case, pattern, right, expected) in cases {
+        let rule = rule_with_body(rewrite(Term::apply("wrap", vec![pattern]), right));
+        let diagnostics = function_diagnostics(&[&rule], &productions);
+        assert_eq!(diagnostics.len(), expected, "{case}: {diagnostics:?}");
+    }
+    let mut read_in_requires = rule_with_body(rewrite(
+        Term::apply("wrap", vec![update(variable("L"))]),
+        token("1"),
+    ));
+    if let Sentence::Rule { requires, .. } = &mut read_in_requires {
+        *requires = Term::apply("g", vec![variable("L")]);
+    }
+    assert_eq!(
+        function_diagnostics(&[&read_in_requires], &productions).len(),
+        1
+    );
+    let equation = rule_with_body(rewrite(
+        Term::apply("g", vec![update(variable("_"))]),
+        token("1"),
+    ));
+    assert_eq!(function_diagnostics(&[&equation], &productions).len(), 1);
+}
+
+#[test]
 fn with_config_keeps_its_first_argument_at_the_top_of_the_rule() {
     let function = production(
         Some("f"),

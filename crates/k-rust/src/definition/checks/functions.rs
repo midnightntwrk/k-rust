@@ -22,8 +22,15 @@
 //!   left-hand side a function application is rejected as before.
 //!
 //! `LIST.update` is not a collection constructor: an update `L[I <- V]` is a function of a list,
-//! not a way to write one, so it is admitted on a left-hand side only where a function
-//! application is (inside a collection argument of a rewrite rule).
+//! not a way to write one, so it is admitted on a left-hand side where a function application
+//! is (inside a collection argument of a rewrite rule), and elsewhere on a rewrite rule's
+//! left-hand side in one more shape. A list `S` is an update of some list at `I` with `V`
+//! exactly when `I` indexes `S` and `S` holds `V` there, so a rewrite rule decides that match
+//! by value (with `S` itself as the updated list) as long as nothing reads which list was
+//! updated: the list argument is a variable that occurs nowhere else in the rule, such as `_`.
+//! A list argument the rule uses elsewhere would be bound to one of the many lists that differ
+//! from `S` at `I`, so that shape stays rejected; so does every update below an equation's
+//! root, which an equation matches as written.
 
 use std::collections::BTreeSet;
 
@@ -192,11 +199,25 @@ impl Walk<'_> {
             return;
         }
 
-        let constructor = is_collection_constructor(attributes.string(AttributeKey::Hook));
+        let hook = attributes.string(AttributeKey::Hook);
+        let constructor = is_collection_constructor(hook);
+        if self.reading == Reading::Rewrite
+            && position.lhs
+            && hook == Some("LIST.update")
+            && self.updates_an_unread_list(term)
+        {
+            self.visit_arguments(term, position, at_top, true);
+            return;
+        }
         if function && position.lhs && !by_value && !constructor {
             let message = if self.reading == Reading::Equation {
                 format!(
                     "Illegal function symbol {} below the root of an equation's left-hand side: an equation matches its argument patterns as written, so this application would never match the value it computes. Bind the position to a variable and state its value in the `requires` clause, or add the `simplification` attribute if the rule is a lemma.",
+                    label.name
+                )
+            } else if hook == Some("LIST.update") {
+                format!(
+                    "Illegal function symbol {} on LHS of rule: a rewrite rule matches a list update outside a collection argument only when its list argument is a variable the rule reads nowhere else, since a list read elsewhere would be bound to one of many lists. Consider adding `simplification` attribute to the rule if this is intended.",
                     label.name
                 )
             } else {
@@ -213,6 +234,58 @@ impl Walk<'_> {
         }
         let by_value = by_value || (self.reading == Reading::Rewrite && constructor);
         self.visit_arguments(term, position, at_top, by_value);
+    }
+
+    /// Whether the list argument of the update `term` is a variable that occurs nowhere else in
+    /// the sentence (its body, `requires` and `ensures`).
+    fn updates_an_unread_list(&self, term: &Term) -> bool {
+        let Term::Apply { arguments, .. } = term.unannotated() else {
+            return false;
+        };
+        // A variable under semantic casts (`_:List`, as sort inference writes it) is still that
+        // variable, restricted to the cast's sort.
+        let mut list = arguments.first().map(Term::unannotated);
+        while let Some(Term::Apply { label, arguments }) = list
+            && label.semantic_cast_sort().is_some()
+            && arguments.len() == 1
+        {
+            list = Some(arguments[0].unannotated());
+        }
+        let Some(Term::Variable { name, .. }) = list else {
+            return false;
+        };
+        // Each occurrence of the anonymous variable is a variable of its own.
+        if name == "_" {
+            return true;
+        }
+        let terms: &[&Term] = match self.sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            } => &[body, requires, ensures],
+            Sentence::Context { body, requires, .. }
+            | Sentence::ContextAlias { body, requires, .. } => &[body, requires],
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => return false,
+        };
+        let mut occurrences = 0_usize;
+        for term in terms {
+            term.visit_preorder(&mut |subterm| {
+                if matches!(subterm, Term::Variable { name: other, .. } if other == name) {
+                    occurrences += 1;
+                }
+            });
+        }
+        occurrences == 1
     }
 
     fn visit_arguments(
