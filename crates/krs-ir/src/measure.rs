@@ -43,7 +43,9 @@
 //!   failure happened outside every span).
 //!
 //! Stable `krs` span ids, in execution order (`check`, `expand`, `emit_k`,
-//! and `native` ids belong to their command only):
+//! `stage`, and `exec` ids belong to their command only; the `native` ids
+//! belong to `build` and, on a stage-cache miss, to `parse`, `run`, `search`,
+//! and `prove`):
 //!
 //! | Id | Stage |
 //! |---|---|
@@ -70,6 +72,9 @@
 //! | `native.reparse.syntax` | `build`: reparse `syntaxDefinition.kore` |
 //! | `native.provenance` | `build`: join emitted-sentence provenance |
 //! | `native.write` | `build`: artifact writes |
+//! | `stage.reuse` | `parse`, `run`, `search`, `prove`: validate and restore the cached compiled stage, in place of the `native.*` spans |
+//! | `stage.store` | `parse`, `run`, `search`, `prove`, after the `native.*` spans: encode and store the compiled stage |
+//! | `exec.configuration`, `exec.unparser`, `exec.backend` | `parse`, `run`, `search`, `prove`: build the program grammar, the printer, and the backend from the compiled stage |
 //! | `release` | drop the in-memory bundle, theory, and Definition IR |
 //!
 //! `collector.run` children (depth 1, grandchildren at depth 2):
@@ -123,6 +128,7 @@
 //! | `emit_k.bytes.<artifact>` | `emit-k` artifact bytes |
 //! | `native.omitted_claims`, `native.bytes.<artifact>` | `build` KORE bytes |
 //! | `result.reused` | 1 when a saved result was restored, otherwise 0 |
+//! | `stage.reused` | `parse`, `run`, `search`, `prove`: 1 when the compiled stage was restored from the stage cache, otherwise 0 |
 //!
 //! A counter is present only when its stage ran.
 //!

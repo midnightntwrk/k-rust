@@ -297,3 +297,100 @@ fn programs_parse_bind_and_report_their_errors() {
     assert_eq!(usage.status.code(), Some(2));
     assert!(stderr(&usage).contains("--max-solutions does not apply to krs run"));
 }
+
+/// One `krs` invocation against a private stage cache, returning its output and `stage.reused`.
+fn krs_with_stage_cache(
+    target: &Path,
+    manifest: &Path,
+    cache: &Path,
+    counters: &Path,
+    arguments: &[&str],
+) -> (Output, u64) {
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    process
+        .env("KRS_STAGE_CACHE_DIR", cache)
+        .env_remove("KRS_NO_REUSE")
+        .current_dir(manifest.parent().unwrap())
+        .arg("run")
+        .arg("--manifest-path")
+        .arg(manifest)
+        .args(["--package", PACKAGE, "--definition", "main", "--counters"])
+        .arg(counters)
+        .args(arguments);
+    let output = process.output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let document: Value = serde_json::from_slice(&fs::read(counters).unwrap()).unwrap();
+    let reused = document["counters"]["stage.reused"].as_u64().unwrap();
+    (output, reused)
+}
+
+fn stage_entries(cache: &Path) -> Vec<PathBuf> {
+    let Ok(shards) = fs::read_dir(cache.join("entries")) else {
+        return Vec::new();
+    };
+    let mut entries = shards
+        .flat_map(|shard| fs::read_dir(shard.unwrap().path()).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
+}
+
+#[test]
+fn the_compiled_stage_is_reused_from_the_stage_cache_and_never_changes_a_result() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), &tour_minimal());
+    let cache = temporary.path().join("stage-cache");
+    let counters = temporary.path().join("counters.json");
+    let arguments = ["--trace", "--output", "json"];
+
+    let (cold, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &arguments);
+    assert_eq!(reused, 0);
+    let entries = stage_entries(&cache);
+    assert_eq!(entries.len(), 1, "one entry for one definition");
+
+    let (warm, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &arguments);
+    assert_eq!(reused, 1);
+    assert_eq!(warm.stdout, cold.stdout);
+    assert_eq!(warm.stderr, cold.stderr);
+    // The restored stage keeps the authored trace origin.
+    assert_eq!(
+        json(&warm)["run"]["trace"][0]["origin"]["file"],
+        "src/lib.rs"
+    );
+
+    // `--no-reuse` compiles again and stores the stage again.
+    let mut no_reuse = arguments.to_vec();
+    no_reuse.push("--no-reuse");
+    let (fresh, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &no_reuse);
+    assert_eq!(reused, 0);
+    assert_eq!(fresh.stdout, cold.stdout);
+    assert_eq!(stage_entries(&cache), entries);
+
+    // A damaged entry is a miss, and the run replaces it.
+    let mut bytes = fs::read(&entries[0]).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    fs::write(&entries[0], bytes).unwrap();
+    let (repaired, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &arguments);
+    assert_eq!(reused, 0);
+    assert_eq!(repaired.stdout, cold.stdout);
+    let (_, reused) = krs_with_stage_cache(target.path(), &manifest, &cache, &counters, &arguments);
+    assert_eq!(reused, 1);
+
+    // A store inside the input's Cargo workspace is never used.
+    let inside = manifest.parent().unwrap().join("stage-cache");
+    let (_, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &inside, &counters, &arguments);
+    assert_eq!(reused, 0);
+    let (_, reused) =
+        krs_with_stage_cache(target.path(), &manifest, &inside, &counters, &arguments);
+    assert_eq!(reused, 0);
+    assert!(!inside.exists());
+}

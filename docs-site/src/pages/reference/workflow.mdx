@@ -77,7 +77,9 @@ krs parse --package my-semantics --definition main --sort Stmt prog.imp
 
 `run`, `search`, `prove`, and `parse` play the roles of K's `krun`, `krun --search`, `kprove`, and `kast` on the emitted definition.
 They share the collection and lowering stages of `check`, then compile the Definition IR in-process with the k-rust backend over the symbolic KORE dialect, so they take no `--backend`.
-Their results are never reused from an earlier invocation.
+Their results are never reused from an earlier invocation, but the compiled definition is: the first command compiles the Definition IR and keeps the compiled stage in a per-user cache, `${XDG_CACHE_HOME:-~/.cache}/krs/compiled-stages/v1` (or the directory `KRS_STAGE_CACHE_DIR` names), and a later command on the same Definition IR loads it instead of compiling again.
+An entry is keyed by the digest of the Definition IR's canonical JSON, the pinned k-rust commit, and the `krs` executable, so a changed definition, k-rust pin, or `krs` build compiles again; an entry unused for 30 days is deleted.
+`--no-reuse` or `KRS_NO_REUSE=1` compiles again and replaces the entry, and a cache directory inside the package's Cargo workspace is never used.
 FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` binds another configuration variable by its K name (`ENV` or `$ENV`) or its init parameter (`env`).
 `run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
 `prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix; `--spec-module NAME` proves the claims of an author spec module (`kprove --spec-module`) instead of the generated `<MAIN>-SPEC` ([spec modules](/verification/reachability-claims#spec-modules)).

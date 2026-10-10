@@ -49,8 +49,9 @@ struct Image {
     files: Vec<FileEntry>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
-struct Executable {
+/// The identity of an executable file: a rebuild or reinstall changes it.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(super) struct Executable {
     path: PathBuf,
     dev: u64,
     ino: u64,
@@ -251,7 +252,7 @@ fn request_key(request: &CommandRequest) -> String {
     serde_json::to_string(&key).expect("cache request serialization cannot fail")
 }
 
-fn executable(path: &Path, krs: bool) -> Option<Executable> {
+pub(super) fn executable(path: &Path, krs: bool) -> Option<Executable> {
     let metadata = fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some(Executable {

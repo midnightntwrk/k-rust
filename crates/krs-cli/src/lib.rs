@@ -7,7 +7,7 @@
 //! production planning shares its package and facet selection.
 //! Authored production packages do not implement a collector runtime.
 //!
-//! `parse`, `run`, `search`, and `prove` share the pipeline up to Definition IR and then compile it in-process through `krs-exec` and the k-rust symbolic backend; their results are never cached.
+//! `parse`, `run`, `search`, and `prove` share the pipeline up to Definition IR and then compile it in-process through `krs-exec` and the k-rust symbolic backend; their results are never cached, but the compiled stage is kept in a per-user cache keyed by the Definition IR digest.
 //!
 //! The command-line binary renders human-readable diagnostics on stderr by default.
 //! `--message-format=json` selects schema-1 envelope lines for located diagnostics and prose lines for unlocated diagnostics and other failures.

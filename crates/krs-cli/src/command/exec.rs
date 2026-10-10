@@ -1,6 +1,7 @@
 //! `krs parse`, `krs run`, `krs search`, and `krs prove` over the prepared Definition IR.
 //!
 //! Each command compiles the Definition IR in-process through `krs-exec` and the k-rust symbolic backend, on a 64 MiB-stack worker.
+//! The compiled stage is kept in the per-user stage cache (`stage_cache`), keyed by the Definition IR digest, so an unchanged definition is compiled once.
 //! Results are never cached: a run depends on its inputs, and the collector and lowering stages it shares with the other commands are already incremental.
 
 use std::fmt::Write as _;
@@ -9,12 +10,14 @@ use std::path::PathBuf;
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions, REPORT_SCHEMA,
-    RunOptions, SearchMode, SearchOptions, Semantics, SourceText, Step, StepOrigin, Term, Verdict,
+    CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
+    REPORT_SCHEMA, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, Step, StepOrigin,
+    Term, Verdict,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
 
+use super::stage_cache::StageCache;
 use super::{Command, CommandError, CommandOutcome, PreparedDefinition, native_command_error};
 use crate::DiagnosticSources;
 
@@ -137,24 +140,54 @@ impl ColorChoice {
 
 const WORKER_STACK: usize = 64 * 1024 * 1024;
 
-/// Compile the prepared definition and run one parse, run, search, or prove command.
+/// How the compiled stage is looked up and kept.
+#[derive(Clone, Copy)]
+pub(super) struct StageReuse<'a> {
+    /// The definition's entry in the stage cache, when there is a usable store.
+    pub cache: Option<&'a StageCache>,
+    /// Whether a stored stage may be restored (`--no-reuse` and `KRS_NO_REUSE=1` clear it); a compiled stage is stored either way.
+    pub restore: bool,
+}
+
+/// Compile the prepared definition, or restore its compiled stage, and run one parse, run, search, or prove command.
 pub(super) fn execute(
     prepared: &PreparedDefinition,
     command: &Command,
     sources: &DiagnosticSources,
+    reuse: StageReuse<'_>,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
     let sources = sources.clone();
     let timings = &mut measurement.timings;
     let definition = prepared.lowered.definition();
+    let mut reused = false;
+    let reused_flag = &mut reused;
     let result = std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("krs-exec".into())
             .stack_size(WORKER_STACK)
             .spawn_scoped(scope, move || {
                 let provider: SourceText = Box::new(move |file| sources.source_text(file));
-                let mut semantics = Semantics::compile_with(definition, Some(provider), timings)
-                    .map_err(Failure::Exec)?;
+                let started = std::time::Instant::now();
+                let restored = reuse
+                    .cache
+                    .filter(|_| reuse.restore)
+                    .and_then(StageCache::load);
+                let stage = if let Some(stage) = restored {
+                    timings.record("stage.reuse", started.elapsed().as_secs_f64(), 0);
+                    *reused_flag = true;
+                    stage
+                } else {
+                    let stage =
+                        CompiledStage::compile(definition, timings).map_err(Failure::Exec)?;
+                    if let Some(cache) = reuse.cache {
+                        timings.span("stage.store", |_| cache.store(&stage));
+                    }
+                    stage
+                };
+                let mut semantics =
+                    Semantics::from_stage(definition, stage, Some(provider), timings)
+                        .map_err(Failure::Exec)?;
                 dispatch(&mut semantics, command)
             })
             .map_err(|error| {
@@ -163,6 +196,7 @@ pub(super) fn execute(
             .join()
             .map_err(|_| CommandError::InvalidRequest("the run worker panicked".into()))
     })?;
+    measurement.counters.set("stage.reused", u64::from(reused));
     result.map_err(|failure| match failure {
         Failure::Exec(ExecError::Compile(error)) => {
             native_command_error(prepared.lowered.source_map(), error)

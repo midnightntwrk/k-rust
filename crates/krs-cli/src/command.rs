@@ -29,6 +29,7 @@ mod counters;
 mod exec;
 mod output;
 mod result_cache;
+mod stage_cache;
 use collector::{
     build_collector_measured, discover_runtime, generate_collector, run_collector,
     rustc_host_target,
@@ -36,6 +37,7 @@ use collector::{
 use counters::{count_bundle, count_definition};
 use output::{prepare_output, write_output};
 use result_cache::ResultCache;
+use stage_cache::StageCache;
 
 /// Category of a production KRS command.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,7 +77,7 @@ impl CommandKind {
     }
 
     /// Whether a successful result is stored and restored by the result cache.
-    /// Runs and their relatives are never cached.
+    /// Runs and their relatives are never cached (they reuse only the compiled stage).
     #[must_use]
     pub const fn reuses_results(self) -> bool {
         matches!(self, Self::Check | Self::EmitK | Self::Build)
@@ -359,10 +361,9 @@ fn execute_with_sources(
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
-    if request.command.kind().reuses_results()
-        && !request.no_reuse
-        && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"))
-    {
+    let reuse =
+        !request.no_reuse && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"));
+    if request.command.kind().reuses_results() && reuse {
         let started = std::time::Instant::now();
         if let Some(outcome) = cache.restore(request, &mut measurement.counters)? {
             measurement
@@ -392,7 +393,22 @@ fn execute_with_sources(
                 prepared.lowered.definition(),
                 krs_k_rust::Route::native(Backend::Haskell),
             )
-            .and_then(|()| exec::execute(&prepared, &request.command, &*sources, measurement))
+            .and_then(|()| {
+                let stage_cache = StageCache::new(
+                    prepared.lowered.definition(),
+                    metadata.workspace_root.as_deref().map(Path::new),
+                );
+                exec::execute(
+                    &prepared,
+                    &request.command,
+                    &*sources,
+                    exec::StageReuse {
+                        cache: stage_cache.as_ref(),
+                        restore: reuse,
+                    },
+                    measurement,
+                )
+            })
             .map(|mut outcome| {
                 outcome.warnings = raw_k_warnings(&prepared);
                 if matches!(request.command, Command::Prove(_)) {
