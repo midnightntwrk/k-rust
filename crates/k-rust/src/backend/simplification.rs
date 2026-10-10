@@ -225,12 +225,13 @@ mod tests {
     fn a_model_failure_reports_the_failing_stage_and_its_cause() {
         assert_eq!(
             BackendError::from(ModelError::Simplification(
-                SimplificationError::TopEquationOutsideConjunction {
-                    rule_id: "rule".into()
+                SimplificationError::DisjunctiveResult {
+                    rule_id: "rule".into(),
+                    alternatives: 2,
                 }
             ))
             .0,
-            r#"could not simplify model predicate: TopEquationOutsideConjunction { rule_id: "rule" }"#
+            r#"could not simplify model predicate: DisjunctiveResult { rule_id: "rule", alternatives: 2 }"#
         );
         assert_eq!(
             BackendError::from(ModelError::Solver(

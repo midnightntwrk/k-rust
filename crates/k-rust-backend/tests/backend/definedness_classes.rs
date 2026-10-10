@@ -828,7 +828,6 @@ fn internalization_refuses_what_the_verifier_refuses_for_its_sorts() {
 /// lemma, and the lemma applies when one instance does. So `e /\ fm({1 |-> 0, 2 |-> 0})`
 /// simplifies alike for `n = 1` and `n = 2`, whichever key the matcher enumerates first.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: matches_top_equation decides a top equation's requires on the first collection matching only"]
 fn a_top_lemma_applies_whichever_instance_holds() {
     let entry = |key: i64| {
         format!(
@@ -869,9 +868,8 @@ fn a_top_lemma_applies_whichever_instance_holds() {
 /// conjunction can absorb it. `fm(M) = \top` (from K source, `rule fm((K |-> _) _) => #Top
 /// requires K ==K 2 [simplification]`) matches `wrap(fm({1 |-> 0, 2 |-> 0}))` below a
 /// constructor; the subject must come back, unevaluated or not, but not as an error. `krun` of
-/// that K definition halts with `TopEquationOutsideConjunction` on main.
+/// that K definition halted with an error on `934d29e7`.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: matches_top_equation decides a top equation's requires on the first collection matching only (a top lemma outside a conjunction, definedness-stepback.md)"]
 fn a_top_lemma_outside_a_conjunction_is_not_an_error() {
     let entry = |key: i64| {
         format!(
