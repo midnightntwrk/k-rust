@@ -236,6 +236,12 @@ pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
         reason: "K 7.1.337's Haskell backend rejects a parametric constructor when it validates the compiled definition; run this on the LLVM or k-rust route",
         evidence: "kompile --backend haskell 7.1.337 exits 113 (\"Haskell backend reported errors validating compiled definition\") on `syntax {S} S ::= wrap(S)`, which kompile --backend llvm accepts and runs (KF-027 probe, 2026-10-09)",
     },
+    RouteCapability {
+        feature: "UserAlgebraicMatching",
+        unavailable_on: &Route::ALL,
+        reason: "no pinned backend matches modulo user-declared `assoc`, `comm`, `idem`, or `unit` axioms; use the builtin List, Set, or Map sorts, whose hooks implement them",
+        evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust 195a7718 drops the axioms at load and leaves the symbol uninterpreted (k-rust-backend/src/rule.rs; docs/compatibility.md)",
+    },
 ];
 
 /// Whether `route` can run `feature`; a feature without a row is available everywhere.

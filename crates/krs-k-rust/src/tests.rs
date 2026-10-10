@@ -275,3 +275,17 @@ fn the_route_table_refuses_rule_existentials_only_on_concrete_routes() {
         );
     }
 }
+
+#[test]
+fn the_route_table_reserves_user_algebraic_matching_on_every_route() {
+    for route in crate::Route::ALL {
+        assert!(
+            matches!(
+                crate::route_capability("UserAlgebraicMatching", route),
+                CapabilityAvailability::Unavailable(_)
+            ),
+            "UserAlgebraicMatching on {}",
+            route.name()
+        );
+    }
+}

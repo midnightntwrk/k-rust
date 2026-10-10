@@ -42,6 +42,10 @@ pub enum CapabilityFeature {
     ParametricFunctionEquations,
     /// A parametric constructor, a value-building production schema (KF-027).
     ParametricConstructorSchema,
+    /// Matching modulo a production's `assoc`, `comm`, `idem`, or `unit`
+    /// axioms (KF-019). Reserved: KRS has no surface for these axioms yet, so
+    /// nothing derives this feature, and every route lacks it.
+    UserAlgebraicMatching,
 }
 
 impl CapabilityFeature {
@@ -54,6 +58,7 @@ impl CapabilityFeature {
         Self::RuleExistential,
         Self::ParametricFunctionEquations,
         Self::ParametricConstructorSchema,
+        Self::UserAlgebraicMatching,
     ];
 
     /// The stable feature name used in sidecars, comments, and route tables.
@@ -67,6 +72,7 @@ impl CapabilityFeature {
             Self::RuleExistential => "RuleExistential",
             Self::ParametricFunctionEquations => "ParametricFunctionEquations",
             Self::ParametricConstructorSchema => "ParametricConstructorSchema",
+            Self::UserAlgebraicMatching => "UserAlgebraicMatching",
         }
     }
 
@@ -81,6 +87,7 @@ impl CapabilityFeature {
             Self::RuleExistential => "rules that introduce symbolic values",
             Self::ParametricFunctionEquations => "equations of parametric functions",
             Self::ParametricConstructorSchema => "parametric constructors",
+            Self::UserAlgebraicMatching => "productions matched modulo user axioms",
         }
     }
 }
