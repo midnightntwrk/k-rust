@@ -531,7 +531,7 @@ pub struct SemanticModule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     raw_sentences: Vec<krs_ir::RawSentence>,
     /// Whether this is an author spec module (KF-041): a K proof module that
-    /// holds claims, simplification lemmas, and terminal tokens, imports the
+    /// holds claims, simplification lemmas, and tokens, imports the
     /// definition explicitly, and is never part of the definition itself.
     #[serde(default, skip_serializing_if = "is_false")]
     spec: bool,

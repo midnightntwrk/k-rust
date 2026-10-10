@@ -4,10 +4,9 @@
 //! reads it beside the kompiled definition. Its sentences are the descriptors
 //! whose Rust module path lies inside the `mod` (the innermost spec module
 //! wins); K allows a proof module only claims, simplification lemmas, and
-//! token productions for sorts the definition declares. KRS also keeps regex
-//! tokens and `smt_lemma` lemmas out of spec modules: kore-exec did not
-//! terminate with a regex token in a proof-side module in the design probe,
-//! and it ignores `smt-lemma` outside the definition. The module imports the
+//! token productions, terminal or regex, for sorts the definition declares.
+//! KRS also keeps `smt_lemma` lemmas out of spec modules: kore-exec ignores
+//! `smt-lemma` outside the definition. The module imports the
 //! definition explicitly through `imports = [..]`; the import graph is
 //! acyclic and must reach the definition's main module.
 //!
@@ -19,9 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, Descriptor, DescriptorModuleImport, DescriptorPayload,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    GrammarDescriptor, ItemKind, ModuleId, PackageId, ProductionAttribute, SourceRange,
-    StableItemId,
+    DescriptorProductionAttribute, DescriptorProductionOwner, GrammarDescriptor, ItemKind,
+    ModuleId, PackageId, ProductionAttribute, SourceRange, StableItemId,
 };
 use krs_ir_levels::{SemanticModule, SemanticSortRef};
 
@@ -173,23 +171,7 @@ fn check_member(
         ItemKind::Context => "a context",
         ItemKind::Grammar => match descriptor.payload() {
             DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
-                GrammarDescriptor::Tokens { productions } => {
-                    if productions.iter().any(|production| {
-                        production.items.iter().any(|item| {
-                            matches!(item, DescriptorProductionItem::RegexTerminal { .. })
-                        })
-                    }) {
-                        return Err(fail(
-                            descriptor,
-                            format!(
-                                "the regex token `{}` is in spec module `{}`; a spec module adds only terminal tokens (`#[k::token(terminal = \"..\")]`), because kore-exec did not terminate with a regex token in a proof module. Declare the regex token in the definition, as upstream IMP-VERIFICATION does",
-                                display_name(descriptor.id()),
-                                spec.name.as_str()
-                            ),
-                        ));
-                    }
-                    return Ok(());
-                }
+                GrammarDescriptor::Tokens { .. } => return Ok(()),
                 GrammarDescriptor::Production(production) => match &production.owner {
                     DescriptorProductionOwner::Constructor { .. }
                         if production.attributes.iter().any(|attribute| {
@@ -491,7 +473,7 @@ pub(super) fn check_spec_identifiers(
                 return Err(DescriptorLoweringError::InvalidSpecModule {
                     item: Box::new(rule.id().clone()),
                     reason: format!(
-                        "the identifier `{identifier}` in `{}` is lexed by no token production that spec module `{}` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`",
+                        "the identifier `{identifier}` in `{}` is lexed by no token production that spec module `{}` sees, and K parses its sentences with that grammar. Add a token for `Id` that lexes it, to this spec module or to the definition as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`",
                         rule.id().item_name(),
                         module.id().as_str()
                     ),

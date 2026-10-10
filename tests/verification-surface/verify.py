@@ -94,7 +94,7 @@ IMP-SUM-SPEC` proves the claim natively (k-rust proves the spec module's own
 proof definition), and Java `kprove --spec-module IMP-SUM-SPEC` of the
 emitted files gives `#Top`. An unknown spec module and a spec module without
 claims are refused. Negative fixtures pin a sort in a spec module, an import
-cycle, a regex token in a spec module, an identifier no visible token lexes,
+cycle, an identifier no visible token lexes,
 one lexed only by a private (non-`pub`) token alias of the definition, an
 `smt_lemma` lemma in a spec module, a spec module that never imports the
 definition, and a spec-module simplification lemma that names a private
@@ -301,7 +301,6 @@ NEGATIVE = (
     "smt-lemma-untranslatable",
     "spec-module-sort",
     "spec-module-cycle",
-    "spec-module-regex-token",
     "spec-module-undeclared-id",
     "spec-module-private-id",
     "spec-module-smt-lemma",

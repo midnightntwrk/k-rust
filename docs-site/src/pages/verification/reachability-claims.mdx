@@ -150,7 +150,8 @@ The name defaults to `<k-namespace>-<UPPER-KEBAB(mod name)>`.
 
 An identifier in a spec-module claim must be lexed by a token production the module sees, because K parses the module's claims with its own grammar and `Id` has no identifier syntax outside programs.
 That is why the definition adds the `$`-identifier token: the claim can write `$n` where a claim outside a spec module needs `#token("$n","Id")`.
-KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, a regex token there (declare it in the definition, as upstream does), an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
+The token may instead live in the spec module itself when only its proofs need the names.
+KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
 Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
 
 A spec module sees only the definition's public syntax.

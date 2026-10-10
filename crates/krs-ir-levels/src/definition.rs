@@ -670,7 +670,7 @@ pub enum ModuleRole {
     Semantics,
     /// An author spec module (KF-041): a K proof module emitted into `spec.k`,
     /// outside the definition's import closure, holding claims,
-    /// simplification lemmas, and terminal tokens for existing sorts.
+    /// simplification lemmas, and tokens for existing sorts.
     Spec,
 }
 

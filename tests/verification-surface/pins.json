@@ -171,11 +171,8 @@
     "spec-module-cycle": [
       "error[krs::analysis::invalid-spec-module]: spec-module imports form a cycle: FIRST-SPEC -> SECOND-SPEC -> FIRST-SPEC; K module imports must be acyclic"
     ],
-    "spec-module-regex-token": [
-      "error[krs::analysis::invalid-spec-module]: the regex token `DollarId` is in spec module `KRS-SPEC-MODULE-REGEX-TOKEN-PROOFS`; a spec module adds only terminal tokens (`#[k::token(terminal = \"..\")]`), because kore-exec did not terminate with a regex token in a proof module. Declare the regex token in the definition, as upstream IMP-VERIFICATION does"
-    ],
     "spec-module-undeclared-id": [
-      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-UNDECLARED-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-UNDECLARED-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a token for `Id` that lexes it, to this spec module or to the definition as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
     ],
     "spec-module-smt-lemma": [
       "error[krs::analysis::invalid-spec-module]: `smt_lemma` on `h_lemma` in spec module `KRS-SPEC-MODULE-SMT-LEMMA-PROOFS` would have no effect: kore-exec hands only the definition's lemmas to Z3. Move the lemma into the definition"
@@ -223,7 +220,7 @@
       "error[krs::expand::ml-placement]: an `ml::Predicate` subject and result make a predicate simplification; they are allowed only on `#[k::simplification]` (a rule or equation rewrites object terms, `Term<S>`)"
     ],
     "spec-module-private-id": [
-      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-PRIVATE-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a regex token for `Id` to the definition, as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
+      "error[krs::analysis::invalid-spec-module]: the identifier `$x` in `var_stays` is lexed by no token production that spec module `KRS-SPEC-MODULE-PRIVATE-ID-PROOFS` sees, and K parses its sentences with that grammar. Add a token for `Id` that lexes it, to this spec module or to the definition as upstream IMP-VERIFICATION does: `#[k::token(regex = r\"\\$[a-zA-Z0-9_]+\")] pub type DollarId = k::builtin::Id;`"
     ]
   },
   "trusted_proofs": {
