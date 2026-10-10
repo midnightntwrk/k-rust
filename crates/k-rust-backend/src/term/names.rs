@@ -194,6 +194,20 @@ impl VariableProvenance {
     }
 }
 
+impl VariableProvenance {
+    /// What a name with this marker is, as a noun phrase a diagnostic completes with the name
+    /// the definition writes.
+    pub const fn meaning(self) -> &'static str {
+        match self {
+            Self::Rule => "a variable of a rewrite rule",
+            Self::Equation => "a variable of an equation",
+            Self::Existential => {
+                "a variable that a rewrite rule's right-hand side or a narrowing introduces existentially"
+            }
+        }
+    }
+}
+
 /// Split `name` at the first accepted marker it starts with, in the order given, after the
 /// initial `@` of a set variable. The rest is the unmarked name, with a set variable's `@`
 /// kept: `@Rule#M` gives `@M`, so a name rebuilt from the rest with
@@ -287,6 +301,79 @@ impl FreshMarker {
             Self::Unify => "unify",
         }
     }
+}
+
+impl FreshMarker {
+    /// Every marker, the empty `Rewrite` marker last so that it is tried after the others.
+    pub const ALL: [Self; 7] = [
+        Self::Claim,
+        Self::Exists,
+        Self::Apart,
+        Self::Binder,
+        Self::Memo,
+        Self::Unify,
+        Self::Rewrite,
+    ];
+
+    /// What a name with this marker is, as a clause a diagnostic appends to the name's
+    /// description.
+    pub const fn meaning(self) -> &'static str {
+        match self {
+            Self::Rewrite => {
+                "made fresh by the rewriter (for a narrowed frame, a rule variable its match does not bind, or an overload witness)"
+            }
+            Self::Claim => "made fresh for a claim applied as a circularity",
+            Self::Exists => {
+                "made fresh for an existential of the consequent of an implication check"
+            }
+            Self::Apart => "renamed apart from the variables of the term its rule was applied to",
+            Self::Binder => "renamed so that its quantifier captures no other variable",
+            Self::Memo => "renumbered for the memo of the critical-pair check",
+            Self::Unify => "made fresh by the critical-pair check",
+        }
+    }
+}
+
+/// A name the backend made from another one, read back into its parts: the provenance marker
+/// it starts with, the name it was made from, and the fresh markers added to it, the first one
+/// added first.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MintedName<'a> {
+    pub provenance: Option<VariableProvenance>,
+    pub base: Cow<'a, str>,
+    pub fresh: Vec<FreshMarker>,
+}
+
+impl<'a> MintedName<'a> {
+    /// The parts of `name`, or `None` for a name read from KORE: a KORE identifier contains
+    /// neither `#` nor `!`, and every name the backend makes from another adds one of them.
+    pub fn parse(name: &'a str) -> Option<Self> {
+        if !name.contains(['#', '!']) {
+            return None;
+        }
+        let (provenance, mut base) = split_marker(name, &VariableProvenance::ALL);
+        let mut fresh = Vec::new();
+        while let Some((rest, marker)) = split_fresh_marker(&base) {
+            fresh.push(marker);
+            base = Cow::Owned(rest.to_owned());
+        }
+        fresh.reverse();
+        Some(Self {
+            provenance,
+            base,
+            fresh,
+        })
+    }
+}
+
+/// `name` without its last fresh suffix (`!{marker}{counter}`), and that suffix's marker.
+fn split_fresh_marker(name: &str) -> Option<(&str, FreshMarker)> {
+    let (rest, suffix) = name.rsplit_once('!')?;
+    FreshMarker::ALL.into_iter().find_map(|marker| {
+        let counter = suffix.strip_prefix(marker.as_str())?;
+        (!counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit()))
+            .then_some((rest, marker))
+    })
 }
 
 /// `base`, `!`, the marker, and the counter: the spelling of every fresh name `crate::fresh`
@@ -584,6 +671,42 @@ mod tests {
         }
         for name in ["M", "@Ex#M", "@"] {
             assert!(!variable_name_problems(name, true).is_empty(), "{name:?}");
+        }
+    }
+
+    /// A minted name is read back into the markers that made it, so that each can be explained:
+    /// every name the backend makes from another one is parsed into the provenance and the
+    /// fresh markers it was built with, in the order they were added, and no KORE identifier is
+    /// taken for a minted name.
+    #[test]
+    fn minted_names_read_back_into_their_markers() {
+        let rule_x = Variable::new("VarX", crate::term::Sort::simple("SortInt"))
+            .with_provenance(Rule)
+            .name
+            .to_string();
+        for (provenance, base) in [(None, "VarX"), (Some(Rule), rule_x.as_str())] {
+            for first in FreshMarker::ALL {
+                for second in FreshMarker::ALL {
+                    let name = with_fresh_marker(&with_fresh_marker(base, first, 3), second, 12);
+                    let minted = MintedName::parse(&name).expect("a minted name");
+                    assert_eq!(minted.provenance, provenance, "{name}");
+                    assert_eq!(minted.base, "VarX", "{name}");
+                    assert_eq!(minted.fresh, [first, second], "{name}");
+                }
+            }
+        }
+        assert_eq!(
+            MintedName::parse("Eq#VarY"),
+            Some(MintedName {
+                provenance: Some(Equation),
+                base: "VarY".into(),
+                fresh: Vec::new(),
+            })
+        );
+        for name in names() {
+            if is_variable_identifier(&name) {
+                assert_eq!(MintedName::parse(&name), None, "{name}");
+            }
         }
     }
 

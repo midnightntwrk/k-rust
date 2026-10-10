@@ -2010,8 +2010,9 @@ endmodule
 }
 
 /// The requires-only `Z` of `pz` reaches the subject `q(Z)` of `qu` while the requires of `pz`
-/// is simplified. The warning for `qu` explains `qu`'s own `B` and does not call `pz`'s `Z` a
-/// variable of `qu`, whether `qu` names its bound variable `A` or `Z`.
+/// is simplified. The warning for `qu` explains `qu`'s own `B` as the equation's variable, and
+/// `pz`'s `Z` as a variable of an equation without calling it a variable of `qu`, whether `qu`
+/// names its bound variable `A` or `Z`.
 #[test]
 fn krun_names_only_the_reported_equations_own_variables() {
     for bound in ["A", "Z"] {
@@ -2037,12 +2038,20 @@ endmodule
             .collect::<Vec<_>>();
         assert_eq!(qu.len(), 1, "{bound}: {warnings:?}");
         assert!(
-            qu[0].contains("(Eq-hVarB is the equation's variable B)"),
+            qu[0].contains("Eq-hVarB is the equation's variable B"),
             "{bound}: {}",
             qu[0]
         );
-        assert!(qu[0].contains("Eq-hVarZ"), "{bound}: {}", qu[0]);
-        assert!(!qu[0].contains("variable Z"), "{bound}: {}", qu[0]);
+        assert!(
+            qu[0].contains("Eq-hVarZ is a variable of an equation, written Z there"),
+            "{bound}: {}",
+            qu[0]
+        );
+        assert!(
+            !qu[0].contains("the equation's variable Z"),
+            "{bound}: {}",
+            qu[0]
+        );
     }
 }
 

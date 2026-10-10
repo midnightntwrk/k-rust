@@ -71,7 +71,6 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
-    fmt,
     sync::Arc,
 };
 
@@ -316,18 +315,6 @@ pub enum SimplificationError {
         reason: UnsupportedHookReason,
         term: Term,
     },
-}
-
-impl fmt::Display for SimplificationError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnsupportedHook { hook, reason, .. } => write!(
-                formatter,
-                "unsupported hook '{hook}' on constructor-like arguments: {reason}"
-            ),
-            _ => write!(formatter, "{self:?}"),
-        }
-    }
 }
 
 /// The result of a simplification inside this module: `?` propagates a stop and a failure alike.

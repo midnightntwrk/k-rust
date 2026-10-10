@@ -32,7 +32,7 @@ use k_rust_backend::{
     fresh::RequestNames,
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
-        HaltReason, IndeterminateReason, Pattern,
+        HaltReason, Pattern,
         execute_disjunction_with_solver_and_io_state_and_observer_with_initial_status,
         execute_disjunction_with_solver_and_observer_with_initial_status, execute_with_solver,
     },
@@ -42,12 +42,12 @@ use k_rust_backend::{
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     simplify::{
-        BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationError,
-        SimplificationOptions, simplify_pattern_with_solver,
+        BudgetSubject, ConditionIndeterminacy, ContradictedTotal, SimplificationOptions,
+        simplify_pattern_with_solver,
     },
-    smt::{SmtError, SmtSolver, TranslationError},
+    smt::SmtSolver,
     stop::StopCause,
-    term::{Sort, Term, TermKind, Variable},
+    term::{Sort, Term, TermKind, Variable, names::MintedName},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
 };
 use num_bigint::BigInt;
@@ -614,17 +614,71 @@ fn printed_predicates(predicates: &[Predicate], result_sort: &Sort) -> String {
         .join(", ")
 }
 
+/// What each name the backend made is, for every variable free in `predicates` whose name
+/// carries a marker and that `listed` does not already explain.
+///
+/// A KORE identifier contains neither `#` nor `!`, and every name the backend makes from
+/// another one adds one of them, so a marked name is never a name of the request or of the
+/// definition: a reader has no other way to know what it stands for. Each marker kind says
+/// what kind of name it is (`VariableProvenance::meaning`, `FreshMarker::meaning`), and the
+/// name it was made from is given as the author wrote it.
+fn minted_name_explanations(
+    predicates: &[Predicate],
+    listed: &[diagnostic::ConditionRuleVariable],
+) -> Vec<String> {
+    let free = predicates
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect::<BTreeSet<_>>();
+    let mut explained = BTreeSet::new();
+    free.iter()
+        .filter(|variable| !listed.iter().any(|rule| rule.variable == **variable))
+        .filter_map(|variable| {
+            let minted = MintedName::parse(&variable.name)?;
+            let printed = externalize::external_variable_name(&variable.name);
+            if !explained.insert(printed.clone()) {
+                return None;
+            }
+            let written = written_variable(&minted.base);
+            let mut sentence = match minted.provenance {
+                Some(provenance) => {
+                    format!(
+                        "{printed} is {}, written {written} there",
+                        provenance.meaning()
+                    )
+                }
+                None => format!("{printed} is a variable based on {written}"),
+            };
+            for marker in minted.fresh {
+                sentence.push_str(", ");
+                sentence.push_str(marker.meaning());
+            }
+            Some(sentence)
+        })
+        .collect()
+}
+
+/// ` (A and B)` for the explanations `A` and `B`, or nothing when there is none.
+fn parenthesized_explanations(explanations: &[String]) -> String {
+    if explanations.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", english_list(explanations))
+    }
+}
+
 /// The warning for an `UndecidedCondition` diagnostic of the equation `rule_id`.
 ///
 /// Its predicates are printed as KORE, where a variable the equation's left-hand side does not
 /// bind keeps the backend's marker (`Eq-hVarY`); the warning says which variable of the
-/// equation each such name is, as the author wrote it (`Y`). An equation whose result has
-/// variables its left-hand side does not bind is not a solver verdict: the backend reports it
-/// only when no other equation rewrote the term and the attempt was not made while simplifying
-/// the condition of an enclosing attempt that was refuted or superseded, so the warning says
-/// that the term was left unevaluated, and why. A solver verdict may be on the equation's
+/// equation each such name is, as the author wrote it (`Y`), and what every other marked name
+/// it prints is (`minted_name_explanations`). An equation whose result has variables its
+/// left-hand side does not bind is not a solver verdict: the backend reports it only when no
+/// other equation rewrote the term and the attempt was not made while simplifying the
+/// condition of an enclosing attempt that was refuted or superseded, so the warning says that
+/// the term was left unevaluated, and why. A solver verdict may be on the equation's
 /// `requires` or on the definedness of the terms its match bound, so its warning names the
-/// predicates without saying which.
+/// predicates without saying which, and says why they were not decided.
 #[allow(clippy::too_many_arguments)]
 fn undecided_condition_message(
     definition: &BackendDefinition,
@@ -637,7 +691,7 @@ fn undecided_condition_message(
 ) -> String {
     let rule = rule_description(definition, rule_id);
     let (predicates, rule_variables) = diagnostic::printable_condition(predicates, rule_variables);
-    let explained = rule_variables
+    let mut explained = rule_variables
         .iter()
         .map(|rule_variable| {
             format!(
@@ -647,11 +701,8 @@ fn undecided_condition_message(
             )
         })
         .collect::<Vec<_>>();
-    let explained = if explained.is_empty() {
-        String::new()
-    } else {
-        format!(" ({})", english_list(&explained))
-    };
+    explained.extend(minted_name_explanations(&predicates, &rule_variables));
+    let explained = parenthesized_explanations(&explained);
     if let ConditionIndeterminacy::UnboundResultVariables(variables) = reason {
         let variables = variables
             .iter()
@@ -677,8 +728,24 @@ fn undecided_condition_message(
         );
     }
     format!(
-        "condition of equation {rule} remained undecided at depth {depth} ({reason:?}, predicates: [{}]){explained}; the result may retain an unresolved condition",
+        "condition of equation {rule} remained undecided at depth {depth} because {reason} (predicates: [{}]){explained}; the result may retain an unresolved condition",
         printed_predicates(&predicates, result_sort),
+    )
+}
+
+/// The warning for an `UndecidedPredicate` diagnostic: the predicate, why it was not decided,
+/// and what every marked name it prints is.
+fn undecided_predicate_message(
+    predicate: &Predicate,
+    reason: &ConditionIndeterminacy,
+    result_sort: &Sort,
+    depth: u64,
+) -> String {
+    let predicates = std::slice::from_ref(predicate);
+    format!(
+        "predicate {} remained undecided at depth {depth} because {reason}{}; the result may retain an unresolved constraint",
+        printed_predicates(predicates, result_sort),
+        parenthesized_explanations(&minted_name_explanations(predicates, &[])),
     )
 }
 
@@ -721,8 +788,8 @@ fn report_diagnostics<'a>(
                 )
             ),
             BackendDiagnostic::UndecidedPredicate { predicate, reason } => eprintln!(
-                "warning: predicate {} remained undecided at depth {depth} ({reason:?}); the result may retain an unresolved constraint",
-                printed_predicates(std::slice::from_ref(predicate), result_sort)
+                "warning: {}",
+                undecided_predicate_message(predicate, reason, result_sort, depth)
             ),
             BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => eprintln!(
                 "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} after budget {limit} was exhausted"
@@ -774,8 +841,9 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Erro
         HaltReason::Stuck | HaltReason::TerminalRule { .. }
     ) {
         return Err(io::Error::other(format!(
-            "captured output requires one complete terminal execution leaf; leaf halted at depth {} with {:?}",
-            leaf.depth, leaf.halt_reason
+            "captured output requires one complete terminal execution leaf; leaf halted at depth {}: {}",
+            leaf.depth,
+            leaf.halt_reason.at(&leaf.pattern.term.sort())
         )));
     }
     details[0].1[0].clone().map_err(|character| {
@@ -1111,7 +1179,7 @@ fn run_backend_with_solver(
         }) {
             return Err(io::Error::other(format!(
                 "in-process backend search was incomplete: {}",
-                describe_incomplete_search(incomplete)
+                incomplete
             ))
             .into());
         }
@@ -1201,7 +1269,8 @@ fn run_backend_with_solver(
             | HaltReason::BreadthBound => false,
         })
     {
-        let reason = describe_failed_halt(&leaf.halt_reason, &leaf.pattern.term.sort());
+        let sort = leaf.pattern.term.sort();
+        let reason = leaf.halt_reason.at(&sort);
         return Err(io::Error::other(format!(
             "in-process backend halted at depth {}: {reason}",
             leaf.depth
@@ -1381,7 +1450,7 @@ fn run_backend_with_solver(
             solver,
         )
         .map_err(|stop| io::Error::other(stop.into_cause().to_string()))?
-        .map_err(pattern_match_error)?;
+        .map_err(|error| pattern_match_error(&error, &target.pattern.term.sort()))?;
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(pattern_matches_output(
                 &matches,
@@ -1424,213 +1493,6 @@ enum IncompleteDisposition {
 
 /// Classify one state a search left unexplored.
 #[deny(clippy::wildcard_enum_match_arm)]
-/// A reader's account of a search entry left incomplete: the reason, the terms it names and the
-/// state's configuration, each term printed in KORE, and the state's depth. The entry's `Debug`
-/// form spells out term internals (attributes, hashes, whole symbol declarations at every node),
-/// which are not part of the reason and grow with the state far faster than its KORE does.
-fn describe_incomplete_search(incomplete: &IncompleteSearch) -> String {
-    let (state, reason) = match incomplete {
-        IncompleteSearch::DepthBound(state) => (state, "the depth bound was reached".to_owned()),
-        IncompleteSearch::BreadthBound(states) => {
-            return format!(
-                "the breadth bound was exceeded with {} states at the frontier",
-                states.len()
-            );
-        }
-        IncompleteSearch::Indeterminate { state, reason } => (
-            state,
-            describe_indeterminate(reason, &state.pattern.term.sort()),
-        ),
-        IncompleteSearch::Stopped { state, cause } => (state, cause.to_string()),
-        IncompleteSearch::Simplification { state, error } => (
-            state,
-            describe_simplification_error(error, &state.pattern.term.sort()),
-        ),
-        IncompleteSearch::Match {
-            state, remainder, ..
-        } => (
-            state,
-            format!(
-                "the match of the target pattern left an undecided remainder:{}",
-                describe_equalities(remainder)
-            ),
-        ),
-        IncompleteSearch::Smt { state, error } => (
-            state,
-            format!("the solver failed: {}", describe_smt_error(error)),
-        ),
-    };
-    format!(
-        "{reason}\nin the state at depth {}:\n{}",
-        state.depth,
-        KorePrinter::pretty(100).print_pattern(&externalize::constrained_pattern(&state.pattern))
-    )
-}
-
-/// The text `krun` prints for a leaf whose halt fails the run, after `in-process backend halted
-/// at depth <n>: `: a stop's own text (`StopCause`'s `Display`), and a simplification error or an
-/// indeterminate outcome with the term it concerns.
-fn describe_failed_halt(reason: &HaltReason, result_sort: &Sort) -> String {
-    match reason {
-        HaltReason::Simplification(error) => describe_simplification_error(error, result_sort),
-        HaltReason::Indeterminate(reason) => describe_indeterminate(reason, result_sort),
-        HaltReason::Stopped(cause) => cause.to_string(),
-        reason @ HaltReason::Stuck
-        | reason @ HaltReason::Trivial { .. }
-        | reason @ HaltReason::Vacuous { .. }
-        | reason @ HaltReason::Branch { .. }
-        | reason @ HaltReason::CutPointRule { .. }
-        | reason @ HaltReason::TerminalRule { .. }
-        | reason @ HaltReason::DepthBound
-        | reason @ HaltReason::BreadthBound => format!("{reason:?}"),
-    }
-}
-
-/// A simplification failure with the term or predicate it names printed in KORE; a predicate is
-/// printed at the sort of the pattern it constrains.
-fn describe_simplification_error(error: &SimplificationError, sort: &Sort) -> String {
-    match error {
-        SimplificationError::UnsupportedHook { term, .. } => format!(
-            "{error}\n{}",
-            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
-        ),
-        SimplificationError::IterationLimit { limit, term } => format!(
-            "simplification reached its limit of {limit} iterations on\n{}",
-            KorePrinter::pretty(100).print_pattern(&externalize::term(term))
-        ),
-        SimplificationError::PredicateIterationLimit { limit, predicate } => format!(
-            "simplification reached its limit of {limit} iterations on the predicate\n{}",
-            describe_predicate(predicate, sort)
-        ),
-        SimplificationError::SmtPredicate { predicate, error } => format!(
-            "the solver failed ({}) on the predicate\n{}",
-            describe_smt_error(error),
-            describe_predicate(predicate, sort)
-        ),
-        SimplificationError::Smt { rule_id, error } => format!(
-            "the solver failed on rule {rule_id}: {}",
-            describe_smt_error(error)
-        ),
-        SimplificationError::Builtin(_)
-        | SimplificationError::DisjunctiveResult { .. }
-        | SimplificationError::InvalidBuiltinResultSymbol { .. } => error.to_string(),
-    }
-}
-
-/// Why a rewrite step could not decide its successors, with the terms and predicates it names
-/// printed in KORE at the sort of the state.
-fn describe_indeterminate(reason: &IndeterminateReason, sort: &Sort) -> String {
-    match reason {
-        IndeterminateReason::SurvivingMacroOrAlias { symbol } => {
-            format!("the macro or alias symbol {symbol} survived into an executable term")
-        }
-        IndeterminateReason::Match {
-            rule_id, remainder, ..
-        } => format!(
-            "rule {rule_id} matched with an undecided remainder:{}",
-            describe_equalities(remainder)
-        ),
-        IndeterminateReason::Instantiation {
-            rule_id,
-            missing_variables,
-        } => format!(
-            "rule {rule_id} leaves {} uninstantiated in concrete execution",
-            missing_variables
-                .iter()
-                .map(|variable| externalize::external_variable_name(&variable.name))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        IndeterminateReason::Requires {
-            rule_id,
-            predicates,
-        } => format!(
-            "the requires clause of rule {rule_id} is undecided:{}",
-            describe_predicates(predicates, sort)
-        ),
-        IndeterminateReason::Smt { rule_id, error } => format!(
-            "the solver failed on rule {rule_id}: {}",
-            describe_smt_error(error)
-        ),
-        IndeterminateReason::Remainder {
-            rule_ids,
-            predicates,
-            satisfiability,
-        } => format!(
-            "the remainder of rules {} is undecided ({}):{}",
-            rule_ids.join(", "),
-            match satisfiability {
-                Ok(satisfiability) => format!("{satisfiability:?}"),
-                Err(error) => describe_smt_error(error),
-            },
-            describe_predicates(predicates, sort)
-        ),
-    }
-}
-
-/// A solver failure; a term a translation failure names is printed in KORE.
-fn describe_smt_error(error: &SmtError) -> String {
-    match error {
-        SmtError::Translation(TranslationError::NonBooleanAnd(term)) => format!(
-            "a term conjunction that is not Boolean cannot be translated: {}",
-            KorePrinter::compact().print_pattern(&externalize::term(term))
-        ),
-        SmtError::Translation(TranslationError::SmtLemmaSurplusMappings { rule_id, terms }) => {
-            format!(
-                "the smt-lemma {rule_id} maps surplus terms: {}",
-                terms
-                    .iter()
-                    .map(|term| KorePrinter::compact().print_pattern(&externalize::term(term)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-        SmtError::Translation(TranslationError::SmtLemmaSurplusPredicates {
-            rule_id,
-            predicates,
-        }) => format!(
-            "the smt-lemma {rule_id} has surplus predicates: {}",
-            predicates.len()
-        ),
-        SmtError::Translation(
-            translation @ (TranslationError::PlaceholderOutOfBounds { .. }
-            | TranslationError::UnsupportedPredicate(_)
-            | TranslationError::ParametricSort(_)
-            | TranslationError::MissingSmtLemmaVariable { .. }),
-        ) => format!("{translation:?}"),
-        error @ (SmtError::Unavailable
-        | SmtError::Unknown(_)
-        | SmtError::InconsistentGroundTruth
-        | SmtError::MissingModel
-        | SmtError::MissingModelValue(_)
-        | SmtError::InvalidModelValue { .. }) => format!("{error:?}"),
-    }
-}
-
-fn describe_predicate(predicate: &Predicate, sort: &Sort) -> String {
-    KorePrinter::pretty(100).print_pattern(&externalize::ml_pattern(predicate, sort))
-}
-
-fn describe_predicates(predicates: &[Predicate], sort: &Sort) -> String {
-    predicates
-        .iter()
-        .map(|predicate| format!("\n{}", describe_predicate(predicate, sort)))
-        .collect()
-}
-
-fn describe_equalities(equalities: &[(Term, Term)]) -> String {
-    equalities
-        .iter()
-        .map(|(left, right)| {
-            format!(
-                "\n{} = {}",
-                KorePrinter::compact().print_pattern(&externalize::term(left)),
-                KorePrinter::compact().print_pattern(&externalize::term(right))
-            )
-        })
-        .collect()
-}
-
 fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDisposition {
     match incomplete {
         IncompleteSearch::DepthBound(_) => IncompleteDisposition::UserLimit,
@@ -1799,8 +1661,11 @@ fn invalid_kore_pattern(
     .into()
 }
 
-fn pattern_match_error(error: PatternMatchError) -> io::Error {
-    io::Error::other(format!("KORE pattern match was indeterminate: {error:?}"))
+fn pattern_match_error(error: &PatternMatchError, sort: &Sort) -> io::Error {
+    io::Error::other(format!(
+        "KORE pattern match was indeterminate: {}",
+        error.at(sort)
+    ))
 }
 
 #[cfg(test)]
@@ -2069,7 +1934,10 @@ mod captured_stdout_tests {
                 vec![&one, &one],
                 "found 2 leaves: constraints=0, stdout stream buffers=1; constraints=0, stdout stream buffers=1",
             ),
-            (vec![&bounded], "leaf halted at depth 7 with DepthBound"),
+            (
+                vec![&bounded],
+                "leaf halted at depth 7: the depth bound was reached",
+            ),
         ] {
             let error = captured_stdout_buffer(&finals).unwrap_err().to_string();
             assert!(error.ends_with(message), "{error}");
@@ -2316,8 +2184,6 @@ mod value_claim_finding_tests {
 mod failed_halt_tests {
     use k_rust_backend::{rewrite::HaltReason, stop::StopCause, term::Sort};
 
-    use super::describe_failed_halt;
-
     /// A stopped leaf is reported with its cause's text, which names the stack the simplifier
     /// exhausted, not with the variant's `Debug` form (`Stopped(StackExhausted)`).
     #[test]
@@ -2327,9 +2193,118 @@ mod failed_halt_tests {
             StopCause::Cancelled,
         ] {
             assert_eq!(
-                describe_failed_halt(&HaltReason::Stopped(cause.clone()), &Sort::simple("SortK")),
+                HaltReason::Stopped(cause.clone())
+                    .at(&Sort::simple("SortK"))
+                    .to_string(),
                 cause.to_string()
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod undecided_reason_tests {
+    use k_rust_backend::{
+        definition::BackendDefinition, simplify::ConditionIndeterminacy, smt::TranslationError,
+        term::Sort,
+    };
+
+    /// An undecided condition's warning says why in words: a reason is a fact about the solver
+    /// or the encoding (it was not asked, it answered `unknown` with its reason, it could not
+    /// pose the query), not a Rust value, so no reason's `Debug` text appears in the warning.
+    #[test]
+    fn every_undecided_reason_is_stated_in_words() {
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            "[] module MAIN sort SortS{} [] endmodule []",
+        )
+        .expect("the definition parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+        let reasons = [
+            ConditionIndeterminacy::NoSolver,
+            ConditionIndeterminacy::ImplicationIndeterminate,
+            ConditionIndeterminacy::SmtUnknown("timeout".into()),
+            ConditionIndeterminacy::InconsistentPathCondition,
+            ConditionIndeterminacy::Untranslatable(TranslationError::UnsupportedPredicate("\\in")),
+            ConditionIndeterminacy::NonFunctionalBinding,
+        ];
+        let mut in_debug = Vec::new();
+        for reason in &reasons {
+            let message = super::undecided_condition_message(
+                &definition,
+                "r",
+                reason,
+                &[],
+                &[],
+                &Sort::simple("SortS"),
+                0,
+            );
+            if message.contains(&format!("{reason:?}")) {
+                in_debug.push(message);
+            }
+        }
+        assert!(in_debug.is_empty(), "{in_debug:#?}");
+    }
+
+    /// Every name a warning prints is the user's or explained: a variable free in the
+    /// predicates whose name carries a marker gets a sentence that starts with its printed
+    /// name, and a name read from KORE, which carries none, gets no sentence.
+    #[test]
+    fn every_marked_name_a_warning_prints_is_explained() {
+        use k_rust_backend::{
+            externalize::external_variable_name,
+            rule::Predicate,
+            term::{
+                Term, Variable,
+                names::{FreshMarker, VariableProvenance, with_fresh_marker},
+            },
+        };
+
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            "[] module MAIN sort SortS{} [] endmodule []",
+        )
+        .expect("the definition parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes");
+        let sort = Sort::simple("SortS");
+        let mut names = vec!["VarUser".to_owned()];
+        for provenance in VariableProvenance::ALL {
+            let marked = Variable::new("VarX", sort.clone())
+                .with_provenance(provenance)
+                .name
+                .to_string();
+            names.push(marked.clone());
+            for marker in FreshMarker::ALL {
+                names.push(with_fresh_marker(&marked, marker, 4));
+                names.push(with_fresh_marker("VarZ", marker, 7));
+            }
+        }
+        let predicates = names
+            .iter()
+            .map(|name| Predicate::Ceil(Term::variable(Variable::new(name.as_str(), sort.clone()))))
+            .collect::<Vec<_>>();
+        for (index, predicate) in predicates.iter().enumerate() {
+            let reason = ConditionIndeterminacy::SmtUnknown("timeout".into());
+            let condition = super::undecided_condition_message(
+                &definition,
+                "r",
+                &reason,
+                std::slice::from_ref(predicate),
+                &[],
+                &sort,
+                0,
+            );
+            let predicate = super::undecided_predicate_message(predicate, &reason, &sort, 0);
+            let printed = external_variable_name(&names[index]);
+            let explained = format!("{printed} is ");
+            for message in [condition, predicate] {
+                assert_eq!(
+                    message.contains(&explained),
+                    index != 0,
+                    "{}: {message}",
+                    names[index]
+                );
+            }
         }
     }
 }
