@@ -19,8 +19,9 @@ from support.lock import k_version
 from support.pins import Ledger
 from support.reference import (
     Cache, Key, Output, Pin, Placeholders, Promotion, Snapshot, cache_root, child_arguments, dump_manifest,
-    indented_json, json_sorted_lists, json_without_members, reduce_kprove_temp, reduce_store_paths,
-    renumbered_kore_generated_variables, sorted_kore_claims, sorted_kore_imports, substitute,
+    indented_json, json_sorted_lists, json_without_members, reduce_k_util_temp, reduce_kprove_temp,
+    reduce_lambda_suffixes, reduce_run_dependent_text, reduce_store_paths, renumbered_kore_generated_variables,
+    sorted_kore_claims, sorted_kore_imports, substitute,
 )
 
 
@@ -304,6 +305,31 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "unknown streams"):
             live.run("kompile/other", "kompile", [], timeout=30, streams={"stdin": str})
 
+    def test_a_live_run_reduces_run_dependent_tool_text_before_its_own_reducers(self) -> None:
+        tool = self.base / "fake-krun"
+        tool.write_text(textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import random, string, sys
+            name = "".join(random.choice(string.ascii_letters) for _ in range(10))
+            print(f"kore-exec: [{{random.randrange(1000)}}] Warning")
+            print(f"[Error] krun: /tmp/.krun-2026-10-09-07-36-54-{{name}}/result.kore", file=sys.stderr)
+            """
+        ), encoding="utf-8")
+        tool.chmod(0o755)
+        self.executables = {"kompile": str(tool)}
+        for name in ("first", "second"):
+            workspace = self.workspace(name)
+            live = self.open(workspace, record=True)
+            process = live.run(
+                "kompile/definition", "kompile", [], timeout=30,
+                streams={"stderr": lambda text: text.replace("TMPDIR", "T")},
+            )
+            self.assertEqual(process.stdout, "kore-exec: [-] Warning\n")
+            self.assertEqual(process.stderr, "[Error] krun: T/.krun-TEMP/result.kore\n")
+            live.finish()
+        self.assertEqual(len(set(self.entries())), 1, "both runs store one identical entry")
+
     def test_live_run_needs_declared_tools_and_unique_labels(self) -> None:
         workspace = self.workspace("live")
         live = self.open(workspace)
@@ -521,6 +547,37 @@ class FormatTests(unittest.TestCase):
             reduce_store_paths(f'Source{{}}("{prelude}")'),
             'Source{}("NIX-STORE/include/kframework/builtin/domains.md")',
         )
+
+    def test_run_dependent_tool_text_is_reduced(self) -> None:
+        krun = (
+            "[Error] krun: \n/w/kompiled/casts/interpreter \n"
+            "/tmp/.krun-2026-10-09-07-36-54-2rkCSFPOOA/tmp.in.aXIOefeInT -1 \n"
+            "/tmp/.krun-2026-10-09-07-36-54-2rkCSFPOOA/result.kore\n"
+        )
+        self.assertEqual(
+            reduce_k_util_temp(krun),
+            "[Error] krun: \n/w/kompiled/casts/interpreter \n"
+            "TMPDIR/.krun-TEMP/tmp.in.TEMP -1 \nTMPDIR/.krun-TEMP/result.kore\n",
+        )
+        self.assertEqual(
+            reduce_k_util_temp("/var/tmp/x/.krun-2026-10-10-01-02-03-Ab3dEf9hIj/tmp.in.args.Q1w2E3r4T5"),
+            "TMPDIR/.krun-TEMP/tmp.in.args.TEMP",
+        )
+        log = "kore-exec: [59432] Warning (WarnStuckClaimState):\n    kore-exec: [1] is not a log line\n"
+        self.assertEqual(
+            reduce_run_dependent_text(log),
+            "kore-exec: [-] Warning (WarnStuckClaimState):\n    kore-exec: [1] is not a log line\n",
+        )
+        self.assertEqual(
+            reduce_lambda_suffixes(
+                "[Warning] Compiler: Non exhaustive match detected: `#lambdaE__3`(swap(_))\n"
+                "#lambdaE__ ( 3 ) #lambdaE_2_pair_12 ( x ) #lambdaP__"
+            ),
+            "[Warning] Compiler: Non exhaustive match detected: `#lambdaE__N`(swap(_))\n"
+            "#lambdaE__N ( 3 ) #lambdaE_2_pair_N ( x ) #lambdaP__N",
+        )
+        unrelated = "/tmp/.krun-notes/tmp.in.short and /w/.kprove-2026-10-06-20-12-08-516-838284b1/spec.kore #lambdas"
+        self.assertEqual(reduce_run_dependent_text(unrelated), unrelated)
 
     def test_placeholders_round_trip_and_reject_collisions(self) -> None:
         placeholders = Placeholders(Path("/nonexistent/work"))

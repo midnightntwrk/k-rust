@@ -27,6 +27,12 @@ text too, so live and replayed runs check the same evidence.
 attributes, from a JSON file; `indented_json` spells a JSON document one member
 per line so a stored proof result or claim reads and diffs as text;
 `substitute` rewrites a regular expression.
+Before any of these, a live run applies `reduce_run_dependent_text` to both
+streams of every invocation: the K tools themselves print text that differs
+between runs of one invocation (the number before each `kore-exec` log line,
+the temporary directory and files of a shell-wrapped tool such as `krun`, and
+the suffix K's frontend gives a generated `#lambda` label), so no snapshot that
+records it could be reproduced.
 A declared output whose path the tool chooses (such as the `spec.kore` that
 `kprove --dry-run` writes under a fresh directory in its `--temp-dir`) names a
 `locate` function; a live run reads the file it finds, and both modes leave
@@ -315,6 +321,51 @@ def substitute(pattern: str, replacement: str) -> Callable[[str], str]:
 
 reduce_kore_exec_log = substitute(r"(?m)^kore-exec: \[\d+\]", "kore-exec: [-]")
 """kore-exec prefixes each log line with a run-dependent number; no comparator reads it."""
+
+_K_UTIL_TEMP = re.compile(r"[^\s'\"]*/\.(k[a-z]*)-[0-9]{4}(?:-[0-9]{2}){5}-[A-Za-z0-9]{10}(?![A-Za-z0-9])")
+_K_UTIL_TEMP_FILE = re.compile(r"(\.k[a-z]*-TEMP/tmp\.(?:[^\s/'\"]+\.)?)[A-Za-z0-9]{10}(?![A-Za-z0-9])")
+
+
+def reduce_k_util_temp(text: str) -> str:
+    """Replace the temporary directory, and the `mktemp` files in it, of a shell-wrapped K tool.
+
+    K's `k-util.sh` creates `<TMPDIR>/.<tool>-<date and time>-XXXXXXXXXX` for
+    each run of a tool such as `krun`, which names it and its
+    `tmp.<kind>.XXXXXXXXXX` files in an error message; the directory becomes
+    `TMPDIR/.<tool>-TEMP` and each file `tmp.<kind>.TEMP`.
+    """
+
+    text = _K_UTIL_TEMP.sub(lambda match: f"TMPDIR/.{match.group(1)}-TEMP", text)
+    return _K_UTIL_TEMP_FILE.sub(lambda match: f"{match.group(1)}TEMP", text)
+
+
+_K_LAMBDA = re.compile(r"(#lambda[^\s()`'\"]*_)[0-9]*(?![A-Za-z0-9_])")
+
+
+def reduce_lambda_suffixes(text: str) -> str:
+    """Replace the suffix of every generated `#lambda<hint1>_<hint2>_<n>` label with `N`.
+
+    K's `ResolveFun` numbers the lambdas that share both hints in an order
+    that depends on hashes of the sentences, source paths included, so one
+    kompile names a lambda differently on different runs; its warnings and
+    `krun`'s output of a stuck lambda application print that name. A label
+    whose hint contains a parenthesis or quote is left as it is; a stored KORE
+    definition is renumbered by `krs-gate kore-canonicalize` instead.
+    """
+
+    return _K_LAMBDA.sub(r"\1N", text)
+
+
+def reduce_run_dependent_text(text: str) -> str:
+    """Remove the text that a K tool prints differently on each run of one invocation.
+
+    A live run applies it to both streams of every invocation before the
+    invocation's own reducers: `reduce_kore_exec_log`, `reduce_k_util_temp`,
+    and `reduce_lambda_suffixes`.
+    """
+
+    return reduce_lambda_suffixes(reduce_k_util_temp(reduce_kore_exec_log(text)))
+
 
 reduce_kprove_temp = substitute(r"\.kprove-[0-9a-f-]+", ".kprove-TEMP")
 """kprove names its directory under `--temp-dir` by time and a random UUID; no comparator reads it."""
@@ -828,7 +879,8 @@ class Snapshot:
         replay writes the stored text back to the same paths.
         `prefix` names a wrapper command (such as `timeout`) and its options;
         its first element is resolved on PATH only in a live run.
-        `streams` maps `stdout` or `stderr` to a reducer applied before storing.
+        `streams` maps `stdout` or `stderr` to a reducer applied before storing,
+        after `reduce_run_dependent_text`, which a live run applies to both.
         `stdin` names a file fed to the tool's standard input; its digest is an
         input of the invocation, recorded under `<stdin>`.
         """
@@ -898,7 +950,10 @@ class Snapshot:
                     output.path.parent.mkdir(parents=True, exist_ok=True)
                     output.path.write_text(text, encoding="utf-8")
                 stored_outputs[self.placeholders.store(os.fspath(output.path))] = self.placeholders.store(text)
-        observed = {"stdout": process.stdout or "", "stderr": process.stderr or ""}
+        observed = {
+            "stdout": reduce_run_dependent_text(process.stdout or ""),
+            "stderr": reduce_run_dependent_text(process.stderr or ""),
+        }
         for stream, reduce in reducers.items():
             observed[stream] = reduce(observed[stream])
         invocation = _Invocation(
