@@ -522,7 +522,7 @@ fn lower_initializer_state(
                 .iter()
                 .map(|item| lower_term(&item.value.term, None))
                 .collect::<Result<Vec<_>, _>>()?;
-            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents)?;
+            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)?;
             let key = sequence
                 .payload_key
                 .as_ref()

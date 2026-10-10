@@ -16,8 +16,8 @@
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
     "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
     "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a",
-    "krs-builtin-io-hooks": "2dbfbf059defb2f31882024ebf8e65892b3194df8cafb5aa861288fcad750d7b",
-    "krs-builtin-io-log": "c62ade9df1c6e1b25082bed1bc5425842c22a800f06a84801f0caf0eaaf7badc"
+    "krs-builtin-io-hooks": "432ae6232d161e7b477307ac1b9e95ab2f664979d9d7e53b8fa7d608beda68a5",
+    "krs-builtin-io-log": "9eea5006bf5dc831fbb7bb014fd6e33ccc7c7dff56c5dfc58ebdcc00775cc71d"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -66,10 +66,10 @@
       "definition.k": "9e3a91ad4f7170aa710f52074e010e1571dea871e642caf597d5d822de98554a"
     },
     "krs-builtin-io-hooks": {
-      "definition.k": "5f5293bce73a52308dc0d482ced5d962118604cb2c58ae355fdaa4ebd30d5d0c"
+      "definition.k": "9f0558b8eeb7ee00b6bfbeb4f58a4645a0429e2c883c4f465d45f9abdb772724"
     },
     "krs-builtin-io-log": {
-      "definition.k": "079b9e5beaeb28250fd73e392fbcdd10235ed05e9902f089e0af24978ada6e56"
+      "definition.k": "946c2f5d8868d192266ff703c60704aa133347920372113d314ebce8c9350eb7"
     }
   },
   "reference_sha256": {
@@ -88,8 +88,8 @@
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
     "krs-builtin-sort-tests": "c41edd003f0d01f1fbcb91eeef1e81d66b26ffd87b54c66a5194460e5c916507",
-    "krs-builtin-io-hooks": "935a01ab48e30d381e565cc03e9547eebb2d6395027e5cc5f0e7352e74ec348d",
-    "krs-builtin-io-log": "35cc879e0c300c29c62bdd622bffce4cd7eea0568893bf71149bed5fbea37480"
+    "krs-builtin-io-hooks": "00c98e87c19d62e3a698c023a2ceb9688c89b5dcf8eb4a7f7a46945fe47d0f19",
+    "krs-builtin-io-log": "b383fb21fb73ae21e2040c7422ff2ac8988ef2f8e8e21042418362684278c5bb"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -990,7 +990,7 @@
       "error[krs::analysis::invalid-sort-test]: `k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"
     ],
     "io-hooks-run": [
-      "error[krs::capability::unavailable]: route `native-rust` refuses this definition: definition contains direct console writes (`io::write`, `io::putc`) [bye, hello]; the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm"
+      "error[krs::capability::unavailable]: route `native-rust` refuses this definition: definition contains direct console writes (`io::write`, `io::putc`) [both, bye, hello]; the in-process k-rust backend gives `#write` and `#putc` no console state, so they cannot run; append to a `stream = \"stdout\"` cell instead, or run the emitted K with Java K's krun or build with --backend llvm"
     ]
   },
   "raw_warnings": {
@@ -1016,6 +1016,10 @@
       "bye": {
         "stdout": "A",
         "status": 0
+      },
+      "both": {
+        "stdout": "hi\nA",
+        "status": 0
       }
     }
   },
@@ -1038,7 +1042,35 @@
           "stderr": "traced\n",
           "status": 0
         }
+      },
+      "twice": {
+        "java-run": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "java-search": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "native-run": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        },
+        "native-search": {
+          "stderr": "one\ntraced\n",
+          "status": 0
+        }
       }
+    }
+  },
+  "kore_comparison": {
+    "krs-builtin-io-hooks": {
+      "summary": "PASS native KORE: reference=3119 native=3119 reference_projector_pairs=0 native_projector_pairs=0 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
+      "report_sha256": "4d6db4000f826d6fd694220ed0d710d3fa40d0cf10efbbf0d0f3acbb86b58442"
+    },
+    "krs-builtin-io-log": {
+      "summary": "PASS native KORE: reference=3114 native=3114 reference_projector_pairs=0 native_projector_pairs=0 reference_injective_withheld=0 native_transport_rewrites=8 reference_lambda_symbols=0 native_lambda_symbols=0",
+      "report_sha256": "eaa867f9fef2d1545c55205a29b7d751986787c3771a814dca753b7ebc45dee1"
     }
   }
 }

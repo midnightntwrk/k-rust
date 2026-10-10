@@ -902,7 +902,8 @@ fn lower_head_rule_computation_clause(
             .collect::<Result<Vec<_>, _>>()?,
         krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
     };
-    let result_item_sort = common_sequence_item_sort(descriptor, &result_items, sort_parents)?;
+    let result_item_sort =
+        common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
     let after_k = SemanticTerm::k_sequence(
         semantic_origin(descriptor, rule.result_key.clone(), "completed-k-result")?,
         result_item_sort,
@@ -1009,8 +1010,12 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                     .iter()
                     .map(|item| self.builder.lower(&item.value, None, subject))
                     .collect::<Result<Vec<_>, _>>()?;
-                let item_sort =
-                    common_sequence_item_sort(descriptor, &items, self.builder.sort_parents)?;
+                let item_sort = common_sequence_item_sort(
+                    descriptor,
+                    &items,
+                    self.builder.sort_parents,
+                    !subject,
+                )?;
                 let key = sequence.payload_key.as_ref().unwrap_or(fallback_key);
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "readable-k-sequence")?,

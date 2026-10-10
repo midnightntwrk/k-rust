@@ -42,17 +42,22 @@ operation, and a corpus of programs that apply them to concrete values:
   it with the `ConsoleIO` requirement;
 - `io-hooks`: the direct console writes `io::write` and `io::putc` (K's
   `#write` and `#putc`). The programs `hello` and `bye` print `hi` and a
-  newline, and `A`, through Java K's `krun --output none` on the LLVM backend.
+  newline, and `A`, through Java K's `krun --output none` on the LLVM backend;
+  `both` writes and then continues with `bye` in one rule, because a `K`-sorted
+  item splices into a `[..]` result as K's `~>` does, and prints both.
   KRS records the `ConsoleWriteHook` requirement, which the in-process k-rust
   backend lacks because it has no console state: `krs run` refuses the
   definition with the pinned `krs::capability::unavailable` message before
-  compiling it, while `krs build --backend llvm` accepts it;
+  compiling it, while `krs build --backend llvm` accepts it and writes the
+  same `definition.kore` as Java K's LLVM kompile (`krs-gate kore-compare`);
 - `io-log`: `io::log` (K's `#log`, hook `IO.logString`). The program `trace`
-  logs the line `traced`: `krs run` and `krs search` write it to standard
+  logs the line `traced`, and `twice` logs `one` and continues with `trace` in
+  one rule: `krs run` and `krs search` write the lines to standard
   error before their own status lines, and Java K's `krun` and `krun --search`
   on the LLVM backend (kompiled with `--enable-search`) write the same bytes
   to standard error. Like every `K-IO` operation it records the `ConsoleIO`
-  requirement, which only the browser route lacks;
+  requirement, which only the browser route lacks. The native
+  `definition.kore` agrees with Java K's;
 - `sort-tests`: K's generated sort predicates and projections (KF-013),
   `k::is!(S, t)` (`isS(T)`) and `k::project!(S, t)` (`{T}:>S`), in term rules
   and readable clauses, in results and guards: `chk(5)` is `true`,
@@ -335,10 +340,14 @@ IO_STDIN = "3\n4\n"
 IO_EXPECTED = {"stdout": "7", "status": 7}
 
 HOOKS = Fixture(MANIFEST, "krs-builtin-io-hooks")
-HOOKS_EXPECTED = {"hello": {"stdout": "hi\n", "status": 0}, "bye": {"stdout": "A", "status": 0}}
+HOOKS_EXPECTED = {
+    "hello": {"stdout": "hi\n", "status": 0},
+    "bye": {"stdout": "A", "status": 0},
+    "both": {"stdout": "hi\nA", "status": 0},
+}
 
 LOG = Fixture(MANIFEST, "krs-builtin-io-log")
-LOG_EXPECTED = {"trace": "traced\n"}
+LOG_EXPECTED = {"trace": "traced\n", "twice": "one\ntraced\n"}
 """The standard error of each `io-log` program on Java K, which `krs run` and `krs search` must print first."""
 
 K_EQUAL = (
@@ -553,8 +562,8 @@ def console_hooks(harness: FixtureGate) -> None:
         (row["feature"], row["symbol"]) for row in symbols.get("capability_requirements") or ()
     )
     if requirements != [
-        ("ConsoleIO", "bye"), ("ConsoleIO", "hello"),
-        ("ConsoleWriteHook", "bye"), ("ConsoleWriteHook", "hello"),
+        ("ConsoleIO", "both"), ("ConsoleIO", "bye"), ("ConsoleIO", "hello"),
+        ("ConsoleWriteHook", "both"), ("ConsoleWriteHook", "bye"), ("ConsoleWriteHook", "hello"),
     ]:
         raise GateError(f"{HOOKS.package}: symbols.json records {requirements!r} as the capability requirements")
     source = emitted.source.read_text(encoding="utf-8")
@@ -562,6 +571,7 @@ def console_hooks(harness: FixtureGate) -> None:
         "  // krs-capability: ConsoleWriteHook hello\n",
         '<k> hello => #write(1, "hi\\n") ... </k>',
         "<k> bye => #putc(1, 65) ... </k>",
+        '<k> both => #write(1, "hi\\n") ~> bye ... </k>',
     ):
         if line not in source:
             raise GateError(f"{HOOKS.package}: emitted K lacks {line!r}")
@@ -583,6 +593,7 @@ def console_hooks(harness: FixtureGate) -> None:
             "--backend", "llvm", "--output-definition", compiled,
         ],
         timeout=900,
+        outputs=(harness.java_kore_output(emitted, compiled),),
     )
     if kompiled.returncode != 0:
         raise GateError(f"{HOOKS.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
@@ -606,13 +617,14 @@ def console_hooks(harness: FixtureGate) -> None:
     if refused.stdout:
         raise GateError(f"{HOOKS.package}: krs run printed {refused.stdout!r} before refusing")
     harness.pins.expect(("diagnostics", "io-hooks-run"), lines)
-    harness._krs(  # noqa: SLF001
-        HOOKS, "build", "--backend", "llvm", "--output", harness.workspace / "native-llvm" / HOOKS.package,
-    )
+    native_llvm = harness.workspace / "native-llvm" / HOOKS.package
+    harness._krs(HOOKS, "build", "--backend", "llvm", "--output", native_llvm)  # noqa: SLF001
     krs_gate.require_route(harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment)
+    harness.compare_kore(emitted, native=native_llvm)
     print(
-        f"PASS {HOOKS.package}: Java K prints {HOOKS_EXPECTED['hello']['stdout']!r} and "
-        f"{HOOKS_EXPECTED['bye']['stdout']!r}; krs run refuses the definition and krs build --backend llvm accepts it"
+        f"PASS {HOOKS.package}: Java K prints {HOOKS_EXPECTED['hello']['stdout']!r}, "
+        f"{HOOKS_EXPECTED['bye']['stdout']!r}, and {HOOKS_EXPECTED['both']['stdout']!r}; krs run refuses the "
+        "definition, and krs build --backend llvm accepts it with the same KORE as Java K"
     )
 
 
@@ -636,10 +648,10 @@ def console_log(harness: FixtureGate) -> None:
     requirements = sorted(
         (row["feature"], row["symbol"]) for row in symbols.get("capability_requirements") or ()
     )
-    if requirements != [("ConsoleIO", "trace")]:
+    if requirements != [("ConsoleIO", "trace"), ("ConsoleIO", "twice")]:
         raise GateError(f"{LOG.package}: symbols.json records {requirements!r} as the capability requirements")
     source = emitted.source.read_text(encoding="utf-8")
-    for line in ('<k> trace => #log("traced") ... </k>',):
+    for line in ('<k> trace => #log("traced") ... </k>', '<k> twice => #log("one") ~> trace ... </k>'):
         if line not in source:
             raise GateError(f"{LOG.package}: emitted K lacks {line!r}")
 
@@ -660,6 +672,7 @@ def console_log(harness: FixtureGate) -> None:
             "--backend", "llvm", "--enable-search", "--output-definition", compiled,
         ],
         timeout=900,
+        outputs=(harness.java_kore_output(emitted, compiled),),
     )
     if kompiled.returncode != 0:
         raise GateError(f"{LOG.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
@@ -689,9 +702,10 @@ def console_log(harness: FixtureGate) -> None:
         observed[name] = outcomes
     print(f"PASS builtin-domains {LOG.package} reference snapshot: {k.finish()}")
     harness.pins.expect(("console_log", LOG.package), observed)
+    harness.compare_kore(emitted)
     print(
         f"PASS {LOG.package}: krs run, krs search, krun, and krun --search write the same "
-        "io::log lines to standard error"
+        "io::log lines to standard error, and the native KORE agrees with Java K's"
     )
 
 

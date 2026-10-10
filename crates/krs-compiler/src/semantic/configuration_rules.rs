@@ -161,7 +161,8 @@ impl StateRuleTerms<'_> {
                     .iter()
                     .map(|item| self.term(&item.value, None, binding_sorts, subject))
                     .collect::<Result<Vec<_>, _>>()?;
-                let item_sort = common_sequence_item_sort(descriptor, &items, self.sort_parents)?;
+                let item_sort =
+                    common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)?;
                 let key = sequence
                     .payload_key
                     .as_ref()

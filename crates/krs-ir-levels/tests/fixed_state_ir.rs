@@ -51,6 +51,8 @@ struct Variants {
     complete_step_frame: bool,
     valid_initializer_order: bool,
     valid_update: bool,
+    /// The `var` rule's matched sequence has item sort `K` instead of `Expr`.
+    k_sequence_items: bool,
 }
 
 impl Default for Variants {
@@ -61,6 +63,7 @@ impl Default for Variants {
             complete_step_frame: true,
             valid_initializer_order: true,
             valid_update: true,
+            k_sequence_items: false,
         }
     }
 }
@@ -238,7 +241,11 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
                 k.clone(),
                 DefinitionTerm::k_sequence(
                     node("rule.var.k.before"),
-                    expr.clone(),
+                    if variants.k_sequence_items {
+                        DefinitionSortRef::k_sequence()
+                    } else {
+                        expr.clone()
+                    },
                     vec![variable(
                         "rule.var.x.before",
                         "variable.x",
@@ -420,6 +427,18 @@ fn builtin_id_can_be_added_post_hoc_as_an_expr_subsort() {
         .unwrap_err(),
         DefinitionValidationError::SequenceItemSortMismatch
     );
+}
+
+#[test]
+fn every_item_fits_a_sequence_whose_items_are_k() {
+    // K's `~>` takes `K` operands, so a K-sorted item splices into a sequence
+    // and every other item injects into `KItem`: the `Id` item needs no subsort.
+    calc_definition(Variants {
+        include_id_subsort: false,
+        k_sequence_items: true,
+        ..Variants::default()
+    })
+    .unwrap();
 }
 
 #[test]

@@ -360,6 +360,11 @@ class FixtureGate:
     def _java_kore(self, emitted: Emitted) -> Path:
         return self.workspace / "java-kore" / emitted.fixture.package / "definition.kore"
 
+    def java_kore_output(self, emitted: Emitted, compiled: Path) -> Output:
+        """The snapshot output that stores the `definition.kore` of a Java kompile into `compiled` for `compare_kore`."""
+
+        return Output(self._java_kore(emitted), self._kore_reducer(emitted), lambda: compiled / "definition.kore")
+
     def _kore_reducer(self, emitted: Emitted):
         """Reduce Java K's `definition.kore` and renumber its lambda families with `krs-gate kore-canonicalize`.
 
@@ -381,10 +386,13 @@ class FixtureGate:
 
         return reduce
 
-    def compare_kore(self, emitted: Emitted) -> dict[str, str]:
+    def compare_kore(self, emitted: Emitted, *, native: Path | None = None) -> dict[str, str]:
         """Compare the native `definition.kore` with Java K's in the main module, and pin the result.
 
-        Java K's definition is the one `_java_outcomes(..., kore=True)` stored.
+        Java K's definition is the one `_java_outcomes(..., kore=True)` (or a
+        kompile with the `java_kore_output` output) stored. `native` names a
+        native artifact directory already built, such as a `--backend llvm`
+        build; by default the fixture is built with `krs build`.
         The comparison must pass, or fail with the first line the ledger
         declares as `known_divergences.<package>."definition.kore"`.
         """
@@ -393,7 +401,7 @@ class FixtureGate:
         java = self._java_kore(emitted)
         if not java.is_file():
             raise GateError(f"{package}: Java K's definition.kore was not stored; run its programs with kore=True")
-        native = self.build(emitted.fixture) / "definition.kore"
+        native = (native or self.build(emitted.fixture)) / "definition.kore"
         process = subprocess.run(
             [os.fspath(self.gate), "kore-compare", os.fspath(java), os.fspath(native), emitted.main_module],
             cwd=ROOT, env={**os.environ, **self.environment}, text=True,
@@ -444,9 +452,7 @@ class FixtureGate:
                 lambda: compiled / "syntaxDefinition.kore",
             ),)
         if kore:
-            outputs = (*outputs, Output(
-                self._java_kore(emitted), self._kore_reducer(emitted), lambda: compiled / "definition.kore",
-            ))
+            outputs = (*outputs, self.java_kore_output(emitted, compiled))
         process = k.run(
             "kompile/definition", "kompile",
             [

@@ -195,12 +195,24 @@ pub(super) struct DeclarationCatalog<'a> {
     pub(super) metadata: &'a BTreeMap<StableItemId, DescriptorDeclaration>,
 }
 
+/// The item sort of a `[..]` sequence: its items' one most-specific common sort.
+///
+/// In a rule result (`splice`), an item of sort `K` (`io::write`, `io::putc`, `io::log`)
+/// splices into the sequence as K's `~>` does: the sequence's items then have sort `K`, and
+/// every other item injects into `KItem`. A pattern keeps the single common sort.
 pub(super) fn common_sequence_item_sort(
     descriptor: &Descriptor,
     items: &[SemanticTerm],
     parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    splice: bool,
 ) -> Result<SemanticSortRef, DescriptorLoweringError> {
     if items.is_empty() {
+        return Ok(SemanticSortRef::k_sequence());
+    }
+    let k_item = items
+        .iter()
+        .any(|item| *item.sort() == SemanticSortRef::k_sequence());
+    if splice && k_item {
         return Ok(SemanticSortRef::k_sequence());
     }
     let mut common = semantic_sort_closure(items[0].sort(), parents);
@@ -220,7 +232,13 @@ pub(super) fn common_sequence_item_sort(
     let [item_sort] = most_specific.as_slice() else {
         return Err(DescriptorLoweringError::InvalidTerm {
             id: Box::new(descriptor.id().clone()),
-            detail: "K sequence items do not have one most-specific common sort".into(),
+            detail: if k_item {
+                "K sequence items do not have one most-specific common sort; a `K` item splices \
+                 into a sequence only in a rule result"
+                    .into()
+            } else {
+                "K sequence items do not have one most-specific common sort".into()
+            },
         });
     };
     Ok(item_sort.clone())

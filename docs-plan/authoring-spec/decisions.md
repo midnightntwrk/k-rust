@@ -263,6 +263,15 @@ bug — report it, don't guess.
   framed (never unanchored context-closure — an oracle-parity hazard).
   The right side is a term, a spliced sequence `k![a, b]` (K's `~>`), or
   `()` (K's `.K`). `use` is block-local. [r5, r6c, r6h; 09]
+  *E1 note: a `K` item splices into a result sequence (2026-10).* An item
+  of sort `K`, such as `io::write`, `io::putc`, or `io::log`, may stand
+  anywhere in a result sequence beside `KItem`s, and splices into it as
+  K's `~>` does (`k: [io::write(1, "hi\n"), Next(), ..]` is K's
+  `#write(1, "hi\n") ~> next ~> REST`, KORE `append`). The sequence's
+  items then have sort `K`, so a rule that writes and continues is one
+  rule, not two. Patterns and configuration initializers keep the single
+  most-specific common item sort, and a `K` item beside `KItem`s there is
+  still an error.
 - **E2 — Clauses are unordered and expand to independent named rules.**
   Overlap is a static diagnostic (ISLE posture), never first-wins.
   Labels default to the clause name with `_` → `-`; raw identifiers

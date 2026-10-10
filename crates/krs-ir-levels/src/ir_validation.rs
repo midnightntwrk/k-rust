@@ -1903,7 +1903,11 @@ pub(crate) fn validate_term<L: Validation>(
                     cell_ids,
                     nodes,
                 )?;
-                if !is_subsort::<L>(item.sort(), item_sort, sort_parents) {
+                // K's `~>` takes `K` operands, so every item fits a sequence whose items are
+                // `K`: a K-sorted item splices into it and any other item injects into `KItem`.
+                if *item_sort != L::builtin_sort(BuiltinSort::KSequence)
+                    && !is_subsort::<L>(item.sort(), item_sort, sort_parents)
+                {
                     return Err(L::error(ValidationError::SequenceItemSortMismatch));
                 }
             }

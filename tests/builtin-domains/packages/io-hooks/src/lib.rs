@@ -2,7 +2,9 @@
 //!
 //! `hello` writes the string `hi` and a newline to file descriptor 1 with K's
 //! `#write`, and `bye` writes the byte 65 (`A`) with `#putc`. Both evaluate to
-//! the empty computation. Java K's LLVM backend performs the writes; KRS's
+//! the empty computation. `both` writes `hi` and a newline and continues with
+//! `bye` in the same rule: the `K`-sorted `#write` item splices into the
+//! sequence as K's `~>` does. Java K's LLVM backend performs the writes; KRS's
 //! in-process k-rust backend has no console state, so `krs run` refuses the
 //! definition before compiling it (`ConsoleWriteHook`). A `stream` cell is the
 //! portable way to print.
@@ -15,13 +17,15 @@ k::sorts! {
 
 /// A statement that writes to standard output.
 #[k::constructors(sort = Stmt, result = k::KResult)]
-#[k::precedence((Hello, Bye))]
+#[k::precedence((Hello, Bye, Both))]
 #[rustfmt::skip]
 pub enum StmtSyntax {
     #[k::syntax("hello")]
     Hello(),
     #[k::syntax("bye")]
     Bye(),
+    #[k::syntax("both")]
+    Both(),
 }
 
 #[k::configuration]
@@ -53,5 +57,12 @@ k::rules! {
         k: [Bye(), ..]
     } => {
         k: [io::putc(1, 65), ..]
+    };
+
+    /// `both` writes a line and then continues with `bye`.
+    both: {
+        k: [Both(), ..]
+    } => {
+        k: [io::write(1, "hi\n"), Bye(), ..]
     };
 }

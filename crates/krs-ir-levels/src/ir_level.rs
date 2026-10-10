@@ -1581,7 +1581,8 @@ pub enum IrTermKind<L: IrLevel> {
     },
     /// Explicit ordered K computation sequence.
     KSequence {
-        /// Declared sort into which sequence items must inject (`KItem`).
+        /// Declared sort into which sequence items must inject (`KItem`), or `K` when an item
+        /// is K-sorted and splices into the sequence as K's `~>` does.
         item_sort: L::Sort,
         /// Items in computation order.
         items: Vec<IrTerm<L>>,
