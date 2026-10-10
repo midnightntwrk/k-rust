@@ -28,6 +28,7 @@
 use std::collections::BTreeSet;
 
 use k_rust_backend::{
+    confluence::ViolationKind,
     definition::BackendDefinition,
     externalize,
     rewrite::Pattern,
@@ -543,6 +544,27 @@ fn variable_indexed_equation() -> String {
     )
 }
 
+/// `ListItem(K) _List_ .List = ListItem(g(2)) requires K = inj(g(1))`, which internalizes to an
+/// equation whose left-hand side is a list pattern (indexed at `List`), equating `g(1)` and
+/// `g(2)`.
+fn list_indexed_equation() -> String {
+    equation(
+        "Lbl'Unds'List'Unds'",
+        &["SortList{}", "SortList{}"],
+        "SortList{}",
+        &["LblListItem{}(VarK:SortKItem{})", "Lbl'Stop'List{}()"],
+        &format!(
+            "LblListItem{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}(g{{}}({})))",
+            int(2)
+        ),
+        &format!(
+            "\\equals{{SortKItem{{}}, R}}(VarK:SortKItem{{}}, inj{{SortFoo{{}}, SortKItem{{}}}}(g{{}}({})))",
+            int(1)
+        ),
+        r#"UNIQUE'Unds'ID{}("list-indexed")"#,
+    )
+}
+
 const G_HEAD: &str = r"
     symbol a{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
     symbol g{}(SortInt{}) : SortFoo{} [anywhere{}(), value-production{}()]
@@ -551,54 +573,62 @@ const G_HEAD: &str = r"
 /// An equation the check does not reason about (a precondition row: headed by a free
 /// constructor or an injection, or indexed at a collection or a bare variable) has overlaps the
 /// check never classifies, so it is withdrawn like a pair that does not join: every equation
-/// head it mentions loses its claims. Here the row's equation equates `ListItem(g(1))`
-/// with `ListItem(g(2))`, so `g` cannot keep its freeness claim.
+/// head it mentions loses its claims. Here each fixture's row equates `ListItem(g(1))` with
+/// `ListItem(g(2))`, so `g` cannot keep its freeness claim: one row is indexed at a bare variable,
+/// the other at a collection (`List`).
 #[test]
 fn every_precondition_row_seeds_the_closure() {
-    let definition = definition(
-        G_HEAD,
-        &[
-            anywhere("g", &["SortInt{}"], "SortFoo{}", &[&int(0)], "a{}()"),
-            variable_indexed_equation(),
-        ],
-    );
-    let claims = definition.value_claims();
-    let tainted = claims
-        .tainted_symbols()
-        .iter()
-        .map(|name| name.as_ref().to_owned())
-        .collect::<BTreeSet<_>>();
-    let mut rows = 0;
     let mut failures = Vec::new();
-    for violation in claims.violations() {
-        let Some(rule) = &violation.rule else {
-            continue;
-        };
-        if !violation.kind.withdraws() {
-            continue;
+    for (row, index) in [
+        (variable_indexed_equation(), TermIndex::Variable),
+        (list_indexed_equation(), TermIndex::List),
+    ] {
+        let definition = definition(
+            G_HEAD,
+            &[
+                anywhere("g", &["SortInt{}"], "SortFoo{}", &[&int(0)], "a{}()"),
+                row,
+            ],
+        );
+        let claims = definition.value_claims();
+        let tainted = claims
+            .tainted_symbols()
+            .iter()
+            .map(|name| name.as_ref().to_owned())
+            .collect::<BTreeSet<_>>();
+        let mut rows = 0;
+        for violation in claims.violations() {
+            let Some(rule) = &violation.rule else {
+                continue;
+            };
+            if !violation.kind.withdraws() {
+                continue;
+            }
+            if violation.kind == ViolationKind::IndexedAt(index.clone()) {
+                rows += 1;
+            }
+            let mut heads = BTreeSet::new();
+            equation_heads(&rule.lhs, &mut heads);
+            for term in rhs_terms(&rule.rhs) {
+                equation_heads(term, &mut heads);
+            }
+            for predicate in rule.requires.iter() {
+                predicate.visit_terms(&mut |term| equation_heads(term, &mut heads));
+            }
+            let missing = heads.difference(&tainted).collect::<Vec<_>>();
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "{} ({:?}) mentions {missing:?}, which keep their claims",
+                    rule.attributes.unique_id, violation.kind
+                ));
+            }
         }
-        rows += 1;
-        let mut heads = BTreeSet::new();
-        equation_heads(&rule.lhs, &mut heads);
-        for term in rhs_terms(&rule.rhs) {
-            equation_heads(term, &mut heads);
-        }
-        for predicate in rule.requires.iter() {
-            predicate.visit_terms(&mut |term| equation_heads(term, &mut heads));
-        }
-        let missing = heads.difference(&tainted).collect::<Vec<_>>();
-        if !missing.is_empty() {
-            failures.push(format!(
-                "{} ({:?}) mentions {missing:?}, which keep their claims",
-                rule.attributes.unique_id, violation.kind
-            ));
-        }
+        assert!(
+            rows > 0,
+            "the fixture has no row indexed at {index:?}: {:?}",
+            claims.violations()
+        );
     }
-    assert!(
-        rows > 0,
-        "the fixture has no precondition row: {:?}",
-        claims.violations()
-    );
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
@@ -711,6 +741,8 @@ fn bar_definition(declarations: &str, pattern: &str, axioms: Vec<String>) -> Bac
 ///
 /// - The `Variable`-indexed equation `L = ListItem(g(2)) requires L = ListItem(g(1))` equates
 ///   `g(1)` and `g(2)`; only its precondition row's seed withdraws `g`.
+/// - The `List`-indexed equation `ListItem(K) = ListItem(g(2)) requires K = inj(g(1))` equates
+///   them too; only its precondition row's seed withdraws `g`.
 /// - `r(0) = hh(5)` beside `r(0) = hh(6)` equates the total `hh(5)` and `hh(6)`; the pair does
 ///   not join, and T-obs does not reach `hh` (the pair has no variable), so only T-sym withdraws
 ///   it, hooked or not. The unhooked `hh` is the control.
@@ -727,6 +759,15 @@ fn no_kept_claim_is_contradicted_by_two_equations() {
     );
     let subject = format!("bar{{}}(g{{}}({}))", int(1));
     failures.push(("variable-indexed equation", simplified(&variable, &subject)));
+    let list = bar_definition(
+        G_HEAD,
+        &format!("g{{}}({})", int(2)),
+        vec![
+            anywhere("g", &["SortInt{}"], "SortFoo{}", &[&int(0)], "a{}()"),
+            list_indexed_equation(),
+        ],
+    );
+    failures.push(("list-indexed equation", simplified(&list, &subject)));
     for hooked in [false, true] {
         let hh = if hooked {
             r#"hooked-symbol hh{}(SortInt{}) : SortFoo{} [anywhere{}(), functional{}(), hook{}("TSYM.hh")]"#
