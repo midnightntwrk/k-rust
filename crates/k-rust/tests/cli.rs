@@ -2896,13 +2896,13 @@ fn krun_io_off_preserves_non_utf8_stdin_bytes() {
     );
 }
 
-/// K's krun builds `$STDIN` under `--io off` from `$(</dev/stdin)` fed through a bash
-/// here-string into its escaping awk script (krun:557-558): the command substitution strips
-/// every trailing newline, the here-string appends one, and awk emits every record with `ORS`.
-/// The buffered text is therefore standard input with its trailing newlines replaced by exactly
-/// one, also when standard input is empty (`#buffer("\n")` in regression-new/imp++-llvm
-/// div.imp.out; `printf 'ab' | krun ... --io off` gives `"ab\n"` in
-/// tests/fixtures/reference/cli/io/off.kore). Interior newlines and other bytes are kept.
+/// Under `--io off` a definition's `$STDIN` is standard input read to end of file as text, with
+/// its trailing newlines replaced by exactly one (`docs/compatibility.md`, "Backend scope"): the
+/// buffer always ends in one newline, also when standard input is empty (`"\n"`) or does not end
+/// in one (`"ab"` gives `"ab\n"`), and keeps no empty line after its last line (`"ab\n\n\n"`
+/// gives `"ab\n"`).
+/// Interior newlines, carriage returns and every other byte are kept as read. Search runs with
+/// the console off, so `--search-final` buffers alike.
 #[test]
 fn krun_io_off_buffers_stdin_with_its_trailing_newlines_replaced_by_one() {
     let fixtures =
