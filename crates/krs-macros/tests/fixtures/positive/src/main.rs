@@ -540,7 +540,7 @@ fn increment(
     language_host::builtin::int::add(value, 1)
 }
 
-#[language_host::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2)]
+#[language_host::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 1)]
 pub struct Identifier(pub String);
 
 impl KItem for Identifier {}
@@ -2348,7 +2348,7 @@ mod tests {
         assert!(matches!(
             &token.attributes[..],
             [HostProductionAttribute::Token { lexical_precedence: Some(precedence), .. }]
-                if precedence.value == 2
+                if precedence.value == 1
         ));
 
         assert!(descriptors.iter().any(|descriptor| {
