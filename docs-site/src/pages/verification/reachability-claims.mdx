@@ -152,9 +152,16 @@ The name defaults to `<k-namespace>-<UPPER-KEBAB(mod name)>`.
 
 An identifier in a spec-module claim must be lexed by a token production the module sees, because K parses the module's claims with its own grammar and `Id` has no identifier syntax outside programs.
 That is why the definition adds the `$`-identifier token: the claim can write `$n` where a claim outside a spec module needs `#token("$n","Id")`.
-The token may instead live in the spec module itself when only its proofs need the names; `kompile` then never sees it:
+The token may instead live in the spec module itself when only its proofs need the names; `kompile` then never sees it.
+
+A package may hold nothing but spec modules, as a K lesson's `-spec.k` file adds claims to a language it does not change.
+This lesson package depends on lesson 1.22's language crate and adds one claim:
 
 ```rust
+// Cargo package `krs-verification-surface-l22-lesson`, k-namespace "KRS-L22-LESSON",
+// with a Cargo dependency on the language package `krs-verification-surface-l22`.
+use krs_verification_surface_l22::{Machine, StmtSyntax};
+
 #[k::spec_module(name = "LESSON-SPEC", imports = [crate])]
 mod lesson_spec {
     use super::*;
@@ -165,9 +172,18 @@ mod lesson_spec {
 }
 ```
 
+The package's definition module is emitted empty and imports the language, so `definition.k` is the language and nothing else; `spec.k` holds the token and the claim:
+
+```text
+module KRS-L22-LESSON
+  imports KRS-L22
+  imports KRS-L22-LESSON-SYNTAX
+endmodule
+```
+
 ```text
 module LESSON-SPEC
-  imports KRS-L22
+  imports KRS-L22-LESSON
   ...
   syntax Id ::= r"\\$[a-zA-Z0-9_]+" [token]
 
@@ -176,6 +192,8 @@ module LESSON-SPEC
     <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>
 endmodule
 ```
+
+`krs prove --spec-module LESSON-SPEC` and `kprove spec.k --spec-module LESSON-SPEC` both prove it.
 
 KRS rejects, with `krs::analysis::invalid-spec-module`, a sort, constructor, function, rule, equation, or configuration in a spec module, an `smt_lemma` lemma there (kore-exec hands only the definition's lemmas to Z3), an import cycle, a spec module whose imports never reach the definition's main module, a reused module name, and an identifier no visible token lexes.
 Spec modules do not nest, and only the main package's spec modules are part of a build: a dependency's spec modules are its own proof inputs.
@@ -273,7 +291,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 | Circular all-path | Current; the complete IMP fixture authors two specimens. | Current but proof-result-sensitive: `sum-spec` is proved, while `two-sum-spec` retains one incomplete frontier at depth 100 and branching bound 64. |
 | Trusted all-path | Current; the verification-surface fixture emits `[trusted]`. | Current; `krs prove` reports the trusted claim `trusted` and proves the claim that applies it, and Java `kprove` proves the same spec; without the trusted claim both routes fail. |
 | One-path | Accepted by parsing, lowering, and emission. | Unqualified; there is no positive end-to-end proof specimen. |
-| In an author spec module | Current; the verification-surface fixture emits two spec modules in import order before the generated module. | Current; `krs prove --spec-module IMP-SUM-SPEC` and Java `kprove --spec-module IMP-SUM-SPEC` both prove the circular sum claim over `$`-identifiers. |
+| In an author spec module | Current; the verification-surface fixture emits two spec modules in import order before the generated module, and a package of only spec modules with an empty definition module. | Current; `krs prove --spec-module IMP-SUM-SPEC` and Java `kprove --spec-module IMP-SUM-SPEC` both prove the circular sum claim over `$`-identifiers, and both prove `LESSON-SPEC` in a package of only spec modules. |
 | With matching-logic `requires`, `ensures`, or predicate-simplification lemmas | Current; the verification-surface fixture emits K tutorial lesson 1.22's lemmas and claims with `#Equals`, `#Not`, `#And`, `#Ceil`, and `#Exists`. | Current; `krs prove` and Java `kprove` both prove `branch`, `div-eq`, and the `#Exists` postcondition, and both fail `branch` without the lemma module. |
 
 “Current” does not mean every true-looking claim closes within every bound.

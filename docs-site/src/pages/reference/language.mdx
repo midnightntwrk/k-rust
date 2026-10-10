@@ -28,7 +28,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::desugar]` | one-way static expansion, K's `macro`; with `recursive` on the production, `macro-rec` (and `#[k::alias(recursive)]` is `alias-rec`) | [Desugar and recursive aliases](#desugar-and-recursive-aliases) |
 | `#[k::simplification]` | logical normalization lemma | [Static semantics](/semantics/static-semantics) |
 | `#[k::claim]` | reachability proof sentence | [Reachability claims](/verification/reachability-claims) |
-| `#[k::spec_module(name = "..", imports = [..])]` | an author K proof module on an inline `mod`: its claims, simplification lemmas, and tokens for existing sorts, emitted into `spec.k` and proved with `krs prove --spec-module NAME` | [Spec modules](/verification/reachability-claims#spec-modules) |
+| `#[k::spec_module(name = "..", imports = [..])]` | an author K proof module on an inline `mod`: its claims, simplification lemmas, and tokens for existing sorts, emitted into `spec.k` and proved with `krs prove --spec-module NAME`; a package may hold only spec modules | [Spec modules](/verification/reachability-claims#spec-modules) |
 | `#[k::symbol("public::Name")]` | pinned public identity for a sort or standalone constructor; place it immediately before that KRS declaration attribute | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
