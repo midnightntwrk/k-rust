@@ -293,7 +293,8 @@ pub struct ValueClaimFinding {
 /// executable equations that does not provably join and withdraws a value claim, naming both
 /// equations with their written positions, the overlapped term, why the check does not join
 /// it, and the equation heads and overloaded symbols that get no value claim. An equation the
-/// evaluator never applies as written (`ComputedBelowRoot`, `UnboundResultVariables`) is named
+/// evaluator does not apply to every subject it describes (`ComputedBelowRoot`,
+/// `UnboundResultVariables`) is named
 /// as such whether or not the definition makes claims, with the claims it withdraws if any;
 /// an equation paired with itself because its map or set pattern matches one subject in several
 /// ways (`SeveralMatches`) is named as that pair. An inner pair whose second equation, rooted at
@@ -352,8 +353,8 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                 withdrawn_symbols(&pair.withdrawn)
             )
         } else if alone {
-            // An equation the evaluator never applies as written: reported whether or not the
-            // definition makes claims, naming the claims it withdraws where there are some.
+            // An equation the evaluator does not apply to every subject it describes: reported
+            // whether or not the definition makes claims, naming the claims it withdraws where there are some.
             let claims = if pair.withdrawn.is_empty() {
                 String::new()
             } else {
@@ -362,11 +363,22 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                     withdrawn_symbols(&pair.withdrawn)
                 )
             };
-            format!(
-                "the equation {} is never applied by the evaluator ({}){claims}",
-                equation(&pair.first),
-                pair.reason,
-            )
+            if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
+                // The equation matches the application as written: it applies where the subject
+                // spells the same application (a stuck or symbolic one), never where the
+                // argument holds the value the application computes.
+                format!(
+                    "the equation {} is applied only where its argument spells the application, never to the value it computes ({}){claims}",
+                    equation(&pair.first),
+                    pair.reason,
+                )
+            } else {
+                format!(
+                    "the equation {} is never applied by the evaluator ({}){claims}",
+                    equation(&pair.first),
+                    pair.reason,
+                )
+            }
         } else {
             let overlap = pair.overlap.as_ref().map(|overlap| {
                 let mut text = KorePrinter::compact().print_pattern(&externalize::term(overlap));
@@ -2168,7 +2180,7 @@ mod value_claim_finding_tests {
             [
                 (
                     "fa-id".to_owned(),
-                    "the equation fa-id is never applied by the evaluator (the left-hand side holds an application of `pf` below its root, which the evaluator never rewrites to it)".to_owned()
+                    "the equation fa-id is applied only where its argument spells the application, never to the value it computes (the left-hand side holds an application of `pf` below its root, which the evaluator never rewrites to it)".to_owned()
                 ),
                 (
                     "fb-id".to_owned(),

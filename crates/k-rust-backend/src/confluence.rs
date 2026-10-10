@@ -741,16 +741,17 @@ pub enum UnjoinedReason {
     /// bind: the evaluator never applies it, yet it is an axiom.
     UnboundResultVariables,
     /// The equation's left-hand side holds an application of a declared function, a macro or an
-    /// uninterpreted symbol below its root: the evaluator never applies it to normal-form
-    /// arguments, yet it is an axiom.
+    /// uninterpreted symbol below its root: the evaluator applies it only where the subject
+    /// spells that application, never where the argument holds the value the application
+    /// computes, yet it is an axiom.
     ComputedBelowRoot(Name),
     /// A right-hand side the join does not read (a disjunction, `\top` or predicates).
     UnsupportedRightHandSide,
 }
 
 impl UnjoinedReason {
-    /// Whether the reason is about one equation alone, not a pair: an equation the evaluator never
-    /// applies as written, although the definition states it as an axiom.
+    /// Whether the reason is about one equation alone, not a pair: an equation the evaluator does
+    /// not apply to every subject it describes, although the definition states it as an axiom.
     #[must_use]
     pub fn describes_one_equation(&self) -> bool {
         matches!(
