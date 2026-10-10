@@ -895,12 +895,20 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 /// reported as too large (`ResultTooLarge`) instead of computed, and the application stays
 /// unevaluated.
 ///
-/// The floor is where a refused result could not be used in reasonable time anyway. An `Int` is
-/// held as its decimal domain value and read back on every hook application on it, and reading
-/// decimal grows quadratically in the length (num-bigint 0.4.8, release build): about 1.3 s at
-/// 2^22 bits and 4.8 s at 2^23 bits, which a run can afford a few times, but 20 s at 2^24 bits,
-/// 71 s at 2^25 bits, and days at 2^32 bits. Computing and writing the value cost less (0.6 s
-/// and 1.7 s at 2^24 bits).
+/// The floor bounds time, not memory: the cost of converting an `Int` between decimal text and
+/// binary. A term holds an `Int` as its decimal domain value (`int_term` writes it with
+/// `to_string`), and every hook application on it parses that text again (`read_int`), so a
+/// value is paid for once per use, not once per run. Parsing decimal is quadratic in the length
+/// in num-bigint 0.4.8, four times the work per doubling (release build, `perf stat` user
+/// instructions: 2.2·10^10 at 2^22 bits, 8.7·10^10 at 2^23, 3.5·10^11 at 2^24, 1.4·10^12 at
+/// 2^25; on a loaded host 1.2 s, 5.2 s, 23 s and 75 s), so one read of a 2^32-bit value would
+/// take days. Rendering grows more slowly (at most 4·10^10 instructions, 3 s, at 2^24 bits).
+/// The floor is where a refused result could not be used in reasonable time anyway: a run can
+/// afford a few reads of a 2^23-bit value, not of a 2^25-bit one. It is a judgment about that
+/// cost, not a property of the semantics, and it is fixed rather than read from the host: a
+/// faster host divides the times by a constant, which leaves the growth unchanged. Memory is not
+/// what it bounds: a 2^24-bit value is 2 MiB, 5,050,446 bytes of decimal text, far below what a
+/// process may use (`Bytes` and `List` results are capped by that instead, see `ResultCap`).
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The most bytes one `padRightBytes`, `padLeftBytes` or `Int2Bytes` application holds at once,
