@@ -128,7 +128,7 @@
       "error[E0277]: a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `Exp`: write `Choose::<dyn ExpSort>`"
     ],
     "readable-turbofish-marker": [
-      "error[krs::rust-expansion::uncoded-error]: a readable clause names the sort in a turbofish, not its marker `dyn ExpSort`: write `crate::Choose::<Exp>`; `krs expand` renders the marker"
+      "error[krs::expand::turbofish-spelling]: a readable clause names the sort in a turbofish, not its marker `dyn ExpSort`: write `crate::Choose::<Exp>`; `krs expand` renders the marker"
     ]
   },
   "capability_requirements": {
