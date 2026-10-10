@@ -58,7 +58,11 @@ partition end to end on both routes:
 - `lists`: `#[k::syntax_list]` declares K's `List{Int, ","}` and a `NeList`
   with the derived symbols `intsCons`/`intsNil` and `altsCons`/`altsNil`;
   `sum(1, 2, 3)` is `6` and `sum(7)` is `7` on both routes, while
-  `sum(1, .Ints)` and the empty `count()` are rejected on both;
+  `sum(1, .Ints)` and the empty `count()` are rejected on both. The native
+  definition, like the emitted K, leaves the field `items` unnamed, so K's
+  record form `sum(... items: 1, 2)` is rejected on both routes, and the
+  `format` of `sum` and `count` in `syntaxDefinition.kore` agrees (pinned),
+  so a stuck `sum()` prints as `sum ( .Ints )`;
 - `strict-lists`: K's `Vals` idiom. `Exps` is a `seqstrict` list and
   `impl Exps for Vals` makes `Vals` its value list, so both list sentences
   carry `overload(expsCons)`; call arguments evaluate left to right to a
@@ -180,6 +184,7 @@ LISTS_PROGRAMS = (
     ),
     Program("sum-one", "sum(7)", "accepted", "7"),
     Program("sum-terminator", "sum(1, .Ints)", "rejected"),
+    Program("sum-record", "sum(... items: 1, 2)", "rejected"),
     Program(
         "count-three", "count(1 | 2 | 3)", "accepted", "3",
         kast='count(altsCons(#token("1","Int"),altsCons(#token("2","Int"),'
@@ -187,6 +192,7 @@ LISTS_PROGRAMS = (
     ),
     Program("count-empty", "count()", "rejected"),
 )
+LISTS_ATTRIBUTES = (("sum", "count"), ("format",))
 LISTS_SOURCE_FRAGMENTS = (
     'syntax Ints ::= List{Int, ","} [symbol(intsCons), terminator-symbol(intsNil)]',
     'syntax Alts ::= NeList{Int, "|"} [symbol(altsCons), terminator-symbol(altsNil)]',
@@ -575,7 +581,7 @@ def main() -> int:
         for fragment in LISTS_SOURCE_FRAGMENTS[2:]:
             if fragment not in lists_source:
                 raise GateError(f"lists: emitted K omits {fragment!r}")
-        harness.compare(lists, LISTS_PROGRAMS, sort="Exp")
+        harness.compare(lists, LISTS_PROGRAMS, sort="Exp", attributes=LISTS_ATTRIBUTES)
         print("PASS lists: sum(1, 2, 3) is 6 on both routes; .Ints and an empty NeList are not program syntax")
 
         harness.check(STRICT_LISTS)

@@ -16,8 +16,10 @@ When two lambdas remain in one class, the comparator names them in either order 
 Unlike k-rust's own N23 suffix collapse, this keeps each lambda's declaration, its equations, and its uses associated, so a body exchanged between two uses remains a difference.
 The summary line reports the number of renamed symbols on each route as `reference_lambda_symbols` and `native_lambda_symbols`.
 
-The structured native adapter may add named Rust-field projections. Such a
-sentence is excluded only after the comparator proves a complete pair:
+A native definition whose non-terminals are named gains K's named field
+projections. The structured native adapter leaves non-terminals unnamed, as the
+emitted K does, so complete IMP has none (`native_projector_pairs=0`); the
+comparator still excludes such a sentence only after it proves a complete pair:
 
 - exactly one unhooked unary function declaration with an exact encoded
   `project:<owner>:<field>` identity;

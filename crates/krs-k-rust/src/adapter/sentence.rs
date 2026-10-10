@@ -172,10 +172,14 @@ impl Adapter<'_> {
                     GrammarProductionItemKind::Terminal { text } => {
                         Ok(NativeItem::Terminal(text.clone()))
                     }
-                    GrammarProductionItemKind::NonTerminal { field, sort } => {
+                    // Unnamed, as the emitted K writes it: K derives record
+                    // productions (`sum(... items: I)`) from a named
+                    // non-terminal of a prefix production, which Java K would
+                    // then not parse, and k-rust prints through.
+                    GrammarProductionItemKind::NonTerminal { sort, .. } => {
                         Ok(NativeItem::NonTerminal {
                             sort: self.sort(sort, item.origin())?,
-                            name: Some(field.as_str().to_owned()),
+                            name: None,
                         })
                     }
                     GrammarProductionItemKind::RegexTerminal {

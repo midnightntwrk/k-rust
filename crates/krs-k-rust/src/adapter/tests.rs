@@ -969,14 +969,16 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
         panic!("grammar production must remain native")
     };
     assert_eq!(label.name, "applyTwice");
-    assert!(
-        matches!(items[1], ProductionItem::NonTerminal { ref name, .. }
-        if name.as_deref() == Some("left"))
-    );
-    assert!(
-        matches!(items[3], ProductionItem::NonTerminal { ref name, .. }
-        if name.as_deref() == Some("right"))
-    );
+    // Non-terminals stay unnamed, as in the emitted K, so k-rust derives no
+    // record production (`applyTwice(... left: L, right: R)`).
+    assert!(matches!(
+        items[1],
+        ProductionItem::NonTerminal { name: None, .. }
+    ));
+    assert!(matches!(
+        items[3],
+        ProductionItem::NonTerminal { name: None, .. }
+    ));
     assert_eq!(attributes.get_str("group"), Some("application"));
     assert_eq!(attributes.get_str("format"), Some("%1%2 %4%5"));
     assert_eq!(attributes.get_str("seqstrict"), Some("2"));

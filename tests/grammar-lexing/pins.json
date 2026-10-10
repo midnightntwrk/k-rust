@@ -80,7 +80,7 @@
     "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
     "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
     "krs-grammar-layout": "b2c919376686d4ef725d5e8e661707a4ca44b8c0c03b60e868e34487eeff2b7e",
-    "krs-grammar-lists": "4539b5bf0f0a925702f8839f72f1417c8be3132ed4b1008cfa258ebb07dda903",
+    "krs-grammar-lists": "80798e106ac55d6a7fad01a51153dd1ce0f051e2ff744e813e1ad4cf6ecf483d",
     "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec"
   },
   "outcomes": {
@@ -249,6 +249,10 @@
         "parse": "rejected",
         "run": null
       },
+      "sum-record": {
+        "parse": "rejected",
+        "run": null
+      },
       "count-three": {
         "parse": "accepted",
         "run": "3"
@@ -385,7 +389,8 @@
     "krs-grammar-overload-ambiguous": "dot \nlvalDot \n",
     "krs-grammar-visibility": "inc \nwrap \n",
     "krs-grammar-memo": "square memo=''\n",
-    "krs-grammar-strict-lists": "expsCons \nexpsNil \nvalsCons \nvalsNil \noverload LblexpsCons LblvalsCons\noverload LblexpsNil LblvalsNil\n"
+    "krs-grammar-strict-lists": "expsCons \nexpsNil \nvalsCons \nvalsNil \noverload LblexpsCons LblvalsCons\noverload LblexpsNil LblvalsNil\n",
+    "krs-grammar-lists": "sum format='%csum%r %c(%r %1 %c)%r'\ncount format='%ccount%r %c(%r %1 %c)%r'\n"
   },
   "induced_rejections": {
     "visibility": {
