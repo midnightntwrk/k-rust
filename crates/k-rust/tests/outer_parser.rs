@@ -1244,8 +1244,11 @@ outer_snapshot!(
 "#}
 );
 
+/// A list declaration `S ::= List{E, sep}` is accepted only as a whole production whose sort
+/// `S` is neither `K` nor its own element sort `E`: each of the other three shapes gets its own
+/// diagnostic, and an `NeList` of another sort is accepted.
 #[test]
-fn list_declaration_checks_match_the_frontend_categories() {
+fn list_declarations_of_k_of_their_own_element_or_inline_are_rejected() {
     let source = indoc! {r#"
         module LISTS
           syntax K ::= List{Exp, ","}

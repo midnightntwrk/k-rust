@@ -2876,7 +2876,7 @@ fn krun_io_off_preserves_non_utf8_stdin_bytes() {
 /// div.imp.out; `printf 'ab' | krun ... --io off` gives `"ab\n"` in
 /// tests/fixtures/reference/cli/io/off.kore). Interior newlines and other bytes are kept.
 #[test]
-fn krun_io_off_buffers_stdin_in_the_reference_here_string_shape() {
+fn krun_io_off_buffers_stdin_with_its_trailing_newlines_replaced_by_one() {
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/io");
     let cases: [(&[u8], &[&str], &str); 5] = [
@@ -3792,7 +3792,7 @@ fn krun_surface_pattern_reports_command_line_parse_locations() {
 }
 
 #[test]
-fn symbolic_depth_two_result_covers_the_reference_leaves_and_the_depth_bound_frontier() {
+fn symbolic_depth_two_result_holds_the_stuck_leaves_and_the_path_at_the_depth_bound() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let (root, _) = fixture();
@@ -4953,7 +4953,7 @@ fn krun_reports_an_unsupported_hook_with_a_nonzero_exit() {
 }
 
 #[test]
-fn default_search_binds_the_reference_result_variable() {
+fn search_without_a_pattern_binds_each_answer_to_var_result() {
     let (root, definition) = branching_search_fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .args([
@@ -6145,7 +6145,7 @@ fn kore_implies_returns_the_matching_condition() {
 }
 
 #[test]
-fn kore_implies_follows_the_reference_special_case_matrix() {
+fn kore_implies_decides_bottom_and_top_operands_and_refuses_a_top_antecedent() {
     let (root, _) = fixture();
     let definition = root.join("definition.kore");
     fs::write(

@@ -735,8 +735,8 @@ fn rule_grammar(resolved: &ResolvedDefinition, module: ModuleId) -> Result<Gramm
         })
         .collect::<BTreeSet<_>>();
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule)?;
-    // KSEQ is implicit in the reference rule grammar. Preserve its bracket's
-    // priority contract when adding the concrete brackets supplied by our seed.
+    // `~>` (KSEQ) belongs to the rule grammar of every definition without a module declaring it;
+    // its bracket keeps the priority contract of the brackets the seed adds.
     let default_bracket = implicit_kseq_bracket(resolved);
     add_rule_k_syntax(
         &mut grammar,

@@ -3513,7 +3513,8 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             trusted: options.trusted_claims,
         },
     )?;
-    // `Kore.Exec.assertSomeClaims`: the reference aborts on a filtered module with no claims.
+    // An empty selection after filtering proves nothing; it means the claim filter or module names
+    // no claim, which a vacuous success would hide.
     if kept.is_empty() {
         return Err("the selected module contains no modal reachability claims".into());
     }
@@ -3941,8 +3942,10 @@ mod tests {
         assert_eq!(buffered_stdin_bytes(vec![b'x', 0x80]), [b'x', 0x80, b'\n']);
     }
 
+    /// An exit status has 8 bits, so an `Int` result is taken modulo 256 (-1 gives 255, 256 gives
+    /// 0); a result that is not an integer value has no exit code.
     #[test]
-    fn exit_code_maps_reference_integer_values() {
+    fn exit_code_is_the_integer_result_modulo_256() {
         let value = |value: &str| Term::domain_value(BackendSort::simple("SortInt"), value);
 
         assert_eq!(term_exit_code(&value("0")), Some(0));
