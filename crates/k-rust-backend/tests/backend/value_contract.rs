@@ -1525,7 +1525,6 @@ fn no_axiom_equates_two_values_the_backend_keeps_apart() {
 /// is `ra`. The hook's value is stated here by the unit law, because evaluating `ListItem(g(1))`
 /// applies the equation itself.
 #[test]
-#[ignore = "fails until K5 (oi/w1-claims)"]
 fn an_equation_on_a_hooked_symbol_agrees_with_the_hook_where_claims_are_kept() {
     let declarations = r#"
         hooked-sort SortList{}

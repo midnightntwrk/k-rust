@@ -586,7 +586,6 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
 /// instance denotes itself, the right-hand side the collection of its evaluated entries, and the
 /// two hold values the claims keep apart.
 #[test]
-#[ignore = "fails until K5 (oi/w1-claims)"]
 fn an_equation_on_a_hooked_collection_agrees_with_the_hook_where_claims_are_kept() {
     on_large_stack(|| {
         let mut rng = Rng(DEFAULT_SEED);
