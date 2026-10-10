@@ -10642,79 +10642,128 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Generate a Flex/Bison parser (`kast --gen-parser`) for `definition`'s `module` and start sort
-/// `Pgm`, run it on every program, and run the in-process parser on every program in one
-/// `--batch-case`/`--batch-reject-case` call; both must accept exactly the programs marked
-/// accepted.
+/// The differential of the two parsers krust builds for one grammar: the generated Flex/Bison
+/// parser (`kast --gen-parser` for `syntax_module` and start sort `Pgm`) and the in-process parser
+/// (`krun --depth 0` of the definition compiled with `main_module` and `syntax_module`, whose `<k>`
+/// cell holds the parsed program). Both are builds of one function from program text to a term,
+/// so on every program they must agree: both accept it and give it the same term once injections
+/// are removed (an injection places a term at a sort, it is not part of what was written), or
+/// both reject it, the in-process parser with a parse error. Each program must also be accepted
+/// exactly when it is marked accepted, and what the generated parser prints is KORE, whose
+/// string literals are printable ASCII.
 #[cfg(unix)]
-fn assert_both_scanners_decide(definition_source: &str, module: &str, programs: &[(String, bool)]) {
-    let (root, definition) = fixture();
-    fs::write(&definition, definition_source).unwrap();
-    let parser = root.join("anchor-parser");
-    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+fn assert_parsers_give_each_program_one_term(
+    definition_source: &str,
+    main_module: &str,
+    syntax_module: &str,
+    programs: &[(String, bool)],
+) {
+    let (root, parser) = generate_parser(definition_source, syntax_module, &[]);
+    let definition = root.join("definition.k");
+    let kompiled = root.join("kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
         .args([
-            "kast",
-            definition.to_str().unwrap(),
-            "--module",
-            module,
-            "--sort",
-            "Pgm",
-            "--gen-parser",
+            "--main-module",
+            main_module,
+            "--syntax-module",
+            syntax_module,
         ])
-        .arg(&parser)
+        .arg("--output-directory")
+        .arg(&kompiled)
+        .stdin(Stdio::null())
         .output()
         .unwrap();
     assert!(
-        generated.status.success(),
+        compiled.status.success(),
         "{}",
-        String::from_utf8_lossy(&generated.stderr)
+        String::from_utf8_lossy(&compiled.stderr)
     );
-
-    let mut in_process = Command::new(env!("CARGO_BIN_EXE_krust"));
-    in_process.args([
-        "kast",
-        definition.to_str().unwrap(),
-        "--module",
-        module,
-        "--output",
-        "json",
-    ]);
+    let mut failures = Vec::new();
     for (index, (program, accepted)) in programs.iter().enumerate() {
-        let input = root.join(format!("program-{index}.pgm"));
-        fs::write(&input, program).unwrap();
-        let standalone = Command::new(&parser).arg(&input).output().unwrap();
-        let shown = if program.len() > 64 {
+        let shown = if program.chars().count() > 64 {
             let prefix = program.chars().take(32).collect::<String>();
             format!("{prefix:?}... ({} bytes)", program.len())
         } else {
             format!("{program:?}")
         };
-        assert_eq!(
-            standalone.status.success(),
-            *accepted,
-            "generated parser on {shown}: {}{}",
-            String::from_utf8_lossy(&standalone.stdout),
-            String::from_utf8_lossy(&standalone.stderr)
-        );
-        in_process.args([
-            if *accepted {
-                "--batch-case"
-            } else {
-                "--batch-reject-case"
-            },
-            &format!("case-{index}"),
-            "Pgm",
-            program,
-        ]);
-    }
-    let batch = in_process.output().unwrap();
-    assert!(
-        batch.status.success(),
-        "{}",
-        String::from_utf8_lossy(&batch.stderr)
-    );
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
 
+        let generated = Command::new(&parser)
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let generated = if generated.status.success() {
+            if let Some(byte) = generated
+                .stdout
+                .iter()
+                .find(|byte| !(byte.is_ascii_graphic() || b" \n".contains(byte)))
+            {
+                failures.push(format!(
+                    "{shown}: the generated parser printed byte {byte:#04x}, outside KORE's printable ASCII"
+                ));
+            }
+            match parse_pattern(&String::from_utf8_lossy(&generated.stdout)) {
+                Ok(pattern) => Ok(program_term(&pattern)),
+                Err(error) => {
+                    failures.push(format!(
+                        "{shown}: the generated parser printed no KORE pattern: {error}"
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            Err(String::from_utf8_lossy(&generated.stderr).into_owned())
+        };
+
+        let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let in_process = if in_process.status.success() {
+            let configuration =
+                parse_pattern(&String::from_utf8_lossy(&in_process.stdout)).unwrap();
+            Ok(program_term(
+                k_cell_program(&configuration).expect("a <k> cell"),
+            ))
+        } else {
+            let stderr = String::from_utf8_lossy(&in_process.stderr).into_owned();
+            if !stderr.contains("could not parse program") {
+                failures.push(format!(
+                    "{shown}: the in-process run failed other than by rejecting the program: {stderr}"
+                ));
+                continue;
+            }
+            Err(stderr)
+        };
+
+        let decision = |result: &Result<String, String>| match result {
+            Ok(term) => format!("accepted as {term}"),
+            Err(error) => format!("rejected: {}", error.trim_end()),
+        };
+        if generated.as_ref().ok() != in_process.as_ref().ok() {
+            failures.push(format!(
+                "{shown}:\n  generated  {}\n  in-process {}",
+                decision(&generated),
+                decision(&in_process),
+            ));
+        } else if generated.is_ok() != *accepted {
+            failures.push(format!(
+                "{shown}: expected {}, both {}",
+                if *accepted { "accepted" } else { "rejected" },
+                decision(&generated),
+            ));
+        }
+    }
     fs::remove_dir_all(root).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[cfg(unix)]
@@ -10728,8 +10777,9 @@ fn owned_programs(programs: &[(&str, bool)]) -> Vec<(String, bool)> {
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
-    assert_both_scanners_decide(
+    assert_parsers_give_each_program_one_term(
         line_anchors::DEFINITION,
+        "ANCHOR",
         "ANCHOR-SYNTAX",
         &owned_programs(&line_anchors::PROGRAMS),
     );
@@ -10740,8 +10790,9 @@ fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
-    assert_both_scanners_decide(
+    assert_parsers_give_each_program_one_term(
         line_anchors::TIE_DEFINITION,
+        "TIE",
         "TIE-SYNTAX",
         &owned_programs(&line_anchors::TIE_PROGRAMS),
     );
@@ -10785,7 +10836,12 @@ endmodule
         ("p |a\u{e9}\u{fc}|", false),
         ("n ~\u{e9} /* \u{1F642} \u{2028} */ z // \u{fc}", true),
     ];
-    assert_both_scanners_decide(definition, "CHARS-SYNTAX", &owned_programs(&programs));
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "CHARS",
+        "CHARS-SYNTAX",
+        &owned_programs(&programs),
+    );
 }
 
 /// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
@@ -10797,7 +10853,12 @@ fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_rea
         .into_iter()
         .map(|program| (program, true))
         .collect::<Vec<_>>();
-    assert_both_scanners_decide(line_anchors::DEFINITION, "ANCHOR-SYNTAX", &programs);
+    assert_parsers_give_each_program_one_term(
+        line_anchors::DEFINITION,
+        "ANCHOR",
+        "ANCHOR-SYNTAX",
+        &programs,
+    );
 }
 
 /// Class test for the two-parser ticket, line ends: `^` holds where a line starts and `$` where
@@ -10821,7 +10882,12 @@ fn regex_line_anchors_hold_at_every_line_end_a_location_counts() {
             ]
         })
         .collect::<Vec<_>>();
-    assert_both_scanners_decide(definition, "LINE-END-SYNTAX", &programs);
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "LINE-END-SYNTAX",
+        "LINE-END-SYNTAX",
+        &programs,
+    );
 }
 
 /// A `$`-anchored candidate the generated scanner rejects, here one whose text spans a newline,
@@ -10910,7 +10976,12 @@ module ORDER-SYNTAX
 endmodule
 "##;
     let programs = [("a?", true), ("a!", false), ("1#", true), ("1%", true)];
-    assert_both_scanners_decide(definition, "ORDER-SYNTAX", &owned_programs(&programs));
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "ORDER-SYNTAX",
+        "ORDER-SYNTAX",
+        &owned_programs(&programs),
+    );
 }
 
 /// A scanner with a `$`-anchored rule uses Flex's `REJECT`; it must still accept a program
@@ -10934,7 +11005,12 @@ endmodule
         ("a\n".to_owned(), true),
         ("a".to_owned(), false),
     ];
-    assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "LOOKAHEAD-SYNTAX",
+        "LOOKAHEAD-SYNTAX",
+        &programs,
+    );
 }
 
 /// Write `definition_source` and generate its Flex/Bison parser for `module` and start sort `Pgm`
@@ -10987,7 +11063,12 @@ endmodule
 "#
         );
         let programs = [("ab?", regex_wins), ("ab!", !regex_wins), ("abc?", true)];
-        assert_both_scanners_decide(&definition, "PREC-SYNTAX", &owned_programs(&programs));
+        assert_parsers_give_each_program_one_term(
+            &definition,
+            "PREC-SYNTAX",
+            "PREC-SYNTAX",
+            &owned_programs(&programs),
+        );
     }
 }
 
@@ -11180,6 +11261,60 @@ endmodule
         );
     }
     fs::remove_dir_all(root).unwrap();
+}
+
+/// Class test for the two-parser ticket: the generated parser and the in-process parser are two
+/// builds of one function from program text to a term, so each program must get the same term
+/// from both, modulo injections, or be rejected by both, and what the generated parser prints is
+/// KORE, whose string literals are printable ASCII. Programs: `[locations]` (both wrap, or
+/// neither), a non-ASCII token and a line separator matched by a negated class (a token is a
+/// sequence of characters), and a `String` token holding non-ASCII and a control character.
+#[cfg(unix)]
+#[test]
+fn generated_and_in_process_parsers_give_each_program_one_term() {
+    const TOKENS: &str = r#"
+module TOKENS-SYNTAX
+  imports STRING-SYNTAX
+  syntax Tok ::= r"[^a-z\\n\\ \"+]" [token]
+  syntax Exp ::= Tok | String | Exp "+" Exp [left, symbol(plus)] | "x" [symbol(x)]
+  syntax Pgm ::= Exp
+endmodule
+module TOKENS
+  imports TOKENS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    const LOCATIONS: &str = r#"
+module LOC-SYNTAX
+  syntax Exp [locations]
+  syntax Exp ::= Exp "+" Exp [left, symbol(plus)] | "x" [symbol(x)]
+  syntax Pgm ::= Exp
+endmodule
+module LOC
+  imports LOC-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        TOKENS,
+        "TOKENS",
+        "TOKENS-SYNTAX",
+        &owned_programs(&[
+            ("x + x", true),
+            ("\"a\" + x", true),
+            ("x + \u{e9}", true),
+            ("\u{2028}", true),
+            ("\"\u{e9}\u{1}\"", true),
+            ("x + a", false),
+        ]),
+    );
+    assert_parsers_give_each_program_one_term(
+        LOCATIONS,
+        "LOC",
+        "LOC-SYNTAX",
+        &owned_programs(&[("x + x", true), ("x +\nx", true), ("x +", false)]),
+    );
 }
 
 /// A `#LineMarker` production says which text is a marker but not what the marker sets for the
