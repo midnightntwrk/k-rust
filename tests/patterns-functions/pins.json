@@ -278,8 +278,8 @@
   },
   "kore_comparison": {
     "krs-patterns-functions-matches": {
-      "summary": "PASS native KORE: reference=344 native=344 reference_projector_pairs=0 native_projector_pairs=0 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=6 native_lambda_symbols=6",
-      "report_sha256": "227e95e66f5219b353286ab1c05fe79208f7e4c0466f545a6809e4a841905627"
+      "summary": "PASS native KORE: reference=344 native=344 reference_injective_withheld=0 native_transport_rewrites=7 reference_lambda_symbols=6 native_lambda_symbols=6",
+      "report_sha256": "eb3fbad09a9a6cd31ff346dfe17945d508db89fc9b105e0e5f17a756cf042dd8"
     },
     "krs-patterns-functions-lets": {
       "summary": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=401, missing=21, extra=17",

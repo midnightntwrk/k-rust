@@ -8,7 +8,7 @@
 //! `krs-gate collector-bundle COLLECTOR-STDOUT DESCRIPTOR-BUNDLE` requires equality between the collector wire decoded by [`krs_ir::DescriptorBundle::from_collector_protocol`] and the typed emitted [`krs_ir::DescriptorBundle`].
 //! It returns a JSON summary with the collector wire `protocol_version`, `descriptors` count, and `descriptor_kinds` counts using canonical serialized names.
 //! `krs-gate kore-compare REFERENCE NATIVE MODULE [--label FROM=CANONICAL]... [--reference-claims PATH MODULE]` invokes [`kore_compare::compare_kore`] or [`kore_compare::compare_kore_with_reference_claims`].
-//! These compare definitions parsed by [`k_rust::kore::parser::parse_definition`] under the closed normalization and projector policy documented in [`kore_compare`].
+//! These compare definitions parsed by [`k_rust::kore::parser::parse_definition`] under the closed normalization policy documented in [`kore_compare`].
 //! `krs-gate kore-canonicalize INPUT OUTPUT` writes [`kore_compare::canonicalize_definition`] of a K tool's KORE definition: generated lambda families renumbered by content and each module's sentences ordered by printed form.
 //! `krs-gate proof split DEFINITION OUTPUT-DIR MODULE SPEC-MODULE LABEL...` extracts one-claim specifications and a claim-free definition through [`proof`].
 //! `krs-gate proof classify RESULT` parses and classifies a proof result through [`proof`].

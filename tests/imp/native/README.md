@@ -17,19 +17,10 @@ Unlike k-rust's own N23 suffix collapse, this keeps each lambda's declaration, i
 The summary line reports the number of renamed symbols on each route as `reference_lambda_symbols` and `native_lambda_symbols`.
 
 A native definition whose non-terminals are named gains K's named field
-projections. The structured native adapter leaves non-terminals unnamed, as the
-emitted K does, so complete IMP has none (`native_projector_pairs=0`); the
-comparator still excludes such a sentence only after it proves a complete pair:
-
-- exactly one unhooked unary function declaration with an exact encoded
-  `project:<owner>:<field>` identity;
-- exactly one axiom whose implication concludes with that projector on the
-  left of an equality; and
-- exactly one use of the projector in the entire module, in that equation.
-
-Consequently a lone declaration, lone equation, duplicate, retained use,
-cross-projector use, or generic `project:`-prefix lookalike is an error or a
-visible multiset difference.
+projections (`project:<owner>:<field>`). The structured native adapter leaves
+non-terminals unnamed, as the emitted K does, so complete IMP has none on either
+route. The comparator excludes no such sentence: a projection declaration or
+equation that only one route has is a visible multiset difference.
 Claims must remain KORE claims, have implication bodies and unique string labels, and may not gain priority or `owise`.
 The comparator ignores only the enumerated metadata and marker attributes; other semantic attributes remain exact.
 

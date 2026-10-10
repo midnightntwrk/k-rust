@@ -748,7 +748,6 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     result = run(comparator, timeout=600, environment=env)
     expected_summary = (
         "PASS native KORE: reference=1188 native=1188 "
-        "reference_projector_pairs=0 native_projector_pairs=0 "
         "reference_injective_withheld=1 native_transport_rewrites=35 "
         "reference_lambda_symbols=0 native_lambda_symbols=0\n"
     )

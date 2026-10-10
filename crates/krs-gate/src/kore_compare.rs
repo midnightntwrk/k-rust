@@ -1,8 +1,7 @@
 //! Fail-closed native/reference KORE comparison for the complete IMP gate.
 //!
 //! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30).
-//! Beyond metadata and per-sentence alpha normalization, it excludes a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
-//! A projector-looking prefix is never sufficient.
+//! Beyond metadata and per-sentence alpha normalization, it excludes no sentence: a named field projection (`project:<owner>:<field>`) on either route is compared like any other sentence, so one that only one route declares is a difference.
 //! It also applies two declared k-rust differences, `scripts/reference-normalisations.toml` N33 and N37.
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
 //! It names the generated lambda symbols of `#fun`, `#let`, and `:=K` after their definitions and uses rather than by the `#lambda<hints>_<n>` spelling each frontend chooses (`lambda_labels`).
@@ -20,9 +19,6 @@ use k_rust::kore::printer::Printer;
 
 mod declared_differences;
 mod lambda_labels;
-
-const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
-const PROJECTOR_SEPARATOR: &str = "'Coln'";
 
 /// Compare the requested module using the command-line arguments after `kore-compare`.
 ///
@@ -93,13 +89,10 @@ pub fn run(
         compare_kore(&reference, &actual, &module_name, &policy)?
     };
     println!(
-        "PASS native KORE: reference={} native={} reference_projector_pairs={} native_projector_pairs={} \
-         reference_injective_withheld={} native_transport_rewrites={} reference_lambda_symbols={} \
+        "PASS native KORE: reference={} native={} reference_injective_withheld={} native_transport_rewrites={} reference_lambda_symbols={} \
          native_lambda_symbols={}",
         report.reference_sentences,
         report.actual_sentences,
-        report.reference_projector_pairs,
-        report.actual_projector_pairs,
         report.reference_injective_withheld,
         report.native_transport_rewrites,
         report.reference_lambda_symbols,
@@ -184,17 +177,13 @@ pub struct ComparePolicy {
     pub label_map: BTreeMap<String, String>,
 }
 
-/// Sentence and projector counts after normalization and comparison.
+/// Sentence and declared-difference counts after normalization and comparison.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparisonReport {
     /// Number of retained reference sentences.
     pub reference_sentences: usize,
     /// Number of retained native sentences.
     pub actual_sentences: usize,
-    /// Number of removed, closed reference projector pairs.
-    pub reference_projector_pairs: usize,
-    /// Number of removed, closed native projector pairs.
-    pub actual_projector_pairs: usize,
     /// Number of reference equation-head declarations whose `injective` was withheld (k-rust N33).
     pub reference_injective_withheld: usize,
     /// Number of native configuration-value transport sentences, alternatives, and reads removed or translated (k-rust N37).
@@ -341,8 +330,6 @@ fn compare_modules(
     validate_claims(&reference, "reference")?;
     validate_claims(&actual, "native")?;
 
-    let reference_projector_pairs = remove_closed_projector_pairs(&mut reference, "reference")?;
-    let actual_projector_pairs = remove_closed_projector_pairs(&mut actual, "native")?;
     let reference_sentences = reference.sentences.len();
     let actual_sentences = actual.sentences.len();
 
@@ -362,8 +349,6 @@ fn compare_modules(
     Ok(ComparisonReport {
         reference_sentences,
         actual_sentences,
-        reference_projector_pairs,
-        actual_projector_pairs,
         reference_injective_withheld,
         native_transport_rewrites,
         reference_lambda_symbols,
@@ -914,120 +899,6 @@ fn alpha_normalize_variable_with(
     );
 }
 
-fn remove_closed_projector_pairs(module: &mut Module, route: &str) -> Result<usize, CompareError> {
-    let mut candidate_names = BTreeSet::new();
-    for sentence in &module.sentences {
-        if let Sentence::SymbolDeclaration { symbol, .. } = sentence
-            && named_projector_parts(&symbol.name).is_some()
-        {
-            candidate_names.insert(symbol.name.clone());
-        }
-        visit_sentence_symbols(sentence, &mut |name| {
-            if named_projector_parts(name).is_some() {
-                candidate_names.insert(name.to_owned());
-            }
-        });
-    }
-
-    let mut excluded = BTreeSet::new();
-    for name in &candidate_names {
-        let declarations = module
-            .sentences
-            .iter()
-            .enumerate()
-            .filter_map(|(index, sentence)| match sentence {
-                Sentence::SymbolDeclaration {
-                    hooked,
-                    symbol,
-                    argument_sorts,
-                    attributes,
-                    ..
-                } if symbol.name == *name => Some((index, *hooked, argument_sorts, attributes)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let [(declaration_index, false, argument_sorts, attributes)] = declarations.as_slice()
-        else {
-            return Err(CompareError::new(format!(
-                "{route} named projector {name:?} does not have exactly one unhooked declaration"
-            )));
-        };
-        if argument_sorts.len() != 1 || !has_nullary_attribute(attributes, "function") {
-            return Err(CompareError::new(format!(
-                "{route} named projector {name:?} declaration is not a unary function"
-            )));
-        }
-
-        let definitions = module
-            .sentences
-            .iter()
-            .enumerate()
-            .filter_map(|(index, sentence)| {
-                is_projector_definition(sentence, name).then_some(index)
-            })
-            .collect::<Vec<_>>();
-        let [definition_index] = definitions.as_slice() else {
-            return Err(CompareError::new(format!(
-                "{route} named projector {name:?} does not have exactly one generated equation"
-            )));
-        };
-
-        let mut occurrences = Vec::new();
-        for (index, sentence) in module.sentences.iter().enumerate() {
-            let mut count = 0;
-            visit_sentence_symbols(sentence, &mut |seen| {
-                if seen == name {
-                    count += 1;
-                }
-            });
-            if count != 0 {
-                occurrences.push((index, count));
-            }
-        }
-        if occurrences.as_slice() != [(*definition_index, 1)] {
-            return Err(CompareError::new(format!(
-                "{route} named projector {name:?} is not closed and unused; occurrences={occurrences:?}"
-            )));
-        }
-        excluded.insert(*declaration_index);
-        excluded.insert(*definition_index);
-    }
-
-    module.sentences = module
-        .sentences
-        .drain(..)
-        .enumerate()
-        .filter_map(|(index, sentence)| (!excluded.contains(&index)).then_some(sentence))
-        .collect();
-    Ok(candidate_names.len())
-}
-
-fn named_projector_parts(name: &str) -> Option<(&str, &str)> {
-    let suffix = name.strip_prefix(PROJECTOR_PREFIX)?;
-    let (owner, field) = suffix.split_once(PROJECTOR_SEPARATOR)?;
-    if owner.is_empty() || field.is_empty() || field.contains(PROJECTOR_SEPARATOR) {
-        return None;
-    }
-    Some((owner, field))
-}
-
-fn is_projector_definition(sentence: &Sentence, name: &str) -> bool {
-    let Sentence::Axiom { pattern, .. } = sentence else {
-        return false;
-    };
-    let Pattern::Implies { right, .. } = pattern.as_ref() else {
-        return false;
-    };
-    let Pattern::Equals { left, .. } = right.as_ref() else {
-        return false;
-    };
-    matches!(
-        left.as_ref(),
-        Pattern::Application { symbol, arguments }
-            if symbol.name == name && arguments.len() == 1
-    )
-}
-
 fn validate_claims(module: &Module, route: &str) -> Result<(), CompareError> {
     let mut labels = BTreeSet::new();
     for sentence in &module.sentences {
@@ -1453,109 +1324,46 @@ mod tests {
         }
     }
 
-    fn projector_declaration(name: &str) -> Sentence {
-        Sentence::SymbolDeclaration {
-            hooked: false,
-            symbol: Symbol {
-                name: name.to_owned(),
-                sort_parameters: Vec::new(),
-            },
-            argument_sorts: vec![sort()],
-            result_sort: sort(),
-            attributes: Attributes(vec![application("function", Vec::new())]),
-        }
-    }
-
-    fn projector_equation(name: &str) -> Sentence {
-        Sentence::Axiom {
-            parameters: vec!["R".to_owned()],
-            pattern: Box::new(Pattern::Implies {
-                sort: Sort::Variable("R".to_owned()),
-                left: Box::new(Pattern::Top {
-                    sort: Sort::Variable("R".to_owned()),
-                }),
-                right: Box::new(Pattern::Equals {
-                    operand_sort: Box::new(sort()),
-                    result_sort: Sort::Variable("R".to_owned()),
-                    left: Box::new(application(
-                        name,
-                        vec![Pattern::Variable(Variable {
-                            kind: VariableKind::Element,
-                            name: "X".to_owned(),
-                            sort: sort(),
-                        })],
-                    )),
-                    right: Box::new(Pattern::Top { sort: sort() }),
-                }),
-            }),
-            attributes: Attributes::default(),
-        }
-    }
-
-    fn module(sentences: Vec<Sentence>) -> Module {
-        Module {
-            name: "M".to_owned(),
-            sentences,
-            attributes: Attributes::default(),
-        }
+    /// A module that declares `box(S)`, plus K's named field projection `project:box:value` when `projector` holds.
+    fn box_module(projector: bool) -> String {
+        let projection = if projector {
+            "symbol Lblproject'Coln'box'Coln'value{}(SortS{}) : SortS{} [function{}()] \
+             axiom{R} \\implies{R}(\\and{R}(\\top{R}(), \\in{SortS{}, R}(X0:SortS{}, Lblbox{}(VarK:SortS{}))), \
+             \\equals{SortS{}, R}(Lblproject'Coln'box'Coln'value{}(X0:SortS{}), VarK:SortS{})) []"
+        } else {
+            ""
+        };
+        format!(
+            "[] module M symbol Lblbox{{}}(SortS{{}}) : SortS{{}} [constructor{{}}()] {projection} endmodule []"
+        )
     }
 
     #[test]
-    fn removes_only_complete_closed_unused_projector_pairs() {
-        let name = "Lblproject'Coln'box'Coln'value";
-        let mut module = module(vec![projector_declaration(name), projector_equation(name)]);
+    fn named_projector_pairs_are_compared_like_any_sentence() {
+        let report = compare_kore(
+            &box_module(true),
+            &box_module(true),
+            "M",
+            &ComparePolicy::default(),
+        )
+        .unwrap();
         assert_eq!(
-            remove_closed_projector_pairs(&mut module, "test").unwrap(),
-            1
+            (report.reference_sentences, report.actual_sentences),
+            (3, 3)
         );
-        assert!(module.sentences.is_empty());
-    }
-
-    #[test]
-    fn rejects_lone_declaration() {
-        let name = "Lblproject'Coln'box'Coln'value";
-        let mut module = module(vec![projector_declaration(name)]);
-        let error = remove_closed_projector_pairs(&mut module, "test").unwrap_err();
-        assert!(error.to_string().contains("exactly one generated equation"));
-    }
-
-    #[test]
-    fn rejects_lone_equation() {
-        let name = "Lblproject'Coln'box'Coln'value";
-        let mut module = module(vec![projector_equation(name)]);
-        let error = remove_closed_projector_pairs(&mut module, "test").unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("exactly one unhooked declaration")
-        );
-    }
-
-    #[test]
-    fn rejects_reference_from_retained_sentence() {
-        let name = "Lblproject'Coln'box'Coln'value";
-        let mut module = module(vec![
-            projector_declaration(name),
-            projector_equation(name),
-            Sentence::Axiom {
-                parameters: Vec::new(),
-                pattern: Box::new(application(name, vec![Pattern::Top { sort: sort() }])),
-                attributes: Attributes::default(),
-            },
-        ]);
-        let error = remove_closed_projector_pairs(&mut module, "test").unwrap_err();
-        assert!(error.to_string().contains("not closed and unused"));
-    }
-
-    #[test]
-    fn generic_project_prefix_is_not_an_allowance() {
-        let malformed = "Lblproject'Coln'box";
-        let mut module = module(vec![projector_declaration(malformed)]);
-        assert_eq!(
-            remove_closed_projector_pairs(&mut module, "test").unwrap(),
-            0
-        );
-        assert_eq!(module.sentences.len(), 1);
+        for (reference, native) in [(false, true), (true, false)] {
+            let error = compare_kore(
+                &box_module(reference),
+                &box_module(native),
+                "M",
+                &ComparePolicy::default(),
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("KORE sentence multisets differ"),
+                "{error}"
+            );
+        }
     }
 
     #[test]

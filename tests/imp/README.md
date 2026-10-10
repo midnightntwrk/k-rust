@@ -39,8 +39,7 @@ first failed layer; its `PASS` and `FAIL` lines use these names:
 - IMP.4 `source-definition`: fail-closed parsed and compiled
   source-definition comparison;
 - IMP.5 `native-kore`: native Definition/KORE comparison with reviewed
-  constructor-axiom order canonicalization and the closed unused
-  named-projector allowance;
+  constructor-axiom order canonicalization; no sentence is excluded;
 - IMP.6 `parser-execution-search`: parser and unparser comparison over the
   expression, IMP state, and IMP control flow corpora; concrete execution,
   all frozen depth states, stuck states, and failures; finite and
