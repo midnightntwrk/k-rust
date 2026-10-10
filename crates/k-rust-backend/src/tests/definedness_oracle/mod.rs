@@ -553,14 +553,15 @@ fn axiom_definitions(cases: u64, seed: u64) -> Vec<(String, Definition)> {
     definitions
 }
 
-/// Runs the axiom-instance harness on [`axiom_definitions`] and on the checked-in FUN fixtures.
+/// Runs the axiom-instance harness on [`axiom_definitions`], each also without the equations that
+/// show it to have no model ([`axioms::check_with_a_model`]), and on the checked-in FUN fixtures.
 fn run_axioms(cases: u64, seed: u64) -> axioms::AxiomTally {
     let mut total = axioms::AxiomTally::default();
     let progress = std::env::var_os("KRUST_DEFINEDNESS_ORACLE_PROGRESS").is_some();
     for (label, definition) in axiom_definitions(cases, seed) {
         let mut rng = Rng(seed);
         let started = std::time::Instant::now();
-        total.add(axioms::check_definition(&label, &definition, &mut rng));
+        total.add(axioms::check_with_a_model(&label, &definition, &mut rng));
         if progress {
             eprintln!("{label}: {:?}", started.elapsed());
         }
@@ -591,6 +592,10 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
             (total.compared, "instance compared"),
             (total.hooked, "instance at a hooked root"),
             (total.without_model, "definition shown to have no model"),
+            (
+                total.judged_without_model,
+                "definition judged without the equations that show it has no model",
+            ),
             (total.withheld_decided, "result decided without claims"),
             (total.reordered, "term evaluated in two axiom orders"),
             (total.generalizations, "generalization checked"),
@@ -634,5 +639,53 @@ fn an_equation_on_a_hooked_collection_agrees_with_the_hook_where_claims_are_kept
         );
         eprintln!("{}", tally.summary("hooked disagreement"));
         assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
+    });
+}
+
+/// A definition without a model is judged without the equations that show it has none
+/// (`axioms::check_with_a_model`): `g(5) = c1` beside `g(5) = c2` has no model, and beside it a
+/// map self pair (`generator::isolated_self_pair`) whose claims the load must withdraw. With the
+/// self pair dropped from the check (`drop_several_matches`), `hv` keeps a false claim, which
+/// the harness sees only once `g`'s refuted equation is dropped.
+#[test]
+fn a_definition_without_a_model_is_judged_without_the_equations_that_show_it() {
+    use crate::confluence::switches::{self, Switches};
+    use language::{app, cons, int};
+    on_large_stack(|| {
+        let definition = generator::isolated_self_pair(
+            Definition::new(&["A"])
+                .constructor("c1", &[], "A")
+                .constructor("c2", &[], "A")
+                .head("g", &["Int"], "A")
+                .equation(app("g", vec![int(5)]), cons("c1"))
+                .equation(app("g", vec![int(5)]), cons("c2")),
+            false,
+        );
+        let label = "no model beside a self pair";
+        let tally = axioms::check_with_a_model(label, &definition, &mut Rng(DEFAULT_SEED));
+        assert_eq!(
+            (tally.without_model, tally.judged_without_model),
+            (1, 1),
+            "{}",
+            tally.summary(label)
+        );
+        assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
+        let switches = Switches {
+            drop_several_matches: true,
+            ..Switches::default()
+        };
+        let whole = switches::with(switches, || {
+            axioms::check_definition(label, &definition, &mut Rng(DEFAULT_SEED))
+        });
+        assert_eq!(whole.without_model, 1, "{}", whole.summary(label));
+        assert!(whole.failures.is_empty(), "{}", whole.failures.join("\n"));
+        let reduced = switches::with(switches, || {
+            axioms::check_with_a_model(label, &definition, &mut Rng(DEFAULT_SEED))
+        });
+        assert!(
+            !reduced.failures.is_empty(),
+            "the false claim on hv went unnoticed: {}",
+            reduced.summary(label)
+        );
     });
 }

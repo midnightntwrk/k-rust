@@ -26,7 +26,9 @@
 //!   counts as the declaration's) rests on no claim: it shows that the definition has no model.
 //!   Then the full check must name a pair, since a definition whose every pair joins has the
 //!   model of its normal forms, and the definition gets no further guarantee, so nothing else of
-//!   it is judged. Every other contradiction is a claim that holds in no model.
+//!   it is judged. Its equations without the one whose instance showed this are another
+//!   definition, which the harness runs in turn, until what is left is not shown to have no model
+//!   ([`check_with_a_model`]). Every other contradiction is a claim that holds in no model.
 //! - **Withheld claims.** A claim is an extra true fact: a ground result the evaluator decides
 //!   with every claim withheld (a claimed value or `\bottom`) is not contradicted by the result
 //!   it decides with them (which may stay undecided).
@@ -97,6 +99,10 @@ pub(super) struct AxiomTally {
     pub(super) hooked: usize,
     /// Definitions a contradiction resting on no claim shows to have no model.
     pub(super) without_model: usize,
+    /// Of those, definitions judged in part: run again without the equations whose instances
+    /// showed that they have no model, until what is left is not shown to have none
+    /// ([`check_with_a_model`]).
+    pub(super) judged_without_model: usize,
     /// Definitions where an evaluation found a `total` symbol undefined on defined arguments.
     pub(super) outside_totality: usize,
     /// Definitions where an evaluation did not end within the bounds.
@@ -108,6 +114,9 @@ pub(super) struct AxiomTally {
     /// Generalizations with a decision checked at some value.
     pub(super) generalizations: usize,
     pub(super) failures: Vec<String>,
+    /// The index of the equation whose instance showed this one definition to have no model
+    /// (`language::equation_index`), when it has one.
+    refuted_equation: Option<usize>,
 }
 
 impl AxiomTally {
@@ -120,6 +129,7 @@ impl AxiomTally {
         self.compared += other.compared;
         self.hooked += other.hooked;
         self.without_model += other.without_model;
+        self.judged_without_model += other.judged_without_model;
         self.outside_totality += other.outside_totality;
         self.outside_termination += other.outside_termination;
         self.withheld_decided += other.withheld_decided;
@@ -130,10 +140,11 @@ impl AxiomTally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} shown to have no model, {} outside P2, {} outside P0), {} equations, {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
+            "{name}: {} definitions ({} rejected, {} shown to have no model and {} of them judged without the equations that show it, {} outside P2, {} outside P0), {} equations, {} instances ({} undecided, {} compared, {} at a hooked root), {} results decided without claims, {} terms evaluated in two axiom orders, {} generalizations; {} failures",
             self.definitions,
             self.rejected,
             self.without_model,
+            self.judged_without_model,
             self.outside_totality,
             self.outside_termination,
             self.equations,
@@ -799,6 +810,8 @@ fn higher_group_applies(
 struct Contradiction {
     text: String,
     claim_free: bool,
+    /// The index of the instance's equation in the oracle definition, when it is one of its.
+    equation: Option<usize>,
 }
 
 /// What one definition's run collected.
@@ -1139,6 +1152,7 @@ fn instances(
                         shown(&right, right_defined),
                     ),
                     claim_free,
+                    equation: super::language::equation_index(rule.attributes.label.as_deref()),
                 });
             }
         }
@@ -1342,6 +1356,7 @@ pub(super) fn check_axioms(
     if STOPPED.get() {
         tally.outside_termination = 1;
         tally.without_model = 0;
+        tally.refuted_equation = None;
         tally.failures.clear();
         return tally;
     }
@@ -1536,6 +1551,7 @@ fn check_claims(
             ));
         } else {
             tally.without_model = 1;
+            tally.refuted_equation = proof.equation;
         }
         return;
     }
@@ -1564,6 +1580,48 @@ pub(super) fn check_definition(label: &str, definition: &Definition, rng: &mut R
             ..AxiomTally::default()
         },
     }
+}
+
+/// Runs the harness on `definition` as [`check_definition`] does and, when it is shown to have
+/// no model, again without the equation whose instance showed it, until what is left is not
+/// shown to have none. A definition without a model gets no guarantee, so nothing of it is
+/// judged; its equations without the refuted one form another definition, whose claims the
+/// contract does cover. Dropping an equation removes the instance that refuted the model, so the
+/// runs end: with no equation left, the free terms are a model. Only the first run counts as a
+/// definition; a later one that is rejected or falls outside P0 or P2 ends the runs and is not
+/// counted, since the reduced definition is the harness's, not the case's.
+pub(super) fn check_with_a_model(
+    label: &str,
+    definition: &Definition,
+    rng: &mut Rng,
+) -> AxiomTally {
+    let mut total = check_definition(label, definition, rng);
+    let mut reduced = definition.clone();
+    let mut dropped = 0;
+    let mut refuted = total.refuted_equation;
+    while let Some(index) = refuted.filter(|&index| index < reduced.equations.len()) {
+        reduced.equations.remove(index);
+        dropped += 1;
+        let tally = check_definition(
+            &format!("{label} without {dropped} equations"),
+            &reduced,
+            rng,
+        );
+        if tally.rejected + tally.outside_termination + tally.outside_totality > 0 {
+            break;
+        }
+        refuted = tally.refuted_equation;
+        let judged = tally.without_model == 0;
+        total.add(AxiomTally {
+            definitions: 0,
+            without_model: 0,
+            ..tally
+        });
+        if judged {
+            total.judged_without_model += 1;
+        }
+    }
+    total
 }
 
 #[cfg(test)]
