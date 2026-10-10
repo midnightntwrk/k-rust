@@ -47,6 +47,12 @@ operation, and a corpus of programs that apply them to concrete values:
   backend lacks because it has no console state: `krs run` refuses the
   definition with the pinned `krs::capability::unavailable` message before
   compiling it, while `krs build --backend llvm` accepts it;
+- `io-log`: `io::log` (K's `#log`, hook `IO.logString`). The program `trace`
+  logs the line `traced`: `krs run` and `krs search` write it to standard
+  error before their own status lines, and Java K's `krun` and `krun --search`
+  on the LLVM backend (kompiled with `--enable-search`) write the same bytes
+  to standard error. Like every `K-IO` operation it records the `ConsoleIO`
+  requirement, which only the browser route lacks;
 - `sort-tests`: K's generated sort predicates and projections (KF-013),
   `k::is!(S, t)` (`isS(T)`) and `k::project!(S, t)` (`{T}:>S`), in term rules
   and readable clauses, in results and guards: `chk(5)` is `true`,
@@ -331,6 +337,10 @@ IO_EXPECTED = {"stdout": "7", "status": 7}
 HOOKS = Fixture(MANIFEST, "krs-builtin-io-hooks")
 HOOKS_EXPECTED = {"hello": {"stdout": "hi\n", "status": 0}, "bye": {"stdout": "A", "status": 0}}
 
+LOG = Fixture(MANIFEST, "krs-builtin-io-log")
+LOG_EXPECTED = {"trace": "traced\n"}
+"""The standard error of each `io-log` program on Java K, which `krs run` and `krs search` must print first."""
+
 K_EQUAL = (
     case("if-true", "if (true) 1 else 2", "1"),
     case("if-false", "if (false) 1 else 2", "2"),
@@ -606,6 +616,85 @@ def console_hooks(harness: FixtureGate) -> None:
     )
 
 
+def log_prefix(stderr: str, command: str) -> str:
+    """The standard error of a `krs run` or `krs search` before its own report lines."""
+
+    lines = stderr.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith((f"krs {command}: ", "solution ")):
+            return "".join(lines[:index])
+    raise GateError(f"krs {command} printed no status line:\n{stderr}")
+
+
+def console_log(harness: FixtureGate) -> None:
+    """Require `krs run` and `krs search` to print `io::log` lines to standard error as krun does."""
+
+    harness.check(LOG)
+    harness.expand(LOG)
+    emitted = harness.emit(LOG)
+    symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
+    requirements = sorted(
+        (row["feature"], row["symbol"]) for row in symbols.get("capability_requirements") or ()
+    )
+    if requirements != [("ConsoleIO", "trace")]:
+        raise GateError(f"{LOG.package}: symbols.json records {requirements!r} as the capability requirements")
+    source = emitted.source.read_text(encoding="utf-8")
+    for line in ('<k> trace => #log("traced") ... </k>',):
+        if line not in source:
+            raise GateError(f"{LOG.package}: emitted K lacks {line!r}")
+
+    directory = harness.workspace / "console-log" / LOG.package
+    directory.mkdir(parents=True, exist_ok=True)
+    k = Snapshot(
+        f"{harness.label}/{LOG.package}",
+        Key(tools=JAVA_TOOLS, inputs=repository_inputs([])),
+        workspace=harness.workspace, refresh=harness.refresh,
+        pin=Pin(harness.pins, LOG.package),
+    )
+    compiled = harness.workspace / "kompiled" / LOG.package
+    kompiled = k.run(
+        "kompile/definition", "kompile",
+        [
+            emitted.source, "--main-module", emitted.main_module,
+            "--syntax-module", emitted.syntax_module,
+            "--backend", "llvm", "--enable-search", "--output-definition", compiled,
+        ],
+        timeout=900,
+    )
+    if kompiled.returncode != 0:
+        raise GateError(f"{LOG.package}: kompile rejected the emitted definition:\n{kompiled.stderr}")
+    observed: dict[str, dict[str, Any]] = {}
+    for name, expected in LOG_EXPECTED.items():
+        program = directory / f"{name}.pgm"
+        program.write_text(name + "\n", encoding="utf-8")
+        java_run = k.run(
+            f"krun/{name}", "krun", ["--definition", compiled, "--output", "none", program], timeout=120,
+        )
+        java_search = k.run(
+            f"krun-search/{name}", "krun", ["--definition", compiled, "--search", program], timeout=120,
+        )
+        native_run = harness._krs(LOG, "run", "--output", "none", program, check=False)  # noqa: SLF001
+        native_search = harness._krs(LOG, "search", program, check=False)  # noqa: SLF001
+        outcomes = {
+            "java-run": {"stderr": java_run.stderr, "status": java_run.returncode},
+            "java-search": {"stderr": java_search.stderr, "status": java_search.returncode},
+            "native-run": {"stderr": log_prefix(native_run.stderr, "run"), "status": native_run.returncode},
+            "native-search": {
+                "stderr": log_prefix(native_search.stderr, "search"), "status": native_search.returncode,
+            },
+        }
+        for route, outcome in outcomes.items():
+            if outcome != {"stderr": expected, "status": 0}:
+                raise GateError(f"{LOG.package} {name}: {route} wrote {outcome!r}, expected {expected!r} on standard error")
+        observed[name] = outcomes
+    print(f"PASS builtin-domains {LOG.package} reference snapshot: {k.finish()}")
+    harness.pins.expect(("console_log", LOG.package), observed)
+    print(
+        f"PASS {LOG.package}: krs run, krs search, krun, and krun --search write the same "
+        "io::log lines to standard error"
+    )
+
+
 def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
     """Require `krs check` to pass with the raw K warning `code` and pin its warnings."""
 
@@ -760,6 +849,7 @@ def main() -> int:
         java_only_floats(harness)
         console_io(harness)
         console_hooks(harness)
+        console_log(harness)
         raw_k(harness)
 
     pins.finish("builtin-domains")

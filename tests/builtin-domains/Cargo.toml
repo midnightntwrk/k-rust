@@ -9,6 +9,7 @@ members = [
     "packages/int-sign-unsigned",
     "packages/io",
     "packages/io-hooks",
+    "packages/io-log",
     "packages/k-equal",
     "packages/map-ops",
     "packages/raw-denied",

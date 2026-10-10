@@ -112,6 +112,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-builtin-io-log"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-builtin-k-equal"
 version = "0.1.0"
 dependencies = [

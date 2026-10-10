@@ -611,7 +611,7 @@ An operation enters the catalog only after one ground application evaluates both
 The `K-IO` hooks `io::write(fd, s)` and `io::putc(fd, b)` are the exception: they are impure, and k-rust performs them only in committed execution with console state, which KRS's in-process backend does not supply.
 Their sort is `K` and they evaluate to the empty computation `.K` after writing; a `k` cell sequence cannot mix a `K` item with `KItem`s, so a hook stands alone before the frame (`k: [io::write(1, "hi\n"), ..]`).
 They run on Java K and through `krs build --backend llvm`, and the in-process commands (`krs parse`, `run`, `search`, and `prove`) and the browser route refuse a definition that uses them (`krs::capability::unavailable`, the `ConsoleWriteHook` requirement) instead of stopping on an unsupported hook.
-`io::log(s)` evaluates on every route; Java K writes its line to standard error, and `krs run` does not print it.
+`io::log(s)` needs no console state, so it evaluates on the native routes; `krs run` and `krs search` write its line to standard error, as Java K's LLVM backend does (its Haskell backend only records the line in its own log), and the browser route, which has no console, refuses it with the `ConsoleIO` requirement.
 Stream cells cover console I/O, so these direct hooks are rarely needed.
 
 `kequal::eq` and `kequal::ne` are K's `==K` and `=/=K`: syntactic equality of two terms of any sort, like a derived `PartialEq` on a closed enum of terms.

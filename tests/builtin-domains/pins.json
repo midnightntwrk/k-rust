@@ -16,7 +16,8 @@
     "krs-builtin-raw-k": "77df98c8479bf964d8b3ca2ce807e7af4108a7247146f4aed386c7886b642d1b",
     "krs-builtin-raw-hook": "6aae83077dbd4ae0146cf99dd9a2e2e4edbf8dcca8d26f726c81b6bc6a7244ca",
     "krs-builtin-sort-tests": "263c20c184972e54dd614f78fb536c86b7920d1e469f77a813f724a6ef58584a",
-    "krs-builtin-io-hooks": "2dbfbf059defb2f31882024ebf8e65892b3194df8cafb5aa861288fcad750d7b"
+    "krs-builtin-io-hooks": "2dbfbf059defb2f31882024ebf8e65892b3194df8cafb5aa861288fcad750d7b",
+    "krs-builtin-io-log": "c62ade9df1c6e1b25082bed1bc5425842c22a800f06a84801f0caf0eaaf7badc"
   },
   "emitted": {
     "krs-builtin-int-ops": {
@@ -66,6 +67,9 @@
     },
     "krs-builtin-io-hooks": {
       "definition.k": "5f5293bce73a52308dc0d482ced5d962118604cb2c58ae355fdaa4ebd30d5d0c"
+    },
+    "krs-builtin-io-log": {
+      "definition.k": "079b9e5beaeb28250fd73e392fbcdd10235ed05e9902f089e0af24978ada6e56"
     }
   },
   "reference_sha256": {
@@ -84,7 +88,8 @@
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
     "krs-builtin-sort-tests": "c41edd003f0d01f1fbcb91eeef1e81d66b26ffd87b54c66a5194460e5c916507",
-    "krs-builtin-io-hooks": "935a01ab48e30d381e565cc03e9547eebb2d6395027e5cc5f0e7352e74ec348d"
+    "krs-builtin-io-hooks": "935a01ab48e30d381e565cc03e9547eebb2d6395027e5cc5f0e7352e74ec348d",
+    "krs-builtin-io-log": "35cc879e0c300c29c62bdd622bffce4cd7eea0568893bf71149bed5fbea37480"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
@@ -1011,6 +1016,28 @@
       "bye": {
         "stdout": "A",
         "status": 0
+      }
+    }
+  },
+  "console_log": {
+    "krs-builtin-io-log": {
+      "trace": {
+        "java-run": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "java-search": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "native-run": {
+          "stderr": "traced\n",
+          "status": 0
+        },
+        "native-search": {
+          "stderr": "traced\n",
+          "status": 0
+        }
       }
     }
   }

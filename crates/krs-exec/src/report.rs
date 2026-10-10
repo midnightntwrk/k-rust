@@ -230,6 +230,10 @@ pub struct RunReport {
     pub stdout: Option<Vec<u8>>,
     /// The exit cell's final value after a complete run; `None` without an exit cell.
     pub exit_code: Option<i64>,
+    /// The lines `io::log` (K's `IO.logString`) wrote on this path, in order; krun prints each
+    /// to standard error.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub log: Vec<String>,
 }
 
 /// One final state of a search.
@@ -250,6 +254,10 @@ pub struct SearchReport {
     pub complete: bool,
     /// The solutions, in backend order.
     pub solutions: Vec<Solution>,
+    /// The lines `io::log` (K's `IO.logString`) wrote while the search explored, in order;
+    /// `krun --search` prints each to standard error.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub log: Vec<String>,
 }
 
 /// K's reachability modality.

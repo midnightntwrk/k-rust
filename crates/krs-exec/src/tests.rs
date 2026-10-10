@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, HaltReasonOutput},
+    backend::{
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+    },
     kast::Sort as KastSort,
     kore::parser::parse_pattern,
     names::BuiltinSort,
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, config_variables, search_backend,
-    term,
+    ConfigVariable, ExecError, Halt, SearchMode, SearchOptions, config_variables, log_lines,
+    search_backend, term,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -250,4 +252,13 @@ fn parse_positions_name_the_line_and_column() {
     );
     assert_eq!(super::located("prog.imp", "foo", None), "prog.imp");
     assert_eq!(super::located("prog.imp", "foo", Some(99)), "prog.imp");
+}
+
+#[test]
+fn log_lines_keep_each_user_log_message_in_order() {
+    let effects = ["first", "second"].map(|message| EffectOutput::UserLog {
+        message: message.into(),
+    });
+    assert_eq!(log_lines(&effects), ["first", "second"]);
+    assert!(log_lines(&[]).is_empty());
 }

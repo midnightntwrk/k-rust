@@ -990,7 +990,8 @@ pub mod io {
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Putc(pub Int, pub Int);
 
-    /// Marker for `#log(value)`, writing a line to the backend's log.
+    /// Marker for `#log(value)`, writing a line to the backend's log: standard error for
+    /// `krs run`, `krs search`, and krun on K's LLVM backend.
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Log(pub String);
 

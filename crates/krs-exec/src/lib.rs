@@ -26,7 +26,7 @@ use std::fmt;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionResult, ExecutionStrategy,
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionResult, ExecutionStrategy,
         PatternRequest, ProveRequest, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
@@ -790,6 +790,7 @@ impl Semantics {
             trace,
             stdout,
             exit_code,
+            log: log_lines(&leaf.effects),
         })
     }
 
@@ -842,6 +843,7 @@ impl Semantics {
         Ok(SearchReport {
             complete,
             solutions,
+            log: log_lines(&response.effects),
         })
     }
 
@@ -978,6 +980,16 @@ fn prove_claims(
         });
     }
     Ok(reports)
+}
+
+/// The `io::log` lines among committed backend effects, in order.
+fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
+    effects
+        .iter()
+        .map(|effect| match effect {
+            EffectOutput::UserLog { message } => message.clone(),
+        })
+        .collect()
 }
 
 fn search_backend(

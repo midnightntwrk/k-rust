@@ -90,6 +90,7 @@ FILE (or `-` for standard input) is the program bound to `$PGM`; `-c NAME=TEXT` 
 A run that ends stuck, at the depth bound, or undefined exits 0; a proof exits 0 only when every selected claim is `proven`; an inconclusive result or an error exits 1, and a usage error exits 2.
 When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, as krun does (the OS keeps its low 8 bits), so a script that must tell it from an error reads `--output json`.
 A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
+`run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
 The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, and `prove`.
 

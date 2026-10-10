@@ -348,7 +348,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             trace: request.trace,
         },
     )?;
-    let mut stderr = String::new();
+    let mut stderr = log_text(&report.log);
     if request.output != TermOutput::Json {
         write_trace(&mut stderr, &report.trace);
     }
@@ -406,7 +406,7 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     let truncated = request
         .max_solutions
         .is_some_and(|limit| report.solutions.len() >= limit);
-    let mut stderr = String::new();
+    let mut stderr = log_text(&report.log);
     let mut stdout = String::new();
     let color = request.color.enabled();
     if request.output == TermOutput::Json {
@@ -507,6 +507,15 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
 }
 
 /// A status word, marked when it is `indeterminate` in a build without an SMT solver.
+/// The `io::log` lines, one per line, as krun writes them to standard error while it rewrites.
+fn log_text(lines: &[String]) -> String {
+    lines.iter().fold(String::new(), |mut text, line| {
+        text.push_str(line);
+        text.push('\n');
+        text
+    })
+}
+
 fn status_word(word: &str, smt: bool) -> String {
     if word == "indeterminate" && !smt {
         "indeterminate (no SMT solver)".to_owned()
@@ -620,7 +629,7 @@ impl From<ExecError> for CommandError {
 
 #[cfg(test)]
 mod tests {
-    use super::{status_word, write_trace};
+    use super::{log_text, status_word, write_trace};
     use krs_exec::{SourceSpan, Step, StepOrigin};
 
     #[test]
@@ -631,6 +640,12 @@ mod tests {
         );
         assert_eq!(status_word("indeterminate", true), "indeterminate");
         assert_eq!(status_word("stuck", false), "stuck");
+    }
+
+    #[test]
+    fn log_lines_end_with_a_newline_each() {
+        assert_eq!(log_text(&[]), "");
+        assert_eq!(log_text(&["a".into(), "b c".into()]), "a\nb c\n");
     }
 
     #[test]
