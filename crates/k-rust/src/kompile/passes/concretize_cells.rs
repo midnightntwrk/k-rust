@@ -1190,6 +1190,19 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let mut others = Vec::new();
         let mut riders = Vec::new();
         let mut moved = Vec::new();
+        // Invariant: the items before `item` are split into rewrites of one cell sort each where
+        // they are rewrites of cells of several known sorts, in written order; each item is
+        // visited once and split by one walk of its two sides.
+        let items = items.into_iter().flat_map(|(item, item_riders)| {
+            match self.split_by_sort(&item) {
+                // A rewrite carries no moved cells: `place_cells` rejects moving one across it.
+                Some(parts) => parts
+                    .into_iter()
+                    .map(|part| (part, Vec::new()))
+                    .collect::<Vec<_>>(),
+                None => vec![(item, item_riders)],
+            }
+        });
         for (item, item_riders) in items {
             match self.model.sort_for_term(&item) {
                 Some(sort) if self.model.is_strictly_below(&sort, &cell.sort) => {
@@ -1265,6 +1278,67 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             },
             moved,
         ))
+    }
+
+    /// The rewrites of one cell sort each that `item` denotes, when it is a rewrite of cells of
+    /// several known sorts; `None` otherwise (it is not a rewrite, its cells are of one sort, or
+    /// a side holds a term of unknown cell sort).
+    ///
+    /// A rule with local rewrites means its two projections: its left side with every rewrite
+    /// replaced by that rewrite's left side, and likewise for the right. Within a cell bag the
+    /// place of a rewrite is immaterial, so `(L => R)` denotes the same rule as one rewrite
+    /// `(L_s => R_s)` per cell sort `s` of its sides, `L_s` and `R_s` being its cells of sort `s`
+    /// in written order (the empty bag when there are none). Completion then places each part by
+    /// its one sort, as it places a rewrite written that way, whether the rewrite's cells belong
+    /// in the cell it is written in, below it, or (lifted) elsewhere.
+    fn split_by_sort(&self, item: &Term) -> Option<Vec<Term>> {
+        let Term::Rewrite { left, right } = item.unannotated() else {
+            return None;
+        };
+        let mut parts = Vec::<(Sort, Vec<Term>, Vec<Term>)>::new();
+        // Invariant: `parts` holds, in order of first occurrence, every cell sort of the items of
+        // the sides before `side` and of the items of `side` before `part`, with those items per
+        // side in written order; each item is visited once and placed by a scan of `parts`,
+        // O(|items| x |sorts|).
+        for (right_side, side) in [(false, left), (true, right)] {
+            for part in flatten_cells(side) {
+                if is_empty_cell_bag(part) {
+                    continue;
+                }
+                let sort = self.model.sort_for_term(part)?;
+                let index = match parts.iter().position(|(known, ..)| *known == sort) {
+                    Some(index) => index,
+                    None => {
+                        parts.push((sort, Vec::new(), Vec::new()));
+                        parts.len() - 1
+                    }
+                };
+                let (_, lefts, rights) = &mut parts[index];
+                if right_side {
+                    rights.push(part.clone());
+                } else {
+                    lefts.push(part.clone());
+                }
+            }
+        }
+        if parts.len() < 2 {
+            return None;
+        }
+        let metadata = item.metadata().cloned();
+        Some(
+            parts
+                .into_iter()
+                .map(|(_, lefts, rights)| {
+                    with_metadata(
+                        Term::Rewrite {
+                            left: Box::new(cell_bag(lefts)),
+                            right: Box::new(cell_bag(rights)),
+                        },
+                        metadata.clone(),
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// Move each of `items`, the cell items written in one instance of `cell` and below it,
@@ -1756,22 +1830,26 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
 
     /// Wrap `items`, cells whose configured parent is `parent`, in instances of `parent`, each
     /// with the cells lifted out of its items that belong in it; return the wrappers with the
-    /// lifted cells that belong higher.
+    /// lifted cells that belong higher. The instances are the classes of
+    /// [`Self::instance_classes`], in the order of their first items.
     fn make_parents(
         &self,
         parent: &Cell,
         open: bool,
         items: Vec<(Term, Vec<MovedCell>)>,
     ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
-        let groups = if self.share_parent(parent, items.iter().map(|(item, _)| item))? {
-            vec![items]
-        } else {
-            items.into_iter().map(|item| vec![item]).collect()
-        };
-        groups
+        let classes = self.instance_classes(
+            parent,
+            &items.iter().map(|(item, _)| item).collect::<Vec<_>>(),
+        )?;
+        let mut slots = items.into_iter().map(Some).collect::<Vec<_>>();
+        classes
             .into_iter()
-            .map(|group| {
-                let (mut body, riders): (Vec<_>, Vec<_>) = group.into_iter().unzip();
+            .map(|class| {
+                let (mut body, riders): (Vec<_>, Vec<_>) = class
+                    .into_iter()
+                    .map(|index| slots[index].take().expect("an item is in one class"))
+                    .unzip();
                 let riders =
                     self.insert_lifted(parent, &mut body, riders.into_iter().flatten().collect())?;
                 Ok((
@@ -1782,76 +1860,120 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             .collect()
     }
 
-    /// Whether the written cells `items`, whose configured parent is `parent`, belong in one
-    /// instance of `parent` (`true`) or each in its own (`false`).
-    fn share_parent<'t>(
-        &self,
-        parent: &Cell,
-        items: impl Iterator<Item = &'t Term>,
-    ) -> Result<bool, String> {
-        // Children either fit in one parent, are forced into separate instances, or admit an
-        // ambiguous partition. Optional children are nonrepeatable too.
-        let nonrepeatable_sorts = |term: &Term| {
-            flatten_cells(term)
-                .into_iter()
-                .filter_map(|term| self.model.sort_for_term(term))
-                // Invariant: each sort of the flattened cell terms is tested against `parent.children` once, O(|cells in term| * |parent.children|).
-                .filter(|sort| {
-                    parent.children.iter().any(|child| {
-                        child.sort == *sort && child.multiplicity != Multiplicity::Star
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-        let mut children = Vec::new();
-        let mut rewrites = Vec::new();
-        // Invariant: `children` and `rewrites` hold the nonrepeatable sorts of the items before `item`, ordinary children and rewrite sides kept apart; each entry of `items` is visited once.
-        for item in items {
-            if let Term::Rewrite { left, right } = item.unannotated() {
-                rewrites.push((nonrepeatable_sorts(left), nonrepeatable_sorts(right)));
-            } else {
-                children.push(nonrepeatable_sorts(item));
-            }
-        }
-        let mut used = BTreeSet::new();
-        let children_fit = children.iter().flatten().all(|sort| used.insert(sort));
-        let mut used_left = used.clone();
-        let mut used_right = used;
-        let left_fit = rewrites
-            .iter()
-            .flat_map(|(left, _)| left)
-            .all(|sort| used_left.insert(sort));
-        let right_fit = rewrites
-            .iter()
-            .flat_map(|(_, right)| right)
-            .all(|sort| used_right.insert(sort));
-        if children_fit && left_fit && right_fit {
-            return Ok(true);
-        }
-
-        let children_force_separation = if let Some(first) = children.first() {
-            if let [sort] = first.as_slice() {
-                children.iter().all(|child| child.as_slice() == first)
-                    // Only the left side of each rewrite is compared with the ordinary
-                    // children's sort here; the rewrite pairs below compare both sides.
-                    && rewrites.iter().all(|(left, _)| left.contains(sort))
-            } else {
-                false
-            }
-        } else {
-            true
-        };
-        // Invariant: each pair of entries of `rewrites` is compared once per ordering, O(|rewrites|^2) pairs, and the scan stops at the first pair that shares neither a left nor a right nonrepeatable sort.
-        let rewrites_force_separation = rewrites.iter().all(|(left, right)| {
-            rewrites.iter().all(|(other_left, other_right)| {
-                left.iter().any(|sort| other_left.contains(sort))
-                    || right.iter().any(|sort| other_right.contains(sort))
+    /// The non-`multiplicity="*"` children of `parent` that `item`, an item written in an
+    /// instance of `parent`, occupies on `side`: the sorts of the cells of that side of it.
+    fn nonrepeated_slots(&self, parent: &Cell, item: &Term, side: Side) -> BTreeSet<Sort> {
+        side_parts(item, side)
+            .into_iter()
+            .filter_map(|part| self.model.sort_for_term(part))
+            // Invariant: each sort is tested against `parent.children` once, O(|parts| x |parent.children|).
+            .filter(|sort| {
+                parent
+                    .children
+                    .iter()
+                    .any(|child| child.sort == *sort && child.multiplicity != Multiplicity::Star)
             })
-        });
-        if children_force_separation && rewrites_force_separation {
-            return Ok(false);
+            .collect()
+    }
+
+    /// The instances of `parent` that hold `items`, cells written outside every instance of
+    /// `parent` whose configured parent is `parent`, as classes of item indices.
+    ///
+    /// Two items *can share* an instance when they occupy no common non-`multiplicity="*"`
+    /// child on the same side of the rule (an item outside a rewrite is on both sides). Which
+    /// items share is a fact about the cell structure, which both sides of every rewrite share,
+    /// so this never reads the direction of a rewrite. Loose cells that can share are in one
+    /// instance, a convention (`docs/compatibility.md`, "Cells written inside another cell"):
+    /// the instances are the classes of "can share" when that relation is an equivalence, in
+    /// the order of their first items. Otherwise an item can share with two items that cannot
+    /// share with each other, the rule does not state which instance holds it, and it is
+    /// rejected.
+    fn instance_classes(&self, parent: &Cell, items: &[&Term]) -> Result<Vec<Vec<usize>>, String> {
+        let slots = items
+            .iter()
+            .map(|item| {
+                [Side::Left, Side::Right].map(|side| self.nonrepeated_slots(parent, item, side))
+            })
+            .collect::<Vec<_>>();
+        let share = |first: usize, second: usize| {
+            (0..2).all(|side| slots[first][side].is_disjoint(&slots[second][side]))
+        };
+        let mut classes = Vec::<Vec<usize>>::new();
+        // Invariant: `classes` partitions the items before `index` into classes of "can share",
+        // each class sharing with no item of another; each item is compared with every earlier
+        // item once, O(|items|^2) comparisons.
+        for index in 0..items.len() {
+            let mut joined = None::<(usize, usize)>;
+            for (class_index, class) in classes.iter().enumerate() {
+                let (sharing, apart): (Vec<usize>, Vec<usize>) =
+                    class.iter().partition(|other| share(index, **other));
+                let Some(&with) = sharing.first() else {
+                    continue;
+                };
+                if let Some(&without) = apart.first() {
+                    return Err(format!(
+                        "Ambiguous completion: {}: {} can share one {} with {} but not with {}, which can share one with {}, so the rule does not state which {} holds it",
+                        parent.label.name,
+                        self.describe_cells(items[index]),
+                        parent.label.name,
+                        self.describe_cells(items[with]),
+                        self.describe_cells(items[without]),
+                        self.describe_cells(items[with]),
+                        parent.label.name,
+                    ));
+                }
+                if let Some((_, first)) = joined {
+                    return Err(format!(
+                        "Ambiguous completion: {}: {} can share one {} with {} and with {}, which cannot share one, so the rule does not state which {} holds it",
+                        parent.label.name,
+                        self.describe_cells(items[index]),
+                        parent.label.name,
+                        self.describe_cells(items[first]),
+                        self.describe_cells(items[with]),
+                        parent.label.name,
+                    ));
+                }
+                joined = Some((class_index, with));
+            }
+            match joined {
+                Some((class_index, _)) => classes[class_index].push(index),
+                None => classes.push(vec![index]),
+            }
         }
-        Err(format!("Ambiguous completion: {}", parent.label.name))
+        Ok(classes)
+    }
+
+    /// The cells of `item` (both sides of a rewrite) by label, each cell written as a cell body
+    /// with the cells written in it, for a message.
+    fn describe_cells(&self, item: &Term) -> String {
+        let mut names = Vec::new();
+        // Invariant: `names` describes each cell of the sides before `side`, without repeats; each part is visited once, with one walk of its body.
+        for side in [Side::Left, Side::Right] {
+            for part in side_parts(item, side) {
+                let Some(sort) = self.model.sort_for_term(part) else {
+                    continue;
+                };
+                let mut name = self.model.cells[&sort].label.name.clone();
+                if let Some((_, body, _)) = self.cell_body(part) {
+                    let inner = flatten_cells(body)
+                        .into_iter()
+                        .filter(|inner| !is_empty_cell_bag(inner))
+                        .map(|inner| self.describe_cells(inner))
+                        .collect::<Vec<_>>();
+                    if !inner.is_empty() {
+                        name = format!("{name} (holding {})", inner.join(" "));
+                    }
+                }
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        if names.is_empty() {
+            "an item".to_owned()
+        } else {
+            names.join(" ")
+        }
     }
 
     fn close(&mut self, term: Term, on_rhs: bool) -> Result<Term, String> {
@@ -2181,6 +2303,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         arguments: Vec<Term>,
         cell: &Cell,
     ) -> Result<Term, String> {
+        let arguments = self.merge_one_sided_rewrites(arguments, cell);
         let mut ordered = BTreeMap::<Sort, Term>::new();
         let mut unknown = Vec::new();
         // Invariant: `ordered` holds the child terms placed for the items of `arguments` before `item`, concatenated per sort by `insert_child`, and `unknown` holds the bare variables among them; each item is visited once.
@@ -2318,6 +2441,108 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             label,
             arguments: result,
         })
+    }
+
+    /// `arguments`, the children of an instance of `cell`, with each removal `(X => .Bag)` and
+    /// addition `(.Bag => Y)` of one non-`multiplicity="*"` child sort merged into the one
+    /// rewrite `(X => Y)` of that child, when they are the only items that write it.
+    ///
+    /// A rule means its two projections, and the place of a rewrite in a bag is immaterial: the
+    /// child is `X` in the left projection and `Y` in the right one, which is what `(X => Y)`
+    /// states. Written apart, each would otherwise be completed with the child's unit on its
+    /// empty side, and the instance would hold the child twice.
+    fn merge_one_sided_rewrites(&self, mut arguments: Vec<Term>, cell: &Cell) -> Vec<Term> {
+        // The sort and side of an item that is a rewrite writing cells of one sort on one side
+        // only.
+        let one_sided = |item: &Term| -> Option<(Sort, Side)> {
+            let Term::Rewrite { .. } = item.unannotated() else {
+                return None;
+            };
+            let [left, right] = [Side::Left, Side::Right].map(|side| side_parts(item, side));
+            let (side, parts) = match (left.is_empty(), right.is_empty()) {
+                (false, true) => (Side::Left, left),
+                (true, false) => (Side::Right, right),
+                (true, true) | (false, false) => return None,
+            };
+            let mut sorts = parts.iter().map(|part| self.model.sort_for_term(part));
+            let sort = sorts.next()??;
+            sorts
+                .all(|other| other.as_ref() == Some(&sort))
+                .then_some((sort, side))
+        };
+        let shapes = arguments.iter().map(one_sided).collect::<Vec<_>>();
+        let mut merged = Vec::new();
+        // Invariant: `merged` holds the (removal, addition) index pairs of the non-repeated children before `child` that two one-sided rewrites alone write; each child scans `arguments` once, O(|cell.children| x |arguments|).
+        for child in cell
+            .children
+            .iter()
+            .filter(|child| child.multiplicity != Multiplicity::Star)
+        {
+            let of_side = |side: Side| {
+                shapes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, shape)| {
+                        shape
+                            .as_ref()
+                            .is_some_and(|(sort, written)| *sort == child.sort && *written == side)
+                    })
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>()
+            };
+            let (removals, additions) = (of_side(Side::Left), of_side(Side::Right));
+            let ([removal], [addition]) = (removals.as_slice(), additions.as_slice()) else {
+                continue;
+            };
+            let written_elsewhere = arguments.iter().enumerate().any(|(index, item)| {
+                index != *removal
+                    && index != *addition
+                    && [Side::Left, Side::Right].iter().any(|side| {
+                        side_parts(item, *side).into_iter().any(|part| {
+                            self.model.sort_for_term(part).as_ref() == Some(&child.sort)
+                        })
+                    })
+            });
+            if !written_elsewhere {
+                merged.push((*removal, *addition));
+            }
+        }
+        if merged.is_empty() {
+            return arguments;
+        }
+        let mut dropped = BTreeSet::new();
+        // Invariant: each pair before `pair` has its rewrite at the earlier of its two indices and the later index in `dropped`; each pair is visited once.
+        for (removal, addition) in merged {
+            let side = |index: usize, right: bool| match arguments[index].unannotated() {
+                Term::Rewrite { left, right: rhs } => {
+                    if right {
+                        (**rhs).clone()
+                    } else {
+                        (**left).clone()
+                    }
+                }
+                Term::Apply { .. }
+                | Term::Variable { .. }
+                | Term::Token { .. }
+                | Term::InjectedLabel(_)
+                | Term::As { .. }
+                | Term::Sequence(_)
+                | Term::Annotated { .. } => unreachable!("a one-sided item is a rewrite"),
+            };
+            let rewrite = Term::Rewrite {
+                left: Box::new(side(removal, false)),
+                right: Box::new(side(addition, true)),
+            };
+            let (first, second) = (removal.min(addition), removal.max(addition));
+            arguments[first] = rewrite;
+            dropped.insert(second);
+        }
+        arguments
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| !dropped.contains(index))
+            .map(|(_, item)| item)
+            .collect()
     }
 
     /// The children of `parent` that `term`, the left (`right` false) or right side of a rewrite
@@ -2716,6 +2941,45 @@ fn flatten_cells(term: &Term) -> Vec<&Term> {
     let mut output = Vec::new();
     flatten(term, &mut output);
     output
+}
+
+/// A side of a rule: its left projection (every rewrite replaced by its left side) or its right
+/// projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Side {
+    Left,
+    Right,
+}
+
+/// What `item`, an item of a cell body, writes in the `side` projection of the rule: the items of
+/// that side of a rewrite, or `item` itself (on both sides), without empty bags.
+fn side_parts(item: &Term, side: Side) -> Vec<&Term> {
+    let written = match item.unannotated() {
+        Term::Rewrite { left, right } => match side {
+            Side::Left => flatten_cells(left),
+            Side::Right => flatten_cells(right),
+        },
+        Term::Apply { .. }
+        | Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::InjectedLabel(_)
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::Annotated { .. } => flatten_cells(item),
+    };
+    written
+        .into_iter()
+        .filter(|part| !is_empty_cell_bag(part))
+        .collect()
+}
+
+/// The cell bag of `items`: the empty bag, the one item, or their concatenation.
+fn cell_bag(items: Vec<Term>) -> Term {
+    if items.is_empty() {
+        Term::apply(InternalLabel::Cells.as_str(), Vec::new())
+    } else {
+        make_body(items)
+    }
 }
 
 fn make_body(mut items: Vec<Term>) -> Term {

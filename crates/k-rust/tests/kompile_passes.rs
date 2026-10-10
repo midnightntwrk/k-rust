@@ -8031,7 +8031,8 @@ fn compiles_a_cell_beside_its_only_possible_ancestor_as_inside_it_whatever_the_a
 
 // The <a> written in <top> is in one of many <r> cells, and the rule does not state that the <d>
 // written beside it is in that <r>: <d> is not placed in the written <a>. Completion then needs a
-// second <r> for it, and cannot also group the <s> into one.
+// second <r> for it. The <s> can share an <r> with either <a>, and the two <a> cannot share one,
+// so the rule does not state which <r> holds the <s>.
 #[test]
 fn leaves_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
     let configuration = r#"<top> <k> 0 </k> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s> 0 </s> <a> <e> 0 </e> <d> 0 </d> </a> </r> </top>"#;
@@ -8040,7 +8041,12 @@ fn leaves_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_tha
         "<s> 1 </s> <a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
     )
     .unwrap_err();
-    assert_eq!(errors, ["Ambiguous completion: <r>"]);
+    assert_eq!(
+        errors,
+        [
+            "Ambiguous completion: <r>: <a> (holding <d>) can share one <r> with <s> but not with <a> (holding <e>), which can share one with <s>, so the rule does not state which <r> holds it"
+        ]
+    );
     let body =
         concretized_cell_rule(configuration, "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>").unwrap();
     assert_eq!(

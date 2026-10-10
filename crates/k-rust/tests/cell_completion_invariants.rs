@@ -317,7 +317,6 @@ const PLAIN: &str = "<T> <k> 0 </k> <a> <y> 0 </y> <z> 0 </z> <w> 0 </w> </a> <b
 /// (Stepback additions: the merged and factored forms, the cross-level form and the forms inside
 /// a written `multiplicity="*"` instance.)
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: mixed-sort rewrite bags written without their parent are not completed"]
 fn a_rewrite_of_several_cells_compiles_as_one_rewrite_per_cell() {
     let mut cases = Vec::new();
     let cells: &[(&str, &str, &str)] = &[("y", "1", "2"), ("z", "3", "4"), ("w", "5", "6")];
@@ -422,7 +421,6 @@ const THREADS_OPTIONAL: &str = r#"<T> <k> 0 </k> <ts> <th multiplicity="*" type=
 /// the compiled rule, and changes nothing else (the cells here are leaves or complete on every
 /// side, so no side needs an initializer).
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cell separation compares only each rewrite's left side"]
 fn completion_commutes_with_mirroring_every_rewrite() {
     let items = [
         "<o> <ov> 1 </ov> </o>",
@@ -889,7 +887,6 @@ fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
 /// `<o> 1 </o>` to `<o> 3 </o>`. The rule compiles like that spelling with written instances; the
 /// tickets' "otherwise ambiguous" rejects it, as `934d29e7` does.
 #[test]
-#[ignore = "reproduces cells-stepback: grouping of loose cells as an equivalence (O5)"]
 fn loose_cells_share_an_instance_exactly_as_compatibility_partitions_them() {
     assert_compile_alike(&[(
         THREADS_OPTIONAL,
