@@ -6,6 +6,7 @@ mod ite;
 pub mod nesting;
 mod verify;
 
+pub mod allowance;
 pub mod builtin;
 pub mod claim;
 pub mod condition;

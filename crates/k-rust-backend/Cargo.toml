@@ -28,6 +28,11 @@ z3 = { workspace = true, optional = true }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 stacker.workspace = true
 
+# The memory allowance (`allowance`) reads the process's resource limits and the machine's
+# physical memory through `getrlimit` and `sysconf`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
