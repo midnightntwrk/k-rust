@@ -293,6 +293,15 @@ The pinned K's generated parsers number columns from 0 on the first line and fro
 A numbering that changes after the first line puts every rule that prints or compares columns off by one on that line only, and one convention for every location krust produces lets a program's locations be compared with a rule's `Location` attribute.
 The conformance driver therefore compares the four generated-parser cases whose definitions declare a `[locations]` sort, `bison-parser-library`, `locations`, `locations2` and `locations3`, with the line and column arguments of every `#location` removed on both sides (normalisation N46, `comparison = "locations"` in `scripts/conformance/bison-parsers.toml`); the located terms, their file names and the rest of the output are still compared, and krust's numbers are checked by its own CLI location test.
 
+## Generated parser tokens are characters
+
+A token is a sequence of characters, and a generated parser's scanner reads the UTF-8 bytes of its input, so krust writes each character class and `.` of a token or layout regex into the Flex scanner as the UTF-8 encodings of the characters it denotes: an alternation of a class of ASCII bytes and, for the other characters, sequences of byte ranges that match exactly the encodings of those characters (`utf8_sequences` in [k-rust-regex](../crates/k-rust-regex/src/lib.rs), checked against `regex-syntax`'s).
+A class or `.` therefore matches one whole character in both scanners krust builds: `r"[^a]"` reads `é` as one token, `r"[^|]{2}"` needs two characters, not two bytes, and a byte sequence that encodes no character (a stray continuation byte, a truncated, overlong or surrogate encoding) matches none, so the generated scanner reports a syntax error there.
+A character outside a class is its encoding, grouped so that a repetition applies to all of its bytes.
+This diverges from the pinned K's generated parsers, whose Flex classes and `.` match one byte: there `r"[^a]"` reads `é` as two tokens, one per byte, and `r"."` matches a byte that encodes no character.
+The scanner's Bison token names keep each class as written (`[^a]`), since they name the token for a reader of the definition.
+(`kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters` in [cli.rs](../crates/k-rust/tests/cli.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.

@@ -10747,6 +10747,47 @@ fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
     );
 }
 
+/// A token is a sequence of characters, and a generated scanner reads the UTF-8 bytes of its
+/// input: a negated class and `.` must each match one whole character there, as they do in the
+/// in-process scanner, so a character of several bytes is one token, and `{2}` counts characters.
+/// Layout comments, whose classes are negated too, may hold any character.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters() {
+    let definition = r#"
+module CHARS-SYNTAX
+  syntax Other ::= r"~[^a-z\\n\\ ]" [token]
+  syntax Any ::= r"@.@" [token]
+  syntax Pair ::= r"\\|[^|]{2}\\|" [token]
+  syntax Pgm ::= "n" Other "z" | "d" Any | "p" Pair
+endmodule
+
+module CHARS
+  imports CHARS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("n ~% z", true),
+        ("n ~\u{e9} z", true),
+        ("n ~\u{2028} z", true),
+        ("n ~\u{1F642} z", true),
+        ("n ~\u{e9}\u{e9} z", false),
+        ("d @\u{e9}@", true),
+        ("d @\u{10FFFF}@", true),
+        ("d @\n@", false),
+        ("d @\u{e9}a@", false),
+        ("p |\u{e9}a|", true),
+        ("p |\u{e9}\u{fc}|", true),
+        ("p |\u{1F642}\u{1F642}|", true),
+        ("p |\u{e9}|", false),
+        ("p |\u{1F642}|", false),
+        ("p |a\u{e9}\u{fc}|", false),
+        ("n ~\u{e9} /* \u{1F642} \u{2028} */ z // \u{fc}", true),
+    ];
+    assert_both_scanners_decide(definition, "CHARS-SYNTAX", &owned_programs(&programs));
+}
+
 /// An anchored token that ends where a scanner reading its input in 8 KiB chunks would end a
 /// chunk must still see the newline after it.
 #[cfg(unix)]

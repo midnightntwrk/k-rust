@@ -279,6 +279,7 @@ static int krust_at_line_end(yyscan_t yyscanner);\n\
 %option reentrant bison-bridge\n\
 %option bison-locations\n\
 %option noyywrap\n\
+%option 8bit\n\
 %option extra-type=\"const char *\"\n",
         );
         for (name, regex) in &self.lexical {
@@ -528,11 +529,11 @@ impl TokenKey {
     }
 
     /// The token as Bison's diagnostics name it: the Flex form of the literal or regex, `$`
-    /// included.
+    /// included, with its classes as written (see `Regex::to_flex_name`).
     pub fn pattern(&self) -> Result<String, Error> {
         match self {
             Self::Literal(value) => Ok(quote_c_string(value)),
-            Self::Regex(canonical) => Ok(parse_flex_regex(canonical)?.to_flex_string()),
+            Self::Regex(canonical) => Ok(parse_flex_regex(canonical)?.to_flex_name()),
         }
     }
 

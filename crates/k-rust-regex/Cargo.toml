@@ -12,3 +12,8 @@ categories = ["compilers", "parser-implementations"]
 # The regex language needs nothing beyond `std`, so this crate deliberately has no dependencies:
 # proc macros and WebAssembly builds can validate K token regexes without building the frontend.
 [dependencies]
+
+[dev-dependencies]
+# An independent implementation of UTF-8 range splitting, which the Flex printer's is checked
+# against.
+regex-syntax.workspace = true

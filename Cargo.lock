@@ -1110,6 +1110,9 @@ dependencies = [
 [[package]]
 name = "k-rust-regex"
 version = "0.4.0"
+dependencies = [
+ "regex-syntax",
+]
 
 [[package]]
 name = "k-rust-wasm"
