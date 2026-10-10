@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -21,7 +23,7 @@ from support.reference import (
     Cache, Key, Output, Pin, Placeholders, Promotion, Snapshot, cache_root, child_arguments, dump_manifest,
     indented_json, json_sorted_lists, json_without_members, reduce_k_util_temp, reduce_kprove_temp,
     reduce_lambda_suffixes, reduce_run_dependent_text, reduce_store_paths, renumbered_kore_generated_variables,
-    sorted_kore_claims, sorted_kore_imports, substitute,
+    sorted_kore_claims, sorted_kore_imports, substitute, unfold_k_util_errors,
 )
 
 
@@ -578,6 +580,33 @@ class FormatTests(unittest.TestCase):
         )
         unrelated = "/tmp/.krun-notes/tmp.in.short and /w/.kprove-2026-10-06-20-12-08-516-838284b1/spec.kore #lambdas"
         self.assertEqual(reduce_run_dependent_text(unrelated), unrelated)
+
+    def test_folded_k_util_errors_reduce_alike_for_every_path_length(self) -> None:
+        # k-util.sh folds `[Error] krun: <argv>` at 80 columns; the gate
+        # workspace and TMPDIR lengths move the breaks, even into a path.
+        fold = shutil.which("fold")
+        if fold is None:
+            self.skipTest("fold is unavailable")
+        reduced = set()
+        for work, tmp in (("/tmp/krs-a", "/tmp"), ("/var/tmp/krs-gate-workspace-b", "/var/tmp/krs-g02-tmp"),
+                          ("/w" * 40, "/t")):
+            temp = f"{tmp}/.krun-2026-10-10-08-58-35-cAMJ7MxB0V"
+            message = f"[Error] krun: {work}/kompiled/casts/interpreter {temp}/tmp.in.15kHEu1ooY -1 {temp}/result.kore"
+            folded = subprocess.run(
+                [fold, "-s"], input=f"before\n{message}\n[Error] krun: second\nafter\n",
+                capture_output=True, text=True, check=True,
+            ).stdout
+            self.assertNotEqual(folded.count("\n"), 4, "the message is folded")
+            unfolded = unfold_k_util_errors(folded)
+            self.assertEqual(unfolded, f"before\n{message}\n[Error] krun: second\nafter\n")
+            reduced.add(reduce_run_dependent_text(folded).replace(work, "{{work}}"))
+        self.assertEqual(reduced, {
+            "before\n[Error] krun: {{work}}/kompiled/casts/interpreter TMPDIR/.krun-TEMP/tmp.in.TEMP -1 "
+            "TMPDIR/.krun-TEMP/result.kore\n[Error] krun: second\nafter\n",
+        })
+        # Only a k-util error is rejoined, and only where `fold -s` broke it.
+        untouched = "[Error] Compiler: a \nshort line\n[Error] krun: done.\nnext\n"
+        self.assertEqual(unfold_k_util_errors(untouched), untouched)
 
     def test_placeholders_round_trip_and_reject_collisions(self) -> None:
         placeholders = Placeholders(Path("/nonexistent/work"))

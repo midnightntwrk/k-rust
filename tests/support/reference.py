@@ -30,7 +30,8 @@ per line so a stored proof result or claim reads and diffs as text;
 Before any of these, a live run applies `reduce_run_dependent_text` to both
 streams of every invocation: the K tools themselves print text that differs
 between runs of one invocation (the number before each `kore-exec` log line,
-the temporary directory and files of a shell-wrapped tool such as `krun`, and
+the temporary directory and files of a shell-wrapped tool such as `krun`, the
+places where such a tool folds an error message that names those paths, and
 the suffix K's frontend gives a generated `#lambda` label), so no snapshot that
 records it could be reproduced.
 A declared output whose path the tool chooses (such as the `spec.kore` that
@@ -356,14 +357,84 @@ def reduce_lambda_suffixes(text: str) -> str:
     return _K_LAMBDA.sub(r"\1N", text)
 
 
+_K_UTIL_ERROR = re.compile(r"\[Error\] (?:krun|kparse|kparse-gen|kore-print): ")
+_K_UTIL_FOLD_WIDTH = 80
+_BLANKS = " \t"
+
+
+def _fold_columns(segment: str) -> int:
+    """The column `fold` reaches at the end of `segment`, counting UTF-8 bytes as `fold` does."""
+
+    column = 0
+    for character in segment:
+        if character == "\t":
+            column += 8 - column % 8
+        elif character == "\b":
+            column = max(column - 1, 0)
+        elif character == "\r":
+            column = 0
+        else:
+            column += len(character.encode("utf-8"))
+    return column
+
+
+def _fold_break(segment: str, following: str) -> bool:
+    """Whether `fold -s` ended `segment` only because `following` did not fit beside it.
+
+    `fold -s -w 80` breaks a line after its last blank when the next word
+    would pass column 80, and inside a word only when the 80 columns hold no
+    blank; either way it inserts nothing but the newline.
+    """
+
+    if not following or following[0] in _BLANKS:
+        return False
+    columns = _fold_columns(segment)
+    if columns > _K_UTIL_FOLD_WIDTH:
+        return False
+    if segment.endswith(tuple(_BLANKS)):
+        word = re.match(r"[^ \t]*", following)
+        assert word is not None
+        return columns + _fold_columns(word.group()) >= _K_UTIL_FOLD_WIDTH
+    return columns == _K_UTIL_FOLD_WIDTH and not any(blank in segment for blank in _BLANKS)
+
+
+def unfold_k_util_errors(text: str) -> str:
+    """Rejoin the lines `fold -s` split in an error message of a shell-wrapped K tool.
+
+    K's `k-util.sh` pipes each `[Error] <tool>: <message>` of `krun`, `kparse`,
+    `kparse-gen`, and `kore-print` through `fold -s` at 80 columns. A failed
+    command is reported as its argument vector, whose paths (the gate
+    workspace, `TMPDIR`) have run-dependent lengths, so the breaks move from
+    run to run even after the paths themselves are reduced. Rejoining makes
+    each message one line again; it must see the text before any path is
+    replaced, because the breaks depend on the original lengths.
+    """
+
+    lines = text.split("\n")
+    joined: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = segment = lines[index]
+        if _K_UTIL_ERROR.match(line):
+            while index + 1 < len(lines) and _fold_break(segment, lines[index + 1]):
+                index += 1
+                segment = lines[index]
+                line += segment
+        joined.append(line)
+        index += 1
+    return "\n".join(joined)
+
+
 def reduce_run_dependent_text(text: str) -> str:
     """Remove the text that a K tool prints differently on each run of one invocation.
 
     A live run applies it to both streams of every invocation before the
-    invocation's own reducers: `reduce_kore_exec_log`, `reduce_k_util_temp`,
-    and `reduce_lambda_suffixes`.
+    invocation's own reducers: `unfold_k_util_errors` (first, while the
+    original path lengths are still visible), `reduce_kore_exec_log`,
+    `reduce_k_util_temp`, and `reduce_lambda_suffixes`.
     """
 
+    text = unfold_k_util_errors(text)
     return reduce_lambda_suffixes(reduce_k_util_temp(reduce_kore_exec_log(text)))
 
 

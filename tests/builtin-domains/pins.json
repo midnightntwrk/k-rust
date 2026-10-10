@@ -84,10 +84,10 @@
     "krs-builtin-k-equal": "8c3e96010bbe14f66c6595cf868c90ab038a8688cb2d0c6c40c7c0b8ffe9b480",
     "krs-builtin-floats": "f17d72f219227cd7c47ccff662f7dc672aa8c7e80b65826e5b1be81d7b23cb40",
     "krs-builtin-float-java-only": "12ac6d5d467497efe3212b5ec59477270c039747a3bb00d30cd2b70b49f570d5",
-    "krs-builtin-io": "e333da9bc908e1f5c3eb1efda65b63041e02e30c1aa92f0f45228d0ce9d60518",
+    "krs-builtin-io": "b2d5abdfa4b07398f3bf88c25cb6f23f21d7281a1ae9a78b193cf4a95fffda1c",
     "krs-builtin-raw-k": "2cb88332eb3d1ab846c43bbd0b4ac1dcd601beac727d130fc2f60ff33c6ef37a",
     "krs-builtin-raw-hook-haskell": "e3504c9d4446c6ad01c76aefa91a26ca75af355ebde8bc5db855098a1dd49839",
-    "krs-builtin-sort-tests": "c41edd003f0d01f1fbcb91eeef1e81d66b26ffd87b54c66a5194460e5c916507",
+    "krs-builtin-sort-tests": "c7571e17d21ad3aa80c1fbabe9e1a2aa23468c26dc0b8614cf5474545ea01109",
     "krs-builtin-io-hooks": "00c98e87c19d62e3a698c023a2ceb9688c89b5dcf8eb4a7f7a46945fe47d0f19",
     "krs-builtin-io-log": "b383fb21fb73ae21e2040c7422ff2ac8988ef2f8e8e21042418362684278c5bb"
   },
