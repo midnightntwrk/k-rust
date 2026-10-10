@@ -1887,6 +1887,182 @@ mod tests {
         assert_eq!(metadata(&parsed), metadata(&baseline));
     }
 
+    /// The operator grammar of the end-position tests: `F ::= a | F "+" F [plus]` (and the
+    /// duplicate `plustwo` when asked), `E ::= F` without a label, which builds no node, and
+    /// `E ::= <left> "#" E [hash]`, with `applyPriority(2)` when asked, under
+    /// `syntax right hash plus`. With `left` = `E` a sum reaches `hash`'s left position through
+    /// the pass-through; with `left` = `F` it is there directly. Both derive the same trees for
+    /// `a + a # a`.
+    fn end_position_grammar(left: &str, apply_priority: bool, plustwo: bool) -> Grammar {
+        let mut sentences = vec![
+            production("Start", vec![nt("E")], "start"),
+            production("F", vec![terminal("a")], "fa"),
+            production("F", vec![nt("F"), terminal("+"), nt("F")], "plus"),
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("E"),
+                items: vec![nt("F")],
+                attributes: Attributes::default(),
+            },
+            Sentence::Production {
+                label: Some(Label::new("hash")),
+                parameters: vec![],
+                sort: Sort::new("E"),
+                items: vec![nt(left), terminal("#"), nt("E")],
+                attributes: if apply_priority {
+                    Attributes::new(std::collections::BTreeMap::from([(
+                        "applyPriority".to_owned(),
+                        serde_json::json!("2"),
+                    )]))
+                } else {
+                    Attributes::default()
+                },
+            },
+            Sentence::SyntaxAssociativity {
+                associativity: crate::definition::Associativity::Right,
+                tags: vec!["hash".into(), "plus".into()],
+                attributes: Attributes::default(),
+            },
+        ];
+        if plustwo {
+            sentences.push(production(
+                "F",
+                vec![nt("F"), terminal("+"), nt("F")],
+                "plustwo",
+            ));
+        }
+        Grammar::from_sentences(&sentences).unwrap()
+    }
+
+    /// A parse result as the end-position tests compare it: the term, the readings of an
+    /// ambiguity, or a rejection.
+    fn parse_outcome(result: Result<Term, ParseError>) -> String {
+        match result {
+            Ok(term) => term.to_string(),
+            Err(ParseError::Ambiguous { alternatives, .. }) => format!(
+                "ambiguous {:?}",
+                alternatives
+                    .into_iter()
+                    .map(|alternative| alternative.term)
+                    .collect::<BTreeSet<_>>()
+            ),
+            Err(_) => "rejected".to_owned(),
+        }
+    }
+
+    /// The pruned recognition agrees with the unfiltered one where a sum and its duplicate
+    /// reach `hash`'s left position through an unlabelled pass-through, which packs them into
+    /// one node set before `hash` holds it.
+    #[test]
+    fn pruning_agrees_with_unfiltered_recognition_through_an_unlabelled_pass_through() {
+        let grammar = end_position_grammar("E", true, true);
+        pruning_agrees_with_unfiltered_recognition(&grammar, "a + a # a").unwrap();
+    }
+
+    /// An unlabelled pass-through builds no node, so the grammars with `hash`'s left operand
+    /// written `E` (through `E ::= F`) and written `F` derive the same trees for `a + a # a`,
+    /// and a parse is a function of the trees the grammar derives: each of the pruned and the
+    /// unfiltered parser gives both grammars one outcome, the same term or the same rejection.
+    /// Whether a reading is accepted must not depend on which other readings it is packed with.
+    #[test]
+    fn a_pass_through_that_builds_no_node_does_not_change_the_parse() {
+        let mut failures = Vec::new();
+        for plustwo in [true, false] {
+            let a = end_position_grammar("E", true, plustwo);
+            let b = end_position_grammar("F", true, plustwo);
+            for (mode, parse) in [
+                (
+                    "pruned",
+                    filtered as fn(&Grammar, &str) -> Result<Term, ParseError>,
+                ),
+                ("unfiltered", unfiltered),
+            ] {
+                let (in_a, in_b) = (
+                    parse_outcome(parse(&a, "a + a # a")),
+                    parse_outcome(parse(&b, "a + a # a")),
+                );
+                if in_a != in_b {
+                    failures.push(format!(
+                        "plustwo {plustwo}, {mode}: through E {in_a}, directly {in_b}"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Associativity is judged at the positions priority is judged at: a node's
+    /// `applyPriority` names the child positions the relations check, and associativity, which
+    /// applies only at the two ends, is checked at an end only when that end is named. So
+    /// under `applyPriority(2)` the sum is admitted as `hash`'s left child (and, with the
+    /// duplicate `plustwo`, the two sums are two readings), whether it reaches that position
+    /// through a pass-through or directly; without the attribute both ends are checked, `right`
+    /// forbids the sum on the left, and only the duplicate outside the group is left.
+    #[test]
+    fn associativity_is_judged_at_the_positions_apply_priority_names() {
+        let both = r#"ambiguous {"plus(fa(.KList),fa(.KList))", "plustwo(fa(.KList),fa(.KList))"}"#;
+        let plus = "start(hash(plus(fa(.KList),fa(.KList)),fa(.KList)))";
+        let cases = [
+            ("E", true, true, both),
+            ("F", true, true, both),
+            ("E", true, false, plus),
+            ("F", true, false, plus),
+            (
+                "F",
+                false,
+                true,
+                "start(hash(plustwo(fa(.KList),fa(.KList)),fa(.KList)))",
+            ),
+            ("F", false, false, "rejected"),
+        ];
+        let mut failures = Vec::new();
+        for (left, apply_priority, plustwo, expected) in cases {
+            let grammar = end_position_grammar(left, apply_priority, plustwo);
+            for (mode, parse) in [
+                (
+                    "pruned",
+                    filtered as fn(&Grammar, &str) -> Result<Term, ParseError>,
+                ),
+                ("unfiltered", unfiltered),
+            ] {
+                let outcome = parse_outcome(parse(&grammar, "a + a # a"));
+                if outcome != expected {
+                    failures.push(format!(
+                        "{left}, applyPriority {apply_priority}, plustwo {plustwo}, {mode}: \
+                         {outcome}"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A labelled syntactic subsort (one nonterminal, no terminal) builds a node that the
+    /// relation filter judges by its own label, but the filter checks no child below it. So
+    /// `wrap` admits a sum below it even though `syntax right wrap plus` would forbid the sum as
+    /// its left child at a checked position, in the pruned and the unfiltered parser alike.
+    #[test]
+    fn a_labelled_syntactic_subsort_judges_no_child() {
+        let grammar = Grammar::from_sentences(&[
+            production("Start", vec![nt("E")], "start"),
+            production("F", vec![terminal("a")], "fa"),
+            production("F", vec![nt("F"), terminal("+"), nt("F")], "plus"),
+            production("E", vec![nt("F")], "wrap"),
+            Sentence::SyntaxAssociativity {
+                associativity: crate::definition::Associativity::Right,
+                tags: vec!["wrap".into(), "plus".into()],
+                attributes: Attributes::default(),
+            },
+        ])
+        .unwrap();
+        pruning_agrees_with_unfiltered_recognition(&grammar, "a + a").unwrap();
+        assert_eq!(
+            parse_outcome(filtered(&grammar, "a + a")),
+            "start(wrap(plus(fa(.KList),fa(.KList))))"
+        );
+    }
+
     /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
     /// decision (which readings of a forest are the parse), so on one forest they reject alike:
     /// the same error, the same reported ambiguity, span and subterms. The forest is
