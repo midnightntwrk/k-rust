@@ -157,8 +157,11 @@ pub enum ImportPolicy {
     /// Configurations must not imply a Map import, and claim `ensures` terms must not contribute requirements.
     SourceText,
     /// Imports for the native frontend.
-    /// Each required sort must select its full module, including sorts required only by a builtin operation's signature.
-    /// Every configuration must require Map because frontend expansion lowers external variables through `Map:lookup`.
+    /// Sorts and operations select modules exactly as for [`Self::SourceText`], so the
+    /// native definition holds the sentences Java K kompiles from the emitted K: a sort
+    /// that only occurs imports its syntax module, never its full module.
+    /// Every configuration must require Map because frontend expansion lowers external variables through `Map:lookup`,
+    /// as Java K's configuration expansion does for the emitted K.
     /// Claim `ensures` terms must contribute requirements.
     NativeFrontend,
     /// Imports of a package's program-syntax module `<NS>-SYNTAX`, shared by
@@ -188,10 +191,7 @@ impl ImportPolicy {
 /// Sorts whose selected catalog module is absent must not produce imports.
 #[must_use]
 pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTreeSet<&'static str> {
-    let mut requirements = module_requirements(module, policy);
-    if policy == ImportPolicy::NativeFrontend {
-        requirements.sorts.extend(&requirements.operations);
-    }
+    let requirements = module_requirements(module, policy);
     if policy == ImportPolicy::ProgramSyntax {
         let int_literals = module.int_literals();
         return requirements
@@ -208,7 +208,7 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
         .sorts
         .into_iter()
         .filter_map(|sort| {
-            if policy == ImportPolicy::NativeFrontend || requirements.operations.contains(&sort) {
+            if requirements.operations.contains(&sort) {
                 sort.spec().k_module
             } else {
                 sort.spec().k_syntax_module
@@ -859,14 +859,17 @@ mod tests {
             builtin_imports(&module, ImportPolicy::SourceText),
             BTreeSet::from(["BOOL", "INT-SYNTAX"]),
         );
+        // The native frontend selects the same modules for sorts, so an Int
+        // token alone imports INT-SYNTAX on both routes; it differs only by
+        // the configuration's Map and the claim's ensures terms.
         assert_eq!(
             builtin_imports(&module, ImportPolicy::NativeFrontend),
-            BTreeSet::from(["BOOL", "BYTES", "INT", "MAP"]),
+            BTreeSet::from(["BOOL", "BYTES", "INT-SYNTAX", "MAP"]),
         );
     }
 
     #[test]
-    fn operations_import_their_module_and_signatures_upgrade_only_for_native_frontend() {
+    fn operations_import_their_module_on_both_routes() {
         let term = DefinitionTerm::application(
             origin("signature-only-operation"),
             DefinitionSortRef::Builtin(BuiltinSort::Bool),
