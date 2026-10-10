@@ -702,10 +702,10 @@ fn casted_rule_chain_parse_work_grows_at_most_cubically() {
     }
 }
 
-/// A definition whose `bubbles` rules each parse `1 + 2 * 3` without priorities: the forest is
-/// ambiguous, so sort inference runs through Z3 before `avoid` selects the parse.
-fn ambiguous_definition(bubbles: usize) -> k_rust::definition::Definition {
-    let rules = "rule 1 + 2 * 3 => 1\n".repeat(bubbles);
+/// A definition whose `bubbles` rules each parse `1 + 2 * 3` without priorities, as written by
+/// `rule`: the forest is ambiguous, and `avoid` selects the parse after sort inference.
+fn ambiguous_definition(rule: &str, bubbles: usize) -> k_rust::definition::Definition {
+    let rules = format!("rule {rule} => 1\n").repeat(bubbles);
     let parsed = k_rust::outer::parse(
         "ambiguous.k",
         &format!(
@@ -715,6 +715,7 @@ fn ambiguous_definition(bubbles: usize) -> k_rust::definition::Definition {
               syntax Exp ::= Int
               syntax Exp ::= Exp "+" Exp [symbol(plus), avoid]
               syntax Exp ::= Exp "*" Exp [symbol(times)]
+              syntax Exp ::= t(Exp, Exp, Exp, Exp, Exp, Exp, Exp) [symbol(t)]
               {rules}
             endmodule
             "#
@@ -724,26 +725,45 @@ fn ambiguous_definition(bubbles: usize) -> k_rust::definition::Definition {
     k_rust::outer::lower(&parsed, "MAIN").unwrap()
 }
 
-fn resolve_ambiguous_bubbles(bubbles: usize) -> Snapshot {
-    let definition = ambiguous_definition(bubbles);
+fn resolve_ambiguous_bubbles(rule: &str, bubbles: usize) -> Snapshot {
+    let definition = ambiguous_definition(rule, bubbles);
     let (resolved, delta) = measured(|| resolve_rule_bubbles(&definition));
     resolved.expect("ambiguous rules should resolve");
     assert_eq!(delta.get(Counter::KompileRuleBubblesParsed), bubbles as u64);
     delta
 }
 
+/// Seven independent `1 + 2 * 3` ambiguities: the forest has 2^7 complete trees, more than the
+/// portable decision expands, so Z3 types it.
+const LARGE_AMBIGUOUS_RULE: &str =
+    "t(1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3, 1 + 2 * 3)";
+
 #[test]
 fn ambiguous_bubble_stays_within_the_pinned_z3_checks() {
-    let delta = resolve_ambiguous_bubbles(1);
+    let delta = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 1);
     eprintln!("one ambiguous bubble: {:?}", nonzero(&delta));
     assert!(delta.get(Counter::ParserZ3Checks) >= 1);
     assert!(delta.get(Counter::ParserZ3Checks) <= Z3_CHECKS_AMBIGUOUS_BUBBLE);
 }
 
+/// An ambiguous monomorphic forest the portable engine decides is not handed to Z3: the
+/// portable decision is tried first, and its decision is the one Z3 would reach.
+#[test]
+fn a_monomorphic_ambiguous_bubble_needs_no_z3_check() {
+    if checked_inference() {
+        return;
+    }
+    let delta = resolve_ambiguous_bubbles("1 + 2 * 3", 1);
+    eprintln!("one monomorphic ambiguous bubble: {:?}", nonzero(&delta));
+    assert_eq!(delta.get(Counter::ParserZ3Checks), 0);
+    assert_eq!(delta.get(Counter::ParserZ3EncodingBuilds), 0);
+    assert!(delta.get(Counter::ParserPortableInferences) >= 2);
+}
+
 #[test]
 fn z3_checks_are_paid_once_per_bubble() {
-    let one = resolve_ambiguous_bubbles(1);
-    let four = resolve_ambiguous_bubbles(4);
+    let one = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 1);
+    let four = resolve_ambiguous_bubbles(LARGE_AMBIGUOUS_RULE, 4);
     assert_eq!(
         four.get(Counter::ParserZ3Checks),
         4 * one.get(Counter::ParserZ3Checks)
@@ -770,7 +790,8 @@ const COMPLETION_CANDIDATES_CHAIN_15: u64 = 1710;
 const AGENDA_POPS_CHAIN_15: u64 = 3290;
 /// Casted rule chain of 15 operands: 47 unpacked nodes.
 const UNPACKED_NODES_CHAIN_15: u64 = 52;
-/// One ambiguous `1 + 2 * 3` bubble: 10 Z3 checks (8 before the admissible parameter vectors
+/// One bubble of `LARGE_AMBIGUOUS_RULE`: 10 Z3 checks, as one `1 + 2 * 3` bubble took while Z3
+/// typed every ambiguous forest (8 before the admissible parameter vectors
 /// were chosen per inclusion-maximal set of live ambiguity readings, which costs a check
 /// that no larger live set exists and one that no other maximal set does).
 const Z3_CHECKS_AMBIGUOUS_BUBBLE: u64 = 11;
