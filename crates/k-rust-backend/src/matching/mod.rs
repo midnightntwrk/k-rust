@@ -77,8 +77,8 @@ use crate::{
         HeadRole, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
-            ReleasedRoots, RigidCycle, RootComparison, classify_pattern, classify_value,
-            compare_roots, rigid_occurrence,
+            RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
+            classify_value, compare_roots, rigid_occurrence,
         },
     },
 };
@@ -902,7 +902,7 @@ impl<'a> Matcher<'a> {
         }
         let policy = matcher_root_policy(
             self.mode,
-            classify_pattern(pattern_reading(self.mode), &pattern),
+            pattern_head(self.mode, self.definition, &pattern),
             subject_head,
             &MatchedPair {
                 definition: self.definition,
@@ -1957,6 +1957,24 @@ fn pattern_reading(mode: MatchMode) -> PatternReading {
     }
 }
 
+/// The classification of a pattern's root that [`matcher_root_policy`] reads. `Evaluate` reads an
+/// equation's left-hand side as the values it denotes: an equation-head application that denotes
+/// one ground term, whose instance-normal token the load recorded, is that normal form, fixed by
+/// the evidence an equal subject would carry ([`RecordedPatterns`]); every other root is read up
+/// to equations. The other modes read the pattern as [`pattern_reading`] says.
+fn pattern_head<'t>(
+    mode: MatchMode,
+    definition: Option<&BackendDefinition>,
+    pattern: &'t Term,
+) -> Head<'t> {
+    match (mode, definition) {
+        (MatchMode::Evaluate, Some(definition)) => {
+            classify_value(pattern, &mut RecordedPatterns(definition))
+        }
+        _ => classify_pattern(pattern_reading(mode), pattern),
+    }
+}
+
 /// What [`matcher_root_policy`] reads about a pattern and a subject besides the classification
 /// of their roots. Each fact is computed when the policy asks for it, so that a pair pays only
 /// for the facts its arm reads (an overload fact is a set lookup).
@@ -2091,11 +2109,15 @@ impl<'t> ComparedSubject<'t> {
 /// design). `Rewrite` matches a rule's left-hand side as written, so every fixed or residual
 /// root is compared by its symbol. `Evaluate` matches an equation's left-hand side against the
 /// term the equation is tried on, and refutes an equation-head subject with evidence by its
-/// root only when the subject is concrete (open question Q7). `Implies` never refutes an
-/// equation-head subject by its root (Q7). In every mode an equation-head pattern, read up to
-/// equations outside `Rewrite`, and a function declared injective are compared by arguments
-/// with an application of their own symbol (Q1, Q5), and an overloaded root is refuted
-/// against a rigid one (Q2).
+/// root only when the subject is concrete (open question Q7). `Evaluate` also reads an
+/// equation-head pattern with evidence ([`pattern_head`]) as the one normal form it denotes, and
+/// refutes it by its root in the two cases that mirror that one: against a rigid subject, and
+/// against a concrete equation-head subject with evidence of another symbol; so whether two
+/// ground normal forms are one value does not depend on which side wrote which. `Implies` never
+/// refutes an equation-head subject by its root (Q7), and reads no evidence for a pattern. In
+/// every mode an equation-head pattern, read up to equations outside `Rewrite`, and a function
+/// declared injective are compared by arguments with an application of their own symbol (Q1,
+/// Q5), and an overloaded root is refuted against a rigid one (Q2).
 #[must_use]
 #[deny(clippy::wildcard_enum_match_arm)]
 fn matcher_root_policy(
@@ -2174,8 +2196,13 @@ fn refutes_another_symbol(
         || match mode {
             MatchMode::Rewrite => true,
             // Q2: an equation's left-hand side headed by an overloaded production against a
-            // concrete subject whose root is fixed.
-            MatchMode::Evaluate => facts.pattern_overloaded() && facts.subject_concrete(),
+            // concrete subject whose root is fixed. An equation-head pattern with evidence (one
+            // ground normal form) against a concrete subject whose root is fixed: two normal
+            // forms of different symbols, as with the pattern and the subject exchanged.
+            MatchMode::Evaluate => {
+                (facts.pattern_overloaded() || is_equation_head_value(pattern))
+                    && facts.subject_concrete()
+            }
             MatchMode::Implies => false,
         }
 }
@@ -2196,8 +2223,13 @@ fn refutes_roots(
             MatchMode::Rewrite => is_fixed_or_residual(pattern) && is_fixed_or_residual(subject),
             // Q7: an equation-head subject with evidence is refuted by its root only when it is
             // concrete. A function application, the other root that is neither rigid nor a
-            // gated equation head, is never concrete after normalization.
-            MatchMode::Evaluate => is_rigid_root(pattern) && facts.subject_concrete(),
+            // gated equation head, is never concrete after normalization. The mirror: an
+            // equation-head pattern with evidence (one ground normal form) is refuted by a rigid
+            // subject root.
+            MatchMode::Evaluate => {
+                (is_rigid_root(pattern) && facts.subject_concrete())
+                    || (is_equation_head_value(pattern) && is_rigid_root(subject))
+            }
             // Q7: never an equation-head subject.
             MatchMode::Implies => false,
         }
@@ -2286,6 +2318,23 @@ fn is_free_constructor(head: Head<'_>) -> bool {
             | FixedRoot::Injection
             | FixedRoot::Collection(_)
             | FixedRoot::EquationHead(_) => false,
+        },
+        Head::Open(_) | Head::Residual => false,
+    }
+}
+
+/// An equation-head application fixed by evidence about its value: in `Evaluate` mode, a pattern
+/// that denotes one ground term with a recorded token ([`pattern_head`]); never a pattern read as
+/// written.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_equation_head_value(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(fixed) => match fixed.root() {
+            FixedRoot::EquationHead(evidence) => evidence.of_a_value(),
+            FixedRoot::DomainValue
+            | FixedRoot::Injection
+            | FixedRoot::Collection(_)
+            | FixedRoot::FreeConstructor => false,
         },
         Head::Open(_) | Head::Residual => false,
     }

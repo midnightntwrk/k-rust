@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -1208,7 +1208,103 @@ impl BackendDefinition {
     }
 }
 
+/// The equation-head applications written strictly below the root of the left-hand side of an
+/// executable function, simplification or ceil equation that denote one ground term, grouped by
+/// that term, each written application once, in the order a depth-first walk of the theories
+/// meets them: the subterms equation matching may read as values
+/// (`BackendDefinition::record_pattern_tokens`).
+///
+/// An application denotes one ground term when it is ground once each `\and` in it is replaced
+/// by its structured conjunct (`confluence::collapse_conjunctions`): a left-hand side may name a
+/// subterm with a variable, `\and(1, X)`, to reuse it on its right-hand side, and an instance of
+/// the conjunction is an instance of each conjunct, so the application has at most the one value
+/// of the collapsed term. The walk keeps its pending subterms on a work list.
+fn ground_equation_head_patterns(definition: &BackendDefinition) -> Vec<(Term, Vec<Term>)> {
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut groups: Vec<(Term, Vec<Term>)> = Vec::new();
+    let mut group_of = rustc_hash::FxHashMap::default();
+    let mut work: Vec<&Term> = Vec::new();
+    let theories = [
+        &definition.function_theory,
+        &definition.simplification_theory,
+        &definition.ceil_theory,
+    ];
+    for rule in theories
+        .into_iter()
+        .flat_map(BTreeMap::values)
+        .flat_map(BTreeMap::values)
+        .flatten()
+    {
+        work.extend(crate::term::immediate_children(rule.lhs.kind()));
+        while let Some(term) = work.pop() {
+            if term.shape() == crate::term::head::Shape::Application(HeadRole::EquationHead) {
+                if !seen.insert(term) {
+                    continue;
+                }
+                let value = if term.attributes().variables.is_empty() {
+                    term.clone()
+                } else {
+                    crate::confluence::collapse_conjunctions(term)
+                };
+                if value.attributes().variables.is_empty() {
+                    let group = *group_of.entry(value.clone()).or_insert_with(|| {
+                        groups.push((value, Vec::new()));
+                        groups.len() - 1
+                    });
+                    groups[group].1.push(term.clone());
+                }
+            }
+            work.extend(crate::term::immediate_children(term.kind()));
+        }
+    }
+    groups
+}
+
 impl BackendDefinition {
+    /// After the check, record in the verdict an instance-normal token for each equation-head
+    /// application written below the root of an executable equation's left-hand side that
+    /// denotes one ground term, when that term has one (`confluence::ValueClaims::pattern_token`).
+    /// Equation matching reads a recorded application as the value it denotes
+    /// (`term::head::RecordedPatterns`), so that a ground normal form is compared by the same
+    /// evidence whether the equation writes it or the subject holds it.
+    ///
+    /// A ground term is its own only instance, so its token is a fact about the one value it
+    /// denotes, the fact the scan establishes for an equal subject. The root of a left-hand side
+    /// is not recorded: it is compared with the application the equation is tried on, which has
+    /// its symbol, by its arguments.
+    ///
+    /// The scan of a term matches the left-hand sides of the equations that could reach it, and
+    /// those may hold applications of this record, so a token recorded here can let the scan of
+    /// another term find it normal. A recorded token only adds refutations to equation
+    /// matching, never removes one, so a term the scan found normal stays normal as the record
+    /// grows. The record is therefore built in rounds, each scanning the terms not yet recorded
+    /// against the record so far, until a round records nothing. Then the scan, run against the
+    /// final record, finds every recorded term normal and no other one: what the pattern side
+    /// reads of a ground term is what the subject side reads of it. With `g` such terms, there
+    /// are at most `r + 1` rounds for `r` recorded ones, and at most `g` scans per round.
+    fn record_pattern_tokens(&mut self) {
+        let mut pending = ground_equation_head_patterns(self);
+        while !pending.is_empty() {
+            let mut recorded = Vec::new();
+            let mut rest = Vec::new();
+            for (value, written) in pending {
+                match self.instance_normal(&value) {
+                    Some(token) => recorded.push((written, token)),
+                    None => rest.push((value, written)),
+                }
+            }
+            if recorded.is_empty() {
+                break;
+            }
+            for (written, token) in recorded {
+                for pattern in written {
+                    self.value_claims.record_pattern_token(pattern, token);
+                }
+            }
+            pending = rest;
+        }
+    }
+
     /// Discharge rewrite annotations only after the semantic input has been assembled.
     ///
     /// ```toml algorithm-site
@@ -1901,6 +1997,7 @@ impl BackendDefinition {
             crate::confluence::CheckScope::Gate,
             crate::confluence::ConditionMemo::On,
         );
+        result.record_pattern_tokens();
         result.discharge_rewrite_definedness();
         Ok(result)
     }
