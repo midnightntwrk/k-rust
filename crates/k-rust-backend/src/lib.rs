@@ -36,4 +36,6 @@ pub mod unification;
 #[cfg(test)]
 mod counted;
 #[cfg(test)]
+mod peak_memory;
+#[cfg(test)]
 mod tests;

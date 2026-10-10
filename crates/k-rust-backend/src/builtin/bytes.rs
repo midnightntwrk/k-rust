@@ -6,9 +6,10 @@ use num_traits::{ToPrimitive, Zero};
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, MAX_BYTES_RESULT_LEN, TARGET_BYTES_RESULT_LEN,
-    UnsupportedHookReason, describe_int, expect_arity, int_term, read_int, result_size_limit,
+    BYTES_RESULT_PEAK_FACTOR, BuiltinResult, HookResult, ResultCap, TARGET_BYTES_RESULT_LEN,
+    UnsupportedHookReason, describe_int, expect_arity, int_term, read_int,
 };
+use crate::allowance::Allowance;
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -34,12 +35,12 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         "BYTES.get" => get(arguments),
         "BYTES.substr" => substring(arguments),
         "BYTES.replaceAt" => replace_at(arguments),
-        "BYTES.padRight" => pad(arguments, false),
-        "BYTES.padLeft" => pad(arguments, true),
+        "BYTES.padRight" => pad(arguments, false, Allowance::of_process()),
+        "BYTES.padLeft" => pad(arguments, true, Allowance::of_process()),
         "BYTES.reverse" => reverse(arguments),
         "BYTES.length" => length(arguments),
         "BYTES.concat" => concatenate(arguments),
-        "BYTES.int2bytes" => int_to_bytes(arguments),
+        "BYTES.int2bytes" => int_to_bytes(arguments, Allowance::of_process()),
         "BYTES.bytes2int" => bytes_to_int(arguments),
         _ => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -208,7 +209,9 @@ fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
+/// `padRightBytes` (`left` false) or `padLeftBytes` (`left` true) under the cap that `allowance`
+/// sets ([`bytes_result_cap`]).
+fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<BuiltinResult> {
     let hook = if left {
         "BYTES.padLeft"
     } else {
@@ -224,11 +227,7 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
         return Ok(BuiltinResult::Bottom);
     };
-    // The length, an `Int` and a byte value: `result_size_limit` of their sizes, in bytes.
-    let arguments = (bytes.len() as u64)
-        .saturating_add(length.bits().div_ceil(8))
-        .saturating_add(1);
-    let length = match bounded_length(&length, arguments) {
+    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
@@ -238,6 +237,8 @@ fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
         padded.extend(bytes);
         bytes = padded;
     } else {
+        // Exactly the result's length: `resize` alone may reserve up to twice it.
+        bytes.reserve_exact(additional);
         bytes.resize(bytes.len() + additional, value);
     }
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
@@ -271,8 +272,9 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 /// `Int2Bytes(LENGTH, I, E)` is the `LENGTH`-byte two's complement of `I` in byte order `E`. No
 /// `Bytes` has a negative length and the hook is `total`, so for a negative `LENGTH` its value is
-/// not given by the definition and the application is left unevaluated.
-fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
+/// not given by the definition and the application is left unevaluated. A `LENGTH` above the cap
+/// that `allowance` sets ([`bytes_result_cap`]) is refused.
+fn int_to_bytes(arguments: &[Term], allowance: &Allowance) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.int2bytes", arguments, 3)?;
     if let Some(length) = read_int(&arguments[0])
         && length.sign() == Sign::Minus
@@ -292,19 +294,18 @@ fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(endianness) = read_endianness(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    // The length and the value, two `Int`s: `result_size_limit` of their sizes, in bytes.
-    let arguments = length
-        .bits()
-        .div_ceil(8)
-        .saturating_add(value.bits().div_ceil(8));
-    let length = match bounded_length(&length, arguments) {
+    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     // The low `length` bytes of the two's complement of `value`, least significant first: its
     // shortest two's-complement bytes, truncated or extended with its sign.
-    let mut bytes = value.to_signed_bytes_le();
     let sign = if value.sign() == Sign::Minus { 0xff } else { 0 };
+    let mut bytes = value.to_signed_bytes_le();
+    // The value is not needed past its bytes, and the result is exactly `length` bytes:
+    // `resize` alone may reserve up to twice the length.
+    drop(value);
+    bytes.reserve_exact(length.saturating_sub(bytes.len()));
     bytes.resize(length, sign);
     if matches!(endianness, Endianness::Big) {
         bytes.reverse();
@@ -357,45 +358,45 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
     read_int(term).map(|value| value.to_usize())
 }
 
-/// A nonnegative `length` as the length of a result built from arguments of total size
-/// `arguments` bytes, or `ResultTooLarge` above [`bytes_length_limit`] with this target's
-/// [`TARGET_BYTES_RESULT_LEN`]: the value exists, and the backend does not build it.
-fn bounded_length(length: &BigInt, arguments: u64) -> Result<usize, UnsupportedHookReason> {
+/// A nonnegative `length` as the length of a `Bytes` result, or `ResultTooLarge` above `cap`:
+/// the value exists, and the backend does not build it.
+fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
     );
-    let limit = bytes_length_limit(arguments, TARGET_BYTES_RESULT_LEN);
+    let limit = cap.bytes();
     length
         .to_u64()
         .filter(|length| *length <= limit)
         .and_then(|length| usize::try_from(length).ok())
         .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
             detail: format!(
-                "a Bytes result of length {} needs more than {limit} bytes",
-                describe_int(length)
+                "a Bytes result of length {} is longer than its cap of {limit} bytes ({}): {}",
+                describe_int(length),
+                super::describe_bytes(limit),
+                cap.reason(),
             ),
         })
 }
 
-/// The longest `Bytes` result built from arguments of total size `arguments` bytes on a target
-/// whose largest allocation is `largest_allocation` bytes (`isize::MAX` on this one): at most
-/// [`super::target_bytes_result_len`] of it, which leaves room to render the result. The tests
-/// use it to simulate a 32-bit target.
-#[cfg(test)]
-const fn bytes_result_limit(largest_allocation: u64, arguments: u64) -> u64 {
-    bytes_length_limit(
-        arguments,
-        super::target_bytes_result_len(largest_allocation),
-    )
+/// The cap on a `Bytes` result whose length an argument's value sets (`padRightBytes`,
+/// `padLeftBytes`, `Int2Bytes`): [`BYTES_RESULT_PEAK_FACTOR`] bytes held per byte of result
+/// within `allowance`, and at most [`TARGET_BYTES_RESULT_LEN`], which leaves room to render the
+/// result on a 32-bit target.
+fn bytes_result_cap(allowance: &Allowance) -> ResultCap<'_> {
+    bytes_result_cap_on(allowance, TARGET_BYTES_RESULT_LEN)
 }
 
-/// The longest `Bytes` result built from arguments of total size `arguments` bytes, on a target
-/// where one result may take at most `target` bytes: their `result_size_limit` with the floor
-/// [`MAX_BYTES_RESULT_LEN`], and at most `target`.
-const fn bytes_length_limit(arguments: u64, target: u64) -> u64 {
-    let limit = result_size_limit(MAX_BYTES_RESULT_LEN, arguments);
-    if limit < target { limit } else { target }
+/// [`bytes_result_cap`] on a target where a result may take at most `target` bytes
+/// ([`super::target_bytes_result_len`]); the tests use it to simulate a 32-bit target.
+fn bytes_result_cap_on(allowance: &Allowance, target: u64) -> ResultCap<'_> {
+    ResultCap::new(
+        allowance,
+        BYTES_RESULT_PEAK_FACTOR,
+        target,
+        "a sixteenth of the largest allocation on this target, so that the result can be rendered",
+    )
 }
 
 /// A concrete `Int` argument as a byte value: `Some(None)` when it is outside `[0..255]`, `None`
@@ -439,7 +440,11 @@ fn read_signedness(term: &Term) -> Option<Signedness> {
 }
 
 pub(super) fn bytes_term(bytes: &[u8]) -> Term {
-    Term::domain_value(Sort::builtin(BuiltinSort::Bytes), bytes.to_vec())
+    // One copy, straight into the shared buffer the term holds.
+    Term::domain_value(
+        Sort::builtin(BuiltinSort::Bytes),
+        std::sync::Arc::<[u8]>::from(bytes),
+    )
 }
 
 fn string_term(value: impl Into<String>) -> Term {
@@ -660,13 +665,38 @@ mod tests {
         }
     }
 
+    /// The allowance the hooks run under in these tests, so that whether a result is refused does
+    /// not depend on the host: 16 GiB, a cap of 8 GiB on a `Bytes` result.
+    static ALLOWANCE: Allowance = Allowance::given(16 << 30);
+
+    fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
+        super::pad(arguments, left, &ALLOWANCE)
+    }
+
+    fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
+        super::int_to_bytes(arguments, &ALLOWANCE)
+    }
+
+    fn refused(result: HookResult<BuiltinResult>) -> bool {
+        matches!(
+            result,
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge { .. }
+            ))
+        )
+    }
+
+    /// The refusal names the cap, the allowance it is a share of, where that allowance comes from,
+    /// and the factor.
     #[test]
     fn allocation_lengths_above_usize_are_unsupported() {
         let large_length = BigInt::from(1_u8) << usize::BITS;
         let length = int_term(large_length.clone());
         let expected = BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
             detail: format!(
-                "a Bytes result of length a {}-bit integer needs more than {MAX_BYTES_RESULT_LEN} bytes",
+                "a Bytes result of length a {}-bit integer is longer than its cap of 8589934592 \
+                 bytes (8 GiB): half of the 16 GiB this process may use (given by the embedder), \
+                 since one application holds 2 bytes per byte of its result",
                 large_length.bits()
             ),
         });
@@ -689,77 +719,97 @@ mod tests {
         );
     }
 
-    /// A length the arguments' values set is computed up to `result_size_limit` of their sizes,
-    /// with [`MAX_BYTES_RESULT_LEN`] as the floor, and refused beyond it before anything is
-    /// allocated: a length beyond the machine's memory aborted the process. Below the floor a
-    /// length is built however long: 2^28 bytes (a padding built in under a second) and the floor
-    /// itself, the largest memory a 32-bit address space holds (decided without allocating here).
+    /// A length an argument's value sets is computed exactly when the application fits the
+    /// allowance, [`BYTES_RESULT_PEAK_FACTOR`] bytes per byte of result, and refused beyond it
+    /// before anything is allocated, whatever the size of the arguments: a value already at the
+    /// cap is not padded past it. Under an allowance of 1 MiB the cap is 512 KiB, which the hooks
+    /// build; under the tests' 16 GiB, 8 GiB is admitted (decided without allocating here).
     #[test]
-    fn bytes_lengths_are_bounded_before_allocating() {
+    fn bytes_lengths_are_capped_by_the_allowance() {
+        let small = Allowance::given(1 << 20);
+        let cap = 1_u64 << 19;
         let little = constructor("LbllittleEndianBytes", "SortEndianness");
-        let refused = |result: HookResult<BuiltinResult>| {
-            matches!(
-                result,
-                Ok(BuiltinResult::Unsupported(
-                    UnsupportedHookReason::ResultTooLarge { .. }
-                ))
-            )
-        };
-        let floor = BigInt::from(MAX_BYTES_RESULT_LEN);
-        for length in [&floor + 1u8, BigInt::from(1_u64 << 40)] {
-            let length = int_term(length);
-            for left in [false, true] {
+        let at_cap = vec![7; usize::try_from(cap).unwrap()];
+        for left in [false, true] {
+            assert!(
+                super::pad(
+                    &[bytes_term(b""), int_term(cap.into()), integer(7)],
+                    left,
+                    &small
+                ) == Ok(BuiltinResult::Value(bytes_term(&at_cap))),
+                "pad (left: {left}) to the cap"
+            );
+            for length in [BigInt::from(cap + 1), BigInt::from(1_u64 << 40)] {
                 assert!(
-                    refused(pad(&[bytes_term(b"abc"), length.clone(), integer(1)], left)),
-                    "pad (left: {left}) to {length:?}"
+                    refused(super::pad(
+                        &[bytes_term(b"abc"), int_term(length.clone()), integer(1)],
+                        left,
+                        &small
+                    )),
+                    "pad (left: {left}) to {length}"
                 );
             }
             assert!(
-                refused(int_to_bytes(&[length.clone(), integer(1), little.clone()])),
-                "Int2Bytes({length:?}, 1, LE)"
+                refused(super::pad(
+                    &[bytes_term(&at_cap), int_term((cap + 1).into()), integer(1)],
+                    left,
+                    &small
+                )),
+                "pad (left: {left}) a value at the cap past it"
             );
         }
+        assert!(
+            super::int_to_bytes(&[int_term(cap.into()), integer(-1), little.clone()], &small)
+                == Ok(BuiltinResult::Value(bytes_term(&vec![
+                    0xff;
+                    usize::try_from(cap)
+                        .unwrap()
+                ]))),
+            "Int2Bytes to the cap"
+        );
+        assert!(refused(super::int_to_bytes(
+            &[int_term((cap + 1).into()), integer(-1), little],
+            &small
+        )));
         assert_eq!(
             pad(&[bytes_term(b"abc"), integer(5), integer(1)], true),
             Ok(BuiltinResult::Value(bytes_term(b"\x01\x01abc")))
         );
-        for length in [1_u64 << 28, MAX_BYTES_RESULT_LEN] {
-            assert_eq!(
-                bounded_length(&BigInt::from(length), 3),
-                Ok(usize::try_from(length).unwrap()),
-                "a Bytes result of length {length}"
-            );
-        }
-        // Relative to the arguments: twice their size, here the floor plus 4 bytes (a value of the
-        // floor's length and a small length and byte), whatever the floor.
-        let arguments = MAX_BYTES_RESULT_LEN + 4;
+        let cap = bytes_result_cap(&ALLOWANCE);
+        assert_eq!(cap.bytes(), 8 << 30);
         assert_eq!(
-            bounded_length(&BigInt::from(2 * arguments), arguments),
-            Ok(usize::try_from(2 * arguments).unwrap())
+            bounded_length(&BigInt::from(8_u64 << 30), &cap),
+            Ok(8 << 30)
         );
-        assert!(bounded_length(&BigInt::from(2 * arguments + 1), arguments).is_err());
-        assert_eq!(
-            bounded_length(&floor, 3),
-            Ok(usize::try_from(MAX_BYTES_RESULT_LEN).unwrap())
-        );
+        assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
     }
 
     /// On a 32-bit target, whose largest allocation is 2^31 - 1 bytes and whose whole memory is at
     /// most 4 GiB, a `Bytes` result is at most a sixteenth of that allocation, 128 MiB, whatever
-    /// its arguments: the floor of 4 GiB would let a length past `isize::MAX` reach the allocator,
-    /// which panics, and a longer value could not be rendered (see
-    /// `bytes_results_on_a_32_bit_target_can_be_rendered`). On a 64-bit target the floor and the
-    /// relative term bind first.
+    /// the allowance: half the address space would let a length past `isize::MAX` reach the
+    /// allocator, which panics, and a longer value could not be rendered (see
+    /// `bytes_results_on_a_32_bit_target_can_be_rendered`). The refusal says so. On a 64-bit
+    /// target the allowance binds first.
     #[test]
     fn bytes_lengths_are_bounded_by_what_the_target_can_allocate() {
-        let thirty_two = u64::from(i32::MAX.unsigned_abs());
-        assert_eq!(bytes_result_limit(thirty_two, 3), 1 << 27);
-        assert_eq!(bytes_result_limit(thirty_two, 1 << 30), 1 << 27);
-        let sixty_four = i64::MAX.unsigned_abs();
-        assert_eq!(bytes_result_limit(sixty_four, 3), MAX_BYTES_RESULT_LEN);
+        let thirty_two = super::super::target_bytes_result_len(u64::from(i32::MAX.unsigned_abs()));
+        let address_space = Allowance::given(1 << 32);
+        let cap = bytes_result_cap_on(&address_space, thirty_two);
+        assert_eq!(cap.bytes(), 1 << 27);
         assert_eq!(
-            bytes_result_limit(sixty_four, MAX_BYTES_RESULT_LEN),
-            2 * MAX_BYTES_RESULT_LEN
+            cap.reason(),
+            "a sixteenth of the largest allocation on this target, so that the result can be \
+             rendered"
+        );
+        assert_eq!(
+            bytes_result_cap_on(&Allowance::given(1 << 20), thirty_two).bytes(),
+            1 << 19
+        );
+        let sixty_four = super::super::target_bytes_result_len(i64::MAX.unsigned_abs());
+        assert_eq!(bytes_result_cap_on(&ALLOWANCE, sixty_four).bytes(), 8 << 30);
+        assert_eq!(
+            bytes_result_cap_on(&Allowance::given(u64::MAX), sixty_four).bytes(),
+            1 << 59
         );
     }
 
@@ -767,7 +817,7 @@ mod tests {
     /// most four bytes on a byte (`\xhh`) and KORE JSON at most six (`\u00hh`), so the JSON of
     /// the longest admitted value is one allocation below `isize::MAX`, and the about sixteen
     /// bytes per byte that a library response holds at its peak stay within half of the address
-    /// space.
+    /// space, whatever the allowance there (at most the 4 GiB address space).
     #[test]
     fn bytes_results_on_a_32_bit_target_can_be_rendered() {
         use k_rust_kore::kore::{
@@ -792,10 +842,62 @@ mod tests {
             assert!(json_length(vec![byte]) <= empty + 6, "{byte:#04x}");
         }
         let largest = u64::from(i32::MAX.unsigned_abs());
-        for arguments in [0, 3, 1 << 20, 1 << 30, u64::MAX] {
-            let length = bytes_result_limit(largest, arguments);
-            assert!(6 * length + 2 <= largest, "{arguments}: {length}");
-            assert!(16 * length <= largest + 1, "{arguments}: {length}");
+        let target = super::super::target_bytes_result_len(largest);
+        for allowance in [0, 3, 1 << 20, 1 << 30, 1 << 32] {
+            let length = bytes_result_cap_on(&Allowance::given(allowance), target).bytes();
+            assert!(6 * length + 2 <= largest, "{allowance}: {length}");
+            assert!(16 * length <= largest + 1, "{allowance}: {length}");
+        }
+    }
+
+    /// The most memory one application holds, per byte of its result, is
+    /// [`BYTES_RESULT_PEAK_FACTOR`]: measured with the test allocator at two result lengths, the
+    /// peak grows by exactly that many bytes per byte of result, for each hook, each side of
+    /// padding and inputs from empty to nearly as long as the result. The difference between the
+    /// two lengths leaves out the few bytes an application holds whatever its length.
+    #[test]
+    fn bytes_hooks_hold_twice_their_result() {
+        use crate::peak_memory::peak_during;
+        let (shorter, longer) = (1_u64 << 24, 1_u64 << 25);
+        let growth = |name: &str, peak: &dyn Fn(u64) -> u64| {
+            let growth = peak(longer) - peak(shorter);
+            let lengths = longer - shorter;
+            assert!(
+                growth <= BYTES_RESULT_PEAK_FACTOR * lengths
+                    && growth > (BYTES_RESULT_PEAK_FACTOR - 1) * lengths,
+                "{name}: the peak grew by {growth} bytes over {lengths} bytes of result"
+            );
+        };
+        let input = |length: u64| vec![7; usize::try_from(length).unwrap()];
+        for left in [false, true] {
+            for (shape, input_length) in [
+                ("empty", &(|_| 0_u64) as &dyn Fn(u64) -> u64),
+                ("half as long", &|length| length / 2),
+                ("one byte shorter", &|length| length - 1),
+            ] {
+                growth(&format!("pad (left: {left}), input {shape}"), &|length| {
+                    let arguments = [
+                        bytes_term(&input(input_length(length))),
+                        int_term(length.into()),
+                        integer(1),
+                    ];
+                    let (result, peak) = peak_during(|| pad(&arguments, left));
+                    assert!(matches!(result, Ok(BuiltinResult::Value(_))));
+                    peak
+                });
+            }
+        }
+        for endianness in ["LbllittleEndianBytes", "LblbigEndianBytes"] {
+            growth(&format!("Int2Bytes, {endianness}"), &|length| {
+                let arguments = [
+                    int_term(length.into()),
+                    integer(-1),
+                    constructor(endianness, "SortEndianness"),
+                ];
+                let (result, peak) = peak_during(|| int_to_bytes(&arguments));
+                assert!(matches!(result, Ok(BuiltinResult::Value(_))));
+                peak
+            });
         }
     }
 

@@ -28,6 +28,7 @@ pub(crate) use substitution::KVarSorts;
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
+    allowance::Allowance,
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     stop::{Layered, Stoppable, Unwind},
@@ -902,45 +903,124 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 /// and 1.7 s at 2^24 bits).
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
-/// The floor of the size bound on a `Bytes` result whose length is set by the value of an
-/// argument (`padRightBytes`, `padLeftBytes`, `Int2Bytes`), in bytes (see `result_size_limit`):
-/// 2^32 bytes, 4 GiB.
+/// The most bytes one `padRightBytes`, `padLeftBytes` or `Int2Bytes` application holds at once,
+/// per byte of its result, beyond reading its arguments: 2, the result as the hook builds it and
+/// its copy into the term that holds it (see [`ResultCap`]).
 ///
-/// A `Bytes` value costs time linear in its length to build and to use (padding to 4 GiB takes
-/// seconds), so the limit is memory, not time: one application holds about three times its
-/// result (an argument copy, the result and the term built from it, about 12.6 GB at 4 GiB),
-/// and a length far beyond the machine's memory aborts the process when the allocation fails,
-/// or gets it killed while the bytes are written. 4 GiB is also the largest memory a 32-bit
-/// address space holds, so on a 64-bit host a semantics that models such a memory (a
-/// WebAssembly memory has at most 65536 pages of 64 KiB) never has a memory operation refused.
-/// The relative term lets a value the run built grow beyond it, step by step. A 32-bit host
-/// cannot hold 4 GiB of value at all, so the bound is also at most `TARGET_BYTES_RESULT_LEN`.
-pub const MAX_BYTES_RESULT_LEN: u64 = 1 << 32;
+/// Measured, not chosen: `bytes_hooks_hold_twice_their_result` in `builtin/bytes.rs` records the
+/// most memory one application allocates and has not freed, with a counting allocator, at two
+/// result lengths, for each hook and for inputs empty, half and nearly as long as the result, and
+/// takes the factor as the growth of that peak per byte of result between the two lengths, which
+/// leaves out the few bytes every application holds whatever its length.
+pub(crate) const BYTES_RESULT_PEAK_FACTOR: u64 = 2;
 
-/// The floor of the size bound on the length of a `makeList` result, in elements (see
-/// `result_size_limit`): 2^29 elements, one 8-byte term reference each on a 64-bit host, the
-/// same 4 GiB of memory as [`MAX_BYTES_RESULT_LEN`] and for the same reason, and at most
-/// `TARGET_RESULT_BYTES` of references.
-pub const MAX_LIST_RESULT_LEN: u64 = 1 << 29;
+/// The most bytes one `makeList` application holds at once, per byte of its result (one term
+/// reference per element): 1, the elements' references, which become the list without a copy.
+/// Measured as [`BYTES_RESULT_PEAK_FACTOR`] is, by `make_holds_its_result_once` in
+/// `builtin/list.rs`.
+pub(crate) const LIST_RESULT_PEAK_FACTOR: u64 = 1;
+
+/// The largest result a hook whose result size an argument's value sets computes, in bytes: the
+/// result of `R` bytes is computed exactly when `factor * R <= L`, `L` the memory the process may
+/// use ([`Allowance`]) and `factor` the most bytes one application of the hook holds per byte of
+/// its result, and when `R` is at most `target`, what one result may take on this target.
+///
+/// Above the cap the application itself cannot fit the memory the process is allowed: its
+/// allocations would fail and abort the process, or get it killed while the result is written.
+/// Below it the result is computed however large, and its cost, time linear in its size for these
+/// hooks, is bounded by the step timeout, not by a chosen size. The allowance is not reduced by
+/// what the run already holds (see [`crate::allowance`]), so a result within the cap that does
+/// not fit in what is left fails as any other allocation does.
+pub(crate) struct ResultCap<'a> {
+    allowance: &'a Allowance,
+    factor: u64,
+    target: u64,
+    target_reason: &'static str,
+}
+
+impl<'a> ResultCap<'a> {
+    /// The cap of a hook holding `factor` bytes per byte of its result under `allowance`, and at
+    /// most `target` bytes on this target, for the reason `target_reason`.
+    pub(crate) const fn new(
+        allowance: &'a Allowance,
+        factor: u64,
+        target: u64,
+        target_reason: &'static str,
+    ) -> Self {
+        Self {
+            allowance,
+            factor,
+            target,
+            target_reason,
+        }
+    }
+
+    /// The largest result computed, in bytes.
+    pub(crate) const fn bytes(&self) -> u64 {
+        let allowed = self.allowance.bytes() / self.factor;
+        if allowed < self.target {
+            allowed
+        } else {
+            self.target
+        }
+    }
+
+    /// The limit that sets the cap, for the detail of a refusal: the allowance with its source and
+    /// the factor, or the target.
+    pub(crate) fn reason(&self) -> String {
+        if self.allowance.bytes() / self.factor > self.target {
+            return self.target_reason.to_owned();
+        }
+        let share = match self.factor {
+            1 => "all".to_owned(),
+            2 => "half".to_owned(),
+            3 => "a third".to_owned(),
+            4 => "a quarter".to_owned(),
+            factor => format!("1/{factor}"),
+        };
+        let unit = if self.factor == 1 { "byte" } else { "bytes" };
+        format!(
+            "{share} of the {} this process may use ({}), since one application holds {} {unit} \
+             per byte of its result",
+            describe_bytes(self.allowance.bytes()),
+            self.allowance.source(),
+            self.factor,
+        )
+    }
+}
+
+/// A number of bytes for a message: exact below 1 KiB, otherwise in the largest binary unit it
+/// reaches, with one decimal where it is not whole.
+pub(crate) fn describe_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+    if bytes < 1 << 10 {
+        return format!("{bytes} bytes");
+    }
+    let exponent = ((63 - bytes.leading_zeros()) / 10).min(6);
+    let scaled = bytes as f64 / (1_u64 << (10 * exponent)) as f64;
+    let text = format!("{scaled:.1}");
+    let text = text.strip_suffix(".0").unwrap_or(&text);
+    format!("{text} {}", UNITS[exponent as usize - 1])
+}
 
 /// The most memory, in bytes, that one `List` result whose length an argument's value sets may
 /// take on this target ([`target_result_bytes`] of `isize::MAX`): 2^29 bytes, 512 MiB, on a
-/// 32-bit target, and 2^61 bytes on a 64-bit one, where the floor binds first.
+/// 32-bit target, and 2^61 bytes on a 64-bit one, where it never binds.
 pub(crate) const TARGET_RESULT_BYTES: u64 = target_result_bytes(isize::MAX as u64);
 
 /// The longest `Bytes` result whose length an argument's value sets on this target
 /// ([`target_bytes_result_len`] of `isize::MAX`): 2^27 bytes, 128 MiB, on a 32-bit target, and
-/// 2^59 bytes on a 64-bit one, where the floor binds first.
+/// 2^59 bytes on a 64-bit one, where it never binds.
 pub(crate) const TARGET_BYTES_RESULT_LEN: u64 = target_bytes_result_len(isize::MAX as u64);
 
 // Checked where the backend is built for a 32-bit target (`k-rust-wasm` on wasm32), whose tests
-// do not build there: the target terms bind below both floors.
+// do not build there: the target terms bind below what the 4 GiB address space allows.
 const _: () = assert!(
     usize::BITS != 32
         || (TARGET_RESULT_BYTES == 1 << 29
             && TARGET_BYTES_RESULT_LEN == 1 << 27
-            && TARGET_BYTES_RESULT_LEN < MAX_BYTES_RESULT_LEN
-            && TARGET_RESULT_BYTES / 4 < MAX_LIST_RESULT_LEN)
+            && TARGET_BYTES_RESULT_LEN < (1 << 32) / BYTES_RESULT_PEAK_FACTOR
+            && TARGET_RESULT_BYTES < (1 << 32) / LIST_RESULT_PEAK_FACTOR)
 );
 
 /// The longest `Bytes` result on a target whose largest allocation is `largest_allocation`
@@ -962,16 +1042,16 @@ pub(crate) const fn target_bytes_result_len(largest_allocation: u64) -> u64 {
 /// `largest_allocation` bytes: a quarter of it, `(largest_allocation + 1) / 4`.
 ///
 /// Rust refuses an allocation above `isize::MAX` bytes by panicking, and on a 32-bit target that
-/// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB). One
-/// application holds about three times its result (see [`MAX_BYTES_RESULT_LEN`]), so a result
-/// of a quarter of the largest allocation keeps those copies within three eighths of the address
-/// space, with room for the rest of the run, and each one far from the allocation limit.
+/// is half the address space (a WebAssembly instance's whole memory is at most 4 GiB), so the
+/// memory the process may use does not bound one allocation there. A `List` result is one
+/// allocation of its references ([`LIST_RESULT_PEAK_FACTOR`]); a quarter of the largest
+/// allocation keeps it far from that limit, with room for the rest of the run.
 pub(crate) const fn target_result_bytes(largest_allocation: u64) -> u64 {
     largest_allocation.saturating_add(1) / 4
 }
 
-/// The largest result a hook computes when the result's size is set by the value of an argument
-/// (`^Int`'s exponent, `<<Int`'s shift amount, a length), given the total size `arguments` of its
+/// The largest result `^Int` and `<<Int` compute when the result's size is set by the value of an
+/// argument (`^Int`'s exponent, `<<Int`'s shift amount), given the total size `arguments` of its
 /// arguments and the `floor` of the result's unit: `max(floor, 2 * arguments)`.
 ///
 /// The bound keeps the cost of one hook application polynomial in the size of its arguments, so

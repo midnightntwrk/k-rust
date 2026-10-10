@@ -7,11 +7,12 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinResult, HookResult, MAX_LIST_RESULT_LEN, ResultCollection, TARGET_RESULT_BYTES,
-    UnsupportedHookReason, bool_term, describe_int, expect_arity, expect_sort, int_term, read_int,
-    values_differ,
+    BuiltinResult, HookResult, LIST_RESULT_PEAK_FACTOR, ResultCap, ResultCollection,
+    TARGET_RESULT_BYTES, UnsupportedHookReason, bool_term, describe_int, expect_arity, expect_sort,
+    int_term, read_int, values_differ,
 };
 use crate::{
+    allowance::Allowance,
     matching::SortGraph,
     term::{Sort, Term, TermKind},
 };
@@ -29,7 +30,7 @@ pub(super) fn evaluate(
         "LIST.size" => size(arguments),
         "LIST.unit" => unit(arguments, result),
         "LIST.get" => return get(arguments),
-        "LIST.make" => return make(arguments, result),
+        "LIST.make" => return make(arguments, result, Allowance::of_process()),
         "LIST.range" => return range(arguments, result),
         "LIST.update" => return update(arguments, result),
         "LIST.updateAll" => return update_all(arguments, result),
@@ -223,7 +224,12 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     )
 }
 
-fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
+/// `makeList` under the cap that `allowance` sets ([`list_result_cap`]).
+fn make(
+    arguments: &[Term],
+    result: ResultCollection<'_>,
+    allowance: &Allowance,
+) -> HookResult<BuiltinResult> {
     expect_arity("LIST.make", arguments, 2)?;
     let [length, value] = arguments else {
         unreachable!()
@@ -241,44 +247,55 @@ fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinR
     if length.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom);
     }
-    let concrete_length = match bounded_list_length(&length) {
+    let concrete_length = match bounded_list_length(&length, &list_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
     Ok(into.build(vec![value; concrete_length], None).into())
 }
 
-/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` above
-/// [`list_length_limit`] on this target: the list exists, and the backend does not build it.
-/// The arguments, a length and one element, are small, so the bound is the floor.
-fn bounded_list_length(length: &BigInt) -> Result<usize, UnsupportedHookReason> {
+/// A nonnegative `makeList` length as a number of elements, or `ResultTooLarge` when its term
+/// references take more than `cap`: the list exists, and the backend does not build it.
+fn bounded_list_length(
+    length: &BigInt,
+    cap: &ResultCap<'_>,
+) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "makeList of a negative length is undefined, checked by the caller"
     );
-    let limit = list_length_limit(TARGET_RESULT_BYTES, size_of::<Term>() as u64);
+    let reference = size_of::<Term>() as u64;
+    let limit = cap.bytes() / reference;
     length
         .to_u64()
         .filter(|length| *length <= limit)
         .and_then(|length| usize::try_from(length).ok())
         .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
             detail: format!(
-                "a List result of length {} needs more than {limit} elements",
-                describe_int(length)
+                "a List result of length {} is longer than its cap of {limit} elements \
+                 ({} of {reference}-byte references): {}",
+                describe_int(length),
+                super::describe_bytes(limit * reference),
+                cap.reason(),
             ),
         })
 }
 
-/// The longest `makeList` result on a target where one result may take at most `target` bytes
-/// ([`TARGET_RESULT_BYTES`]) and an element, one term reference, takes `reference` bytes:
-/// [`MAX_LIST_RESULT_LEN`], and at most `target / reference`.
-const fn list_length_limit(target: u64, reference: u64) -> u64 {
-    let references = target / reference;
-    if MAX_LIST_RESULT_LEN < references {
-        MAX_LIST_RESULT_LEN
-    } else {
-        references
-    }
+/// The cap on a `makeList` result: [`LIST_RESULT_PEAK_FACTOR`] bytes held per byte of its
+/// references within `allowance`, and at most [`TARGET_RESULT_BYTES`] of them.
+fn list_result_cap(allowance: &Allowance) -> ResultCap<'_> {
+    list_result_cap_on(allowance, TARGET_RESULT_BYTES)
+}
+
+/// [`list_result_cap`] on a target where a result may take at most `target` bytes
+/// ([`super::target_result_bytes`]); the tests use it to simulate a 32-bit target.
+fn list_result_cap_on(allowance: &Allowance, target: u64) -> ResultCap<'_> {
+    ResultCap::new(
+        allowance,
+        LIST_RESULT_PEAK_FACTOR,
+        target,
+        "a quarter of the largest allocation on this target",
+    )
 }
 
 fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
@@ -749,17 +766,39 @@ mod tests {
         );
     }
 
+    /// The allowance `makeList` runs under in these tests, so that whether a result is refused
+    /// does not depend on the host: 16 GiB, the cap on a list's references.
+    static ALLOWANCE: Allowance = Allowance::given(16 << 30);
+
+    fn make(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
+        super::make(arguments, result, &ALLOWANCE)
+    }
+
+    fn refused(result: HookResult<BuiltinResult>) -> bool {
+        matches!(
+            result,
+            Ok(BuiltinResult::Unsupported(
+                UnsupportedHookReason::ResultTooLarge { .. }
+            ))
+        )
+    }
+
+    /// The refusal names the cap, the allowance, where it comes from, and the factor.
     #[test]
     fn make_length_above_usize_is_unsupported() {
         let length = BigInt::from(1_u8) << usize::BITS;
+        let reference = size_of::<Term>();
+        let elements = (16_u64 << 30) / reference as u64;
 
         assert_eq!(
             make(&[int_term(length), item("x")], into(&items())),
             Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge {
                     detail: format!(
-                        "a List result of length a 65-bit integer needs more than \
-                         {MAX_LIST_RESULT_LEN} elements"
+                        "a List result of length a 65-bit integer is longer than its cap of \
+                         {elements} elements (16 GiB of {reference}-byte references): all of the \
+                         16 GiB this process may use (given by the embedder), since one \
+                         application holds 1 byte per byte of its result"
                     ),
                 }
             ))
@@ -767,44 +806,55 @@ mod tests {
     }
 
     /// On a 32-bit target a `makeList` result is at most 512 MiB of 4-byte references, 2^27
-    /// elements (see `bytes_lengths_are_bounded_by_what_the_target_can_allocate`); on a 64-bit
-    /// target the floor binds first.
+    /// elements, whatever the allowance (see
+    /// `bytes_lengths_are_bounded_by_what_the_target_can_allocate`); on a 64-bit target the
+    /// allowance binds first.
     #[test]
     fn make_length_is_bounded_by_what_the_target_can_allocate() {
         let thirty_two = target_result_bytes(u64::from(i32::MAX.unsigned_abs()));
-        assert_eq!(list_length_limit(thirty_two, 4), 1 << 27);
+        let address_space = Allowance::given(1 << 32);
+        let cap = list_result_cap_on(&address_space, thirty_two);
+        assert_eq!(cap.bytes() / 4, 1 << 27);
+        assert_eq!(
+            cap.reason(),
+            "a quarter of the largest allocation on this target"
+        );
         let sixty_four = target_result_bytes(i64::MAX.unsigned_abs());
-        assert_eq!(list_length_limit(sixty_four, 8), MAX_LIST_RESULT_LEN);
+        assert_eq!(list_result_cap_on(&ALLOWANCE, sixty_four).bytes(), 16 << 30);
     }
 
-    /// `makeList` is refused above [`MAX_LIST_RESULT_LEN`] before anything is allocated: a
-    /// length beyond the machine's memory aborted the process. Below it a length is built,
-    /// however long: 2^25 elements, about 0.3 GB and a second to build, and the floor itself, 4 GiB
-    /// of references (decided without allocating them here).
+    /// `makeList` is computed exactly when its references fit the allowance
+    /// ([`LIST_RESULT_PEAK_FACTOR`] bytes per byte of them) and refused beyond it before anything
+    /// is allocated. Under an allowance of 1 MiB the cap is 1 MiB of references, which the hook
+    /// builds.
     #[test]
-    fn make_length_is_bounded_before_allocating() {
-        for length in [1_u64 << 25, MAX_LIST_RESULT_LEN] {
-            assert_eq!(
-                bounded_list_length(&BigInt::from(length)),
-                Ok(usize::try_from(length).unwrap()),
-                "makeList({length}, x)"
-            );
-        }
-        assert!(bounded_list_length(&BigInt::from(MAX_LIST_RESULT_LEN + 1)).is_err());
-        for length in [
-            BigInt::from(MAX_LIST_RESULT_LEN + 1),
-            BigInt::from(1_u64 << 40),
-        ] {
+    fn make_length_is_capped_by_the_allowance() {
+        let small = Allowance::given(1 << 20);
+        let cap = (1_u64 << 20) / size_of::<Term>() as u64;
+        assert!(matches!(
+            super::make(&[int_term(cap.into()), item("x")], into(&items()), &small),
+            Ok(BuiltinResult::Value(list)) if matches!(
+                list.kind(),
+                TermKind::List { heads, rest: None, .. } if heads.len() as u64 == cap
+            )
+        ));
+        for length in [BigInt::from(cap + 1), BigInt::from(1_u64 << 40)] {
             assert!(
-                matches!(
-                    make(&[int_term(length.clone()), item("x")], into(&items())),
-                    Ok(BuiltinResult::Unsupported(
-                        UnsupportedHookReason::ResultTooLarge { .. }
-                    ))
-                ),
+                refused(super::make(
+                    &[int_term(length.clone()), item("x")],
+                    into(&items()),
+                    &small
+                )),
                 "makeList({length}, x)"
             );
         }
+        let cap = list_result_cap(&ALLOWANCE);
+        let elements = cap.bytes() / size_of::<Term>() as u64;
+        assert_eq!(
+            bounded_list_length(&BigInt::from(elements), &cap),
+            Ok(usize::try_from(elements).unwrap())
+        );
+        assert!(bounded_list_length(&BigInt::from(elements + 1), &cap).is_err());
         assert!(matches!(
             make(&[integer(3), item("x")], into(&items())),
             Ok(BuiltinResult::Value(list)) if matches!(
@@ -812,6 +862,30 @@ mod tests {
                 TermKind::List { heads, rest: None, .. } if heads.len() == 3
             )
         ));
+    }
+
+    /// The most memory one `makeList` application holds, per byte of its references, is
+    /// [`LIST_RESULT_PEAK_FACTOR`]: measured with the test allocator at two lengths, the peak
+    /// grows by exactly that many bytes per byte of references, which become the list without a
+    /// copy. The difference leaves out the few bytes an application holds whatever its length.
+    #[test]
+    fn make_holds_its_result_once() {
+        let metadata = items();
+        let peak = |length: u64| {
+            let arguments = [int_term(length.into()), item("x")];
+            let (result, peak) =
+                crate::peak_memory::peak_during(|| make(&arguments, into(&metadata)));
+            assert!(matches!(result, Ok(BuiltinResult::Value(_))));
+            peak
+        };
+        let (shorter, longer) = (1_u64 << 22, 1_u64 << 23);
+        let growth = peak(longer) - peak(shorter);
+        let references = (longer - shorter) * size_of::<Term>() as u64;
+        assert!(
+            growth <= LIST_RESULT_PEAK_FACTOR * references
+                && growth > (LIST_RESULT_PEAK_FACTOR - 1) * references,
+            "the peak grew by {growth} bytes over {references} bytes of references"
+        );
     }
 
     #[test]
