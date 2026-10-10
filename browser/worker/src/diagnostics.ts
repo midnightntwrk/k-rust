@@ -37,6 +37,25 @@ function severity(level: string): Diagnostic["severity"] {
   return "error";
 }
 
+/**
+ * A KRS code spelling (`krs::<stage>::<name>`, each component lowercase words
+ * joined by `-`), the shape every code in krs-diagnostic's registry has.
+ */
+const TAGGED_MESSAGE = /^\[(krs::[a-z][a-z0-9]*(?:-[a-z0-9]+)*::[a-z][a-z0-9]*(?:-[a-z0-9]+)*)\] /;
+
+/**
+ * Splits a rustc message spelled by krs-diagnostic's `tag_rustc_message`
+ * (`[code] message`, how a KRS proc macro's `compile_error!` carries its code)
+ * into its code and message, as `krs check` does. Any other message, bracketed
+ * or not, returns null. The worker has no copy of the code registry, so it
+ * accepts any well-formed KRS spelling where `krs check` also requires the code
+ * to be registered.
+ */
+export function untagRustcMessage(message: string): { code: string; message: string } | null {
+  const match = TAGGED_MESSAGE.exec(message);
+  return match ? { code: match[1]!, message: message.slice(match[0].length) } : null;
+}
+
 export function primarySpan(diagnostic: RustcDiagnostic): RustcSpan | null {
   return diagnostic.spans.find((span) => span.is_primary) ?? diagnostic.spans[0] ?? null;
 }
@@ -51,6 +70,16 @@ export function lookupRanges(diagnostics: RustcDiagnostic[], generatedFile: stri
     const span = primarySpan(diagnostic);
     return span && span.file_name === generatedFile ? [span.byte_start, span.byte_end] : null;
   });
+}
+
+/**
+ * rustc's rendered header `level: [code] message` -> `level[code]: message`,
+ * the form rustc uses for its own codes and `krs check` for KRS codes.
+ * Any other rendering is returned unchanged.
+ */
+function untagRendered(rendered: string, level: string, code: string): string {
+  const header = `${level}: [${code}] `;
+  return rendered.startsWith(header) ? `${level}[${code}]: ${rendered.slice(header.length)}` : rendered;
 }
 
 /**
@@ -79,15 +108,17 @@ export function fromRustc(
         }
       }
     }
+    // A KRS proc macro's `compile_error!` carries its code in the message; rustc's own code wins.
+    const tagged = diagnostic.code ? null : untagRustcMessage(diagnostic.message);
     return {
       origin: "rustc",
-      code: diagnostic.code?.code ?? null,
+      code: diagnostic.code?.code ?? tagged?.code ?? null,
       severity: severity(diagnostic.level),
-      message: diagnostic.message,
+      message: tagged?.message ?? diagnostic.message,
       class: mappingClass,
       authored,
       generated: span ? { file: span.file_name, start: span.byte_start, end: span.byte_end } : null,
-      ...(diagnostic.rendered ? { rendered: diagnostic.rendered } : {}),
+      ...(diagnostic.rendered ? { rendered: tagged ? untagRendered(diagnostic.rendered, diagnostic.level, tagged.code) : diagnostic.rendered } : {}),
     };
   });
 }

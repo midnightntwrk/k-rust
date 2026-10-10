@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderCollectorMain } from "../../src/collector-template.ts";
-import { fromExpander, fromPolicy, fromRustc, lookupRanges } from "../../src/diagnostics.ts";
+import { fromExpander, fromPolicy, fromRustc, lookupRanges, untagRustcMessage } from "../../src/diagnostics.ts";
 import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/modules.ts";
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
 import { packFromManifest, type SourcePackManifest } from "../../src/pack-manifest.ts";
@@ -234,6 +234,50 @@ describe("diagnostics", () => {
       ["unmappable", null, null],
       ["generated-only", null, 55833],
     ]);
+  });
+
+  test("a KRS proc macro's [code] tag becomes the diagnostic's code, as krs check reports it", () => {
+    const generated = "/work/expanded/tour-minimal/src/lib.rs";
+    const span = { file_name: generated, byte_start: 10, byte_end: 20, line_start: 1, line_end: 1, column_start: 1, column_end: 1, is_primary: true, label: null };
+    const diag = (message: string, code: string | null) => ({
+      $message_type: "diagnostic" as const,
+      message,
+      code: code ? { code, explanation: null } : null,
+      level: "error",
+      spans: [span],
+      children: [],
+      rendered: `error${code ? `[${code}]` : ""}: ${message}\n --> ${generated}:1:1\n`,
+    });
+    const text = "`k::rewrite!` (K's local =>) is valid only inside [a] subject";
+    const mapped = fromRustc(
+      [
+        diag(`[krs::syntax::invalid-local-rewrite] ${text}`, null),
+        diag("[krs::syntax::invalid-local-rewrite] rustc's own code wins", "E0000"),
+        diag("[not-a-krs-code] kept", null),
+        diag("[krs::Syntax::bad] kept", null),
+        diag("plain", null),
+      ],
+      generated,
+      "src/lib.rs",
+      null,
+    );
+    expect(mapped.map((d) => [d.code, d.message])).toEqual([
+      ["krs::syntax::invalid-local-rewrite", text],
+      ["E0000", "[krs::syntax::invalid-local-rewrite] rustc's own code wins"],
+      [null, "[not-a-krs-code] kept"],
+      [null, "[krs::Syntax::bad] kept"],
+      [null, "plain"],
+    ]);
+    expect(mapped[0]!.rendered).toBe(`error[krs::syntax::invalid-local-rewrite]: ${text}\n --> ${generated}:1:1\n`);
+    expect(mapped[2]!.rendered).toBe(`error: [not-a-krs-code] kept\n --> ${generated}:1:1\n`);
+  });
+
+  test("untagRustcMessage accepts only a well-formed krs::<stage>::<name> tag followed by a space", () => {
+    expect(untagRustcMessage("[krs::rust-expansion::uncoded-error] a [b] c")).toEqual({ code: "krs::rust-expansion::uncoded-error", message: "a [b] c" });
+    expect(untagRustcMessage("[krs::syntax::invalid-color] ")).toEqual({ code: "krs::syntax::invalid-color", message: "" });
+    for (const message of ["[krs::syntax::invalid-color]no space", "[krs::syntax] two components", "[krs::a::b::c] four", "[krs::syntax::bad-] x", "[E0433] x", " [krs::syntax::invalid-color] x", "KRS CLI oracle induced Cargo failure"]) {
+      expect(untagRustcMessage(message)).toBeNull();
+    }
   });
 });
 

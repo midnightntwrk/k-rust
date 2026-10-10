@@ -26,6 +26,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { LessonManifest } from "../../src/protocol.ts";
+import { untagRustcMessage } from "../../src/diagnostics.ts";
 import { parseStderr, reportable, type RustcDiagnostic } from "../../src/rustc.ts";
 import { openSite, type SiteSession } from "../harness/browsers.ts";
 import { REPO, scratchPath, waitForLoad as waitForLoadAverage } from "../harness/environment.ts";
@@ -104,11 +105,13 @@ function nativeRustc(d: RustcDiagnostic, stage: Stage, authoredFile: string): No
   const span = (d.spans as SpanWithExpansion[]).find((s) => s.is_primary) ?? null;
   let klass: MappingClass = "unmappable";
   if (span && span.file_name.endsWith(authoredFile)) klass = span.expansion ? "invocation-level" : "exact-authored";
+  // A KRS proc macro's compile_error! carries its code in the message, recovered as krs check does.
+  const tagged = d.code ? null : untagRustcMessage(d.message);
   return {
     stage,
-    code: d.code?.code ?? null,
+    code: d.code?.code ?? tagged?.code ?? null,
     level: d.level,
-    message: d.message,
+    message: tagged?.message ?? d.message,
     class: klass,
     authored: span && klass !== "unmappable" ? [span.byte_start, span.byte_end] : null,
     label: span?.label ?? null,
@@ -340,7 +343,7 @@ interface FieldResult {
 function compareOne(n: Normalized, b: Normalized | undefined): FieldResult[] {
   const f = (field: string, native: unknown, browser: unknown, gating = true): FieldResult => ({ field, native, browser, equal: JSON.stringify(native) === JSON.stringify(browser), gating });
   if (!b) return [f("present", true, false)];
-  // rustc's compile_error! carries no code, so a native expander diagnostic leaves the browser's code reported, not compared.
+  // An untagged compile_error! carries no code, so such a native expander diagnostic leaves the browser's code reported, not compared.
   const codeGates = n.code !== null || n.stage !== "expander";
   const rows = [f("stage", n.stage, b.stage), f("code", n.code, b.code, codeGates), f("message", n.message, b.message, n.message !== null), f("class", n.class, b.class)];
   if (n.authored !== null || b.authored !== null) rows.push(f("authored", n.authored, b.authored));
