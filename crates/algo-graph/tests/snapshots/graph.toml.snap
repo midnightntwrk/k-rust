@@ -7490,6 +7490,11 @@ symbol = "Grammar::infer_ambiguous_sorts_portable"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_ambiguous_sorts_portable_first"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::maximal_typing_groups"
 
 [[node.cost]]
