@@ -6,6 +6,10 @@
 //! alone, and Z3 sees only the uninterpreted `probeH(I)`, so `go-symbolic`
 //! fails at its frontier. Constant folding is the usual reason for
 //! `concrete`: a rule that would loop on symbols.
+//!
+//! The spec module `KRS-CONC-UNRESTRICTED` is the ablation: it adds the same
+//! lemma without the restriction, so `h(I)` also becomes `I +Int 1`, and its
+//! copies of both claims are proved.
 
 use k::builtin::{Bool, Int, KSequence, int};
 use k::{KItem, Term};
@@ -70,4 +74,34 @@ pub fn go_symbolic(
     k::cells! { k: k::configuration::KCell(ExpSyntax::Go(i), tail @ ..), state @ .. }: Machine,
 ) -> Machine {
     k::cells! { k: k::configuration::KCell(true, ..tail), ..state }
+}
+
+/// The ablation: the lemma on any argument, and the two claims again.
+#[k::spec_module(name = "KRS-CONC-UNRESTRICTED", imports = [crate])]
+mod unrestricted {
+    use super::{ExpSyntax, H, Int, Machine, Term, int};
+
+    /// `h(x) = x +Int 1`, on any argument.
+    #[k::simplification]
+    fn h_unrestricted(k::term![H(x)]: Term<Int>) -> Term<Int> {
+        int::add(x, 1)
+    }
+
+    /// `go-concrete`, proved as before.
+    #[k::claim(all_paths, label = "go-concrete-unrestricted")]
+    fn go_concrete_unrestricted(
+        k::cells! { k: k::configuration::KCell(ExpSyntax::Go(5), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        k::cells! { k: k::configuration::KCell(true, ..tail), ..state }
+    }
+
+    /// `go-symbolic`, now proved: `h(I)` is `I +Int 1`, above 3.
+    #[k::claim(all_paths, label = "go-symbolic-unrestricted")]
+    #[k::requires(int::gt(i, 2))]
+    fn go_symbolic_unrestricted(
+        i: Term<Int>,
+        k::cells! { k: k::configuration::KCell(ExpSyntax::Go(i), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        k::cells! { k: k::configuration::KCell(true, ..tail), ..state }
+    }
 }

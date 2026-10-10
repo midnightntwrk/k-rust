@@ -72,11 +72,13 @@ simplification `h(X) => X +Int 1` restricted by `concrete(x)`, emitted
 (`go(5) => true`) is proved on both routes; `go-symbolic` (`go(I) => true`
 when `I >Int 2`) fails on both, stuck at `h(I) >Int 3`, because the
 simplification never fires on a symbolic argument and Z3 sees only the
-uninterpreted `probeH`. `conc-unrestricted` drops the restriction and both
-claims are proved; `conc-smt-lemma` keeps `concrete(x)` and adds `smt_lemma`
-(`[simplification, concrete(X), smt-lemma, label(..)]`), so Z3 receives
-`probeH(x) = x + 1` as an axiom and both claims are proved. Java `kprove`
-runs once per claim. Negative fixtures pin a binder `concrete(..)` names that
+uninterpreted `probeH`. The ablation is `conc`'s spec module
+`KRS-CONC-UNRESTRICTED`, which adds the lemma without the restriction: its
+copies of both claims, `go-concrete-unrestricted` and
+`go-symbolic-unrestricted`, are proved on both routes (`--spec-module`).
+`conc-smt-lemma` keeps `concrete(x)` and adds `smt_lemma` (`[simplification,
+concrete(X), smt-lemma, label(..)]`), so Z3 receives `probeH(x) = x + 1` as
+an axiom and both claims are proved. Java `kprove` runs once per claim. Negative fixtures pin a binder `concrete(..)` names that
 the left side does not bind, bare `concrete` with bare `symbolic`, an
 `smt_lemma` over a function without an SMT translation, and a `concrete`
 equation beside an unrestricted one of the same function.
@@ -252,7 +254,6 @@ HOOK_EXPECTED = {
 }
 
 CONC = Fixture(MANIFEST, "krs-verification-surface-conc")
-CONC_UNRESTRICTED = Fixture(MANIFEST, "krs-verification-surface-conc-unrestricted")
 CONC_SMT_LEMMA = Fixture(MANIFEST, "krs-verification-surface-conc-smt-lemma")
 CONC_CLAIMS = ("go-concrete", "go-symbolic")
 CONC_EXPECTED = {
@@ -263,12 +264,6 @@ CONC_EXPECTED = {
         {"go-concrete": "proven", "go-symbolic": "failed"},
         1,
     ),
-    CONC_UNRESTRICTED.package: (
-        "KRS-CONC-UNRESTRICTED-SPEC",
-        "  rule h ( X:Int ) => X:Int +Int 1 [simplification, label(",
-        {"go-concrete": "proven", "go-symbolic": "proven"},
-        0,
-    ),
     CONC_SMT_LEMMA.package: (
         "KRS-CONC-SMT-LEMMA-SPEC",
         "  rule h ( X:Int ) => X:Int +Int 1 [simplification, concrete(X), smt-lemma, label(",
@@ -276,6 +271,11 @@ CONC_EXPECTED = {
         0,
     ),
 }
+
+# The ablation spec module of `conc`: its emitted lemma and native statuses.
+CONC_ABLATION = "KRS-CONC-UNRESTRICTED"
+CONC_ABLATION_SIMPLIFICATION = "  rule h ( X:Int ) => X:Int +Int 1 [simplification, label("
+CONC_ABLATION_STATUSES = {"go-concrete-unrestricted": "proven", "go-symbolic-unrestricted": "proven"}
 
 IMP_SUM = Fixture(MANIFEST, "krs-verification-surface-imp-sum", dependencies=("krs-imp-definition:main",))
 IMP_SUM_SPEC = "IMP-SUM-SPEC"
@@ -1049,12 +1049,33 @@ def verify_conc(harness: FixtureGate, fixture: Fixture) -> None:
         raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
     harness.pins.expect(("restriction_proofs", fixture.package), native)
 
-    java = java_claim_proofs(harness, emitted, spec_module, CONC_CLAIMS)
-    expected = {label: status == "proven" for label, status in statuses.items()}
-    if java != expected:
-        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(statuses)}")
+    if fixture != CONC:
+        java = java_claim_proofs(harness, emitted, spec_module, CONC_CLAIMS)
+        expected = {label: status == "proven" for label, status in statuses.items()}
+        if java != expected:
+            raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(statuses)}")
+        harness.pins.expect(("restriction_kprove", fixture.package), java)
+        print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove {java}")
+        return
+
+    # The ablation spec module: the lemma without `concrete(x)`, in spec.k only.
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    ablation = spec.partition(f"module {CONC_ABLATION}\n")[2].partition("endmodule\n")[0]
+    if CONC_ABLATION_SIMPLIFICATION not in ablation or f"module {CONC_ABLATION}\n" in source:
+        raise GateError(f"{fixture.package}: spec module {CONC_ABLATION} omits:\n{CONC_ABLATION_SIMPLIFICATION}\n{spec}")
+    proof = native_trusted_proof(harness, fixture, CONC_ABLATION, "--spec-module", CONC_ABLATION)
+    if proof["statuses"] != CONC_ABLATION_STATUSES or proof["exit"] != 0 or proof["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove --spec-module {CONC_ABLATION} reported {json.dumps(proof)}")
+    harness.pins.expect(("restriction_ablation_proofs", fixture.package), proof)
+
+    modules = {spec_module: statuses, CONC_ABLATION: CONC_ABLATION_STATUSES}
+    java = java_module_proofs(harness, emitted, {module: tuple(labels) for module, labels in modules.items()})
+    for module, expected_statuses in modules.items():
+        expected = {label: status == "proven" for label, status in expected_statuses.items()}
+        if java[module] != expected:
+            raise GateError(f"{fixture.package}: kprove {module} per claim reported {json.dumps(java[module])}, native {json.dumps(expected_statuses)}")
     harness.pins.expect(("restriction_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: krs prove {native['statuses']} agrees with kprove {java}")
+    print(f"PASS {fixture.package}: krs prove {native['statuses']} and {CONC_ABLATION} {proof['statuses']} agree with kprove {java}")
 
 
 def verify_spec_modules(harness: FixtureGate, fixture: Fixture) -> None:
@@ -1160,7 +1181,6 @@ def main() -> int:
         verify_hook(harness, HOOK)
         verify_hook(harness, HOOK_ABLATION)
         verify_conc(harness, CONC)
-        verify_conc(harness, CONC_UNRESTRICTED)
         verify_conc(harness, CONC_SMT_LEMMA)
         verify_spec_modules(harness, IMP_SUM)
         verify_lesson_spec(harness, L22_LANGUAGE)

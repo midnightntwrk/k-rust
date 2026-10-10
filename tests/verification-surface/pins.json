@@ -32,11 +32,7 @@
     },
     "krs-verification-surface-conc": {
       "definition.k": "142fece5ba8519640dbb2b6cb5095e0fb2ebd69d87fc6c66c61598e587074950",
-      "spec.k": "c4bf6b7d4a94f23013de18c00eb1670e68774800a4ba83ee44ea38a6be28a396"
-    },
-    "krs-verification-surface-conc-unrestricted": {
-      "definition.k": "5424b9860edb4ddb8fe8cfdcce4a06a8f717bf86167c1326265a35e2846c3c5b",
-      "spec.k": "a84e9b8f46c609de876954661583caba39a1d93a2dc4b2d423e3df2c2bdb07cd"
+      "spec.k": "eafc715f2864e2ff5c305a24a6993fcf5375c44e7f8e4dff587a134f560bf5f3"
     },
     "krs-verification-surface-conc-smt-lemma": {
       "definition.k": "53fa2f0d70a0b525b8ff7f14c187ebe325198fd57a0121dc76ee3b7dc4838e47",
@@ -66,8 +62,7 @@
     "krs-verification-surface-trusted-ablation": "b53f7d48f4382231af18df0c1827d9fd597760d53fbd82a24704e347fcef0c9f",
     "krs-verification-surface-hook": "22967d483a94a2488d2f60d65d94cff4382c87336dac7c56c772a3d82f0add85",
     "krs-verification-surface-hook-ablation": "ac79b7be1f50c86b5fc07e565a3c0c24a58c2290824435d5dfe18cf91c4a81cb",
-    "krs-verification-surface-conc": "1f6252df8f13b3e26796b6b2a6cad31411bd3167f490f207e6a60fece12da1bb",
-    "krs-verification-surface-conc-unrestricted": "aac7e016ebe43eb3c0978008126176e3194c7873af6104ad48e4342389e44c76",
+    "krs-verification-surface-conc": "483531f4a604d9e3637731f4e0918e62ad0a2b3dc14de84335ba4d295595bdc8",
     "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
     "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3",
     "krs-verification-surface-l22-verification": "4fcccbd35b7af98551d169c1a767824e0102027fe1b0ee5ae6d3f2cebdb67db1",
@@ -307,17 +302,6 @@
       ],
       "warnings": []
     },
-    "krs-verification-surface-conc-unrestricted": {
-      "statuses": {
-        "go-concrete": "proven",
-        "go-symbolic": "proven"
-      },
-      "exit": 0,
-      "summary": [
-        "krs prove: 2 of 2 claims proven"
-      ],
-      "warnings": []
-    },
     "krs-verification-surface-conc-smt-lemma": {
       "statuses": {
         "go-concrete": "proven",
@@ -332,12 +316,14 @@
   },
   "restriction_kprove": {
     "krs-verification-surface-conc": {
-      "go-concrete": true,
-      "go-symbolic": false
-    },
-    "krs-verification-surface-conc-unrestricted": {
-      "go-concrete": true,
-      "go-symbolic": true
+      "KRS-CONC-SPEC": {
+        "go-concrete": true,
+        "go-symbolic": false
+      },
+      "KRS-CONC-UNRESTRICTED": {
+        "go-concrete-unrestricted": true,
+        "go-symbolic-unrestricted": true
+      }
     },
     "krs-verification-surface-conc-smt-lemma": {
       "go-concrete": true,
@@ -430,5 +416,18 @@
       "warning[krs::emit::smt-only-function]: function `clampSub` has an `smt_hook` and no equation: it is evaluated only by Z3 on symbolic paths; concrete execution cannot evaluate it"
     ],
     "krs-verification-surface-hook-ablation": []
+  },
+  "restriction_ablation_proofs": {
+    "krs-verification-surface-conc": {
+      "statuses": {
+        "go-concrete-unrestricted": "proven",
+        "go-symbolic-unrestricted": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 2 of 2 claims proven"
+      ],
+      "warnings": []
+    }
   }
 }
