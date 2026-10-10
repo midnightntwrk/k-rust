@@ -1847,7 +1847,7 @@ fn marked_attributes(source: &Term, kind: &TermKind, value: bool) -> TermAttribu
 }
 
 /// The immediate children of a node of kind `kind`, as `synthesize_attributes` combines them.
-fn immediate_children(kind: &TermKind) -> Vec<&Term> {
+pub(crate) fn immediate_children(kind: &TermKind) -> Vec<&Term> {
     match kind {
         TermKind::And(left, right) => vec![left, right],
         TermKind::Application { arguments, .. } => arguments.iter().collect(),

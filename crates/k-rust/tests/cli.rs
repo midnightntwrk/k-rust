@@ -1981,6 +1981,34 @@ endmodule
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
+/// `h3(1)` is a normal form (the only equation of `h3` rewrites `h3(0)`), so it is a value other
+/// than `k` and `k2`: `f(k)` and `f(k2)` fail `f(h3(1)) => 1` and take the `owise` rule, as
+/// `f(h3(2))` does, and as they would with the two sides of the match exchanged.
+#[test]
+fn krun_reads_a_ground_normal_form_on_a_left_hand_side_as_its_value() {
+    let (stdout, warnings) = krun_equation_warnings(
+        r#"
+module MAIN
+  imports INT
+  syntax A ::= "k" [symbol(k)] | "k2" [symbol(k2)] | h3(Int) [symbol(h3)]
+  syntax Int ::= f(A) [function, symbol(f)]
+  syntax KItem ::= done(Int, Int, Int, Int) [symbol(done)]
+  configuration <k> done(f(k), f(k2), f(h3(1)), f(h3(2))) </k>
+  rule h3(0) => k [anywhere]
+  rule f(h3(1)) => 1
+  rule f(_) => 2 [owise]
+endmodule
+"#,
+    );
+    assert!(
+        stdout.contains(
+            r#"Lbldone{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("2"), \dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#
+        ),
+        "{stdout}"
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// The requires-only `Z` of `pz` reaches the subject `q(Z)` of `qu` while the requires of `pz`
 /// is simplified. The warning for `qu` explains `qu`'s own `B` and does not call `pz`'s `Z` a
 /// variable of `qu`, whether `qu` names its bound variable `A` or `Z`.

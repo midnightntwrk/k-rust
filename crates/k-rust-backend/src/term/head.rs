@@ -20,12 +20,18 @@
 //! The classifier has two entry points. `classify_pattern` reads a left-hand side under a
 //! `PatternReading` and never consults evidence. `classify_value` reads a subject or operand as
 //! the value it denotes, and fixes an equation-head root only with a [`NormalEvidence`] from the
-//! oracle its caller names (`NormalForms`). Evidence that an equation-head application is a
-//! normal form on every instance comes only from:
+//! oracle its caller names (`NormalForms`). Equation matching also reads an equation's
+//! left-hand side through `classify_value`, with the oracle `RecordedPatterns`: a ground term
+//! denotes one value, so where the definition holds evidence that the ground term an
+//! equation-head application of the pattern denotes is a normal form, reading the pattern up to
+//! equations is reading it as that value. Evidence that an equation-head application is a normal
+//! form on every instance comes only from:
 //!
 //! - an equation scan that found no equation of the definition whose left-hand side may match an
 //!   instance, in a definition whose equation selection reaches every term equation (the
-//!   instance-normal token of `BackendDefinition::instance_normal`);
+//!   instance-normal token of `BackendDefinition::instance_normal`), including the token the
+//!   load recorded after its check for the ground term an application written in an executable
+//!   left-hand side denotes (`ValueClaims::pattern_token`);
 //! - the simplifier's certificate, the `evaluated` mark;
 //! - being a subterm of an application for which one of those holds;
 //! - being the application an equation is tried on, whose root the equation rewrites as written.
@@ -58,7 +64,9 @@ pub(crate) enum PatternReading {
     /// A rewrite rule's left-hand side, matched as written: an equation-head root is fixed.
     AsWritten,
     /// An equation's left-hand side or an implication pattern: an equation-head subterm denotes
-    /// the value of its normal form, which the pattern does not fix.
+    /// the value of its normal form, which the pattern does not fix. (Equation matching reads one
+    /// that denotes a ground term whose token the load recorded as that value instead:
+    /// [`RecordedPatterns`].)
     UpToEquations,
 }
 
@@ -210,10 +218,18 @@ impl NormalEvidence {
     /// An instance-normal token: the term, or a term it is a subterm of, is a normal form on
     /// every instance. The token is zero-sized and names no term, so the caller passes only the
     /// token `BackendDefinition::instance_normal` returned for the classified application or for
-    /// a term it is a subterm of.
+    /// a term it is a subterm of, or the one the load recorded for it
+    /// (`ValueClaims::pattern_token`).
     #[must_use]
     pub(crate) fn instance_normal(_token: InstanceNormal) -> Self {
         Self(Source::InstanceNormal)
+    }
+
+    /// Whether this is evidence about the value the application denotes: every source but a
+    /// rewrite rule's left-hand side read as written.
+    #[must_use]
+    pub(crate) fn of_a_value(self) -> bool {
+        self.0 != Source::AsWritten
     }
 }
 
@@ -326,6 +342,26 @@ impl NormalForms for CertifiedOrScanned<'_> {
     }
 }
 
+/// The left-hand side of an equation in equation matching: an equation-head application written
+/// there that denotes one ground term (ground once each `\and` in it keeps its structured
+/// conjunct) is that normal form when the load recorded the term's instance-normal token after
+/// the check (`ValueClaims::pattern_token`, filled by `BackendDefinition::record_pattern_tokens`).
+/// That is the scan's answer for an equal subject, so a ground normal form is read alike on both
+/// sides of a match. Gives nothing while the check runs (the withheld verdict holds no token),
+/// and nothing for an application the record does not hold as written: one with a variable no
+/// conjunction names, or a copy of the equation renamed apart from a subject that shares its
+/// variable names (`rule::rename_apart`), which is then read up to equations.
+pub(crate) struct RecordedPatterns<'d>(pub &'d BackendDefinition);
+
+impl NormalForms for RecordedPatterns<'_> {
+    fn evidence(&mut self, application: &Term) -> Option<NormalEvidence> {
+        self.0
+            .value_claims()
+            .pattern_token(application)
+            .map(NormalEvidence::instance_normal)
+    }
+}
+
 /// The subject side of the instance-normal scan's syntactic unification test: holds the
 /// precondition that every immediate subterm of the scanned subject is instance-normal, and
 /// answers for every equation-head application met on that side, which is the subject or one of
@@ -420,8 +456,9 @@ pub(crate) fn classify_pattern(reading: PatternReading, term: &Term) -> Head<'_>
     })
 }
 
-/// Classify a subject or operand as the value it denotes. Asks `normal` for evidence only for an
-/// equation-head root, and only once. Evidence of a left-hand side's reading
+/// Classify a subject or operand as the value it denotes, or an equation's left-hand side read
+/// as the values it denotes with the oracle [`RecordedPatterns`]. Asks `normal` for evidence only
+/// for an equation-head root, and only once. Evidence of a left-hand side's reading
 /// ([`PatternReading::AsWritten`]) says nothing about a value, so an oracle that hands it back
 /// leaves the root open.
 #[inline]

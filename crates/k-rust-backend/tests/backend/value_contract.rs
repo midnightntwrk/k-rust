@@ -1612,3 +1612,262 @@ fn an_equation_on_a_hooked_symbol_agrees_with_the_hook_where_claims_are_kept() {
         simplified(&variable_indexed, &format!("bar{{}}({})", g(2))),
     );
 }
+
+// Ticket K12: a pattern reads a ground equation-head application with the evidence a subject
+// does. Whether two ground normal forms the backend certifies are one value or two is a symmetric
+// relation, so it cannot depend on which of them an equation writes and which the query holds;
+// and reading a pattern up to equations is the identity on a certified normal form.
+
+/// `k` and `k2` constructors of `A`; `h` and `j` `anywhere` value productions of `A` with no
+/// equation, so every application of either on an integer is a normal form of `A`, distinct from
+/// every other.
+const GROUND_VALUES: &str = r"
+    sort SortA{} []
+    symbol k{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+    symbol k2{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+    symbol h{}(SortInt{}) : SortA{} [anywhere{}(), value-production{}()]
+    symbol j{}(SortInt{}) : SortA{} [anywhere{}(), value-production{}()]
+    symbol f{}(SortA{}) : SortS{} [function{}()]
+";
+
+/// `f(pattern) = mk(1)` beside `f(X) = mk(2) [owise]`, with `extra` axioms first.
+fn first_or_owise(declarations: &str, extra: &[String], pattern: &str) -> BackendDefinition {
+    let mut axioms = extra.to_vec();
+    axioms.push(equation(
+        "f",
+        &["SortA{}"],
+        "SortS{}",
+        &[pattern],
+        &format!("mk{{}}({})", int(1)),
+        r"\top{R}()",
+        "",
+    ));
+    axioms.push(equation(
+        "f",
+        &["SortA{}"],
+        "SortS{}",
+        &["VarX:SortA{}"],
+        &format!("mk{{}}({})", int(2)),
+        r"\top{R}()",
+        "owise{}()",
+    ));
+    definition(declarations, &axioms)
+}
+
+/// Invariant 1 of K12, metamorphic: for two distinct ground normal forms `a` and `b`,
+/// `f(a) = mk(1)` beside `f(X) = mk(2) [owise]` queried at `f(b)`, and the same definition with
+/// `a` and `b` exchanged, give one answer. Invariant 2 decides which: both are normal forms the
+/// backend certifies, so they are two values, the first equation fails and the `owise` one gives
+/// `mk(2)` (losing precision on both sides would keep the answers equal, and fails here).
+#[test]
+fn exchanging_the_ground_value_of_a_pattern_and_of_the_query_changes_no_answer() {
+    let h = |value: i64| format!("h{{}}({})", int(value));
+    let pairs = [
+        ("k{}()".to_owned(), "k2{}()".to_owned()),
+        ("k{}()".to_owned(), h(1)),
+        (h(1), h(2)),
+        (h(1), format!("j{{}}({})", int(1))),
+    ];
+    let mut failures = Vec::new();
+    for (left, right) in &pairs {
+        let forward = first_or_owise(GROUND_VALUES, &[], left);
+        let backward = first_or_owise(GROUND_VALUES, &[], right);
+        for definition in [&forward, &backward] {
+            assert!(
+                definition.value_claims().unjoined().is_empty()
+                    && definition.value_claims().violations().is_empty(),
+                "the definition keeps every claim"
+            );
+        }
+        let expected = simplified(&forward, &format!("mk{{}}({})", int(2)));
+        let one = simplified(&forward, &format!("f{{}}({right})"));
+        let other = simplified(&backward, &format!("f{{}}({left})"));
+        if one != expected || other != expected {
+            failures.push(format!(
+                "pattern {left}, query {right}: {one}\npattern {right}, query {left}: {other}\n\
+                 expected {expected}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// The reproducer of the item (FOLLOWUPS 2.2 "Value-claim precision limits", second bullet):
+/// `f(h(1)) = mk(1)` beside `f(X) = mk(2) [owise]`, where `h(1)` is a normal form other than
+/// `k()`, so `f(k())` fails the first equation and the `owise` one applies. The control writes
+/// the constructor `k2()` in the pattern.
+#[test]
+fn an_equation_head_pattern_against_a_constructor_fails_to_match() {
+    let control = first_or_owise(GROUND_VALUES, &[], "k2{}()");
+    let mk2 = format!("mk{{}}({})", int(2));
+    assert_eq!(
+        simplified(&control, "f{}(k{}())"),
+        simplified(&control, &mk2)
+    );
+    let definition = first_or_owise(GROUND_VALUES, &[], &format!("h{{}}({})", int(1)));
+    assert!(
+        definition
+            .value_claims()
+            .unjoined()
+            .iter()
+            .all(|pair| !pair.relevant()),
+        "the definition has no relevant pair"
+    );
+    assert_eq!(
+        simplified(&definition, "f{}(k{}())"),
+        simplified(&definition, &mk2),
+        "f(k()) is not evaluated by its owise equation"
+    );
+}
+
+/// A left-hand side may name a ground subterm with a variable to reuse it on its right-hand side,
+/// `f(h(\and(1, G))) = mk(G)`: an instance of the conjunction is an instance of `1`, so the
+/// pattern denotes the one normal form `h(1)` and reads as it does written ground.
+#[test]
+fn a_pattern_that_names_a_ground_subterm_reads_as_its_value() {
+    let pattern = format!(r"h{{}}(\and{{SortInt{{}}}}({}, VarG:SortInt{{}}))", int(1));
+    let definition = definition(
+        GROUND_VALUES,
+        &[
+            equation(
+                "f",
+                &["SortA{}"],
+                "SortS{}",
+                &[&pattern],
+                "mk{}(VarG:SortInt{})",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "f",
+                &["SortA{}"],
+                "SortS{}",
+                &["VarX:SortA{}"],
+                &format!("mk{{}}({})", int(2)),
+                r"\top{R}()",
+                "owise{}()",
+            ),
+        ],
+    );
+    for (query, value) in [("k{}()".to_owned(), 2), (format!("h{{}}({})", int(1)), 1)] {
+        assert_eq!(
+            simplified(&definition, &format!("f{{}}({query})")),
+            simplified(&definition, &format!("mk{{}}({})", int(value))),
+            "f({query})"
+        );
+    }
+}
+
+/// A ground left-hand-side application whose normality the scan shows only through another
+/// recorded one. `b1` a constructor of `B`, `g` an `anywhere` value production of `B` with no
+/// equation, and the lemma `h(g(2)) = k()`: the scan of `h(b1())` meets the pattern `g(2)` against
+/// `b1()`, which only `g(2)`'s own token refutes. So `h(b1())` is recorded in a round after
+/// `g(2)`, and `f(h(b1())) = mk(1)` fails on `f(k())` as the exchanged definition does.
+#[test]
+fn a_ground_pattern_normal_through_another_recorded_pattern_reads_as_its_value() {
+    let declarations = format!(
+        r"{GROUND_VALUES}
+        sort SortB{{}} []
+        symbol b1{{}}() : SortB{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol g{{}}(SortInt{{}}) : SortB{{}} [anywhere{{}}(), value-production{{}}()]
+        symbol hb{{}}(SortB{{}}) : SortA{{}} [anywhere{{}}(), value-production{{}}()]
+    "
+    );
+    let lemma = format!(
+        r"axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortA{{}}, R}}(hb{{}}(g{{}}({})), \and{{SortA{{}}}}(k{{}}(), \top{{SortA{{}}}}()))) [simplification{{}}()]",
+        int(2)
+    );
+    let normal = "hb{}(b1{}())";
+    let forward = first_or_owise(&declarations, std::slice::from_ref(&lemma), normal);
+    let backward = first_or_owise(&declarations, std::slice::from_ref(&lemma), "k{}()");
+    let expected = simplified(&forward, &format!("mk{{}}({})", int(2)));
+    assert_eq!(simplified(&forward, "f{}(k{}())"), expected);
+    assert_eq!(simplified(&backward, &format!("f{{}}({normal})")), expected);
+}
+
+/// FOLLOWUPS 2.2 "Value-claim precision limits", third bullet (K12 bullet 3, a root range per
+/// equation head): `f(f(inj{K,F}(k(X)))) = c` with `K < F`. Up to equations, an `f` application
+/// denotes a normal form rooted at `f` or the value of one of `f`'s right-hand sides, here `c`;
+/// neither is the injection `inj{K,F}(k(c))`, so no equation reaches `f(inj{K,F}(k(c)))` and the
+/// value production's application is defined. The left-hand side's argument is not ground, so
+/// K12's reading (a ground normal form) does not apply to it.
+#[test]
+#[ignore = "acceptance test of K12 bullet 3 (a root range per equation head), a new precision rule parked under the precision freeze (TQ27)"]
+fn a_self_nested_left_hand_side_does_not_reach_an_injection() {
+    let declarations = r"
+        sort SortK{} []
+        sort SortF{} []
+        symbol inj{From, To}(From) : To [sortInjection{}()]
+        axiom{R} \exists{R}(V:SortF{}, \equals{SortF{}, R}(V:SortF{}, inj{SortK{}, SortF{}}(From:SortK{}))) [subsort{SortK{}, SortF{}}()]
+        symbol c{}() : SortF{} [constructor{}(), functional{}(), injective{}()]
+        symbol k{}(SortF{}) : SortK{} [constructor{}(), functional{}(), injective{}()]
+        symbol f{}(SortF{}) : SortF{} [anywhere{}(), function{}(), value-production{}()]
+    ";
+    let definition = definition(
+        declarations,
+        &[anywhere(
+            "f",
+            &["SortF{}"],
+            "SortF{}",
+            &["f{}(inj{SortK{}, SortF{}}(k{}(VarX:SortF{})))"],
+            "c{}()",
+        )],
+    );
+    assert_eq!(
+        simplified_ceil(
+            &definition,
+            "f{}(inj{SortK{}, SortF{}}(k{}(c{}())))",
+            "SortF{}"
+        ),
+        Predicate::True,
+        "the definedness of f(inj(k(c))) is kept as an obligation"
+    );
+}
+
+/// Invariant 1 of K12 read for every ground term, not only for normal forms. `h2` has the
+/// equation `h2(0) = k()`, so the pattern `h2(0)` is not a normal form: `f(h2(0)) = mk(1)` says
+/// `f(k()) = mk(1)`, and the check names its inner pair with `h2(0) = k()` and withdraws `h2`.
+/// The pairs `(k(), h2(0))` and `(k2(), h2(0))` ask whether a non-normal ground subterm of a
+/// left-hand side should denote its value (evaluated at load), an owner decision (TQ6), not
+/// K12's acceptance test; the pattern `h2(1)`, a normal form, reads as its value under K12, and
+/// its pair with `h2(0)` stays asymmetric only through `h2(0)`'s withdrawal.
+#[test]
+#[ignore = "evidence for the owner decision TQ6 (a non-normal ground left-hand-side subterm denoting its value): fails on (k(), h2(0)), (k2(), h2(0)) and (h2(1), h2(0)), each through the pattern h2(0)"]
+fn exchanging_a_ground_pattern_with_equations_and_the_query_changes_no_answer() {
+    let declarations = r"
+        sort SortA{} []
+        symbol k{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol k2{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol h2{}(SortInt{}) : SortA{} [anywhere{}(), value-production{}()]
+        symbol f{}(SortA{}) : SortS{} [function{}()]
+    ";
+    let h2_equation = anywhere("h2", &["SortInt{}"], "SortA{}", &[&int(0)], "k{}()");
+    let h2 = |value: i64| format!("h2{{}}({})", int(value));
+    let mut asymmetric = Vec::new();
+    for (left, right) in [
+        ("k{}()".to_owned(), h2(0)),
+        ("k2{}()".to_owned(), h2(0)),
+        (h2(1), h2(0)),
+    ] {
+        let forward = first_or_owise(declarations, std::slice::from_ref(&h2_equation), &left);
+        let backward = first_or_owise(declarations, std::slice::from_ref(&h2_equation), &right);
+        let one = simplified(&forward, &format!("f{{}}({right})"));
+        let other = simplified(&backward, &format!("f{{}}({left})"));
+        let tainted = |definition: &BackendDefinition| {
+            definition
+                .value_claims()
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "h2")
+        };
+        if one != other {
+            asymmetric.push(format!(
+                "pattern {left} (h2 withdrawn: {}), query {right}: {one}\npattern {right} (h2 \
+                 withdrawn: {}), query {left}: {other}",
+                tainted(&forward),
+                tainted(&backward)
+            ));
+        }
+    }
+    assert!(asymmetric.is_empty(), "{}", asymmetric.join("\n\n"));
+}

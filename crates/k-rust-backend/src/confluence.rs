@@ -67,6 +67,12 @@
 //! is about to withdraw can contribute to its own verdict (a `requires` refuted through a claim,
 //! a join step through a certified root). Every place that mints a claim asks
 //! `ValueClaims::admit` for the index of the term it vouches for.
+//!
+//! Once the verdict is stored, the load adds to it the instance-normal tokens of the
+//! equation-head applications written in the executable left-hand sides that denote one ground
+//! term (`BackendDefinition::record_pattern_tokens`, read through `ValueClaims::pattern_token`),
+//! so that equation matching reads such an application as the value it denotes, as it reads an
+//! equal subject. The withheld verdict holds no token, so the check never reads one.
 
 mod closure;
 mod conditions;
@@ -92,6 +98,7 @@ pub use unify::UnresolvedShape;
 
 use crate::{
     definition::BackendDefinition,
+    instance_normal::InstanceNormal,
     rule::{
         ApartScope, Concreteness, ConstraintKind, Predicate, RewriteRule, RuleRhs, TermIndex,
         rename_apart, term_index,
@@ -111,20 +118,24 @@ use unify::{Families, Unifier, computed};
 #[derive(Clone, Debug)]
 pub struct ValueClaims(Arc<Verdict>);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Verdict {
     /// The check has not run, or is running: no claim is admitted.
     Withheld,
     Checked(Box<Checked>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct Checked {
     tainted_symbols: BTreeSet<Name>,
     tainted_indexes: FxHashSet<TermIndex>,
     unjoined: Vec<UnjoinedPair>,
     violations: Vec<Violation>,
     counts: CheckCounts,
+    /// The instance-normal tokens of the equation-head applications of executable left-hand
+    /// sides that denote one ground term, recorded after the check
+    /// (`BackendDefinition::record_pattern_tokens`).
+    pattern_tokens: FxHashMap<Term, InstanceNormal>,
     /// Test builds: the overload families, with stage 1's verdicts.
     #[cfg(test)]
     families: Option<Families>,
@@ -260,6 +271,40 @@ impl ValueClaims {
             return Some(UntaintedIndex(()));
         }
         self.admit(index)
+    }
+
+    /// The instance-normal token the load recorded for `pattern`, an equation-head application
+    /// written in an executable equation's left-hand side that denotes one ground term, or
+    /// `None`: no token was recorded for it, the check has not run, or it is running. The token
+    /// is that of the ground term (`BackendDefinition::record_pattern_tokens`), its own only
+    /// instance, so it says that the one value `pattern` can denote is that normal form.
+    #[must_use]
+    pub(crate) fn pattern_token(&self, pattern: &Term) -> Option<InstanceNormal> {
+        match &*self.0 {
+            Verdict::Withheld => None,
+            Verdict::Checked(checked) => {
+                if checked.pattern_tokens.is_empty() {
+                    return None;
+                }
+                checked.pattern_tokens.get(pattern).copied()
+            }
+        }
+    }
+
+    /// Record `token`, the instance-normal token of the ground term the equation-head application
+    /// `pattern` denotes, after the check (`BackendDefinition::record_pattern_tokens`). A withheld
+    /// verdict records nothing: no token is minted while the check runs.
+    pub(crate) fn record_pattern_token(&mut self, pattern: Term, token: InstanceNormal) {
+        debug_assert!(
+            collapse_conjunctions(&pattern)
+                .attributes()
+                .variables
+                .is_empty(),
+            "only an application that denotes one ground term is recorded"
+        );
+        if let Verdict::Checked(checked) = Arc::make_mut(&mut self.0) {
+            checked.pattern_tokens.insert(pattern, token);
+        }
     }
 
     /// Test builds: a verdict that admits every index, as if the check had found nothing.
@@ -923,7 +968,7 @@ fn replace_at(term: &Term, path: &[usize], replacement: Term) -> Term {
 /// variable (an alias, whose value under a unifier is the structured one's), else the left one.
 /// Under a unifier of the pattern the two conjuncts denote one term, so the instance of the
 /// result is the instance of the pattern.
-fn collapse_conjunctions(pattern: &Term) -> Term {
+pub(crate) fn collapse_conjunctions(pattern: &Term) -> Term {
     match pattern.kind() {
         TermKind::And(left, right) => {
             if matches!(left.kind(), TermKind::Variable(_)) {

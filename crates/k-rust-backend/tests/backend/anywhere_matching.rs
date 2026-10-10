@@ -271,6 +271,39 @@ fn equation_matching_compares_arguments_by_value_and_the_root_as_written() {
     assert!(matches!(result, MatchResult::Failed(_)), "{result:?}");
 }
 
+/// Equation matching reads the ground pattern `wrap(z)` of `fhit`, a normal form (`collapse`
+/// rewrites only `wrap(s(z))`), as the value it denotes, as it reads an equal subject: another
+/// root refutes it in either orientation. An implication pattern stays read up to equations
+/// (Q7), and `wrap(s(z))`, which `collapse` rewrites, is no normal form to read.
+#[test]
+fn equation_matching_reads_a_ground_normal_form_pattern_as_its_value() {
+    for (pattern, subject) in [
+        ("f{}(wrap{}(z{}()))", "f{}(addr{}(z{}()))"),
+        ("f{}(addr{}(z{}()))", "f{}(wrap{}(z{}()))"),
+        ("f{}(wrap{}(z{}()))", "f{}(done{}())"),
+    ] {
+        let result = matching(MatchMode::Evaluate, pattern, subject);
+        assert!(
+            matches!(result, MatchResult::Failed(_)),
+            "{pattern} against {subject}: {result:?}"
+        );
+    }
+    let result = nested(MatchMode::Implies, "wrap{}(z{}())", "addr{}(z{}())");
+    assert!(
+        matches!(result, MatchResult::Indeterminate { .. }),
+        "{result:?}"
+    );
+    let result = matching(
+        MatchMode::Evaluate,
+        "f{}(wrap{}(s{}(z{}())))",
+        "f{}(addr{}(z{}()))",
+    );
+    assert!(
+        matches!(result, MatchResult::Indeterminate { .. }),
+        "{result:?}"
+    );
+}
+
 fn simplified(definition: &BackendDefinition, source: &str) -> Term {
     simplify(
         definition,
