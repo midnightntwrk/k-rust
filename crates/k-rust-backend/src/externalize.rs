@@ -797,13 +797,41 @@ pub fn external_variable_name(name: &str) -> String {
 /// Every printer of a predicate goes through this function: [`predicate_pattern`] and
 /// [`ml_pattern`] call it, and the [`External`] sources of a pattern or a predicate are made
 /// from a [`Printable`], which applies it.
+///
+/// A rename needs a binder and a variable other than it, both of `predicate`, that print alike.
+/// So a predicate without a quantifier, or whose distinct variables (free or bound) all print
+/// differently, has nothing to rename, and one walk over it answers `None`. Only a predicate
+/// with such a pair is walked binder by binder, which reads the free variables of each binder's
+/// body.
 pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
+    if !crate::simplify::has_quantifier(predicate) || !two_variables_print_alike(predicate) {
+        return None;
+    }
+    rename_capturing_binders(predicate)
+}
+
+/// Whether two distinct variables of `predicate`, free or bound, print alike.
+fn two_variables_print_alike(predicate: &Predicate) -> bool {
+    let mut variables = BTreeSet::new();
+    crate::rule::collect_all_variables(std::iter::once(predicate), &mut variables);
+    let mut spellings = BTreeSet::new();
+    // The set holds each variable once, so a spelling met twice is the spelling of two.
+    variables
+        .iter()
+        .any(|variable| !spellings.insert(encode_variable_name(&variable.name)))
+}
+
+/// [`apart_binders`] by a walk that, at each binder, reads the free variables of its body.
+fn rename_capturing_binders(predicate: &Predicate) -> Option<Predicate> {
     fn both(
         left: &Predicate,
         right: &Predicate,
         rebuild: fn(Box<Predicate>, Box<Predicate>) -> Predicate,
     ) -> Option<Predicate> {
-        match (apart_binders(left), apart_binders(right)) {
+        match (
+            rename_capturing_binders(left),
+            rename_capturing_binders(right),
+        ) {
             (None, None) => None,
             (new_left, new_right) => Some(rebuild(
                 Box::new(new_left.unwrap_or_else(|| left.clone())),
@@ -812,7 +840,10 @@ pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
         }
     }
     fn each(items: &[Predicate], rebuild: fn(Vec<Predicate>) -> Predicate) -> Option<Predicate> {
-        let renamed = items.iter().map(apart_binders).collect::<Vec<_>>();
+        let renamed = items
+            .iter()
+            .map(rename_capturing_binders)
+            .collect::<Vec<_>>();
         renamed.iter().any(Option::is_some).then(|| {
             rebuild(
                 renamed
@@ -833,7 +864,7 @@ pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
         | Predicate::In(..)
         // `Absence::new` names an absence's binder apart from its key and rest.
         | Predicate::Absent(_) => None,
-        Predicate::Not(inner) => apart_binders(inner).map(|inner| Predicate::Not(Box::new(inner))),
+        Predicate::Not(inner) => rename_capturing_binders(inner).map(|inner| Predicate::Not(Box::new(inner))),
         Predicate::And(items) => each(items, Predicate::And),
         Predicate::Or(items) => each(items, Predicate::Or),
         Predicate::Implies(left, right) => both(left, right, Predicate::Implies),
@@ -844,7 +875,7 @@ pub fn apart_binders(predicate: &Predicate) -> Option<Predicate> {
             } else {
                 Predicate::Forall
             };
-            let renamed_body = apart_binders(body);
+            let renamed_body = rename_capturing_binders(body);
             let body_ref = renamed_body.as_ref().unwrap_or(body);
             let spelling = encode_variable_name(&binder.name);
             let captures = body_ref.free_variables().iter().any(|variable| {

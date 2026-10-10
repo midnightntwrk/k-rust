@@ -294,6 +294,35 @@ fn a_binder_spelled_like_a_free_variable_of_its_body_is_renamed() {
     }
 }
 
+/// Whether a predicate needs a rename is decided over all of it: a binder captures a variable
+/// spelled like it that occurs free several connectives and binders below, and two variables
+/// spelled alike under sibling binders, neither in the scope of the other, rename nothing.
+#[test]
+fn a_spelling_clash_is_renamed_only_where_a_binder_captures() {
+    let result_sort = Sort::simple("SortK");
+    let deep = Predicate::Exists(
+        element("Ex#X!0"),
+        Box::new(Predicate::And(vec![
+            Predicate::True,
+            Predicate::Forall(
+                element("Y"),
+                Box::new(Predicate::Not(Box::new(bound_next_to("Z", "Ex-hX-b0")))),
+            ),
+        ])),
+    );
+    let printed = predicate_pattern(&deep, &result_sort);
+    let kore::Pattern::Exists { variable, .. } = &printed else {
+        panic!("expected an existential: {printed}");
+    };
+    assert_ne!(variable.name, "Ex-hX-b0", "{printed}");
+    assert!(externalize::apart_binders(&deep).is_some());
+    let siblings = Predicate::And(vec![
+        bound_next_to("Ex#X!0", "Y"),
+        bound_next_to("Ex-hX-b0", "Y"),
+    ]);
+    assert_eq!(externalize::apart_binders(&siblings), None);
+}
+
 /// A binder that captures nothing keeps its name, even when it is spelled like a variable free
 /// outside its body or is the free variable itself.
 #[test]

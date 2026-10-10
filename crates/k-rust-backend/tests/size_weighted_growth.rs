@@ -36,6 +36,7 @@ use std::sync::Mutex;
 
 use k_rust_backend::{
     definition::BackendDefinition,
+    externalize::constrained_pattern,
     rewrite::{ExecutionOptions, Pattern, execute},
     simplify::{SimplificationOptions, simplify, simplify_pattern_with_solver},
     smt::{NoSolver, TranslationState},
@@ -632,6 +633,34 @@ fn a_disjunction_negation_chain_visits_its_predicates_linearly_in_its_depth() {
 #[test]
 fn an_alternating_conjunction_disjunction_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("andor", 100);
+}
+
+/// Printing an existential chain walks it a bounded number of times, not once per binder.
+///
+/// A binder is renamed for printing only when it prints like another variable of its body, so a
+/// chain whose binders and free variable all print differently is printed as it is: deciding
+/// that reads each node of the chain a bounded number of times, not the body of every binder.
+#[test]
+fn printing_an_existential_chain_visits_its_predicates_linearly_in_its_depth() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let definition = definition(PREDICATE_CHAINS);
+    assert_linear(
+        "printed exists chain",
+        "predicate nodes visited",
+        200,
+        |depth| {
+            let subject = pattern(&definition, &predicate_chain("exists", depth));
+            let before = snapshot();
+            let printed = constrained_pattern(&subject);
+            let visited = snapshot()
+                .delta(&before)
+                .get(Counter::SimplifyPredicateNodesVisited);
+            drop(printed);
+            visited
+        },
+    );
 }
 
 /// The control: a negation chain, linear before the predicate equations were indexed by

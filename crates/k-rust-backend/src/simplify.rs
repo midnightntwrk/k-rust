@@ -3328,7 +3328,8 @@ fn match_predicate(
     }
 }
 
-fn has_quantifier(predicate: &Predicate) -> bool {
+/// Whether `predicate` has a quantifier.
+pub(crate) fn has_quantifier(predicate: &Predicate) -> bool {
     match predicate {
         Predicate::Exists(..) | Predicate::Forall(..) => true,
         Predicate::Not(inner) => has_quantifier(inner),
