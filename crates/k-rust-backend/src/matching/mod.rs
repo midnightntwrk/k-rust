@@ -2205,8 +2205,15 @@ fn refutes_another_symbol(
             MatchMode::Rewrite => true,
             // Q2: an equation's left-hand side headed by an overloaded production against a
             // concrete subject whose root is fixed. An equation-head pattern with evidence (one
-            // ground normal form) against a concrete subject whose root is fixed: two normal
-            // forms of different symbols, as with the pattern and the subject exchanged.
+            // ground normal form, whose token the load recorded) against a concrete subject whose
+            // root is fixed, here an equation-head application with evidence of another symbol:
+            // each side's evidence states that it is a normal form, the freeness claim states
+            // that distinct normal forms are distinct values, and two applications of different
+            // symbols are distinct terms, so the subject is not the pattern's one value. The
+            // refutation therefore rests on the two sides' own claims and adds none. Leaving the
+            // pair undecided would also be symmetric (the exchanged pair reaches this arm too),
+            // but a certified normal form would then not be read as its own value on the pattern
+            // side, which is what reading a ground normal form as a value means.
             MatchMode::Evaluate => {
                 (facts.pattern_overloaded() || is_equation_head_value(pattern))
                     && facts.subject_concrete()
@@ -2667,7 +2674,7 @@ mod tests {
     use k_rust_kore::names::WellKnownSymbol;
     use proptest::{
         prelude::*,
-        test_runner::{Config, TestRunner},
+        test_runner::{Config, TestRng, TestRunner},
     };
 
     use super::*;
@@ -3153,6 +3160,115 @@ mod tests {
                     "no {mode} case compared with eea634ce reached {arm:?}: {counts:?}"
                 );
             }
+        }
+    }
+
+    /// The root class of a term in [`the_evaluate_policy_refutes_two_normal_forms_in_either_orientation`]:
+    /// a free constructor, a domain value, an injection or an equation-head application, each
+    /// ground and concrete after normalization; `None` for any other term.
+    fn normal_form_class(term: &Term) -> Option<&'static str> {
+        if !term.attributes().variables.is_empty() || !term.concrete_after_normalization() {
+            return None;
+        }
+        match term.kind() {
+            TermKind::DomainValue { .. } => Some("domain value"),
+            TermKind::Injection { .. } => Some("injection"),
+            TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
+                HeadRole::FreeConstructor => Some("free constructor"),
+                HeadRole::EquationHead => Some("equation head"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether two ground normal forms the backend certifies are one value or two does not
+    /// depend on which side of a match writes which (K12). A recorded pattern is an equation-head
+    /// application read with the evidence an equal subject carries, so in `Evaluate`, with every
+    /// equation-head application read with evidence on either side, the policy refutes a pair of
+    /// such terms exactly when it refutes the pair exchanged. The other modes read no pattern
+    /// evidence and are not symmetric by design (`Rewrite` reads the left-hand side as written,
+    /// `Implies` never refutes an equation-head subject by its root).
+    #[test]
+    fn the_evaluate_policy_refutes_two_normal_forms_in_either_orientation() {
+        let counts = RefCell::new(BTreeMap::<(&str, &str, bool), usize>::new());
+        // A fixed seed: the reach assertions below read the sample, which a random seed would
+        // make vary from run to run.
+        let config = Config {
+            cases: 8192,
+            ..Config::default()
+        };
+        let rng = TestRng::deterministic_rng(config.rng_algorithm);
+        let mut runner = TestRunner::new_with_rng(config, rng);
+        runner
+            .run(
+                &(generators::term(), generators::term(), any::<bool>()),
+                |(left, right, share)| {
+                    let right = consistent(&left, right, share);
+                    let (Some(left_class), Some(right_class)) =
+                        (normal_form_class(&left), normal_form_class(&right))
+                    else {
+                        return Ok(());
+                    };
+                    let overloaded = BTreeSet::new();
+                    let refutes = |pattern: &Term, subject: &Term| {
+                        let facts = GeneratedPair {
+                            pattern,
+                            subject,
+                            overloaded: &overloaded,
+                        };
+                        matches!(
+                            matcher_root_policy(
+                                MatchMode::Evaluate,
+                                classify_value(pattern, &mut Evidence(true)),
+                                classify_value(subject, &mut Evidence(true)),
+                                &facts,
+                            ),
+                            RootPolicy::Refute(_)
+                        )
+                    };
+                    let forward = refutes(&left, &right);
+                    prop_assert_eq!(
+                        forward,
+                        refutes(&right, &left),
+                        "pattern {:?}, subject {:?}",
+                        left,
+                        right
+                    );
+                    let (first, second) = if left_class <= right_class {
+                        (left_class, right_class)
+                    } else {
+                        (right_class, left_class)
+                    };
+                    *counts
+                        .borrow_mut()
+                        .entry((first, second, forward))
+                        .or_default() += 1;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let counts = counts.into_inner();
+        // The arms the recorded patterns added are reached: an equation head against each rigid
+        // class, and against an equation head (of another symbol, refuted; of its own symbol,
+        // compared by arguments).
+        for class in ["domain value", "free constructor", "injection"] {
+            let pair = if class < "equation head" {
+                (class, "equation head", true)
+            } else {
+                ("equation head", class, true)
+            };
+            assert!(
+                counts.contains_key(&pair),
+                "{pair:?} not reached: {counts:?}"
+            );
+        }
+        for refuted in [true, false] {
+            let pair = ("equation head", "equation head", refuted);
+            assert!(
+                counts.contains_key(&pair),
+                "{pair:?} not reached: {counts:?}"
+            );
         }
     }
 }
