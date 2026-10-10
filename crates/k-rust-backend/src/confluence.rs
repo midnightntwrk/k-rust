@@ -753,7 +753,10 @@ impl UnjoinedReason {
     /// applies as written, although the definition states it as an axiom.
     #[must_use]
     pub fn describes_one_equation(&self) -> bool {
-        matches!(self, Self::UnboundResultVariables | Self::ComputedBelowRoot(_))
+        matches!(
+            self,
+            Self::UnboundResultVariables | Self::ComputedBelowRoot(_)
+        )
     }
 }
 
