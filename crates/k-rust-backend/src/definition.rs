@@ -2643,28 +2643,24 @@ impl BackendDefinition {
                 target: Box::new(externalize::sort(target)),
             });
         }
-        // An injection keeps its declared source and target sorts and its operand is not checked
-        // against the source: only the subsort test above refuses it, and since operands are
-        // internalized first, that refusal comes before any argument error of an enclosing
-        // application. Whether an operand of another sort than the source should be refused is
-        // not decided here.
-        if !syntax.is(WellKnownSymbol::Inj) {
-            for (index, (expected, argument)) in symbol
-                .argument_sorts
-                .iter()
-                .map(|sort| substitute_sort(sort, &substitution))
-                .zip(&arguments)
-                .enumerate()
-            {
-                let actual = argument.sort();
-                if expected != actual {
-                    return Err(DefinitionError::IncorrectArgumentSort {
-                        symbol: syntax.name.clone(),
-                        index,
-                        expected: Box::new(externalize::sort(&expected)),
-                        actual: Box::new(externalize::sort(&actual)),
-                    });
-                }
+        // An injection `inj{S, T}(t)` is an application whose argument sort is `S`, so its
+        // operand is checked like every other argument: an operand of any other sort, a strict
+        // subsort of `S` included, is refused on every route, as the verifier refuses it.
+        for (index, (expected, argument)) in symbol
+            .argument_sorts
+            .iter()
+            .map(|sort| substitute_sort(sort, &substitution))
+            .zip(&arguments)
+            .enumerate()
+        {
+            let actual = argument.sort();
+            if expected != actual {
+                return Err(DefinitionError::IncorrectArgumentSort {
+                    symbol: syntax.name.clone(),
+                    index,
+                    expected: Box::new(externalize::sort(&expected)),
+                    actual: Box::new(externalize::sort(&actual)),
+                });
             }
         }
         Ok(Term::application(symbol, sort_arguments, arguments))

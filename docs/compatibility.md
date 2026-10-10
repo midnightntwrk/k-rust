@@ -847,6 +847,7 @@ Within an axiom's condition (outside a predicate simplification's left-hand side
 A sort-variable pair is accepted inside a definition axiom as a schema, including the injection composition axiom whose licensed instances follow from transitivity.
 
 Requests and claims must contain only licensed injections; krun's initial configuration is checked like a request.
+`inj{A, B}(t)` is an application whose argument sort is `A`, so its operand must have sort `A` exactly, as every argument has its declared sort: an operand of another sort, a strict subsort of `A` included, is refused with `IncorrectArgumentSort` on every route, verified (definitions, added modules) or not (RPC requests), and the composed `inj{C, B}(t)` is the way to write an operand of a subsort `C` (`internalization_refuses_what_the_verifier_refuses_for_its_sorts` in [sort_injections.rs](../crates/k-rust-backend/src/tests/sort_injections.rs)).
 Requests and claims also refuse injection pairs containing sort variables.
 An unlicensed alternative of a no-junk axiom prevents that axiom from establishing a finite domain.
 A dead axiom remains in the written rule catalog with its executable attribute, but contributes no loaded rule and cannot be selected in an observation allowlist (`UnknownRule`).
