@@ -6017,6 +6017,35 @@ pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution)
     })
 }
 
+/// Whether `substitution` binds an element variable to a pattern that has `subject` as a
+/// subterm.
+///
+/// The instance of a ceil equation `\ceil(l) = q` under such a binding is
+/// `\ceil(t) = \ceil(t) /\ q[t]` at the subject `t`: the binding's obligation contains the
+/// subject's own definedness, so the instance says only that `\ceil(t)` implies `q[t]`. It
+/// gives `\ceil(t)` no condition (`\ceil(X) = \top` over an element `X` holds of every element
+/// and says nothing of whether `t` is one), and rewriting `\ceil(t)` by it would restate the
+/// subject. So such an instance is not used. A set variable ranges over every pattern, the
+/// undefined one included, so binding one to the subject carries no obligation and is used.
+pub(crate) fn binds_element_variable_to_its_subject(
+    substitution: &Substitution,
+    subject: &Term,
+) -> bool {
+    substitution.iter().any(|(variable, value)| {
+        if variable.kind != VariableKind::Element {
+            return false;
+        }
+        let mut pending = vec![value];
+        while let Some(term) = pending.pop() {
+            if term == subject {
+                return true;
+            }
+            pending.extend(crate::term::immediate_children(term.kind()));
+        }
+        false
+    })
+}
+
 fn apply_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -6055,7 +6084,7 @@ fn apply_equation(
 
 /// The instances of an equation at a subject, one per matching of its left-hand side, or why
 /// there is none.
-enum EquationInstances {
+pub(crate) enum EquationInstances {
     /// The left-hand side does not match the subject: no instance of the equation is the subject.
     NotMatched(MatchFailed),
     /// Matching modulo the map and set axioms could not decide whether the left-hand side
@@ -6068,11 +6097,13 @@ enum EquationInstances {
 /// One matching of an equation's left-hand side against a subject, as the checks every use of
 /// the equation shares classify it. They decide whether the evaluator may use the instance, not
 /// whether the equation holds, so none of them refutes it.
-enum Instance {
+pub(crate) enum Instance {
     /// The evaluator may use the instance under this substitution.
     Usable(Substitution),
     /// The matching binds a variable outside the left-hand side, or a `concrete` or `symbolic`
-    /// attribute rejects its binding: the evaluator does not use the equation on this instance.
+    /// attribute rejects its binding, or the instance of a ceil equation binds an element
+    /// variable to a pattern containing its subject ([`binds_element_variable_to_its_subject`]):
+    /// the evaluator does not use the equation on this instance.
     Unused,
     /// The matching binds an element variable to a pattern with a set variable
     /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
@@ -6105,7 +6136,7 @@ impl Instance {
 /// itself, so a caller applies the equation when one instance does ([`scan_instances`]),
 /// whichever the matcher enumerates first. A match without a collection remainder has one
 /// instance.
-fn equation_instances<'r>(
+pub(crate) fn equation_instances<'r>(
     definition: &BackendDefinition,
     rule: &'r RewriteRule,
     term: &Term,
@@ -6147,6 +6178,8 @@ fn equation_instances<'r>(
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
                 || check_concreteness(&rule, &substitution).is_some()
+                || matches!(rule.rhs, RuleRhs::Predicates(_))
+                    && binds_element_variable_to_its_subject(&substitution, term)
             {
                 Instance::Unused
             } else if binds_element_variable_to_set_pattern(&substitution) {
