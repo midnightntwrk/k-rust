@@ -11,6 +11,7 @@ members = [
     "packages/imp-sum",
     "packages/l22",
     "packages/l22-verification",
+    "packages/l22-lesson",
 ]
 resolver = "3"
 

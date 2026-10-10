@@ -13,6 +13,11 @@
 //! Only the main package's spec modules are part of a build: a dependency's
 //! spec modules are that package's proof inputs, as a dependency's tests are
 //! not part of a dependent's build.
+//!
+//! A package may hold nothing but spec modules, as a K lesson's `-spec.k`
+//! adds claims to a language it does not change: its definition module is
+//! then empty and imports the packages its spec modules name, so `kompile`
+//! sees exactly its dependencies.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -128,7 +133,7 @@ pub(super) fn split_package<'a>(
     Ok(PackageSplit { definition, specs })
 }
 
-fn is_spec_declaration(descriptor: &Descriptor) -> bool {
+pub(super) fn is_spec_declaration(descriptor: &Descriptor) -> bool {
     matches!(
         descriptor.payload(),
         DescriptorPayload::Grammar(grammar)

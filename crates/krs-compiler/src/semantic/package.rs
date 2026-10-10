@@ -48,6 +48,8 @@ pub(super) struct ModuleSentences {
 /// follow the references of every descriptor in `referencing`, which includes
 /// the package's spec modules (KF-041): a spec module imports the definition
 /// through `crate`, so the definition must import what the spec module names.
+/// `descriptors` is empty for a package whose only content is spec modules:
+/// its definition module is then empty and only imports.
 pub(super) fn lower_package_module(
     package: &PackageId,
     descriptors: &[&Descriptor],
@@ -63,14 +65,21 @@ pub(super) fn lower_package_module(
             detail: format!("package {package} has no generated module identity"),
         }
     })?;
-    let origin_descriptor =
-        descriptors
-            .first()
-            .copied()
-            .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-                node: "module",
-                detail: format!("package {package} has no semantic descriptors"),
-            })?;
+    // A package whose only content is spec modules has an empty definition
+    // module that imports what its spec modules name; the module takes its
+    // origin from the first spec module declaration.
+    let origin_descriptor = descriptors
+        .first()
+        .or_else(|| {
+            referencing
+                .iter()
+                .find(|descriptor| super::spec_modules::is_spec_declaration(descriptor))
+        })
+        .copied()
+        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
+            node: "module",
+            detail: format!("package {package} has no semantic descriptors"),
+        })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
     let imports = referenced_packages(referencing)
         .into_iter()

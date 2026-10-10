@@ -105,8 +105,11 @@ IMP's loose claims; `definition.k` holds neither. `krs prove --spec-module
 IMP-SUM-SPEC` proves the claim natively (k-rust proves the spec module's own
 proof definition), and Java `kprove --spec-module IMP-SUM-SPEC` of the
 emitted files gives `#Top`. An unknown spec module and a spec module without
-claims are refused. The language package `l22` holds `LESSON-SPEC`, a spec
-module that declares the regex `$`-identifier token itself, so `kompile`
+claims are refused. `l22-lesson` is a package whose only content is a spec
+module, as a K lesson's `-spec.k` file adds claims to a kompiled language:
+it depends on lesson 1.22's language `l22`, and its definition module
+`KRS-L22-LESSON` is emitted empty and only imports `KRS-L22`. Its spec module
+`LESSON-SPEC` declares the regex `$`-identifier token itself, so `kompile`
 never sees it: `definition.k` has no token, and the claim `dollar-assign`
 (`$n = N ; $m = M ;`) is proved natively and by `kprove --spec-module
 LESSON-SPEC`. Negative fixtures pin a sort in a spec module, an import
@@ -316,10 +319,19 @@ IMP_SUM_FRAGMENTS = (
     "    [circularity]\n",
 )
 
-L22_LANGUAGE = Fixture(MANIFEST, "krs-verification-surface-l22")
+L22_LESSON = Fixture(
+    MANIFEST, "krs-verification-surface-l22-lesson",
+    dependencies=("krs-verification-surface-l22:main",),
+)
+L22_LESSON_MODULE = "KRS-L22-LESSON"
+# The definition module of a package with only spec modules: empty, it imports the language.
+L22_LESSON_DEFINITION = (
+    "module KRS-L22-LESSON-SYNTAX\n  imports KRS-L22-SYNTAX\nendmodule\n\n"
+    "module KRS-L22-LESSON\n  imports KRS-L22\n  imports KRS-L22-LESSON-SYNTAX\nendmodule\n"
+)
 LESSON_SPEC = "LESSON-SPEC"
 LESSON_SPEC_FRAGMENT = (
-    "module LESSON-SPEC\n  imports ID-SYNTAX\n  imports INT-SYNTAX\n  imports KRS-L22\n  imports MAP\n\n"
+    "module LESSON-SPEC\n  imports ID-SYNTAX\n  imports INT-SYNTAX\n  imports KRS-L22-LESSON\n  imports MAP\n\n"
     + IMP_SUM_TOKEN
     + "\n  claim [dollar-assign]:\n"
     "    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>\n"
@@ -1173,14 +1185,22 @@ def verify_spec_modules(harness: FixtureGate, fixture: Fixture) -> None:
 
 
 def verify_lesson_spec(harness: FixtureGate, fixture: Fixture) -> None:
-    """A spec module that declares its own regex token: the definition never sees it."""
+    """A package with only a spec module, which declares its own regex token.
+
+    The package's definition module is empty and imports the language, so
+    `kompile` sees exactly the language and never the token.
+    """
 
     harness.check(fixture)
     emitted = harness.emit(fixture)
+    if emitted.main_module != L22_LESSON_MODULE:
+        raise GateError(f"{fixture.package}: the main module is {emitted.main_module}, not {L22_LESSON_MODULE}")
     definition = emitted.source.read_text(encoding="utf-8")
     spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
     if "[token]" in definition:
         raise GateError(f"{fixture.package}: definition.k holds a token production:\n{definition}")
+    if not definition.endswith(L22_LESSON_DEFINITION):
+        raise GateError(f"{fixture.package}: definition.k does not end with the empty package module:\n{L22_LESSON_DEFINITION}")
     if LESSON_SPEC_FRAGMENT not in spec:
         raise GateError(f"{fixture.package}: emitted spec.k omits:\n{LESSON_SPEC_FRAGMENT}")
 
@@ -1188,12 +1208,23 @@ def verify_lesson_spec(harness: FixtureGate, fixture: Fixture) -> None:
     if native["statuses"] != {"dollar-assign": "proven"} or native["exit"] != 0 or native["warnings"]:
         raise GateError(f"{fixture.package}: krs prove --spec-module {LESSON_SPEC} reported {json.dumps(native)}")
     harness.pins.expect(("spec_module_proofs", fixture.package), native)
+    with krs_gate.Session(harness.gate, environment=harness.environment) as session:
+        session.load(emitted.definition_ir, emitted.main_module)
+        reports = session.exec_prove(module=LESSON_SPEC)
+    session_statuses = {report["claim"]: report["verdict"] for report in reports}
+    if session_statuses != {f"{LESSON_SPEC}.dollar-assign": "proven"}:
+        raise GateError(f"{fixture.package}: the krs-gate session proved {json.dumps(session_statuses)}")
+    refused = harness._krs(fixture, "prove", check=False)
+    lines = diagnostic_lines(refused.stderr)
+    if refused.returncode == 0 or not lines:
+        raise GateError(f"{fixture.package}: krs prove without --spec-module was accepted:\n{refused.stderr}")
+    harness.pins.expect(("spec_module_refusals", fixture.package), {"default": lines})
 
     java = java_trusted_proof(harness, emitted, LESSON_SPEC)
     if not (java["proven"] and java["top"]):
         raise GateError(f"{fixture.package}: kprove --spec-module {LESSON_SPEC} reported {json.dumps(java)}")
     harness.pins.expect(("spec_module_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: {LESSON_SPEC} declares its own token and is proven natively and by kprove")
+    print(f"PASS {fixture.package}: the spec-only package's {LESSON_SPEC} declares its own token and is proven natively and by kprove")
 
 
 def main() -> int:
@@ -1228,7 +1259,7 @@ def main() -> int:
         verify_conc(harness, CONC)
         verify_conc(harness, CONC_SMT_LEMMA)
         verify_spec_modules(harness, IMP_SUM)
-        verify_lesson_spec(harness, L22_LANGUAGE)
+        verify_lesson_spec(harness, L22_LESSON)
         verify_ml_predicates(harness, L22)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)

@@ -46,9 +46,9 @@
       "definition.k": "303c2db277bb36448086e7b0e645d036471e1b4328f86fe5a4a7ebcf88a4c627",
       "spec.k": "b6ca1e74f8ca2ededa902e2315d3b16db2320860394fafbbaa2789fbca9e674a"
     },
-    "krs-verification-surface-l22": {
-      "definition.k": "4e2a68cd1100b402f82a07d2e30accfff3f162e315bd1539f3e8b8d17401e9bc",
-      "spec.k": "56467756577c99d699e3561ca603906990b54a1ac12eca416482bbd7511217f3"
+    "krs-verification-surface-l22-lesson": {
+      "definition.k": "3cb18aabae99e6966f419e44a77022e6f91400d6b9cde966d0afe0b0069f2638",
+      "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
     }
   },
   "capability_refusals": {
@@ -66,7 +66,7 @@
     "krs-verification-surface-conc-smt-lemma": "279670545e957eb7192563b8f86826e23e714873821137de8345b05710866511",
     "krs-verification-surface-imp-sum": "bdf91e96c50a6bd78c2d94040573e91ea4cfa0887e00cd0ebada91febba449a3",
     "krs-verification-surface-l22-verification": "303d7d2d904c4aaef8283c402439d11fe7294bcd155b5cdad7aede86094e3d6d",
-    "krs-verification-surface-l22": "254d070fb05febfca805ff929c0c80d2a21c76c761bc5fccae0068ba3df81941"
+    "krs-verification-surface-l22-lesson": "3754d5667bc6f21368b899efc86df205f05683271b3792c24b40a4b6d95a6942"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -349,7 +349,7 @@
       ],
       "warnings": []
     },
-    "krs-verification-surface-l22": {
+    "krs-verification-surface-l22-lesson": {
       "statuses": {
         "dollar-assign": "proven"
       },
@@ -368,6 +368,11 @@
       "MISSING-SPEC": [
         "error[krs::exec::claim]: no spec module is named `MISSING-SPEC`; the definition's spec modules are `IMP-SUM-SPEC`, `IMP-VERIFICATION-LEMMAS` and the generated `IMP-VERIFICATION-SPEC`"
       ]
+    },
+    "krs-verification-surface-l22-lesson": {
+      "default": [
+        "error[krs::exec::claim]: every claim of this definition is in a spec module; pass --spec-module with one of `LESSON-SPEC`"
+      ]
     }
   },
   "spec_module_kprove": {
@@ -375,7 +380,7 @@
       "proven": true,
       "top": true
     },
-    "krs-verification-surface-l22": {
+    "krs-verification-surface-l22-lesson": {
       "proven": true,
       "top": true
     }
