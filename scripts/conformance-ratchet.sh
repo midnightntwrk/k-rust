@@ -372,6 +372,7 @@ driver_args=(
   --expectations "$expectations"
   --jobs "$jobs"
   --reference-cache "$reference_cache_mode"
+  --memory-guard "$reference_job_guard_kind"
   "${previous_results_args[@]}"
   --cases "${selected[@]}"
 )

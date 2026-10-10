@@ -58,6 +58,8 @@ from pathlib import Path
 
 SCHEMA = "k-rust-reference-outputs-v1"
 MODES = ("off", "on", "refresh", "verify")
+# The whole-job guards of scripts/reference-memory-guard.sh; "" when no guard is stated.
+MEMORY_GUARDS = ("", "systemd-scope", "rlimit-as")
 DEFAULT_MAX_AGE_DAYS = 14.0
 NIX_STORE = "/nix/store/"
 PRUNE_INTERVAL_SECONDS = 86400
@@ -1196,7 +1198,7 @@ def cli_run(arguments) -> int:
         placeholders = dict(item.split("=", 1) for item in arguments.placeholder)
         cache = ReferenceCache(
             mode, cache_root(environment), pins, max_age_seconds(environment), placeholders,
-            environment.get("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", ""),
+            arguments.memory_guard,
             environment.get("REFERENCE_CACHE_LOG"),
             {"script": environment.get("REFERENCE_CACHE_SCRIPT", "")},
         )
@@ -1299,6 +1301,11 @@ def main(argv=None) -> int:
     run.add_argument("--stdin", action="store_true", help="the tool reads standard input")
     run.add_argument("--kdep", help="key on the kdep requires closure of the K source")
     run.add_argument("--store-status", action="append", type=int, default=[])
+    # The guard is a fact about the gate's own shell, so it arrives on the command line that shell
+    # writes; an environment variable would also carry a value exported by whatever started the
+    # gate or this process.
+    run.add_argument("--memory-guard", choices=MEMORY_GUARDS, default="",
+                     help="the whole-job memory guard the gate entered (reference-memory-guard.sh)")
     run.add_argument("command", nargs=argparse.REMAINDER)
     summary = commands.add_parser("summary", help="summarise a run log; fails on a verify mismatch")
     summary.add_argument("--log", required=True)

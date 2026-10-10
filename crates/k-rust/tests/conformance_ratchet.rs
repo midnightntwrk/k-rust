@@ -2836,6 +2836,7 @@ fn conformance_driver_distinguishes_reference_crashes_from_stale_oracles() {
 import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 import run
+run.MEMORY_GUARD = "rlimit-as"
 
 def probe(mode, incoming="mismatch", pattern=False, filtered=False):
     root = tempfile.mkdtemp()
@@ -2928,7 +2929,6 @@ print(json.dumps({
     let output = Command::new("python3")
         .env("K_KOMPILE", "/kbin/kompile")
         .env_remove("GHCRTS")
-        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
         .args(["-c", script])
         .arg(workspace.join("scripts/conformance"))
         .output()
@@ -3088,7 +3088,6 @@ print(json.dumps({
     let output = Command::new("python3")
         .env("K_KOMPILE", "/kbin/kompile")
         .env_remove("GHCRTS")
-        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
         .args(["-c", script])
         .arg(workspace.join("scripts/conformance"))
         .output()
@@ -3191,7 +3190,6 @@ print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
     let output = Command::new("python3")
         .env("K_KOMPILE", "/kbin/kompile")
         .env_remove("GHCRTS")
-        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
         .args(["-c", script])
         .arg(workspace.join("scripts/conformance"))
         .output()
@@ -3904,6 +3902,36 @@ fn conformance_ratchet_selects_cases_by_name_and_baseline_stage() {
         let run = document["run"].as_array().unwrap().last().unwrap();
         assert_eq!(run_cases(run).keys().copied().collect::<Vec<_>>(), expected);
     }
+}
+
+/// The driver learns the memory guard from the ratchet's command line, which states the guard the
+/// ratchet's own shell entered; an exported guard kind could come from whatever started the
+/// ratchet, so the driver does not read it.
+#[test]
+fn conformance_ratchet_states_the_memory_guard_it_entered_to_the_driver() {
+    let fixture = Fixture::new();
+    let baseline = fixture.results("baseline", &baseline_cases());
+    assert!(fixture.seed(&baseline).status.success());
+    let cases: Vec<_> = baseline_cases()
+        .into_iter()
+        .filter(|(name, _, _)| *name == "b")
+        .collect();
+    let results = fixture.results("guard", &cases);
+    let output = fixture.run("guard", &results, &["--cases", "b"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = fs::read_to_string(&fixture.args).unwrap();
+    let guard = args
+        .lines()
+        .skip_while(|line| *line != "--memory-guard")
+        .nth(1);
+    assert!(
+        matches!(guard, Some("systemd-scope" | "rlimit-as")),
+        "driver arguments: {args}"
+    );
 }
 
 #[test]

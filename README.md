@@ -668,6 +668,7 @@ A left cgroup's other limits (CPU, tasks, runtime such as `RuntimeMaxSec`) do no
 The equal defaults make the hard stop authoritative for anonymous-memory-heavy compiler workloads; operators may still configure an earlier soft throttle when a measured workload can reclaim or swap memory under pressure.
 An inner `systemd-run` scope would be a sibling of the aggregate scope rather than its child, so `reference_run_rust_frontend` executes directly once the script has entered the guard.
 `REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND` reports the guard in effect to the processes a gate starts; the guard never reads it, so a value exported by a caller cannot skip it.
+The reference-output cache and the conformance driver, which act on the guard (a result under the address-space fallback may fail for want of address space and is not stored), do not read it either: the gate's shell states the guard it entered on their command line (`--memory-guard`).
 When user scopes are unavailable, `REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB` supplies a separate 24 GiB whole-job virtual-address ceiling, or keeps the caller's tighter one, and emits a warning identifying its RLIMIT_AS semantics.
 The fallback is deliberately larger because a healthy process can reserve substantially more address space than it keeps resident; it is not a resident-memory guarantee.
 `REFERENCE_DIFFERENTIAL_MEMORY_KIB` independently controls only the reference JVM's virtual memory and remains unset by default for the same reservation reason.

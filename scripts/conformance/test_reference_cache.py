@@ -511,10 +511,10 @@ class ModeTests(unittest.TestCase):
 
 
 class CommandLineTests(CacheFixture):
-    def cli(self, *extra, stdin=subprocess.DEVNULL, merged=False, mode="on"):
+    def cli(self, *extra, stdin=subprocess.DEVNULL, merged=False, mode="on", environment=None):
         environment = dict(os.environ, REFERENCE_CACHE=mode, REFERENCE_CACHE_DIR=str(self.store),
                            REFERENCE_CACHE_PINS='{"k":"pinned"}',
-                           REFERENCE_CACHE_LOG=str(self.root / "log.jsonl"))
+                           REFERENCE_CACHE_LOG=str(self.root / "log.jsonl"), **(environment or {}))
         environment.pop("CI", None)
         return subprocess.run(
             [sys.executable, str(SCRIPTS / "reference_cache.py"), "run", "--tool", "tool",
@@ -559,6 +559,17 @@ class CommandLineTests(CacheFixture):
         pipe.stdout.close()
         pipe.wait()
         self.assertEqual(self.statuses(), ["miss", "miss", "uncacheable"])
+
+    def test_the_memory_guard_is_the_one_the_command_line_states(self):
+        # The gate's shell states the guard it entered; an exported guard kind may come from
+        # whatever started the gate, so it is not read. Under the address-space fallback a failure
+        # can be for want of address space and is not stored; without it, it is.
+        failing = {"FAKE_RC": "1"}
+        stated = self.cli("--memory-guard", "rlimit-as", environment=failing)
+        self.assertEqual(stated.returncode, 1)
+        leaked = self.cli(environment=dict(failing, REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND="rlimit-as"))
+        self.assertEqual(leaked.returncode, 1)
+        self.assertEqual(self.statuses(), ["uncacheable", "miss"])
 
     def test_the_summary_fails_on_a_verify_mismatch(self):
         log = self.root / "summary.jsonl"
