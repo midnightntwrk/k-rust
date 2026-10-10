@@ -15,7 +15,7 @@ use std::{
 use crate::{
     definition::{AttributeKey, Definition, ResolveError, ResolvedDefinition, Sentence},
     inner::{
-        ParsedProgram, ProgramError, ProgramParseError, ProgramParser,
+        ParsedProgram, ProgramError, ProgramParseError, ProgramParser, UNNAMED_PROGRAM,
         definition_with_named_projections,
     },
     kast::Sort as KastSort,
@@ -264,18 +264,31 @@ impl<'g> ConfigurationAssembler<'g> {
         }
     }
 
-    /// Bind `$PGM` to `text` parsed with the syntax module at `start_sort`.
+    /// Bind `$PGM` to `text`, read from no file, parsed with the syntax module at `start_sort`:
+    /// [`Self::program_file`] with the file name [`UNNAMED_PROGRAM`].
+    pub fn program(&mut self, start_sort: &KastSort, text: &str) -> Result<(), ConfigurationError> {
+        self.program_file(start_sort, text, UNNAMED_PROGRAM)
+    }
+
+    /// Bind `$PGM` to `text`, read from the file `file`, parsed with the syntax module at
+    /// `start_sort`; `file` is the name its locations carry
+    /// ([`ProgramParser::parse_file`]).
     ///
     /// A definition that declares no `$PGM` still checks a supplied program. If its initializer
     /// is nullary, `finish` discards the checked value because no map is read.
-    pub fn program(&mut self, start_sort: &KastSort, text: &str) -> Result<(), ConfigurationError> {
+    pub fn program_file(
+        &mut self,
+        start_sort: &KastSort,
+        text: &str,
+        file: &str,
+    ) -> Result<(), ConfigurationError> {
         if self.program.is_some() {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
         }
         let parser = ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?;
         let denoted = parser.start_sort(start_sort).clone();
         let program = parser
-            .parse(start_sort, text)
+            .parse_file(start_sort, text, file)
             .map_err(ConfigurationError::Program)?;
         let position = configuration_position(&denoted);
         let program = self.expand(program, &position)?;

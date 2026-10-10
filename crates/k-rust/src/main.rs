@@ -2241,9 +2241,9 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
-    let source = read_program_source(options.expression, options.program_file)?;
+    let (file, source) = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
-    let program = parser.parse_for_presentation(&sort, &source)?;
+    let program = parser.present(parser.parse_file(&sort, &source, &file)?);
     match options.output {
         OutputFormat::Text => println!("{}", program.to_kast_text()),
         OutputFormat::Json => println!("{}", program.to_kast_json_pretty()?),
@@ -2437,10 +2437,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     );
     let program_bound = program_supplied || available_config_vars.contains_key("PGM");
     if program_bound {
-        let source = read_program_source(options.expression, options.program_file)?;
+        let (file, source) = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
         assembler
-            .program(&start_sort, &source)
+            .program_file(&start_sort, &source, &file)
             .map_err(krun_configuration_error)?;
     }
     let program_parse_seconds = started.elapsed().as_secs_f64();
@@ -3720,15 +3720,21 @@ fn proof_status(status: ProofStatus) -> &'static str {
     }
 }
 
+/// The program a command reads, with the file name its locations carry: the path as given, and
+/// `UNNAMED_PROGRAM` for standard input and `--expression`.
 fn read_program_source(
     expression: Option<String>,
     program_file: Option<PathBuf>,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<(String, String), Box<dyn Error>> {
+    let unnamed = || k_rust::inner::UNNAMED_PROGRAM.to_owned();
     Ok(match (expression, program_file) {
-        (Some(source), None) => source,
-        (None, Some(path)) if path == Path::new("-") => read_stdin()?,
-        (None, Some(path)) => fs::read_to_string(path)?,
-        (None, None) => read_stdin()?,
+        (Some(source), None) => (unnamed(), source),
+        (None, Some(path)) if path == Path::new("-") => (unnamed(), read_stdin()?),
+        (None, Some(path)) => (
+            k_rust::inner::program_file_name(&path),
+            fs::read_to_string(path)?,
+        ),
+        (None, None) => (unnamed(), read_stdin()?),
         (Some(_), Some(_)) => unreachable!(),
     })
 }

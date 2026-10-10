@@ -11053,6 +11053,146 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// In-process program parsing locates the terms of `[locations]` sorts as a generated parser
+/// does: a term is wrapped in `#location` at its own sort and at the sort of its position when
+/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), an
+/// empty list at the empty span where it stands, and the file name is the program path as given,
+/// `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
+/// program one term once the injection into the start position is removed.
+#[cfg(unix)]
+#[test]
+fn in_process_parsing_locates_located_sorts_as_the_generated_parser() {
+    const DEFINITION: &str = r#"
+module L-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp [locations]
+  syntax Val [locations]
+  syntax Exps [locations]
+  syntax Val ::= Int | "v" [symbol(v)]
+  syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
+               | "(" Exp ")" [bracket]
+  syntax Exps ::= List{Exp, ","}
+  syntax Pgm ::= Exp
+endmodule
+module L
+  imports L-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    /// `pattern` without the injection at its root.
+    fn uninjected(pattern: &Pattern) -> Pattern {
+        match pattern {
+            Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
+                let [argument] = arguments.as_slice() else {
+                    panic!("an injection has one argument")
+                };
+                argument.clone()
+            }
+            pattern => pattern.clone(),
+        }
+    }
+    let (root, parser) = generate_parser(DEFINITION, "L-SYNTAX", &[]);
+    let definition = root.join("definition.k");
+    let kompiled = root.join("kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
+        .args(["--main-module", "L", "--syntax-module", "L-SYNTAX"])
+        .arg("--output-directory")
+        .arg(&kompiled)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let generated = |input: &Path, file: Option<&str>| {
+        let output = Command::new(&parser)
+            .arg(input)
+            .args(file)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        uninjected(&parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap())
+    };
+    let in_process = |arguments: &[&std::ffi::OsStr], stdin: Option<&str>| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .args(arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.unwrap_or_default().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let configuration = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        let Some([Pattern::Application { symbol, arguments }]) = k_cell(&configuration) else {
+            panic!("no <k> cell in {configuration:?}")
+        };
+        assert_eq!(symbol.name, "kseq");
+        uninjected(&arguments[0])
+    };
+    let programs = ["v + 1", "f(1, 2)", "f()", "1", "(1 +\r\nv)\r+ f(3)\n"];
+    for (index, program) in programs.into_iter().enumerate() {
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
+        assert_eq!(
+            in_process(&[input.as_os_str()], None),
+            generated(&input, None),
+            "{program:?} read from {}",
+            input.display()
+        );
+        let unnamed = generated(&input, Some("-"));
+        assert_eq!(
+            in_process(&[], Some(program)),
+            unnamed,
+            "{program:?} on stdin"
+        );
+        assert_eq!(
+            in_process(&["-".as_ref()], Some(program)),
+            unnamed,
+            "{program:?} read from -"
+        );
+        assert_eq!(
+            in_process(&["--expression".as_ref(), program.as_ref()], None),
+            unnamed,
+            "{program:?} given by --expression"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The arguments of the `<k>` cell of a configuration.
+fn k_cell(pattern: &Pattern) -> Option<&[Pattern]> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return None;
+    };
+    if symbol.name == "Lbl'-LT-'k'-GT-'" {
+        return Some(arguments);
+    }
+    arguments.iter().find_map(k_cell)
+}
+
 /// A scanner with an anchored rule scans its whole input with a state buffer of its own
 /// (`bison::scanner::SCAN_WHOLE_INPUT`); a buffer one state too small is written past its end,
 /// which an uninstrumented parser survives. Its anchor checks read the bytes around a match
