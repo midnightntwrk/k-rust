@@ -13038,6 +13038,93 @@ fn updating_a_map_value_beside_an_opaque_rest_keeps_the_absence_obligation() {
     );
 }
 
+/// A rule that selects some entry of a map beside an opaque rest: the match splits the subject
+/// `a |-> zero() R` by unification, and on the branch that takes the entry from `R` it binds
+/// `R = (K |-> V) F`, stating the definedness of the map that binding builds (`a`, `K` absent
+/// from `F`, `a` distinct from `K`). The step consumes the subject's map, whose definedness on
+/// that branch is the same fact, so it is stated of the bound map and adds nothing: no
+/// constraint restates the absence of `a` from `(K |-> V) F`. With `MAP.in_keys` declared an
+/// absence is an `in_keys` term, which a substitution into `\not(in_keys(a, R))` would leave
+/// undecomposed.
+#[cfg(feature = "z3")]
+#[test]
+fn a_consumed_map_split_by_unification_is_charged_as_the_binding_builds_it() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                sort SortState{} []
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol inKeys{}(SortKey{}, SortMap{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("MAP.in_keys")]
+                symbol zero{}() : SortValue{} [constructor{}()]
+                symbol mapState{}(SortMap{}) : SortState{} [constructor{}()]
+                symbol done{}(SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        mapState{}(mapConcat{}(
+                            mapItem{}(KEY:SortKey{}, VALUE:SortValue{}),
+                            REST:SortMap{}
+                        )),
+                        \top{SortState{}}()
+                    ),
+                    done{}(REST:SortMap{})
+                ) [label{}("select")]
+            endmodule []"#,
+    )
+    .expect("map definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("map definition should internalize");
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+    let subject = Pattern {
+        term: internal_term(
+            &definition,
+            r#"mapState{}(mapConcat{}(mapItem{}(\dv{SortKey{}}("a"), zero{}()), R:SortMap{}))"#,
+        ),
+        constraints: Vec::new(),
+    };
+    let result = execute_with_solver(
+        &definition,
+        subject,
+        ExecutionOptions {
+            max_depth: 1,
+            ..ExecutionOptions::default()
+        },
+        &solver,
+    );
+    let rest = internal_term(&definition, "R:SortMap{}");
+    let binds_the_rest =
+        |predicate: &Predicate| matches!(predicate, Predicate::Equals(left, _) if *left == rest);
+    let [frame] = result
+        .leaves
+        .iter()
+        .filter(|leaf| leaf.pattern.constraints.iter().any(binds_the_rest))
+        .collect::<Vec<_>>()[..]
+    else {
+        panic!(
+            "expected one branch taking the entry from R: {:?}",
+            result.leaves
+        );
+    };
+    assert_eq!(frame.halt_reason, HaltReason::DepthBound);
+    // `R = (K |-> V) F`, `a` distinct from `K`, and `a` and `K` absent from `F`.
+    assert_eq!(
+        frame.pattern.constraints.len(),
+        4,
+        "{:#?}",
+        frame.pattern.constraints
+    );
+}
+
 /// The same absence stated by the path rather than by the rule's left-hand side: the state
 /// knows `\ceil(a |-> zero() R)`, which is the absence of `a` from `R`, and a rule whose
 /// left-hand side holds no map builds `a |-> succ(zero()) R`. Its right-hand side's absence

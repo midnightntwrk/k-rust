@@ -1094,11 +1094,35 @@ fn definedness(
     path_knowledge: &[Predicate],
     match_conditions: &mut Vec<Predicate>,
 ) -> Phase<()> {
+    // A consumed collection is the subject's, so it may hold a subject variable the match bound
+    // (P7 left `X = value` among the match conditions, as when unification splits a symbolic
+    // map). The step's instances are those of the binding, so the obligation is stated of the
+    // collection they hold, which the simplifier decomposes against what the binding's own
+    // definedness already states, rather than of the variable.
+    let configuration = match_conditions
+        .iter()
+        .filter_map(|condition| match condition {
+            Predicate::Equals(left, right) => match left.kind() {
+                TermKind::Variable(variable)
+                    if !context.rule.lhs.attributes().variables.contains(variable) =>
+                {
+                    Some((variable.clone(), right.clone()))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Substitution>();
+    let subject = if configuration.is_empty() {
+        context.pattern.term.clone()
+    } else {
+        substitute(&context.pattern.term, &configuration)
+    };
     let mut definedness_conditions = Vec::new();
     consumed_collections(
         context.definition,
         &context.rule.lhs,
-        &context.pattern.term,
+        &subject,
         &mut definedness_conditions,
     );
     for value in substitution
