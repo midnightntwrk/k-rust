@@ -244,8 +244,9 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
 pub enum ValueClaimFindingCode {
     /// A row of the constructor and overload preconditions the definition violates.
     ValueClaimPrecondition,
-    /// A pair of executable equations that is not shown to join, or an equation the check does
-    /// not pair, which withdraws value claims.
+    /// A pair of executable equations that is not shown to join, which withdraws value claims,
+    /// or an equation the evaluator never applies as written, reported whether or not it
+    /// withdraws any.
     UnjoinedCriticalPair,
 }
 
@@ -291,7 +292,8 @@ pub struct ValueClaimFinding {
 /// executable equations that does not provably join and withdraws a value claim, naming both
 /// equations with their written positions, the overlapped term, why the check does not join
 /// it, and the equation heads and overloaded symbols that get no value claim. An equation the
-/// check does not pair (`ComputedBelowRoot`, `UnboundResultVariables`) is named as not checked;
+/// evaluator never applies as written (`ComputedBelowRoot`, `UnboundResultVariables`) is named
+/// as such whether or not the definition makes claims, with the claims it withdraws if any;
 /// an equation paired with itself because its map or set pattern matches one subject in several
 /// ways (`SeveralMatches`) is named as that pair.
 pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFinding> {
@@ -333,7 +335,7 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
             }
         })
         .collect::<Vec<_>>();
-    for pair in claims.unjoined().iter().filter(|pair| pair.relevant()) {
+    for pair in claims.unjoined().iter().filter(|pair| pair.reported()) {
         let alone = std::sync::Arc::ptr_eq(&pair.first, &pair.second) && pair.overlap.is_none();
         let message = if alone
             && pair.reason == UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches)
@@ -346,11 +348,20 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                 withdrawn_symbols(&pair.withdrawn)
             )
         } else if alone {
+            // An equation the evaluator never applies as written: reported whether or not the
+            // definition makes claims, naming the claims it withdraws where there are some.
+            let claims = if pair.withdrawn.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "; no value claims are made for {}",
+                    withdrawn_symbols(&pair.withdrawn)
+                )
+            };
             format!(
-                "the equation {} is not checked ({}); no value claims are made for {}",
+                "the equation {} is never applied by the evaluator ({}){claims}",
                 equation(&pair.first),
                 pair.reason,
-                withdrawn_symbols(&pair.withdrawn)
             )
         } else {
             let equations = format!(
@@ -2079,6 +2090,71 @@ mod value_claim_finding_tests {
            org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/w.k)"),
            org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,3,7,20)")]
     endmodule []"#;
+
+    /// No equation head and no overloaded symbol, so no value claim can be withdrawn: `pf` is a
+    /// declared function defined at `c`, `fa(X, pf(X)) = one` holds `pf`'s application below its
+    /// root, and `fb(z) = Y` has a right-hand side variable its left-hand side does not bind.
+    const HEAD_FREE_UNAPPLIED: &str = r#"[] module MAIN
+        sort SortNat{} []
+        sort SortS{} []
+        symbol c{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+        symbol one{}() : SortS{} [constructor{}(), functional{}(), injective{}()]
+        symbol pf{}(SortNat{}) : SortNat{} [function{}()]
+        symbol fa{}(SortNat{}, SortNat{}) : SortS{} [function{}()]
+        symbol fb{}(SortNat{}) : SortS{} [function{}()]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, c{}()), \top{R}())),
+            \equals{SortNat{}, R}(pf{}(X0:SortNat{}), \and{SortNat{}}(c{}(), \top{SortNat{}}()))
+        ) [UNIQUE'Unds'ID{}("pf-id")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, X:SortNat{}),
+                \and{R}(\in{SortNat{}, R}(X1:SortNat{}, pf{}(X:SortNat{})), \top{R}()))),
+            \equals{SortS{}, R}(fa{}(X0:SortNat{}, X1:SortNat{}), \and{SortS{}}(one{}(), \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("fa-id")]
+        axiom{R} \implies{R}(
+            \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, z{}()), \top{R}())),
+            \equals{SortS{}, R}(fb{}(X0:SortNat{}), \and{SortS{}}(Y:SortS{}, \top{SortS{}}()))
+        ) [UNIQUE'Unds'ID{}("fb-id")]
+    endmodule []"#;
+
+    /// An equation the evaluator never applies as written (an application of a declared function
+    /// below its root, which a normal form never holds, or a right-hand side variable no matching
+    /// binds) is still an axiom of the definition, so it is reported whether or not the definition
+    /// makes value claims: here it makes none, and each equation is named with its reason and no
+    /// withdrawn symbol.
+    #[test]
+    fn an_equation_never_applied_is_reported_without_any_value_claim() {
+        use super::{ValueClaimFindingCode, value_claim_findings};
+        let syntax = k_rust_kore::kore::parser::parse_definition(HEAD_FREE_UNAPPLIED)
+            .expect("the definition parses");
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN")
+                .expect("the definition internalizes");
+        let mut findings = value_claim_findings(&definition)
+            .into_iter()
+            .map(|finding| {
+                assert_eq!(finding.code, ValueClaimFindingCode::UnjoinedCriticalPair);
+                assert_eq!(finding.first, finding.second, "{finding:?}");
+                assert!(finding.withdrawn.is_empty(), "{finding:?}");
+                (finding.first.unwrap_or_default(), finding.message)
+            })
+            .collect::<Vec<_>>();
+        findings.sort();
+        assert_eq!(
+            findings,
+            [
+                (
+                    "fa-id".to_owned(),
+                    "the equation fa-id is never applied by the evaluator (the left-hand side holds an application of `pf` below its root, which the evaluator never rewrites to it)".to_owned()
+                ),
+                (
+                    "fb-id".to_owned(),
+                    "the equation fb-id is never applied by the evaluator (the right-hand side has variables the left-hand side does not bind)".to_owned()
+                ),
+            ]
+        );
+    }
 
     /// No equation head: a declared function `gg` with two equations at `gg(z)`, one of which
     /// reaches the overloaded `fE` (over `fN`), whose certificates the pair withdraws.

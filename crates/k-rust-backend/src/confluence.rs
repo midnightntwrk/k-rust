@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -414,7 +414,7 @@ impl ValueClaims {
             checked
                 .unjoined
                 .iter()
-                .filter(|pair| pair.relevant())
+                .filter(|pair| pair.reported())
                 .map(|pair| {
                     (
                         format!("{:?}", pair.first),
@@ -627,6 +627,14 @@ impl UnjoinedPair {
         !self.withdrawn.is_empty()
     }
 
+    /// Whether the backend reports the pair: it withdraws a value claim, or it is a report on one
+    /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
+    /// which holds whether or not the definition makes claims.
+    #[must_use]
+    pub fn reported(&self) -> bool {
+        self.relevant() || self.reason.describes_one_equation()
+    }
+
     /// The pair's terms, in order: the overlap, the two reducts, what the join reached from
     /// each, the refused subterm.
     fn terms(&self) -> impl Iterator<Item = &Term> {
@@ -717,6 +725,15 @@ pub enum UnjoinedReason {
     ComputedBelowRoot(Name),
     /// A right-hand side the join does not read (a disjunction, `\top` or predicates).
     UnsupportedRightHandSide,
+}
+
+impl UnjoinedReason {
+    /// Whether the reason is about one equation alone, not a pair: an equation the evaluator never
+    /// applies as written, although the definition states it as an axiom.
+    #[must_use]
+    pub fn describes_one_equation(&self) -> bool {
+        matches!(self, Self::UnboundResultVariables | Self::ComputedBelowRoot(_))
+    }
 }
 
 impl std::fmt::Display for UnjoinedReason {
@@ -1772,6 +1789,37 @@ fn check_detached(
             });
         }
     }
+    // Per-equation reports: equations the evaluator never applies as written. Each describes one
+    // axiom against the evaluator, whatever claims the definition makes, so the walk runs before
+    // the check decides whether any claim can be withdrawn; where claims exist, the reported
+    // equations are also seeded into the closure like pairs that do not join.
+    let mut unjoined = equations
+        .iter()
+        .filter_map(|equation| {
+            let reason = if equation
+                .rule
+                .computed_attributes
+                .unbound_result_variables
+                .is_empty()
+            {
+                computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)?
+            } else {
+                UnjoinedReason::UnboundResultVariables
+            };
+            Some(UnjoinedPair {
+                first: Arc::clone(&equation.rule),
+                second: Arc::clone(&equation.rule),
+                position: Vec::new(),
+                overlap: None,
+                sides: None,
+                reached: None,
+                refused: None,
+                reason,
+                withdrawn: Vec::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+
     let withdrawable = definition
         .symbols()
         .values()
@@ -1782,6 +1830,8 @@ fn check_detached(
         // equation head, hooked or not, and every overloaded symbol is a free constructor or
         // hooked. So no pair changes a claim, and the collection claims read only equations
         // indexed at a collection or a bare variable, which the rows above taint.
+        checked.counts.unjoined = unjoined.len();
+        checked.unjoined = unjoined;
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
     }
 
@@ -1798,7 +1848,6 @@ fn check_detached(
     };
     context.counts.equations = checked.counts.equations;
     context.counts.families = context.families.len();
-    let mut unjoined = Vec::new();
 
     // P5 rows of the overload families.
     let mut family_violations = vec![false; context.families.len()];
@@ -1850,33 +1899,6 @@ fn check_detached(
                     });
                 }
             }
-        }
-    }
-
-    // Per-equation reports: equations the evaluator never applies as written.
-    for equation in &equations {
-        let reason = if !equation
-            .rule
-            .computed_attributes
-            .unbound_result_variables
-            .is_empty()
-        {
-            Some(UnjoinedReason::UnboundResultVariables)
-        } else {
-            computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)
-        };
-        if let Some(reason) = reason {
-            unjoined.push(UnjoinedPair {
-                first: Arc::clone(&equation.rule),
-                second: Arc::clone(&equation.rule),
-                position: Vec::new(),
-                overlap: None,
-                sides: None,
-                reached: None,
-                refused: None,
-                reason,
-                withdrawn: Vec::new(),
-            });
         }
     }
 

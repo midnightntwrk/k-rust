@@ -1072,6 +1072,11 @@ pub(super) fn check_definition(
             }
         }
     }
+    if !has_head {
+        // Without an equation head the check runs no closure: it reports the equations the
+        // evaluator never applies, which withdraw no claim there, and taints nothing.
+        seeds_of_taint.clear();
+    }
     let (tainted_equations, oracle_tainted) = oracle_taint(definition, seeds_of_taint);
     if value_claims.violations().is_empty() && oracle_tainted != verdict.tainted {
         tally.failures.push(format!(

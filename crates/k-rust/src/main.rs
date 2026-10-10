@@ -3763,7 +3763,8 @@ fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
 /// The located findings of the backend's load-time critical-pair check on the definition a Rust
 /// compilation emits (`k_rust::backend::execution::value_claim_diagnostics`): the definition is
 /// internalized as `krun` loads it. Without an `anywhere` symbol it declares no equation head,
-/// and the check reports only precondition rows, which a later load prints; a definition the
+/// and the check reports only precondition rows and the equations the evaluator never applies,
+/// which a later load prints; a definition the
 /// backend does not internalize gets none (the load reports it).
 fn value_claim_diagnostics(
     artifacts: &k_rust::kompile::CompiledKoreArtifacts,
