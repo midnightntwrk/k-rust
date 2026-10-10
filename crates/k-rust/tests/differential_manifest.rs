@@ -3920,13 +3920,16 @@ wait
     assert_eq!(lines[2], "taken refused", "{stdout}{stderr}");
 }
 
-/// The WASM execution gate reports every difference of a recorded case and exits 3. A proof
-/// recorded as failed (exit 1, with the digest of its output under `stdout`) that now passes has
-/// no measured `stdout`, a key the case still records: that is a difference to report like any
-/// other, not a reason for the report to stop. The test runs the gate's report step on such a
-/// case, with the measured outputs written where the gate's run step writes them.
-#[test]
-fn wasm_execution_gate_reports_a_recorded_key_that_is_no_longer_measured() {
+/// The WASM execution gate's manifest step (`report` in `scripts/wasm-execution-gate.sh`), run in
+/// `mode` on `manifest` with the measured outputs `work` (file name suffix and content per case,
+/// written where the gate's run step writes them) for `cases`. Returns the exit status, standard
+/// output and standard error, and the manifest afterwards.
+fn wasm_gate_report_step(
+    mode: &str,
+    manifest: &str,
+    work: &[(&str, &str)],
+    cases: &[&str],
+) -> (Option<i32>, String, String, String) {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let gate = fs::read_to_string(workspace.join("scripts/wasm-execution-gate.sh"))
         .expect("read the WASM execution gate");
@@ -3938,8 +3941,42 @@ fn wasm_execution_gate_reports_a_recorded_key_that_is_no_longer_measured() {
         .map(|(body, _)| body.to_owned())
         .expect("the gate's report step");
     let fixture = environment_fixture("wasm-report");
-    fs::write(
-        fixture.join("manifest.toml"),
+    let manifest_path = fixture.join("manifest.toml");
+    fs::write(&manifest_path, manifest).unwrap();
+    fs::write(fixture.join("success.kore"), "success\n").unwrap();
+    let work_directory = fixture.join("work");
+    fs::create_dir(&work_directory).unwrap();
+    for (name, content) in work {
+        fs::write(work_directory.join(name), content).unwrap();
+    }
+    let output = Command::new("python3")
+        .args(["-I", "-c", &report])
+        .arg(&manifest_path)
+        .arg(fixture.join("success.kore"))
+        .arg(&work_directory)
+        .arg(mode)
+        .args(cases)
+        .output()
+        .expect("run the gate's report step");
+    let after = fs::read_to_string(&manifest_path).unwrap();
+    fs::remove_dir_all(&fixture).expect("remove the report fixture");
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        after,
+    )
+}
+
+/// The WASM execution gate reports every difference of a recorded case and exits 3. A proof
+/// recorded as failed (exit 1, with the digest of its output under `stdout`) that now passes has
+/// no measured `stdout`, a key the case still records: that is a difference to report like any
+/// other, not a reason for the report to stop. The test runs the gate's report step on such a
+/// case, with the measured outputs written where the gate's run step writes them.
+#[test]
+fn wasm_execution_gate_reports_a_recorded_key_that_is_no_longer_measured() {
+    let (status, stdout, stderr, _) = wasm_gate_report_step(
+        "compare",
         r#"# header
 
 [[program]]
@@ -3952,6 +3989,7 @@ stdout = "success"
 name = "proofs/x"
 module = "X-SPEC"
 definition_module = "X"
+known_failure = "a reason"
 exit = 1
 stderr = ""
 verdict = """
@@ -3959,33 +3997,151 @@ claim a: failed
 """
 stdout = "sha256:00 (1 bytes)"
 "#,
-    )
-    .unwrap();
-    fs::write(fixture.join("success.kore"), "").unwrap();
-    let work = fixture.join("work");
-    fs::create_dir(&work).unwrap();
-    for (suffix, content) in [
-        (".stdout", "claim a: proven\n"),
-        (".exit", "0\n"),
-        (".stderr", ""),
-        (".milliseconds", "1000\n"),
-    ] {
-        fs::write(work.join(format!("proofs-x{suffix}")), content).unwrap();
-    }
-    let output = Command::new("python3")
-        .args(["-I", "-c", &report])
-        .arg(fixture.join("manifest.toml"))
-        .arg(fixture.join("success.kore"))
-        .arg(&work)
-        .args(["false", "proofs/x"])
-        .output()
-        .expect("run the gate's report step");
-    fs::remove_dir_all(&fixture).expect("remove the report fixture");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(3), "{stdout}{stderr}");
+        &[
+            ("proofs-x.stdout", "claim a: proven\n"),
+            ("proofs-x.exit", "0\n"),
+            ("proofs-x.stderr", ""),
+            ("proofs-x.milliseconds", "1000\n"),
+        ],
+        &["proofs/x"],
+    );
+    assert_eq!(status, Some(3), "{stdout}{stderr}");
     assert!(stdout.contains("proofs/x: DIFFERS"), "{stdout}{stderr}");
     assert!(stdout.contains("stdout"), "{stdout}{stderr}");
+    assert!(
+        stdout.contains("recorded as a known failure: a reason"),
+        "{stdout}{stderr}"
+    );
+}
+
+/// A pinned result other than success states why it is not one (`known_failure`), so that a
+/// defect cannot look like an upstream-known failure; a success has nothing to explain and
+/// carries no reason. A program succeeds when it exits 0 with the configuration upstream's passing
+/// tests reach (`success`), a proof when it exits 0. The gate checks the recorded manifest before
+/// it compiles anything, and `--update` keeps the rule: it drops the reason of a case that now
+/// succeeds and fails on a case that no longer does until a reason is written.
+#[test]
+fn wasm_execution_gate_requires_a_reason_exactly_on_a_result_other_than_success() {
+    let manifest = |program: &str, proof: &str| {
+        format!(
+            r#"# header
+
+[[program]]
+name = "simple/p"
+{program}stderr = ""
+
+[[proof]]
+name = "proofs/q"
+module = "Q-SPEC"
+definition_module = "Q"
+{proof}stderr = ""
+verdict = """
+claim a: failed
+"""
+"#
+        )
+    };
+    let success = "exit = 0\nstdout = \"success\"\n";
+    let digest = "exit = 0\nstdout = \"sha256:00 (1 bytes)\"\n";
+    let failed = "exit = 1\n";
+    let reason = "known_failure = \"upstream tests/failing.simple\"\n";
+    let check = |manifest: &str| {
+        let (status, _, stderr, _) = wasm_gate_report_step("check", manifest, &[], &[]);
+        (status, stderr)
+    };
+    let mut failures = Vec::new();
+    for (description, program, proof, expected) in [
+        (
+            "both with their reasons",
+            format!("{reason}{digest}"),
+            format!("{reason}{failed}"),
+            None,
+        ),
+        (
+            "a success without one",
+            success.to_owned(),
+            format!("{reason}{failed}"),
+            None,
+        ),
+        (
+            "a program output other than success without a reason",
+            digest.to_owned(),
+            format!("{reason}{failed}"),
+            Some("simple/p: records a result other than success"),
+        ),
+        (
+            "a failed proof without a reason",
+            format!("{reason}{digest}"),
+            failed.to_owned(),
+            Some("proofs/q: records a result other than success"),
+        ),
+        (
+            "an empty reason",
+            format!("known_failure = \" \"\n{digest}"),
+            format!("{reason}{failed}"),
+            Some("simple/p: records a result other than success"),
+        ),
+        (
+            "a success with a reason",
+            format!("{reason}{success}"),
+            format!("{reason}{failed}"),
+            Some("simple/p: records success, so it carries no known_failure"),
+        ),
+    ] {
+        let (status, stderr) = check(&manifest(&program, &proof));
+        let ok = match expected {
+            None => status == Some(0) && stderr.is_empty(),
+            Some(error) => status == Some(2) && stderr.contains(error),
+        };
+        if !ok {
+            failures.push(format!("{description}: exit {status:?}: {stderr}"));
+        }
+    }
+    let gate_manifest = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/wasm-execution-gate.toml"),
+    )
+    .expect("read the WASM gate manifest");
+    let (status, stderr) = check(&gate_manifest);
+    if status != Some(0) {
+        failures.push(format!(
+            "the gate's own manifest: exit {status:?}: {stderr}"
+        ));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+
+    // --update: the program now succeeds, so its reason goes; the proof now fails without one.
+    let measured = [
+        ("simple-p.stdout", "success\n"),
+        ("simple-p.exit", "0\n"),
+        ("simple-p.stderr", ""),
+        ("simple-p.milliseconds", "10\n"),
+        ("proofs-q.stdout", "claim a: failed\n"),
+        ("proofs-q.exit", "1\n"),
+        ("proofs-q.stderr", ""),
+        ("proofs-q.milliseconds", "10\n"),
+    ];
+    let (status, stdout, stderr, after) = wasm_gate_report_step(
+        "update",
+        &manifest(&format!("{reason}{digest}"), "exit = 0\n"),
+        &measured,
+        &[],
+    );
+    assert_eq!(status, Some(2), "{stdout}{stderr}");
+    assert!(
+        stdout.contains("simple/p: now success; dropped known_failure"),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("proofs/q: records a result other than success"),
+        "{stderr}"
+    );
+    let rewritten = after.parse::<Value>().expect("the rewritten manifest");
+    assert!(
+        rewritten["program"][0].get("known_failure").is_none(),
+        "{after}"
+    );
+    assert_eq!(rewritten["program"][0]["stdout"].as_str(), Some("success"));
+    assert_eq!(rewritten["proof"][0]["exit"].as_integer(), Some(1));
 }
 
 /// The RPC gate starts both of its servers on a kernel-assigned port unless the caller pins one,
