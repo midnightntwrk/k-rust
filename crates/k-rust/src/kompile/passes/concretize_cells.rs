@@ -1670,13 +1670,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             .iter()
             .filter(|list| self.model.is_strictly_below(list, &cell.sort))
         {
-            let holds_path_child = self.holds_path_child(&cell.sort, list, &beside);
             // An added cell above `list` brings its own instance of the list's parent.
             let joining = added.iter().find(|(term, _)| {
                 self.model
                     .sort_for_term(term)
                     .is_none_or(|sort| !self.model.is_strictly_below(list, &sort))
-                    && self.moved_may_hold(term, list, holds_path_child)
+                    && self.moved_may_hold(cell, &beside, term, list)
             });
             if let Some((term, _)) = joining
                 && self.body_may_hold(cell, &body_items, list)
@@ -1780,34 +1779,63 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         }
     }
 
-    /// Whether `term`, a cell item written beside a written cell `H` and moved into it, may be
-    /// or hold an instance of `list` there; `holds_path_child` tells whether `H` already holds
-    /// the one cell of the child sort `D` of `H` on the path to `list`
-    /// ([`Self::holds_path_child`]).
+    /// Whether `term`, a cell item written beside the written cell `holder` and moved into it,
+    /// may be or hold an instance of `list` there; `beside` are the items of `holder`'s body
+    /// with the items moved into it.
     ///
     /// A term of unknown cell sort in `term` is a sibling of `term`'s cells, so it stands for
-    /// children of an instance of their parent `P`: it may hold instances of `list` only when
-    /// `list` is below `P` and `H` does not hold that one `D`. When `P` is `H`, the written `D`
-    /// is the only one, and the term cannot stand for another. When `P` is below `H`, `term`
-    /// continues into the written `D` and is decided again there, as `D`'s added item.
-    fn moved_may_hold(&self, term: &Term, list: &Sort, holds_path_child: bool) -> bool {
-        let unknown = !holds_path_child
-            && self
-                .model
-                .sort_for_term(term)
-                .and_then(|sort| self.model.parents.get(&sort))
-                .is_none_or(|parent| self.model.is_strictly_below(list, parent));
-        self.item_may_hold(term, list, unknown)
+    /// children of an instance of their parent `P` that no written item is, on its side of the
+    /// rule ([`Self::unknown_may_hold`]). When `P` is `holder`, that instance is `holder`, whose
+    /// items are `beside`. When `P` is below `holder` and `holder` holds, on that side, the one
+    /// cell of the child sort `D` of `holder` on the path to `list`, `term` continues into it
+    /// and is decided again there, as its added item; otherwise its instance of `P` holds only
+    /// what `term` writes.
+    fn moved_may_hold(&self, holder: &Cell, beside: &[&Term], term: &Term, list: &Sort) -> bool {
+        let parent = self
+            .model
+            .sort_for_term(term)
+            .and_then(|sort| self.model.parents.get(&sort))
+            .map(|parent| &self.model.cells[parent]);
+        let unknown = [Side::Left, Side::Right].map(|side| match parent {
+            None => true,
+            Some(parent) if parent.sort == holder.sort => {
+                self.unknown_may_hold(holder, beside, side, list)
+            }
+            Some(parent) => {
+                let continues = self.child_toward(&holder.sort, list).is_some_and(|child| {
+                    !self.model.is_repeated(&child)
+                        && beside.iter().any(|item| {
+                            side_parts(item, side)
+                                .into_iter()
+                                .any(|part| self.model.slot_sort(part).as_ref() == Some(&child))
+                        })
+                });
+                !continues && self.unknown_may_hold(parent, &[term], side, list)
+            }
+        });
+        self.sided_may_hold(term, list, unknown)
     }
 
-    /// Whether `items` (the body of a written cell of sort `holder` and the items moved into
-    /// it) hold the one cell of the child sort `D` of `holder` on the path to `list`: `D` is not
-    /// `multiplicity="*"` and an item is a cell of sort `D`.
-    fn holds_path_child(&self, holder: &Sort, list: &Sort, items: &[&Term]) -> bool {
-        self.child_toward(holder, list).is_some_and(|child| {
-            !self.model.is_repeated(&child)
-                && items.iter().any(|item| self.is_written_cell(item, &child))
-        })
+    /// [`Self::item_may_hold`] for `item`, an item of a body, where `unknown` is the answer for
+    /// a term of unknown cell sort on each side of the rule: the parts of a rewrite's side are
+    /// decided with that side's answer, any other item (on both sides) with either.
+    fn sided_may_hold(&self, item: &Term, sort: &Sort, unknown: [bool; 2]) -> bool {
+        match item.unannotated() {
+            Term::Rewrite { left, right } => [(left, unknown[0]), (right, unknown[1])]
+                .into_iter()
+                .any(|(side, unknown)| {
+                    flatten_cells(side)
+                        .into_iter()
+                        .any(|part| self.item_may_hold(part, sort, unknown))
+                }),
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => self.item_may_hold(item, sort, unknown[0] || unknown[1]),
+        }
     }
 
     /// The child sort of `ancestor` on the configured path down to `sort` (`sort` itself when
@@ -1823,25 +1851,6 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
         }
         None
-    }
-
-    /// Whether `item`, an item of a cell body, is a cell of sort `sort` on every side: a term of
-    /// that sort, a rewrite each side of which holds one, or an alias that does.
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only rewrites and aliases are looked into structurally"
-    )]
-    fn is_written_cell(&self, item: &Term, sort: &Sort) -> bool {
-        let side = |bag: &Term| {
-            flatten_cells(bag)
-                .into_iter()
-                .any(|item| self.is_written_cell(item, sort))
-        };
-        match item.unannotated() {
-            Term::Rewrite { left, right } => side(left) && side(right),
-            Term::As { pattern, alias } => side(pattern) || side(alias),
-            _ => self.model.sort_for_term(item).as_ref() == Some(sort),
-        }
     }
 
     /// The items of `term` when it is a cell that cells placed beside it continue into on their
@@ -1876,24 +1885,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         .expect("a continuation is a cell of a known sort");
                     self.body_may_hold(continued, &body, sort)
                 }
-                None => match item.unannotated() {
-                    Term::Rewrite { left, right } => [(left, unknown[0]), (right, unknown[1])]
-                        .into_iter()
-                        .any(|(side, unknown)| {
-                            flatten_cells(side)
-                                .into_iter()
-                                .any(|part| self.item_may_hold(part, sort, unknown))
-                        }),
-                    Term::Apply { .. }
-                    | Term::Variable { .. }
-                    | Term::Token { .. }
-                    | Term::InjectedLabel(_)
-                    | Term::As { .. }
-                    | Term::Sequence(_)
-                    | Term::Annotated { .. } => {
-                        self.item_may_hold(item, sort, unknown[0] || unknown[1])
-                    }
-                },
+                None => self.sided_may_hold(item, sort, unknown),
             })
     }
 
