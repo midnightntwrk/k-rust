@@ -610,7 +610,7 @@ impl NamingPass {
                     name.clone(),
                     format!(
                         "sort `{}` of {}",
-                        sort.id().item_name(),
+                        rust_item_path(sort.id(), sort.id().item_name()),
                         sort.id().package().k_namespace()
                     ),
                     CollisionNamespace::EmittedSymbol,
@@ -640,7 +640,8 @@ impl NamingPass {
                     &mut emitted,
                     name.clone(),
                     format!(
-                        "production `{display}` of {}",
+                        "production `{}` of {}",
+                        rust_item_path(production.id(), &display),
                         production.id().package().k_namespace()
                     ),
                     CollisionNamespace::EmittedSymbol,
@@ -3007,6 +3008,18 @@ fn qualified_variant_symbols(theory: &SemanticTheory) -> BTreeSet<StableItemId> 
         .collect()
 }
 
+/// `display` prefixed with the item's Rust module path below the crate root
+/// (`first::Collision`), so a collision diagnostic tells apart two
+/// same-named declarations of one package in different modules.
+fn rust_item_path(id: &StableItemId, display: &str) -> String {
+    id.module_path()
+        .iter()
+        .map(String::as_str)
+        .chain([display])
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
 /// The enum of an enum-variant production.
 fn enum_family(id: &StableItemId) -> Option<&str> {
     id.disambiguator()
@@ -3164,6 +3177,29 @@ mod tests {
                 &moved_production,
                 Some(&ExplicitSymbol::new("api::PublicValue").unwrap()),
             ),
+        );
+    }
+
+    #[test]
+    fn collision_owners_name_the_rust_module_path() {
+        assert_eq!(
+            super::rust_item_path(
+                &item("first", "Collision", ItemKind::Constructor),
+                "Collision"
+            ),
+            "first::Collision"
+        );
+        let root = StableItemId::new(
+            krs_ir::testing::package("KRS-STABLE-NAMES", "fixture"),
+            Vec::<String>::new(),
+            "Dot",
+            ItemKind::Constructor,
+            "",
+        )
+        .unwrap();
+        assert_eq!(
+            super::rust_item_path(&root, "ExpSyntax::Dot"),
+            "ExpSyntax::Dot"
         );
     }
 }
