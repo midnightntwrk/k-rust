@@ -12,6 +12,6 @@ simplify.invocations = 704
 simplify.nodes_skipped_evaluated = 302
 simplify.equation_attempts = 100
 simplify.builtin_evaluations = 100
-simplify.assumption_nodes = 200
 simplify.predicate_nodes_visited = 400
+simplify.conjunct_nodes = 100
 term.constructed = 700

@@ -587,32 +587,36 @@ fn predicate_chain(shape: &str, depth: u64) -> String {
 /// needs that level, not the chain below it: the walks of one simplification of the chain visit
 /// a number of nodes linear in its depth.
 fn assert_predicate_walks_linear(shape: &str, depth: u64) {
+    assert_predicate_chain_linear(
+        shape,
+        depth,
+        "predicate nodes visited",
+        Counter::SimplifyPredicateNodesVisited,
+    );
+}
+
+/// Asserts that simplifying the `shape` chain counts `quantity` on `counter` linearly in its
+/// depth.
+fn assert_predicate_chain_linear(shape: &str, depth: u64, quantity: &str, counter: Counter) {
     let _one = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let definition = definition(PREDICATE_CHAINS);
-    assert_linear(
-        &format!("{shape} chain"),
-        "predicate nodes visited",
-        depth,
-        |depth| {
-            let subject = pattern(&definition, &predicate_chain(shape, depth));
-            let before = snapshot();
-            let result = simplify_pattern_with_solver(
-                &definition,
-                &subject,
-                SimplificationOptions::default(),
-                &NoSolver,
-            )
-            .expect("no stop")
-            .expect("simplifies");
-            let visited = snapshot()
-                .delta(&before)
-                .get(Counter::SimplifyPredicateNodesVisited);
-            drop(result);
-            visited
-        },
-    );
+    assert_linear(&format!("{shape} chain"), quantity, depth, |depth| {
+        let subject = pattern(&definition, &predicate_chain(shape, depth));
+        let before = snapshot();
+        let result = simplify_pattern_with_solver(
+            &definition,
+            &subject,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop")
+        .expect("simplifies");
+        let counted = snapshot().delta(&before).get(counter);
+        drop(result);
+        counted
+    });
 }
 
 #[test]
@@ -633,6 +637,35 @@ fn an_implication_chain_visits_its_predicates_linearly_in_its_depth() {
 #[test]
 fn a_disjunction_negation_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("ornot", 100);
+}
+
+/// A level of the chain normalizes to a conjunction nested in its parent's, and a nested
+/// conjunction is simplified under its parent's assumptions. Those assumptions do not grow with
+/// the depth: the parent's conjunct being simplified, which is not an assumption, holds `\top`
+/// in its slot meanwhile, and `\top` states nothing, so it is not copied into the nested
+/// conjunction's assumptions.
+#[test]
+fn a_disjunction_negation_chain_copies_known_predicates_linearly_in_its_depth() {
+    assert_predicate_chain_linear(
+        "ornot",
+        100,
+        "known predicates copied",
+        Counter::SimplifyKnownPredicates,
+    );
+}
+
+/// Each nested conjunction takes its conjuncts as its input, and the chain below a level is one
+/// of them: a conjunction simplification that copies its input conjuncts copies the chain below
+/// it at every level. Linear needs the copies replaced by borrowed views (K24 step 4b).
+#[test]
+#[ignore = "K24 4b: one clone per conjunction level remains"]
+fn a_disjunction_negation_chain_copies_its_conjuncts_linearly_in_its_depth() {
+    assert_predicate_chain_linear(
+        "ornot",
+        100,
+        "input conjunct nodes",
+        Counter::SimplifyConjunctNodes,
+    );
 }
 
 /// Normalizing a conjunction or a disjunction whose operands are already normalized takes them

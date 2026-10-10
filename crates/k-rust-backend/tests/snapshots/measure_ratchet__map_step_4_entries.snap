@@ -12,6 +12,6 @@ matching.collection_problems = 1
 simplify.rounds = 11
 simplify.invocations = 37
 simplify.nodes_skipped_evaluated = 11
-simplify.assumption_nodes = 2
 simplify.predicate_nodes_visited = 7
+simplify.conjunct_nodes = 1
 term.constructed = 16

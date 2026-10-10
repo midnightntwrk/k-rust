@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 17;
+pub const COUNTER_SCHEMA_VERSION: u64 = 18;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -499,13 +499,20 @@ pub enum Counter {
     /// Term nodes a simplifier entry's report retraction searched for the subjects of its
     /// reports.
     SimplifyRetractionNodes,
-    /// Predicate nodes the predicate simplifier's assumption lookups walked: counted against
-    /// the largest assumed conjunct, and hashed or copied when no larger.
+    /// Work of the predicate simplifier's assumption lookups: the predicate nodes each lookup
+    /// key reads (the top two levels of the predicate looked up), and one per assumed conjunct
+    /// compared with it.
     SimplifyAssumptionNodes,
     /// Predicate nodes visited by the walks that ask which variables a predicate mentions
     /// (whether it mentions some, or one free; the variables and binders it holds; its binders
     /// renamed apart) and by matching a predicate equation's left-hand side against a predicate.
     SimplifyPredicateNodesVisited,
+    /// Predicate nodes of the conjuncts each conjunction simplification takes as input (one
+    /// round of the conjunction fixpoint), counted once per call.
+    SimplifyConjunctNodes,
+    /// Known predicates each conjunction simplification copies into its own assumptions,
+    /// counted once per call.
+    SimplifyKnownPredicates,
     /// SMT queries issued, including result-cache hits.
     SmtQueries,
     /// SMT queries that ran a solver instance.
@@ -556,7 +563,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 93;
+    pub const COUNT: usize = 95;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -631,6 +638,8 @@ impl Counter {
         Counter::SimplifyRetractionNodes,
         Counter::SimplifyAssumptionNodes,
         Counter::SimplifyPredicateNodesVisited,
+        Counter::SimplifyConjunctNodes,
+        Counter::SimplifyKnownPredicates,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
@@ -731,6 +740,8 @@ impl Counter {
             Counter::SimplifyRetractionNodes => "simplify.retraction_nodes",
             Counter::SimplifyAssumptionNodes => "simplify.assumption_nodes",
             Counter::SimplifyPredicateNodesVisited => "simplify.predicate_nodes_visited",
+            Counter::SimplifyConjunctNodes => "simplify.conjunct_nodes",
+            Counter::SimplifyKnownPredicates => "simplify.known_predicates",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",
