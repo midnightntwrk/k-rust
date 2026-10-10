@@ -4202,7 +4202,8 @@ fn applies_the_canonically_first_same_priority_predicate_equation() {
 /// `partial` is a partial function, and `sf` and `sg` are functions with the attributes
 /// `operands` (`total{}()` or none). `\equals(sf(X), "c")` rewrites to `\top` (strict in `X`),
 /// `\equals(sf(X), sg(X))` and `\not(\equals(sg(X), "c"))` rewrite to `\top` (not strict), and
-/// `\equals(sf(X), "d")` rewrites to `\top` when `X = "expected"`.
+/// `\equals(sf(X), "d")` rewrites to `\top` when `X = "expected"`; `sh` is a partial function
+/// and `\equals(sf(X), sh(Y))` rewrites to `\top`.
 fn predicate_strictness_definition(operands: &str) -> BackendDefinition {
     definition(&format!(
         r#"
@@ -4231,6 +4232,11 @@ fn predicate_strictness_definition(operands: &str) -> BackendDefinition {
                     \and{{Q}}(\top{{Q}}(), \top{{Q}}())
                 )
             ) [label{{}}("guarded-equals"), simplification{{}}()]
+            symbol sh{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(
+                \equals{{SortS{{}}, Q}}(sf{{}}(X:SortS{{}}), sh{{}}(Y:SortS{{}})),
+                \and{{Q}}(\top{{Q}}(), \top{{Q}}())
+            )) [label{{}}("two-arguments"), simplification{{}}()]
             "#,
     ))
 }
@@ -4364,6 +4370,38 @@ fn a_predicate_lemma_carries_the_definedness_of_the_operands_it_consumes() {
         Predicate::True
     );
     assert_eq!(simplify_under(&negated, &known, &NoSolver), Predicate::True);
+}
+
+/// `\equals(sf(t), sh(w))` with `sh(w)` known defined is strict in `t`, while it is not strict
+/// in its operand `sh(w)`, since `sf(t)` may be undefined. The path states that operand's
+/// obligation, so it holds wherever the instance is used and does not keep the open obligation
+/// of `t`'s binding from applying the lemma under it.
+#[test]
+fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined() {
+    let definition = predicate_strictness_definition("");
+    let argument_defined = Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#));
+    let h_defined = Predicate::Ceil(term(&definition, r#"sh{}(\dv{SortS{}}("w"))"#));
+    let subject = Predicate::Equals(
+        term(&definition, r#"sf{}(partial{}(\dv{SortS{}}("v")))"#),
+        term(&definition, r#"sh{}(\dv{SortS{}}("w"))"#),
+    );
+
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &subject,
+        std::slice::from_ref(&h_defined),
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+
+    assert_ne!(result, subject);
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.clone(),
+        other => vec![other.clone()],
+    };
+    assert!(conjuncts.contains(&argument_defined), "{result:?}");
+    assert!(!conjuncts.contains(&h_defined), "{result:?}");
 }
 
 #[test]

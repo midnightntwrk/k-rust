@@ -2885,7 +2885,7 @@ fn apply_predicate_equation(
 
 /// What a predicate equation's left-hand side consumes of its subject's term operands
 /// ([`ConsumedDefinedness`]): the obligations of each operand that the match does not bind whole
-/// to a variable, minus those of the terms it binds, and whether the left-hand side is strict in
+/// to a variable, minus those of the terms it binds and those the path states, and whether the left-hand side is strict in
 /// every operand that has such an obligation.
 struct PredicateOperands {
     obligations: Vec<Predicate>,
@@ -2927,9 +2927,13 @@ impl PredicateOperands {
             if subject.attributes().ceil_free() || matches!(pattern.kind(), TermKind::Variable(_)) {
                 continue;
             }
+            // An obligation the path already states holds wherever the instance is used, so it
+            // neither conditions the instance nor needs the predicate strict in its operand.
             let own = ceil_term(definition, subject)
                 .into_iter()
-                .filter(|predicate| !bound.contains(predicate))
+                .filter(|predicate| {
+                    !bound.contains(predicate) && !known_predicates.contains(predicate)
+                })
                 .collect::<Vec<_>>();
             if own.is_empty() {
                 continue;
