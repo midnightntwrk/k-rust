@@ -11,6 +11,6 @@ simplify.invocations = 56
 simplify.nodes_skipped_evaluated = 18
 simplify.builtin_evaluations = 8
 simplify.assumption_nodes = 8
-simplify.predicate_nodes_visited = 8
+simplify.predicate_nodes_visited = 20
 search.states_deduplicated = 4
 term.constructed = 40

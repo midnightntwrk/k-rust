@@ -13,5 +13,5 @@ simplify.rounds = 11
 simplify.invocations = 37
 simplify.nodes_skipped_evaluated = 11
 simplify.assumption_nodes = 2
-simplify.predicate_nodes_visited = 4
+simplify.predicate_nodes_visited = 7
 term.constructed = 16

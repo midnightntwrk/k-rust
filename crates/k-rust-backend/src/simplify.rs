@@ -27,7 +27,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.predicates"
 //! name = "conjunct-set predicate normalization"
-//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs"]
+//! sites = ["simplify_predicates_with_solver", "simplify_predicates_entry", "predicate_conjunct_index", "simplify_predicates_with_budget", "known_defined_subterms", "simplify_predicate_with_budget", "ConjunctIndex", "PredicateAssumptions", "predicate_nodes_within", "apply_predicate_theory", "match_predicate", "collect_predicate_term_pairs", "normalize_root", "normalize_hereditary"]
 //! variable = "b = simplification budget; n = conjuncts; e = equalities among the known and additional conjuncts; s = predicate nodes of a visited sub-predicate; L = predicate nodes of the largest assumed conjunct other than the one being simplified"
 //! counters = ["SimplifyInvocations", "SimplifyAssumptionNodes", "SimplifyPredicateNodesVisited"]
 //! span = "per call"
@@ -44,6 +44,10 @@
 //! [[cost]]
 //! mode = "predicate equations (apply_predicate_theory)"
 //! bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+//!
+//! [[cost]]
+//! mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"
+//! bound = "a connective's: one level over its simplified operands, which are hereditarily normalized, reading each operand's top node only, plus the comparisons that remove repeated conjuncts of the flattened conjunction; an atom's, which may conjoin the unsimplified conditions of its terms' simplification: one bottom-up pass over that result, O(its predicate nodes) plus the same comparisons"
 //!
 //! [[cost]]
 //! mode = "ceil conjunct (known_defined_subterms)"
@@ -98,8 +102,9 @@ use crate::{
         match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
-        Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
-        retain_substitution_predicates, violates_finite_constructor_domain,
+        Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicate_root_truth,
+        predicate_truth, predicates_truth, retain_substitution_predicates,
+        violates_finite_constructor_domain,
     },
     rule::{
         Absence, Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs,
@@ -2206,8 +2211,29 @@ fn simplify_predicate_on_stack(
             }
         }
     };
-    let simplified =
-        normalize_predicate(normalize_hooked_boolean_predicate(definition, simplified));
+    // Every predicate this function returns is hereditarily normalized: a constant, a
+    // recursive call's result, or the result below. A connective's operands were simplified
+    // above, so they are such results, and one level of normalization over them equals
+    // `normalize_predicate` (`normalize_root`). An atom's simplification may conjoin the
+    // conditions its terms' simplification left unsimplified, so it is normalized throughout.
+    let simplified = normalize_hooked_boolean_predicate(definition, simplified);
+    let simplified = match predicate {
+        Predicate::Not(_)
+        | Predicate::And(_)
+        | Predicate::Or(_)
+        | Predicate::Implies(..)
+        | Predicate::Iff(..)
+        | Predicate::Exists(..)
+        | Predicate::Forall(..) => normalize_root(simplified),
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_) => normalize_hereditary(simplified),
+    };
     match assumptions.truth(&simplified) {
         Some(true) => return Ok(Predicate::True),
         Some(false) => return Ok(Predicate::False),
@@ -3646,27 +3672,123 @@ fn bool_value(term: &Term) -> Option<bool> {
     }
 }
 
+/// Folds `\top` and `\bottom` through the predicate, flattens nested conjunctions and
+/// disjunctions, removes double negations and repeated conjuncts, and pushes a negation through
+/// a disjunction; every rewrite is an equivalence. The children are normalized first and an
+/// operand's truth is read from the whole operand, so the predicate may be arbitrary.
 pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
-    match predicate {
-        Predicate::Equals(left, right) => {
-            match predicates_truth(&[Predicate::Equals(left.clone(), right.clone())]) {
-                Truth::True => Predicate::True,
-                Truth::False => Predicate::False,
-                Truth::Unknown => Predicate::Equals(left, right),
-            }
+    normalize_level(predicate, Children::Arbitrary)
+}
+
+/// One level of [`normalize_predicate`], for a predicate whose children are hereditarily
+/// normalized: each child and each of its sub-predicates is a fixed point of
+/// [`normalize_predicate`]. On such a predicate the two are equal and the result is
+/// hereditarily normalized too, while this one reads only the top node and the top nodes of
+/// the children (and, through a flattened conjunction, compares conjuncts).
+///
+/// Why they are equal. A hereditarily normalized predicate that is not a constant has truth
+/// `Unknown`: an atom that is a fixed point left the atom rules undecided; a fixed-point
+/// conjunction or disjunction has no constant operand and combines `Unknown`s; a fixed-point
+/// implication or equivalence kept both operands only with both `Unknown`; a negation's
+/// operand is itself hereditarily normalized and not a constant; a quantifier is `Unknown`.
+/// So an operand's truth read from its top node ([`predicate_root_truth`]) is its truth, and a
+/// child that is a fixed point is returned unchanged by the recursive normalization.
+///
+/// Why the result is hereditarily normalized. A double negation, an implication from `\top`
+/// and an equivalence with a constant return a sub-predicate of a hereditarily normalized
+/// child; a negated conjunction keeps its normalized conjunction; a flattened conjunction holds
+/// distinct, normalized, non-constant operands that are not conjunctions, and a flattened
+/// disjunction normalized, non-constant operands that are not disjunctions, which is a fixed
+/// point; a negated disjunction normalizes each negation it builds before conjoining them; any
+/// other arm returns a constant or the predicate itself.
+fn normalize_root(predicate: Predicate) -> Predicate {
+    normalize_level(predicate, Children::Normalized)
+}
+
+/// [`normalize_predicate`] in time linear in the size of the predicate, apart from the
+/// comparisons that remove repeated conjuncts, with a hereditarily normalized result: the
+/// children are normalized by this function, bottom-up, then the predicate by
+/// [`normalize_root`]. It agrees with [`normalize_predicate`] wherever the children of
+/// `predicate` are already hereditarily normalized; elsewhere it may go further, since
+/// [`normalize_predicate`] does not enter every operand (it keeps `\not \and(\top, P)` as it
+/// is) and so may leave a reducible pattern below its result.
+fn normalize_hereditary(predicate: Predicate) -> Predicate {
+    fn boxed(mut predicate: Box<Predicate>) -> Box<Predicate> {
+        *predicate = normalize_hereditary(std::mem::replace(&mut *predicate, Predicate::True));
+        predicate
+    }
+    let predicate = match predicate {
+        Predicate::Not(inner) => Predicate::Not(boxed(inner)),
+        Predicate::And(inner) => {
+            Predicate::And(inner.into_iter().map(normalize_hereditary).collect())
         }
+        Predicate::Or(inner) => {
+            Predicate::Or(inner.into_iter().map(normalize_hereditary).collect())
+        }
+        Predicate::Implies(left, right) => Predicate::Implies(boxed(left), boxed(right)),
+        Predicate::Iff(left, right) => Predicate::Iff(boxed(left), boxed(right)),
+        Predicate::Exists(variable, inner) => Predicate::Exists(variable, boxed(inner)),
+        Predicate::Forall(variable, inner) => Predicate::Forall(variable, boxed(inner)),
+        atom @ (Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_)) => atom,
+    };
+    normalize_root(predicate)
+}
+
+/// What one level of normalization may assume of the children of the predicate it normalizes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Children {
+    /// Any children: each is normalized before it is used, and an operand's truth is read from
+    /// the whole operand ([`normalize_predicate`]).
+    Arbitrary,
+    /// Hereditarily normalized children: each is used as it is, and an operand's truth is read
+    /// from its top node ([`normalize_root`]).
+    Normalized,
+}
+
+impl Children {
+    fn child(self, predicate: Predicate) -> Predicate {
+        match self {
+            Children::Arbitrary => normalize_predicate(predicate),
+            Children::Normalized => predicate,
+        }
+    }
+
+    fn truth(self, predicate: &Predicate) -> Truth {
+        match self {
+            Children::Arbitrary => predicate_truth(predicate),
+            Children::Normalized => predicate_root_truth(predicate),
+        }
+    }
+}
+
+fn normalize_level(predicate: Predicate, children: Children) -> Predicate {
+    measure::bump(Counter::SimplifyPredicateNodesVisited);
+    match predicate {
         Predicate::Not(inner) => match *inner {
             Predicate::True => Predicate::False,
             Predicate::False => Predicate::True,
             Predicate::Not(inner) => *inner,
             Predicate::And(inner) => Predicate::Not(Box::new(Predicate::And(inner))),
-            Predicate::Or(inner) => normalize_predicate(Predicate::And(
-                inner
+            Predicate::Or(inner) => {
+                let negated = inner
                     .into_iter()
-                    .map(|predicate| Predicate::Not(Box::new(predicate)))
-                    .collect(),
-            )),
-            inner => match predicates_truth(std::slice::from_ref(&inner)) {
+                    .map(|predicate| Predicate::Not(Box::new(predicate)));
+                // With arbitrary children the conjunction's arm normalizes each negation; with
+                // normalized ones each negation is normalized here, from its normalized operand.
+                let negated = match children {
+                    Children::Arbitrary => negated.collect(),
+                    Children::Normalized => negated.map(normalize_root).collect(),
+                };
+                normalize_level(Predicate::And(negated), children)
+            }
+            inner => match children.truth(&inner) {
                 Truth::True => Predicate::False,
                 Truth::False => Predicate::True,
                 Truth::Unknown => Predicate::Not(Box::new(inner)),
@@ -3675,7 +3797,7 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
         Predicate::And(inner) => {
             let mut normalized = Vec::new();
             for predicate in inner {
-                match normalize_predicate(predicate) {
+                match children.child(predicate) {
                     Predicate::True => {}
                     Predicate::False => return Predicate::False,
                     Predicate::And(nested) => {
@@ -3698,7 +3820,7 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
         Predicate::Or(inner) => {
             let mut normalized = Vec::new();
             for predicate in inner {
-                match normalize_predicate(predicate) {
+                match children.child(predicate) {
                     Predicate::False => {}
                     Predicate::True => return Predicate::True,
                     Predicate::Or(nested) => normalized.extend(nested),
@@ -3711,39 +3833,33 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
                 _ => Predicate::Or(normalized),
             }
         }
-        Predicate::Implies(left, right) => match (
-            predicates_truth(std::slice::from_ref(&left)),
-            predicates_truth(std::slice::from_ref(&right)),
-        ) {
+        Predicate::Implies(left, right) => match (children.truth(&left), children.truth(&right)) {
             (Truth::False, _) | (_, Truth::True) => Predicate::True,
             (Truth::True, Truth::False) => Predicate::False,
             (Truth::True, Truth::Unknown) => *right,
-            (Truth::Unknown, Truth::False) => normalize_predicate(Predicate::Not(left)),
+            (Truth::Unknown, Truth::False) => normalize_level(Predicate::Not(left), children),
             _ => Predicate::Implies(left, right),
         },
-        Predicate::Iff(left, right) => match (
-            predicates_truth(std::slice::from_ref(&left)),
-            predicates_truth(std::slice::from_ref(&right)),
-        ) {
+        Predicate::Iff(left, right) => match (children.truth(&left), children.truth(&right)) {
             (Truth::True, Truth::True) | (Truth::False, Truth::False) => Predicate::True,
             (Truth::True, Truth::False) | (Truth::False, Truth::True) => Predicate::False,
             (Truth::True, Truth::Unknown) => *right,
             (Truth::Unknown, Truth::True) => *left,
-            (Truth::False, Truth::Unknown) => normalize_predicate(Predicate::Not(right)),
-            (Truth::Unknown, Truth::False) => normalize_predicate(Predicate::Not(left)),
+            (Truth::False, Truth::Unknown) => normalize_level(Predicate::Not(right), children),
+            (Truth::Unknown, Truth::False) => normalize_level(Predicate::Not(left), children),
             _ => Predicate::Iff(left, right),
         },
         Predicate::Exists(_, ref inner) | Predicate::Forall(_, ref inner)
-            if predicates_truth(std::slice::from_ref(inner)) == Truth::True =>
+            if children.truth(inner) == Truth::True =>
         {
             Predicate::True
         }
         Predicate::Exists(_, ref inner) | Predicate::Forall(_, ref inner)
-            if predicates_truth(std::slice::from_ref(inner)) == Truth::False =>
+            if children.truth(inner) == Truth::False =>
         {
             Predicate::False
         }
-        predicate => match predicates_truth(std::slice::from_ref(&predicate)) {
+        predicate => match children.truth(&predicate) {
             Truth::True => Predicate::True,
             Truth::False => Predicate::False,
             Truth::Unknown => predicate,
@@ -7788,5 +7904,144 @@ mod tests {
                 _ => fallback,
             }
         });
+    }
+
+    /// Atoms whose truth the atom rules decide in each way: `\top`, `\bottom`, a Boolean literal,
+    /// a reflexive equality, an equality of distinct literals, and undecided ones.
+    fn normalization_atom(index: usize) -> Predicate {
+        let int = Sort::builtin(BuiltinSort::Int);
+        let bool_sort = Sort::builtin(BuiltinSort::Bool);
+        let variable = |name: &str, sort: &Sort| Term::variable(Variable::new(name, sort.clone()));
+        let int_value = |value: &str| Term::domain_value(int.clone(), value);
+        match index {
+            0 => Predicate::True,
+            1 => Predicate::False,
+            2 => Predicate::Term(Term::domain_value(bool_sort.clone(), "true")),
+            3 => Predicate::Term(Term::domain_value(bool_sort.clone(), "false")),
+            4 => Predicate::Term(variable("B", &bool_sort)),
+            5 => Predicate::Equals(int_value("1"), int_value("1")),
+            6 => Predicate::Equals(int_value("1"), int_value("2")),
+            7 => Predicate::Equals(variable("X", &int), int_value("1")),
+            8 => Predicate::Equals(variable("Y", &int), int_value("2")),
+            _ => Predicate::Ceil(variable("X", &int)),
+        }
+    }
+
+    fn normalization_tree() -> impl proptest::strategy::Strategy<Value = Predicate> {
+        use proptest::{collection::vec, prelude::*};
+        let atom = (0usize..10).prop_map(normalization_atom);
+        atom.prop_recursive(5, 48, 4, |inner| {
+            let binder = Variable::new("X", Sort::builtin(BuiltinSort::Int));
+            prop_oneof![
+                inner.clone().prop_map(|p| Predicate::Not(Box::new(p))),
+                vec(inner.clone(), 0..4).prop_map(Predicate::And),
+                vec(inner.clone(), 0..4).prop_map(Predicate::Or),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(l, r)| Predicate::Implies(Box::new(l), Box::new(r))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(l, r)| Predicate::Iff(Box::new(l), Box::new(r))),
+                (inner.clone(), any::<bool>()).prop_map(move |(p, exists)| if exists {
+                    Predicate::Exists(binder.clone(), Box::new(p))
+                } else {
+                    Predicate::Forall(binder.clone(), Box::new(p))
+                }),
+            ]
+        })
+    }
+
+    /// `predicate` and every sub-predicate of it.
+    fn sub_predicates(predicate: &Predicate) -> Vec<&Predicate> {
+        let mut found = vec![predicate];
+        let mut next = 0;
+        while let Some(predicate) = found.get(next).copied() {
+            next += 1;
+            match predicate {
+                Predicate::Not(inner)
+                | Predicate::Exists(_, inner)
+                | Predicate::Forall(_, inner) => found.push(inner),
+                Predicate::And(inner) | Predicate::Or(inner) => found.extend(inner),
+                Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                    found.extend([&**left, &**right])
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+
+    fn with_children_hereditarily_normalized(predicate: Predicate) -> Predicate {
+        let boxed = |predicate: Box<Predicate>| Box::new(normalize_hereditary(*predicate));
+        match predicate {
+            Predicate::Not(inner) => Predicate::Not(boxed(inner)),
+            Predicate::And(inner) => {
+                Predicate::And(inner.into_iter().map(normalize_hereditary).collect())
+            }
+            Predicate::Or(inner) => {
+                Predicate::Or(inner.into_iter().map(normalize_hereditary).collect())
+            }
+            Predicate::Implies(left, right) => Predicate::Implies(boxed(left), boxed(right)),
+            Predicate::Iff(left, right) => Predicate::Iff(boxed(left), boxed(right)),
+            Predicate::Exists(variable, inner) => Predicate::Exists(variable, boxed(inner)),
+            Predicate::Forall(variable, inner) => Predicate::Forall(variable, boxed(inner)),
+            atom => atom,
+        }
+    }
+
+    proptest::proptest! {
+        /// Every sub-predicate of a hereditary normalization is a fixed point of
+        /// `normalize_predicate`.
+        #[test]
+        fn hereditary_normalization_is_hereditarily_normalized(predicate in normalization_tree()) {
+            let normalized = normalize_hereditary(predicate);
+            for sub_predicate in sub_predicates(&normalized) {
+                proptest::prop_assert_eq!(
+                    &normalize_predicate(sub_predicate.clone()),
+                    sub_predicate,
+                    "in {:?}",
+                    normalized
+                );
+            }
+        }
+
+        /// Over hereditarily normalized children, one level of normalization equals
+        /// `normalize_predicate`.
+        #[test]
+        fn one_level_normalization_agrees_over_normalized_children(predicate in normalization_tree()) {
+            let predicate = with_children_hereditarily_normalized(predicate);
+            proptest::prop_assert_eq!(
+                normalize_root(predicate.clone()),
+                normalize_predicate(predicate)
+            );
+        }
+    }
+
+    /// `normalize_predicate` does not enter the operand of a negated conjunction, nor normalize
+    /// again what a double negation exposes, so its result can hold a reducible pattern; the
+    /// hereditary normalization reduces it, by the same equivalences.
+    #[test]
+    fn hereditary_normalization_reduces_what_normalize_predicate_leaves() {
+        let atom = normalization_atom(7);
+        let negated_conjunction_with_bottom = Predicate::Not(Box::new(Predicate::And(vec![
+            Predicate::False,
+            atom.clone(),
+        ])));
+        assert_eq!(
+            normalize_predicate(negated_conjunction_with_bottom.clone()),
+            negated_conjunction_with_bottom
+        );
+        assert_eq!(
+            normalize_hereditary(negated_conjunction_with_bottom),
+            Predicate::True
+        );
+        let double_negation =
+            Predicate::Not(Box::new(Predicate::Not(Box::new(Predicate::And(vec![
+                Predicate::True,
+                atom.clone(),
+            ])))));
+        assert_eq!(
+            normalize_predicate(double_negation.clone()),
+            Predicate::And(vec![Predicate::True, atom.clone()])
+        );
+        assert_eq!(normalize_hereditary(double_negation), atom);
     }
 }

@@ -541,7 +541,9 @@ endmodule []"#;
 
 /// `X /\ \floor(f(X)) /\ chain`, the chain `depth` levels of `shape`'s connective over
 /// `\ceil(f(X))`: `\exists` or `\forall` binding a fresh variable per level, `\implies` and `\or`
-/// with `\ceil(g(X))` as the other operand (the `\or` over a `\not`), or `\not` alone.
+/// with `\ceil(g(X))` as the other operand (the `\or` over a `\not`), `\not` alone, or `\and`
+/// and `\or` alternating with `\ceil(g(Ai))` over a fresh variable `Ai` at level `i` as the
+/// other operand, so that no operand is implied by another.
 fn predicate_chain(shape: &str, depth: u64) -> String {
     let ceil = |function: &str| {
         format!("\\ceil{{SortInt{{}}, SortInt{{}}}}({function}{{}}(X:SortInt{{}}))")
@@ -549,6 +551,10 @@ fn predicate_chain(shape: &str, depth: u64) -> String {
     let mut chain = ceil("f");
     for level in 0..depth {
         chain = match shape {
+            "andor" => format!(
+                "\\{}{{SortInt{{}}}}(\\ceil{{SortInt{{}}, SortInt{{}}}}(g{{}}(A{level}:SortInt{{}})), {chain})",
+                if level % 2 == 0 { "and" } else { "or" }
+            ),
             "exists" | "forall" => {
                 format!("\\{shape}{{SortInt{{}}}}(Y{level}:SortInt{{}}, {chain})")
             }
@@ -619,6 +625,13 @@ fn an_implication_chain_visits_its_predicates_linearly_in_its_depth() {
 #[test]
 fn a_disjunction_negation_chain_visits_its_predicates_linearly_in_its_depth() {
     assert_predicate_walks_linear("ornot", 100);
+}
+
+/// Normalizing a conjunction or a disjunction whose operands are already normalized takes them
+/// as they are, so a chain alternating the two is not normalized again below each level.
+#[test]
+fn an_alternating_conjunction_disjunction_chain_visits_its_predicates_linearly_in_its_depth() {
+    assert_predicate_walks_linear("andor", 100);
 }
 
 /// The control: a negation chain, linear before the predicate equations were indexed by
