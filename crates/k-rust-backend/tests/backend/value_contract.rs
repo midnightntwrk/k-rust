@@ -1195,3 +1195,152 @@ fn review_3_p7_a_self_pair_with_a_disjunctive_right_hand_side_withdraws_its_valu
     );
     assert_obligation_kept(&definition, &format!("v{{}}({})", int(1)), "SortB{}");
 }
+
+/// The simplifier's result for the ground term `term`, printed with the conditions it carries.
+fn simplified(definition: &BackendDefinition, term: &str) -> String {
+    let result = crate::support::unstopped::simplify(
+        definition,
+        &crate::support::internal_term(definition, term),
+        SimplificationOptions::default(),
+    )
+    .expect("the term simplifies");
+    let printed = k_rust_kore::kore::printer::Printer::compact()
+        .print_pattern(&k_rust_backend::externalize::term(&result.term));
+    format!("{printed} with {:?}", result.constraints())
+}
+
+/// Sorts `C1, C2 < A, B < Top` (two maximal common subsorts of `A` and `B`), so that
+/// `inj{A,Top}(Z)` and `inj{B,Top}(Y)` unify in two ways. `g(inj{B,Top}(Y)) = k()
+/// requires p(Y)`, with `p` false on `C1` and true on `C2`: the `requires` is refuted on the
+/// `C1` unifier only. `fr(k()) = hi`, `fr(X) = lo [owise]`. `q`'s two equations
+/// `q(Z) = fr(g(inj{A,Top}(Z)))` and `q(Z) = lo` overlap at the root and join on `C1` but not
+/// on `C2`: `q(inj{C2,A}(c2()))` is `hi` or `lo` depending on which applies.
+const TWO_UNIFIERS: &str = r"
+    sort SortTop{} []
+    sort SortA{} []
+    sort SortB{} []
+    sort SortC1{} []
+    sort SortC2{} []
+    sort SortK{} []
+    sort SortR{} []
+    symbol inj{From, To}(From) : To [sortInjection{}()]
+    axiom{R} \exists{R}(V:SortA{}, \equals{SortA{}, R}(V:SortA{}, inj{SortC1{}, SortA{}}(F:SortC1{}))) [subsort{SortC1{}, SortA{}}()]
+    axiom{R} \exists{R}(V:SortB{}, \equals{SortB{}, R}(V:SortB{}, inj{SortC1{}, SortB{}}(F:SortC1{}))) [subsort{SortC1{}, SortB{}}()]
+    axiom{R} \exists{R}(V:SortA{}, \equals{SortA{}, R}(V:SortA{}, inj{SortC2{}, SortA{}}(F:SortC2{}))) [subsort{SortC2{}, SortA{}}()]
+    axiom{R} \exists{R}(V:SortB{}, \equals{SortB{}, R}(V:SortB{}, inj{SortC2{}, SortB{}}(F:SortC2{}))) [subsort{SortC2{}, SortB{}}()]
+    axiom{R} \exists{R}(V:SortTop{}, \equals{SortTop{}, R}(V:SortTop{}, inj{SortA{}, SortTop{}}(F:SortA{}))) [subsort{SortA{}, SortTop{}}()]
+    axiom{R} \exists{R}(V:SortTop{}, \equals{SortTop{}, R}(V:SortTop{}, inj{SortB{}, SortTop{}}(F:SortB{}))) [subsort{SortB{}, SortTop{}}()]
+    axiom{R} \exists{R}(V:SortTop{}, \equals{SortTop{}, R}(V:SortTop{}, inj{SortC1{}, SortTop{}}(F:SortC1{}))) [subsort{SortC1{}, SortTop{}}()]
+    axiom{R} \exists{R}(V:SortTop{}, \equals{SortTop{}, R}(V:SortTop{}, inj{SortC2{}, SortTop{}}(F:SortC2{}))) [subsort{SortC2{}, SortTop{}}()]
+    symbol c1{}() : SortC1{} [constructor{}(), functional{}(), injective{}()]
+    symbol c2{}() : SortC2{} [constructor{}(), functional{}(), injective{}()]
+    symbol k{}() : SortK{} [constructor{}(), functional{}(), injective{}()]
+    symbol hi{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+    symbol lo{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+    symbol p{}(SortB{}) : SortBool{} [function{}(), functional{}()]
+    symbol g{}(SortTop{}) : SortK{} [anywhere{}(), value-production{}()]
+    symbol fr{}(SortK{}) : SortR{} [function{}(), functional{}()]
+    symbol q{}(SortA{}) : SortR{} [anywhere{}(), value-production{}()]
+";
+
+/// The axioms of [`TWO_UNIFIERS`], in the order its documentation lists them.
+fn two_unifier_axioms() -> Vec<String> {
+    let boolean = |value: bool| format!(r#"\dv{{SortBool{{}}}}("{value}")"#);
+    vec![
+        equation(
+            "p",
+            &["SortB{}"],
+            "SortBool{}",
+            &["inj{SortC1{}, SortB{}}(VarZ:SortC1{})"],
+            &boolean(false),
+            r"\top{R}()",
+            "",
+        ),
+        equation(
+            "p",
+            &["SortB{}"],
+            "SortBool{}",
+            &["inj{SortC2{}, SortB{}}(VarZ:SortC2{})"],
+            &boolean(true),
+            r"\top{R}()",
+            "",
+        ),
+        equation(
+            "g",
+            &["SortTop{}"],
+            "SortK{}",
+            &["inj{SortB{}, SortTop{}}(VarY:SortB{})"],
+            "k{}()",
+            &format!(
+                r"\equals{{SortBool{{}}, R}}(p{{}}(VarY:SortB{{}}), {})",
+                boolean(true)
+            ),
+            "anywhere{}()",
+        ),
+        equation(
+            "fr",
+            &["SortK{}"],
+            "SortR{}",
+            &["k{}()"],
+            "hi{}()",
+            r"\top{R}()",
+            "",
+        ),
+        equation(
+            "fr",
+            &["SortK{}"],
+            "SortR{}",
+            &["VarX:SortK{}"],
+            "lo{}()",
+            r"\top{R}()",
+            "owise{}()",
+        ),
+        equation(
+            "q",
+            &["SortA{}"],
+            "SortR{}",
+            &["VarZ:SortA{}"],
+            "fr{}(g{}(inj{SortA{}, SortTop{}}(VarZ:SortA{})))",
+            r"\top{R}()",
+            "anywhere{}()",
+        ),
+        equation(
+            "q",
+            &["SortA{}"],
+            "SortR{}",
+            &["VarZ:SortA{}"],
+            "lo{}()",
+            r"\top{R}()",
+            "anywhere{}()",
+        ),
+    ]
+}
+
+/// `refuted_at` (`confluence/join.rs:402`) settles an application only when the `requires` of
+/// the equation it tries is refuted on every unifier of the application with the equation's
+/// left-hand side. In [`TWO_UNIFIERS`] the `requires` of `g`'s equation is refuted on the `C1`
+/// unifier of `g(inj{A,Top}(Z))` with `g(inj{B,Top}(Y))` and holds on the `C2` one, so the
+/// root pair of `q` does not join: the check names it and withdraws `q`. Settling the
+/// application when one unifier is refuted would join the pair and leave `q`'s claims, although
+/// `q(inj{C2,A}(c2()))` is `hi` or `lo` depending on which of `q`'s equations applies.
+#[test]
+fn a_requires_refuted_on_one_of_two_unifiers_does_not_settle_the_application() {
+    let forward = definition(TWO_UNIFIERS, &two_unifier_axioms());
+    // Control: the two orders really disagree at `C2`.
+    let first_wins = simplified(&forward, "q{}(inj{SortC2{}, SortA{}}(c2{}()))");
+    let reversed = two_unifier_axioms().into_iter().rev().collect::<Vec<_>>();
+    let last_wins = simplified(
+        &definition(TWO_UNIFIERS, &reversed),
+        "q{}(inj{SortC2{}, SortA{}}(c2{}()))",
+    );
+    assert_ne!(
+        first_wins, last_wins,
+        "the control does not separate the orders"
+    );
+    let tainted = forward.value_claims().tainted_symbols();
+    assert!(
+        tainted.iter().any(|symbol| symbol.as_ref() == "q"),
+        "q keeps its claims: {:?}",
+        forward.value_claims().unjoined()
+    );
+}
