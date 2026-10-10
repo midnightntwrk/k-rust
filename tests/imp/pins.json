@@ -3,7 +3,7 @@
     "definition-ir.json": "7b4d8ef3f64f99ae08b681a03657466950e872c198b0e846b1a074d76827ebbd",
     "definition.k": "d8c32f621b86762e67abfab7e818530f22e8b1fc7d6b1d5b878e52577cbfbf5a",
     "descriptor-bundle.json": "0a65fd373c5ed3124b388e638edee54cca5cbeb998e6e4d793c04bd334dce4bb",
-    "native-source.txt": "9577cf349e152e8cb60c3c8c0f226e7ee43518dac4caf3265ff70c0ab4578ec2",
+    "native-source.txt": "b4eab131c9f5fd625e81076b61d135a68894577cf995644477a4c72069055204",
     "semantic-ir.json": "7cbe0fcd189394177c39387df966974e23c25951a395071e90fe582574a9dd78",
     "sources.json": "da2ebc788dd18edd41c593bb3239d592b03c65a10b11e5aa86c75b080a59de67",
     "symbols.json": "a9c2e5b8b830f574542e139c26402b261e8d0b29f84f3664e95acb686e63bf49",
@@ -355,15 +355,15 @@
   ],
   "compatibility": {
     "policy_version": 1,
-    "report_sha256": "50d83fbcbed53ebf69140dc8bee3c38a61232b991743d2022711181c3acc3748"
+    "report_sha256": "cca33ee7a20399e314fae15cc3d3cd3a632f1db7765106dba13c3237a50ede4e"
   },
   "corpus_sha256": "011fcbdeae89f3b36a2386177c38c3e34bd14dbac2d0b53a00fd54d620e7d225",
   "milestone": "IMP",
   "native_artifact_sha256": {
     ".krs-artifacts": "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5",
-    "definition.kore": "6dfedffcd9af59198e269f8fc23b8e1fc069400464c6698e899478b6cdfee592",
+    "definition.kore": "09f9460265d61d3c7eb5e012bee483f92983f0d59d7b14092b46acdb88b338f5",
     "macros.kore": "3f6ba528758f62496fe19ab44ba8a483b8114740b5f6f99b4e4c47928269e8b8",
-    "syntaxDefinition.kore": "07bdd6c9b1d125fb1b774d005748a7a91f13625f0ea71a8beaaa62778e81296d"
+    "syntaxDefinition.kore": "9bafdc251e9cd1f645a257874bd28efe6852c7993d741766a51e2b44fb6f2493"
   },
   "native_comparison": {
     "label_map": {
@@ -2052,16 +2052,16 @@
   },
   "llvm_artifact_sha256": {
     ".krs-artifacts": "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5",
-    "definition.kore": "298ca530f2c3641baac6e4fef4d71100e1464f9b6fe7d647a3a56262be27123e",
+    "definition.kore": "34833cd3098c6a042f59ea2869632597ae350db3eb64dcdb230ec28b25c1055a",
     "macros.kore": "3f6ba528758f62496fe19ab44ba8a483b8114740b5f6f99b4e4c47928269e8b8",
-    "syntaxDefinition.kore": "07bdd6c9b1d125fb1b774d005748a7a91f13625f0ea71a8beaaa62778e81296d"
+    "syntaxDefinition.kore": "9bafdc251e9cd1f645a257874bd28efe6852c7993d741766a51e2b44fb6f2493"
   },
   "reference_sha256": {
     "kompile-tests": "3320acf165f6fe601602a58decb2ad7b76870644c3f8fd40678e7f7abdd4f066",
     "source-definitions": "536636eba2ba91558b28ecdd12172868470c08a0d586624996d8e80827589724",
     "native-claims": "0ba85f14e954774d0b49e84cf880d21014f81bd36cb3e33bdad39978d7160a13",
     "behavior": "f2fd2c7f1569ec1e60d39561cf1ee3879b9820b11ed4bf36e48e6e60970500da",
-    "proofs": "0d72fd978a356f43d6689213887e5a8a551b37198aaf238e11eea92f2ca9f2b8",
+    "proofs": "018a18def2904a43da65d0da97f13cbaef518e0560e8f22380022455e11bcba1",
     "frontend-diagnostic": "34bf4709af866f436e3ff2020d8e3aec6748dc264db30999bb1783d7ab5ff491"
   },
   "native_proof_divergences": {
