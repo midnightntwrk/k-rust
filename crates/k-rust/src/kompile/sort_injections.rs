@@ -752,8 +752,7 @@ impl std::error::Error for SortInjectionError {}
 /// Public terms may contain variables without sort annotations. A positional expected sort types
 /// such a variable during injection; without an expected sort, it defaults to `K`. The sort
 /// metadata semantic-cast resolution leaves on a term is the cast's target, judged against the
-/// term's natural sort ([`SortInjector::cast_sort`]): an upcast places nothing, and any other
-/// cast is rejected.
+/// term's natural sort: an upcast places nothing, and any other cast is rejected.
 #[derive(Clone, Debug)]
 pub struct SortInjector<'view, 'definition> {
     productions: View<'view, ProductionCatalog<'definition>>,
