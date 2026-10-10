@@ -4,6 +4,7 @@ mod alias;
 mod instance_normal;
 mod ite;
 pub mod nesting;
+mod priority_conjunct;
 mod verify;
 
 pub mod builtin;
