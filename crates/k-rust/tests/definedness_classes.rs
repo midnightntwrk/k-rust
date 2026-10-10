@@ -276,7 +276,6 @@ module MAIN
 /// that mentions `c`). The control binds the whole map to a variable, `g(M) => rest(M)`, and
 /// keeps it.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns) (a rewrite step drops the distinctness of a collection its pattern consumes, definedness-stepback.md)"]
 fn a_rewrite_step_keeps_the_distinctness_of_a_collection_it_splits() {
     let root = scratch();
     let definition = root.join("definition.k");

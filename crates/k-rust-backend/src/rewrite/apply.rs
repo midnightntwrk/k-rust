@@ -1084,9 +1084,10 @@ fn simplify_conditions(
         .collect::<Vec<_>>())
 }
 
-/// P9: `ceil` of every non-variable binding, simplified under the path and the match
-/// conditions; `False` means the rule applies vacuously (`Unified { trivial }`); the `Unknown`
-/// ones join the match conditions.
+/// P9: `ceil` of every non-variable binding and of every subject collection the left-hand side
+/// consumes by a collection pattern ([`consumed_collections`]), simplified under the path and
+/// the match conditions; `False` means the rule applies vacuously (`Unified { trivial }`); the
+/// `Unknown` ones join the match conditions.
 fn definedness(
     context: RuleContext<'_>,
     substitution: &Substitution,
@@ -1094,6 +1095,12 @@ fn definedness(
     match_conditions: &mut Vec<Predicate>,
 ) -> Phase<()> {
     let mut definedness_conditions = Vec::new();
+    consumed_collections(
+        context.definition,
+        &context.rule.lhs,
+        &context.pattern.term,
+        &mut definedness_conditions,
+    );
     for value in substitution
         .values()
         .filter(|value| !matches!(value.kind(), TermKind::Variable(_)))
@@ -1142,6 +1149,72 @@ fn definedness(
         }),
     );
     Ok(())
+}
+
+/// The definedness of each collection of `subject` that a collection pattern of `lhs` consumes,
+/// appended to `conditions`.
+///
+/// A rewrite step is a transition: its successor may denote only states its predecessor reaches.
+/// A map or set is defined only where its keys (elements) are distinct, so a pattern that splits
+/// one, such as `(c |-> V) M`, matches `{c |-> 1, Y |-> 2}` only where `Y` is not `c`; the
+/// bindings `V = 1` and `M = Y |-> 2` are defined everywhere and do not state it, so the step
+/// takes `\ceil` of the consumed collection itself. A list's concatenation is total, but a list
+/// pattern consumes its elements alike, so the same holds of it. A variable binds its subterm
+/// whole and P9 charges the binding instead. The walk follows the positions where `lhs` and
+/// `subject` share a constructor, the positions a syntactic match reads; a position the
+/// matcher did not read structurally (unification, a domain value) is not charged here, and a
+/// recovery that unifies collections states their definedness itself
+/// (`collection_unification_definedness`). A subject collection whose stored `ceil_free`
+/// attribute is set costs one read of it. The walk recurses over the left-hand side, whose
+/// depth is that of the rule as written.
+fn consumed_collections(
+    definition: &BackendDefinition,
+    lhs: &Term,
+    subject: &Term,
+    conditions: &mut Vec<Predicate>,
+) {
+    match (lhs.kind(), subject.kind()) {
+        (TermKind::And(left, right), _) => {
+            consumed_collections(definition, left, subject, conditions);
+            consumed_collections(definition, right, subject, conditions);
+        }
+        (TermKind::Map { .. } | TermKind::Set { .. } | TermKind::List { .. }, _) => {
+            if !subject.attributes().ceil_free() {
+                extend_unique(conditions, ceil_term(definition, subject));
+            }
+        }
+        (
+            TermKind::Application {
+                symbol,
+                arguments: patterns,
+                ..
+            },
+            TermKind::Application {
+                symbol: subject_symbol,
+                arguments,
+                ..
+            },
+        ) if symbol == subject_symbol && patterns.len() == arguments.len() => {
+            for (pattern, argument) in patterns.iter().zip(arguments) {
+                consumed_collections(definition, pattern, argument, conditions);
+            }
+        }
+        (
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            },
+            TermKind::Injection {
+                source: subject_source,
+                target: subject_target,
+                term: subject_term,
+            },
+        ) if source == subject_source && target == subject_target => {
+            consumed_collections(definition, term, subject_term, conditions);
+        }
+        _ => {}
+    }
 }
 
 /// P10: with match conditions present, the path plus the conditions must be satisfiable;
