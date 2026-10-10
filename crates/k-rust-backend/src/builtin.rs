@@ -15,10 +15,12 @@ mod hook_models;
 mod krypto;
 mod list;
 mod map;
+mod result_collection;
 mod set;
 mod string;
 mod substitution;
 
+pub(crate) use result_collection::ResultCollection;
 pub(crate) use substitution::KVarSorts;
 
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
@@ -259,30 +261,117 @@ fn evaluate_with_context(
         return Ok(BuiltinResult::NotApplicable);
     };
     let result_sort = term.sort();
-    evaluate_hook_with_context(
+    let result = evaluate_hook_with_context(
         hook,
         arguments,
         Some(&result_sort),
+        ResultCollection::declared(symbol.attributes.result_collection.as_ref(), sort_graph),
         sort_graph,
         definition,
         execution,
-    )
+    )?;
+    #[cfg(debug_assertions)]
+    if let BuiltinResult::Value(value) = &result {
+        debug_assert_value_of_sort(hook, value, &result_sort);
+    }
+    Ok(result)
+}
+
+/// Evaluation does not change the sort of the term it evaluates: the value of an application
+/// of `f : ... -> S` is a value of exactly `S` (KORE has no implicit subsorting), and a
+/// collection value holds elements of exactly its collection's element sorts.
+#[cfg(debug_assertions)]
+fn debug_assert_value_of_sort(hook: &str, value: &Term, result_sort: &Sort) {
+    debug_assert_eq!(
+        &value.sort(),
+        result_sort,
+        "{hook} evaluated to a value of another sort than its application: {value:?}"
+    );
+    let element_sorts: Vec<(&Term, &crate::term::Name)> = match value.kind() {
+        TermKind::List {
+            definition,
+            heads,
+            rest,
+        } => heads
+            .iter()
+            .chain(rest.iter().flat_map(|(_, tails)| tails))
+            .map(|element| (element, &definition.element_sort))
+            .collect(),
+        TermKind::Set {
+            definition,
+            elements,
+            ..
+        } => elements
+            .iter()
+            .map(|element| (element, &definition.element_sort))
+            .collect(),
+        TermKind::Map {
+            definition,
+            entries,
+            ..
+        } => entries
+            .iter()
+            .flat_map(|(key, value)| [(key, &definition.key_sort), (value, &definition.value_sort)])
+            .collect(),
+        _ => Vec::new(),
+    };
+    for (element, sort) in element_sorts {
+        debug_assert_eq!(
+            element.sort(),
+            Sort::simple(sort.clone()),
+            "{hook} evaluated to a collection holding an element of another sort than its \
+             element sort: {element:?}"
+        );
+    }
 }
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 pub use float::is_float_syntax;
 
+/// Evaluate `hook` on `arguments` without an applied symbol, so without a declared result sort:
+/// a collection hook that transforms a collection argument builds its result in that argument's
+/// collection, and one that introduces a collection (`LIST.unit`, `MAP.keys`, ...) declines.
 pub fn evaluate_hook(
     hook: &str,
     arguments: &[Term],
 ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
-    evaluate_hook_with_context(hook, arguments, None, None, None, None).layered()
+    evaluate_hook_with_context(
+        hook,
+        arguments,
+        None,
+        ResultCollection::undeclared(None),
+        None,
+        None,
+        None,
+    )
+    .layered()
+}
+
+/// Evaluate `hook` on `arguments` as an application whose declared result sort's collection is
+/// `result` (`None`: its result sort is no collection sort).
+#[cfg(test)]
+pub(crate) fn evaluate_hook_into(
+    hook: &str,
+    arguments: &[Term],
+    result: Option<&crate::term::CollectionMetadata>,
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    evaluate_hook_with_context(
+        hook,
+        arguments,
+        None,
+        ResultCollection::declared(result, None),
+        None,
+        None,
+        None,
+    )
+    .layered()
 }
 
 fn evaluate_hook_with_context(
     hook: &str,
     arguments: &[Term],
     result_sort: Option<&Sort>,
+    result_collection: ResultCollection<'_>,
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
@@ -344,9 +433,15 @@ fn evaluate_hook_with_context(
         }
         _ => {
             return match HookName::parse(hook).map(HookName::kind) {
-                Some(HookNamespace::List) => list::evaluate(hook, arguments, sort_graph),
-                Some(HookNamespace::Map) => map::evaluate(hook, arguments, sort_graph),
-                Some(HookNamespace::Set) => set::evaluate(hook, arguments, sort_graph),
+                Some(HookNamespace::List) => {
+                    list::evaluate(hook, arguments, sort_graph, result_collection)
+                }
+                Some(HookNamespace::Map) => {
+                    map::evaluate(hook, arguments, sort_graph, result_collection)
+                }
+                Some(HookNamespace::Set) => {
+                    set::evaluate(hook, arguments, sort_graph, result_collection)
+                }
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
                 Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),

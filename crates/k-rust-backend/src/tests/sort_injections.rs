@@ -408,3 +408,64 @@ fn no_junk_with_unlicensed_alternative_has_no_finite_domain() {
             .is_none()
     );
 }
+
+/// Internalization is the step every admission route shares, so whether a pattern is
+/// well-sorted cannot depend on the route: a pattern the verifier refuses for a sort reason is
+/// refused by internalization too. `inj{S, T}(t)` is an application whose argument sort is `S`,
+/// so an operand of another sort, a strict subsort of `S` included, is refused; the ordinary
+/// symbol is the control.
+#[test]
+fn internalization_refuses_what_the_verifier_refuses_for_its_sorts() {
+    let definition = load(
+        r#"[] module TEST
+            sort SortKItem{} []
+            sort SortFoo{} []
+            sort SortSub{} []
+            sort SortS{} []
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol inj{From, To}(From) : To [sortInjection{}()]
+            axiom{R} \exists{R}(Value:SortKItem{},
+                \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortFoo{}, SortKItem{}}(From:SortFoo{})))
+                [subsort{SortFoo{}, SortKItem{}}()]
+            axiom{R} \exists{R}(Value:SortKItem{},
+                \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortInt{}, SortKItem{}}(From:SortInt{})))
+                [subsort{SortInt{}, SortKItem{}}()]
+            axiom{R} \exists{R}(Value:SortFoo{},
+                \equals{SortFoo{}, R}(Value:SortFoo{}, inj{SortSub{}, SortFoo{}}(From:SortSub{})))
+                [subsort{SortSub{}, SortFoo{}}()]
+            axiom{R} \exists{R}(Value:SortKItem{},
+                \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortSub{}, SortKItem{}}(From:SortSub{})))
+                [subsort{SortSub{}, SortKItem{}}()]
+            symbol c{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+            symbol s{}() : SortSub{} [constructor{}(), functional{}(), injective{}()]
+            symbol wrap{}(SortFoo{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+        endmodule []"#,
+    )
+    .expect("the fixture loads");
+    let one = r#"\dv{SortInt{}}("1")"#;
+    let mut failures = Vec::new();
+    for (pattern, well_sorted) in [
+        (r"inj{SortFoo{}, SortKItem{}}(c{}())".to_owned(), true),
+        (format!("inj{{SortInt{{}}, SortKItem{{}}}}({one})"), true),
+        (r"inj{SortSub{}, SortKItem{}}(s{}())".to_owned(), true),
+        (format!("inj{{SortFoo{{}}, SortKItem{{}}}}({one})"), false),
+        (r"inj{SortInt{}, SortKItem{}}(c{}())".to_owned(), false),
+        (r"inj{SortFoo{}, SortKItem{}}(s{}())".to_owned(), false),
+        (r"wrap{}(c{}())".to_owned(), true),
+        (format!("wrap{{}}({one})"), false),
+    ] {
+        let syntax = parse_pattern(&pattern).expect("the pattern parses");
+        let verified = definition.verify_standalone_pattern(&syntax, &[]).is_ok();
+        let internalized = definition
+            .admit_unverified(&syntax, &[])
+            .internalize_term()
+            .is_ok();
+        if verified != well_sorted || internalized != well_sorted {
+            failures.push(format!(
+                "{pattern}: well-sorted {well_sorted}, verified {verified}, internalized \
+                 unverified {internalized}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

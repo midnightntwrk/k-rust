@@ -12,11 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use num_bigint::{BigInt, Sign};
 use num_traits::{Signed, ToPrimitive};
 
-use k_rust_kore::names::BuiltinSort;
-
 use super::{
-    Case, Draw, Env, Spec, Val, assert_reached, item, item_sort, list_definition, map_definition,
-    run, set_definition, variable,
+    Case, Draw, Env, Shapes, Spec, Val, assert_reached, item, item_sort, list_definition,
+    map_definition, run, set_definition, variable, with_shapes,
 };
 use crate::term::{Sort, Term};
 
@@ -60,7 +58,8 @@ fn list(draw: &mut Draw<'_>, env: &mut Env) -> Term {
         let name = draw.fresh_name("L");
         env.insert(name.clone(), Val::List(items(draw, 2)));
         let tails = (0..draw.below(3)).map(|_| element(draw, env)).collect();
-        (variable(&name, Sort::builtin(BuiltinSort::List)), tails)
+        let sort = Sort::simple(list_definition().list_sort.clone());
+        (variable(&name, sort), tails)
     });
     Term::list(list_definition(), heads, rest)
 }
@@ -88,7 +87,7 @@ fn map_shape(draw: &mut Draw<'_>, env: &mut Env) -> MapShape {
             .map(|key| (key, Val::Item(draw.below(5) as u8)))
             .collect();
         env.insert(name.clone(), Val::Map(entries));
-        variable(&name, Sort::builtin(BuiltinSort::Map))
+        variable(&name, Sort::simple(map_definition().map_sort.clone()))
     });
     MapShape { entries, rest }
 }
@@ -138,7 +137,7 @@ fn set(draw: &mut Draw<'_>, env: &mut Env) -> Term {
         let name = draw.fresh_name("S");
         let values = items(draw, 2).into_iter().collect();
         env.insert(name.clone(), Val::Set(values));
-        variable(&name, Sort::builtin(BuiltinSort::Set))
+        variable(&name, Sort::simple(set_definition().list_sort.clone()))
     });
     Term::set(set_definition(), elements, rest)
 }
@@ -299,19 +298,23 @@ fn list_model(hook: &str, arguments: &[Val]) -> Spec {
 
 #[test]
 fn list_hooks_agree_with_a_vec_model() {
-    let tallies = run(CASES, &list_case, &list_model);
-    assert_reached(
-        &tallies,
-        &LIST_HOOKS,
-        &[
-            "LIST.concat",
-            "LIST.in",
-            "LIST.get",
-            "LIST.range",
-            "LIST.update",
-            "LIST.size",
-        ],
-    );
+    for shapes in [Shapes::builtin(), Shapes::renamed()] {
+        with_shapes(shapes, || {
+            let tallies = run(CASES, &list_case, &list_model);
+            assert_reached(
+                &tallies,
+                &LIST_HOOKS,
+                &[
+                    "LIST.concat",
+                    "LIST.in",
+                    "LIST.get",
+                    "LIST.range",
+                    "LIST.update",
+                    "LIST.size",
+                ],
+            );
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -435,22 +438,26 @@ fn map_model(hook: &str, arguments: &[Val]) -> Spec {
 
 #[test]
 fn map_hooks_agree_with_a_btreemap_model() {
-    let tallies = run(CASES, &map_case, &map_model);
-    assert_reached(
-        &tallies,
-        &MAP_HOOKS,
-        &[
-            "MAP.element",
-            "MAP.update",
-            "MAP.updateAll",
-            "MAP.remove",
-            "MAP.lookupOrDefault",
-            "MAP.in_keys",
-            "MAP.inclusion",
-            "MAP.concat",
-            "MAP.lookup",
-        ],
-    );
+    for shapes in [Shapes::builtin(), Shapes::renamed()] {
+        with_shapes(shapes, || {
+            let tallies = run(CASES, &map_case, &map_model);
+            assert_reached(
+                &tallies,
+                &MAP_HOOKS,
+                &[
+                    "MAP.element",
+                    "MAP.update",
+                    "MAP.updateAll",
+                    "MAP.remove",
+                    "MAP.lookupOrDefault",
+                    "MAP.in_keys",
+                    "MAP.inclusion",
+                    "MAP.concat",
+                    "MAP.lookup",
+                ],
+            );
+        });
+    }
 }
 
 /// `MAP.values` lists the values in the order `MAP.keys_list` lists their keys, so that the two
@@ -469,8 +476,8 @@ fn map_values_follow_the_order_of_keys_list() {
                 .collect::<BTreeMap<_, _>>();
             let map = super::encode(&Val::Map(bindings.clone()));
             let project = |hook| {
-                let Ok(Ok(super::BuiltinResult::Value(list))) =
-                    super::evaluate_hook(hook, std::slice::from_ref(&map))
+                let Ok(super::BuiltinResult::Value(list)) =
+                    super::evaluate(hook, std::slice::from_ref(&map))
                 else {
                     panic!("{hook} does not evaluate a concrete map")
                 };
@@ -559,10 +566,14 @@ fn set_model(hook: &str, arguments: &[Val]) -> Spec {
 
 #[test]
 fn set_hooks_agree_with_a_btreeset_model() {
-    let tallies = run(CASES, &set_case, &set_model);
-    assert_reached(
-        &tallies,
-        &SET_HOOKS,
-        &["SET.concat", "SET.element", "SET.in"],
-    );
+    for shapes in [Shapes::builtin(), Shapes::renamed()] {
+        with_shapes(shapes, || {
+            let tallies = run(CASES, &set_case, &set_model);
+            assert_reached(
+                &tallies,
+                &SET_HOOKS,
+                &["SET.concat", "SET.element", "SET.in"],
+            );
+        });
+    }
 }

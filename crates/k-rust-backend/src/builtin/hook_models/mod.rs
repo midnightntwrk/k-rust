@@ -39,10 +39,10 @@ use proptest::{
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{BuiltinResult, UnsupportedHookReason, evaluate_hook};
+use super::{BuiltinResult, UnsupportedHookReason, evaluate_hook_into};
 use crate::term::{
-    CollectionSymbols, ListDefinition, MapDefinition, SetDefinition, Sort, Symbol, Term, TermKind,
-    Variable,
+    CollectionMetadata, CollectionSymbols, ListDefinition, MapDefinition, SetDefinition, Sort,
+    Symbol, Term, TermKind, Variable,
 };
 
 /// A value of the models. Floats are kept as their format and bit pattern, with every NaN
@@ -162,31 +162,126 @@ pub(super) struct Case {
 // ---------------------------------------------------------------------------------------------
 // Terms of the models' values.
 
+/// The list, set and map sorts the collection hooks are applied in. A hook builds its result in
+/// the collection its symbol declares, so the models hold for any names of these sorts and of
+/// their unit, element and concatenation symbols; the collection models run once with the
+/// builtin sorts' names and once with others.
+#[derive(Clone, Debug)]
+pub(super) struct Shapes {
+    list: Arc<ListDefinition>,
+    set: Arc<SetDefinition>,
+    map: Arc<MapDefinition>,
+}
+
+impl Shapes {
+    /// The builtin `List`, `Set` and `Map` sorts' names, holding `SortItem` elements.
+    pub(super) fn builtin() -> Self {
+        Self::named(
+            [
+                BuiltinSort::List.kore_name(),
+                "Lbl'Stop'List",
+                "LblListItem",
+                "Lbl'Unds'List'Unds'",
+            ],
+            [
+                BuiltinSort::Set.kore_name(),
+                "Lbl'Stop'Set",
+                "LblSetItem",
+                "Lbl'Unds'Set'Unds'",
+            ],
+            [
+                BuiltinSort::Map.kore_name(),
+                "Lbl'Stop'Map",
+                "Lbl'UndsPipe'-'-GT-Unds'",
+                "Lbl'Unds'Map'Unds'",
+            ],
+        )
+    }
+
+    /// Other sort and symbol names for the same three collections.
+    pub(super) fn renamed() -> Self {
+        Self::named(
+            ["SortItems", "dotItems", "itemsItem", "itemsConcat"],
+            ["SortItemSet", "dotItemSet", "itemSetItem", "itemSetConcat"],
+            ["SortItemMap", "dotItemMap", "itemMapItem", "itemMapConcat"],
+        )
+    }
+
+    fn named(list: [&str; 4], set: [&str; 4], map: [&str; 4]) -> Self {
+        let symbols = |[_, unit, element, concat]: [&str; 4]| CollectionSymbols {
+            unit: unit.into(),
+            element: element.into(),
+            concat: concat.into(),
+        };
+        let element_sort = || item_sort_name().into();
+        Self {
+            list: Arc::new(ListDefinition {
+                symbols: symbols(list),
+                element_sort: element_sort(),
+                list_sort: list[0].into(),
+            }),
+            set: Arc::new(SetDefinition {
+                symbols: symbols(set),
+                element_sort: element_sort(),
+                list_sort: set[0].into(),
+            }),
+            map: Arc::new(MapDefinition {
+                symbols: symbols(map),
+                key_sort: element_sort(),
+                value_sort: element_sort(),
+                map_sort: map[0].into(),
+            }),
+        }
+    }
+}
+
+thread_local! {
+    static SHAPES: RefCell<Shapes> = RefCell::new(Shapes::builtin());
+}
+
+/// Run `body` with the collection hooks applied in `shapes`.
+pub(super) fn with_shapes<R>(shapes: Shapes, body: impl FnOnce() -> R) -> R {
+    let previous = SHAPES.with(|current| current.replace(shapes));
+    let result = body();
+    SHAPES.with(|current| current.replace(previous));
+    result
+}
+
+fn item_sort_name() -> &'static str {
+    "SortItem"
+}
+
 pub(super) fn item_sort() -> Sort {
-    Sort::simple("SortItem")
+    Sort::simple(item_sort_name())
 }
 
 pub(super) fn list_definition() -> Arc<ListDefinition> {
-    super::list::k_item_definition()
+    SHAPES.with(|shapes| shapes.borrow().list.clone())
 }
 
 pub(super) fn set_definition() -> Arc<SetDefinition> {
-    super::set::k_item_set_definition()
+    SHAPES.with(|shapes| shapes.borrow().set.clone())
 }
 
-/// Equal to the definition `MAP.element` and `MAP.unit` build, so that their results combine
-/// with the generated maps.
 pub(super) fn map_definition() -> Arc<MapDefinition> {
-    Arc::new(MapDefinition {
-        symbols: CollectionSymbols {
-            unit: "Lbl'Stop'Map".into(),
-            element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
-            concat: "Lbl'Unds'Map'Unds'".into(),
-        },
-        key_sort: BuiltinSort::KItem.kore_name().into(),
-        value_sort: BuiltinSort::KItem.kore_name().into(),
-        map_sort: BuiltinSort::Map.kore_name().into(),
-    })
+    SHAPES.with(|shapes| shapes.borrow().map.clone())
+}
+
+/// The collection a hook's symbol declares its result in, as `domains.md` declares the
+/// builtin hooked symbols (`LIST.concat : List List -> List`, `MAP.keys : Map -> Set`, ...);
+/// `None` for a hook whose result is no collection.
+fn result_collection(hook: &str) -> Option<CollectionMetadata> {
+    match hook {
+        "LIST.concat" | "LIST.element" | "LIST.unit" | "LIST.make" | "LIST.range"
+        | "LIST.update" | "LIST.updateAll" | "SET.set2list" | "MAP.keys_list" | "MAP.values" => {
+            Some(CollectionMetadata::List(list_definition()))
+        }
+        "SET.concat" | "SET.element" | "SET.unit" | "SET.difference" | "SET.intersection"
+        | "SET.list2set" | "MAP.keys" => Some(CollectionMetadata::Set(set_definition())),
+        "MAP.element" | "MAP.unit" | "MAP.update" | "MAP.updateAll" | "MAP.remove"
+        | "MAP.removeAll" | "MAP.concat" => Some(CollectionMetadata::Map(map_definition())),
+        _ => None,
+    }
 }
 
 pub(super) fn item(value: u8) -> Term {
@@ -492,8 +587,9 @@ pub(super) struct Tally {
 
 pub(super) type Tallies = BTreeMap<&'static str, Tally>;
 
-fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, String> {
-    match evaluate_hook(hook, arguments) {
+/// `hook` applied to `arguments` by a symbol that declares its result as `domains.md` does.
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, String> {
+    match evaluate_hook_into(hook, arguments, result_collection(hook).as_ref()) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(format!("{hook} failed: {error:?}")),
         Err(stop) => Err(format!("{hook} stopped: {stop:?}")),

@@ -1711,7 +1711,7 @@ id = "backend.definition.internalize"
 provenance = "declared"
 area = "backend"
 name = "KORE definition validation and internalization"
-variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
+variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once"
 no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -1759,11 +1759,6 @@ symbol = "visit_module"
 
 [[node.sites]]
 crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/definition.rs"
-symbol = "visit_modules_preorder"
-
-[[node.sites]]
-crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
 symbol = "classify_axiom"
 
@@ -1779,7 +1774,7 @@ symbol = "internalize_axiom"
 
 [[node.cost]]
 mode = "one definition load"
-bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
 
 [[node.cost]]
 mode = "one term or pattern request (internalize_term, internalize_pattern)"
