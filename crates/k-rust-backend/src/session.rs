@@ -407,16 +407,15 @@ mod tests {
             4
         );
     }
-    /// The disjuncts of `big`, a closed nullary alias of about 360,000 units declared by the base
-    /// of [`alias_session`], as the alias of a priority group collects the left-hand sides of its
-    /// rules.
+    /// The disjuncts of `big`, a closed nullary alias of a condition, of about 360,000 units,
+    /// declared by the base of [`alias_session`].
     const BIG_DISJUNCTS: usize = 40_000;
 
-    /// A rewrite axiom of sort `S` labelled `label` that applies `big` once, under `\not`, as each
-    /// rule of a later priority group does.
+    /// A rewrite axiom of sort `S` labelled `label` that applies `big` once, as a condition of
+    /// its left-hand side.
     fn applying_big(label: &str) -> String {
         format!(
-            "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(big{{}}()), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"{label}\")]\n"
+            "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(big{{}}(), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"{label}\")]\n"
         )
     }
 
@@ -425,7 +424,7 @@ mod tests {
         let mut base = String::from(
             "[]\nmodule BASE\n    sort S{} []\n    symbol pair{}(S{}, S{}) : S{} [constructor{}()]\n    symbol a{}() : S{} [constructor{}()]\n",
         );
-        let body = vec!["pair{}(a{}(), a{}())"; BIG_DISJUNCTS].join(", ");
+        let body = vec![r"\equals{S{}, S{}}(a{}(), a{}())"; BIG_DISJUNCTS].join(", ");
         base.push_str(&format!(
             "    alias big{{}}() : S{{}} where big{{}}() := \\or{{S{{}}}}({body}) []\n"
         ));

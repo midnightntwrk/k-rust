@@ -69,6 +69,8 @@ use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKnownSymbol};
 use rustc_hash::FxHashMap;
 
+pub use crate::priority_conjunct::{DisjunctFailure, DisjunctStep, PriorityConjunctFailure};
+
 use crate::{
     alias::{
         AliasDefinition, UnfoldingBudget, collect as collect_aliases, expand as expand_aliases,
@@ -78,6 +80,7 @@ use crate::{
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     externalize,
     matching::{ClosedSort, SortError, SortGraph},
+    priority_conjunct::Discharge,
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
@@ -902,6 +905,14 @@ pub enum DefinitionError {
         refused: crate::nesting::SegmentRefused,
     },
     Axiom(AxiomError),
+    /// The priority conjunct `\not(alias{}())` of the left-hand side of the rewrite axiom
+    /// `sentence` is not discharged: what `alias` denotes is not shown to lie where a rule of
+    /// strictly smaller priority applies (`priority_conjunct`).
+    PriorityConjunct {
+        sentence: Box<SentenceKey>,
+        alias: String,
+        failure: PriorityConjunctFailure,
+    },
     RulePattern(RulePatternError),
     Claim(ClaimError),
     Verification(crate::verify::VerificationError),
@@ -1090,6 +1101,18 @@ impl fmt::Display for DefinitionError {
                 refused.size
             ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
+            Self::PriorityConjunct {
+                sentence,
+                alias,
+                failure,
+            } => {
+                let (module, index) = sentence.as_ref();
+                write!(
+                    formatter,
+                    "The priority conjunct \\not({alias}{{}}()) of the rewrite axiom at sentence \
+                     {index} of module {module} is not discharged: {failure}"
+                )
+            }
             Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
             Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
             Self::Verification(error) => write!(formatter, "{error}"),
@@ -1424,7 +1447,9 @@ impl BackendDefinition {
         &self.overloads
     }
 
-    /// The stored axioms of this semantic snapshot.
+    /// The stored axioms of this semantic snapshot: as written, with each discharged priority
+    /// conjunct of a rewrite left-hand side replaced by `\top` (`priority_conjunct`) and the
+    /// aliases of every axiom unfolded.
     #[inline]
     pub fn axioms(&self) -> &[PendingAxiom] {
         &self.axioms
@@ -1810,6 +1835,7 @@ impl BackendDefinition {
             .map(|module| (module.name.as_str(), rule_sentence_indices(module)))
             .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
+        let mut discharge = Discharge::new(preorder, &aliases);
         // Unfolding is charged to the operation that supplied each axiom: the axioms of the
         // modules given with the definition are unfolded together, within one budget relative to
         // their size, and those of each added module within one relative to its own size.
@@ -1859,14 +1885,18 @@ impl BackendDefinition {
                 if let Some(overload) = overload_attribute(attributes)? {
                     overloads.push(overload);
                 }
-                if expand {
-                    axiom_sentences.push((Name::from(module.name.as_str()), index));
-                }
+                let key = (Name::from(module.name.as_str()), index);
                 target.push(PendingAxiom {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
                     pattern: if expand {
-                        expand_aliases_within(pattern, &aliases, unfolding)?.into_owned()
+                        // A discharged priority conjunct is `\top` before aliases are unfolded,
+                        // so its alias is never unfolded.
+                        let written = discharge.discharge(pattern, attributes, &key)?;
+                        let expanded =
+                            expand_aliases_within(&written, &aliases, unfolding)?.into_owned();
+                        axiom_sentences.push(key);
+                        expanded
                     } else {
                         (**pattern).clone()
                     },
@@ -5208,10 +5238,10 @@ mod tests {
     }
 
     /// A closed alias applied by many axioms unfolds to a copy of its body at each application,
-    /// as the alias of a priority group's rules does in every rule of a later group: an unfolding
-    /// that grows with the product of the axioms and the body, not exponentially. A definition
-    /// whose axioms add more than the floor `UNFOLDING_LIMIT` (12 copies of a body of about
-    /// 360,000 units), but less than `UNFOLDING_FACTOR` times the definition's own size, loads.
+    /// here a condition every rule shares: an unfolding that grows with the product of the axioms
+    /// and the body, not exponentially. A definition whose axioms add more than the floor
+    /// `UNFOLDING_LIMIT` (12 copies of a body of about 360,000 units), but less than
+    /// `UNFOLDING_FACTOR` times the definition's own size, loads.
     #[test]
     fn loads_a_closed_alias_applied_by_many_axioms_beyond_the_floor() {
         const DISJUNCTS: usize = 40_000;
@@ -5223,13 +5253,13 @@ mod tests {
                 symbol pair{}(S{}, S{}) : S{} [constructor{}()]
                 symbol a{}() : S{} [constructor{}()]
         "#});
-        let body = vec!["pair{}(a{}(), a{}())"; DISJUNCTS].join(", ");
+        let body = vec![r"\equals{S{}, S{}}(a{}(), a{}())"; DISJUNCTS].join(", ");
         source.push_str(&format!(
             "    alias earlier{{}}() : S{{}} where earlier{{}}() := \\or{{S{{}}}}({body}) []\n"
         ));
         for rule in 0..RULES {
             source.push_str(&format!(
-                "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(\\not{{S{{}}}}(earlier{{}}()), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later{rule}\")]\n"
+                "    axiom{{}} \\rewrites{{S{{}}}}(\\and{{S{{}}}}(earlier{{}}(), pair{{}}(X:S{{}}, a{{}}())), a{{}}()) [label{{}}(\"later{rule}\")]\n"
             ));
         }
         source.push_str("endmodule []\n");

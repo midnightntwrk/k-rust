@@ -945,6 +945,17 @@ These load checks license closed injection pairs in loaded patterns, and rewriti
 Instances of sort-parametric axioms remain the residual: they are not checked closed at load.
 Applicable instances arise only from the injection composition schema, whose instances are licensed by transitivity; sort-parametric equations do not match closed subjects.
 
+### Priority conjuncts in rewrite left-hand sides
+
+A rewrite left-hand-side component `\not(A{}())`, with `A` an alias without parameters, states that the rule applies only outside what `A` denotes.
+A rule of priority `p` is offered only subjects to which no executable rule of smaller priority applies, so the component holds on every subject the rule is offered when everything `A` denotes is a configuration where such a rule applies.
+The backend shows this at load, from the written definition: each disjunct of `A` (nested `\or` flattened, `\bottom`s discarded) either names an executable, non-sort-parametric rewrite axiom (it is `\exists` of exactly its free variables over that rule's left-hand-side components, priority conjuncts and `\top`s removed, equal up to a renaming of variables) or applies another such alias, and the highest priority reached is strictly below `p`.
+A component shown to hold is replaced by `\top` before aliases are unfolded, so `A` is never unfolded and the rule is the rule written without it (`BackendDefinition::axioms()` shows the `\top`).
+One that is not shown to hold is refused with `PriorityConjunct`, naming the axiom, the alias and the disjunct path that fails or the rule whose priority is not below the carrier's (`NotStrictlyHigher`).
+The backend has no predicate "the subject is not in this set of configurations", so it cannot keep such a component as a condition: read as one, it is an ill-sorted condition that is never decided, which leaves a stuck branch beside the rule's result.
+For the same reason any other `\not(φ)` component of a rewrite left-hand side with a term pattern in predicate position of `φ` (reached through `\not`, `\and`, `\or`, `\implies`, `\iff`, `\exists`, `\forall`) is refused with `NegatedConfiguration` after alias unfolding; negated predicates such as `\not(\equals(..))` are unaffected.
+The check is sufficient, not complete: a definition whose priority aliases are written another way, or name rules by an instance of their left-hand sides, is refused rather than misread ([priority_conjunct.rs](../crates/k-rust-backend/src/tests/priority_conjunct.rs)).
+
 ### SMT prelude consistency
 
 The backend builds the SMT prelude when it selects a definition, but it may defer checking whether that prelude is satisfiable until an SMT answer depends on consistency.

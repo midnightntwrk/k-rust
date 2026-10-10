@@ -15,6 +15,7 @@ mod walk_flags;
 pub(crate) mod alpha;
 mod capture;
 mod cascade;
+pub(crate) mod priority_conjunct;
 
 mod proof_boundary;
 mod recover_boundary;

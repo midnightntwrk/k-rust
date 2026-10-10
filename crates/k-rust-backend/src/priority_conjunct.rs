@@ -34,22 +34,23 @@
 //! alias's body is the rule's unfolded left-hand side, which is not `App` as written, so the other
 //! order refuses a valid definition. Both readings are sound. The recursion through nested
 //! aliases ends because alias cycles are refused at declaration (`alias::measure_aliases`).
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the summary is read by the discharge of priority conjuncts at load (K41), which \
-                  is wired into definition internalization by a later change"
-    )
-)]
-
-use std::collections::{BTreeSet, HashMap};
+//!
+//! A conjunct of a rule of priority `p` is *discharged* when its alias denotes nothing or
+//! summarises strictly below `p` (rules of equal priority are not tried before one another). The
+//! load replaces it by `\top` in the written pattern ([`Discharge::discharge`]), before aliases
+//! are unfolded, so a priority alias is never unfolded and the rule internalised equals the rule
+//! written without the conjunct. A conjunct that is not discharged refuses the load: krust has no
+//! predicate "the subject is not in this set", and reading it as a predicate misreads it.
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use k_rust_kore::kore::ast as kore;
 
 use crate::{
     alias::AliasDefinition,
+    definition::DefinitionError,
     rule::{
         AxiomError, RuleAttributes, SentenceKey, VariableRenaming, flatten_and, hash_pattern_shape,
     },
@@ -83,6 +84,60 @@ pub enum PriorityConjunctFailure {
         path: Vec<DisjunctStep>,
         reason: DisjunctFailure,
     },
+    /// The alias names `rule`, of priority `named`, which is not strictly below the priority
+    /// `own` of the rule carrying the conjunct; `path` lists the steps from the conjunct's alias
+    /// down to the disjunct that names `rule`.
+    NotStrictlyHigher {
+        named: u8,
+        own: u8,
+        rule: SentenceKey,
+        path: Vec<DisjunctStep>,
+    },
+}
+
+impl fmt::Display for DisjunctFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::NamesNoRule => "it names no rewrite axiom and applies no nullary alias",
+            Self::NamedRuleNotExecutable => "the rewrite axioms it names are not executable",
+            Self::ParametricNamedRule => {
+                "the rewrite axioms it names are sort-parametric or not executable"
+            }
+        })
+    }
+}
+
+impl fmt::Display for PriorityConjunctFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn write_path(formatter: &mut fmt::Formatter<'_>, path: &[DisjunctStep]) -> fmt::Result {
+            for (position, (alias, index)) in path.iter().enumerate() {
+                if position > 0 {
+                    formatter.write_str(", then ")?;
+                }
+                write!(formatter, "disjunct {index} of {alias}")?;
+            }
+            Ok(())
+        }
+        match self {
+            Self::Disjunct { path, reason } => {
+                write_path(formatter, path)?;
+                write!(formatter, ": {reason}")
+            }
+            Self::NotStrictlyHigher {
+                named,
+                own,
+                rule: (module, index),
+                path,
+            } => {
+                write_path(formatter, path)?;
+                write!(
+                    formatter,
+                    " names the rule at sentence {index} of module {module}, of priority \
+                     {named}, not strictly below the priority {own} of the rule carrying it"
+                )
+            }
+        }
+    }
 }
 
 /// The highest priority a nullary alias names, and where.
@@ -120,7 +175,7 @@ struct WrittenRule<'a> {
 /// The rewrite axioms of a definition by applicability pattern, and the memoised summaries of its
 /// nullary aliases.
 pub(crate) struct PriorityConjuncts<'a> {
-    aliases: &'a std::collections::BTreeMap<String, AliasDefinition>,
+    aliases: &'a BTreeMap<String, AliasDefinition>,
     rules: Vec<WrittenRule<'a>>,
     /// Indices into `rules` by [`application_shape`].
     by_shape: HashMap<u64, Vec<usize>>,
@@ -132,7 +187,7 @@ impl<'a> PriorityConjuncts<'a> {
     /// they declare.
     pub(crate) fn collect(
         modules: &[&'a kore::Module],
-        aliases: &'a std::collections::BTreeMap<String, AliasDefinition>,
+        aliases: &'a BTreeMap<String, AliasDefinition>,
     ) -> Self {
         let mut rules = Vec::new();
         let mut by_shape = HashMap::<u64, Vec<usize>>::new();
@@ -290,6 +345,110 @@ impl<'a> PriorityConjuncts<'a> {
     }
 }
 
+/// The discharge of the priority conjuncts of the rewrite axioms of one load.
+pub(crate) struct Discharge<'m, 'a> {
+    modules: &'m [&'a kore::Module],
+    aliases: &'a BTreeMap<String, AliasDefinition>,
+    /// Built at the first priority conjunct, so a definition without one takes no new path.
+    conjuncts: Option<PriorityConjuncts<'a>>,
+}
+
+impl<'m, 'a> Discharge<'m, 'a> {
+    /// The discharge against the rewrite axioms of every module of `modules`, which declare
+    /// `aliases`.
+    pub(crate) fn new(
+        modules: &'m [&'a kore::Module],
+        aliases: &'a BTreeMap<String, AliasDefinition>,
+    ) -> Self {
+        Self {
+            modules,
+            aliases,
+            conjuncts: None,
+        }
+    }
+
+    /// The axiom `pattern`, written with `attributes` as the sentence `sentence`, with each
+    /// priority conjunct of its rewrite left-hand side replaced by `\top` of its sort: borrowed
+    /// when it has none. Refused when one is not discharged; a malformed attribute of the axiom
+    /// or of a rule a disjunct names gives the error classifying that axiom gives.
+    pub(crate) fn discharge(
+        &mut self,
+        pattern: &'a kore::Pattern,
+        attributes: &kore::Attributes,
+        sentence: &SentenceKey,
+    ) -> Result<Cow<'a, kore::Pattern>, DefinitionError> {
+        let kore::Pattern::Rewrites { sort, left, right } = pattern else {
+            return Ok(Cow::Borrowed(pattern));
+        };
+        let aliases = self.aliases;
+        let mut components = Vec::new();
+        flatten_and(left, &mut components);
+        let mut carried = components
+            .into_iter()
+            .filter_map(|component| priority_conjunct(component, aliases))
+            .peekable();
+        if carried.peek().is_none() {
+            return Ok(Cow::Borrowed(pattern));
+        }
+        let own = RuleAttributes::parse(attributes)
+            .map_err(DefinitionError::Axiom)?
+            .priority;
+        let modules = self.modules;
+        let conjuncts = self
+            .conjuncts
+            .get_or_insert_with(|| PriorityConjuncts::collect(modules, aliases));
+        for alias in carried {
+            let failure = match conjuncts.summary(alias) {
+                Ok(None) => continue,
+                Ok(Some(witness)) if witness.priority < own => continue,
+                Ok(Some(Witness {
+                    priority,
+                    rule,
+                    path,
+                })) => PriorityConjunctFailure::NotStrictlyHigher {
+                    named: priority,
+                    own,
+                    rule,
+                    path,
+                },
+                Err(SummaryError::Failure(failure)) => failure,
+                Err(SummaryError::Axiom(error)) => return Err(DefinitionError::Axiom(error)),
+            };
+            return Err(DefinitionError::PriorityConjunct {
+                sentence: Box::new(sentence.clone()),
+                alias: alias.to_owned(),
+                failure,
+            });
+        }
+        Ok(Cow::Owned(kore::Pattern::Rewrites {
+            sort: sort.clone(),
+            left: Box::new(without_conjuncts(left, aliases)),
+            right: right.clone(),
+        }))
+    }
+}
+
+/// `pattern` with each priority conjunct among its components (nested `\and` flattened) replaced
+/// by `\top` of its sort.
+fn without_conjuncts(
+    pattern: &kore::Pattern,
+    aliases: &BTreeMap<String, AliasDefinition>,
+) -> kore::Pattern {
+    match pattern {
+        kore::Pattern::And { sort, arguments } => kore::Pattern::And {
+            sort: sort.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| without_conjuncts(argument, aliases))
+                .collect(),
+        },
+        kore::Pattern::Not { sort, .. } if priority_conjunct(pattern, aliases).is_some() => {
+            kore::Pattern::Top { sort: sort.clone() }
+        }
+        _ => pattern.clone(),
+    }
+}
+
 /// What a disjunct names.
 enum Named {
     /// The rules of least priority among the qualifying rules it names.
@@ -305,7 +464,7 @@ enum Named {
 /// The nullary alias whose negation `component` is, when it is a priority conjunct.
 pub(crate) fn priority_conjunct<'p>(
     component: &'p kore::Pattern,
-    aliases: &std::collections::BTreeMap<String, AliasDefinition>,
+    aliases: &BTreeMap<String, AliasDefinition>,
 ) -> Option<&'p str> {
     let kore::Pattern::Not { argument, .. } = component else {
         return None;
@@ -316,7 +475,7 @@ pub(crate) fn priority_conjunct<'p>(
 /// The alias `pattern` applies when it is an application `A{}()` of a nullary alias.
 fn nested_alias<'p>(
     pattern: &'p kore::Pattern,
-    aliases: &std::collections::BTreeMap<String, AliasDefinition>,
+    aliases: &BTreeMap<String, AliasDefinition>,
 ) -> Option<&'p str> {
     let kore::Pattern::Application { symbol, arguments } = pattern else {
         return None;
@@ -356,9 +515,14 @@ fn application_shape(components: &[&kore::Pattern]) -> u64 {
 
 fn prefixed(error: SummaryError, step: &DisjunctStep) -> SummaryError {
     match error {
-        SummaryError::Failure(PriorityConjunctFailure::Disjunct { mut path, reason }) => {
-            path.insert(0, step.clone());
-            SummaryError::Failure(PriorityConjunctFailure::Disjunct { path, reason })
+        SummaryError::Failure(mut failure) => {
+            match &mut failure {
+                PriorityConjunctFailure::Disjunct { path, .. }
+                | PriorityConjunctFailure::NotStrictlyHigher { path, .. } => {
+                    path.insert(0, step.clone());
+                }
+            }
+            SummaryError::Failure(failure)
         }
         SummaryError::Axiom(error) => SummaryError::Axiom(error),
     }
@@ -366,47 +530,12 @@ fn prefixed(error: SummaryError, step: &DisjunctStep) -> SummaryError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use indoc::indoc;
     use k_rust_kore::kore::parser::parse_definition;
 
     use super::*;
-    use crate::definition::DefinitionError;
-
-    /// Two levels of priority aliases: `priorityLE35` names `r0` (priority 35, no variables) by
-    /// a bare application of its left-hand-side alias, `priorityLE40` nests `priorityLE35` and
-    /// names `r1` and `r2` (priority 40); `r3` (priority 50) carries `priorityLE40`.
-    const FIXTURE: &str = indoc! {r#"
-        []
-        module PRIO
-          sort SortS{} []
-          symbol a{}() : SortS{} [constructor{}(), functional{}()]
-          symbol b{}() : SortS{} [constructor{}(), functional{}()]
-          symbol c{}() : SortS{} [constructor{}(), functional{}()]
-          symbol d{}() : SortS{} [constructor{}(), functional{}()]
-          symbol e{}() : SortS{} [constructor{}(), functional{}()]
-          symbol g{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
-          symbol f{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
-          alias rule0LHS{}() : SortS{} where rule0LHS{}() := \and{SortS{}}(\top{SortS{}}(), f{}(e{}())) []
-          alias rule1LHS{}(SortS{}) : SortS{}
-          where rule1LHS{}(VarY:SortS{}) := \and{SortS{}}(\top{SortS{}}(), f{}(g{}(VarY:SortS{}))) []
-          alias rule2LHS{}() : SortS{} where rule2LHS{}() := \and{SortS{}}(\top{SortS{}}(), f{}(a{}())) []
-          alias rule3LHS{}(SortS{}) : SortS{}
-          where rule3LHS{}(VarX:SortS{}) := \and{SortS{}}(\top{SortS{}}(), f{}(VarX:SortS{})) []
-          alias priorityLE35{}() : SortS{} where priorityLE35{}() := \or{SortS{}}(rule0LHS{}(), \bottom{SortS{}}()) []
-          alias priorityLE40{}() : SortS{}
-          where priorityLE40{}() := \or{SortS{}}(priorityLE35{}(), \or{SortS{}}(
-            \exists{SortS{}}(VarY:SortS{}, rule1LHS{}(VarY:SortS{})), \or{SortS{}}(rule2LHS{}(), \bottom{SortS{}}()))) []
-          axiom{} \rewrites{SortS{}}(rule0LHS{}(), \and{SortS{}}(\top{SortS{}}(), a{}())) [priority{}("35"), label{}("r0")]
-          axiom{} \rewrites{SortS{}}(\and{SortS{}}(\not{SortS{}}(priorityLE35{}()), rule1LHS{}(VarY:SortS{})),
-            \and{SortS{}}(\top{SortS{}}(), b{}())) [priority{}("40"), label{}("r1")]
-          axiom{} \rewrites{SortS{}}(\and{SortS{}}(\not{SortS{}}(priorityLE35{}()), rule2LHS{}()),
-            \and{SortS{}}(\top{SortS{}}(), b{}())) [priority{}("40"), label{}("r2")]
-          axiom{} \rewrites{SortS{}}(\and{SortS{}}(\not{SortS{}}(priorityLE40{}()), rule3LHS{}(VarX:SortS{})),
-            \and{SortS{}}(\top{SortS{}}(), c{}())) [priority{}("50"), label{}("r3")]
-        endmodule []
-    "#};
+    use crate::{definition::DefinitionError, tests::priority_conjunct::FIXTURE};
 
     /// The sentence indices of `r0`, `r1` and `r2` in `FIXTURE`'s module.
     const R0: usize = 14;

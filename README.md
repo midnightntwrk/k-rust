@@ -785,6 +785,8 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
   concrete parameters normally supplied by parser inference.
 - Emit the optional legacy priority aliases supported by `ModuleToKORE` compatibility modes.
+  The backend already accepts their conjuncts and discharges them at load (`docs/compatibility.md`,
+  "Priority conjuncts in rewrite left-hand sides").
 - Measure Z3-path usage across a substantially larger real-definition corpus.
 - Revisit package splitting only if real build or release pressure justifies it.
 

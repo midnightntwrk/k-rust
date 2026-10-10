@@ -659,6 +659,10 @@ pub enum RulePatternError {
     /// A function argument binder whose variable, as written, has another sort than a term it
     /// binds. The variable is held in its KORE form, as [`DefinitionError`] holds its sorts.
     BinderSortMismatch(kore::Variable),
+    /// A component `\not(φ)` of a rewrite left-hand side, after alias unfolding, with a term
+    /// pattern in a predicate position of `φ`: it states that the subject is outside a set of
+    /// configurations, which no predicate of a rule expresses, so it would be misread.
+    NegatedConfiguration,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2312,6 +2316,11 @@ fn internalize_rule_pattern_with_position(
     }
     // A dead matched term is discarded before any written condition is internalized.
     for predicate in deferred_predicates {
+        if negates_configuration(&predicate) {
+            return Err(DefinitionError::RulePattern(
+                RulePatternError::NegatedConfiguration,
+            ));
+        }
         predicates.extend(
             internalize_predicates(definition, &predicate, sort_parameters, injection_role)
                 .map_err(|error| {
@@ -2599,6 +2608,43 @@ pub(crate) fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a k
     } else {
         output.push(pattern);
     }
+}
+
+/// Whether `component` is `\not(φ)` with a term pattern in a predicate position of `φ`: `φ`
+/// itself, or reached through `\not`, `\and`, `\or`, `\implies`, `\iff`, `\exists` and
+/// `\forall`. The arguments of `\equals`, `\ceil`, `\floor` and `\in` are in term position,
+/// so a negated predicate such as `\not(\equals(..))` is not one.
+fn negates_configuration(component: &kore::Pattern) -> bool {
+    fn in_predicate_position(pattern: &kore::Pattern) -> bool {
+        match pattern {
+            kore::Pattern::String(_)
+            | kore::Pattern::Variable(_)
+            | kore::Pattern::Application { .. }
+            | kore::Pattern::DomainValue { .. }
+            | kore::Pattern::AssociativeApplication { .. } => true,
+            kore::Pattern::Not { argument, .. } => in_predicate_position(argument),
+            kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
+                arguments.iter().any(in_predicate_position)
+            }
+            kore::Pattern::Implies { left, right, .. } | kore::Pattern::Iff { left, right, .. } => {
+                in_predicate_position(left) || in_predicate_position(right)
+            }
+            kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
+                in_predicate_position(body)
+            }
+            kore::Pattern::Top { .. }
+            | kore::Pattern::Bottom { .. }
+            | kore::Pattern::Next { .. }
+            | kore::Pattern::Rewrites { .. }
+            | kore::Pattern::Mu { .. }
+            | kore::Pattern::Nu { .. }
+            | kore::Pattern::Ceil { .. }
+            | kore::Pattern::Floor { .. }
+            | kore::Pattern::Equals { .. }
+            | kore::Pattern::In { .. } => false,
+        }
+    }
+    matches!(component, kore::Pattern::Not { argument, .. } if in_predicate_position(argument))
 }
 
 fn is_term_pattern(pattern: &kore::Pattern) -> bool {
