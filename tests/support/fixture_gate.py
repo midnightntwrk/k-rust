@@ -199,6 +199,12 @@ class FixtureGate:
         modules = krs_gate.ir_query(self.gate, directory, {"kind": "modules"}, environment=self.environment)
         return Emitted(fixture, directory, modules["main_module"])
 
+    def emit_unpinned(self, fixture: Fixture, directory: Path) -> Path:
+        """Emit canonical K into `directory` without pinning it, for byte comparisons with `emit`."""
+
+        self._krs(fixture, "emit-k", "--output", directory)
+        return directory
+
     def diagnostic(self, name: str, fixture: Fixture, *extra: str) -> str:
         """Require `krs check` to fail and pin its diagnostic lines."""
 

@@ -63,7 +63,10 @@ partition end to end on both routes:
   `Name`'s regex; both are emitted in `KRS-LAYOUT-SYNTAX`. Programs with `;`
   comments and newlines parse to the same KAST in Java `kast` and run to the
   same result on both routes, and a program with a `//` comment is now
-  rejected on both;
+  rejected on both. A copy of the fixture workspace at another path emits
+  byte-identical artifacts: the `#Layout` order follows generated item names,
+  whose expansion nonces hash the package-relative file, never the checkout
+  path;
 - `lists`: `#[k::syntax_list]` declares K's `List{Int, ","}` and a `NeList`
   with the derived symbols `intsCons`/`intsNil` and `altsCons`/`altsNil`;
   `sum(1, 2, 3)` is `6` and `sum(7)` is `7` on both routes, while
@@ -108,13 +111,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Fixture, FixtureGate, Program, kore_attribute_lines  # noqa: E402
+from support.fixture_gate import Emitted, Fixture, FixtureGate, Program, kore_attribute_lines  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
@@ -469,6 +473,47 @@ def verify_induced_visibility(harness: FixtureGate, pins: Ledger, emitted, works
     print(f"PASS grammar-lexing visibility-induced reference snapshot: {k.finish()}")
 
 
+def relocate_workspace(destination: Path) -> Path:
+    """Copy the fixture workspace to `destination`, keeping its path dependencies on this checkout."""
+
+    destination.mkdir(parents=True)
+    for name in ("Cargo.toml", "Cargo.lock"):
+        shutil.copy2(HERE / name, destination / name)
+    shutil.copytree(HERE / "packages", destination / "packages")
+
+    for manifest in sorted(destination.rglob("Cargo.toml")):
+        original = HERE / manifest.parent.relative_to(destination)
+
+        def absolute(match: re.Match[str], original: Path = original) -> str:
+            target = (original / match.group(1)).resolve()
+            if target.is_relative_to(HERE):
+                return match.group(0)
+            return f"path = {json.dumps(os.fspath(target))}"
+
+        text = manifest.read_text(encoding="utf-8")
+        manifest.write_text(re.sub(r'path = "([^"]+)"', absolute, text), encoding="utf-8")
+    return destination / "Cargo.toml"
+
+
+def verify_relocation(harness: FixtureGate, emitted: Emitted, workspace: Path) -> None:
+    """Emit `emitted`'s fixture from a copy at another path and require byte-identical artifacts."""
+
+    manifest = relocate_workspace(workspace / "relocated" / "another" / "checkout")
+    relocated = Fixture(manifest, emitted.fixture.package, emitted.fixture.definition, emitted.fixture.dependencies)
+    directory = harness.emit_unpinned(relocated, workspace / "relocated-emitted" / relocated.package)
+    names = sorted({path.name for path in emitted.directory.iterdir()} | {path.name for path in directory.iterdir()})
+    differences = [
+        name for name in names
+        if not (emitted.directory / name).is_file()
+        or not (directory / name).is_file()
+        or (emitted.directory / name).read_bytes() != (directory / name).read_bytes()
+    ]
+    if differences:
+        raise GateError(
+            f"{relocated.package}: a copy of the fixture workspace at another path emits different {differences}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -599,7 +644,11 @@ def main() -> int:
             if fragment not in syntax_text:
                 raise GateError(f"layout: {layout.syntax_module} omits {fragment!r}")
         harness.compare(layout, LAYOUT_PROGRAMS, sort="Stmt")
-        print("PASS layout: ; comments and newlines are layout on both routes; // is no longer a comment")
+        verify_relocation(harness, layout, workspace)
+        print(
+            "PASS layout: ; comments and newlines are layout on both routes; // is no longer a comment; "
+            "a relocated copy emits identical artifacts"
+        )
 
         harness.check(LISTS)
         harness.expand(LISTS)
