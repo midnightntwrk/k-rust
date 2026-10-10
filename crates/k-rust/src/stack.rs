@@ -120,9 +120,10 @@ impl std::fmt::Display for TooDeep {
                 formatter,
                 "a term {depth} levels deep needs {required} bytes of native stack, more than the {largest} bytes this build provides"
             ),
-            StackLimit::MappingRefused(refused) => write!(
+            // The refused segment is the one the work needs (`with_depth` maps `required`).
+            StackLimit::MappingRefused(_) => write!(
                 formatter,
-                "a term {depth} levels deep needs {required} bytes of native stack, and {refused}"
+                "a term {depth} levels deep needs {required} bytes of native stack, a segment the system refused to map"
             ),
         }
     }
@@ -236,6 +237,59 @@ mod tests {
     #[test]
     fn work_that_fits_a_segment_runs() {
         assert_eq!(with_depth(10_000, || 7), Ok(7));
+    }
+
+    /// The address space, in KiB, under which [`a_refused_segment_is_reported_as_refused`]
+    /// reruns this test binary: far below the 1 GiB segment the inner test asks for.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    const ADDRESS_SPACE_KIB: u32 = 800_000;
+
+    /// [`with_depth`] reports a segment within [`STACK_LIMIT`] that the system refuses as that
+    /// refusal, with the segment the depth needs, and not as a depth limit the work did not
+    /// reach; the work does not run. Run by [`a_refused_segment_is_reported_as_refused`] under an
+    /// address space smaller than the segment.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    #[ignore = "needs an address space smaller than its segment: run by a_refused_segment_is_reported_as_refused"]
+    fn with_depth_reports_a_segment_the_system_refuses() {
+        let depth = (1 << 30) / STACK_PER_LEVEL;
+        let mut ran = false;
+        let refused = with_depth(depth, || ran = true).unwrap_err();
+        assert!(!ran);
+        assert_eq!(refused.depth, depth);
+        assert!(refused.required <= STACK_LIMIT, "{refused:?}");
+        assert!(
+            matches!(
+                refused.limit,
+                StackLimit::MappingRefused(k_rust_backend::nesting::SegmentRefused { size })
+                    if size == refused.required
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// Reruns this test binary with its address space limited to [`ADDRESS_SPACE_KIB`] for
+    /// [`with_depth_reports_a_segment_the_system_refuses`], and asserts that it ran and passed.
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    fn a_refused_segment_is_reported_as_refused() {
+        let name = "stack::tests::with_depth_reports_a_segment_the_system_refuses";
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                r#"ulimit -S -v {ADDRESS_SPACE_KIB} && exec "$0" --ignored --exact "$1" --test-threads 1"#
+            ))
+            .arg(std::env::current_exe().expect("the test binary has a path"))
+            .arg(name)
+            .output()
+            .expect("the test binary starts");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{name} under a {ADDRESS_SPACE_KIB} KiB address space: {}\n{stdout}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     /// The depth counts the nodes on the longest path, annotations not counted.

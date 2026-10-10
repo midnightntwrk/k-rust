@@ -1065,7 +1065,7 @@ impl fmt::Display for DefinitionError {
             ),
             Self::StackSegmentRefused { depth, refused } => write!(
                 formatter,
-                "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, and {refused}",
+                "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, a native stack segment the system refused to map",
                 refused.size
             ),
             Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),

@@ -64,8 +64,9 @@ pub enum StopCause {
 ///
 /// The three are different facts with different remedies: a thread's budget is reached by one
 /// recursion that went too deep (or by a budget set too small), the process's by deep recursions
-/// on several threads at once, and the system's refusal by an address space or memory smaller
-/// than the budgets assume.
+/// on several threads at once or by one thread whose budget an embedder set above the process's
+/// (`nesting::with_simplification_stack_budget` accepts any), and the system's refusal by an
+/// address space or memory smaller than the budgets assume.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StackLimit {
     /// The segments held on this thread would exceed its budget, the bytes given
@@ -101,8 +102,9 @@ impl fmt::Display for StackLimit {
             ),
             Self::ProcessBudget(budget) => write!(
                 formatter,
-                "the segments of every thread reached the process's budget of {}: too many \
-                 threads recursed deeply at once",
+                "the segments of every thread together reached the process's budget of {}: \
+                 deep recursions on several threads at once, or one thread whose budget is above \
+                 the process's",
                 display_bytes(*budget)
             ),
             Self::MappingRefused(refused) => write!(
@@ -1445,8 +1447,9 @@ mod tests {
         );
         assert_eq!(
             StopCause::StackExhausted(StackLimit::ProcessBudget(4 << 30)).to_string(),
-            "simplification exhausted its native stack: the segments of every thread reached \
-             the process's budget of 4 GiB: too many threads recursed deeply at once"
+            "simplification exhausted its native stack: the segments of every thread together \
+             reached the process's budget of 4 GiB: deep recursions on several threads at once, \
+             or one thread whose budget is above the process's"
         );
         assert_eq!(
             StopCause::StackExhausted(StackLimit::MappingRefused(crate::nesting::SegmentRefused {
