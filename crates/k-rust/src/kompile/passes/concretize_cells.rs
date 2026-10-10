@@ -1468,7 +1468,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 let parent = &self.model.cells[&parent];
                 // Instances of `parent` are built only here, once per completion, so every item
                 // of its sort in `retained` or `others` (an alias), or in the body of a written
-                // cell above `parent` among them, is written.
+                // cell above `parent` among them, is written; so is one written on both sides of
+                // a rewrite of cells above `parent` there, a written instance on each side.
                 let mut written = Vec::new();
                 for item in retained.iter().map(|(item, _)| item).chain(&others) {
                     self.written_instances(item, &parent.sort, &mut written);
@@ -2109,7 +2110,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         parent: &Cell,
         open: bool,
         items: Vec<(Term, Vec<MovedCell>)>,
-        written: &[&Term],
+        written: &[WrittenInstance<'_>],
     ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
         let item_terms = items.iter().map(|(item, _)| item).collect::<Vec<_>>();
         let classes = self.instance_classes(parent, &item_terms)?;
@@ -2123,7 +2124,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     .iter()
                     .find(|holder| self.written_instance_may_hold(parent, holder, &group))
                 {
-                    return Err(self.unstated_instance(parent, repeated, holder, &group));
+                    return Err(self.unstated_instance(parent, repeated, holder.shown, &group));
                 }
             }
         }
@@ -2250,21 +2251,52 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// Push onto `out` the written instances of the cell sort `parent` that `item`, an item of
     /// a cell body, is or holds: `item` itself when it is of that sort, and otherwise, when
     /// `item` is a cell above `parent` written as a cell body (or a one-cell `#as` of one, which
-    /// denotes its pattern), the instances its body items are or hold. A cell inside a rewrite
-    /// is on one side only, so the walk does not enter a rewrite: such a cell is no instance the
-    /// rule keeps.
-    fn written_instances<'t>(&self, item: &'t Term, parent: &Sort, out: &mut Vec<&'t Term>) {
+    /// denotes its pattern), the instances its body items are or hold. A rewrite of cells above
+    /// `parent` holds an instance on each side: it is one written instance, with the parts
+    /// found on its left side and on its right side, when both sides have one; an instance on
+    /// one side only is no instance the rule keeps.
+    fn written_instances<'t>(
+        &self,
+        item: &'t Term,
+        parent: &Sort,
+        out: &mut Vec<WrittenInstance<'t>>,
+    ) {
         if self.model.slot_sort(item).as_ref() == Some(parent) {
-            out.push(item);
+            out.push(WrittenInstance {
+                shown: item,
+                sides: [side_parts(item, Side::Left), side_parts(item, Side::Right)],
+            });
             return;
         }
         let cell = match item.unannotated() {
             Term::As { pattern, .. } => pattern,
+            Term::Rewrite { left, right } => {
+                let found = [left, right].map(|side| {
+                    let mut found = Vec::new();
+                    // Invariant: `found` holds the instances found on this side before `inner`; each call descends into a cell of that side, so the walk ends.
+                    for inner in flatten_cells(side) {
+                        self.written_instances(inner, parent, &mut found);
+                    }
+                    found
+                });
+                if let [left, right] = &found
+                    && let Some(first) = left.first()
+                    && !right.is_empty()
+                {
+                    out.push(WrittenInstance {
+                        shown: first.shown,
+                        sides: [
+                            left.iter().flat_map(|w| w.sides[0].clone()).collect(),
+                            right.iter().flat_map(|w| w.sides[1].clone()).collect(),
+                        ],
+                    });
+                }
+                return;
+            }
             Term::Apply { .. }
             | Term::Variable { .. }
             | Term::Token { .. }
             | Term::InjectedLabel(_)
-            | Term::Rewrite { .. }
             | Term::Sequence(_)
             | Term::Annotated { .. } => item,
         };
@@ -2288,14 +2320,19 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// ([`Self::side_may_hold`]). A `holder` that is on one side only (removed or added by a
     /// rewrite) cannot be it: the cells of `group` are then in an instance the rule keeps, and a
     /// built instance is the only reading.
-    fn written_instance_may_hold(&self, parent: &Cell, holder: &Term, group: &[&Term]) -> bool {
+    fn written_instance_may_hold(
+        &self,
+        parent: &Cell,
+        holder: &WrittenInstance<'_>,
+        group: &[&Term],
+    ) -> bool {
         [Side::Left, Side::Right].into_iter().all(|side| {
             let parts = group
                 .iter()
                 .flat_map(|item| side_parts(item, side))
                 .collect::<Vec<_>>();
-            side_parts(holder, side)
-                .into_iter()
+            holder.sides[side as usize]
+                .iter()
                 .any(|instance| self.side_may_hold(parent, instance, side, &parts))
         })
     }
@@ -3524,6 +3561,13 @@ fn flatten_cells(term: &Term) -> Vec<&Term> {
 enum Side {
     Left,
     Right,
+}
+
+/// A written instance of a cell, as [`Concretizer::written_instances`] finds it: the item a
+/// message names, and the parts of it on the left and on the right side of the rule.
+struct WrittenInstance<'t> {
+    shown: &'t Term,
+    sides: [Vec<&'t Term>; 2],
 }
 
 /// What `item`, an item of a cell body, writes in the `side` projection of the rule: the items of

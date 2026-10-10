@@ -8205,6 +8205,7 @@ fn rejects_a_cell_that_a_written_instance_inside_a_written_repeated_cell_may_hol
     for rule in [
         "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> ... </a> <d> 5 => 6 </d>",
         "<k> 0 => 1 </k> <a> <r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> <d> 5 => 6 </d> ... </a>",
+        "<k> 0 => 1 </k> <a> (<r> <rid> 1 </rid> <a2> <y> 1 </y> ... </a2> ... </r> => <r> <rid> 1 </rid> <a2> <y> 2 </y> ... </a2> ... </r>) ... </a> <d> 5 => 6 </d>",
     ] {
         let errors =
             concretized_cell_rule(configuration, rule).expect_err("the written <a2> may hold <d>");
