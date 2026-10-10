@@ -214,6 +214,12 @@ endmodule
         "--for-proving",
     ]));
 
+    // The counters compared below include `smt.rlimit_count`, which sums the work of every Z3
+    // attempt. With a wall-clock timeout, a check delayed by the scheduler is cut off and
+    // retried, adding the work of the cut-off attempt without another solver run, so the count
+    // would depend on the machine's load rather than on the query. Both runs therefore use
+    // `u32::MAX`, Z3's default for the parameter, under which a check is never cut off.
+    let no_smt_timeout = u32::MAX.to_string();
     let baseline_timings = root.join("baseline-timings.json");
     let baseline_counters = root.join("baseline-counters.json");
     let baseline = run(Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -227,6 +233,8 @@ endmodule
             "reaches-b-or-c",
             "--depth",
             "10",
+            "--smt-timeout",
+            no_smt_timeout.as_str(),
             "--timings",
             baseline_timings.to_str().unwrap(),
         ])
@@ -246,6 +254,8 @@ endmodule
             "reaches-b-or-c",
             "--depth",
             "10",
+            "--smt-timeout",
+            no_smt_timeout.as_str(),
             "--timings",
             traced_timings.to_str().unwrap(),
             "--trace",
