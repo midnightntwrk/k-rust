@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
-//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module", "visit_modules_preorder"]
-//! variable = "d = definition sentences and pattern nodes; P = import paths from the main module, one entry each in the visit_modules_preorder output, which does not deduplicate; a = axioms and claims of one module"
+//! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module"]
+//! variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once"
 //! counters = []
 //! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 //! span = "per problem"
@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -46,12 +46,12 @@
 //! ```
 //!
 //! Validation and internalization of textual KORE definitions, O(|definition|) for the module, sort
-//! and symbol passes plus one axiom push, alias expansion and classification per import path to
-//! each module, once per load: import DFS with a path stack for cycle detection, preorder axiom
-//! order without deduplication of modules reached by several import paths, axiom-shape
-//! classification, term internalization; subsort and overload transitive closures by naive
-//! iteration, rounds <= longest chain, each O(|S| x |closure|) for subsorts and O(|closure|^2) for
-//! overloads. No counter; the `internalize` phase of `kprove --timings` measures it,
+//! and symbol passes plus one axiom push, alias expansion and classification per axiom or claim of
+//! each module the main module reaches, once per load: one import DFS with a path stack for cycle
+//! detection, which visits each module once and gives the declaration order (postorder) and the
+//! axiom order (first-visit preorder), axiom-shape classification, term internalization; subsort
+//! and overload transitive closures by naive iteration, rounds <= longest chain, each
+//! O(|S| x |closure|) for subsorts and O(|closure|^2) for overloads. No counter; the `internalize` phase of `kprove --timings` measures it,
 //! `Counter::TermConstructed` indirectly.
 
 use std::{
@@ -1439,12 +1439,14 @@ impl BackendDefinition {
         let mut visiting = Vec::new();
         let mut visited = BTreeSet::new();
         let mut ordered = Vec::new();
+        let mut preorder = Vec::new();
         visit_module(
             main_module,
             &module_map,
             &mut visiting,
             &mut visited,
             &mut ordered,
+            &mut preorder,
         )?;
         // Every later pass recurses over the sentences, with their aliases unfolded, and over
         // the internal terms built from them, so each runs on a stack measured for what it
@@ -1470,7 +1472,7 @@ impl BackendDefinition {
         crate::nesting::with_stack(declared, || {
             Self::internalize_modules(
                 definition,
-                &module_map,
+                &preorder,
                 main_module,
                 added,
                 &ordered,
@@ -1494,7 +1496,7 @@ impl BackendDefinition {
     #[deny(clippy::wildcard_enum_match_arm)]
     fn internalize_modules(
         definition: &kore::Definition,
-        module_map: &BTreeMap<&str, &kore::Module>,
+        preorder: &[&kore::Module],
         main_module: &str,
         added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
@@ -1615,7 +1617,7 @@ impl BackendDefinition {
         let deepest = declared.max(verified);
         crate::nesting::with_stack(deepest, || {
             Self::internalize_axioms(
-                module_map,
+                preorder,
                 main_module,
                 added,
                 ordered,
@@ -1634,7 +1636,7 @@ impl BackendDefinition {
     #[deny(clippy::wildcard_enum_match_arm)]
     #[allow(clippy::too_many_arguments)]
     fn internalize_axioms(
-        module_map: &BTreeMap<&str, &kore::Module>,
+        preorder: &[&kore::Module],
         main_module: &str,
         added: &BTreeSet<&str>,
         ordered: &[&kore::Module],
@@ -1651,12 +1653,7 @@ impl BackendDefinition {
             .iter()
             .map(|module| (module.name.as_str(), rule_sentence_indices(module)))
             .collect::<BTreeMap<_, _>>();
-        let import_orders = ordered
-            .iter()
-            .map(|module| (module.name.as_str(), import_sentence_indices(module)))
-            .collect::<BTreeMap<_, _>>();
         let mut axiom_sentences = Vec::new();
-        let mut axiom_modules = Vec::new();
         // Unfolding is charged to the operation that supplied each axiom: the axioms of the
         // modules given with the definition are unfolded together, within one budget relative to
         // their size, and those of each added module within one relative to its own size.
@@ -1674,8 +1671,9 @@ impl BackendDefinition {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        visit_modules_preorder(main_module, module_map, &import_orders, &mut axiom_modules)?;
-        for module in axiom_modules {
+        // A module's axioms and claims are its sentences however many import paths reach it, so
+        // each module is read once, in the order the main module's imports first reach it.
+        for &module in preorder {
             let unfolding = match added_unfolding.get_mut(module.name.as_str()) {
                 Some(budget) => budget,
                 None => &mut given_unfolding,
@@ -2871,12 +2869,16 @@ fn validate_alias_declarations(
     Ok(())
 }
 
+/// Visits the modules `name` reaches, each once: `ordered` lists them in postorder (a module
+/// after the modules it imports), `preorder` in the order the imports, read in declaration
+/// order, first reach them.
 fn visit_module<'a>(
     name: &str,
     modules: &BTreeMap<&str, &'a kore::Module>,
     visiting: &mut Vec<String>,
     visited: &mut BTreeSet<String>,
     ordered: &mut Vec<&'a kore::Module>,
+    preorder: &mut Vec<&'a kore::Module>,
 ) -> Result<(), DefinitionError> {
     if visited.contains(name) {
         return Ok(());
@@ -2891,49 +2893,19 @@ fn visit_module<'a>(
         .copied()
         .ok_or_else(|| DefinitionError::NoSuchModule(name.to_owned()))?;
     visiting.push(name.to_owned());
+    preorder.push(module);
     // A module found in `visiting` closes an import cycle; `visited` skips finished modules.
-    // Invariant: `visiting` is the import path down to `name`; `visited` holds finished modules.
+    // Invariant: `visiting` is the import path down to `name`; `visited` holds finished modules;
+    // a module is in `preorder` exactly when it is in `visiting` or `visited`.
     for sentence in &module.sentences {
         if let kore::Sentence::Import { module, .. } = sentence {
-            visit_module(module, modules, visiting, visited, ordered)?;
+            visit_module(module, modules, visiting, visited, ordered, preorder)?;
         }
     }
     visiting.pop();
     visited.insert(name.to_owned());
     ordered.push(module);
     Ok(())
-}
-
-fn visit_modules_preorder<'a>(
-    name: &str,
-    modules: &BTreeMap<&str, &'a kore::Module>,
-    import_orders: &BTreeMap<&str, Vec<usize>>,
-    ordered: &mut Vec<&'a kore::Module>,
-) -> Result<(), DefinitionError> {
-    let module = modules
-        .get(name)
-        .copied()
-        .ok_or_else(|| DefinitionError::NoSuchModule(name.to_owned()))?;
-    ordered.push(module);
-    // Invariant: `ordered` lists each import path once, in declaration order (no dedup).
-    for &index in &import_orders[name] {
-        let kore::Sentence::Import { module: import, .. } = &module.sentences[index] else {
-            unreachable!("cached import order contains only import sentences")
-        };
-        visit_modules_preorder(import, modules, import_orders, ordered)?;
-    }
-    Ok(())
-}
-
-/// Import sentences of `module` in declaration order.
-fn import_sentence_indices(module: &kore::Module) -> Vec<usize> {
-    module
-        .sentences
-        .iter()
-        .enumerate()
-        .filter(|(_, sentence)| matches!(sentence, kore::Sentence::Import { .. }))
-        .map(|(index, _)| index)
-        .collect()
 }
 
 /// Axiom and claim sentences of `module` in declaration order. Within one priority group the
