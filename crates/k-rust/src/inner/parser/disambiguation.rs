@@ -121,7 +121,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise a node over children of several readings is kept unexpanded as the product of their readings when lower_term builds it from its children unchanged (a `~>` node: over its spliced items, when none may be a sequence), and an ambiguity node as pairwise disjoint parts, O(A^2) structural comparisons per ambiguity node with each pair of products decided once; only a #KToken join, a `~>` whose items may be sequences, and the differing children of two overlapping products of one head enumerate their terms; the report then takes, at each subterm it narrows through or reports, one union of the parts' children and at most one of their contexts per child position, and builds one term per entry it lists"
+//! bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise a node over children of several readings is kept unexpanded as the product of their readings when lower_term builds it from its children unchanged (a `~>` node: over its spliced items, when none may be a sequence), and an ambiguity node as pairwise disjoint parts, O(A^2) structural comparisons per ambiguity node with each pair of products decided once; a `~>` node whose items may be sequences is the union of such products, one per choice of one part of each of those items; only a #KToken join and the differing children of two overlapping products of one head enumerate their terms; the report then takes, at each subterm it narrows through or reports, one union of the parts' children and at most one of their contexts per child position, and builds one term per entry it lists"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -1109,11 +1109,12 @@ impl Grammar {
     /// distinct combinations are distinct terms and the set is kept unexpanded as a product
     /// (`Grammar::product_readings`); a `~>` node is such a product over its items when no
     /// item may itself be a sequence, since `Term::sequence` then splices nothing
-    /// (`ReadingSets::sequence_items`); a node that denotes its first child (a bracket, an
-    /// unlabelled single child) has that child's readings. Only a node that joins its
-    /// children (a `#KToken` of two strings, a sequence whose items may be sequences) has its
-    /// combinations enumerated. An ambiguity node's readings are the union of its
-    /// alternatives', kept as pairwise disjoint parts (`Grammar::insert_readings`).
+    /// (`ReadingSets::sequence_items`), and otherwise the union of such products, one per
+    /// choice of one part of each item that may be a sequence; a node that denotes its first
+    /// child (a bracket, an unlabelled single child) has that child's readings. Only a node
+    /// that joins its children's text (a `#KToken` of two strings) has its combinations
+    /// enumerated. An ambiguity node's readings are the union of its alternatives', kept as
+    /// pairwise disjoint parts (`Grammar::insert_readings`).
     ///
     /// ```toml algorithm-site
     /// id = "parser.diagnostic.ambiguity"
@@ -1179,6 +1180,43 @@ impl Grammar {
             if let Some(items) = sets.sequence_items(&children) {
                 return self.product_readings(production, parameters, metadata, items, sets);
             }
+            // A child that may be a sequence is split into its parts. Each part is one term, a
+            // `~>` product or a product of another head, so every choice of one part per such
+            // child splices into items none of which is a sequence, and the node's readings
+            // are the union of the products of those choices; no other child is enumerated.
+            let mut choices = vec![Vec::with_capacity(children.len())];
+            for child in &children {
+                let options = if sets.may_be_sequence(child) {
+                    child.parts().to_vec()
+                } else {
+                    vec![child.clone()]
+                };
+                choices = choices
+                    .into_iter()
+                    .flat_map(|prefix: Vec<Readings>| {
+                        options.iter().map(move |option| {
+                            let mut choice = prefix.clone();
+                            choice.push(option.clone());
+                            choice
+                        })
+                    })
+                    .collect();
+            }
+            let mut parts = Parts::default();
+            for choice in choices {
+                let items = sets
+                    .sequence_items(&choice)
+                    .expect("no item of a chosen part is a sequence");
+                let readings = self.product_readings(
+                    production,
+                    parameters.clone(),
+                    metadata.clone(),
+                    items,
+                    sets,
+                )?;
+                self.insert_readings(&mut parts, readings, sets)?;
+            }
+            return Ok(parts.into_readings());
         } else if !label.is_some_and(|label| label.is(InternalLabel::KToken)) {
             return self.product_readings(production, parameters, metadata, children, sets);
         }
@@ -4524,8 +4562,8 @@ mod tests {
     }
 
     /// A grammar of `wrapper(Exp)`, `pair(Exp, Exp)`, `couple(Exp, Exp)`, a `~>` over two
-    /// `Exp`, and constants `a` to `d` and `outer`, and a builder of its production nodes over
-    /// `start..start + 1`.
+    /// `Exp`, the empty sequence `#EmptyK`, and constants `a` to `d` and `outer`, and a builder
+    /// of its production nodes over `start..start + 1`.
     fn readings_fixture() -> (Grammar, impl Fn(&str, Vec<ParsedTerm>, usize) -> ParsedTerm) {
         let mut grammar = Grammar::default();
         let mut productions = BTreeMap::new();
@@ -4547,6 +4585,10 @@ mod tests {
                 &["Exp", "Exp"],
                 InternalLabel::KSequence.as_str(),
             ),
+        );
+        productions.insert(
+            "#EmptyK",
+            add_production(&mut grammar, "Exp", &[], InternalLabel::EmptyK.as_str()),
         );
         for name in ["a", "b", "c", "d", "outer"] {
             productions.insert(name, add_production(&mut grammar, "Exp", &[], name));
@@ -4929,8 +4971,8 @@ mod tests {
             );
             LOWERINGS.with(Cell::get)
         };
-        // Each 8 more choices take as many more lowerings: the work is linear in their number.
-        let counts = [lowerings(8), lowerings(16), lowerings(24)];
+        // Each 4 more choices take as many more lowerings: the work is linear in their number.
+        let counts = [lowerings(4), lowerings(8), lowerings(12)];
         assert_eq!(counts[2] - counts[1], counts[1] - counts[0], "{counts:?}");
     }
 
@@ -5010,8 +5052,44 @@ mod tests {
             assert_eq!(places.len(), items);
             LOWERINGS.with(Cell::get)
         };
-        // Each 8 more choices take as many more lowerings: the work is linear in their number.
-        let counts = [lowerings(8), lowerings(16), lowerings(24)];
+        // Each 4 more choices take as many more lowerings: the work is linear in their number.
+        let counts = [lowerings(4), lowerings(8), lowerings(12)];
+        assert_eq!(counts[2] - counts[1], counts[1] - counts[0], "{counts:?}");
+    }
+
+    #[test]
+    fn a_sequence_whose_last_item_may_be_empty_is_reported_in_work_linear_in_its_length() {
+        let (grammar, node) = readings_fixture();
+        // `x ~> ... ~> x ~> y`, each `x` reading `a` or `b` and `y` reading `a` or the empty
+        // sequence, nested as the parser builds a binary `~>`. The root's right child may be
+        // a sequence, so its items are not known before a reading of `y` is chosen; the
+        // readings are still the sequences of every combination, all distinct.
+        let sequence = |items: usize| {
+            (0..items)
+                .map(|index| {
+                    ambiguity([
+                        node("a", vec![], 10 * (index + 1)),
+                        node("b", vec![], 10 * (index + 1)),
+                    ])
+                })
+                .chain([ambiguity([
+                    node("a", vec![], 10 * (items + 1)),
+                    node("#EmptyK", vec![], 10 * (items + 1)),
+                ])])
+                .reduce(|left, right| node("~>", vec![left, right], 0))
+                .expect("at least one item")
+        };
+        let lowerings = |items| {
+            LOWERINGS.with(|count| count.set(0));
+            let error = grammar.resolve_ambiguities(sequence(items)).unwrap_err();
+            let ParseError::Ambiguous { parses, .. } = error else {
+                panic!("expected an ambiguity")
+            };
+            assert_eq!(parses, 2 << items);
+            LOWERINGS.with(Cell::get)
+        };
+        // Each 4 more choices take as many more lowerings: the work is linear in their number.
+        let counts = [lowerings(4), lowerings(8), lowerings(12)];
         assert_eq!(counts[2] - counts[1], counts[1] - counts[0], "{counts:?}");
     }
 
