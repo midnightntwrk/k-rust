@@ -90,7 +90,7 @@ meaning = "The upstream recipe defines no case or individual step the conformanc
 [[category]]
 id = "reference-merges-overlapping-set"
 decided_by = "docs/compatibility.md#set-concatenation-is-nilpotent"
-meaning = "The reference's concrete execution merges a Set concatenation whose operands share an element (including a type=\"Set\" cell collection given two equal cells); the concatenation is nilpotent, so that step is undefined, and the port ends the run in an undefined step, as symbolic execution does."
+meaning = "The reference LLVM backend's concrete execution merges a Set concatenation whose operands share an element (including a type=\"Set\" cell collection given two equal cells); the concatenation is nilpotent, so that step is undefined, and the port ends the run in an undefined step, as symbolic execution does."
 
 [[category]]
 id = "reference-prunes-undefined-step"
