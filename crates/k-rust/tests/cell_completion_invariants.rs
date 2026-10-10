@@ -724,10 +724,10 @@ fn a_rejection_for_an_unstated_instance_names_the_cell_and_the_repeated_cell() {
 /// Stepback ticket C0 (not in FOLLOWUPS). Completion places the cells a rule writes and adds the
 /// cells it omits; it never removes a term the rule writes. A function of sort `Bag` on the right
 /// side of a rewrite in a cell body is a written term: the compiled rule keeps it, or the rule is
-/// rejected. On `934d29e7` `split_rewrite_side` skips it (`continue`), so `(<o> … </o> => mko(2))`
-/// compiles as the removal of `<o>`, and `(.Bag => mkth(2))` vanishes from the rule.
+/// rejected with an error that names the function. On `934d29e7` `split_rewrite_side` skips it
+/// (`continue`), so `(<o> … </o> => mko(2))` compiles as the removal of `<o>`, and
+/// `(.Bag => mkth(2))` vanishes from the rule.
 #[test]
-#[ignore = "reproduces cells-stepback C0: a Bag function on a rewrite side leaves the compiled rule"]
 fn completion_keeps_every_written_function_application() {
     const EXTRA: &str = "syntax Bag\n syntax Bag ::= mko(Int) [function] | mkth(Int) [function]";
     let mut failures = Vec::new();
@@ -743,16 +743,23 @@ fn completion_keeps_every_written_function_application() {
             "mkth",
         ),
     ] {
-        if let Ok(body) = completed_in(EXTRA, THREADS_OPTIONAL, rule) {
-            let printed = canonical(&body);
-            if !printed.contains(function) {
-                failures.push(format!("\n  {rule}\n    -> {printed}"));
+        match completed_in(EXTRA, THREADS_OPTIONAL, rule) {
+            Ok(body) => {
+                let printed = canonical(&body);
+                if !printed.contains(function) {
+                    failures.push(format!("\n  {rule}\n    -> {printed}"));
+                }
+            }
+            Err(errors) => {
+                if !errors.iter().any(|error| error.contains(function)) {
+                    failures.push(format!("\n  {rule}\n    -> {errors:?}"));
+                }
             }
         }
     }
     assert!(
         failures.is_empty(),
-        "compiled rules without a written function application:{}",
+        "compiled rules without a written function application, or rejections not naming it:{}",
         failures.join("")
     );
 }

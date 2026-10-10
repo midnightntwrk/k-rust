@@ -2245,8 +2245,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             if let Term::Rewrite { left, right } = item.unannotated() {
                 let left_side = left.as_ref();
                 let right_side = right.as_ref();
-                let left = self.split_rewrite_side(left_side, cell)?;
-                let right = self.split_rewrite_side(right_side, cell)?;
+                let left = self.split_rewrite_side(left_side, false, cell)?;
+                let right = self.split_rewrite_side(right_side, true, cell)?;
                 let mut sorts = left
                     .keys()
                     .chain(right.keys())
@@ -2377,9 +2377,18 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         })
     }
 
+    /// The children of `parent` that `term`, the left (`right` false) or right side of a rewrite
+    /// in `parent`'s body, writes, by child sort.
+    ///
+    /// Every item of `term` is accounted for: a cell is placed by its sort, a variable by its
+    /// fragment split or its cell sort, the empty bag occupies no child, and any other item is
+    /// rejected. Such an item (a `Bag`-sorted function application, an alias) is a term of the
+    /// rule that no child of `parent` holds, so skipping it would compile a rule without it, and
+    /// that rule denotes a different relation.
     fn split_rewrite_side(
         &self,
         term: &Term,
+        right: bool,
         parent: &Cell,
     ) -> Result<BTreeMap<Sort, Term>, String> {
         let mut split = BTreeMap::new();
@@ -2390,7 +2399,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 continue;
             }
             let Term::Variable { name, sort } = item.unannotated() else {
-                continue;
+                if is_empty_cell_bag(item) {
+                    continue;
+                }
+                return Err(self.unplaceable_rewrite_item(item, right, parent));
             };
             if let Some(fragment) = self.fragments.get(name) {
                 for (sort, term) in &fragment.split {
@@ -2403,6 +2415,54 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
         }
         Ok(split)
+    }
+
+    /// The error for `item`, an item of the left (`right` false) or right side of a rewrite in
+    /// `parent`'s body that is neither a cell, a variable nor the empty bag. It names the item:
+    /// a symbol by its label (and sort, when one production declares it), an alias by its
+    /// variable.
+    fn unplaceable_rewrite_item(&self, item: &Term, right: bool, parent: &Cell) -> String {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only applications and aliases are named specially"
+        )]
+        let item = match item.unannotated() {
+            Term::Apply { label, .. } => {
+                let head = LabelHead::from(label);
+                let kind = if self.productions.function_labels().contains(&head) {
+                    "function"
+                } else {
+                    "symbol"
+                };
+                let sort = match self.productions.productions_for(&head) {
+                    [production] => match self.productions.production(*production) {
+                        Sentence::Production { sort, .. } => format!(" of sort {sort}"),
+                        Sentence::SyntaxSort { .. }
+                        | Sentence::SortSynonym { .. }
+                        | Sentence::SyntaxLexical { .. }
+                        | Sentence::SyntaxAssociativity { .. }
+                        | Sentence::SyntaxPriority { .. }
+                        | Sentence::ContextAlias { .. }
+                        | Sentence::Context { .. }
+                        | Sentence::Rule { .. }
+                        | Sentence::Claim { .. }
+                        | Sentence::Configuration { .. }
+                        | Sentence::Bubble { .. } => String::new(),
+                    },
+                    _ => String::new(),
+                };
+                format!("the {kind} `{}`{sort}", label.name)
+            }
+            Term::As { alias, .. } => format!("the alias `{alias}`"),
+            other => format!("`{other}`"),
+        };
+        format!(
+            "Cell completion cannot place {item}, written on the {} side of a rewrite in {}: \
+             only cells, variables and the empty bag `.Bag` stand among a cell's children, and \
+             the rule compiled without it would not be the rule written",
+            if right { "right" } else { "left" },
+            parent.label.name
+        )
     }
 
     fn insert_child(
