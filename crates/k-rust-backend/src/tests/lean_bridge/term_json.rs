@@ -76,6 +76,7 @@ fn symbol_json(symbol: &Symbol) -> Value {
         smt,
         hook,
         collection,
+        result_collection,
     } = attributes.declaration();
     let other = format!(
         "{:?}",
@@ -90,6 +91,7 @@ fn symbol_json(symbol: &Symbol) -> Value {
             smt,
             hook,
             collection,
+            result_collection,
         )
     );
     json!({

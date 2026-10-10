@@ -345,7 +345,13 @@ pub struct SymbolAttributes {
     pub has_evaluators: bool,
     pub smt: Option<SmtType>,
     pub hook: Option<Name>,
+    /// The collection this symbol is one of the unit, element and concatenation symbols of:
+    /// `Term::application` folds its applications into that collection's term.
     pub collection: Option<CollectionMetadata>,
+    /// For a hooked symbol whose result sort is a collection sort, that sort's collection: a
+    /// value of the result sort is built from that collection's own symbols and holds elements
+    /// of its element sorts, so a hook builds its value there (`builtin::ResultCollection`).
+    pub result_collection: Option<CollectionMetadata>,
 }
 
 /// Every field of [`SymbolAttributes`], all visible inside the crate: the one way to build
@@ -371,6 +377,7 @@ pub(crate) struct SymbolDeclaration {
     pub(crate) smt: Option<SmtType>,
     pub(crate) hook: Option<Name>,
     pub(crate) collection: Option<CollectionMetadata>,
+    pub(crate) result_collection: Option<CollectionMetadata>,
 }
 
 impl From<SymbolDeclaration> for SymbolAttributes {
@@ -388,6 +395,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
             smt,
             hook,
             collection,
+            result_collection,
         } = declaration;
         Self {
             symbol_type,
@@ -402,6 +410,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
             smt,
             hook,
             collection,
+            result_collection,
         }
     }
 }
@@ -427,6 +436,7 @@ impl SymbolAttributes {
             smt: None,
             hook: None,
             collection: None,
+            result_collection: None,
         }
     }
 
@@ -579,6 +589,7 @@ impl SymbolAttributes {
             smt,
             hook,
             collection,
+            result_collection,
         } = self.clone();
         SymbolDeclaration {
             symbol_type,
@@ -593,6 +604,7 @@ impl SymbolAttributes {
             smt,
             hook,
             collection,
+            result_collection,
         }
     }
 }

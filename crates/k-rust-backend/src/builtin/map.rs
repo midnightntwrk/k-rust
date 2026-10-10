@@ -1,29 +1,24 @@
 //! Concrete `MAP` hooks: per-call operations on the internal map representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use num_bigint::BigInt;
 
-use k_rust_kore::names::BuiltinSort;
-
 use super::{
-    BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
-    expect_sort, int_term, values_differ,
+    BuiltinError, BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term,
+    expect_arity, expect_sort, int_term, values_differ,
 };
 use crate::{
-    builtin::{list::k_item_definition as k_item_list_definition, set::k_item_set_definition},
     matching::SortGraph,
-    term::{CollectionSymbols, MapDefinition, Term, TermKind},
+    term::{MapDefinition, Term, TermKind},
 };
 
 pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
     sorts: Option<&SortGraph>,
+    result: ResultCollection<'_>,
 ) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal map that binds a key
     // twice, with the same value or not, is `\bottom` (`Term::map`). A `ceil_free` map has
@@ -35,20 +30,20 @@ pub(super) fn evaluate(
         return Ok(BuiltinResult::Bottom);
     }
     let result = match hook {
-        "MAP.element" => element(arguments),
-        "MAP.unit" => unit(arguments),
-        "MAP.update" => update(arguments, sorts),
-        "MAP.updateAll" => update_all(arguments),
-        "MAP.remove" => remove(arguments, sorts),
-        "MAP.removeAll" => remove_all(arguments),
+        "MAP.element" => element(arguments, result),
+        "MAP.unit" => unit(arguments, result),
+        "MAP.update" => update(arguments, sorts, result),
+        "MAP.updateAll" => update_all(arguments, result),
+        "MAP.remove" => remove(arguments, sorts, result),
+        "MAP.removeAll" => remove_all(arguments, result),
         "MAP.size" => size(arguments),
         "MAP.lookupOrDefault" => lookup_or_default(arguments, sorts),
         "MAP.in_keys" => in_keys(arguments, sorts),
-        "MAP.keys" => keys(arguments),
-        "MAP.keys_list" => keys_list(arguments),
-        "MAP.values" => values(arguments),
+        "MAP.keys" => keys(arguments, result),
+        "MAP.keys_list" => keys_list(arguments, result),
+        "MAP.values" => values(arguments, result),
         "MAP.inclusion" => inclusion(arguments),
-        "MAP.concat" => return concat(arguments),
+        "MAP.concat" => return concat(arguments, result),
         "MAP.lookup" => return lookup(arguments, sorts),
         _ => {
             return Ok(BuiltinResult::Unsupported(
@@ -59,34 +54,28 @@ pub(super) fn evaluate(
     Ok(result.into())
 }
 
-fn k_item_definition() -> Arc<MapDefinition> {
-    Arc::new(MapDefinition {
-        symbols: CollectionSymbols {
-            unit: "Lbl'Stop'Map".into(),
-            element: "Lbl'UndsPipe'-'-GT-Unds'".into(),
-            concat: "Lbl'Unds'Map'Unds'".into(),
-        },
-        key_sort: BuiltinSort::KItem.kore_name().into(),
-        value_sort: BuiltinSort::KItem.kore_name().into(),
-        map_sort: BuiltinSort::Map.kore_name().into(),
-    })
-}
-
-fn element(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn element(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.element", arguments, 2)?;
-    Ok(Some(Term::map(
-        k_item_definition(),
-        vec![(arguments[0].clone(), arguments[1].clone())],
-        None,
-    )))
+    let Some(into) = result.map(None) else {
+        return Ok(None);
+    };
+    let (Some(key), Some(value)) = (
+        into.key(arguments[0].clone()),
+        into.value(arguments[1].clone()),
+    ) else {
+        return Ok(None);
+    };
+    Ok(into.build(vec![(key, value)], None))
 }
 
-fn unit(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn unit(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.unit", arguments, 0)?;
-    Ok(Some(Term::map(k_item_definition(), Vec::new(), None)))
+    Ok(result
+        .map(None)
+        .and_then(|into| into.build(Vec::new(), None)))
 }
 
-fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
+fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<BuiltinResult> {
     expect_arity("MAP.concat", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -109,6 +98,9 @@ fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
     if definition != right_definition || (left_rest.is_some() && right_rest.is_some()) {
         return Ok(BuiltinResult::NotApplicable);
     }
+    let Some(into) = result.map(Some(definition)) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
     if left_entries.iter().any(|(left_key, _)| {
         right_entries
             .iter()
@@ -116,13 +108,17 @@ fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
     }) {
         return Ok(BuiltinResult::Bottom);
     }
-    let mut entries = left_entries.clone();
+    let (Some(left_entries), Some(right_entries)) = (
+        into.entries(left_entries, definition),
+        into.entries(right_entries, definition),
+    ) else {
+        return Ok(BuiltinResult::NotApplicable);
+    };
+    let mut entries = left_entries.into_owned();
     entries.extend(right_entries.iter().cloned());
-    Ok(BuiltinResult::Value(Term::map(
-        definition.clone(),
-        entries,
-        left_rest.clone().or_else(|| right_rest.clone()),
-    )))
+    Ok(into
+        .build(entries, left_rest.clone().or_else(|| right_rest.clone()))
+        .into())
 }
 
 // Without a rest, every possible key is among the entries. Strict operands make
@@ -139,7 +135,11 @@ fn absent(
             .all(|(existing, _)| values_differ(sorts, key, existing))
 }
 
-fn update(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
+fn update(
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+    result: ResultCollection<'_>,
+) -> HookResult<Option<Term>> {
     expect_arity("MAP.update", arguments, 3)?;
     let [map, key, new_value] = arguments else {
         unreachable!()
@@ -152,23 +152,35 @@ fn update(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Te
     else {
         return Ok(None);
     };
+    // The update is decided on the result's keys: a key argument of a strict subsort of the
+    // key sort is compared as the key it is injected to.
+    let Some(into) = result.map(Some(definition)) else {
+        return Ok(None);
+    };
+    let (Some(entries), Some(key), Some(new_value)) = (
+        into.entries(entries, definition),
+        into.key(key.clone()),
+        into.value(new_value.clone()),
+    ) else {
+        return Ok(None);
+    };
     if let Some(index) = entries
         .iter()
-        .position(|(existing_key, _)| existing_key == key)
+        .position(|(existing_key, _)| *existing_key == key)
     {
-        let mut updated = entries.clone();
-        updated[index] = (key.clone(), new_value.clone());
-        return Ok(Some(Term::map(definition.clone(), updated, rest.clone())));
+        let mut updated = entries.into_owned();
+        updated[index] = (key, new_value);
+        return Ok(into.build(updated, rest.clone()));
     }
-    if !absent(sorts, key, entries, rest) {
+    if !absent(sorts, &key, &entries, rest) {
         return Ok(None);
     }
-    let mut updated = vec![(key.clone(), new_value.clone())];
+    let mut updated = vec![(key, new_value)];
     updated.extend(entries.iter().cloned());
-    Ok(Some(Term::map(definition.clone(), updated, None)))
+    Ok(into.build(updated, None))
 }
 
-fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.updateAll", arguments, 2)?;
     let [original, updates] = arguments else {
         unreachable!()
@@ -191,6 +203,15 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
         }
         .into());
     }
+    let source = match (original.kind(), updates.kind()) {
+        (TermKind::Map { definition, .. }, _) | (_, TermKind::Map { definition, .. }) => {
+            Some(definition)
+        }
+        _ => None,
+    };
+    let Some(into) = result.map(source) else {
+        return Ok(None);
+    };
     if matches!(
         updates.kind(),
         TermKind::Map {
@@ -199,7 +220,7 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
             ..
         } if entries.is_empty()
     ) {
-        return Ok(Some(original.clone()));
+        return Ok(into.adopt(original));
     }
     if matches!(
         original.kind(),
@@ -209,7 +230,7 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
             ..
         } if entries.is_empty()
     ) {
-        return Ok(Some(updates.clone()));
+        return Ok(into.adopt(updates));
     }
     let (
         TermKind::Map {
@@ -228,8 +249,11 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
     };
     if original_rest.is_some() {
         return Ok(
-            (original_entries == update_entries && original_rest == update_rest)
-                .then(|| original.clone()),
+            if original_entries == update_entries && original_rest == update_rest {
+                into.adopt(original)
+            } else {
+                None
+            },
         );
     }
 
@@ -259,14 +283,17 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
 
     let mut updated = original_map;
     updated.extend(update_map);
-    Ok(Some(Term::map(
-        definition.clone(),
-        updated.into_iter().collect(),
-        update_rest.clone(),
-    )))
+    let updated = updated.into_iter().collect::<Vec<_>>();
+    Ok(into
+        .entries(&updated, definition)
+        .and_then(|entries| into.build(entries.into_owned(), update_rest.clone())))
 }
 
-fn remove(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
+fn remove(
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+    result: ResultCollection<'_>,
+) -> HookResult<Option<Term>> {
     expect_arity("MAP.remove", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
@@ -279,22 +306,29 @@ fn remove(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Te
     else {
         return Ok(None);
     };
+    let Some(into) = result.map(Some(definition)) else {
+        return Ok(None);
+    };
+    let (Some(entries), Some(key)) = (into.entries(entries, definition), into.key(key.clone()))
+    else {
+        return Ok(None);
+    };
     if let Some(index) = entries
         .iter()
-        .position(|(existing_key, _)| existing_key == key)
+        .position(|(existing_key, _)| *existing_key == key)
     {
-        let mut updated = entries.clone();
+        let mut updated = entries.into_owned();
         updated.remove(index);
-        return Ok(Some(Term::map(definition.clone(), updated, rest.clone())));
+        return Ok(into.build(updated, rest.clone()));
     }
-    if !absent(sorts, key, entries, rest) {
+    if !absent(sorts, &key, &entries, rest) {
         Ok(None)
     } else {
-        Ok(Some(map.clone()))
+        Ok(into.adopt(map))
     }
 }
 
-fn remove_all(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn remove_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.removeAll", arguments, 2)?;
     let [map, set] = arguments else {
         unreachable!()
@@ -324,15 +358,17 @@ fn remove_all(arguments: &[Term]) -> HookResult<Option<Term>> {
     {
         return Ok(None);
     }
-    Ok(Some(Term::map(
-        definition.clone(),
-        entries
-            .iter()
-            .filter(|(key, _)| elements.binary_search(key).is_err())
-            .cloned()
-            .collect(),
-        None,
-    )))
+    let Some(into) = result.map(Some(definition)) else {
+        return Ok(None);
+    };
+    let kept = entries
+        .iter()
+        .filter(|(key, _)| elements.binary_search(key).is_err())
+        .cloned()
+        .collect::<Vec<_>>();
+    Ok(into
+        .entries(&kept, definition)
+        .and_then(|kept| into.build(kept.into_owned(), None)))
 }
 
 fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -414,11 +450,11 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
 /// order: the syntactic order puts `b` before `X` in `keys_list(X |-> 1 b |-> 2)`, which
 /// under `X = a` claims `ListItem(b) ListItem(a)`, while the equal concrete map gives
 /// `ListItem(a) ListItem(b)`.
-fn ordered_entries(map: &Term) -> Option<&[(Term, Term)]> {
+fn ordered_entries(map: &Term) -> Option<(&MapDefinition, &[(Term, Term)])> {
     let TermKind::Map {
+        definition,
         entries,
         rest: None,
-        ..
     } = map.kind()
     else {
         return None;
@@ -426,27 +462,29 @@ fn ordered_entries(map: &Term) -> Option<&[(Term, Term)]> {
     entries
         .iter()
         .all(|(key, _)| key.attributes().constructor_like)
-        .then_some(entries)
+        .then_some((definition, entries))
 }
 
-fn keys_list(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn keys_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.keys_list", arguments, 1)?;
-    let Some(entries) = ordered_entries(&arguments[0]) else {
+    let Some((definition, entries)) = ordered_entries(&arguments[0]) else {
         return Ok(None);
     };
-    Ok(Some(Term::list(
-        k_item_list_definition(),
-        entries.iter().map(|(key, _)| key.clone()).collect(),
-        None,
-    )))
+    let Some(into) = result.list(None) else {
+        return Ok(None);
+    };
+    let keys = entries.iter().map(|(key, _)| key.clone()).collect();
+    Ok(into
+        .owned_elements(keys, &definition.key_sort)
+        .and_then(|keys| into.build(keys, None)))
 }
 
-fn keys(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn keys(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
     expect_arity("MAP.keys", arguments, 1)?;
     let TermKind::Map {
+        definition,
         entries,
         rest: None,
-        ..
     } = arguments[0].kind()
     else {
         return Ok(None);
@@ -457,23 +495,27 @@ fn keys(arguments: &[Term]) -> HookResult<Option<Term>> {
     {
         return Ok(None);
     }
-    Ok(Some(Term::set(
-        k_item_set_definition(),
-        entries.iter().map(|(key, _)| key.clone()).collect(),
-        None,
-    )))
-}
-
-fn values(arguments: &[Term]) -> HookResult<Option<Term>> {
-    expect_arity("MAP.values", arguments, 1)?;
-    let Some(entries) = ordered_entries(&arguments[0]) else {
+    let Some(into) = result.set(None) else {
         return Ok(None);
     };
-    Ok(Some(Term::list(
-        k_item_list_definition(),
-        entries.iter().map(|(_, value)| value.clone()).collect(),
-        None,
-    )))
+    let keys = entries.iter().map(|(key, _)| key.clone()).collect();
+    Ok(into
+        .owned_elements(keys, &definition.key_sort)
+        .and_then(|keys| into.build(keys, None)))
+}
+
+fn values(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
+    expect_arity("MAP.values", arguments, 1)?;
+    let Some((definition, entries)) = ordered_entries(&arguments[0]) else {
+        return Ok(None);
+    };
+    let Some(into) = result.list(None) else {
+        return Ok(None);
+    };
+    let values = entries.iter().map(|(_, value)| value.clone()).collect();
+    Ok(into
+        .owned_elements(values, &definition.value_sort)
+        .and_then(|values| into.build(values, None)))
 }
 
 fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -577,7 +619,53 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::term::{CollectionSymbols, Sort, Variable};
+    use crate::term::{
+        CollectionMetadata, CollectionSymbols, ListDefinition, SetDefinition, Sort, Variable,
+    };
+
+    fn undeclared() -> ResultCollection<'static> {
+        ResultCollection::undeclared(None)
+    }
+
+    fn into(collection: &CollectionMetadata) -> ResultCollection<'_> {
+        ResultCollection::declared(Some(collection), None)
+    }
+
+    fn elements(name: &str, element_sort: &str) -> Arc<ListDefinition> {
+        Arc::new(ListDefinition {
+            symbols: CollectionSymbols {
+                unit: format!("{name}-unit").into(),
+                element: format!("{name}-element").into(),
+                concat: format!("{name}-concat").into(),
+            },
+            element_sort: element_sort.into(),
+            list_sort: name.into(),
+        })
+    }
+
+    fn key_set_definition() -> Arc<SetDefinition> {
+        elements("SortKeySet", "SortKey")
+    }
+
+    fn key_list_definition() -> Arc<ListDefinition> {
+        elements("SortKeyList", "SortKey")
+    }
+
+    fn value_list_definition() -> Arc<ListDefinition> {
+        elements("SortValueList", "SortValue")
+    }
+
+    fn key_set() -> CollectionMetadata {
+        CollectionMetadata::Set(key_set_definition())
+    }
+
+    fn key_list() -> CollectionMetadata {
+        CollectionMetadata::List(key_list_definition())
+    }
+
+    fn value_list() -> CollectionMetadata {
+        CollectionMetadata::List(value_list_definition())
+    }
 
     fn definition(name: &str) -> Arc<MapDefinition> {
         Arc::new(MapDefinition {
@@ -740,11 +828,11 @@ mod tests {
         );
 
         assert_eq!(
-            update(&[map.clone(), key("a"), value("new")], None),
+            update(&[map.clone(), key("a"), value("new")], None, undeclared()),
             Ok(Some(replaced))
         );
         assert_eq!(
-            update(&[map, key("b"), value("new")], None),
+            update(&[map, key("b"), value("new")], None, undeclared()),
             Ok(Some(added))
         );
     }
@@ -757,8 +845,14 @@ mod tests {
         let rest = Term::variable(Variable::new("REST", Sort::simple("SortMap")));
         let opaque = Term::map(definition, vec![(key("a"), value("old"))], Some(rest));
 
-        assert_eq!(update(&[symbolic, key("b"), value("new")], None), Ok(None));
-        assert_eq!(update(&[opaque, key("b"), value("new")], None), Ok(None));
+        assert_eq!(
+            update(&[symbolic, key("b"), value("new")], None, undeclared()),
+            Ok(None)
+        );
+        assert_eq!(
+            update(&[opaque, key("b"), value("new")], None, undeclared()),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -784,7 +878,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(update_all(&[original, updates]), Ok(Some(expected)));
+        assert_eq!(
+            update_all(&[original, updates], undeclared()),
+            Ok(Some(expected))
+        );
     }
 
     #[test]
@@ -793,7 +890,7 @@ mod tests {
         let right = Term::map(definition("SortRightMap"), Vec::new(), None);
 
         assert_eq!(
-            update_all(&[left, right]),
+            update_all(&[left, right], undeclared()),
             Err(BuiltinError::IncompatibleMapSorts {
                 left: Sort::simple("SortLeftMap"),
                 right: Sort::simple("SortRightMap"),
@@ -908,7 +1005,10 @@ mod tests {
             size(std::slice::from_ref(&map)),
             Ok(Some(int_term(BigInt::from(2))))
         );
-        assert_eq!(remove(&[map, key("a")], None), Ok(Some(removed)));
+        assert_eq!(
+            remove(&[map, key("a")], None, undeclared()),
+            Ok(Some(removed))
+        );
     }
 
     #[test]
@@ -921,7 +1021,10 @@ mod tests {
             lookup(&[left.clone(), key("missing")], None),
             Ok(BuiltinResult::Bottom)
         );
-        assert_eq!(concat(&[left, right]), Ok(BuiltinResult::Bottom));
+        assert_eq!(
+            concat(&[left, right], undeclared()),
+            Ok(BuiltinResult::Bottom)
+        );
     }
 
     #[test]
@@ -940,17 +1043,22 @@ mod tests {
         assert_eq!(same.repeated_map_key(), Some(&key("a")));
         for map in [same, different] {
             assert_eq!(
-                evaluate("MAP.size", std::slice::from_ref(&map), None),
+                evaluate("MAP.size", std::slice::from_ref(&map), None, undeclared()),
                 Ok(BuiltinResult::Bottom)
             );
             assert_eq!(
-                evaluate("MAP.update", &[map, key("b"), value("three")], None),
+                evaluate(
+                    "MAP.update",
+                    &[map, key("b"), value("three")],
+                    None,
+                    undeclared()
+                ),
                 Ok(BuiltinResult::Bottom)
             );
         }
         let single = Term::map(definition, vec![(key("a"), value("one"))], None);
         assert_eq!(
-            evaluate("MAP.concat", &[single.clone(), single], None),
+            evaluate("MAP.concat", &[single.clone(), single], None, undeclared()),
             Ok(BuiltinResult::Bottom)
         );
     }
@@ -967,18 +1075,18 @@ mod tests {
             ],
             None,
         );
-        let removed_keys = Term::set(k_item_set_definition(), vec![key("a"), key("c")], None);
+        let removed_keys = Term::set(key_set_definition(), vec![key("a"), key("c")], None);
 
         assert_eq!(
-            keys(std::slice::from_ref(&map)),
+            keys(std::slice::from_ref(&map), into(&key_set())),
             Ok(Some(Term::set(
-                k_item_set_definition(),
+                key_set_definition(),
                 vec![key("a"), key("b"), key("c")],
                 None,
             )))
         );
         assert_eq!(
-            remove_all(&[map, removed_keys]),
+            remove_all(&[map, removed_keys], undeclared()),
             Ok(Some(Term::map(
                 definition,
                 vec![(key("b"), value("two"))],
@@ -998,8 +1106,11 @@ mod tests {
             None,
         );
 
-        assert_eq!(keys_list(std::slice::from_ref(&map)), Ok(None));
-        assert_eq!(values(&[map]), Ok(None));
+        assert_eq!(
+            keys_list(std::slice::from_ref(&map), into(&key_list())),
+            Ok(None)
+        );
+        assert_eq!(values(&[map], into(&value_list())), Ok(None));
     }
 
     #[test]
@@ -1009,17 +1120,20 @@ mod tests {
             vec![(key("b"), value("two")), (key("a"), value("one"))],
             None,
         );
-        let expected_keys = Term::list(k_item_list_definition(), vec![key("a"), key("b")], None);
+        let expected_keys = Term::list(key_list_definition(), vec![key("a"), key("b")], None);
         let expected_values = Term::list(
-            k_item_list_definition(),
+            value_list_definition(),
             vec![value("one"), value("two")],
             None,
         );
 
         assert_eq!(
-            keys_list(std::slice::from_ref(&map)),
+            keys_list(std::slice::from_ref(&map), into(&key_list())),
             Ok(Some(expected_keys))
         );
-        assert_eq!(values(&[map]), Ok(Some(expected_values)));
+        assert_eq!(
+            values(&[map], into(&value_list())),
+            Ok(Some(expected_values))
+        );
     }
 }

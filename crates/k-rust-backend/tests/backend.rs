@@ -3,6 +3,8 @@
 
 #[path = "backend/anywhere_matching.rs"]
 mod anywhere_matching;
+#[path = "backend/hook_result_sorts.rs"]
+mod hook_result_sorts;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/names.rs"]

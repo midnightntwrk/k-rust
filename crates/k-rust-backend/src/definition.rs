@@ -3096,7 +3096,9 @@ fn symbol_attributes(
         has_evaluators: !attributes.has(KoreAttribute::NoEvaluators),
         smt,
         hook: attributes.string(KoreAttribute::Hook)?.map(Into::into),
+        // Both are decided once every sort is known (`attach_collection_metadata`).
         collection: None,
+        result_collection: None,
     }
     .into())
 }
@@ -3169,11 +3171,16 @@ fn collection_sort(
     }
 }
 
+/// Builds each collection sort's description from its declaration, the one place a collection's
+/// shape is constructed, and gives it to the sort's unit, element and concatenation symbols
+/// (`collection`) and to every hooked symbol whose result sort is that sort
+/// (`result_collection`): a value of the sort is built from its own symbols, whatever computes it.
 fn attach_collection_metadata(
     sorts: &BTreeMap<Name, SortInfo>,
     symbols: &mut BTreeMap<Name, Arc<Symbol>>,
 ) -> Result<(), DefinitionError> {
     let mut metadata = BTreeMap::new();
+    let mut by_sort = BTreeMap::new();
     for (sort_name, info) in sorts {
         let Some(collection) = &info.collection else {
             continue;
@@ -3259,6 +3266,7 @@ fn attach_collection_metadata(
                 (names, collection)
             }
         };
+        by_sort.insert(sort_name.clone(), collection.clone());
         for name in [&names.unit, &names.element, &names.concat] {
             if metadata.insert(name.clone(), collection.clone()).is_some() {
                 return Err(DefinitionError::MalformedCollection(format!(
@@ -3272,6 +3280,16 @@ fn attach_collection_metadata(
             DefinitionError::MalformedCollection(format!("missing collection symbol {name}"))
         })?;
         Arc::make_mut(symbol).attributes.collection = Some(collection);
+    }
+    for symbol in symbols.values_mut() {
+        let Sort::Application { name, .. } = &symbol.result_sort else {
+            continue;
+        };
+        if symbol.attributes.hook.is_some()
+            && let Some(collection) = by_sort.get(name)
+        {
+            Arc::make_mut(symbol).attributes.result_collection = Some(collection.clone());
+        }
     }
     Ok(())
 }

@@ -692,6 +692,15 @@ Before this, k-rust merged two identical bindings everywhere, in a rule's right-
 This diverges from reference concrete execution in form, not in outcome: the reference toolchain also treats a repeated key as undefined, but the LLVM backend aborts with an exception ("Duplicate keys in map concatenation") and the Haskell backend's `krun` prints `#Bottom`, or reports a `total` function that evaluated to `\bottom`, where k-rust ends in an undefined step.
 The `a_repeated_set_element_or_map_key_is_bottom_where_it_is_built` CLI test, `a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built` in the [backend tests](../crates/k-rust-backend/tests/backend) and `a_map_argument_binding_a_key_twice_makes_the_hook_bottom` in [map.rs](../crates/k-rust-backend/src/builtin/map.rs) cover this.
 
+## A collection hook's value is a value of its declared result sort
+
+A hooked symbol `f : S1 ... Sn -> S` denotes a value of `S` whatever computes it, and KORE has no implicit subsorting, so a value of a collection sort `S` is built from `S`'s own unit, element and concatenation symbols and holds elements of exactly `S`'s element (key, value) sorts.
+k-rust builds every `LIST`, `SET` and `MAP` hook's collection result in the collection of the applied symbol's declared result sort, as that sort's declaration describes it: `makeListRef(Int, RefVal) : ListRef [hook(LIST.make)]` gives a `ListRef` value, equal to the same value written with `ListRef`'s own symbols, and `keys` of a `ValMap` read as a `Set` holds those keys injected into `KItem`.
+An element of a strict subsort of the result's element sort is injected.
+k-rust loads a declaration under which the hook builds no value of its result sort (a result sort that is no collection of the hook's kind, an element or a collection argument whose element sort is not at or below the result's element sort, or an opaque rest of another sort than the result's) and leaves its applications unevaluated, which on constructor-like arguments is the unsupported-hook outcome of [Backend scope](#backend-scope); it never gives such an application a value of another sort.
+Whether such a declaration is rejected at load instead is not decided.
+The `hook_result_sorts` [backend tests](../crates/k-rust-backend/tests/backend) and the hook model tests of [hook_models](../crates/k-rust-backend/src/builtin/hook_models), which run in the builtin sorts' names and in renamed ones, cover this.
+
 ## A contradicted `total` attribute is named, not repaired
 
 k-rust's backend takes an emitted symbol's `total` (or `functional`) attribute as an axiom: an application of it to defined arguments is defined, so a rule whose right-hand side holds only total applications carries no definedness obligation, and a symbolic claim through such an application can be proven.
