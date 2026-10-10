@@ -1304,6 +1304,93 @@ fn empties_a_map_frame_after_an_unambiguous_selection() {
     );
 }
 
+/// A pattern reading bindings of a 40-entry map at ground keys, some by a key variable that an
+/// earlier argument binds, with the rest as a frame: every bound key yields its value, the frame
+/// is the map without them, and a key the closed map does not bind refutes the match, in every
+/// mode. The keys' text order (`"10"` before `"2"`) is not their numeric order.
+#[test]
+fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
+    let definition = map_definition();
+    let key_sort = Sort::simple("MapKey");
+    let value_sort = Sort::simple("MapValue");
+    let map_sort = Sort::simple("MapSort");
+    let key = |index: u32| domain_value(key_sort.clone(), &index.to_string());
+    let value = |index: u32| domain_value(value_sort.clone(), &index.to_string());
+    let subject_map = Term::map(
+        definition.clone(),
+        (0..40)
+            .map(|index| (key(2 * index), value(index)))
+            .collect(),
+        None,
+    );
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![key_sort.clone(), map_sort.clone()],
+        sort(),
+    ));
+    let read =
+        |first: Term, read_keys: &[Term]| {
+            let mut entries = vec![(
+                var("K", key_sort.clone()),
+                var("BY_VARIABLE", value_sort.clone()),
+            )];
+            entries.extend(read_keys.iter().enumerate().map(|(index, read)| {
+                (read.clone(), var(&format!("V{index}"), value_sort.clone()))
+            }));
+            let pattern = Term::application(
+                pair.clone(),
+                Vec::new(),
+                vec![
+                    var("K", key_sort.clone()),
+                    Term::map(
+                        definition.clone(),
+                        entries,
+                        Some(var("REST", map_sort.clone())),
+                    ),
+                ],
+            );
+            let subject =
+                Term::application(pair.clone(), Vec::new(), vec![first, subject_map.clone()]);
+            (pattern, subject)
+        };
+    let (pattern, subject) = read(key(46), &[key(0), key(18), key(78)]);
+    let frame = Term::map(
+        definition.clone(),
+        (0..40)
+            .filter(|index| ![0, 9, 23, 39].contains(index))
+            .map(|index| (key(2 * index), value(index)))
+            .collect(),
+        None,
+    );
+    let expected = Substitution::from([
+        (variable("K", key_sort.clone()), key(46)),
+        (variable("BY_VARIABLE", value_sort.clone()), value(23)),
+        (variable("V0", value_sort.clone()), value(0)),
+        (variable("V1", value_sort.clone()), value(9)),
+        (variable("V2", value_sort.clone()), value(39)),
+        (variable("REST", map_sort.clone()), frame),
+    ]);
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        assert_eq!(
+            match_terms(mode, &sort_graph(), &pattern, &subject),
+            MatchResult::Success(expected.clone()),
+            "{mode:?}"
+        );
+    }
+    for (first, read_keys) in [(key(46), vec![key(19)]), (key(47), vec![key(18)])] {
+        let (pattern, subject) = read(first, &read_keys);
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            assert!(
+                matches!(
+                    match_terms(mode, &sort_graph(), &pattern, &subject),
+                    MatchResult::Failed(FailReason::KeyNotFound(_, _))
+                ),
+                "{mode:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn defers_a_symbolic_map_entry_against_a_subject_frame() {
     let definition = map_definition();

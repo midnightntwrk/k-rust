@@ -32,10 +32,7 @@
 //! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -612,11 +609,9 @@ fn solve_map_pair(
     if pattern_definition != subject_definition {
         return Some(Vec::new());
     }
-    let pattern_entry_count = pattern_entries.len();
-    let subject_entry_count = subject_entries.len();
-    let mut pattern_entries = pattern_entries.iter().cloned().collect::<BTreeMap<_, _>>();
-    let mut subject_entries = subject_entries.iter().cloned().collect::<BTreeMap<_, _>>();
-    if pattern_entries.len() != pattern_entry_count || subject_entries.len() != subject_entry_count
+    if [(pattern, pattern_entries), (subject, subject_entries)]
+        .into_iter()
+        .any(|(map, entries)| !binds_each_key_once(map) && repeats_a_key(entries))
     {
         return None;
     }
@@ -626,15 +621,13 @@ fn solve_map_pair(
         &pattern_definition.symbols.concat,
     );
 
-    let common_keys = pattern_entries
-        .keys()
-        .filter(|key| subject_entries.contains_key(*key))
-        .cloned()
-        .collect::<Vec<_>>();
+    let CommonKeys {
+        values,
+        pattern_only,
+        subject_only,
+    } = split_common_keys(pattern_entries, subject_entries);
     let mut solutions = vec![solution];
-    for key in common_keys {
-        let pattern_value = pattern_entries.remove(&key).unwrap();
-        let subject_value = subject_entries.remove(&key).unwrap();
+    for (pattern_value, subject_value) in values {
         let mut next = Vec::new();
         for solution in solutions {
             match solve_term_pair(
@@ -659,12 +652,12 @@ fn solve_map_pair(
         mode,
         backend: definition,
         definition: pattern_definition.clone(),
-        entries: pattern_entries.into_iter().collect(),
+        entries: pattern_only,
         rest: pattern_rest,
         subject_rest,
         depth,
     };
-    let remaining = subject_entries.into_iter().collect::<Vec<_>>();
+    let remaining = subject_only;
     let mut found = Vec::new();
     let mut indeterminate = false;
     for solution in solutions {
@@ -1651,6 +1644,69 @@ pub(super) fn pair_suffix(
 pub(super) fn prepend(pair: (Term, Term), mut pairs: Vec<(Term, Term)>) -> Vec<(Term, Term)> {
     pairs.insert(0, pair);
     pairs
+}
+
+/// Whether `map`'s attributes show that it binds each of its keys once: a map term that binds a
+/// key twice is neither constructor-like nor `ceil_free` (`Term::map`, `term::ceil_free`).
+pub(super) fn binds_each_key_once(map: &Term) -> bool {
+    map.attributes().constructor_like || map.attributes().ceil_free()
+}
+
+/// Whether `entries`, a map term's entries in their stored `(key, value)` order, bind some key
+/// twice: the bindings of one key are adjacent there.
+fn repeats_a_key(entries: &[(Term, Term)]) -> bool {
+    entries.windows(2).any(|pair| pair[0].0 == pair[1].0)
+}
+
+/// The entries of a pattern map and of a subject map, split by their keys.
+pub(super) struct CommonKeys {
+    /// The pattern's and the subject's values of each key both bind, in key order.
+    pub(super) values: Vec<(Term, Term)>,
+    /// The pattern's entries whose key the subject does not bind, in key order.
+    pub(super) pattern_only: Vec<(Term, Term)>,
+    /// The subject's entries whose key the pattern does not bind, in key order.
+    pub(super) subject_only: Vec<(Term, Term)>,
+}
+
+/// The keys `pattern` and `subject` bind both, syntactically, and the entries of each outside
+/// them.
+///
+/// Both are entries in the stored order of a map term, `(key, value)` (`Term::map`), and neither
+/// binds a key twice, so the keys of each are strictly increasing: each pattern key is found in
+/// the subject by binary search, after the place of the previous one, and the subject's entries
+/// are copied once, around the places found, without comparing them. A step that reads one
+/// binding of an `n`-entry map makes `O(log n)` key comparisons here.
+pub(super) fn split_common_keys(pattern: &[(Term, Term)], subject: &[(Term, Term)]) -> CommonKeys {
+    let mut values = Vec::new();
+    let mut pattern_only = Vec::new();
+    let mut found = Vec::new();
+    let mut from = 0;
+    for (key, value) in pattern {
+        match subject[from..].binary_search_by(|(subject_key, _)| subject_key.cmp(key)) {
+            Ok(offset) => {
+                let index = from + offset;
+                values.push((value.clone(), subject[index].1.clone()));
+                found.push(index);
+                from = index + 1;
+            }
+            Err(offset) => {
+                pattern_only.push((key.clone(), value.clone()));
+                from += offset;
+            }
+        }
+    }
+    let mut subject_only = Vec::with_capacity(subject.len() - found.len());
+    let mut start = 0;
+    for index in found {
+        subject_only.extend_from_slice(&subject[start..index]);
+        start = index + 1;
+    }
+    subject_only.extend_from_slice(&subject[start..]);
+    CommonKeys {
+        values,
+        pattern_only,
+        subject_only,
+    }
 }
 
 pub(super) struct MapRemainder {

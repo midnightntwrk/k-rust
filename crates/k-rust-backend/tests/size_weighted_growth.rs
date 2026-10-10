@@ -356,7 +356,7 @@ fn assert_step_independent_of_size(shape: &str, size: u64, step_bytes: impl Fn(u
 }
 
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Building an N-entry map by N MAP.update s is Θ(N²)"]
+#[ignore = "K22: a step still copies the whole map, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()
@@ -368,7 +368,7 @@ fn adding_one_map_entry_costs_the_same_on_a_larger_map() {
 }
 
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Building an N-entry map by N MAP.update s is Θ(N²)"]
+#[ignore = "K22: a step still copies the whole list, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_list_element_costs_the_same_on_a_larger_list() {
     let _one = ONE_AT_A_TIME
         .lock()
@@ -380,7 +380,7 @@ fn adding_one_list_element_costs_the_same_on_a_larger_list() {
 }
 
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Building an N-entry map by N MAP.update s is Θ(N²)"]
+#[ignore = "K22: a step still copies the whole set, which the local fixes leave; un-ignore with the persistent representation"]
 fn adding_one_set_element_costs_the_same_on_a_larger_set() {
     let _one = ONE_AT_A_TIME
         .lock()
@@ -394,7 +394,7 @@ fn adding_one_set_element_costs_the_same_on_a_larger_set() {
 /// Reading one binding by matching `K |-> V M` and writing the map back, the K idiom
 /// `<m> ... K |-> V ... </m>`: the step needs the binding of `K` and nothing else of the map.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Building an N-entry map by N MAP.update s is Θ(N²)"]
+#[ignore = "K22: the frame still copies the map without the binding, which the local fixes leave; un-ignore with the persistent representation"]
 fn reading_one_map_binding_by_matching_costs_the_same_on_a_larger_map() {
     let _one = ONE_AT_A_TIME
         .lock()

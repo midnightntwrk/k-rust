@@ -56,8 +56,8 @@ pub(crate) use collections::{
 #[cfg(test)]
 pub(crate) use collections::cancel_common_opaque_chunks;
 use collections::{
-    MapRemainder, PairRemainder, is_opaque_concat, list_update_cannot_match, pair_prefix,
-    pair_suffix, prepend,
+    CommonKeys, MapRemainder, PairRemainder, binds_each_key_once, is_opaque_concat,
+    list_update_cannot_match, pair_prefix, pair_suffix, prepend, split_common_keys,
 };
 
 use std::{
@@ -1046,9 +1046,10 @@ impl<'a> Matcher<'a> {
                 } else {
                     self.match_maps(
                         left.clone(),
-                        left_entries.clone(),
+                        left_entries,
                         left_rest.clone(),
-                        right_entries.clone(),
+                        &subject,
+                        right_entries,
                         right_rest.clone(),
                     )
                 }
@@ -1622,20 +1623,30 @@ impl<'a> Matcher<'a> {
         Ok(())
     }
 
+    /// Match the map `pattern_entries` with `pattern_rest` against `subject`, whose entries and
+    /// rest are `subject_entries` and `subject_rest`.
+    ///
+    /// The pattern's keys are taken under the substitution so far, which may reorder them or
+    /// make two of them equal; the subject's entries are as `Term::map` stores them, so its keys
+    /// are found by search (`split_common_keys`), and only the entries outside the common keys
+    /// are copied.
     fn match_maps(
         &mut self,
         definition: Arc<MapDefinition>,
-        pattern_entries: Vec<(Term, Term)>,
+        pattern_entries: &[(Term, Term)],
         pattern_rest: Option<Term>,
-        subject_entries: Vec<(Term, Term)>,
+        subject: &Term,
+        subject_entries: &[(Term, Term)],
         subject_rest: Option<Term>,
     ) -> Result<(), FailReason> {
-        let pattern_entries = pattern_entries
-            .into_iter()
-            .map(|(key, value)| (substitute(&key, &self.substitution), value))
+        let mut pattern_entries = pattern_entries
+            .iter()
+            .map(|(key, value)| (substitute(key, &self.substitution), value.clone()))
             .collect::<Vec<_>>();
         check_duplicate_keys(&definition, &pattern_entries, &pattern_rest)?;
-        check_duplicate_keys(&definition, &subject_entries, &subject_rest)?;
+        if !binds_each_key_once(subject) {
+            check_duplicate_keys(&definition, subject_entries, &subject_rest)?;
+        }
 
         if pattern_rest
             .as_ref()
@@ -1646,27 +1657,24 @@ impl<'a> Matcher<'a> {
         {
             return self.defer(
                 Term::map(definition.clone(), pattern_entries, pattern_rest),
-                Term::map(definition, subject_entries, subject_rest),
+                Term::map(definition, subject_entries.to_vec(), subject_rest),
             );
         }
 
-        let mut pattern = pattern_entries.into_iter().collect::<BTreeMap<_, _>>();
-        let mut subject = subject_entries.into_iter().collect::<BTreeMap<_, _>>();
-        let common_keys = pattern
-            .keys()
-            .filter(|key| subject.contains_key(*key))
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut problems = Vec::new();
-        for key in common_keys {
-            problems.push((pattern.remove(&key).unwrap(), subject.remove(&key).unwrap()));
-        }
+        // The pattern's keys are pairwise different now, so ordering its entries by key alone
+        // gives them the stored order of a map's entries.
+        pattern_entries.sort_by(|left, right| left.0.cmp(&right.0));
+        let CommonKeys {
+            mut values,
+            pattern_only,
+            subject_only,
+        } = split_common_keys(&pattern_entries, subject_entries);
 
-        let pattern = MapRemainder::new(pattern.into_iter().collect(), pattern_rest);
-        let subject = MapRemainder::new(subject.into_iter().collect(), subject_rest);
+        let pattern = MapRemainder::new(pattern_only, pattern_rest);
+        let subject = MapRemainder::new(subject_only, subject_rest);
         let mut rest = self.match_map_remainders(&definition, pattern, subject)?;
-        problems.append(&mut rest);
-        self.queue.extend(problems);
+        values.append(&mut rest);
+        self.queue.extend(values);
         Ok(())
     }
 
