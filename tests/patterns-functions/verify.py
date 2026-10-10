@@ -13,7 +13,8 @@ the outcomes must agree:
   `rest(cons(1, nil))` `nil`. The emitted K writes each alias last and
   parenthesised, `( pair ( A:Exp , B:Exp ) #as P:Exp )`; `krs expand` is
   byte-pinned. The same programs run on Java K's LLVM backend from the
-  hand-written `reference.k`, with the same outcomes;
+  hand-written `reference.k`, with the same outcomes. The native
+  `definition.kore` equals the one Java K kompiles from the emitted K;
 - `alternatives`: `A | B` is K's `#Or`, always parenthesised and left to
   right. A readable clause `Color(Red() | Green() | Blue())` makes
   `color(green())` `1` and leaves `color(3)` stuck; a readable clause whose
@@ -22,7 +23,10 @@ the outcomes must agree:
   and `Pick(Pair(x, Red()) | Pair(x, Green()))`, whose alternatives both bind
   `x`, makes `pick(pair(5, green()))` `5`. The programs agree natively, on
   Java K's LLVM backend from the emitted K and from `reference.k`, and on
-  Java K's Haskell backend from the emitted K;
+  Java K's Haskell backend from the emitted K. The native `definition.kore`
+  equals the one Java K kompiles from the emitted K: both import only
+  `INT-SYNTAX` and `BOOL-SYNTAX`, since no rule uses an Int or Bool
+  operation;
 - `matches`: `k::matches!(t, P)` is K's `( P :=K T )`, a Bool, with the
   pattern first and always parenthesised. Two readable clauses guarded by
   `k::matches!(e, Pair(_, _))` and its `bool::not` make `isPair(pair(1, 2))`
@@ -68,7 +72,8 @@ the outcomes must agree:
   `barPlus` twice, makes `readTwice()` `86`: K threads the hidden
   configuration argument through every caller. The programs agree natively,
   on Java K's LLVM backend from the emitted K and from `reference.k`, and on
-  Java K's Haskell backend;
+  Java K's Haskell backend. The native `definition.kore` equals the one Java
+  K kompiles from the emitted K;
 - negative fixtures: `ref` on an alias, an alias inside its own subpattern,
   an alias of a `..` remainder, `@` in a result, an alias of a whole rule
   subject, alternatives binding different names, alternatives that can bind
@@ -310,7 +315,7 @@ def java_haskell_outcomes(
 
 
 def verify_alternatives(harness: FixtureGate, workspace: Path) -> None:
-    """Or-patterns run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
+    """Or-patterns run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell, and the KOREs agree."""
 
     harness.check(ALTERNATIVES)
     harness.expand(ALTERNATIVES)
@@ -321,7 +326,7 @@ def verify_alternatives(harness: FixtureGate, workspace: Path) -> None:
         "<k> pick ( ( pair ( X:Exp , red ( ) ) #Or pair ( X:Exp , green ( ) ) ) ) => X:Exp ... </k>",
         "rule code ( ( red ( ) #Or green ( ) #Or blue ( ) ) ) => 1 [label(",
     ))
-    observed = harness.compare(emitted, ALTERNATIVES_PROGRAMS, sort="Exp")
+    observed = harness.compare(emitted, ALTERNATIVES_PROGRAMS, sort="Exp", kore=True)
     agree_with_reference(
         harness, workspace, ALTERNATIVES_REFERENCE, "ALTERNATIVES-REFERENCE",
         ALTERNATIVES_PROGRAMS, observed,
@@ -436,7 +441,7 @@ def verify_lets(harness: FixtureGate, workspace: Path) -> None:
 
 
 def verify_contexts(harness: FixtureGate, workspace: Path) -> None:
-    """Function contexts run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell."""
+    """Function contexts run natively, on Java LLVM from the emitted K and from `reference.k`, and on Java Haskell, and the KOREs agree."""
 
     harness.check(CONTEXTS)
     harness.expand(CONTEXTS)
@@ -448,7 +453,7 @@ def verify_contexts(harness: FixtureGate, workspace: Path) -> None:
         "    requires 0 <=Int B:Int [label(",
         "rule barTwice ( N:Int ) => barPlus ( N:Int ) +Int barPlus ( N:Int ) [label(",
     ))
-    observed = harness.compare(emitted, CONTEXTS_PROGRAMS, sort="Exp")
+    observed = harness.compare(emitted, CONTEXTS_PROGRAMS, sort="Exp", kore=True)
     agree_with_reference(
         harness, workspace, CONTEXTS_REFERENCE, "CONTEXTS-REFERENCE", CONTEXTS_PROGRAMS, observed,
     )
@@ -462,7 +467,7 @@ def verify_contexts(harness: FixtureGate, workspace: Path) -> None:
 
 
 def verify_aliases(harness: FixtureGate, workspace: Path) -> None:
-    """Aliases run natively, on Java LLVM from the emitted K, and from `reference.k`."""
+    """Aliases run natively, on Java LLVM from the emitted K, and from `reference.k`, and the KOREs agree."""
 
     harness.check(ALIASES)
     harness.expand(ALIASES)
@@ -472,7 +477,7 @@ def verify_aliases(harness: FixtureGate, workspace: Path) -> None:
         "<k> wrap ( ( pair ( A:Exp , _ ) #as P:Exp ) ) ~> Tail:K => pair ( A:Exp , P:Exp ) ~> Tail:K </k>",
         "rule rest ( cons ( _ , ( cons ( _ , _ ) #as More:Seq ) ) ) => More:Seq [label(",
     ))
-    observed = harness.compare(emitted, ALIASES_PROGRAMS, sort="Exp")
+    observed = harness.compare(emitted, ALIASES_PROGRAMS, sort="Exp", kore=True)
     agree_with_reference(
         harness, workspace, ALIASES_REFERENCE, "ALIASES-REFERENCE", ALIASES_PROGRAMS, observed,
     )
