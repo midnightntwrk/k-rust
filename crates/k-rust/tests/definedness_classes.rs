@@ -182,3 +182,89 @@ module MAIN
         "a report outlives every term it explains: {reports:?}"
     );
 }
+
+/// A rewrite step is a transition: its successor may denote only states some state of its
+/// predecessor reaches. `{c |-> 1, Y |-> 2}` is a map only where `Y` is not `c`, so from
+/// `f({c |-> 1, Y |-> 2})` the rule `f((c |-> _) M) => rest(M)` reaches `rest(Y |-> 2)` for every
+/// `Y` but `c`; a successor `rest(Y |-> 2)` with no constraint also denotes `rest(c |-> 2)`,
+/// which nothing reaches. The step must keep the dropped entry's distinctness (a constraint
+/// that mentions `c`). The control binds the whole map to a variable, `g(M) => rest(M)`, and
+/// keeps it.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns) (a rewrite step drops the distinctness of a collection its pattern consumes, definedness-stepback.md)"]
+fn a_rewrite_step_keeps_the_distinctness_of_a_collection_it_splits() {
+    let root = scratch();
+    let definition = root.join("definition.k");
+    fs::write(
+        &definition,
+        r"
+module MAIN
+  imports INT
+  imports MAP
+  syntax Foo ::= c() [symbol(c)] | d() [symbol(d)]
+  syntax KItem ::= f(Map) [symbol(f)] | g(Map) [symbol(g)] | rest(Map) [symbol(rest)]
+  rule <k> f((c() |-> _:Int) M) => rest(M) ...</k>
+  rule <k> g(M) => rest(M) ...</k>
+  configuration <k> $PGM:KItem </k>
+endmodule
+",
+    )
+    .unwrap();
+    let out = root.join("out");
+    let compiled = krust(&[
+        "kcompile",
+        "-m",
+        "MAIN",
+        "-o",
+        out.to_str().unwrap(),
+        definition.to_str().unwrap(),
+    ]);
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let entry = |key: &str, value: u32| {
+        format!(
+            r#"Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}({key}), inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}")))"#
+        )
+    };
+    let map = format!(
+        "Lbl'Unds'Map'Unds'{{}}({}, {})",
+        entry("Lblc{}()", 1),
+        entry("VarY:SortFoo{}", 2)
+    );
+    let mut failures = Vec::new();
+    for head in ["g", "f"] {
+        let pattern = root.join(format!("{head}.kore"));
+        fs::write(
+            &pattern,
+            format!(
+                r#"Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(Lbl{head}{{}}({map}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\dv{{SortInt{{}}}}("0")))"#
+            ),
+        )
+        .unwrap();
+        let output = krust(&[
+            "kore-exec",
+            "-m",
+            "MAIN",
+            "-p",
+            pattern.to_str().unwrap(),
+            out.join("definition.kore").to_str().unwrap(),
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success() && stdout.contains("Lblrest{}"),
+            "{head}: {stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !stdout.contains("Lblc{}()") {
+            failures.push((head, stdout));
+        }
+    }
+    fs::remove_dir_all(&root).unwrap();
+    assert!(
+        failures.is_empty(),
+        "a successor admits a state nothing reaches: {failures:#?}"
+    );
+}

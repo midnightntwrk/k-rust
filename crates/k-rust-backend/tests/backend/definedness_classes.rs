@@ -7,7 +7,9 @@
 //! - An equation states nothing at an undefined argument: it binds each argument by membership
 //!   in its argument pattern, and an undefined term is a member of no pattern. So a step never
 //!   drops an argument subterm whose definedness it cannot show; it keeps the subterm or carries
-//!   its `\ceil`, whether the equation consumes that subterm with a variable or with a pattern.
+//!   its `\ceil`, whether the equation consumes that subterm with a variable or with a pattern,
+//!   and whether the subterm is an application or a collection whose distinctness the pattern
+//!   splits.
 //! - A pattern denotes the values it can be instantiated to, so an application of a computed
 //!   symbol in a pattern matches the value it computes, as the same pattern with that value
 //!   written in its place does.
@@ -17,8 +19,11 @@
 //! - The critical pairs the check classifies include every two equations the evaluator can offer
 //!   at one subject.
 //! - Every admission route refuses the patterns the verifier refuses for their sorts.
+//! - A claim the load keeps is true in every model: two equations that equate two terms leave
+//!   no freeness claim that tells them apart.
 //! - An equation applies to a term when one of its instances does, whichever instance the
-//!   matcher enumerates first.
+//!   matcher enumerates first; and not applying an equation is always sound, so a simplification
+//!   never fails because an equation whose result is not a term matches.
 
 use std::collections::BTreeSet;
 
@@ -169,6 +174,9 @@ const PARTIAL: &str = r"
     symbol fb{}(SortFoo{}, SortFoo{}) : SortS{} [function{}()]
     symbol fk{}(SortFoo{}, SortMap{}) : SortS{} [function{}()]
     symbol fs{}(SortFoo{}, SortSet{}) : SortS{} [function{}()]
+    symbol fmv{}(SortMap{}) : SortS{} [function{}()]
+    symbol fmr{}(SortMap{}) : SortS{} [function{}()]
+    symbol fsr{}(SortSet{}) : SortS{} [function{}()]
 ";
 
 fn pf_equation() -> String {
@@ -187,8 +195,23 @@ fn function_equation(head: &str, sorts: &[&str], patterns: &[&str]) -> String {
     equation(head, sorts, "SortS{}", patterns, "one{}()", TOP, "")
 }
 
-/// Each case: a label, the definition, the subject, and the subterm `u` of the subject whose
-/// definedness nothing shows.
+/// `{c |-> c, Y |-> d}`, with `Y` a variable: defined exactly where `Y` is not `c`.
+fn symbolic_map() -> String {
+    let entry = |key: &str, value: &str| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortFoo{{}}, SortKItem{{}}}}({key}), inj{{SortFoo{{}}, SortKItem{{}}}}({value}))"
+        )
+    };
+    format!(
+        "Lbl'Unds'Map'Unds'{{}}({}, {})",
+        entry("c{}()", "c{}()"),
+        entry("VarY:SortFoo{}", "d{}()")
+    )
+}
+
+/// Each case: a label, the definition, the subject, and a subterm `u` of the subject that every
+/// term stating the subject's definedness mentions: the application nothing shows defined, or,
+/// for a collection, the variable its distinctness depends on.
 fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, String)> {
     let pf_d = "pf{}(d{}())".to_owned();
     let partial = |head: &str, sorts: &[&str], patterns: &[&str]| {
@@ -258,6 +281,46 @@ fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, Str
             format!("fs{{}}(d{{}}(), {})", element("pf{}(d{}())")),
             pf_d,
         ),
+        // A map or set is defined only where its keys (elements) are distinct, so
+        // `{c |-> c, Y |-> d}` is undefined at `Y = c`, with no function symbol anywhere. The
+        // control binds the whole map to a variable and carries `\not(c = Y)`; the pattern
+        // `(c |-> V) M` consumes the map's concatenation and binds only `V = c` and
+        // `M = {Y |-> d}`, each defined on its own. Reachable from K source
+        // (`rule f((c() |-> V) _M) => V`).
+        (
+            "map bound by a variable",
+            partial("fmv", &["SortMap{}"], &["VarM:SortMap{}"]),
+            format!("fmv{{}}({})", symbolic_map()),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        (
+            "map entry beside a rest",
+            partial(
+                "fmr",
+                &["SortMap{}"],
+                &[
+                    "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(c{}()), VarV:SortKItem{}), VarM:SortMap{})",
+                ],
+            ),
+            format!("fmr{{}}({})", symbolic_map()),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        (
+            "set element beside a rest",
+            partial(
+                "fsr",
+                &["SortSet{}"],
+                &[
+                    "Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortFoo{}, SortKItem{}}(c{}())), VarS:SortSet{})",
+                ],
+            ),
+            format!(
+                "fsr{{}}(Lbl'Unds'Set'Unds'{{}}({}, {}))",
+                element("c{}()"),
+                element("VarY:SortFoo{}")
+            ),
+            "VarY:SortFoo{}".to_owned(),
+        ),
         // Evaluator limit 1: `h(m(0), Y) = Y` makes `g(c) = g(h(m(0), c)) = m(1 /Int 0)`
         // undefined in every model; the pair of `g`'s and `h`'s equations does not join, so `g`
         // has no claim, and `k(g(c)) = d` consumes `g(c)` with its pattern.
@@ -305,7 +368,7 @@ fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, Str
 /// `\ceil(u)` (a constraint mentions `u`). That does not depend on whether the equation consumes
 /// `u` with a variable or with a pattern; the variable case is the control.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns); Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side"]
+#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns); Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side; a collection pattern drops its collection's distinctness (definedness-stepback.md)"]
 fn a_step_keeps_or_carries_every_consumed_subterm_it_cannot_show_defined() {
     let mut failures = Vec::new();
     for (label, definition, subject, undefined) in consumed_subterm_cases() {
@@ -556,6 +619,13 @@ fn every_precondition_row_seeds_the_closure() {
 /// pair of `foo(X) = .List` and the `Variable`-indexed equation is an overlap of two steps from
 /// `foo(X)`, and the check must classify it; its sides `ListItem(g(2))` and `.List` differ under
 /// a `requires` it cannot refute, so it is reported.
+///
+/// Step-back review (`definedness-stepback.md`, DF-3): this is not an acceptance test as written.
+/// The overlap's `requires` is `foo(I) = ListItem(g(1))`, and `foo(I)` evaluates to `.List`, so a
+/// check that classifies the pair refutes it and reports nothing; more generally, under innermost
+/// evaluation a root overlap of a `Variable`-indexed equation with another equation joins (the
+/// other reduct is the value the `requires` was evaluated on). Kept only as a record; the
+/// semantic test is `no_kept_claim_is_contradicted_by_two_equations`.
 #[test]
 #[ignore = "reproduces FOLLOWUPS: Unclassified root overlaps of Variable-indexed equations"]
 fn the_check_pairs_every_two_equations_offered_at_one_subject() {
@@ -606,6 +676,110 @@ fn the_check_pairs_every_two_equations_offered_at_one_subject() {
                 pair.reason.clone()
             ))
             .collect::<Vec<_>>()
+    );
+}
+
+/// The definition of [`no_kept_claim_is_contradicted_by_two_equations`]: `bar(t) = a` where `t`
+/// is `pattern`, else `bar(_) = b` at a lower priority, beside `declarations` and `axioms`.
+fn bar_definition(declarations: &str, pattern: &str, axioms: Vec<String>) -> BackendDefinition {
+    let mut axioms = axioms;
+    axioms.push(equation(
+        "bar",
+        &["SortFoo{}"],
+        "SortFoo{}",
+        &[pattern],
+        "a{}()",
+        TOP,
+        "",
+    ));
+    axioms.push(equation(
+        "bar",
+        &["SortFoo{}"],
+        "SortFoo{}",
+        &["VarX:SortFoo{}"],
+        "b{}()",
+        TOP,
+        r#"priority{}("200")"#,
+    ));
+    definition(
+        &format!(
+            r"{declarations}
+            symbol b{{}}() : SortFoo{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+            symbol bar{{}}(SortFoo{{}}) : SortFoo{{}} [function{{}}()]"
+        ),
+        &axioms,
+    )
+}
+
+/// The semantic form of the closure invariants: a claim the load keeps is true in every model.
+/// Each case has two equations that equate `t1` and `t2` in every model where they are defined
+/// (`t1` and `t2` are total, or `bar(t1)` is undefined anyway), so `bar(t1)` is `a` or undefined,
+/// and never `b`; `b` can only come from a freeness claim that refutes `t2` against `t1`.
+///
+/// - The `Variable`-indexed equation `L = ListItem(g(2)) requires L = ListItem(g(1))` equates
+///   `g(1)` and `g(2)` (its precondition row seeds nothing).
+/// - `r(0) = hh(5)` beside `r(0) = hh(6)` equates the total `hh(5)` and `hh(6)`; the pair does
+///   not join, and T-sym skips `hh` when it is hooked (and T-obs does not reach it: the pair has
+///   no variable), so the hooked `hh` keeps its claims. The unhooked `hh` is the control.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: Unclassified root overlaps of Variable-indexed equations; Closure rule T1 ignores tainted hooked heads (T-sym, definedness-stepback.md)"]
+fn no_kept_claim_is_contradicted_by_two_equations() {
+    let mut failures = Vec::new();
+    let variable = bar_definition(
+        G_HEAD,
+        &format!("g{{}}({})", int(2)),
+        vec![
+            anywhere("g", &["SortInt{}"], "SortFoo{}", &[&int(0)], "a{}()"),
+            variable_indexed_equation(),
+        ],
+    );
+    let subject = format!("bar{{}}(g{{}}({}))", int(1));
+    failures.push(("variable-indexed equation", simplified(&variable, &subject)));
+    for hooked in [false, true] {
+        let hh = if hooked {
+            r#"hooked-symbol hh{}(SortInt{}) : SortFoo{} [anywhere{}(), functional{}(), hook{}("TSYM.hh")]"#
+        } else {
+            r"symbol hh{}(SortInt{}) : SortFoo{} [anywhere{}(), functional{}()]"
+        };
+        let definition = bar_definition(
+            &format!(
+                r"symbol a{{}}() : SortFoo{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                {hh}
+                symbol r{{}}(SortInt{{}}) : SortFoo{{}} [anywhere{{}}(), functional{{}}()]"
+            ),
+            &format!("hh{{}}({})", int(5)),
+            vec![
+                anywhere("hh", &["SortInt{}"], "SortFoo{}", &[&int(0)], "a{}()"),
+                anywhere(
+                    "r",
+                    &["SortInt{}"],
+                    "SortFoo{}",
+                    &[&int(0)],
+                    &format!("hh{{}}({})", int(5)),
+                ),
+                anywhere(
+                    "r",
+                    &["SortInt{}"],
+                    "SortFoo{}",
+                    &[&int(0)],
+                    &format!("hh{{}}({})", int(6)),
+                ),
+            ],
+        );
+        let subject = format!("bar{{}}(hh{{}}({}))", int(6));
+        failures.push((
+            if hooked {
+                "pair over a hooked head"
+            } else {
+                "pair over an unhooked head"
+            },
+            simplified(&definition, &subject),
+        ));
+    }
+    failures.retain(|(_, result)| result == "b{}()");
+    assert!(
+        failures.is_empty(),
+        "a kept claim gives a value no model has: {failures:#?}"
     );
 }
 
@@ -688,6 +862,49 @@ fn a_top_lemma_applies_whichever_instance_holds() {
         "the lemma's result depends on the key"
     );
     assert!(!results[0].starts_with("error"), "{results:?}");
+}
+
+/// Not applying an equation is always sound (the subject stays equal to itself), so a
+/// simplification never fails because an equation whose result is not a term matches where no
+/// conjunction can absorb it. `fm(M) = \top` (from K source, `rule fm((K |-> _) _) => #Top
+/// requires K ==K 2 [simplification]`) matches `wrap(fm({1 |-> 0, 2 |-> 0}))` below a
+/// constructor; the subject must come back, unevaluated or not, but not as an error. `krun` of
+/// that K definition halts with `TopEquationOutsideConjunction` on main.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: matches_top_equation decides a top equation's requires on the first collection matching only (a top lemma outside a conjunction, definedness-stepback.md)"]
+fn a_top_lemma_outside_a_conjunction_is_not_an_error() {
+    let entry = |key: i64| {
+        format!(
+            "Lbl'UndsPipe'-'-GT-Unds'{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}), inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+            int(key),
+            int(0)
+        )
+    };
+    let map = format!("Lbl'Unds'Map'Unds'{{}}({}, {})", entry(1), entry(2));
+    let lemma = format!(
+        r#"axiom{{R}} \implies{{R}}(\equals{{SortKItem{{}}, R}}(VarK:SortKItem{{}}, inj{{SortInt{{}}, SortKItem{{}}}}({})), \equals{{SortFoo{{}}, R}}(fm{{}}(Lbl'Unds'Map'Unds'{{}}(Lbl'UndsPipe'-'-GT-Unds'{{}}(VarK:SortKItem{{}}, VarV:SortKItem{{}}), VarM:SortMap{{}})), \and{{SortFoo{{}}}}(\top{{SortFoo{{}}}}(), \top{{SortFoo{{}}}}()))) [UNIQUE'Unds'ID{{}}("top-2"), simplification{{}}()]"#,
+        int(2)
+    );
+    let definition = definition(
+        r"
+        symbol e{}() : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+        symbol wrap{}(SortFoo{}) : SortFoo{} [constructor{}(), functional{}(), injective{}()]
+        symbol fm{}(SortMap{}) : SortFoo{} [function{}(), functional{}(), total{}()]
+        ",
+        &[lemma],
+    );
+    let mut errors = Vec::new();
+    for subject in [
+        format!("wrap{{}}(fm{{}}({map}))"),
+        format!("fm{{}}({map})"),
+        format!(r"\and{{SortFoo{{}}}}(fm{{}}({map}), fm{{}}({map}))"),
+    ] {
+        let result = simplified(&definition, &subject);
+        if result.starts_with("error") {
+            errors.push((subject, result));
+        }
+    }
+    assert!(errors.is_empty(), "{errors:#?}");
 }
 
 #[test]
