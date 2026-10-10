@@ -104,7 +104,7 @@ mod z3_inference;
 
 use self::chart::*;
 use self::cycles::{SameSpanCycles, check_same_span_repetition};
-use self::disambiguation::PackedPriorityMemos;
+use self::disambiguation::{PackedPriorityMemos, Side};
 use self::forest::*;
 use self::grammar::Placeholder;
 use self::grammar::ProductionText;
@@ -1500,6 +1500,9 @@ struct AssociativityIndex {
     /// The `(parent, child)` pairs where `child` may not be `parent`'s left child (`right`
     /// associativity).
     right: rustc_hash::FxHashSet<(u32, u32)>,
+    /// For each production and each dot position before its end, the edge
+    /// [`Grammar::associativity_edge`] selects there, computed once per grammar.
+    edges: Vec<Box<[AssociativityEdge]>>,
 }
 
 impl AssociativityIndex {
@@ -1525,12 +1528,22 @@ impl AssociativityIndex {
                     .as_deref()
                     .and_then(|label| ids.get(label).copied())
             })
+            .collect::<Vec<_>>();
+        let edges = productions
+            .iter()
+            .enumerate()
+            .map(|(index, recognizer)| {
+                (0..recognizer.items.len())
+                    .map(|dot| associativity_edge_at(productions, &production_labels, index, dot))
+                    .collect()
+            })
             .collect();
         Self {
             ids,
             production_labels,
             left,
             right,
+            edges,
         }
     }
 
@@ -1540,6 +1553,38 @@ impl AssociativityIndex {
         } else {
             self.left.contains(&(parent, child))
         }
+    }
+}
+
+/// An edge the associativity relations judge: the production of the node, and whether the
+/// child is its left (`true`) or its right child; `None` where they judge none.
+type AssociativityEdge = Option<(usize, bool)>;
+
+/// [`Grammar::associativity_edge`] at `dot` of `production`, computed once per grammar.
+fn associativity_edge_at(
+    productions: &[Production],
+    production_labels: &[Option<u32>],
+    production: usize,
+    dot: usize,
+) -> AssociativityEdge {
+    let recognizer = &productions[production];
+    if recognizer.passes_child_through() {
+        return None;
+    }
+    let node = recognizer.term_production.unwrap_or(production);
+    production_labels[node]?;
+    // A node's children are the recognizer's nonterminals, in order (`build_packed_term`).
+    let nonterminals = |items: &[Item]| {
+        items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count()
+    };
+    let position = nonterminals(&recognizer.items[..dot]) + 1;
+    match productions[node].judged_side(position, nonterminals(&recognizer.items)) {
+        Some(Side::Left) => Some((node, true)),
+        Some(Side::Right) => Some((node, false)),
+        Some(Side::Middle) | None => None,
     }
 }
 
@@ -2173,10 +2218,31 @@ impl Grammar {
         if !work.charge(usize::try_from(forest_steps).unwrap_or(usize::MAX)) {
             return Err(WorkLimitReached);
         }
-        Ok(self
+        let violation = self
             .check_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)
-            .err()
-            .unwrap_or(first_violation))
+            .err();
+        // The check at hand-off judges an edge only where the filter judges it, and in the same
+        // way, so a derivation the filter admits at every edge survives the recognition that
+        // enforces the relations. That recognition can then fail although such a derivation
+        // exists only when a scope error is deferred (a node built by a rewrite, a sequence or a
+        // `#let` production) and the root preference keeps a reading that fails.
+        debug_assert!(
+            violation.is_some()
+                || self.productions.iter().any(|production| {
+                    production.parse_label.as_deref().is_some_and(|label| {
+                        [
+                            InternalLabel::KRewrite,
+                            InternalLabel::KSequence,
+                            InternalLabel::Let,
+                        ]
+                        .iter()
+                        .any(|scope| scope.as_str() == label)
+                    })
+                }),
+            "a failed recognition without deferred scope errors has a derivation every edge of \
+             which the relations admit"
+        );
+        Ok(violation.unwrap_or(first_violation))
     }
 
     /// The recognition phase of a parse attempt: the Earley chart of `input` from the start sort
@@ -3122,24 +3188,44 @@ impl Grammar {
     }
 
     /// Whether [`Self::filter_associative_boundary`] keeps a node built by `child` as the
-    /// child of `caller` at its dot.
+    /// child of `caller` at its dot. The node is judged as that check judges it: by the parse
+    /// label of the production it is a node of (`Production::term_production`), at the end
+    /// [`Self::associativity_edge`] selects. A token builds a leaf, which has no label, and a
+    /// production that passes its child through stands for a node this question does not know
+    /// ([`Self::stands_for`]): both are kept.
     fn associativity_admits(&self, caller: State, child: usize) -> bool {
-        let production = &self.productions[caller.production];
-        let left_child = if caller.dot == 0 {
-            true
-        } else if caller.dot + 1 == production.items.len() {
-            false
-        } else {
+        let Some((parent, left_child)) = self.associativity_edge(caller) else {
             return true;
         };
+        let descriptor = &self.productions[child];
+        if descriptor.token || descriptor.passes_child_through() {
+            return true;
+        }
         let index = self.associativity_index();
         let (Some(parent), Some(child)) = (
-            index.production_labels[caller.production],
-            index.production_labels[child],
+            index.production_labels[parent],
+            index.production_labels[descriptor.term_production.unwrap_or(child)],
         ) else {
             return true;
         };
         !index.forbids(parent, child, left_child)
+    }
+
+    /// The edge at which the associativity relations judge the node `caller` holds at its dot:
+    /// the production of the node `caller` builds (`Production::term_production`), and whether
+    /// the child is its left (`true`) or its right child. This is the end position the relation
+    /// filter judges there ([`Production::judged_side`]), so the check at hand-off
+    /// ([`Self::filter_associative_boundary`]) is the filter's own associativity check of that
+    /// edge, made earlier, and drops only nodes the filter would drop from that tree. `None`
+    /// where the filter judges no associativity: a middle position, a position `applyPriority`
+    /// leaves out, below a record or a syntactic subsort, below a production that passes its
+    /// child through (it builds no node, so the child is judged at its caller's edge), and
+    /// below a production whose label is in no associativity relation.
+    fn associativity_edge(&self, caller: State) -> Option<(usize, bool)> {
+        self.associativity_index().edges[caller.production]
+            .get(caller.dot)
+            .copied()
+            .flatten()
     }
 
     fn associativity_index(&self) -> &AssociativityIndex {
@@ -3181,10 +3267,14 @@ impl Grammar {
         !self.edge_rejects(caller.production, node, position)
     }
 
-    /// Drop completed nodes whose top label violates the caller's associativity on the side they
-    /// would occupy. Rejecting those boundaries before the caller packs its derivations keeps a
-    /// long associative chain from expanding into a Catalan-sized forest. Every other boundary
-    /// check waits for the priority pass over the completed caller.
+    /// Drop completed nodes that the associativity relations forbid as the caller's child at
+    /// its dot, at the edge [`Self::associativity_edge`] selects: the relation filter's own
+    /// associativity check of that edge, which would drop the caller's reading over such a node
+    /// when the caller completes, made before the caller packs its derivations. That keeps a
+    /// long associative chain from expanding into a Catalan-sized forest. A node is judged by
+    /// the label of its own production, as the filter judges a child; an ambiguity is passed,
+    /// because the filter judges each of its alternatives at the same edge later. Every other
+    /// edge check waits for the filter's pass over the completed caller.
     fn filter_associative_boundary<'a>(
         &self,
         caller: State,
@@ -3192,26 +3282,27 @@ impl Grammar {
         filter: PriorityFilter,
         first_violation: &mut Option<ParseError>,
     ) -> Cow<'a, BTreeSet<Rc<PackedTerm>>> {
-        let production = &self.productions[caller.production];
-        let Some(parent) = production.parse_label.as_deref() else {
-            return Cow::Borrowed(nodes);
-        };
-        // A label in no associativity relation forbids no child.
-        if filter == PriorityFilter::Ignored
-            || self.associativity_index().production_labels[caller.production].is_none()
-        {
+        if filter == PriorityFilter::Ignored {
             return Cow::Borrowed(nodes);
         }
-        let (left_child, side) = if caller.dot == 0 {
-            (true, "left")
-        } else if caller.dot + 1 == production.items.len() {
-            (false, "right")
-        } else {
+        let Some((parent, left_child)) = self.associativity_edge(caller) else {
             return Cow::Borrowed(nodes);
         };
+        let parent = self.productions[parent]
+            .parse_label
+            .as_deref()
+            .expect("a production in an associativity relation has a parse label");
+        let side = if left_child { "left" } else { "right" };
+        let label = |node: &PackedTerm| match &node.node {
+            PackedNode::Production { production, .. } => {
+                self.productions[*production].parse_label.as_deref()
+            }
+            PackedNode::Term(_)
+            | PackedNode::Ambiguity(_)
+            | PackedNode::InstantiatedProduction { .. } => None,
+        };
         let violates = |node: &PackedTerm| {
-            self.packed_top_parse_label(node)
-                .is_some_and(|child| self.associativity_forbids(parent, child, left_child))
+            label(node).is_some_and(|child| self.associativity_forbids(parent, child, left_child))
         };
         // Most boundaries reject nothing; they pass the caller's set through without copying it.
         if !nodes.iter().any(|node| violates(node)) {
@@ -3221,7 +3312,7 @@ impl Grammar {
             nodes
                 .iter()
                 .filter(|node| {
-                    let Some(child) = self.packed_top_parse_label(node) else {
+                    let Some(child) = label(node) else {
                         return true;
                     };
                     if !self.associativity_forbids(parent, child, left_child) {

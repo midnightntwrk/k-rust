@@ -228,10 +228,15 @@ impl Grammar {
         lower(self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere)?)
     }
 
-    /// Checked mode on an ambiguous forest in the z3 build: `None` unless the forest is outside
-    /// the unambiguous portable path and the portable decision decides it; otherwise both
-    /// engines' results are lowered by `lower` and compared. The caller runs it only under
-    /// `KRUST_TYPE_INFERENCE_MODE=checked` (`checked_inference_requested`).
+    /// Checked mode on an ambiguous forest in the z3 build: `None` when the forest is on the
+    /// unambiguous portable path, whose inference checks itself. Otherwise the portable decision
+    /// runs once; when it decides, both engines' results are lowered by `lower` and compared,
+    /// and when it refuses (`ParseError::Z3InferenceRequired`) there is nothing to compare and
+    /// Z3's lowered result is returned, as `Grammar::infer_ambiguous_sorts_portable_first` would
+    /// return it after the same refusal. Returning it here, rather than `None`, keeps the caller
+    /// from running the portable decision, and the tree expansion it makes, a second time. The
+    /// caller runs it only under `KRUST_TYPE_INFERENCE_MODE=checked`
+    /// (`checked_inference_requested`).
     ///
     /// Two inferred trees that differ only in a bracket production or in the instantiation of a
     /// formal sort parameter lower to one term, and the lowered term is what the rule means, so
@@ -251,11 +256,13 @@ impl Grammar {
         }
         let portable =
             self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, &lower);
+        let z3 = self
+            .infer_packed_sorts_z3(Rc::clone(term), top_sort, explicitly_anywhere)
+            .and_then(&lower);
         if matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
-            return None;
+            return Some(z3);
         }
-        let z3 = self.infer_packed_sorts_z3(Rc::clone(term), top_sort, explicitly_anywhere);
-        Some(checked_lowered_result(portable, z3.and_then(&lower)))
+        Some(checked_lowered_result(portable, z3))
     }
 
     /// Decide an ambiguous monomorphic forest without Z3 and lower the decision with `lower`.
@@ -2260,6 +2267,32 @@ mod tests {
             })
             .expect("the portable engine decides the forest");
         assert_eq!(checked, Ok(Term::apply("s", Vec::new())));
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_returns_z3s_result_on_a_forest_the_portable_decision_refuses() {
+        // One ambiguity more than the tree limit admits: the portable decision refuses the
+        // forest, so checked mode has nothing to compare and returns what the default path
+        // returns, which is Z3's decision. Returning nothing instead would make the caller run
+        // the portable decision again on the default path before reaching Z3.
+        let within = PORTABLE_AMBIGUITY_TREE_LIMIT.ilog2() as usize;
+        let (grammar, forest) = independent_ambiguities(within + 1);
+        let top = Sort::new("Good");
+        let lower = |tree| grammar.lower_inferred(tree, &top);
+        assert!(matches!(
+            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, lower),
+            Err(ParseError::Z3InferenceRequired { .. })
+        ));
+        let checked = grammar
+            .checked_ambiguous_parse(&forest, &top, false, lower)
+            .expect("checked mode decides every forest outside the unambiguous path");
+        let default = grammar.infer_packed_sorts(Rc::clone(&forest), &top, false, lower);
+        assert!(default.is_ok(), "{default:?}");
+        match (checked, default) {
+            (Ok(checked), Ok(default)) => assert!(checked.identical(&default), "{checked:?}"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[cfg(feature = "z3-inference")]

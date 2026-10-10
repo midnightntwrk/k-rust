@@ -596,50 +596,15 @@ impl Grammar {
                         metadata,
                     } => {
                         let descriptor = &self.productions[*production];
-                        let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort
-                        {
-                            BTreeSet::new()
-                        } else {
-                            descriptor.apply_priority.clone().unwrap_or_else(|| {
-                                let mut positions = BTreeSet::new();
-                                if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
-                                    positions.insert(1);
-                                }
-                                if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
-                                    positions.insert(children.len());
-                                }
-                                positions
-                            })
-                        };
                         let child_count = children.len();
                         let filtered_children = children
                             .iter()
                             .enumerate()
                             .map(|(index, child)| {
-                                let position = index + 1;
-                                let side = checked.contains(&position).then(|| {
-                                    if position == 1
-                                        && matches!(
-                                            descriptor.items.first(),
-                                            Some(Item::NonTerminal(_))
-                                        )
-                                    {
-                                        Side::Left
-                                    } else if position == child_count
-                                        && matches!(
-                                            descriptor.items.last(),
-                                            Some(Item::NonTerminal(_))
-                                        )
-                                    {
-                                        Side::Right
-                                    } else {
-                                        Side::Middle
-                                    }
-                                });
                                 self.filter_packed_priority_child(
                                     *production,
                                     Rc::clone(child),
-                                    side,
+                                    descriptor.judged_side(index + 1, child_count),
                                     memo,
                                     child_memo,
                                 )
@@ -832,42 +797,12 @@ impl Grammar {
                     metadata,
                 } => {
                     let descriptor = &self.productions[production];
-                    let checked = if descriptor.record.is_some() || descriptor.syntactic_subsort {
-                        BTreeSet::new()
-                    } else {
-                        descriptor.apply_priority.clone().unwrap_or_else(|| {
-                            let mut positions = BTreeSet::new();
-                            if matches!(descriptor.items.first(), Some(Item::NonTerminal(_))) {
-                                positions.insert(1);
-                            }
-                            if matches!(descriptor.items.last(), Some(Item::NonTerminal(_))) {
-                                positions.insert(children.len());
-                            }
-                            positions
-                        })
-                    };
                     let child_count = children.len();
                     let children = children
                         .into_iter()
                         .enumerate()
                         .map(|(index, child)| {
-                            let position = index + 1;
-                            let side = checked.contains(&position).then(|| {
-                                if position == 1
-                                    && matches!(
-                                        descriptor.items.first(),
-                                        Some(Item::NonTerminal(_))
-                                    )
-                                {
-                                    Side::Left
-                                } else if position == child_count
-                                    && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)))
-                                {
-                                    Side::Right
-                                } else {
-                                    Side::Middle
-                                }
-                            });
+                            let side = descriptor.judged_side(index + 1, child_count);
                             self.filter_priority_child(descriptor, child, side)
                         })
                         .collect::<Result<_, _>>()?;
@@ -960,19 +895,20 @@ impl Grammar {
     /// Whether the priority filter rejects a node of production `child` as the child of a node
     /// of production `parent` at child position `position` (1-based, among the parent's
     /// nonterminals), whatever the two nodes' children are: the check
-    /// [`Self::filter_packed_priority_memo`] makes at that edge finds a scope, cast, priority or
-    /// associativity violation, so no reading the filter accepts has that edge. Both
-    /// productions are those of the nodes: a production whose node is its child's
-    /// (`build_packed_term`) has no parse label and is never rejected, and a token production
-    /// builds no production node. A record production's edges are checked only after its
-    /// node is collapsed into another production's, so for one the answer is `false`.
+    /// [`Self::filter_packed_priority_memo`] makes at that edge
+    /// ([`Production::judged_side`]) finds a scope, cast, priority or associativity violation,
+    /// so no reading the filter accepts has that edge. Both productions are those of the nodes.
+    /// A production that passes its child through (`build_packed_term`) builds no node, so the
+    /// node at the edge is one this question does not know, and a token production builds a
+    /// leaf, which no relation judges: for either the answer is `false`. A record production's
+    /// edges are checked only after its node is collapsed into another production's, so for
+    /// one the answer is `false` too.
     pub(super) fn edge_rejects(&self, parent: usize, child: usize, position: usize) -> bool {
         let descriptor = &self.productions[parent];
         let child_descriptor = &self.productions[child];
-        if descriptor.record.is_some()
-            || descriptor.syntactic_subsort
-            || child_descriptor.record.is_some()
+        if child_descriptor.record.is_some()
             || child_descriptor.token
+            || child_descriptor.passes_child_through()
         {
             return false;
         }
@@ -981,22 +917,8 @@ impl Grammar {
             .iter()
             .filter(|item| matches!(item, Item::NonTerminal(_)))
             .count();
-        let first = position == 1 && matches!(descriptor.items.first(), Some(Item::NonTerminal(_)));
-        let last = position == child_count
-            && matches!(descriptor.items.last(), Some(Item::NonTerminal(_)));
-        let checked = match &descriptor.apply_priority {
-            Some(positions) => positions.contains(&position),
-            None => first || last,
-        };
-        if !checked {
+        let Some(side) = descriptor.judged_side(position, child_count) else {
             return false;
-        }
-        let side = if first {
-            Side::Left
-        } else if last {
-            Side::Right
-        } else {
-            Side::Middle
         };
         let shallow = ParsedTerm::Production {
             production: child,
@@ -4085,11 +4007,51 @@ fn packed_klabel_name(term: &PackedTerm) -> Option<String> {
     }
 }
 
+/// The side of a parent's node at which the relation filter judges a child
+/// ([`Production::judged_side`]): associativity applies at the two ends only.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-enum Side {
+pub(super) enum Side {
     Left,
     Right,
     Middle,
+}
+
+impl Production {
+    /// The side at which the relation filter judges the child at `position` (1-based, among
+    /// the children) of a node of this production that has `child_count` children, or `None`
+    /// where it judges none. This is the filter's one position selection: the node judges
+    /// nothing below it when it is a record (its edges are judged after it collapses into the
+    /// production it stands for) or a syntactic subsort (one nonterminal and no terminal); else
+    /// it judges the positions its `applyPriority` names, or by default its first and last
+    /// child where that child is the first or the last item. A judged child is on the left side
+    /// when it is the first item, on the right side when it is the last item, and in the
+    /// middle otherwise.
+    ///
+    /// Every check of an edge reads it: the filter over a completed node
+    /// ([`Grammar::filter_packed_priority`]), the edge test of the completion pruning
+    /// ([`Grammar::edge_rejects`]), and the associativity check at hand-off, which drops a
+    /// completed node before its caller packs it. So a node is rejected at an edge exactly when
+    /// the filter judges that edge, and whether a reading is accepted depends only on its own
+    /// tree, not on which other readings are packed with it.
+    pub(super) fn judged_side(&self, position: usize, child_count: usize) -> Option<Side> {
+        if self.record.is_some() || self.syntactic_subsort {
+            return None;
+        }
+        let first = position == 1 && matches!(self.items.first(), Some(Item::NonTerminal(_)));
+        let last =
+            position == child_count && matches!(self.items.last(), Some(Item::NonTerminal(_)));
+        let judged = match &self.apply_priority {
+            Some(positions) => positions.contains(&position),
+            None => first || last,
+        };
+        judged.then_some(if first {
+            Side::Left
+        } else if last {
+            Side::Right
+        } else {
+            Side::Middle
+        })
+    }
 }
 
 pub(crate) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, ParseError> {
@@ -4696,6 +4658,38 @@ mod tests {
             [("a(.KList)", false), ("outer(.KList)", false)]
         );
         assert!(places.is_empty());
+    }
+
+    #[test]
+    fn an_entry_is_the_least_reading_whatever_the_order_of_alternatives() {
+        let (grammar, node) = readings_fixture();
+        // An ambiguity keeps its alternatives as trees, where `wrapper(a)` comes before `outer`
+        // (its production is declared first), but `outer` is the lesser term. The `pair` entry
+        // is the least `pair` reading, `pair(c, outer)`, both when the choice is packed inside
+        // `pair`, with `wrapper(a)` as the union's first alternative, and when it is flat.
+        let c = || node("c", vec![], 1);
+        let wrapped = || node("wrapper", vec![node("a", vec![], 3)], 2);
+        let outer = || node("outer", vec![], 2);
+        let couple = || node("couple", vec![c(), node("c", vec![], 2)], 0);
+        let packed = ambiguity([
+            node("pair", vec![c(), ambiguity([wrapped(), outer()])], 0),
+            couple(),
+        ]);
+        let flat = ambiguity([
+            node("pair", vec![c(), wrapped()], 0),
+            node("pair", vec![c(), outer()], 0),
+            couple(),
+        ]);
+        let report = grammar.resolve_ambiguities(packed).unwrap_err();
+        assert_eq!(grammar.resolve_ambiguities(flat).unwrap_err(), report);
+        let (alternatives, _, _) = ambiguous_parts(report);
+        assert_eq!(
+            entries(&alternatives),
+            [
+                ("couple(c(.KList),c(.KList))", false),
+                ("pair(c(.KList),outer(.KList))", true),
+            ]
+        );
     }
 
     #[test]
