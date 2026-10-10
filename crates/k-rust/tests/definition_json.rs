@@ -319,6 +319,25 @@ fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + '
         .expect("the worker should finish")
 }
 
+/// The definition writers, like the readers, handle a term of any depth on a small stack: a rule
+/// body 100,000 applications deep is written in both forms on a 1 MiB thread. On main the KAST
+/// term writer (`JsonTerm`'s `From<&Term>` and derived `Serialize`) recurses once per level and
+/// the thread overflows its stack, which aborts the test process.
+#[test]
+#[ignore = "reproduces FOLLOWUPS: The KAST term JSON writer recurses once per level, with no guard and no marker"]
+fn definitions_of_any_depth_are_written_on_a_small_stack() {
+    let levels = 100_000;
+    let definition = deep_rule_definition(levels);
+    let lengths = on_stack(1 << 20, move || {
+        let kast = json::to_string(&definition).expect("the KAST document is written");
+        let provenance = json::to_provenance_string(&definition, &SourceTable::default())
+            .expect("the provenance document is written");
+        drop(definition);
+        (kast.len(), provenance.len())
+    });
+    assert!(lengths.0 > levels && lengths.1 > levels, "{lengths:?}");
+}
+
 /// Both definition readers decode the terms of a document with explicit work stacks, and a term
 /// is dropped with an explicit work list, so a definition whose rule body is 100,000
 /// applications deep is read and dropped on a 1 MiB thread. Each document takes about 9 MB,
