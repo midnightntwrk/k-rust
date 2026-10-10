@@ -320,11 +320,9 @@ fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + '
 }
 
 /// The definition writers, like the readers, handle a term of any depth on a small stack: a rule
-/// body 100,000 applications deep is written in both forms on a 1 MiB thread. On main the KAST
-/// term writer (`JsonTerm`'s `From<&Term>` and derived `Serialize`) recurses once per level and
-/// the thread overflows its stack, which aborts the test process.
+/// body 100,000 applications deep is written in both forms on a 1 MiB thread. A writer accepts
+/// what its reader accepts: a document krust reads, it can write back.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: The KAST term JSON writer recurses once per level, with no guard and no marker"]
 fn definitions_of_any_depth_are_written_on_a_small_stack() {
     let levels = 100_000;
     let definition = deep_rule_definition(levels);
@@ -1837,4 +1835,55 @@ fn roots_that_differ_in_one_component_are_written_apart() {
         };
         assert_eq!(body.metadata().unwrap().origin.as_ref().unwrap(), expected);
     }
+}
+
+/// Pretty JSON is one notion with one indentation rule, whichever writer prints it: the KAST
+/// term writer caps the indentation (`json_tree::PRETTY_INDENT_CAP`), because indenting each
+/// line by its depth makes a term `N` levels deep `O(N^2)` bytes of text. A definition holding
+/// that term, printed pretty, must indent its lines no deeper than the term printed pretty on
+/// its own does.
+#[test]
+fn pretty_definition_json_indents_no_deeper_than_pretty_term_json() {
+    fn deepest_indentation(text: &str) -> usize {
+        text.lines()
+            .map(|line| line.len() - line.trim_start_matches(' ').len())
+            .max()
+            .unwrap_or(0)
+    }
+    let definition = deep_rule_definition(300);
+    let Sentence::Rule { body, .. } = &*definition.modules[0].local_sentences[0] else {
+        unreachable!("deep_rule_definition holds one rule")
+    };
+    let term = deepest_indentation(&k_rust::kast::json::to_string_pretty(body).unwrap());
+    let mut written = vec![
+        (
+            "definition::json::to_string_pretty",
+            deepest_indentation(&json::to_string_pretty(&definition).unwrap()),
+        ),
+        (
+            "definition::json::to_provenance_string_pretty",
+            deepest_indentation(
+                &json::to_provenance_string_pretty(&definition, &SourceTable::default()).unwrap(),
+            ),
+        ),
+    ];
+    let file = std::env::temp_dir().join(format!(
+        "k-rust-pretty-indentation-{}.json",
+        std::process::id()
+    ));
+    json::write_pretty_file(&definition, &file).unwrap();
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    written.push((
+        "definition::json::write_pretty_file",
+        deepest_indentation(&text),
+    ));
+    let deeper = written
+        .into_iter()
+        .filter(|(_, indentation)| *indentation > term)
+        .collect::<Vec<_>>();
+    assert!(
+        deeper.is_empty(),
+        "the term alone is indented at most {term} columns; these writers indent deeper: {deeper:?}"
+    );
 }

@@ -799,6 +799,7 @@ struct TermData {
 }
 
 /// The fields every build has, so that a term prints the same in every build.
+// stack-accepted(backend-term-debug): `Debug` is for diagnostics; it goes one level per term level, alone or inside a derived `Debug` such as `externalize::External`'s. See docs/backend-port.md#stack-bounds.
 impl fmt::Debug for TermData {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter

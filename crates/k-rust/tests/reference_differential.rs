@@ -3838,12 +3838,12 @@ fn parsed_definition_matches_the_reference_frontend() {
             fs::create_dir_all(&directory).unwrap();
             fs::write(
                 std::path::Path::new(&directory).join("reference.json"),
-                serde_json::to_string_pretty(&reference).unwrap(),
+                k_rust_kore::json_tree::to_string_pretty(&reference).unwrap(),
             )
             .unwrap();
             fs::write(
                 std::path::Path::new(&directory).join("actual.json"),
-                serde_json::to_string_pretty(&actual).unwrap(),
+                k_rust_kore::json_tree::to_string_pretty(&actual).unwrap(),
             )
             .unwrap();
         }

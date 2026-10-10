@@ -214,7 +214,7 @@ The backend's other walks over a term that execution made deeper than its input 
 The recursions below are accepted: each is bounded by the stack of the thread that runs it, and an input deeper than that aborts the process with a stack overflow.
 Each site carries a comment `// stack-accepted(<id>): <reason>. See docs/backend-port.md#stack-bounds.` (a `///` line for the facade methods), so `grep -rn 'stack-accepted(' crates/` lists them, and `crates/k-rust/tests/stack_bounds_list.rs` checks that the ids of those comments and of this table are the same set.
 A case that is fixed loses its row and its markers; a newly accepted one gains both.
-The thresholds were measured with a release `krust` on an 8 MiB main thread and scale with the thread's stack; the sites are under `crates/k-rust/src/`.
+The thresholds were measured with a release `krust` on an 8 MiB main thread and scale with the thread's stack; the sites are under `crates/k-rust/src/` unless a row names another crate.
 
 | id | shape | sites | threshold on 8 MiB, release | reason |
 |---|---|---|---|---|
@@ -225,6 +225,7 @@ The thresholds were measured with a release `krust` on an 8 MiB main thread and 
 | `configuration-expansion-api` | configuration expansion called directly by a library caller, one level per nested cell and per level of an initializer | `expand_configurations`, `expand_configurations_with_diagnostics` (`definition/configuration.rs`) | not measured | the loader runs expansion on a stack measured from the configurations; a direct caller provides its own |
 | `kast-printer` | a KAST term printed as KAST text | `print_term` (`kast/printer.rs`) | about 85,000 levels | deeper than any term worth reading as text |
 | `kast-debug` | a KAST term formatted with `Debug` | `impl Debug for Term` (`kast/ast.rs`) | about 20,000 levels | `Debug` is for diagnostics |
+| `backend-term-debug` | a backend term formatted with `Debug`, alone or inside a value whose derived `Debug` holds one (`externalize::External`) | `impl Debug for TermData` (`crates/k-rust-backend/src/term.rs`) | not measured | `Debug` is for diagnostics |
 | `kore-to-kast` | KORE patterns converted to KAST | `Converter::pattern` (`kast/convert.rs`) | not measured | a library API that no product path calls |
 | `search-pattern-variables` | the variables of a `krun --search` pattern | `variable_identities` (`kompile/search_pattern.rs`) | not measured | the pattern is written by hand on the command line |
 | `debug-only-checks` | a parse tree formatted with `Debug` | the derived `Debug` of `ParsedTerm` (`inner/parser/forest.rs`) | not measured | used only in test and diagnostic output |

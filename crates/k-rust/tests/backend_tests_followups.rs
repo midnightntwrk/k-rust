@@ -168,10 +168,9 @@ endmodule
 }
 
 /// `kast --batch-case` accepts every program the single-case `kast --output json` accepts and
-/// writes the same term: here 62 nested negations, which the single case prints and the batch
-/// refuses on main with serde_json's recursion limit.
+/// writes the same term: two spellings of one request give one answer. Here 62 nested
+/// negations, past serde_json's default recursion limit of 128 nested values.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: `kast --batch-case` re-reads each case's pretty JSON into a `serde_json::Value`"]
 fn kast_batch_accepts_what_a_single_case_accepts() {
     let root = scratch();
     let file = root.join("neg.k");
