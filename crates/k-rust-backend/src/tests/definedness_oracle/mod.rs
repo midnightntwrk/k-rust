@@ -53,7 +53,15 @@
 //! `KRUST_DEFINEDNESS_ORACLE_VERBOSE` for each query, `KRUST_DEFINEDNESS_ORACLE_KORE` for each
 //! definition's KORE text, `KRUST_DEFINEDNESS_ORACLE_PROGRESS` for each definition's label as it
 //! starts.
+//!
+//! [`axioms`] checks the claims against the axioms instead, with the backend's own evaluation as
+//! the judge and no second engine, on the same templates, probes and variants, on its own
+//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, two
+//! maximal common subsorts), on random definitions with those classes added, and on the FUN
+//! fixtures. `KRUST_AXIOM_HARNESS_CASES` (default [`AXIOM_CASES`]) sets its random run; the
+//! mutation tests show which switches it sees.
 
+mod axioms;
 mod checks;
 mod completeness;
 mod corpus;
@@ -479,5 +487,115 @@ fn a_condition_whose_evaluation_does_not_end_does_not_keep_a_definition_from_loa
             "{:?}",
             backend.value_claims().unjoined()
         );
+    });
+}
+
+/// Random definitions in the axiom-instance harness's default run.
+const AXIOM_CASES: u64 = 24;
+
+/// The labelled definitions of the axiom-instance harness's run: the oracle's templates and the
+/// harness's own (`generator::axiom_templates`), the reviewers' probes with two variants each,
+/// the claim-dependent refutation probe, and `cases` random definitions from `seed`
+/// (`generator::axiom_definition`).
+fn axiom_definitions(cases: u64, seed: u64) -> Vec<(String, Definition)> {
+    let mut definitions = generator::templates()
+        .into_iter()
+        .map(|(name, definition, _)| (name, definition))
+        .chain(generator::axiom_templates())
+        .collect::<Vec<_>>();
+    for (index, probe) in probes::probes().into_iter().enumerate() {
+        for number in 0..2u64 {
+            let mut rng = Rng(seed
+                ^ u64::try_from(index)
+                    .unwrap()
+                    .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                ^ number.wrapping_mul(0xbf58_476d_1ce4_e5b9));
+            definitions.push((
+                format!("{} (variant {number})", probe.name),
+                variant(&probe.definition, &mut rng),
+            ));
+        }
+        definitions.push((probe.name, probe.definition));
+    }
+    definitions.push((
+        "claim-dependent refutation".into(),
+        generator::claim_dependent(),
+    ));
+    for case in 0..cases {
+        let mut rng = Rng(seed ^ case.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        definitions.push((
+            format!("case {case} (seed {seed:#x})"),
+            generator::axiom_definition(&mut rng),
+        ));
+    }
+    definitions
+}
+
+/// Runs the axiom-instance harness on [`axiom_definitions`] and on the checked-in FUN fixtures.
+fn run_axioms(cases: u64, seed: u64) -> axioms::AxiomTally {
+    let mut total = axioms::AxiomTally::default();
+    let progress = std::env::var_os("KRUST_DEFINEDNESS_ORACLE_PROGRESS").is_some();
+    for (label, definition) in axiom_definitions(cases, seed) {
+        let mut rng = Rng(seed);
+        let started = std::time::Instant::now();
+        total.add(axioms::check_definition(&label, &definition, &mut rng));
+        if progress {
+            eprintln!("{label}: {:?}", started.elapsed());
+        }
+    }
+    for (label, loaded) in corpus::fixtures() {
+        let mut rng = Rng(seed);
+        total.add(axioms::check_axioms(label, &loaded, None, &mut rng));
+    }
+    total
+}
+
+/// The axiom-instance harness's default run (`axioms`): every instance it judges holds in the
+/// backend's evaluation, and each kind of judgement it makes occurs.
+#[test]
+fn every_axiom_instance_holds_in_the_backends_evaluation() {
+    on_large_stack(|| {
+        let cases = environment("KRUST_AXIOM_HARNESS_CASES", AXIOM_CASES);
+        let seed = environment("KRUST_DEFINEDNESS_ORACLE_SEED", DEFAULT_SEED);
+        let started = std::time::Instant::now();
+        let total = run_axioms(cases, seed);
+        eprintln!(
+            "{} in {:?}",
+            total.summary(&format!("axiom-instance harness (seed {seed:#x})")),
+            started.elapsed()
+        );
+        let mut failures = total.failures.clone();
+        for (count, what) in [
+            (total.compared, "instance compared"),
+            (total.hooked, "instance at a hooked root"),
+            (total.without_model, "definition shown to have no model"),
+            (total.withheld_decided, "result decided without claims"),
+            (total.reordered, "term evaluated in two axiom orders"),
+            (total.generalizations, "generalization checked"),
+        ] {
+            if count == 0 {
+                failures.push(format!("no {what}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
+/// The axiom-instance harness sees an equation on a hooked collection that disagrees with the
+/// hook where the claims are kept (`generator::hooked_disagreement`): the left-hand side's
+/// instance denotes itself, the right-hand side the collection of its evaluated entries, and the
+/// two hold values the claims keep apart.
+#[test]
+#[ignore = "fails until K5 (oi/w1-claims)"]
+fn an_equation_on_a_hooked_collection_agrees_with_the_hook_where_claims_are_kept() {
+    on_large_stack(|| {
+        let mut rng = Rng(DEFAULT_SEED);
+        let tally = axioms::check_definition(
+            "hooked disagreement",
+            &generator::hooked_disagreement(),
+            &mut rng,
+        );
+        eprintln!("{}", tally.summary("hooked disagreement"));
+        assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
     });
 }

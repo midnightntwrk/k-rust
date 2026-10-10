@@ -99,7 +99,7 @@ impl Symbol {
         match self.kind {
             Kind::Constructor | Kind::Functional => true,
             Kind::Head { total, .. } | Kind::Function { total } => total,
-            Kind::Hook => self.name != "divInt",
+            Kind::Hook => !matches!(self.name.as_str(), "divInt" | "hf"),
         }
     }
 
@@ -150,7 +150,55 @@ pub(super) struct Definition {
     pub(super) equations: Vec<Equation>,
     /// Whether the hooked sort `List` of `Int` elements is declared.
     pub(super) lists: bool,
+    /// Whether the hooked sorts `Map` (from `Int` to `Mv`) and `Set` (of `Mv`) are declared, with
+    /// the sort `Mv` they hold (the constructor `mv0` and the value production `mv`) and the
+    /// constructor `wrap : Mv -> S`. The oracle's engine has no maps or sets: such a definition
+    /// is for the axiom-instance harness only (`axioms`).
+    pub(super) collections: bool,
+    /// Whether the hooked function `hf : A -> S` is declared, with an `Int` hook (`INT.abs`)
+    /// that never applies to an `A`: its value on an `A` is given by its equations alone. For the
+    /// axiom-instance harness only (`axioms`).
+    pub(super) opaque_hook: bool,
 }
+
+/// The hooked symbols of [`Definition::with_collections`]: name, arguments, result, hook,
+/// attributes besides `function` and `hook`.
+const COLLECTION_HOOKS: [(&str, &[&str], &str, &str, &str); 10] = [
+    ("mapUnit", &[], "Map", "MAP.unit", "total{}()"),
+    ("mapItem", &["Int", "Mv"], "Map", "MAP.element", "total{}()"),
+    (
+        "mapInKeys",
+        &["Int", "Map"],
+        "Bool",
+        "MAP.in_keys",
+        "total{}()",
+    ),
+    (
+        "mapUpdate",
+        &["Map", "Int", "Mv"],
+        "Map",
+        "MAP.update",
+        "total{}()",
+    ),
+    (
+        "mapConcat",
+        &["Map", "Map"],
+        "Map",
+        "MAP.concat",
+        "assoc{}(), comm{}(), unit{}(mapUnit{}())",
+    ),
+    ("mapSize", &["Map"], "Int", "MAP.size", "total{}()"),
+    ("setUnit", &[], "Set", "SET.unit", "total{}()"),
+    ("setItem", &["Mv"], "Set", "SET.element", "total{}()"),
+    (
+        "setConcat",
+        &["Set", "Set"],
+        "Set",
+        "SET.concat",
+        "assoc{}(), comm{}(), idem{}(), unit{}(setUnit{}())",
+    ),
+    ("setSize", &["Set"], "Int", "SET.size", "total{}()"),
+];
 
 /// The prelude's hooked operations: `divInt` (`INT.tdiv`), `addInt`, the six comparisons of
 /// `Int`, and `notBool`.
@@ -198,6 +246,44 @@ impl Definition {
     pub(super) fn with_lists(mut self) -> Self {
         self.lists = true;
         self
+    }
+
+    /// Declares the hooked function `hf` (see [`Definition::opaque_hook`]) and the sort `A`.
+    pub(super) fn with_opaque_hook(mut self) -> Self {
+        if self.opaque_hook {
+            return self;
+        }
+        self.opaque_hook = true;
+        if !self.sorts.iter().any(|sort| sort == "A") {
+            self.sorts.push("A".into());
+        }
+        self.symbols.push(Symbol {
+            name: "hf".into(),
+            arguments: vec!["A".into()],
+            result: "S".into(),
+            kind: Kind::Hook,
+        });
+        self
+    }
+
+    /// Declares the hooked sorts `Map` and `Set` (see [`Definition::collections`]).
+    pub(super) fn with_collections(mut self) -> Self {
+        if self.collections {
+            return self;
+        }
+        self.collections = true;
+        for (name, arguments, result, _, _) in COLLECTION_HOOKS {
+            self.symbols.push(Symbol {
+                name: name.into(),
+                arguments: arguments.iter().map(|sort| (*sort).into()).collect(),
+                result: result.into(),
+                kind: Kind::Hook,
+            });
+        }
+        self.sorts.push("Mv".into());
+        self.constructor("mv0", &[], "Mv")
+            .head("mv", &["Int"], "Mv")
+            .constructor("wrap", &["Mv"], "S")
     }
 
     pub(super) fn symbol(
@@ -443,6 +529,25 @@ impl Definition {
         for sort in &self.sorts {
             writeln!(source, "sort Sort{sort}{{}} []").unwrap();
         }
+        if self.collections {
+            source.push_str(concat!(
+                "hooked-sort SortMap{} [hook{}(\"MAP.Map\"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]\n",
+                "hooked-sort SortSet{} [hook{}(\"SET.Set\"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]\n",
+            ));
+            for (name, arguments, result, hook, attributes) in COLLECTION_HOOKS {
+                writeln!(
+                    source,
+                    "hooked-symbol {name}{{}}({}) : {} [function{{}}(), {attributes}, hook{{}}(\"{hook}\")]",
+                    arguments
+                        .iter()
+                        .map(|sort| sort_kore(sort))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    sort_kore(result)
+                )
+                .unwrap();
+            }
+        }
         if !self.subsorts.is_empty() {
             source.push_str("symbol inj{From, To}(From) : To [sortInjection{}()]\n");
         }
@@ -459,6 +564,11 @@ impl Definition {
         if self.sorts.iter().any(|sort| sort == "A") {
             source.push_str(
                 "hooked-symbol eqA{}(SortA{}, SortA{}) : SortBool{} [function{}(), total{}(), hook{}(\"KEQUAL.eq\")]\n",
+            );
+        }
+        if self.opaque_hook {
+            source.push_str(
+                "hooked-symbol hf{}(SortA{}) : SortS{} [function{}(), hook{}(\"INT.abs\")]\n",
             );
         }
         for symbol in self

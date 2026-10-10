@@ -1344,3 +1344,272 @@ fn a_requires_refuted_on_one_of_two_unifiers_does_not_settle_the_application() {
         forward.value_claims().unjoined()
     );
 }
+
+/// Whether the full check (`CheckScope::All`) accepts the definition: no pair it does not
+/// join, no precondition row violated.
+fn accepted(definition: &BackendDefinition) -> bool {
+    let claims = definition.value_claims_in_scope(CheckScope::All);
+    claims.unjoined().is_empty() && claims.violations().is_empty()
+}
+
+/// A definition the full check accepts gives every ground term one normal form (every peak
+/// joins), so the order in which its axioms are written, which decides the order the evaluator
+/// tries the equations of one priority group in, changes no ground result. On
+/// [`TWO_UNIFIERS`] the check names `q`'s pair, so the premise is false here; a `refuted_at` that
+/// settled an application on any refuted unifier would accept the definition, and the two
+/// orders give `hi` and `lo` at `q(inj{C2,A}(c2()))`.
+#[test]
+fn an_accepted_definition_evaluates_alike_in_every_equation_order() {
+    let forward_axioms = two_unifier_axioms();
+    let backward_axioms = forward_axioms.iter().rev().cloned().collect::<Vec<_>>();
+    let forward = definition(TWO_UNIFIERS, &forward_axioms);
+    let backward = definition(TWO_UNIFIERS, &backward_axioms);
+    if !(accepted(&forward) && accepted(&backward)) {
+        return;
+    }
+    for query in [
+        "q{}(inj{SortC1{}, SortA{}}(c1{}()))",
+        "q{}(inj{SortC2{}, SortA{}}(c2{}()))",
+    ] {
+        assert_eq!(
+            simplified(&forward, query),
+            simplified(&backward, query),
+            "the check accepts the definition, but {query} depends on the equation order"
+        );
+    }
+}
+
+/// The two sides of an equation at one ground instance, with the instance of its `requires`
+/// (`None` for `\top`).
+struct Instance {
+    left: String,
+    right: String,
+    requires: Option<String>,
+}
+
+/// A term the backend claims as a value: an application or literal with the claim, or a
+/// collection without a rest whose entries are claimed values.
+fn is_claimed_value(term: &k_rust_backend::term::Term) -> bool {
+    use k_rust_backend::term::TermKind;
+    match term.kind() {
+        TermKind::List {
+            heads, rest: None, ..
+        } => heads.iter().all(is_claimed_value),
+        TermKind::Set {
+            elements,
+            rest: None,
+            ..
+        } => elements.iter().all(is_claimed_value),
+        TermKind::Map {
+            entries,
+            rest: None,
+            ..
+        } => entries
+            .iter()
+            .all(|(key, value)| is_claimed_value(key) && is_claimed_value(value)),
+        _ => term.attributes().value_claimed(),
+    }
+}
+
+/// Whether `term` holds an application of a symbol other than a constructor.
+fn holds_a_claimed_head(term: &k_rust_backend::term::Term) -> bool {
+    use k_rust_backend::term::{SymbolType, TermKind};
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            !matches!(symbol.attributes.symbol_type, SymbolType::Constructor)
+                || arguments.iter().any(holds_a_claimed_head)
+        }
+        TermKind::Injection { term, .. } => holds_a_claimed_head(term),
+        TermKind::List { heads, .. } => heads.iter().any(holds_a_claimed_head),
+        TermKind::Set { elements, .. } => elements.iter().any(holds_a_claimed_head),
+        TermKind::Map { entries, .. } => entries
+            .iter()
+            .any(|(key, value)| holds_a_claimed_head(key) || holds_a_claimed_head(value)),
+        TermKind::And(..) | TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+    }
+}
+
+/// The failures of "no axiom equates two values the backend keeps apart" on `instances`. An
+/// instance whose `requires` evaluates to `true` and whose two sides evaluate to two different
+/// claimed values contradicts the claims, unless the values are built from constructors and
+/// literals only, whose distinctness is the definition's own axiom: then the definition has no
+/// model, and the load must warn about it.
+fn equated_values_kept_apart(
+    definition: &BackendDefinition,
+    instances: &[Instance],
+) -> Vec<String> {
+    let evaluate = |term: &str| {
+        crate::support::unstopped::simplify(
+            definition,
+            &crate::support::internal_term(definition, term),
+            SimplificationOptions::default(),
+        )
+        .expect("the term simplifies")
+    };
+    let claims = definition.value_claims();
+    let warns = !claims.unjoined().is_empty() || !claims.violations().is_empty();
+    let mut failures = Vec::new();
+    for instance in instances {
+        if let Some(requires) = &instance.requires
+            && !simplified(definition, requires).starts_with(r#"\dv{SortBool{}}("true")"#)
+        {
+            continue;
+        }
+        let (left, right) = (evaluate(&instance.left), evaluate(&instance.right));
+        let claimed = |result: &k_rust_backend::simplify::Simplification| {
+            is_claimed_value(&result.term) && result.constraints().is_empty()
+        };
+        if !(claimed(&left) && claimed(&right)) || left.term == right.term {
+            continue;
+        }
+        let constructors_only =
+            !holds_a_claimed_head(&left.term) && !holds_a_claimed_head(&right.term);
+        if !(constructors_only && warns) {
+            failures.push(format!(
+                "{} = {}: the sides evaluate to {} and {}, two values the backend keeps apart \
+                 (constructors only: {constructors_only}; the load warns: {warns})",
+                instance.left,
+                instance.right,
+                simplified(definition, &instance.left),
+                simplified(definition, &instance.right),
+            ));
+        }
+    }
+    failures
+}
+
+/// No axiom equates two values the backend keeps apart. A claim says that the evaluator's
+/// normal forms are a model of the definition at the heads that keep their claims, and every
+/// executable equation is an axiom of that model. Checked on [`TWO_UNIFIERS`] at its two ground
+/// instances: the check names `q`'s pair, so the load warns about the definition, which has no
+/// model (`hi` and `lo` are both `q(inj{C2,A}(c2()))`). A `refuted_at` that settled an
+/// application on any refuted unifier would accept the definition, and one of `q`'s equations
+/// would evaluate to `hi` on one side and `lo` on the other, in one build, whatever the order.
+#[test]
+fn no_axiom_equates_two_values_the_backend_keeps_apart() {
+    let two_unifiers = definition(TWO_UNIFIERS, &two_unifier_axioms());
+    let instances = [
+        "inj{SortC1{}, SortA{}}(c1{}())",
+        "inj{SortC2{}, SortA{}}(c2{}())",
+    ]
+    .into_iter()
+    .flat_map(|argument| {
+        let left = format!("q{{}}({argument})");
+        [
+            Instance {
+                left: left.clone(),
+                right: format!("fr{{}}(g{{}}(inj{{SortA{{}}, SortTop{{}}}}({argument})))"),
+                requires: None,
+            },
+            Instance {
+                left,
+                right: "lo{}()".to_owned(),
+                requires: None,
+            },
+        ]
+    })
+    .collect::<Vec<_>>();
+    let failures = equated_values_kept_apart(&two_unifiers, &instances);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// An equation rooted at a hooked symbol must agree with the hook wherever the hook is defined:
+/// otherwise the definition equates the hook's value with the equation's, and a claim that keeps
+/// them apart holds in no model. `L ++ .List = ListItem(g(2)) requires size(L) ==Int 1` is
+/// indexed at the bare variable `L` (the unit law normalizes its left-hand side to `L`). At
+/// `L := ListItem(g(1))` the hook's value of the left-hand side is `ListItem(g(1))` (the unit
+/// law), and the right-hand side evaluates to `ListItem(g(2))`; `g` (equation `g(0) = c`) keeps
+/// its claims, so the backend holds `g(1)` and `g(2)` apart: `bar(g(1))` is `rb` and `bar(g(2))`
+/// is `ra`. The hook's value is stated here by the unit law, because evaluating `ListItem(g(1))`
+/// applies the equation itself.
+#[test]
+#[ignore = "fails until K5 (oi/w1-claims)"]
+fn an_equation_on_a_hooked_symbol_agrees_with_the_hook_where_claims_are_kept() {
+    let declarations = r#"
+        hooked-sort SortList{}
+            [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+        sort SortA{} []
+        sort SortR{} []
+        hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+        hooked-symbol listItem{}(SortA{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+        hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+            [function{}(), hook{}("LIST.concat"), assoc{}()]
+        hooked-symbol sizeList{}(SortList{}) : SortInt{}
+            [function{}(), total{}(), hook{}("LIST.size")]
+        symbol c{}() : SortA{} [constructor{}(), functional{}(), injective{}()]
+        symbol ra{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+        symbol rb{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+        symbol g{}(SortInt{}) : SortA{} [anywhere{}(), value-production{}()]
+        symbol bar{}(SortA{}) : SortR{} [function{}()]
+    "#;
+    let g = |value: i64| format!("g{{}}({})", int(value));
+    let variable_indexed = definition(
+        declarations,
+        &[
+            anywhere("g", &["SortInt{}"], "SortA{}", &[&int(0)], "c{}()"),
+            equation(
+                "bar",
+                &["SortA{}"],
+                "SortR{}",
+                &[&g(2)],
+                "ra{}()",
+                r"\top{R}()",
+                "",
+            ),
+            equation(
+                "bar",
+                &["SortA{}"],
+                "SortR{}",
+                &["VarX:SortA{}"],
+                "rb{}()",
+                r"\top{R}()",
+                "owise{}()",
+            ),
+            equation(
+                "listConcat",
+                &["SortList{}", "SortList{}"],
+                "SortList{}",
+                &["VarL:SortList{}", "listUnit{}()"],
+                &format!("listItem{{}}({})", g(2)),
+                &format!(
+                    r#"\equals{{SortBool{{}}, R}}(eqInt{{}}(sizeList{{}}(VarL:SortList{{}}), {}), \dv{{SortBool{{}}}}("true"))"#,
+                    int(1)
+                ),
+                "",
+            ),
+        ],
+    );
+    let item = |value: i64| format!("listItem{{}}({})", g(value));
+    let requires = simplified(
+        &variable_indexed,
+        &format!("eqInt{{}}(sizeList{{}}({}), {})", item(1), int(1)),
+    );
+    assert!(
+        requires.starts_with(r#"\dv{SortBool{}}("true")"#),
+        "{requires}"
+    );
+    let hook_value = format!("{} with []", {
+        k_rust_kore::kore::printer::Printer::compact().print_pattern(
+            &k_rust_backend::externalize::term(&crate::support::internal_term(
+                &variable_indexed,
+                &item(1),
+            )),
+        )
+    });
+    let right = simplified(&variable_indexed, &item(2));
+    let kept = !variable_indexed
+        .value_claims()
+        .tainted_symbols()
+        .iter()
+        .any(|symbol| symbol.as_ref() == "g");
+    assert!(
+        hook_value == right || !kept,
+        "at L := {}, the hook gives {hook_value} and the equation {right}, while g keeps its \
+         claims: bar(g(1)) is {} and bar(g(2)) is {}",
+        item(1),
+        simplified(&variable_indexed, &format!("bar{{}}({})", g(1))),
+        simplified(&variable_indexed, &format!("bar{{}}({})", g(2))),
+    );
+}

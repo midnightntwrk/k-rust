@@ -31,6 +31,14 @@ fn load(source: &str, module: &str) -> BackendDefinition {
     BackendDefinition::internalize(&syntax, module).expect("the fixture internalizes")
 }
 
+/// The checked-in fixtures, loaded, with their names.
+pub(super) fn fixtures() -> Vec<(&'static str, BackendDefinition)> {
+    vec![
+        ("fun lists", load(FUN_LISTS, "OVERLOADED-LIST-OWISE")),
+        ("fun prelude", load(FUN_PRELUDE, "FUN-UNTYPED")),
+    ]
+}
+
 fn term(definition: &BackendDefinition, source: &str) -> Term {
     definition
         .internalize_term(&parse_pattern(source).expect("the term parses"), &[])

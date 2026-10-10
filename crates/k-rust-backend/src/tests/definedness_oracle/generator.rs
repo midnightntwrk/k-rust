@@ -1154,3 +1154,443 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
     ));
     templates
 }
+
+/// The claim-dependent refutation probe: `f(X) = c1 requires isH1(h(2))` beside `f(X) = c2`,
+/// where the total `isH1` is `true` on `h(1)` and `false` otherwise (`owise`). Refuting the pair
+/// needs `h(2)` to be a value other than `h(1)`: a claim about `h`, which the pair itself
+/// withdraws (T-sym, through the `requires`).
+pub(super) fn claim_dependent() -> Definition {
+    Definition::new(&["A", "B"])
+        .constructor("c1", &[], "B")
+        .constructor("c2", &[], "B")
+        .head("h", &["Int"], "A")
+        .total_function("isH1", &["A"], "Bool")
+        .equation(app("isH1", vec![app("h", vec![int(1)])]), boolean(true))
+        .full(
+            app("isH1", vec![var("VarY", "A")]),
+            boolean(false),
+            None,
+            None,
+            OWISE_PRIORITY,
+        )
+        .function("f", &["A"], "B")
+        .conditional(
+            app("f", vec![var("VarX", "A")]),
+            cons("c1"),
+            Some(app("isH1", vec![app("h", vec![int(2)])])),
+        )
+        .equation(app("f", vec![var("VarX", "A")]), cons("c2"))
+}
+
+/// Two maximal common subsorts: `C1, C2 < Al, Bl < Tl`, so that `inj{Al,Tl}(Z)` and
+/// `inj{Bl,Tl}(Y)` unify in two ways, one per common subsort. `gl(inj{Bl,Tl}(Y)) = kl requires
+/// pl(Y)`, with `pl` true on the subsorts in `true_on`; `fl(kl) = hi`, `fl(X) = lo [owise]`; and
+/// `ql(Z) = fl(gl(inj{Al,Tl}(Z)))` beside `ql(Z) = lo`. The root pair of `ql` joins on a unifier
+/// whose `requires` is refuted and not on one where it holds, so it joins exactly when `pl` is
+/// false on both.
+pub(super) fn two_unifiers(definition: Definition, true_on: [bool; 2]) -> (Definition, Vec<Pat>) {
+    let mut definition = definition
+        .subsort("C1", "Al")
+        .subsort("C1", "Bl")
+        .subsort("C2", "Al")
+        .subsort("C2", "Bl")
+        .subsort("Al", "Tl")
+        .subsort("Bl", "Tl")
+        .constructor("c1", &[], "C1")
+        .constructor("c2", &[], "C2")
+        .constructor("kl", &[], "Kl")
+        .constructor("hi", &[], "Rl")
+        .constructor("lo", &[], "Rl")
+        .total_function("pl", &["Bl"], "Bool")
+        .head("gl", &["Tl"], "Kl")
+        .total_function("fl", &["Kl"], "Rl")
+        .head("ql", &["Al"], "Rl");
+    for (sort, value) in ["C1", "C2"].into_iter().zip(true_on) {
+        definition = definition.equation(
+            app("pl", vec![inj(sort, "Bl", var("VarZ", sort))]),
+            boolean(value),
+        );
+    }
+    definition = definition
+        .conditional(
+            app("gl", vec![inj("Bl", "Tl", var("VarY", "Bl"))]),
+            cons("kl"),
+            Some(app("pl", vec![var("VarY", "Bl")])),
+        )
+        .equation(app("fl", vec![cons("kl")]), cons("hi"))
+        .full(
+            app("fl", vec![var("VarX", "Kl")]),
+            cons("lo"),
+            None,
+            None,
+            OWISE_PRIORITY,
+        )
+        .equation(
+            app("ql", vec![var("VarZ", "Al")]),
+            app(
+                "fl",
+                vec![app("gl", vec![inj("Al", "Tl", var("VarZ", "Al"))])],
+            ),
+        )
+        .equation(app("ql", vec![var("VarZ", "Al")]), cons("lo"));
+    for sort in ["C1", "C2", "Al", "Bl", "Tl", "Kl", "Rl"] {
+        definition.sorts.push(sort.into());
+    }
+    let seeds = vec![
+        app("ql", vec![inj("C1", "Al", cons("c1"))]),
+        app("ql", vec![inj("C2", "Al", cons("c2"))]),
+    ];
+    (definition, seeds)
+}
+
+/// The patterns of [`Definition::with_collections`]: the map with the entry `key |-> value`
+/// beside the rest `VarM`, and the set with the element `element` beside the rest `VarS`.
+fn map_entry(key: Pat, value: Pat) -> Pat {
+    app(
+        "mapConcat",
+        vec![app("mapItem", vec![key, value]), var("VarM", "Map")],
+    )
+}
+
+fn set_element(element: Pat) -> Pat {
+    app(
+        "setConcat",
+        vec![app("setItem", vec![element]), var("VarS", "Set")],
+    )
+}
+
+/// Maps and sets, with self pairs: `pick(K |-> V M) = mk(K)` and `pickS(SetItem(X) S) = wrap(X)`
+/// match a collection with two entries in two ways and give different results (when `clash`;
+/// otherwise they read only what every matching binds alike, `mk(1)` and `wrap(mv0)`), and
+/// `get(1 |-> V M) = wrap(V)` matches in one way. `szM(M) = mk(1) requires size(M) ==Int 1`
+/// beside `szM(M) = mk(2)` is a pair over a map variable, whose values hold `Mv`.
+pub(super) fn collections(definition: Definition, clash: bool) -> (Definition, Vec<Pat>) {
+    let definition = definition
+        .with_collections()
+        .head("pick", &["Map"], "S")
+        .head("pickS", &["Set"], "S")
+        .head("get", &["Map"], "S")
+        .head("szM", &["Map"], "S")
+        .equation(
+            app("pick", vec![map_entry(int_var("VarK"), var("VarV", "Mv"))]),
+            app("mk", vec![if clash { int_var("VarK") } else { int(1) }]),
+        )
+        .equation(
+            app("pickS", vec![set_element(var("VarX", "Mv"))]),
+            app(
+                "wrap",
+                vec![if clash {
+                    var("VarX", "Mv")
+                } else {
+                    cons("mv0")
+                }],
+            ),
+        )
+        .equation(
+            app("get", vec![map_entry(int(1), var("VarV", "Mv"))]),
+            app("wrap", vec![var("VarV", "Mv")]),
+        )
+        .conditional(
+            app("szM", vec![var("VarM", "Map")]),
+            app("mk", vec![int(1)]),
+            Some(int_equals(app("mapSize", vec![var("VarM", "Map")]), int(1))),
+        )
+        .equation(
+            app("szM", vec![var("VarM", "Map")]),
+            app("mk", vec![int(2)]),
+        );
+    (definition, Vec::new())
+}
+
+/// Equations rooted at hooked symbols that agree with their hooks: `addInt(I, 0) = I`, and
+/// `mapSize(.Map) = 0`; and the list unit law `L ++ .List = L`, whose left-hand side the
+/// collection laws normalize to the bare variable `L` (a precondition row the check reports).
+pub(super) fn hooked_equations(definition: Definition) -> (Definition, Vec<Pat>) {
+    let mut definition = definition.with_lists().with_collections();
+    // The list hooks as symbols, so that an equation can be rooted at one; the oracle's own
+    // definitions with lists leave them out, since its engine reads `List` patterns instead.
+    for (name, arguments, result) in [
+        ("listUnit", &[][..], "List"),
+        ("listItem", &["Int"][..], "List"),
+        ("listConcat", &["List", "List"][..], "List"),
+    ] {
+        if !definition.symbols.iter().any(|symbol| symbol.name == name) {
+            definition.symbols.push(Symbol {
+                name: name.into(),
+                arguments: arguments.iter().map(|sort| (*sort).into()).collect(),
+                result: result.into(),
+                kind: Kind::Hook,
+            });
+        }
+    }
+    let definition = definition
+        .equation(
+            app("addInt", vec![int_var("VarI"), int(0)]),
+            int_var("VarI"),
+        )
+        .equation(app("mapSize", vec![cons("mapUnit")]), int(0))
+        .equation(
+            app("listConcat", vec![var("VarL", "List"), cons("listUnit")]),
+            var("VarL", "List"),
+        );
+    (definition, Vec::new())
+}
+
+/// An overload family read through its lesser productions: `len2(inj{Ns,Es}(L)) = mk(2)` beside
+/// `len2(consE(E, L2)) = mk(1)`, which overlap only where `consE(inj(N), inj(L))` lowers to
+/// `inj(consN(N, L))` (a variable bound to a lesser production), and
+/// `len3(inj{Ns,Es}(consN(N, L))) = mk(2)` beside `len3(consE(E, L2)) = mk(1)`, which overlap
+/// only through the overload axioms (lifting). Both pairs differ on their overlaps.
+pub(super) fn lowered_family(definition: Definition) -> (Definition, Vec<Pat>) {
+    let (definition, _) = family(definition, true);
+    let definition = definition
+        .head("len2", &["Es"], "S")
+        .head("len3", &["Es"], "S")
+        .equation(
+            app("len2", vec![inj("Ns", "Es", var("VarL", "Ns"))]),
+            app("mk", vec![int(2)]),
+        )
+        .equation(
+            app(
+                "len2",
+                vec![app("consE", vec![var("VarE", "E"), var("VarL2", "Es")])],
+            ),
+            app("mk", vec![int(1)]),
+        )
+        .equation(
+            app(
+                "len3",
+                vec![inj(
+                    "Ns",
+                    "Es",
+                    app("consN", vec![var("VarN", "N"), var("VarL", "Ns")]),
+                )],
+            ),
+            app("mk", vec![int(2)]),
+        )
+        .equation(
+            app(
+                "len3",
+                vec![app("consE", vec![var("VarE", "E"), var("VarL2", "Es")])],
+            ),
+            app("mk", vec![int(1)]),
+        );
+    (definition, Vec::new())
+}
+
+/// An inner pair across priority groups: `h(3) = h(1) [priority 40]` below `w(h(3)) = mk(1)`
+/// beside `w(h(1)) = mk(2)`: `w(h(3))` is `mk(1)` by its own equation and `mk(2)` after `h(3)`.
+pub(super) fn chain_across_priorities(definition: Definition) -> (Definition, Vec<Pat>) {
+    let mut definition = definition
+        .head("hp", &["Int"], "Hp")
+        .head("wp", &["Hp"], "S")
+        .full(
+            app("hp", vec![int(3)]),
+            app("hp", vec![int(1)]),
+            None,
+            None,
+            40,
+        )
+        .equation(
+            app("wp", vec![app("hp", vec![int(3)])]),
+            app("mk", vec![int(1)]),
+        )
+        .equation(
+            app("wp", vec![app("hp", vec![int(1)])]),
+            app("mk", vec![int(2)]),
+        );
+    definition.sorts.push("Hp".into());
+    (definition, Vec::new())
+}
+
+/// One self pair over a map with nothing else that fails to join: `pick(K |-> V M) = hv(K)`,
+/// with the value production `hv : Int -> S`. A map with two entries matches the left-hand side
+/// in two ways, with `hv` of each key, two values the backend keeps apart unless the self pair
+/// withdraws them; with `ensures`, `pick(K |-> V M) = hv(1) ensures K <Int 3`, which is `hv(1)`
+/// on one matching of `1 |-> V 5 |-> V'` and `\bottom` on the other (a bound rather than one
+/// key, so that most maps of two entries the harness draws have the two matchings). Beside
+/// other pairs that do not join, the full check would still name one of those, so the self pair
+/// stands alone.
+pub(super) fn isolated_self_pair(definition: Definition, ensures: bool) -> Definition {
+    let definition = definition
+        .with_collections()
+        .head("hv", &["Int"], "S")
+        .head("pick", &["Map"], "S");
+    let lhs = app("pick", vec![map_entry(int_var("VarK"), var("VarV", "Mv"))]);
+    if ensures {
+        definition.full(
+            lhs,
+            app("hv", vec![int(1)]),
+            None,
+            Some(app("ltInt", vec![int_var("VarK"), int(3)])),
+            super::language::DEFAULT_PRIORITY,
+        )
+    } else {
+        definition.equation(lhs, app("hv", vec![int_var("VarK")]))
+    }
+}
+
+/// Two equations whose `requires` overlap only through `<=Int`: `fz(X) = hv(1) requires X <=Int
+/// 1` beside `fz(X) = hv(2) requires X <Int 1`. Both apply where `X < 1`, with two values the
+/// backend keeps apart, so the check must name the pair; read as `X >= 1`, the first `requires`
+/// would be disjoint from the second.
+pub(super) fn le_overlap(definition: Definition) -> Definition {
+    definition
+        .head("hv", &["Int"], "S")
+        .head("fz", &["Int"], "S")
+        .conditional(
+            app("fz", vec![int_var("VarX")]),
+            app("hv", vec![int(1)]),
+            Some(app("leInt", vec![int_var("VarX"), int(1)])),
+        )
+        .conditional(
+            app("fz", vec![int_var("VarX")]),
+            app("hv", vec![int(2)]),
+            Some(app("ltInt", vec![int_var("VarX"), int(1)])),
+        )
+}
+
+/// Two equations of the hooked `hf` (whose hook never applies to an `A`) at one constructor,
+/// of which only one mentions an equation head: `hf(c) = w(c)` beside `hf(c) = mk(1)`, with the
+/// value production `w`. They equate `w(c)` and `mk(1)`, so `w` can keep no claim; the hooked root
+/// links the two equations through no taintable symbol, so the pair is classified at the load
+/// only because one of its equations is relevant.
+pub(super) fn one_relevant_equation(definition: Definition) -> Definition {
+    definition
+        .with_opaque_hook()
+        .head("w", &["A"], "S")
+        .equation(app("hf", vec![cons("c")]), app("w", vec![cons("c")]))
+        .equation(app("hf", vec![cons("c")]), app("mk", vec![int(1)]))
+}
+
+/// A pair over a map variable that equates elements only the map's values tell apart:
+/// `gm(K, M) = km(M) requires K in_keys(M)` beside `gm(K, M) = km(M[K <- mv0])`, with the
+/// constructor `km : Map -> S`. Every map then binds each of its keys to `mv0`, so `mv(1)` is
+/// `mv0` in every model, although neither equation mentions `mv` and no variable has the sort
+/// `Mv`: only the map's value sort links the pair to `mv`. The definition has a model (`mv`
+/// constant at `mv0`).
+pub(super) fn observed_through_a_map(definition: Definition) -> Definition {
+    let lhs = || app("gm", vec![int_var("VarK"), var("VarM", "Map")]);
+    definition
+        .with_collections()
+        .constructor("km", &["Map"], "S")
+        .head("gm", &["Int", "Map"], "S")
+        .conditional(
+            lhs(),
+            app("km", vec![var("VarM", "Map")]),
+            Some(app("mapInKeys", vec![int_var("VarK"), var("VarM", "Map")])),
+        )
+        .equation(
+            lhs(),
+            app(
+                "km",
+                vec![app(
+                    "mapUpdate",
+                    vec![var("VarM", "Map"), int_var("VarK"), cons("mv0")],
+                )],
+            ),
+        )
+}
+
+/// An equation on a hooked collection that disagrees with the hook where the claims are kept:
+/// `S ++ .Set = SetItem(mv(2)) requires size(S) ==Int 1`, indexed at the bare variable `S` (the
+/// unit law normalizes its left-hand side to `S`). At `S := SetItem(mv0)` the left-hand side
+/// denotes `SetItem(mv0)` and the right-hand side `SetItem(mv(2))`, so `mv0` and `mv(2)` are one
+/// element of every model, which a claim that keeps `mv` holds apart.
+pub(super) fn hooked_disagreement() -> Definition {
+    Definition::new(&[]).with_collections().conditional(
+        app("setConcat", vec![var("VarS", "Set"), cons("setUnit")]),
+        app("setItem", vec![app("mv", vec![int(2)])]),
+        Some(int_equals(app("setSize", vec![var("VarS", "Set")]), int(1))),
+    )
+}
+
+/// The definitions of the classes the oracle's engine cannot evaluate, or that the oracle's
+/// templates do not hold, for the axiom-instance harness (`axioms`): two maximal common
+/// subsorts with `requires` that differ per unifier, maps and sets with self pairs, hooked
+/// equations and an equation at a bare-variable index, an overload family read through its
+/// lesser productions, an inner pair across priority groups, a map self pair alone (with and
+/// without `ensures`), two `requires` that overlap only through `<=Int`, a pair at a hooked root
+/// of which one equation is relevant, and a pair over a map variable that equates the map's
+/// values.
+pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
+    let base = || {
+        Definition::new(&["A"])
+            .constructor("c", &[], "A")
+            .constructor("d", &[], "A")
+            .constructor("k", &["A"], "A")
+            .constructor("m", &["Int"], "A")
+            .head("f", &["A"], "A")
+    };
+    let mut templates = Vec::new();
+    for true_on in [[false, true], [true, false], [false, false], [true, true]] {
+        templates.push((
+            format!("axiom template two unifiers (pl true on {true_on:?})"),
+            two_unifiers(base(), true_on).0,
+        ));
+    }
+    for clash in [true, false] {
+        templates.push((
+            format!("axiom template collections (clash {clash})"),
+            collections(base(), clash).0,
+        ));
+    }
+    templates.push((
+        "axiom template hooked equations".into(),
+        hooked_equations(base()).0,
+    ));
+    templates.push((
+        "axiom template lowered family".into(),
+        lowered_family(base()).0,
+    ));
+    templates.push((
+        "axiom template chain across priorities".into(),
+        chain_across_priorities(base()).0,
+    ));
+    // Each alone: no symbol of `base` beside them.
+    templates.push((
+        "axiom template isolated self pair".into(),
+        isolated_self_pair(Definition::new(&[]), false),
+    ));
+    templates.push((
+        "axiom template self pair with ensures".into(),
+        isolated_self_pair(Definition::new(&[]), true),
+    ));
+    templates.push((
+        "axiom template le overlap".into(),
+        le_overlap(Definition::new(&[])),
+    ));
+    templates.push((
+        "axiom template one relevant equation".into(),
+        one_relevant_equation(base()),
+    ));
+    templates.push((
+        "axiom template observed through a map".into(),
+        observed_through_a_map(Definition::new(&[])),
+    ));
+    templates
+}
+
+/// A random definition of [`random_definition`], with the classes of [`axiom_templates`] added
+/// at random.
+pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
+    let (mut definition, _) = random_definition(rng);
+    let has_head = definition.symbols.iter().any(Symbol::is_head);
+    if rng.percent(20) && !definition.sorts.iter().any(|sort| sort == "Al") {
+        let true_on = [rng.percent(50), rng.percent(50)];
+        definition = two_unifiers(definition, true_on).0;
+    }
+    if rng.percent(20) {
+        definition = collections(definition, rng.percent(50)).0;
+    }
+    if rng.percent(15) {
+        definition = hooked_equations(definition).0;
+    }
+    if has_head && rng.percent(10) && !definition.sorts.iter().any(|sort| sort == "Es") {
+        definition = lowered_family(definition).0;
+    }
+    if rng.percent(10) {
+        definition = chain_across_priorities(definition).0;
+    }
+    definition
+}

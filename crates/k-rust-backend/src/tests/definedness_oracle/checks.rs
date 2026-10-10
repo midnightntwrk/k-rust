@@ -807,7 +807,7 @@ pub(super) fn sort_name(sort: &Sort) -> Option<String> {
 /// I)`), which need not end. A stopped call claims nothing.
 const BACKEND_SECONDS: u64 = 2;
 
-fn deadline() -> crate::stop::DeadlineGuard {
+pub(super) fn deadline() -> crate::stop::DeadlineGuard {
     let limit = std::time::Duration::from_secs(BACKEND_SECONDS);
     crate::stop::arm_deadline(
         std::time::Instant::now() + limit,
