@@ -272,6 +272,10 @@ pub(super) struct TermBuilder<'a> {
     pub(super) ml_binder_ordinal: u32,
     enum_glob: Option<&'a Path>,
     enum_variant: Option<&'a Ident>,
+    /// The block's authored `use Enum::*;` (or `use Enum::Variant;`), which
+    /// a witness for a readable record root repeats so that rustc resolves
+    /// the record's path as the author's Rust would (KF-016, KF-023).
+    enum_import_item: Option<&'a syn::ItemUse>,
     lexical_rule_head: bool,
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
@@ -320,6 +324,7 @@ impl<'a> TermBuilder<'a> {
             ml_binder_ordinal: 0,
             enum_glob: None,
             enum_variant: None,
+            enum_import_item: None,
             lexical_rule_head: false,
             tooling_binding_references: Vec::new(),
             allow_rewrite: false,
@@ -433,6 +438,46 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
         self.lexical_rule_head = enabled;
         self
+    }
+
+    /// Records the block's authored enum import for record-root witnesses.
+    pub(super) const fn with_enum_import_item(mut self, item: Option<&'a syn::ItemUse>) -> Self {
+        self.enum_import_item = item;
+        self
+    }
+
+    /// Lets rustc resolve the head of a readable record root, such as the
+    /// value of a cell entry, instead of qualifying it by the block's enum
+    /// import: `Frame { .. }` may name a `#[k::cell]` struct rather than a
+    /// variant, which the collector learns from the resolved type (KF-016,
+    /// KF-023). Only a one-segment record head the import would qualify is
+    /// affected; every other root keeps its ordinary slot.
+    pub(super) fn arm_record_root(&mut self, tree: &TermTree) {
+        let mut root = tree;
+        while let TermTree::As { pattern, .. } = root {
+            root = pattern;
+        }
+        let TermTree::Application(application) = root else {
+            return;
+        };
+        let head = application.head();
+        if !matches!(application.arguments(), TermArguments::Named(_))
+            || !application.instance().is_empty()
+            || head.leading_colon.is_some()
+            || head.segments.len() != 1
+        {
+            return;
+        }
+        let Some(segment) = head.segments.first() else {
+            return;
+        };
+        if self.enum_glob.is_some()
+            && self
+                .enum_variant
+                .is_none_or(|variant| variant == &segment.ident)
+        {
+            self.lexical_rule_head = true;
+        }
     }
 
     /// The per-side ordinals of this side so far, as `[application,
@@ -1386,7 +1431,15 @@ impl<'a> TermBuilder<'a> {
             None => quote!(#path),
         };
         let facade = self.facade;
+        // A record root under the block's enum import repeats the import, so
+        // `Frame { .. }` names the variant when the enum has one and the
+        // struct in scope otherwise, as in the author's Rust.
+        let import = self
+            .enum_import_item
+            .filter(|_| self.enum_glob.is_some())
+            .map(|item| quote!(#[allow(unused_imports)] #item));
         quote! {{
+            #import
             let __krs_rule_application_witness: ::core::option::Option<_> =
                 ::core::option::Option::None;
             if let ::core::option::Option::Some(#pattern) =

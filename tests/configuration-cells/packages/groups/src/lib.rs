@@ -19,6 +19,11 @@
 //! (pc 2, gas 11) is restored after the third, and the last bump runs from
 //! there. `report` writes `100 * pc + gas`, 310, to the computation cell, so
 //! both routes agree on the frame.
+//!
+//! `jump` matches and rebuilds the frame with a readable record: in a group
+//! position `Frame { pc: p, gas: g }` is the whole nested cell, the same term
+//! as `k::fragment![Frame { pc: p, gas: g }]`. `bump jump report` writes
+//! 1112 (pc 11, gas 12).
 
 use k::KResult;
 use k::builtin::{Int, KSequence, List, int, list};
@@ -31,7 +36,7 @@ k::sorts! {
 
 #[k::constructors(sort = Stmt, result = KResult)]
 #[k::precedence(
-    cmd (Bump, Push, Pop, Save, Restore, Call, Ret, Report)
+    cmd (Bump, Push, Pop, Save, Restore, Call, Ret, Report, Jump)
     > right seq (Seq)
 )]
 #[rustfmt::skip]
@@ -44,6 +49,7 @@ pub enum Cmd {
     #[k::syntax("call")] Call(),
     #[k::syntax("ret")] Ret(),
     #[k::syntax("report")] Report(),
+    #[k::syntax("jump")] Jump(),
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
 }
 
@@ -135,6 +141,15 @@ k::rules! {
         k: [int::add(int::mul(p, 100), g), ..],
         pc: p,
         gas: g,
+    };
+
+    /// Skip ten instructions, matching and rebuilding the whole frame.
+    jump: {
+        k: [Jump(), ..],
+        frame: Frame { pc: p, gas: g },
+    } => {
+        k: [..],
+        frame: Frame { pc: int::add(p, 10), gas: g },
     };
 
     /// `push` written the long way: restate every leaf of the frame.

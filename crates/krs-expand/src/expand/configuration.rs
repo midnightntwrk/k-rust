@@ -186,6 +186,21 @@ pub(crate) fn cell(
             ::core::any::TypeId::of::<#declared>()
         }
 
+        // A readable record in a cell position names this struct as rustc
+        // resolves it (KF-016); the collector then reads the application as
+        // a group term.
+        #(#cfg)*
+        impl<const __KRS_SELECTOR: u64> #facade::__KrsRuleApplication<__KRS_SELECTOR>
+            for #declared
+        {
+            fn __krs_rule_application(authored_path: &str) -> #facade::HostApplicationTarget {
+                #facade::HostApplicationTarget::Nominal(#facade::HostTypeReference {
+                    key: #facade::HostTypeKey(#declared_key),
+                    authored_path: authored_path.to_owned(),
+                })
+            }
+        }
+
         #factory_tokens
     })
 }

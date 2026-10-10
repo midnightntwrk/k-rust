@@ -25,6 +25,7 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         .imports()
         .first()
         .and_then(krs_syntax::RuleImport::variant);
+    let enum_import_item = block.imports().first().map(krs_syntax::RuleImport::item);
     let import_checks = block.imports().iter().map(|import| {
         let item = import.item();
         quote! {
@@ -39,8 +40,11 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         clauses.push(expand_head_rule(
             env,
             clause,
-            enum_owner,
-            enum_variant,
+            EnumImport {
+                owner: enum_owner,
+                variant: enum_variant,
+                item: enum_import_item,
+            },
             block.is_configuration(),
         )?);
     }
@@ -50,6 +54,15 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
     })
 }
 
+/// The block's enum import: the owner that qualifies unqualified heads, the
+/// one imported variant if any, and the authored `use` item.
+#[derive(Clone, Copy)]
+struct EnumImport<'a> {
+    owner: Option<&'a Path>,
+    variant: Option<&'a Ident>,
+    item: Option<&'a syn::ItemUse>,
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The complete rule clause is lowered in one ordered pass."
@@ -57,10 +70,14 @@ pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
 fn expand_head_rule(
     env: &dyn MacroEnvironment,
     clause: &krs_syntax::RuleClause,
-    enum_owner: Option<&Path>,
-    enum_variant: Option<&Ident>,
+    import: EnumImport<'_>,
     configuration_owned: bool,
 ) -> crate::Result<TokenStream> {
+    let EnumImport {
+        owner: enum_owner,
+        variant: enum_variant,
+        item: enum_import_item,
+    } = import;
     let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
     let rule_right_cells_field_role = ProvenanceRole::RuleRightCellsField;
     let rule_requires_role = ProvenanceRole::RuleRequires;
@@ -93,6 +110,7 @@ fn expand_head_rule(
         .collect::<Vec<_>>();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_enum_import(enum_owner, enum_variant)
+        .with_enum_import_item(enum_import_item)
         .with_lexical_rule_head(enum_owner.is_none())
         .with_readable_instances();
     let mut refinement_functions = Vec::new();
@@ -185,6 +203,7 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::RewriteCell {
                 cell, before_tree, ..
             } => {
+                builder.arm_record_root(before_tree);
                 let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
@@ -315,6 +334,7 @@ fn expand_head_rule(
                 let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
                 rewrite_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
+                builder.arm_record_root(after.tree());
                 let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
                 let right_ordinal = update_ordinal;
                 update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
@@ -542,9 +562,15 @@ fn readable_state_wire(
     };
     let side = context.side;
     Ok(match state {
-        StateTerm::Present(inner) => State::Present {
-            value: Box::new(readable_state_wire(inner, context)?),
-        },
+        StateTerm::Present(inner) => {
+            // `Some(Mark { .. })` names a group the way a fixed entry does.
+            if let StateTerm::Term(term) = inner.as_ref() {
+                context.builder.arm_record_root(term.tree());
+            }
+            State::Present {
+                value: Box::new(readable_state_wire(inner, context)?),
+            }
+        }
         StateTerm::Absent(_) => State::Absent,
         StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
             context

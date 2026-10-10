@@ -22,6 +22,14 @@ impl Store {
 fn __krs_cell_type_221054d221a44a51() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Store>()
 }
+impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Store {
+    fn __krs_rule_application(authored_path: &str) -> ::k::HostApplicationTarget {
+        ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
+            key: ::k::HostTypeKey(__krs_cell_type_221054d221a44a51),
+            authored_path: authored_path.to_owned(),
+        })
+    }
+}
 #[doc(hidden)]
 fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
     ::k::HostDescriptor,

@@ -279,6 +279,15 @@ bug — report it, don't guess.
   cell pattern is an unguarded variable or `_` of the cell's sort, because
   it is then always enabled and execution never terminates. The reference
   surface stays K-faithful and gains no new error.
+  *E7 note: a record value follows the cell's declared type (2026-10,
+  KF-016).* In a cell entry, and inside `Some(..)` of an optional cell,
+  a record `Frame { pc: p, gas: g }` whose path rustc resolves to a
+  `#[k::cell]` struct is the whole nested cell, the same group term as
+  `k::fragment![Frame { pc: p, gas: g }]`; a record naming a production
+  stays an ordinary term. The path resolves as in the author's Rust,
+  with the block's `use Enum::*` in scope, so a variant of the same name
+  wins and `crate::Frame { .. }` names the struct. Inside other terms
+  (`list::item(..)`), a group is still written with `k::fragment!`.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the

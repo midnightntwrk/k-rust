@@ -16,7 +16,8 @@
 //!
 //! The nested `<mark>` cell is an optional group: `mark: Some(m)` binds the
 //! whole cell, of K's sort `MarkCell`, and `stamp` creates it from the
-//! counter with `k::fragment!`.
+//! counter with `k::fragment!`. `peek` matches it with the readable record
+//! `Some(Mark { seen: s })`, the same group term.
 
 use k::KResult;
 use k::builtin::{Int, KSequence, int};
@@ -131,7 +132,7 @@ k::rules! {
     /// Move the mark's value to the computation cell and delete the mark.
     peek: {
         k: [Peek(), ..],
-        mark: Some(k::fragment![Mark { seen: s }]),
+        mark: Some(Mark { seen: s }),
     } => {
         k: [s, ..],
         mark: None,

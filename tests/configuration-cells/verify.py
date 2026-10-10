@@ -25,11 +25,16 @@ the outcomes must agree:
   reference spelling of `push`/`pop`. Starting from an empty stack, pc 0 and
   gas 13, each of the three programs ends with pc 3 and gas 10 natively, and
   `report` writes 310 (`100 * pc + gas`) to the computation cell on both
-  routes;
+  routes. `jump` matches and rebuilds the frame with the readable record
+  `Frame { pc: p, gas: g }`, which is the group term `k::fragment!` spells:
+  `krs expand` writes it as a fragment, and `bump jump report` ends with
+  pc 11 and gas 12 and writes 1112 on both routes;
 - `optional`: an `Option<Int>` cell and an `Option<Mark>` nested cell,
   both `multiplicity = "?"` and absent at start. `enable` creates the
   counter (`None => Some(0)`), `inc`/`dec` update it, `read` reads it,
   `disable` removes it, and a second `enable` is stuck on both routes;
+  `peek` matches the mark with the readable record `Some(Mark { seen: s })`
+  and `stamp` builds it with `k::fragment!`, the same group term;
 - `threads`: K's lesson 1.17-B with a `cell_type = "Map"` collection of
   threads, `initial` so the first thread exists at start. `spawn` creates a
   thread, `join` (written with `k::cells!`) removes one, and a search of the
@@ -118,6 +123,18 @@ GROUPS_PROGRAMS = tuple(
         ("save-restore", "save", "restore"),
         ("call-ret", "call", "ret"),
     )
+)
+
+GROUPS_JUMP = Program("jump", "bump jump report", "accepted", "1112", variables=GROUPS_START)
+JUMP_K = (
+    "  rule [jump]:\n"
+    "    <k> jump => .K ... </k>\n"
+    "    (<frame> <pc> P:Int </pc> <gas> G:Int </gas> </frame> => "
+    "<frame> <pc> P:Int +Int 10 </pc> <gas> G:Int </gas> </frame>)\n"
+)
+JUMP_REFERENCE = (
+    "frame : k::fragment![crate ::Frame { pc : p, gas : g }]",
+    "frame : k::fragment![crate ::Frame { pc : k::builtin::int::add(p, 10), gas : g }]",
 )
 
 PUSH_K = (
@@ -329,14 +346,19 @@ def verify_groups(harness: FixtureGate) -> None:
     expansion = harness.expand(GROUPS)
     if PUSH_REFERENCE not in expansion:
         raise GateError("the reference form of `push` lost its unwrapped group entry or its `crate::Frame` binder")
+    flat = " ".join(expansion.split())
+    for text in JUMP_REFERENCE:
+        if text not in flat:
+            raise GateError(f"the readable group record of `jump` is not a fragment in the reference form:\n{text}")
     emitted = harness.emit(GROUPS)
     source = emitted.source.read_text(encoding="utf-8")
-    for rule in (PUSH_K, POP_K):
+    for rule in (PUSH_K, POP_K, JUMP_K):
         if rule not in source:
             raise GateError(f"emitted K changed a whole-cell rule:\n{source}")
-    harness.compare(emitted, GROUPS_PROGRAMS, sort="Stmt")
+    harness.compare(emitted, (*GROUPS_PROGRAMS, GROUPS_JUMP), sort="Stmt")
     for program in GROUPS_PROGRAMS:
         final_cells(harness, emitted, program, {"pc": "3", "gas": "10"})
+    final_cells(harness, emitted, GROUPS_JUMP, {"pc": "11", "gas": "12"})
 
 
 def verify_optional(harness: FixtureGate) -> None:
@@ -408,7 +430,7 @@ def main() -> int:
         print("PASS framing: burn frames k on both routes, done ends with fuel 0 and acc 6, report writes 6")
 
         verify_groups(harness)
-        print("PASS groups: push/pop, save/restore and call/ret each end with pc 3 and gas 10, report writes 310")
+        print("PASS groups: push/pop, save/restore and call/ret each end with pc 3 and gas 10, report writes 310; jump rebuilds the frame from a readable record")
 
         verify_optional(harness)
         print("PASS optional: enable creates, inc/dec update, read reads, disable deletes; a second enable is stuck")

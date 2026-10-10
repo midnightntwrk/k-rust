@@ -573,10 +573,103 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
     }
 }
 
+/// Reads a readable record in a cell position as the group term it names
+/// when rustc resolved its head to a `#[k::cell]` struct (KF-016): `frame:
+/// Frame { pc: p, gas: g }` is `k::fragment![crate::Frame { .. }]`. The
+/// application's head and field keys become the cell term's, as the
+/// `fragment!` spelling numbers them.
+fn readable_group_term(
+    term: krs_ir::HostTerm,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> krs_ir::HostTerm {
+    use krs_ir::{Arguments, HostApplicationTarget, Term};
+    let Term::Application {
+        head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+        reference,
+        arguments: Arguments::Named(arguments),
+        instance,
+        ..
+    } = &term
+    else {
+        return term;
+    };
+    let HostApplicationTarget::Nominal(target) = &reference.target else {
+        return term;
+    };
+    if !instance.is_empty()
+        || !matches!(
+            declarations.get(&HostApplicationIdentity::Nominal(target.key.resolve())),
+            Some((_, ItemKind::Cell))
+        )
+    {
+        return term;
+    }
+    let declaration = target.clone();
+    let key = reference.key.clone();
+    let fields = arguments
+        .iter()
+        .map(|argument| krs_ir::CellTermField {
+            key: argument.key.clone(),
+            field: argument.field.clone(),
+            value: argument.value.clone(),
+        })
+        .collect();
+    Term::Cell {
+        key,
+        declaration,
+        fields,
+    }
+}
+
+/// Applies [`readable_group_term`] to the cell values of a readable rule:
+/// fixed-cell entries and the inside of `Some(..)`.
+fn readable_group_terms(
+    mut rule: krs_ir::HostHeadRule,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> krs_ir::HostHeadRule {
+    fn present(
+        state: &mut krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>,
+        declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    ) {
+        if let krs_ir::ProtocolRuleStateTerm::Present { value } = state
+            && let krs_ir::ProtocolRuleStateTerm::Term(term) = value.as_mut()
+        {
+            let taken = std::mem::replace(term, placeholder_term());
+            *term = readable_group_term(taken, declarations);
+        }
+    }
+    for extra in &mut rule.extras {
+        match extra {
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                for term in [before, after] {
+                    let taken = std::mem::replace(term, placeholder_term());
+                    *term = readable_group_term(taken, declarations);
+                }
+            }
+            krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                present(before, declarations);
+                if let Some(after) = after {
+                    present(after, declarations);
+                }
+            }
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { .. }
+            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { .. } => {}
+        }
+    }
+    rule
+}
+
+fn placeholder_term() -> krs_ir::HostTerm {
+    krs_ir::Term::Wildcard {
+        key: krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::RulePattern, 0),
+    }
+}
+
 fn resolve_head_rule(
     rule: krs_ir::HostHeadRule,
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
+    let rule = readable_group_terms(rule, map.declarations);
     map.head_selection = Some(resolve_head_rule_target(
         &rule,
         map.head_targets,
@@ -1493,5 +1586,66 @@ mod tests {
                 .to_string()
                 .contains("neither a selected sort nor a registered builtin sort")
         );
+    }
+
+    #[test]
+    fn readable_record_naming_a_cell_struct_becomes_a_group_term() {
+        let cell_id = StableItemId::new(
+            PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            ["model"],
+            "Frame",
+            ItemKind::Cell,
+            "",
+        )
+        .unwrap();
+        let declarations = HashMap::from([
+            (
+                HostApplicationIdentity::Nominal(boolean_key()),
+                (cell_id, ItemKind::Cell),
+            ),
+            (
+                HostApplicationIdentity::Nominal(other_boolean_key()),
+                (test_id("Pair"), ItemKind::Constructor),
+            ),
+        ]);
+        let record = |key: fn() -> TypeId| krs_ir::HostTerm::Application {
+            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+            reference: HostApplicationReference {
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3),
+                target: HostApplicationTarget::Nominal(HostTypeReference {
+                    key: HostTypeKey(key),
+                    authored_path: "Frame".into(),
+                }),
+            },
+            path_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftPath, 3),
+            arguments: krs_ir::Arguments::named(vec![krs_ir::NamedTermArgument {
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftRecordFieldName, 1),
+                field: krs_ir::ProductionFieldId::new("pc").unwrap(),
+                value: Box::new(unresolved_term("p")),
+            }]),
+            instance: Vec::new(),
+        };
+        let krs_ir::HostTerm::Cell {
+            key,
+            declaration,
+            fields,
+        } = readable_group_term(record(boolean_key), &declarations)
+        else {
+            panic!("a record naming a cell struct is a group term");
+        };
+        assert_eq!(
+            key,
+            ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3)
+        );
+        assert_eq!(declaration.key.resolve(), boolean_key());
+        assert_eq!(fields.len(), 1);
+        assert_eq!(
+            fields[0].key,
+            ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftRecordFieldName, 1)
+        );
+        assert!(matches!(
+            readable_group_term(record(other_boolean_key), &declarations),
+            krs_ir::HostTerm::Application { .. }
+        ));
     }
 }

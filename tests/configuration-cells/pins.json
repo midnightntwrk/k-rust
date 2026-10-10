@@ -2,8 +2,8 @@
   "schema": 1,
   "expand": {
     "krs-configuration-cells-framing": "1e1446373c43bfd51f86ce84778dc83c274aa89995e7e9b7d5ad0f1e9867f395",
-    "krs-configuration-cells-groups": "d72f732696c7a90ca7f5d9bf23a03043db00e434d98ce3b01f769bd48e04c26f",
-    "krs-configuration-cells-optional": "2a0f4e00ab3c89e0f574d3b69dc1b563fccf673506d2a9ba7a57acc47253e077",
+    "krs-configuration-cells-groups": "4010f40263f9c52b0077117a999d92678ea1bac35e7418e3d38680b99286ded3",
+    "krs-configuration-cells-optional": "af1363145a2d9c7022fc4725097668b0a0d55e17f7d63ba5e58e63770de0bca1",
     "krs-configuration-cells-threads": "0406161421bcd9df8543e12f916e8e443c49e59e3b06150e53cee86672da42c3",
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
     "krs-configuration-cells-queue": "50c9e1085dc5ae0f5fa123af0d56fffc09f3d97d677ca6eef80ebfd7ef34ca1c"
@@ -13,7 +13,7 @@
       "definition.k": "8c1fe6115705fe03d74ac708c1d0052dd872185a2a7a5789ef39bb16005146b5"
     },
     "krs-configuration-cells-groups": {
-      "definition.k": "fcb18d395d26d4d3ab1c11e8096d33d525671195cbc6e576b9a100e3b9eb0ab4"
+      "definition.k": "ab5fff8906536f7aa2811cc6504016a9052e2181142138efe13664e01e860c0e"
     },
     "krs-configuration-cells-optional": {
       "definition.k": "1180b7d16bd83476f522eaac3eb5f84e4fd296dd7d0150678770a0e08012bdde"
@@ -30,7 +30,7 @@
   },
   "reference_sha256": {
     "krs-configuration-cells-framing": "ffccd4fa80d54a99a74602c887277e1598033006f5daf56aed763c8adf0b81e7",
-    "krs-configuration-cells-groups": "74fa3a00535d5e62abf8e925a3cf7c099878f44ba08a85ab64333fd13af0fbdf",
+    "krs-configuration-cells-groups": "e94d7bae1f8898ce92902758b78abea15cefa29b91342a166da4f6532394b1dc",
     "krs-configuration-cells-optional": "4ec221088a6bab08c35092d3ca8b1804ca7f2d2fb7dfaf2d541c699212c843ba",
     "krs-configuration-cells-threads": "74bfe8aeb94dc55afab8fa71c69cf0c8df1602cdbebc6439fc086d9e3ba2666b",
     "krs-configuration-cells-objects": "9f14878c0ca218504d9713d4dbda27c0b5ca37ca3940befe55e5656c9ed4aa5f",
@@ -59,6 +59,10 @@
       "call-ret": {
         "parse": "accepted",
         "run": "310"
+      },
+      "jump": {
+        "parse": "accepted",
+        "run": "1112"
       }
     },
     "krs-configuration-cells-optional": {
