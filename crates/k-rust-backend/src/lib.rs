@@ -33,4 +33,6 @@ pub mod transition;
 pub mod unification;
 
 #[cfg(test)]
+mod counted;
+#[cfg(test)]
 mod tests;

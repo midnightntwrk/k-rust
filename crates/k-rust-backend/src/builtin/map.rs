@@ -124,16 +124,20 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
         .into())
 }
 
-/// The index of the entry of `entries` whose key is `key`, syntactically.
+/// The place of `key` among the keys of `entries`, syntactically: `Ok` with the index of the
+/// entry that binds it, or `Err` with the index at which an entry binding it would go.
 ///
 /// `entries` are the entries of a map argument as `Term::map` stores them, sorted by
 /// `(key, value)`, and `evaluate` answers `\bottom` before a hook sees a map that binds a key
 /// twice, so the keys are strictly increasing and the order of `Term` decides both whether
 /// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
-fn bound_at(entries: &[(Term, Term)], key: &Term) -> Option<usize> {
-    entries
-        .binary_search_by(|(existing, _)| existing.cmp(key))
-        .ok()
+fn place_of<K: Ord, V>(entries: &[(K, V)], key: &K) -> Result<usize, usize> {
+    entries.binary_search_by(|(existing, _)| existing.cmp(key))
+}
+
+/// The index of the entry of `entries` whose key is `key`, syntactically (`place_of`).
+fn bound_at<K: Ord, V>(entries: &[(K, V)], key: &K) -> Option<usize> {
+    place_of(entries, key).ok()
 }
 
 /// Whether `key`, which binds none of `entries` syntactically, is bound nowhere in the map.
@@ -187,11 +191,11 @@ fn update(
     ) else {
         return Ok(None);
     };
-    // Entries of the result's sorts are the argument's own, in their stored order (`bound_at`);
+    // Entries of the result's sorts are the argument's own, in their stored order (`place_of`);
     // entries injected into the result's sorts may not keep that order, and are scanned.
     let stored = matches!(entries, Cow::Borrowed(_));
     let place = if stored {
-        entries.binary_search_by(|(existing_key, _)| existing_key.cmp(&key))
+        place_of(&entries, &key)
     } else {
         entries
             .iter()
@@ -675,9 +679,10 @@ fn map_sort(definition: &MapDefinition) -> crate::term::Sort {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{cell::Cell, sync::Arc};
 
     use super::*;
+    use crate::counted::Counted;
     use crate::term::{
         CollectionMetadata, CollectionSymbols, ListDefinition, SetDefinition, Sort, Variable,
     };
@@ -943,6 +948,49 @@ mod tests {
                     "{case}"
                 );
             }
+        }
+    }
+
+    /// Every one-key hook finds its key in a stored map with `place_of`, a binary search over the
+    /// strictly increasing keys: a key bound in the map and a key that would go before, between or
+    /// after its keys are each placed with at most `ilog2(n) + 1` key comparisons, the search's
+    /// own count, not one comparison per entry.
+    #[test]
+    fn a_key_is_placed_among_the_stored_entries_by_binary_search() {
+        const ENTRIES: u32 = 4096;
+        let comparisons = Cell::new(0);
+        let counted = |value| Counted {
+            value,
+            comparisons: &comparisons,
+        };
+        let entries = (1..=ENTRIES)
+            .map(|index| (counted(2 * index), index))
+            .collect::<Vec<_>>();
+        let bound = ENTRIES.ilog2() as usize + 1;
+        for (probe, expected) in [
+            (2, Ok(0)),
+            (2 * ENTRIES / 2, Ok(ENTRIES as usize / 2 - 1)),
+            (2 * ENTRIES, Ok(ENTRIES as usize - 1)),
+            (1, Err(0)),
+            (ENTRIES + 1, Err(ENTRIES as usize / 2)),
+            (2 * ENTRIES + 1, Err(ENTRIES as usize)),
+        ] {
+            let probed = counted(probe);
+            comparisons.set(0);
+            let place = place_of(&entries, &probed);
+            let made = comparisons.get();
+            assert_eq!(place, expected, "key {probe}");
+            assert!(
+                made <= bound,
+                "key {probe}: {made} comparisons, bound {bound}"
+            );
+            comparisons.set(0);
+            assert_eq!(bound_at(&entries, &probed), expected.ok(), "key {probe}");
+            let made = comparisons.get();
+            assert!(
+                made <= bound,
+                "key {probe}: {made} comparisons, bound {bound}"
+            );
         }
     }
 
