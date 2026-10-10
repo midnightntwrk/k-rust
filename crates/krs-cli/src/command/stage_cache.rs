@@ -2,6 +2,7 @@
 //!
 //! Each of those commands compiles its Definition IR through the native frontend before it does anything else, and that compilation dominates a short run.
 //! The compiled stage ([`krs_exec::CompiledStage`]) is stored under a key that digests the Definition IR's canonical JSON, the pinned k-rust commit, the stage format, and the identity of the running `krs` executable, so a changed definition, k-rust pin, or `krs` build misses.
+//! `krs prove --spec-module NAME` also compiles that author spec module's proof definition ([`krs_exec::SpecStage`]); it is stored under the same key plus the module name, and the Definition IR digest covers the spec module's content.
 //! Results are never cached: a run still runs.
 //!
 //! The store is `KRS_STAGE_CACHE_DIR`, or `${XDG_CACHE_HOME:-~/.cache}/krs/compiled-stages/v1`, and belongs to one Unix user.
@@ -10,7 +11,7 @@
 //! Every failure to read or write the store only means the stage is compiled again.
 
 use super::result_cache::{Executable, executable};
-use krs_exec::{CompiledStage, STAGE_FORMAT};
+use krs_exec::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 use krs_ir_levels::DefinitionIr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -39,6 +40,9 @@ struct Key {
     k_rust_commit: Option<String>,
     krs: Executable,
     definition_ir_sha256: String,
+    /// The author spec module of a [`SpecStage`]; absent for the definition's [`CompiledStage`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spec_module: Option<String>,
 }
 
 /// An entry: its key in full, then the payload digest, ahead of the payload.
@@ -105,7 +109,12 @@ impl StageCache {
             k_rust_commit: k_rust_commit(),
             krs,
             definition_ir_sha256: sha256(ir.as_bytes()),
+            spec_module: None,
         };
+        Self::keyed(root, key)
+    }
+
+    fn keyed(root: PathBuf, key: Key) -> Option<Self> {
         let digest = sha256(&serde_json::to_vec(&key).ok()?);
         let entry = root
             .join("entries")
@@ -114,9 +123,34 @@ impl StageCache {
         Some(Self { root, entry, key })
     }
 
+    /// The entry for the proof definition of the author spec module `module` of the same Definition IR.
+    pub(super) fn for_spec_module(&self, module: &str) -> Option<Self> {
+        let key = Key {
+            stage_format: SPEC_STAGE_FORMAT.to_owned(),
+            spec_module: Some(module.to_owned()),
+            ..self.key.clone()
+        };
+        Self::keyed(self.root.clone(), key)
+    }
+
     /// The stored stage, when the entry exists, is intact, and was written under this exact key.
     pub(super) fn load(&self) -> Option<CompiledStage> {
-        let bytes = fs::read(&self.entry).ok()?;
+        let stage = CompiledStage::decode(&self.load_payload()?)?;
+        self.touch();
+        Some(stage)
+    }
+
+    /// The stored spec stage, when the entry exists, is intact, and was written under this exact key.
+    pub(super) fn load_spec(&self) -> Option<SpecStage> {
+        let stage = SpecStage::decode(&self.load_payload()?)
+            .filter(|stage| self.key.spec_module.as_deref() == Some(stage.module()))?;
+        self.touch();
+        Some(stage)
+    }
+
+    /// The entry's payload, when the entry is intact and was written under this exact key.
+    fn load_payload(&self) -> Option<Vec<u8>> {
+        let mut bytes = fs::read(&self.entry).ok()?;
         let length = usize::try_from(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?)).ok()?;
         let payload_start = 8usize.checked_add(length)?;
         let header: Header = serde_json::from_slice(bytes.get(8..payload_start)?).ok()?;
@@ -128,25 +162,38 @@ impl StageCache {
         {
             return None;
         }
-        let stage = CompiledStage::decode(payload)?;
-        // A use keeps the entry from being pruned.
+        bytes.drain(..payload_start);
+        Some(bytes)
+    }
+
+    /// Mark the entry used, which keeps it from being pruned.
+    fn touch(&self) {
         let _ = fs::File::options()
             .write(true)
             .open(&self.entry)
             .and_then(|file| file.set_modified(SystemTime::now()));
-        Some(stage)
     }
 
     /// Store `stage`, replacing the entry atomically; a stage without a faithful encoding is not stored.
     pub(super) fn store(&self, stage: &CompiledStage) {
-        let Some(payload) = stage.encode() else {
-            return;
-        };
+        if let Some(payload) = stage.encode() {
+            self.store_payload(&payload);
+        }
+    }
+
+    /// Store a spec stage, as [`Self::store`] does.
+    pub(super) fn store_spec(&self, stage: &SpecStage) {
+        if let Some(payload) = stage.encode() {
+            self.store_payload(&payload);
+        }
+    }
+
+    fn store_payload(&self, payload: &[u8]) {
         let header = Header {
             schema: SCHEMA,
             key: self.key.clone(),
             payload_len: payload.len(),
-            payload_sha256: sha256(&payload),
+            payload_sha256: sha256(payload),
         };
         let Ok(header) = serde_json::to_vec(&header) else {
             return;
@@ -163,7 +210,7 @@ impl StageCache {
         let written = temporary
             .write_all(&(header.len() as u64).to_le_bytes())
             .and_then(|()| temporary.write_all(&header))
-            .and_then(|()| temporary.write_all(&payload));
+            .and_then(|()| temporary.write_all(payload));
         if written.is_ok() {
             let _ = temporary.persist(&self.entry);
         }

@@ -40,7 +40,7 @@ use krs_k_rust::{
     NativeDefinition, SentenceProvenance, compile_definition_with_context_timed,
     compile_spec_definition_with_context_timed,
 };
-pub use stage::{CompiledStage, STAGE_FORMAT};
+pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
 pub use k_rust::backend::BackendError;
@@ -514,44 +514,49 @@ impl Semantics {
         Ok(&self.spec_prover(module)?.claims)
     }
 
+    /// Load one author spec module's compiled proof definition, which [`SpecStage::compile`] made from this Definition IR (or [`SpecStage::decode`] read back); a later proof of that module uses it instead of compiling.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::UnknownSpecModule`] when the stage is not of one of [`Self::spec_modules`], or [`ExecError::Backend`] when the backend cannot load it.
+    pub fn load_spec_stage(&mut self, stage: SpecStage) -> Result<(), ExecError> {
+        if !self.spec_modules.contains(&stage.module) {
+            return Err(self.unknown_spec_module(&stage.module));
+        }
+        let backend = Backend::new(
+            &stage.definition_kore,
+            stage.module.clone(),
+            BackendOptions::default(),
+        )?;
+        let claims =
+            claims::spec_catalog(&stage.definition_kore, &stage.provenance, &mut self.origins)?;
+        self.spec_provers
+            .insert(stage.module, SpecProver { backend, claims });
+        Ok(())
+    }
+
+    fn unknown_spec_module(&self, module: &str) -> ExecError {
+        ExecError::UnknownSpecModule {
+            requested: Some(module.to_owned()),
+            modules: self.spec_modules.clone(),
+            generated: claims::spec_module(&self.main_module),
+        }
+    }
+
     fn spec_prover(&mut self, module: &str) -> Result<&mut SpecProver, ExecError> {
         if !self.spec_provers.contains_key(module) {
             let definition = self
                 .spec_definition
                 .as_deref()
                 .filter(|_| self.spec_modules.iter().any(|name| name == module))
-                .ok_or_else(|| ExecError::UnknownSpecModule {
-                    requested: Some(module.to_owned()),
-                    modules: self.spec_modules.clone(),
-                    generated: claims::spec_module(&self.main_module),
-                })?;
-            let (artifacts, _) = compile_spec_definition_with_context_timed(
-                definition,
-                module,
-                CompileOptions {
-                    backend: krs_k_rust::Backend::Haskell,
-                    ..CompileOptions::default()
-                },
-                &mut Timings::disabled(),
-            )
-            .map_err(ExecError::Compile)?;
-            let backend = Backend::new(
-                &artifacts.definition_kore,
-                module.to_owned(),
-                BackendOptions::default(),
-            )?;
-            let claims = claims::spec_catalog(
-                &artifacts.definition_kore,
-                &artifacts.sentence_provenance,
-                &mut self.origins,
-            )?;
-            self.spec_provers
-                .insert(module.to_owned(), SpecProver { backend, claims });
+                .ok_or_else(|| self.unknown_spec_module(module))?;
+            let stage = SpecStage::compile(definition, module, &mut Timings::disabled())?;
+            self.load_spec_stage(stage)?;
         }
         Ok(self
             .spec_provers
             .get_mut(module)
-            .expect("the spec prover was just inserted"))
+            .expect("the spec prover was just loaded"))
     }
 
     /// The compiled KORE definition text.
@@ -945,6 +950,24 @@ pub fn compile_definition(
         },
         timings,
     )
+}
+
+/// Compile the proof definition of one author spec module to symbolic KORE with the same options as [`compile_definition`].
+fn compile_spec_definition(
+    definition: &DefinitionIr,
+    module: &str,
+    timings: &mut Timings,
+) -> Result<CompiledArtifacts, DefinitionCompileError> {
+    compile_spec_definition_with_context_timed(
+        definition,
+        module,
+        CompileOptions {
+            backend: krs_k_rust::Backend::Haskell,
+            ..CompileOptions::default()
+        },
+        timings,
+    )
+    .map(|(artifacts, _)| artifacts)
 }
 
 /// Prove the selected claims of `catalog` on `backend`, one proof per claim, in selection order.

@@ -2,7 +2,8 @@
 //!
 //! Compiling Definition IR through k-rust is the slow part of loading a definition; everything after it (loading the KORE into the backend, building the program grammar and the printer) is cheap.
 //! A [`CompiledStage`] holds exactly the frontend's outputs that [`crate::Semantics::from_stage`] reads, and [`CompiledStage::encode`] writes them as bytes that [`CompiledStage::decode`] reads back.
-//! The crate stays filesystem-free: where the bytes live, and what key they are stored under, is the caller's business (`krs` keys them by the Definition IR digest).
+//! A [`SpecStage`] is the same for one author spec module's proof definition (KF-041), which `kprove --spec-module` compiles separately and [`crate::Semantics::load_spec_stage`] loads.
+//! The crate stays filesystem-free: where the bytes live, and what key they are stored under, is the caller's business (`krs` keys them by the Definition IR digest, and a spec stage also by its module).
 
 use std::collections::BTreeMap;
 
@@ -14,10 +15,13 @@ use krs_ir_levels::DefinitionIr;
 use krs_k_rust::{CompiledArtifacts, NativeDefinition, SentenceProvenance};
 use serde::{Deserialize, Serialize};
 
-use crate::{ExecError, compile_definition};
+use crate::{ExecError, compile_definition, compile_spec_definition};
 
 /// The format name of [`CompiledStage::encode`]'s bytes; a change to the encoding or to what the stage holds changes it.
 pub const STAGE_FORMAT: &str = "krs-exec-stage/1";
+
+/// The format name of [`SpecStage::encode`]'s bytes; a change to the encoding or to what the stage holds changes it.
+pub const SPEC_STAGE_FORMAT: &str = "krs-exec-spec-stage/1";
 
 /// The native frontend's outputs for one Definition IR, from which [`crate::Semantics::from_stage`] builds a [`crate::Semantics`].
 #[derive(Clone, Debug)]
@@ -167,6 +171,89 @@ impl CompiledStage {
     }
 }
 
+/// One author spec module's compiled proof definition (KF-041): what the native frontend gives [`crate::Semantics::load_spec_stage`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpecStage {
+    pub(crate) module: String,
+    pub(crate) definition_kore: String,
+    pub(crate) provenance: SentenceProvenance,
+}
+
+impl SpecStage {
+    /// Compile the proof definition of the author spec module `module` of `definition` through the native frontend, recording `native.*` spans.
+    ///
+    /// `module` should be one of [`crate::Semantics::spec_modules`]; [`crate::Semantics::load_spec_stage`] refuses any other.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Compile`] when the native frontend rejects the proof definition.
+    pub fn compile(
+        definition: &DefinitionIr,
+        module: &str,
+        timings: &mut Timings,
+    ) -> Result<Self, ExecError> {
+        let artifacts =
+            compile_spec_definition(definition, module, timings).map_err(ExecError::Compile)?;
+        Ok(Self {
+            module: module.to_owned(),
+            definition_kore: artifacts.definition_kore,
+            provenance: artifacts.sentence_provenance,
+        })
+    }
+
+    /// The spec module whose proof definition this is.
+    #[must_use]
+    pub fn module(&self) -> &str {
+        &self.module
+    }
+
+    /// Encode the stage as [`SPEC_STAGE_FORMAT`] bytes; `None` when decoding them would not give back an equal stage.
+    #[must_use]
+    pub fn encode(&self) -> Option<Vec<u8>> {
+        let header = serde_json::to_vec(&SpecHeader {
+            format: SPEC_STAGE_FORMAT.to_owned(),
+            module: self.module.clone(),
+            definition_kore: self.definition_kore.len(),
+            provenance: self.provenance.clone(),
+        })
+        .ok()?;
+        let mut bytes = Vec::with_capacity(8 + header.len() + self.definition_kore.len());
+        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&header);
+        bytes.extend_from_slice(self.definition_kore.as_bytes());
+        Self::decode(&bytes)
+            .is_some_and(|decoded| decoded == *self)
+            .then_some(bytes)
+    }
+
+    /// Decode [`SPEC_STAGE_FORMAT`] bytes written by [`Self::encode`]; `None` for anything else.
+    #[must_use]
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        let length = usize::try_from(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?)).ok()?;
+        let body_start = 8usize.checked_add(length)?;
+        let header: SpecHeader = serde_json::from_slice(bytes.get(8..body_start)?).ok()?;
+        let body = bytes.get(body_start..)?;
+        if header.format != SPEC_STAGE_FORMAT || body.len() != header.definition_kore {
+            return None;
+        }
+        Some(Self {
+            module: header.module,
+            definition_kore: std::str::from_utf8(body).ok()?.to_owned(),
+            provenance: header.provenance,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpecHeader {
+    format: String,
+    module: String,
+    /// The byte length of the proof definition's `definition.kore`, which follows the header.
+    definition_kore: usize,
+    provenance: SentenceProvenance,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Header {
@@ -245,6 +332,30 @@ mod tests {
         let decoded = CompiledStage::decode(&bytes).expect("its own encoding decodes");
         assert!(decoded.same_outputs(&stage));
         assert_eq!(decoded.encode(), Some(bytes));
+    }
+
+    #[test]
+    fn a_spec_stage_round_trips_and_anything_else_is_refused() {
+        let spec = SpecStage {
+            module: "MAIN-LEMMAS".to_owned(),
+            definition_kore: "[] module MAIN-LEMMAS endmodule []".to_owned(),
+            provenance: SentenceProvenance::default(),
+        };
+        let bytes = spec
+            .encode()
+            .expect("the spec stage has a faithful encoding");
+        assert_eq!(SpecStage::decode(&bytes), Some(spec));
+        assert!(SpecStage::decode(&bytes[..bytes.len() - 1]).is_none());
+        let mut longer = bytes.clone();
+        longer.push(b' ');
+        assert!(SpecStage::decode(&longer).is_none());
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let other_format = text.replacen(SPEC_STAGE_FORMAT, "krs-exec-spec-stage/0", 1);
+        assert_ne!(other_format, text);
+        assert!(SpecStage::decode(other_format.as_bytes()).is_none());
+        // A main stage is not a spec stage, nor the other way round.
+        assert!(SpecStage::decode(&stage().encode().unwrap()).is_none());
+        assert!(CompiledStage::decode(&bytes).is_none());
     }
 
     #[test]

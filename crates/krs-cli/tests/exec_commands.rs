@@ -298,7 +298,7 @@ fn programs_parse_bind_and_report_their_errors() {
     assert!(stderr(&usage).contains("--max-solutions does not apply to krs run"));
 }
 
-/// One `krs` invocation against a private stage cache, returning its output and `stage.reused`.
+/// One `krs run` against a private stage cache, returning its output and `stage.reused`.
 fn krs_with_stage_cache(
     target: &Path,
     manifest: &Path,
@@ -306,13 +306,27 @@ fn krs_with_stage_cache(
     counters: &Path,
     arguments: &[&str],
 ) -> (Output, u64) {
+    let (output, document) = krs_counted(target, manifest, cache, counters, "run", arguments);
+    let reused = document["counters"]["stage.reused"].as_u64().unwrap();
+    (output, reused)
+}
+
+/// One successful `krs VERB` against a private stage cache, returning its output and its counters document.
+fn krs_counted(
+    target: &Path,
+    manifest: &Path,
+    cache: &Path,
+    counters: &Path,
+    verb: &str,
+    arguments: &[&str],
+) -> (Output, Value) {
     let mut process = krs_command!();
     fixture_build_env(&mut process, target);
     process
         .env("KRS_STAGE_CACHE_DIR", cache)
         .env_remove("KRS_NO_REUSE")
         .current_dir(manifest.parent().unwrap())
-        .arg("run")
+        .arg(verb)
         .arg("--manifest-path")
         .arg(manifest)
         .args(["--package", PACKAGE, "--definition", "main", "--counters"])
@@ -321,8 +335,7 @@ fn krs_with_stage_cache(
     let output = process.output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let document: Value = serde_json::from_slice(&fs::read(counters).unwrap()).unwrap();
-    let reused = document["counters"]["stage.reused"].as_u64().unwrap();
-    (output, reused)
+    (output, document)
 }
 
 fn stage_entries(cache: &Path) -> Vec<PathBuf> {
@@ -402,4 +415,107 @@ fn the_compiled_stage_is_reused_from_the_stage_cache_and_never_changes_a_result(
     assert!(!inside.exists());
     // The warning is the only difference from a run with a usable store.
     assert!(!stderr(&cold).contains("krs::exec::stage-cache"));
+}
+
+/// The claims fixture plus an author spec module with one claim that holds.
+const SPEC_MODULE: &str = r#"
+#[krs::spec_module(name = "ORG-KRS-CLI-EXEC-AGAIN", imports = [crate])]
+mod again {
+    use crate::{Machine, Object};
+
+    /// Holds, as `foo-reaches-bar` does.
+    #[krs::claim(all_paths, label = "foo-reaches-bar-again")]
+    fn foo_reaches_bar_again(
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Foo(), tail @ ..),
+            state @ ..
+        }: Machine,
+    ) -> Machine {
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Bar(), ..tail),
+            ..state
+        }
+    }
+}
+"#;
+
+#[test]
+fn the_spec_module_proof_definition_is_reused_from_the_stage_cache() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), &format!("{CLAIMS}{SPEC_MODULE}"));
+    let cache = temporary.path().join("stage-cache");
+    let counters = temporary.path().join("counters.json");
+    let arguments = [
+        "--spec-module",
+        "ORG-KRS-CLI-EXEC-AGAIN",
+        "--output",
+        "json",
+    ];
+    let reused = |document: &Value, counter: &str| document["counters"][counter].as_u64();
+
+    // The first proof compiles and stores both the definition's stage and the spec module's.
+    let (cold, document) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "prove",
+        &arguments,
+    );
+    assert_eq!(reused(&document, "stage.reused"), Some(0));
+    assert_eq!(reused(&document, "spec_stage.reused"), Some(0));
+    assert_eq!(
+        json(&cold)["prove"][0]["claim"],
+        "ORG-KRS-CLI-EXEC-AGAIN.foo-reaches-bar-again"
+    );
+    assert_eq!(json(&cold)["prove"][0]["verdict"], "proven");
+    let entries = stage_entries(&cache);
+    assert_eq!(
+        entries.len(),
+        2,
+        "the definition's stage and the spec module's"
+    );
+
+    // The second restores both, with the same report.
+    let (warm, document) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "prove",
+        &arguments,
+    );
+    assert_eq!(reused(&document, "stage.reused"), Some(1));
+    assert_eq!(reused(&document, "spec_stage.reused"), Some(1));
+    assert_eq!(warm.stdout, cold.stdout);
+    assert_eq!(warm.stderr, cold.stderr);
+    assert_eq!(stage_entries(&cache), entries);
+
+    // A proof of the generated spec module loads no spec stage; it restores the definition's.
+    let (_, document) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "prove",
+        &["--claim", "foo-reaches-bar", "--output", "json"],
+    );
+    assert_eq!(reused(&document, "stage.reused"), Some(1));
+    assert_eq!(reused(&document, "spec_stage.reused"), None);
+
+    // `--no-reuse` compiles both again and replaces the entries.
+    let mut no_reuse = arguments.to_vec();
+    no_reuse.push("--no-reuse");
+    let (fresh, document) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "prove",
+        &no_reuse,
+    );
+    assert_eq!(reused(&document, "spec_stage.reused"), Some(0));
+    assert_eq!(fresh.stdout, cold.stdout);
+    assert_eq!(stage_entries(&cache), entries);
 }

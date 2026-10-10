@@ -1,7 +1,7 @@
 //! `krs parse`, `krs run`, `krs search`, and `krs prove` over the prepared Definition IR.
 //!
 //! Each command compiles the Definition IR in-process through `krs-exec` and the k-rust symbolic backend, on a 64 MiB-stack worker.
-//! The compiled stage is kept in the per-user stage cache (`stage_cache`), keyed by the Definition IR digest, so an unchanged definition is compiled once.
+//! The compiled stage is kept in the per-user stage cache (`stage_cache`), keyed by the Definition IR digest, so an unchanged definition is compiled once; so is the proof definition `krs prove --spec-module NAME` compiles, keyed also by NAME.
 //! Results are never cached: a run depends on its inputs, and the collector and lowering stages it shares with the other commands are already incremental.
 
 use std::fmt::Write as _;
@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     CompiledStage, ConfigInputs, ExecError, PrintStyle, Printed, ProgramInput, ProveOptions,
-    REPORT_SCHEMA, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, Step, StepOrigin,
-    Term, Verdict,
+    REPORT_SCHEMA, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, SpecStage, Step,
+    StepOrigin, Term, Verdict,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -162,6 +162,8 @@ pub(super) fn execute(
     let definition = prepared.lowered.definition();
     let mut reused = false;
     let reused_flag = &mut reused;
+    let mut spec_reused = None;
+    let spec_reused_flag = &mut spec_reused;
     let result = std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("krs-exec".into())
@@ -188,6 +190,16 @@ pub(super) fn execute(
                 let mut semantics =
                     Semantics::from_stage(definition, stage, Some(provider), timings)
                         .map_err(Failure::Exec)?;
+                if let Command::Prove(ProveRequest {
+                    spec_module: Some(module),
+                    ..
+                }) = command
+                    && semantics.spec_modules().contains(module)
+                {
+                    let reused =
+                        load_spec_stage(&mut semantics, definition, module, reuse, timings)?;
+                    *spec_reused_flag = Some(reused);
+                }
                 dispatch(&mut semantics, command)
             })
             .map_err(|error| {
@@ -197,6 +209,11 @@ pub(super) fn execute(
             .map_err(|_| CommandError::InvalidRequest("the run worker panicked".into()))
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
+    if let Some(reused) = spec_reused {
+        measurement
+            .counters
+            .set("spec_stage.reused", u64::from(reused));
+    }
     result.map_err(|failure| match failure {
         Failure::Exec(ExecError::Compile(error)) => {
             native_command_error(prepared.lowered.source_map(), error)
@@ -206,6 +223,37 @@ pub(super) fn execute(
         Failure::Serialization(error) => CommandError::Serialization(error),
         Failure::Read(message) => CommandError::InvalidRequest(message),
     })
+}
+
+/// Restore the proof definition of the author spec module `module` from the stage cache, or compile and store it, and load it into `semantics`; returns whether it was restored.
+fn load_spec_stage(
+    semantics: &mut Semantics,
+    definition: &krs_ir_levels::DefinitionIr,
+    module: &str,
+    reuse: StageReuse<'_>,
+    timings: &mut krs_ir::measure::Timings,
+) -> Result<bool, Failure> {
+    let cache = reuse.cache.and_then(|cache| cache.for_spec_module(module));
+    let started = std::time::Instant::now();
+    let restored = cache
+        .as_ref()
+        .filter(|_| reuse.restore)
+        .and_then(StageCache::load_spec);
+    let reused = restored.is_some();
+    let stage = if let Some(stage) = restored {
+        timings.record("spec_stage.reuse", started.elapsed().as_secs_f64(), 0);
+        stage
+    } else {
+        let stage = timings.try_span("spec_stage.compile", |timings| {
+            SpecStage::compile(definition, module, timings)
+        })?;
+        if let Some(cache) = &cache {
+            timings.span("spec_stage.store", |_| cache.store_spec(&stage));
+        }
+        stage
+    };
+    timings.try_span("spec_stage.load", |_| semantics.load_spec_stage(stage))?;
+    Ok(reused)
 }
 
 /// A worker failure, converted to a [`CommandError`] on the calling thread.
