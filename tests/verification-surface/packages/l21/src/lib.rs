@@ -68,13 +68,37 @@ pub fn foo_bounded(k::term![ExpSyntax::Foo()]: Term<Exp>) -> Term<Exp> {
     x
 }
 
-/// From `0`, every path reaches some non-zero integer: here `y` is a claim
-/// existential, a value the prover must exhibit (it finds `?X`).
-#[k::claim(all_paths, label = "zero-reaches-nonzero")]
+/// From `foo`, every path reaches some integer below five: here `y` is a
+/// claim existential, a value the prover must exhibit (it finds the `?X` of
+/// `foo-bounded`). The start `foo` is not an `Int`, so it cannot already be
+/// the target: the prover must take the step before it checks `ensures`.
+#[k::claim(all_paths, label = "foo-reaches-below-five")]
 #[k::exists(y: Int)]
-#[k::ensures(int::ne(y, 0))]
-pub fn zero_reaches_nonzero(
-    k::cells! { k: k::configuration::KCell(0, tail @ ..), state @ .. }: Machine,
+#[k::ensures(int::lt(y, 5))]
+pub fn foo_reaches_below_five(
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Foo(), tail @ ..), state @ .. }: Machine,
 ) -> Machine {
     k::cells! { k: k::configuration::KCell(y, ..tail), ..state }
+}
+
+/// A gotcha, kept to pin that both engines agree on it: this claim is NOT
+/// provable. From `0`, every path does reach a non-zero integer, but the
+/// start `0` is itself an `Int`, so it already unifies with the target `?Y`.
+/// K's reachability check stops at a state that matches the target and
+/// fails there when `ensures` does not hold (`0 =/=Int 0` is false), so the
+/// claim is stuck at depth 0 before any rule fires. A provable claim needs a
+/// start that cannot match its target, as `foo-reaches-below-five` has.
+#[k::spec_module(name = "KRS-LESSON-21-GOTCHA", imports = [crate])]
+mod gotcha {
+    use super::{Int, Machine, int};
+
+    /// Stuck at depth 0: the start already matches the target.
+    #[k::claim(all_paths, label = "zero-reaches-nonzero")]
+    #[k::exists(y: Int)]
+    #[k::ensures(int::ne(y, 0))]
+    fn zero_reaches_nonzero(
+        k::cells! { k: k::configuration::KCell(0, tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        k::cells! { k: k::configuration::KCell(y, ..tail), ..state }
+    }
 }

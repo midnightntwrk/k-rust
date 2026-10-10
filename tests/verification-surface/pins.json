@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "expand": {
-    "krs-verification-surface-l21": "f99fbc44b01b693669d76dd08bb8a8c49e3669060d50664ea87f925a9f708e06",
+    "krs-verification-surface-l21": "d5997cbb022fb163cf517a0948fc151494597ad6a0611f1778d6bd652d78d351",
     "krs-verification-surface-l21-readable": "26b82f1383e66bae6e401c1a64fff5d70474c7d9a8141ffdf6c97759d27dae64",
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
     "krs-verification-surface-l22-verification": "ce49d8cc10acace996e8e70b05c80df99cb9fc61d4daf94edff38dc3170c84b8"
@@ -9,7 +9,7 @@
   "emitted": {
     "krs-verification-surface-l21": {
       "definition.k": "75ed1612537c9ed6bdc806f5338539e21c8de46c8d6094cda132f2cad8717ca8",
-      "spec.k": "ab2319a09ae731c75d1a022c401e3dc3352c8efa5b423487dc2782b52049861c"
+      "spec.k": "872d3b722049fe76dd49179d3882f4eb18b78123e0cf711e233491fc974f95c0"
     },
     "krs-verification-surface-l21-readable": {
       "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
@@ -56,7 +56,7 @@
     "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
   },
   "reference_sha256": {
-    "krs-verification-surface-l21": "f4d5a5b103985e1f14b08c231be764b9e97a2d57f4465dfa78d8ff867f3a1b4c",
+    "krs-verification-surface-l21": "24fe848438d0e80909391847a3357555d686ef0ae29b55eb47b8097e48905d69",
     "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
     "krs-verification-surface-trusted": "33702242467e6c060b0b6cb3189f2c31e9e5c10b7c0d001e98cf75a2896977c8",
     "krs-verification-surface-trusted-ablation": "b53f7d48f4382231af18df0c1827d9fd597760d53fbd82a24704e347fcef0c9f",
@@ -126,10 +126,18 @@
   },
   "claims": {
     "krs-verification-surface-l21": {
-      "proven": false,
-      "stuck": true,
-      "depth": 0,
-      "k": "0 ~> Tail"
+      "foo-reaches-below-five": {
+        "proven": true,
+        "stuck": false,
+        "depth": null,
+        "k": null
+      },
+      "zero-reaches-nonzero": {
+        "proven": false,
+        "stuck": true,
+        "depth": 0,
+        "k": "0 ~> Tail"
+      }
     }
   },
   "warnings": {

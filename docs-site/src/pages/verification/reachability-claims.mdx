@@ -25,7 +25,9 @@ The left-side function argument describes the initial configuration and the retu
 `#[k::ensures]` constrains that witness after reachability, while `k::anonymous!` creates a symbolic value whose identity is intentionally not bound for later use.
 An anonymous value is allowed only in the claim subject—the initial, left-hand configuration—and never in the result.
 The same helpers on a `#[k::rule]` give a transition a symbolic result instead of a witness: the rule introduces a fresh value and the ensures condition constrains it on every later path (see [existential results](/reference/language#existential-results-and-ensures)).
-A claim whose start already has the target's shape is checked there first: from `0`, a target `?Y` with `ensures ?Y =/=Int 0` unifies at the start, the condition fails, and both Java `kprove` and `krs prove` report the claim stuck at depth 0.
+A claim's target must not match its start.
+K checks the target before every step, the start included, so a claim from `foo` to `?Y` with `ensures ?Y <Int 5` is proven once a rule rewrites `foo` to a symbolic integer below five, since `foo` itself is not an `Int`.
+A claim from `0` to `?Y` with `ensures ?Y =/=Int 0`, by contrast, is never proven, even though every rule from `0` reaches a non-zero integer: `0` already unifies with `?Y`, the condition fails there, and both Java `kprove` and `krs prove` report the claim stuck at depth 0.
 Map and cell frames preserve state that the claim does not constrain.
 
 `#[k::requires]` on a claim is a symbolic precondition.

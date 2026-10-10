@@ -7,7 +7,10 @@ The fixture packages are K tutorial lesson 1.21 in both layers:
   rewrites `0` to a fresh `?X` with `ensures ?X =/=Int 0`; `big_to_five`
   rewrites an integer of at least 10 to `5`; `foo_bounded` (term fn form)
   rewrites `foo` to `?X` with `ensures ?X <Int 5`; the claim
-  `zero-reaches-nonzero` says every path from `0` reaches some `?Y =/=Int 0`.
+  `foo-reaches-below-five` says every path from `foo` reaches some
+  `?Y <Int 5`, and the spec module `KRS-LESSON-21-GOTCHA` holds the
+  unprovable `zero-reaches-nonzero` (every path from `0` reaches some
+  `?Y =/=Int 0`).
 - `l21-readable`: the two lesson rules as readable `k::rules!` clauses, whose
   `#[k::exists]` and `#[k::ensures]` helpers `krs expand` keeps verbatim
   before `#[k::rule(..)]`.
@@ -27,10 +30,13 @@ variable may take, because the engines keep different implied constraints
 with ?X in [10, +inf]; `foo` also reaches `?X` below 5 and, through `0`, the
 two lesson states.
 
-The claim is not proven on either route: the start `0` already unifies with
+The claim `foo-reaches-below-five` is proven on both routes (`krs prove`,
+and Java `kprove` prints `#Top`): its start `foo` is not an `Int`, so it
+cannot match the target before `foo-bounded` steps. The gotcha
+`zero-reaches-nonzero` is proven on neither: the start `0` already unifies with
 the target `?Y`, and K's reachability check stops at such a state when the
 ensures condition fails there (Java: WarnStuckClaimState). Both routes report
-the claim stuck at depth 0 on `<k> 0 ~> Tail </k>`, which is pinned.
+it stuck at depth 0 on `<k> 0 ~> Tail </k>`, which is pinned.
 
 Concrete execution refuses the rules: `krs build --backend llvm` stops with
 `krs::capability::unavailable`, Java `kompile --backend llvm` reports "Found
@@ -200,8 +206,22 @@ READABLE_HELPERS = (
     "#[k::exists(x:Int)]\n#[k::ensures(int::ne(x, 0))]\n"
     '#[k::rule(nondet = lesson, label = "zero-to-unknown")]\n'
 )
-CLAIM_SPEC_MODULE = "KRS-LESSON-21-SPEC"
-CLAIM_LABEL = "zero-reaches-nonzero"
+# (spec module, claim label): (proven, emitted claim). The lesson's claim is
+# provable; the gotcha's start already matches its target, so it is stuck.
+L21_CLAIMS = {
+    ("KRS-LESSON-21-SPEC", "foo-reaches-below-five"): (
+        True,
+        "  claim [foo-reaches-below-five]:\n"
+        "    <k> foo ~> Tail:K => ?Y:Int ~> Tail:K </k>\n"
+        "    ensures ?Y:Int <Int 5\n",
+    ),
+    ("KRS-LESSON-21-GOTCHA", "zero-reaches-nonzero"): (
+        False,
+        "  claim [zero-reaches-nonzero]:\n"
+        "    <k> 0 ~> Tail:K => ?Y:Int ~> Tail:K </k>\n"
+        "    ensures ?Y:Int =/=Int 0\n",
+    ),
+}
 JAVA_LLVM_REJECTION = "[Error] Compiler: Found existential variable not supported by concrete backend."
 
 TRUSTED = Fixture(MANIFEST, "krs-verification-surface-trusted")
@@ -595,18 +615,18 @@ def native_states(harness: FixtureGate, fixture: Fixture, program: Path) -> list
     return sorted(states, key=lambda state: json.dumps(state, sort_keys=True))
 
 
-def native_claim(harness: FixtureGate, fixture: Fixture) -> dict[str, Any]:
-    process = harness._krs(fixture, "prove", "--claim", CLAIM_LABEL, check=False)
+def native_claim(harness: FixtureGate, fixture: Fixture, module: str, label: str) -> dict[str, Any]:
+    process = harness._krs(fixture, "prove", "--spec-module", module, "--claim", label, check=False)
     text = process.stdout
-    status = re.search(rf"{re.escape(CLAIM_SPEC_MODULE)}\.{re.escape(CLAIM_LABEL)}: (\w+)", text)
+    status = re.search(rf"^{re.escape(module)}\.{re.escape(label)}: (\w+)$", text, re.MULTILINE)
     leaf = re.search(r"leaf 1 \((\w+), depth (\d+)\):\s*<k>\s*(.*?)\s*</k>", text, re.DOTALL)
-    if status is None or leaf is None:
+    if status is None or (status.group(1) != "proven" and leaf is None):
         raise GateError(f"{fixture.package}: krs prove printed no claim status and leaf:\n{text}\n{process.stderr}")
     return {
         "proven": status.group(1) == "proven",
-        "stuck": leaf.group(1) == "Stuck",
-        "depth": int(leaf.group(2)),
-        "k": normalize_k_text(leaf.group(3)),
+        "stuck": leaf is not None and leaf.group(1) == "Stuck",
+        "depth": int(leaf.group(2)) if leaf else None,
+        "k": normalize_k_text(leaf.group(3)) if leaf else None,
     }
 
 
@@ -617,7 +637,7 @@ def normalize_k_text(text: str) -> str:
 
 def java_route(
     harness: FixtureGate, emitted: Emitted, programs: dict[str, Path], *, claim: bool,
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any] | None, str]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]], str]:
     inputs = {f"emitted/{emitted.fixture.package}/definition.k": emitted.source}
     k = Snapshot(
         f"verification-surface/{emitted.fixture.package}",
@@ -652,25 +672,28 @@ def java_route(
         if executed.returncode != 0:
             raise GateError(f"{emitted.fixture.package} {name}: krun failed:\n{executed.stderr}")
         states[name] = normalized_states(executed.stdout)
-    proof = None
-    if claim:
+    proofs = {}
+    for module, label in L21_CLAIMS if claim else ():
         proved = k.run(
-            f"kprove/{CLAIM_LABEL}", "kprove",
+            f"kprove/{label}", "kprove",
             [
                 emitted.directory / "spec.k", "--definition", kompiled / "haskell",
-                "--spec-module", CLAIM_SPEC_MODULE, "--claims", f"{CLAIM_SPEC_MODULE}.{CLAIM_LABEL}",
+                "--spec-module", module, "--claims", f"{module}.{label}",
             ],
             timeout=600,
         )
         stuck = re.findall(r"<k>\s*(.*?)\s*</k>", proved.stdout, re.DOTALL)
-        proof = {
-            "proven": proved.returncode == 0,
+        proven = proved.returncode == 0
+        if proven and proved.stdout.strip() != "#Top":
+            raise GateError(f"{emitted.fixture.package}: kprove {module}.{label} exited 0 without #Top:\n{proved.stdout}")
+        proofs[label] = {
+            "proven": proven,
             "stuck": "WarnStuckClaimState" in proved.stderr + proved.stdout,
             "depth": 0 if stuck else None,
             "k": normalize_k_text(stuck[0]) if stuck else None,
         }
     print(f"PASS verification-surface {emitted.fixture.package} reference snapshot: {k.finish()}")
-    return states, proof, llvm[0]
+    return states, proofs, llvm[0]
 
 
 def compare(
@@ -747,17 +770,35 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
         programs[name] = directory / f"{name}.pgm"
         programs[name].write_text(text + "\n", encoding="utf-8")
     native = {name: native_states(harness, fixture, path) for name, path in programs.items()}
-    java, java_proof, java_llvm = java_route(harness, emitted, programs, claim=claim)
+    java, java_proofs, java_llvm = java_route(harness, emitted, programs, claim=claim)
     if java_llvm != JAVA_LLVM_REJECTION:
         raise GateError(f"{fixture.package}: Java kompile --backend llvm reported {java_llvm!r}")
     observed = compare(harness, emitted, native, java)
     print(f"PASS {fixture.package}: symbolic search agrees on {', '.join(sorted(observed))}")
     if claim:
-        native_proof = native_claim(harness, fixture)
-        if native_proof != java_proof:
-            raise GateError(f"{fixture.package}: claim outcome native {native_proof} differs from kprove {java_proof}")
-        harness.pins.expect(("claims", fixture.package), native_proof)
-        print(f"PASS {fixture.package}: claim {CLAIM_LABEL} agrees with kprove: {native_proof}")
+        verify_l21_claims(harness, fixture, emitted, java_proofs)
+
+
+def verify_l21_claims(
+    harness: FixtureGate, fixture: Fixture, emitted: Emitted, java_proofs: dict[str, dict[str, Any]],
+) -> None:
+    """The lesson's claim is proven and the gotcha is stuck at depth 0, natively and by kprove."""
+
+    source = emitted.source.read_text(encoding="utf-8")
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    outcomes = {}
+    for (module, label), (provable, fragment) in L21_CLAIMS.items():
+        body = spec.partition(f"module {module}\n")[2].partition("endmodule\n")[0]
+        if fragment not in body or f"module {module}\n" in source:
+            raise GateError(f"{fixture.package}: spec module {module} in spec.k omits:\n{fragment}\n{spec}")
+        native = native_claim(harness, fixture, module, label)
+        if native != java_proofs[label]:
+            raise GateError(f"{fixture.package}: claim {label} native {native} differs from kprove {java_proofs[label]}")
+        if native["proven"] != provable or (not provable and not (native["stuck"] and native["depth"] == 0)):
+            raise GateError(f"{fixture.package}: claim {label} reported {native}")
+        outcomes[label] = native
+        print(f"PASS {fixture.package}: claim {module}.{label} agrees with kprove: {native}")
+    harness.pins.expect(("claims", fixture.package), outcomes)
 
 
 def verify_ignored_ensures(harness: FixtureGate) -> None:
