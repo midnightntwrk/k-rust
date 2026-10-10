@@ -56,8 +56,9 @@
 //!
 //! [`axioms`] checks the claims against the axioms instead, with the backend's own evaluation as
 //! the judge and no second engine, on the same templates, probes and variants, on its own
-//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, two
-//! maximal common subsorts), on random definitions with those classes added, and on the FUN
+//! templates of the classes the engine cannot evaluate (maps and sets, hooked equations, an
+//! equation indexed at a bare variable whose sort holds an equation head, two maximal common
+//! subsorts), on random definitions with those classes added, and on the FUN
 //! fixtures. `KRUST_AXIOM_HARNESS_CASES` (default [`AXIOM_CASES`]) sets its random run; the
 //! mutation tests show which switches it sees.
 
@@ -599,6 +600,22 @@ fn every_axiom_instance_holds_in_the_backends_evaluation() {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
+
+/// The axiom-instance harness on an equation indexed at a bare variable whose sort holds an
+/// equation head (`generator::variable_indexed_head`): every model makes `mv(1)` and `mv(2)` one
+/// element, so a kept claim on `mv` is contradicted by an instance, and the load must withdraw
+/// it.
+#[test]
+fn an_equation_indexed_at_a_bare_variable_keeps_no_claim_on_the_heads_its_sort_holds() {
+    on_large_stack(|| {
+        let mut rng = Rng(DEFAULT_SEED);
+        let (definition, _) =
+            generator::variable_indexed_head(Definition::new(&["A"]).constructor("c", &[], "A"));
+        let tally = axioms::check_definition("variable-indexed head", &definition, &mut rng);
+        eprintln!("{}", tally.summary("variable-indexed head"));
+        assert!(tally.failures.is_empty(), "{}", tally.failures.join("\n"));
     });
 }
 

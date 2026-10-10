@@ -1349,6 +1349,25 @@ pub(super) fn hooked_equations(definition: Definition) -> (Definition, Vec<Pat>)
     (definition, Vec::new())
 }
 
+/// An equation indexed at a bare variable whose sort holds an equation head:
+/// `M mapConcat .Map = mapUpdate(M, 0, mv(2)) requires mapInKeys(0, M)`, whose left-hand side
+/// the collection laws normalize to the bare variable `M`. A map with the key `0` equals itself
+/// with that key's value replaced by `mv(2)`, and a map's values are fixed by the map, so every
+/// `Mv` value is `mv(2)` in every model: `mv(1)` and `mv(2)` are one element, and `mv` keeps no
+/// claim. The definition has a model, `Mv` with the one element `mv0`, so the instances judge
+/// claims, not the absence of a model.
+pub(super) fn variable_indexed_head(definition: Definition) -> (Definition, Vec<Pat>) {
+    let definition = definition.with_collections().conditional(
+        app("mapConcat", vec![var("VarM", "Map"), cons("mapUnit")]),
+        app(
+            "mapUpdate",
+            vec![var("VarM", "Map"), int(0), app("mv", vec![int(2)])],
+        ),
+        Some(app("mapInKeys", vec![int(0), var("VarM", "Map")])),
+    );
+    (definition, Vec::new())
+}
+
 /// An overload family read through its lesser productions: `len2(inj{Ns,Es}(L)) = mk(2)` beside
 /// `len2(consE(E, L2)) = mk(1)`, which overlap only where `consE(inj(N), inj(L))` lowers to
 /// `inj(consN(N, L))` (a variable bound to a lesser production), and
@@ -1553,6 +1572,10 @@ pub(super) fn axiom_templates() -> Vec<(String, Definition)> {
         hooked_equations(base()).0,
     ));
     templates.push((
+        "axiom template variable-indexed head".into(),
+        variable_indexed_head(base()).0,
+    ));
+    templates.push((
         "axiom template lowered family".into(),
         lowered_family(base()).0,
     ));
@@ -1604,6 +1627,9 @@ pub(super) fn axiom_definition(rng: &mut Rng) -> Definition {
     }
     if rng.percent(10) {
         definition = chain_across_priorities(definition).0;
+    }
+    if rng.percent(10) {
+        definition = variable_indexed_head(definition).0;
     }
     definition
 }
