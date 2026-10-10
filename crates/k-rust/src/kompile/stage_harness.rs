@@ -299,6 +299,94 @@ endmodule
         assert_eq!(unique_id(&emission.input), Some(numbered));
     }
 
+    /// The stage under test already receives what the pipeline's earlier stages make of the
+    /// source; what a stub source (`module BOOL endmodule`) leaves unchecked is the rest of the
+    /// compile. When a later stage rejects the definition (on main: the `_andBool_`/`_+Int_` the
+    /// compiler itself generates have no production, or `Int` has no fresh generator), nothing
+    /// shows whether the tested stage's output is something later stages accept, and nothing
+    /// flags it when a stage starts to depend on declarations the stub omits. So every source a
+    /// stage test hands to [`run_to_stage`] and expects to pass its stage compiles in full, as
+    /// `kcompile --no-prelude` compiles it. This is test hygiene, chosen; the invariant that holds
+    /// of every source whatever its test expects is weaker: the compile ends in a definition or a
+    /// located error, never a panic (the K4 panics `cli-harness-review-1` F4 saw no longer occur
+    /// on main). The test reads the sources from the stage tests
+    /// themselves (each raw string holding `module MAIN` in a file that calls `run_to_stage`; a
+    /// source whose test reads the stage's error is expected to fail somewhere and is skipped).
+    #[test]
+    #[ignore = "reproduces FOLLOWUPS: cli-harness F1 (stage-harness sources are stubs that a later stage rejects; run_to_stage never checks that its source compiles)"]
+    fn every_stage_harness_source_compiles_in_full() {
+        fn sources(directory: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(directory).expect("read the kompile sources") {
+                let path = entry.expect("directory entry").path();
+                if path.is_dir() {
+                    sources(&path, found);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/kompile");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        files.sort();
+        let literal = regex::Regex::new(r##"(?s)r#"(.*?)"#"##).unwrap();
+        let expects_error = regex::Regex::new(r"\.error\(\)|expect_err|is_err").unwrap();
+        let mut checked = 0;
+        let mut failures = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            if !text.contains("run_to_stage(") || file.ends_with("stage_harness.rs") {
+                continue;
+            }
+            for found in literal.captures_iter(&text) {
+                let whole = found.get(0).unwrap();
+                let source = &found[1];
+                if !source.contains("module MAIN") {
+                    continue;
+                }
+                let rest = &text[whole.end()..];
+                let test_rest = rest.split("#[test]").next().unwrap_or(rest);
+                if expects_error.is_match(test_rest) {
+                    continue;
+                }
+                let line = text[..whole.start()].lines().count() + 1;
+                let name = format!(
+                    "{}:{line}",
+                    file.strip_prefix(&root).unwrap_or(&file).display()
+                );
+                checked += 1;
+                let mut resolver =
+                    |_: &str, required: &str| Err(format!("unexpected require {required}"));
+                let loaded = load_for_compilation(
+                    ResolvedSource::new("definition.k", source),
+                    "MAIN",
+                    Some("MAIN"),
+                    &mut resolver,
+                    &LoadOptions::default(),
+                );
+                let outcome = match loaded {
+                    Err(error) => Err(format!("does not load: {error:?}")),
+                    Ok((loaded, _)) => {
+                        super::super::compile_loaded_definition(&loaded, CompileOptions::default())
+                            .map(|_| ())
+                            .map_err(|error| format!("does not compile: {error:?}"))
+                    }
+                };
+                if let Err(message) = outcome {
+                    let message = message.chars().take(300).collect::<String>();
+                    failures.push(format!("{name}: {message}"));
+                }
+            }
+        }
+        assert!(checked > 0, "found no stage-harness sources");
+        assert!(
+            failures.is_empty(),
+            "{} of {checked} stage-harness sources do not compile in full:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
     #[test]
     #[should_panic(expected = "names 0 stages")]
     fn an_unknown_stage_name_is_a_test_fault() {
