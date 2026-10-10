@@ -5607,6 +5607,79 @@ fn a_non_applicable_attempts_work_is_on_no_path() {
     assert!(collected.contains(&missing_hook()), "{collected:?}");
 }
 
+/// A rule attempt is one retraction scope: a report that an equation left a call unevaluated is
+/// kept only while the attempt's outcome holds the call, wherever in the attempt the call was
+/// dropped. `t(X)` stays unevaluated with a report (`tu`'s result variable is unbound) while the
+/// `requires` of `decide` is simplified, and the solver then decides that `requires`. Decided
+/// valid, the rule applies and its successor `done()` holds no `t`, so nothing is reported, as when
+/// the simplifier decides it; refuted, the rule does not apply and the step derives nothing from
+/// the attempt, so nothing is reported; left open, the successor and the remainder carry the
+/// `requires`, so the report stays with them.
+#[test]
+fn a_rule_condition_the_solver_decides_reports_only_what_the_step_keeps() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol t{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+        axiom{R} \implies{R}(
+            \and{R}(
+                \equals{SortBool{}, R}(lt{}(Y:SortInt{}, X:SortInt{}), \dv{SortBool{}}("true")),
+                \and{R}(\in{SortInt{}, R}(K0:SortInt{}, X:SortInt{}), \top{R}())
+            ),
+            \equals{SortInt{}, R}(t{}(K0:SortInt{}), \and{SortInt{}}(Y:SortInt{}, \top{SortInt{}}()))
+        ) [label{}("tu")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(lt{}(t{}(X:SortInt{}), X:SortInt{}), \dv{SortBool{}}("true"))
+            ),
+            done{}()
+        ) [label{}("decide")]
+        "#,
+    );
+    let reported = |diagnostics: &[BackendDiagnostic]| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic, BackendDiagnostic::UndecidedCondition { rule_id, .. } if rule_id == "tu"))
+    };
+    for (validity, kept) in [
+        (Validity::Valid, false),
+        (Validity::Refuted, false),
+        (Validity::Contingent, true),
+    ] {
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(validity.clone()),
+        };
+        let (result, collected) = diagnostic::collect(|| {
+            execute_with_solver(
+                &definition,
+                be08_portable_subject(&definition),
+                ExecutionOptions {
+                    max_depth: 1,
+                    ..ExecutionOptions::default()
+                },
+                &solver,
+            )
+        });
+        let on_leaves = result
+            .leaves
+            .iter()
+            .filter(|leaf| reported(&leaf.diagnostics))
+            .count();
+        if kept {
+            let done = leaf_with_term(&definition, &result, "done{}()");
+            assert!(
+                reported(&done.diagnostics),
+                "{validity:?}: {:#?}",
+                result.leaves
+            );
+        } else {
+            assert_eq!(on_leaves, 0, "{validity:?}: {:#?}", result.leaves);
+            assert!(!reported(&collected), "{validity:?}: {collected:?}");
+        }
+    }
+}
+
 /// A rule (for `X < 0`) whose only right-hand side is refuted by its ensures after its
 /// construction exhausted the budget produces no candidate: that work is on no candidate's path,
 /// in particular not on a same-priority rule's candidate, nor, in the sequential step, on the

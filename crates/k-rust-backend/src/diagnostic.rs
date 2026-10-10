@@ -44,11 +44,12 @@ pub enum BackendDiagnostic {
     /// Like every diagnostic emitted during an equation attempt, it is reported only with an
     /// outcome the simplification keeps (`buffer`): the equation applied, or the attempt was
     /// indeterminate and no other equation rewrote the subject, which was left unevaluated, and
-    /// the result of the simplification still holds that subject (`retract_dropped`). An attempt
+    /// the result of the simplification still holds that subject (`retract_dropped`), as does
+    /// the outcome of the rewrite rule attempt that made the simplification, if any. An attempt
     /// whose `requires` was refuted, one that another equation superseded, one whose subject a
-    /// later part of the same simplification dropped, and one made while simplifying the
-    /// condition of an enclosing attempt that was itself refuted, superseded or dropped report
-    /// nothing.
+    /// later part of the same simplification or rule attempt dropped, and one made while
+    /// simplifying the condition of an enclosing attempt that was itself refuted, superseded or
+    /// dropped report nothing.
     UndecidedCondition {
         rule_id: String,
         reason: ConditionIndeterminacy,
@@ -575,7 +576,22 @@ pub(crate) fn retract_dropped<T>(
     action: impl FnOnce() -> T,
     occurrences: impl FnOnce(&T) -> Option<Occurrences<'_>>,
 ) -> T {
+    retract_dropped_reporting(action, occurrences).0
+}
+
+/// [`retract_dropped`] for a scope whose units of work attribute their own diagnostics inside it
+/// ([`collect_unit`]): it also returns which reports it retracted, so the caller takes them out
+/// of the lists those units hold ([`Retracted::remove_from`]).
+///
+/// Such a unit records each emission in the scope as it records it in its own list, so the scope
+/// decides on every report the unit raised, and a report it retracts reaches no path through
+/// either.
+pub(crate) fn retract_dropped_reporting<T>(
+    action: impl FnOnce() -> T,
+    occurrences: impl FnOnce(&T) -> Option<Occurrences<'_>>,
+) -> (T, Retracted) {
     let (result, mut held) = buffer(action);
+    let mut retracted = Retracted::default();
     if held.0.iter().any(|emission| emission.subject.is_some())
         && let Some(occurrences) = occurrences(&result)
     {
@@ -586,14 +602,32 @@ pub(crate) fn retract_dropped<T>(
             .collect::<Vec<_>>();
         let found = occurrences.holding(&subjects);
         held.0.retain(|emission| {
-            emission
+            let kept = emission
                 .subject
                 .as_ref()
-                .is_none_or(|subject| found.contains(subject))
+                .is_none_or(|subject| found.contains(subject));
+            if !kept {
+                retracted.0.insert(emission.position);
+            }
+            kept
         });
     }
     held.commit();
-    result
+    (result, retracted)
+}
+
+/// The reports a [`retract_dropped_reporting`] scope retracted, by their positions in the
+/// thread's emission order; a position names one emission wherever it is forwarded.
+#[derive(Debug, Default)]
+pub(crate) struct Retracted(FxHashSet<u64>);
+
+impl Retracted {
+    /// Take the retracted reports out of `list`, a unit's own list of the scope's emissions.
+    pub(crate) fn remove_from(&self, list: &mut Vec<Sequenced>) {
+        if !self.0.is_empty() {
+            list.retain(|sequenced| !self.0.contains(&sequenced.position));
+        }
+    }
 }
 
 /// What a simplifier entry returns, its terms and predicates, to be searched for the subjects of

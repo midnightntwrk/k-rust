@@ -46,7 +46,7 @@ use crate::{
     },
     definedness::ceil_term,
     definition::BackendDefinition,
-    diagnostic::{self, Sequenced},
+    diagnostic::{self, Occurrences, Sequenced},
     fresh::{FreshCounter, fresh_variable},
     ite::SplitSide,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -91,6 +91,41 @@ pub(super) enum RuleAttempt {
     Indeterminate(IndeterminateReason),
     /// Simplifying a term or condition of the rule failed, so the attempt could not be decided.
     Simplification(SimplificationError),
+}
+
+impl RuleAttempt {
+    /// What the attempt's outcome holds, for the retraction of the reports raised while it was
+    /// made (`apply_rule_with_match`, [`diagnostic::retract_dropped_reporting`]).
+    ///
+    /// A report that an equation was passed over explains why its subject is left unevaluated,
+    /// so it is kept only while the outcome holds that subject: the step reads the successor of
+    /// each application (its term and the constraints it adds to the path), the remainder its
+    /// applicability leaves to lower priorities, and the sub-case and obligation of each
+    /// application whose result is bottom. A refuted attempt (`NotApplicable`) holds nothing:
+    /// the step derives nothing from it. An undecided attempt and a failed one keep every
+    /// report, as no outcome replaced the work they describe.
+    fn outcome(&self) -> Option<Occurrences<'_>> {
+        match self {
+            Self::NotApplicable => Some(Occurrences::of([], [])),
+            Self::Unified { groups } => {
+                let mut terms = Vec::new();
+                let mut predicates = Vec::new();
+                for group in groups {
+                    for application in &group.applied {
+                        terms.push(&application.applied.pattern.term);
+                        predicates.extend(&application.applied.pattern.constraints);
+                        predicates.push(application.remainder.as_predicate());
+                    }
+                    for trivial in &group.trivial {
+                        predicates.push(&trivial.obligation);
+                        predicates.push(trivial.applicability.as_predicate());
+                    }
+                }
+                Some(Occurrences::of(terms, predicates))
+            }
+            Self::Indeterminate(_) | Self::Simplification(_) => None,
+        }
+    }
 }
 
 /// The applications of one sub-case of a rule attempt: one match (after any split) whose
@@ -464,18 +499,34 @@ pub(super) fn apply_rule_with_match(
         io,
         nested_units: &nested_units,
     };
-    let (attempt, level) =
-        diagnostic::collect_unit(
+    // The attempt is one retraction scope: a report raised while it was made (of a call left
+    // unevaluated in its `requires`, say) is kept only if the attempt's outcome still holds the
+    // report's subject, whichever of its conditions, decided by the simplifier or by the solver,
+    // dropped it (`RuleAttempt::outcome`).
+    let ((attempt, retracted), level) = diagnostic::collect_unit(|| {
+        diagnostic::retract_dropped_reporting(
             || match apply_rule_phases(context, fresh_counter, matched) {
                 Ok(attempt) | Err(PhaseExit::Attempt(attempt)) => Ok(attempt),
                 Err(PhaseExit::Stop(stop)) => Err(stop),
             },
-        );
+            |attempt| attempt.as_ref().ok().and_then(RuleAttempt::outcome),
+        )
+    });
     let mut attempt = attempt?;
     // This level's own work (matching, recovery, conditions) is every emission outside its
     // nested units. Every group of the attempt, built here or by a sub-attempt re-entered from
     // here, depends on it. An attempt that produced no group attributes it to no candidate.
     if let RuleAttempt::Unified { groups } = &mut attempt {
+        // The nested units attributed their emissions before this scope decided on them.
+        for group in groups.iter_mut() {
+            if let Some(nested) = &mut group.common {
+                retracted.remove_from(nested);
+            }
+            for application in &mut group.applied {
+                retracted.remove_from(&mut application.diagnostics);
+            }
+            retracted.remove_from(&mut group.trivial_work);
+        }
         let nested_units = nested_units.into_inner();
         let own = level
             .into_iter()
