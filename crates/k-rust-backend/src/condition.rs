@@ -425,9 +425,12 @@ fn mentions_bound_variable(predicate: &Predicate, substitution: &Substitution) -
 /// An equation `f(X) = r requires R` is an axiom over every element `X`. A term `t` bound to `X`
 /// is a functional pattern (at most one element), so the instance at `t` is
 /// `f(t) = \ceil(t) /\ r[t]` where `R[t]` holds: both sides are empty where `t` is, and the
-/// axiom applies on the one element otherwise. The `\ceil(t)` factors are the binding
-/// obligations ([`BindingDefinedness`]); the right-hand side is reachable only after they are
-/// decided ([`MatchedEquation::decide`]), and then only together with those that stay open
+/// axiom applies on the one element otherwise. An argument pattern that is not a variable binds
+/// its argument by membership, `f(Y) = r requires R /\ Y ∈ p(X)`, and an undefined term is a
+/// member of no pattern, so the instance at `f(t)` with `t` an instance of `p(X)` is likewise
+/// `\ceil(t) /\ r` ([`ConsumedDefinedness`]). The `\ceil` factors are the binding obligations
+/// ([`BindingDefinedness`]); the right-hand side is reachable only after they are decided
+/// ([`MatchedEquation::decide`]), and then only together with those that stay open
 /// ([`DefinedEquation::into_result`], [`DefinedEquation::into_carried`]).
 pub(crate) struct EquationInstance {
     requires: InstantiatedCondition,
@@ -436,8 +439,8 @@ pub(crate) struct EquationInstance {
 
 impl EquationInstance {
     /// The instance of `requires` under `substitution`, and the definedness of every term
-    /// `substitution` binds to an element variable, minus what the instantiated `requires`
-    /// already states.
+    /// `substitution` binds to an element variable and of what the left-hand side consumes of
+    /// the subject (`consumed`), minus what the instantiated `requires` already states.
     ///
     /// An element variable ranges over elements, so binding it to a term `t` asserts `\ceil(t)`;
     /// a set variable binds an arbitrary pattern and imposes no obligation. `ceil_term` already
@@ -447,17 +450,24 @@ impl EquationInstance {
         definition: &BackendDefinition,
         requires: &Condition,
         substitution: Substitution,
+        consumed: ConsumedDefinedness,
     ) -> Self {
         let requires = requires.instantiate(&substitution);
         let mut definedness = Vec::new();
+        let mut add = |predicate: Predicate| {
+            if !requires.0.contains(&predicate) && !definedness.contains(&predicate) {
+                definedness.push(predicate);
+            }
+        };
         for (variable, value) in &substitution {
             if variable.kind == VariableKind::Element {
                 for predicate in ceil_term(definition, value) {
-                    if !requires.0.contains(&predicate) && !definedness.contains(&predicate) {
-                        definedness.push(predicate);
-                    }
+                    add(predicate);
                 }
             }
+        }
+        for predicate in consumed.0 {
+            add(predicate);
         }
         Self {
             requires,
@@ -473,6 +483,84 @@ impl EquationInstance {
     /// rather than decided by the `requires`. And the instance, whose use needs them decided.
     pub(crate) fn into_requires(self) -> (InstantiatedCondition, MatchedEquation) {
         (self.requires, self.matched)
+    }
+}
+
+/// The definedness of what an equation's left-hand side consumes of its subject below the
+/// subject's root, beyond the terms its match binds to variables.
+///
+/// An equation binds each argument of its root by membership in its argument pattern
+/// (`f(Y) = r requires Y ∈ p(X)`), and an undefined term is a member of no pattern, so an
+/// instance at `f(t1, ..., tn)` exists only where every `ti` is defined: its obligations include
+/// `ceil_term(ti)` for every argument, whether a variable or a pattern consumes it. A pattern
+/// built from free constructors, injections and collection units and elements loses nothing,
+/// since those are defined exactly where their parts are and the parts are bound below; any
+/// other pattern position keeps an obligation of its own: a function application (`pf(X)`
+/// against `pf(d)`, which no equation reduces), an equation head whose claims are withdrawn, and
+/// the distinctness of a map or set the pattern splits (`(c |-> V) M` against
+/// `{c |-> 1, Y |-> 2}` consumes `\not(c = Y)`, which neither `V` nor `M` carries).
+///
+/// A simplification lemma `f(p(X)) = r` states its equality without memberships, but an
+/// application is undefined wherever one of its arguments is, so its instance where `p(X)` is
+/// undefined would equate an undefined term with `r`, making `r` empty there; the lemma is
+/// therefore read as saying nothing at such an instance, and carries the same obligations.
+///
+/// An argument a variable binds whole is not charged here: an element variable's binding
+/// obligation is the same `ceil_term` ([`EquationInstance::new`] states it), and a set variable
+/// ranges over every pattern, the undefined one included, so its argument carries none. The
+/// root itself is what the equation is about (its own `\ceil` is the equation's result), so it
+/// consumes nothing: a collection at the root contributes its parts, not its own distinctness.
+#[must_use]
+pub(crate) struct ConsumedDefinedness(Vec<Predicate>);
+
+impl ConsumedDefinedness {
+    /// `ceil_term` of each immediate subterm of `subject` that `pattern`, an equation's
+    /// left-hand side matched against `subject`, does not bind whole to a variable. Each
+    /// argument with a stored `ceil_free` attribute costs one read of it.
+    pub(crate) fn of_arguments(
+        definition: &BackendDefinition,
+        pattern: &Term,
+        subject: &Term,
+    ) -> Self {
+        let mut obligations = Vec::new();
+        let mut consume = |argument: &Term| {
+            if argument.attributes().ceil_free() {
+                return;
+            }
+            for predicate in ceil_term(definition, argument) {
+                if !obligations.contains(&predicate) {
+                    obligations.push(predicate);
+                }
+            }
+        };
+        match (pattern.kind(), subject.kind()) {
+            (
+                TermKind::Application {
+                    arguments: patterns,
+                    ..
+                },
+                TermKind::Application { arguments, .. },
+            ) if patterns.len() == arguments.len() => {
+                for (pattern, argument) in patterns.iter().zip(arguments) {
+                    if !matches!(pattern.kind(), TermKind::Variable(_)) {
+                        consume(argument);
+                    }
+                }
+            }
+            // A variable left-hand side binds the whole subject.
+            (TermKind::Variable(_), _) => {}
+            _ => {
+                for child in crate::term::immediate_children(subject.kind()) {
+                    consume(child);
+                }
+            }
+        }
+        Self(obligations)
+    }
+
+    /// Obligations a caller computed from the operands it consumes (a predicate equation's).
+    pub(crate) fn stated(obligations: Vec<Predicate>) -> Self {
+        Self(obligations)
     }
 }
 

@@ -86,7 +86,8 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     condition::{
-        Conjunct, DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation,
+        Conjunct, ConsumedDefinedness, DecidedEquation, EquationInstance, InstantiatedCondition,
+        MatchedEquation,
     },
     definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
@@ -2648,7 +2649,8 @@ fn apply_ceil_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
-    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
@@ -2787,7 +2789,29 @@ fn apply_predicate_equation(
             ConditionIndeterminacy::NonFunctionalBinding,
         ));
     }
-    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    // The predicate's term operands are consumed by its connectives: the instance exists only
+    // where each operand is defined (`ConsumedDefinedness`). An operand's obligation that no
+    // bound term already states is used, when open or refuted, only where the predicate is
+    // strict in that operand, as a bound term's is below; one under a quantifier of the
+    // left-hand side may mention the bound variable, so it cannot be stated outside it.
+    let Some(consumed) = PredicateOperands::of(
+        definition,
+        &rule.lhs,
+        predicate,
+        &substitution,
+        known_predicates,
+    ) else {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate,
+        ));
+    };
+    let consumed_strict = consumed.strict;
+    let instance = EquationInstance::new(
+        definition,
+        &rule.requires,
+        substitution,
+        ConsumedDefinedness::stated(consumed.obligations),
+    );
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
@@ -2839,7 +2863,7 @@ fn apply_predicate_equation(
                     defined.substitution(),
                     known_predicates,
                 );
-                if !obligated.is_subset(&strict) {
+                if !obligated.is_subset(&strict) || !consumed_strict {
                     return Ok(EquationAttempt::Indeterminate(
                         ConditionIndeterminacy::ImplicationIndeterminate,
                     ));
@@ -2851,11 +2875,196 @@ fn apply_predicate_equation(
         }
         DecidedEquation::Refuted(substitution) => {
             let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
-            if !obligated.is_subset(&strict) {
+            if !obligated.is_subset(&strict) || !consumed_strict {
                 return Ok(EquationAttempt::NotApplicable(()));
             }
             Ok(EquationAttempt::Applied(Predicate::False))
         }
+    }
+}
+
+/// What a predicate equation's left-hand side consumes of its subject's term operands
+/// ([`ConsumedDefinedness`]): the obligations of each operand that the match does not bind whole
+/// to a variable, minus those of the terms it binds and those the path states, and whether the left-hand side is strict in
+/// every operand that has such an obligation.
+struct PredicateOperands {
+    obligations: Vec<Predicate>,
+    strict: bool,
+}
+
+impl PredicateOperands {
+    /// `None` when an operand under a quantifier of `pattern` has an obligation, which may
+    /// mention the quantified variable.
+    fn of(
+        definition: &BackendDefinition,
+        pattern: &Predicate,
+        subject: &Predicate,
+        substitution: &Substitution,
+        known_predicates: &[Predicate],
+    ) -> Option<Self> {
+        let mut operands = Vec::new();
+        collect_predicate_operands(
+            definition,
+            pattern,
+            subject,
+            Operand::STRICT,
+            known_predicates,
+            &mut operands,
+        );
+        let mut bound = Vec::new();
+        for (variable, value) in substitution {
+            if variable.kind == VariableKind::Element && !value.attributes().ceil_free() {
+                bound.extend(ceil_term(definition, value));
+            }
+        }
+        let mut consumed = Self {
+            obligations: Vec::new(),
+            strict: true,
+        };
+        for (pattern, subject, operand) in operands {
+            // A variable binds its operand whole: an element variable's binding obligation is
+            // the operand's own, and a set variable ranges over the undefined pattern too.
+            if subject.attributes().ceil_free() || matches!(pattern.kind(), TermKind::Variable(_)) {
+                continue;
+            }
+            // An obligation the path already states holds wherever the instance is used, so it
+            // neither conditions the instance nor needs the predicate strict in its operand.
+            let own = ceil_term(definition, subject)
+                .into_iter()
+                .filter(|predicate| {
+                    !bound.contains(predicate) && !known_predicates.contains(predicate)
+                })
+                .collect::<Vec<_>>();
+            if own.is_empty() {
+                continue;
+            }
+            if operand.quantified {
+                return None;
+            }
+            consumed.strict &= operand.strict;
+            for predicate in own {
+                if !consumed.obligations.contains(&predicate) {
+                    consumed.obligations.push(predicate);
+                }
+            }
+        }
+        Some(consumed)
+    }
+}
+
+/// Where a term operand of a predicate stands.
+#[derive(Clone, Copy)]
+struct Operand {
+    /// The predicate is `\bottom` wherever the operand is (`strict_variables`).
+    strict: bool,
+    /// The operand is under a quantifier.
+    quantified: bool,
+}
+
+impl Operand {
+    const STRICT: Self = Self {
+        strict: true,
+        quantified: false,
+    };
+
+    fn lenient(self) -> Self {
+        Self {
+            strict: false,
+            ..self
+        }
+    }
+}
+
+/// The term operands of `pattern` paired with `subject`'s, which has its shape (the match
+/// succeeded), with where each stands: the pairs of `collect_predicate_term_pairs`, and the
+/// strictness `strict_variables` reads, per operand.
+fn collect_predicate_operands<'a>(
+    definition: &BackendDefinition,
+    pattern: &'a Predicate,
+    subject: &'a Predicate,
+    at: Operand,
+    known_predicates: &[Predicate],
+    into: &mut Vec<(&'a Term, &'a Term, Operand)>,
+) {
+    let provably_defined = |term: &Term| {
+        term_is_provably_defined(definition, term, |obligation| {
+            known_predicates.contains(obligation)
+        })
+    };
+    match (pattern, subject) {
+        (Predicate::Ceil(left), Predicate::Ceil(right)) => into.push((left, right, at)),
+        (Predicate::Term(left), Predicate::Term(right))
+        | (Predicate::Floor(left), Predicate::Floor(right)) => {
+            into.push((left, right, at.lenient()));
+        }
+        (Predicate::In(left_a, left_b), Predicate::In(right_a, right_b)) => {
+            into.push((left_a, right_a, at));
+            into.push((left_b, right_b, at));
+        }
+        (Predicate::Absent(left), Predicate::Absent(right)) => {
+            into.push((left.key(), right.key(), at));
+            into.push((left.rest(), right.rest(), at));
+        }
+        (Predicate::Equals(left_a, left_b), Predicate::Equals(right_a, right_b)) => {
+            // `\equals(\bottom, r)` is `\bottom` exactly when `r` is not empty.
+            let first = if provably_defined(right_b) {
+                at
+            } else {
+                at.lenient()
+            };
+            let second = if provably_defined(right_a) {
+                at
+            } else {
+                at.lenient()
+            };
+            into.push((left_a, right_a, first));
+            into.push((left_b, right_b, second));
+        }
+        (Predicate::And(left), Predicate::And(right)) => {
+            for (left, right) in left.iter().zip(right) {
+                collect_predicate_operands(definition, left, right, at, known_predicates, into);
+            }
+        }
+        (Predicate::Or(left), Predicate::Or(right)) => {
+            // A disjunction is strict only in what every disjunct is strict in; an operand
+            // stands in one disjunct.
+            let at = if left.len() == 1 { at } else { at.lenient() };
+            for (left, right) in left.iter().zip(right) {
+                collect_predicate_operands(definition, left, right, at, known_predicates, into);
+            }
+        }
+        (Predicate::Not(left), Predicate::Not(right)) => {
+            collect_predicate_operands(
+                definition,
+                left,
+                right,
+                at.lenient(),
+                known_predicates,
+                into,
+            );
+        }
+        (Predicate::Implies(left_a, left_b), Predicate::Implies(right_a, right_b))
+        | (Predicate::Iff(left_a, left_b), Predicate::Iff(right_a, right_b)) => {
+            for (left, right) in [(left_a, right_a), (left_b, right_b)] {
+                collect_predicate_operands(
+                    definition,
+                    left,
+                    right,
+                    at.lenient(),
+                    known_predicates,
+                    into,
+                );
+            }
+        }
+        (Predicate::Exists(_, left), Predicate::Exists(_, right))
+        | (Predicate::Forall(_, left), Predicate::Forall(_, right)) => {
+            let at = Operand {
+                strict: false,
+                quantified: true,
+            };
+            collect_predicate_operands(definition, left, right, at, known_predicates, into);
+        }
+        _ => {}
     }
 }
 
@@ -4019,7 +4228,8 @@ fn top_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Vec<Predicate>, ()>> {
-    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
     let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
@@ -5811,6 +6021,35 @@ pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution)
     })
 }
 
+/// Whether `substitution` binds an element variable to a pattern that has `subject` as a
+/// subterm.
+///
+/// The instance of a ceil equation `\ceil(l) = q` under such a binding is
+/// `\ceil(t) = \ceil(t) /\ q[t]` at the subject `t`: the binding's obligation contains the
+/// subject's own definedness, so the instance says only that `\ceil(t)` implies `q[t]`. It
+/// gives `\ceil(t)` no condition (`\ceil(X) = \top` over an element `X` holds of every element
+/// and says nothing of whether `t` is one), and rewriting `\ceil(t)` by it would restate the
+/// subject. So such an instance is not used. A set variable ranges over every pattern, the
+/// undefined one included, so binding one to the subject carries no obligation and is used.
+pub(crate) fn binds_element_variable_to_its_subject(
+    substitution: &Substitution,
+    subject: &Term,
+) -> bool {
+    substitution.iter().any(|(variable, value)| {
+        if variable.kind != VariableKind::Element {
+            return false;
+        }
+        let mut pending = vec![value];
+        while let Some(term) = pending.pop() {
+            if term == subject {
+                return true;
+            }
+            pending.extend(crate::term::immediate_children(term.kind()));
+        }
+        false
+    })
+}
+
 fn apply_equation(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -5849,7 +6088,7 @@ fn apply_equation(
 
 /// The instances of an equation at a subject, one per matching of its left-hand side, or why
 /// there is none.
-enum EquationInstances {
+pub(crate) enum EquationInstances {
     /// The left-hand side does not match the subject: no instance of the equation is the subject.
     NotMatched(MatchFailed),
     /// Matching modulo the map and set axioms could not decide whether the left-hand side
@@ -5862,11 +6101,13 @@ enum EquationInstances {
 /// One matching of an equation's left-hand side against a subject, as the checks every use of
 /// the equation shares classify it. They decide whether the evaluator may use the instance, not
 /// whether the equation holds, so none of them refutes it.
-enum Instance {
+pub(crate) enum Instance {
     /// The evaluator may use the instance under this substitution.
     Usable(Substitution),
     /// The matching binds a variable outside the left-hand side, or a `concrete` or `symbolic`
-    /// attribute rejects its binding: the evaluator does not use the equation on this instance.
+    /// attribute rejects its binding, or the instance of a ceil equation binds an element
+    /// variable to a pattern containing its subject ([`binds_element_variable_to_its_subject`]):
+    /// the evaluator does not use the equation on this instance.
     Unused,
     /// The matching binds an element variable to a pattern with a set variable
     /// ([`binds_element_variable_to_set_pattern`]), which does not justify the instance.
@@ -5899,7 +6140,7 @@ impl Instance {
 /// itself, so a caller applies the equation when one instance does ([`scan_instances`]),
 /// whichever the matcher enumerates first. A match without a collection remainder has one
 /// instance.
-fn equation_instances<'r>(
+pub(crate) fn equation_instances<'r>(
     definition: &BackendDefinition,
     rule: &'r RewriteRule,
     term: &Term,
@@ -5941,6 +6182,8 @@ fn equation_instances<'r>(
                 .keys()
                 .any(|variable| !rule.lhs.attributes().variables.contains(variable))
                 || check_concreteness(&rule, &substitution).is_some()
+                || matches!(rule.rhs, RuleRhs::Predicates(_))
+                    && binds_element_variable_to_its_subject(&substitution, term)
             {
                 Instance::Unused
             } else if binds_element_variable_to_set_pattern(&substitution) {
@@ -5966,7 +6209,8 @@ fn apply_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term);
+    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`

@@ -4,8 +4,8 @@
 //! `crates/k-rust-backend/tests/backend/definedness_classes.rs`).
 //!
 //! Each test states one invariant that follows from what the construct means and checks krust
-//! against itself. They are ignored until the ticket that fixes their class lands, and each
-//! fails on `934d29e7`.
+//! against itself. Each failed on `934d29e7`; none is ignored now that the tickets fixing their
+//! classes have landed.
 
 use std::{
     fs,
@@ -52,13 +52,14 @@ fn kcompile_accepts(source: &str) -> (bool, String) {
     )
 }
 
-/// A function application on a left-hand side stands for the value it computes once the
-/// variables in it are bound, and that reading does not depend on where it stands: a map key, a
-/// map value, a set element, a list-update index and a list-update value are all compared by
-/// value. So the frontend's verdict on a function application at an argument of a collection
-/// hook is the same at every argument, whichever verdict the owner chooses.
+/// An equation matches its argument patterns as written, so a function application below its
+/// root would match only a subject that spells the same application, never the value it
+/// computes; once the instance carries the definedness of what its pattern consumes, such an
+/// equation gives a value nowhere. That holds alike at every argument of a collection
+/// constructor (a map key, a map value, a set element) and for a list update, which is a
+/// function of a list rather than a way to write one: the frontend rejects every one of them,
+/// with one verdict.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Unjustified positions for a function symbol on a collection hook's left side"]
 fn a_function_application_is_admitted_alike_at_every_collection_hook_argument() {
     let rules = [
         ("map key", "rule fk(X, (pf(X) |-> V:Int) _M) => V"),
@@ -99,11 +100,89 @@ endmodule
         })
         .collect::<Vec<_>>();
     assert!(
-        verdicts
-            .iter()
-            .all(|(_, accepted)| *accepted == verdicts[0].1),
-        "the verdict depends on the position: {verdicts:?}"
+        verdicts.iter().all(|(_, accepted)| !*accepted),
+        "an equation admits a computed position: {verdicts:?}"
     );
+}
+
+/// A rewrite rule reads a function application inside a key, value or element of a collection
+/// by the value it computes once the variables in it are bound, alike at every argument of a
+/// collection constructor: with `f(X) = X + 1`, each rule below applies to the configuration
+/// whose collection holds the computed value, and to no other.
+#[test]
+fn a_rewrite_rule_reads_a_computed_collection_position_by_value() {
+    let root = scratch();
+    let definition = root.join("definition.k");
+    fs::write(
+        &definition,
+        r"
+module MAIN
+  imports INT
+  imports MAP
+  imports SET
+  imports LIST
+  syntax Int ::= f(Int) [function]
+  rule f(X) => X +Int 1
+  syntax KItem ::= getk(Int) | getv(Int) | gets(Int) | getl(Int) | done(Int) [symbol(done)]
+  configuration <k> $PGM:KItem </k> <m> 1 |-> 10 2 |-> 20 </m> <s> SetItem(2) SetItem(5) </s>
+                <l> ListItem(2) </l>
+  rule <k> getk(X) => done(V) ...</k> <m> ... f(X) |-> V ... </m>
+  rule <k> getv(X) => done(K) ...</k> <m> ... K |-> f(X) ... </m>
+  rule <k> gets(X) => done(X) ...</k> <s> ... SetItem(f(X)) ... </s>
+  rule <k> getl(X) => done(X) ...</k> <l> ListItem(f(X)) </l>
+endmodule
+",
+    )
+    .unwrap();
+    let out = root.join("out");
+    let compiled = krust(&[
+        "kcompile",
+        "-m",
+        "MAIN",
+        "-o",
+        out.to_str().unwrap(),
+        definition.to_str().unwrap(),
+    ]);
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let mut failures = Vec::new();
+    for (program, expected) in [
+        ("getk(1)", Some(20)),
+        ("getv(19)", Some(2)),
+        ("gets(1)", Some(1)),
+        ("getl(1)", Some(1)),
+        ("getk(5)", None),
+        ("getv(29)", None),
+        ("gets(0)", None),
+        ("getl(0)", None),
+    ] {
+        let output = krust(&[
+            "krun",
+            "--definition",
+            out.to_str().unwrap(),
+            "--sort",
+            "KItem",
+            "--io",
+            "off",
+            "-e",
+            program,
+        ]);
+        let stdout = String::from_utf8_lossy(&output.stdout).replace([' ', '\n'], "");
+        let applied = match expected {
+            Some(value) => {
+                stdout.contains(&format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{value}"))"#))
+            }
+            None => !stdout.contains("Lbldone"),
+        };
+        if !output.status.success() || !applied {
+            failures.push((program, expected, stdout));
+        }
+    }
+    fs::remove_dir_all(&root).unwrap();
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// `f` is total, and its only equation has a variable its left-hand side does not bind, so an
@@ -197,7 +276,6 @@ module MAIN
 /// that mentions `c`). The control binds the whole map to a variable, `g(M) => rest(M)`, and
 /// keeps it.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns) (a rewrite step drops the distinctness of a collection its pattern consumes, definedness-stepback.md)"]
 fn a_rewrite_step_keeps_the_distinctness_of_a_collection_it_splits() {
     let root = scratch();
     let definition = root.join("definition.k");

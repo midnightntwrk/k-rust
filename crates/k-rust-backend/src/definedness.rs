@@ -41,10 +41,12 @@ use crate::{
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::{
-        Absence, KeyedCollection, Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart,
-        term_index,
+        Absence, KeyedCollection, Predicate, RewriteRule, RuleRhs, applicable_groups, term_index,
     },
-    simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
+    simplify::{
+        EquationInstances, Instance, SimplificationOptions, equation_instances,
+        simplify_predicates_with_solver, term_is_provably_defined,
+    },
     smt::{NoSolver, SmtSolver},
     stop::Stoppable,
     term::{
@@ -564,37 +566,59 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
     })
 }
 
+/// The condition of the first usable instance of an unconditional ceil equation at `term`, in
+/// the order the simplifier tries them (`applicable_groups`), simplified; `None` when there is
+/// none.
+///
+/// The instances are those the simplifier's ceil equations enumerate
+/// ([`equation_instances`]): every matching of the left-hand side, map and set decompositions
+/// included, classified by the checks every use of an equation shares. An instance the
+/// evaluator does not use is not used here either, since this analysis is the evaluator's
+/// definedness and the simplifier keeps `\ceil(term)` on that instance: one a `concrete` or
+/// `symbolic` attribute rejects, and one that binds an element variable to a pattern containing
+/// `term` (`simplify::binds_element_variable_to_its_subject`), whose obligation is the
+/// condition sought. One that binds an element variable to a pattern with a set variable does
+/// not justify the instance at all.
+///
+/// Each usable instance of an unconditional ceil equation `\ceil(l) = q` is an equality of its
+/// own, `\ceil(lσ) = \ceil(t1) /\ ... /\ q σ` over the obligations of its bindings and of what
+/// its pattern consumes (`condition::EquationInstance`), so any of them gives the condition,
+/// and one that is not usable or not decided only gives no condition: it is passed over, not a
+/// reason to keep the opaque `\ceil`. The obligations need not be restated: `ceil_term_node`
+/// states the definedness of every argument of `term`, and in a usable instance each binding
+/// and consumed position is an argument, a part of one, or a part of a collection argument (a
+/// map rest is a sub-map of a map whose keys are distinct), all of which that definedness
+/// implies.
+///
+/// This analysis has no path condition with which to discharge a conditional ceil equation,
+/// so it uses only unconditional ones; runtime predicate simplification handles the others. An
+/// equation whose result has a variable its left-hand side does not bind has no instance to use
+/// (`simplify::evaluate_equation_condition`).
 fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
-    let indexes = [term_index(term), TermIndex::Variable];
-    for index in indexes {
-        let Some(groups) = definition.ceil_theory().get(&index) else {
-            continue;
-        };
-        for rules in groups.values() {
-            for rule in rules {
-                // This analysis has no path condition with which to discharge a conditional
-                // ceil equation. Applying it here would incorrectly treat the equation as
-                // unconditional; runtime predicate simplification handles conditional rules.
-                // An equation whose result has a variable its left-hand side does not bind has
-                // no instance to use (`simplify::evaluate_equation_condition`).
-                if !rule.requires.is_empty()
-                    || !rule.computed_attributes.unbound_result_variables.is_empty()
-                {
-                    continue;
-                }
-                let renamed = rename_apart(rule, &term.attributes().variables, &[]);
-                let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
-                let MatchResult::Success(substitution) =
-                    match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
-                else {
-                    continue;
-                };
-                let RuleRhs::Predicates(predicates) = &rule.rhs else {
+    let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
+    for rules in groups.values() {
+        for rule in rules {
+            if !rule.requires.is_empty()
+                || !rule.computed_attributes.unbound_result_variables.is_empty()
+                || !matches!(rule.rhs, RuleRhs::Predicates(_))
+            {
+                continue;
+            }
+            let (rule, EquationInstances::Matched(instances)) =
+                equation_instances(definition, rule, term, &[])
+            else {
+                continue;
+            };
+            let RuleRhs::Predicates(predicates) = &rule.rhs else {
+                unreachable!("renaming keeps the kind of the right-hand side");
+            };
+            for instance in instances {
+                let Instance::Usable(substitution) = instance else {
                     continue;
                 };
                 #[expect(
                     clippy::disallowed_methods,
-                    reason = "the right-hand side of an unconditional ceil equation; ceil_term_node collects the definedness of the arguments, which contain every bound term"
+                    reason = "the right-hand side of an unconditional ceil equation's usable instance; ceil_term_node states the definedness of the arguments, which implies that of every binding the instance's checks let through"
                 )]
                 let predicates = simplified_ceil_condition(
                     definition,
@@ -1241,6 +1265,113 @@ mod tests {
                 .iter()
                 .any(|predicate| matches!(predicate, Predicate::Ceil(_))),
             "{bound:?}"
+        );
+    }
+
+    /// `ceil_term` of `subject` under the definition with one unconditional ceil equation
+    /// `\ceil(lhs) = result`, carrying the extra KORE `attributes`.
+    fn ceil_under_equation(
+        lhs: &str,
+        result: &str,
+        attributes: &str,
+        subject: &str,
+    ) -> Vec<Predicate> {
+        let definition = definition(&format!(
+            r#"axiom{{R, Q}} \implies{{R}}(\top{{R}}(),
+                \equals{{Q, R}}(\ceil{{SortS{{}}, Q}}({lhs}),
+                    \and{{Q}}({result}, \top{{Q}}())))
+                [simplification{{}}(), label{{}}("ceil-equation"){attributes}]"#
+        ));
+        let subject = definition
+            .internalize_term(&parse_pattern(subject).unwrap(), &[])
+            .unwrap();
+        ceil_term(&definition, &subject)
+    }
+
+    fn internalized(source: &str) -> Term {
+        definition("")
+            .internalize_term(&parse_pattern(source).unwrap(), &[])
+            .unwrap()
+    }
+
+    /// A `concrete` attribute limits the instances the evaluator uses the equation on to those
+    /// that bind its variables to concrete terms. The static analysis is the evaluator's
+    /// definedness, so it uses the same instances: `partial(Y)` keeps its opaque obligation,
+    /// as the simplifier keeps `\ceil(partial(Y))`, and `partial("v")` takes the equation.
+    #[test]
+    fn the_static_analysis_uses_only_the_instances_a_concreteness_attribute_admits() {
+        let equation = |subject| {
+            ceil_under_equation(
+                "partial{}(X:SortS{})",
+                r#"\equals{SortS{}, Q}(X:SortS{}, \dv{SortS{}}("v"))"#,
+                ", concrete{}()",
+                subject,
+            )
+        };
+        let symbolic = "partial{}(Y:SortS{})";
+        assert_eq!(
+            equation(symbolic),
+            vec![Predicate::Ceil(internalized(symbolic))]
+        );
+        let concrete = equation(r#"partial{}(\dv{SortS{}}("v"))"#);
+        assert!(
+            !concrete
+                .iter()
+                .any(|predicate| matches!(predicate, Predicate::Ceil(_))),
+            "{concrete:?}"
+        );
+    }
+
+    /// An equation over an element variable `X` states its result for every element; at a set
+    /// pattern `@S` it would give the union of `\equals(s, "v")` over the elements `s` of `@S`,
+    /// which `\equals(@S, "v")` is not. The instance binding `X` to `@S` is not used, and the
+    /// application keeps its opaque obligation beside `\ceil(@S)`.
+    #[test]
+    fn the_static_analysis_does_not_bind_an_element_variable_to_a_set_pattern() {
+        let subject = "partial{}(@S:SortS{})";
+        let found = ceil_under_equation(
+            "partial{}(X:SortS{})",
+            r#"\equals{SortS{}, Q}(X:SortS{}, \dv{SortS{}}("v"))"#,
+            "",
+            subject,
+        );
+        assert_eq!(
+            found,
+            vec![
+                Predicate::Ceil(internalized(subject)),
+                Predicate::Ceil(internalized("@S:SortS{}")),
+            ]
+        );
+    }
+
+    /// `\ceil(X) = \top` over an element variable holds, since every element is defined, but
+    /// its instance at `partial("v")` is `\ceil(partial("v")) = \ceil(partial("v")) /\ \top`:
+    /// the definedness of the binding is the very obligation sought. Neither the static analysis
+    /// nor the simplifier uses that instance: both keep the opaque `\ceil(partial("v"))`,
+    /// instead of reading the instance as "defined" or rewriting the subject to itself.
+    #[test]
+    fn an_instance_whose_binding_is_the_subject_gives_its_ceil_no_condition() {
+        let subject = r#"partial{}(\dv{SortS{}}("v"))"#;
+        let opaque = vec![Predicate::Ceil(internalized(subject))];
+        assert_eq!(
+            ceil_under_equation("X:SortS{}", r"\top{Q}()", "", subject),
+            opaque
+        );
+        let definition = definition(
+            r#"axiom{R, Q} \implies{R}(\top{R}(),
+                \equals{Q, R}(\ceil{SortS{}, Q}(X:SortS{}), \and{Q}(\top{Q}(), \top{Q}())))
+                [simplification{}(), label{}("ceil-equation")]"#,
+        );
+        let simplified = simplify_predicates_with_solver(
+            &definition,
+            &opaque,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        );
+        assert!(
+            matches!(&simplified, Ok(Ok(predicates)) if predicates == &opaque),
+            "{simplified:?}"
         );
     }
 

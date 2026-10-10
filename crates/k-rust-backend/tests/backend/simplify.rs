@@ -4189,50 +4189,67 @@ fn applies_the_canonically_first_same_priority_predicate_equation() {
     )
     .expect("the first applicable predicate equation should win");
 
-    assert_eq!(result, Predicate::True);
+    // The first equation applies. Its pattern consumes the operand `f("value")` of the partial
+    // `f`, and a lemma says nothing where an operand it consumes is undefined, so the result is
+    // `\top` under that operand's definedness (the subject `\equals(\bottom, "value")` is
+    // `\bottom` there too); the second equation would give `\bottom` outright.
+    assert_eq!(
+        result,
+        Predicate::Ceil(term(&definition, r#"f{}(\dv{SortS{}}("value"))"#))
+    );
 }
 
-/// `f`, `g`, and `partial` are partial functions. `\equals(f(X), "c")` rewrites to `\top`
-/// (strict in `X`), `\equals(f(X), g(X))` and `\not(\equals(g(X), "c"))` rewrite to `\top`
-/// (not strict), and `\equals(f(X), "d")` rewrites to `\top` when `X = "expected"`.
-fn predicate_strictness_definition() -> BackendDefinition {
-    definition(
+/// `partial` is a partial function, and `sf` and `sg` are functions with the attributes
+/// `operands` (`total{}()` or none). `\equals(sf(X), "c")` rewrites to `\top` (strict in `X`),
+/// `\equals(sf(X), sg(X))` and `\not(\equals(sg(X), "c"))` rewrite to `\top` (not strict), and
+/// `\equals(sf(X), "d")` rewrites to `\top` when `X = "expected"`; `sh` is a partial function
+/// and `\equals(sf(X), sh(Y))` rewrites to `\top`.
+fn predicate_strictness_definition(operands: &str) -> BackendDefinition {
+    definition(&format!(
         r#"
-            symbol g{}(SortS{}) : SortS{} [function{}()]
-            symbol partial{}(SortS{}) : SortS{} [function{}()]
-            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
-                \equals{SortS{}, Q}(f{}(X:SortS{}), \dv{SortS{}}("c")),
-                \and{Q}(\top{Q}(), \top{Q}())
-            )) [label{}("strict-equals"), simplification{}()]
-            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
-                \equals{SortS{}, Q}(f{}(X:SortS{}), g{}(X:SortS{})),
-                \and{Q}(\top{Q}(), \top{Q}())
-            )) [label{}("both-sides"), simplification{}()]
-            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
-                \not{Q}(\equals{SortS{}, Q}(g{}(X:SortS{}), \dv{SortS{}}("c"))),
-                \and{Q}(\top{Q}(), \top{Q}())
-            )) [label{}("negated"), simplification{}()]
-            axiom{R, Q} \implies{R}(
-                \and{R}(
-                    \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
-                    \top{R}()
+            symbol sf{{}}(SortS{{}}) : SortS{{}} [function{{}}(){operands}]
+            symbol sg{{}}(SortS{{}}) : SortS{{}} [function{{}}(){operands}]
+            symbol partial{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(
+                \equals{{SortS{{}}, Q}}(sf{{}}(X:SortS{{}}), \dv{{SortS{{}}}}("c")),
+                \and{{Q}}(\top{{Q}}(), \top{{Q}}())
+            )) [label{{}}("strict-equals"), simplification{{}}()]
+            axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(
+                \equals{{SortS{{}}, Q}}(sf{{}}(X:SortS{{}}), sg{{}}(X:SortS{{}})),
+                \and{{Q}}(\top{{Q}}(), \top{{Q}}())
+            )) [label{{}}("both-sides"), simplification{{}}()]
+            axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(
+                \not{{Q}}(\equals{{SortS{{}}, Q}}(sg{{}}(X:SortS{{}}), \dv{{SortS{{}}}}("c"))),
+                \and{{Q}}(\top{{Q}}(), \top{{Q}}())
+            )) [label{{}}("negated"), simplification{{}}()]
+            axiom{{R, Q}} \implies{{R}}(
+                \and{{R}}(
+                    \equals{{SortS{{}}, R}}(X:SortS{{}}, \dv{{SortS{{}}}}("expected")),
+                    \top{{R}}()
                 ),
-                \equals{Q, R}(
-                    \equals{SortS{}, Q}(f{}(X:SortS{}), \dv{SortS{}}("d")),
-                    \and{Q}(\top{Q}(), \top{Q}())
+                \equals{{Q, R}}(
+                    \equals{{SortS{{}}, Q}}(sf{{}}(X:SortS{{}}), \dv{{SortS{{}}}}("d")),
+                    \and{{Q}}(\top{{Q}}(), \top{{Q}}())
                 )
-            ) [label{}("guarded-equals"), simplification{}()]
+            ) [label{{}}("guarded-equals"), simplification{{}}()]
+            symbol sh{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
+            axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(
+                \equals{{SortS{{}}, Q}}(sf{{}}(X:SortS{{}}), sh{{}}(Y:SortS{{}})),
+                \and{{Q}}(\top{{Q}}(), \top{{Q}}())
+            )) [label{{}}("two-arguments"), simplification{{}}()]
             "#,
-    )
+    ))
 }
 
+/// The open obligation here is the bound variable's alone: `sf` and `sg` are total, so the
+/// operands `sf(t)` and `sg(t)` the lemmas consume are defined wherever `t` is.
 #[test]
 fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict() {
-    let definition = predicate_strictness_definition();
+    let definition = predicate_strictness_definition(", total{}()");
     let argument = term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#);
     let obligation = Predicate::Ceil(argument.clone());
-    let f_partial = term(&definition, r#"f{}(partial{}(\dv{SortS{}}("v")))"#);
-    let g_partial = term(&definition, r#"g{}(partial{}(\dv{SortS{}}("v")))"#);
+    let f_partial = term(&definition, r#"sf{}(partial{}(\dv{SortS{}}("v")))"#);
+    let g_partial = term(&definition, r#"sg{}(partial{}(\dv{SortS{}}("v")))"#);
     let c = term(&definition, r#"\dv{SortS{}}("c")"#);
     let strict = Predicate::Equals(f_partial.clone(), c.clone());
     let both_sides = Predicate::Equals(f_partial.clone(), g_partial.clone());
@@ -4250,12 +4267,12 @@ fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict()
         })
     };
 
-    // `\equals(f(t), "c")` is strict in `t`: `\equals(\bottom, "c")` is `\bottom`, so the
+    // `\equals(sf(t), "c")` is strict in `t`: `\equals(\bottom, "c")` is `\bottom`, so the
     // equation applies and the open obligation is conjoined.
     let (result, diagnostics) = simplify_with(&strict, &NoSolver);
     assert_eq!(result, obligation);
     assert!(diagnostics.is_empty());
-    // With `t` empty, `\equals(f(t), g(t))` and `\not(\equals(g(t), "c"))` are `\top`, where
+    // With `t` empty, `\equals(sf(t), sg(t))` and `\not(\equals(sg(t), "c"))` are `\top`, where
     // the conjoined form would be `\bottom`: the attempts stay indeterminate.
     assert_eq!(simplify_with(&both_sides, &NoSolver).0, both_sides);
     assert_eq!(simplify_with(&negated, &NoSolver).0, negated);
@@ -4293,6 +4310,98 @@ fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict()
     // Negative control: an undecided `requires` still refuses on the strict shape.
     let guarded = Predicate::Equals(f_partial, term(&definition, r#"\dv{SortS{}}("d")"#));
     assert_eq!(simplify_with(&guarded, &NoSolver).0, guarded);
+}
+
+/// A predicate lemma consumes the term operands its pattern does not bind to a variable, and
+/// says nothing where one of them is undefined (`sf` and `sg` are partial here). On the strict
+/// `\equals(sf(t), "c")` the result is `\top` under the definedness of `sf(t)` as well as of
+/// `t`; on the shapes that are not strict in `sf(t)` or `sg(t)` an open obligation of either
+/// leaves the attempt indeterminate even where `t` is known defined, and the lemma applies once
+/// the path condition states the operands' definedness.
+#[test]
+fn a_predicate_lemma_carries_the_definedness_of_the_operands_it_consumes() {
+    let definition = predicate_strictness_definition("");
+    let argument = term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#);
+    let f_partial = term(&definition, r#"sf{}(partial{}(\dv{SortS{}}("v")))"#);
+    let g_partial = term(&definition, r#"sg{}(partial{}(\dv{SortS{}}("v")))"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let strict = Predicate::Equals(f_partial.clone(), c.clone());
+    let both_sides = Predicate::Equals(f_partial.clone(), g_partial.clone());
+    let negated = Predicate::Not(Box::new(Predicate::Equals(g_partial.clone(), c)));
+    let simplify_under = |predicate: &Predicate, known: &[Predicate], solver: &dyn SmtSolver| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            known,
+            SimplificationOptions::default(),
+            solver,
+        )
+        .expect("the predicate should simplify")
+    };
+
+    let argument_defined = Predicate::Ceil(argument);
+    let f_defined = Predicate::Ceil(f_partial);
+    let g_defined = Predicate::Ceil(g_partial);
+    let result = simplify_under(&strict, &[], &NoSolver);
+    assert!(
+        matches!(&result, Predicate::And(conjuncts)
+            if conjuncts.len() == 2
+                && conjuncts.contains(&argument_defined)
+                && conjuncts.contains(&f_defined)),
+        "{result:?}"
+    );
+    assert_eq!(
+        simplify_under(&strict, &[], &FixedValiditySolver(Validity::Refuted)),
+        Predicate::False
+    );
+
+    let known = [argument_defined.clone()];
+    assert_eq!(simplify_under(&both_sides, &known, &NoSolver), both_sides);
+    assert_eq!(simplify_under(&negated, &known, &NoSolver), negated);
+    assert_eq!(
+        simplify_under(&both_sides, &known, &FixedValiditySolver(Validity::Refuted)),
+        both_sides
+    );
+
+    let known = [argument_defined, f_defined, g_defined];
+    assert_eq!(simplify_under(&strict, &known, &NoSolver), Predicate::True);
+    assert_eq!(
+        simplify_under(&both_sides, &known, &NoSolver),
+        Predicate::True
+    );
+    assert_eq!(simplify_under(&negated, &known, &NoSolver), Predicate::True);
+}
+
+/// `\equals(sf(t), sh(w))` with `sh(w)` known defined is strict in `t`, while it is not strict
+/// in its operand `sh(w)`, since `sf(t)` may be undefined. The path states that operand's
+/// obligation, so it holds wherever the instance is used and does not keep the open obligation
+/// of `t`'s binding from applying the lemma under it.
+#[test]
+fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined() {
+    let definition = predicate_strictness_definition("");
+    let argument_defined = Predicate::Ceil(term(&definition, r#"partial{}(\dv{SortS{}}("v"))"#));
+    let h_defined = Predicate::Ceil(term(&definition, r#"sh{}(\dv{SortS{}}("w"))"#));
+    let subject = Predicate::Equals(
+        term(&definition, r#"sf{}(partial{}(\dv{SortS{}}("v")))"#),
+        term(&definition, r#"sh{}(\dv{SortS{}}("w"))"#),
+    );
+
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &subject,
+        std::slice::from_ref(&h_defined),
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+
+    assert_ne!(result, subject);
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.clone(),
+        other => vec![other.clone()],
+    };
+    assert!(conjuncts.contains(&argument_defined), "{result:?}");
+    assert!(!conjuncts.contains(&h_defined), "{result:?}");
 }
 
 #[test]

@@ -2,13 +2,13 @@
 //! id = "backend.confluence.critical_pairs"
 //! name = "load-time critical-pair check by order-sorted unification and an innermost join"
 //! sites = ["check", "Context::classify", "Context::conditions"]
-//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
+//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation or at an argument whose second equation is rooted at an equation head or overloaded symbol); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
 //! counters = ["ConfluencePairs", "ConfluenceUnifierBranches", "ConfluenceJoinSteps", "ConfluenceSimplifierCalls"]
 //! span = "per call"
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -47,7 +47,10 @@
 //!    overload axioms of confluent families (`unify.rs`). Under the load's scope
 //!    ([`CheckScope::Gate`]) only the pairs with a *relevant* equation, one whose closure alone
 //!    reaches a symbol some gate site can be asked about, are classified: the others change no
-//!    claim, whether they join or not;
+//!    claim, whether they join or not. An inner pair at an argument of `e1` whose `e2` is rooted
+//!    at an equation head or an overloaded symbol is classified under every scope: not joined,
+//!    it states that `e1` is not shown consistent with `e2`, a finding the load reports whatever
+//!    claims it withdraws ([`UnjoinedPair::in_argument`]);
 //! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
 //!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
 //!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
@@ -414,7 +417,7 @@ impl ValueClaims {
             checked
                 .unjoined
                 .iter()
-                .filter(|pair| pair.relevant())
+                .filter(|pair| pair.reported())
                 .map(|pair| {
                     (
                         format!("{:?}", pair.first),
@@ -618,6 +621,9 @@ pub struct UnjoinedPair {
     /// The symbols some gate site is asked about (equation heads and overloaded symbols) that the
     /// taint closure of this pair alone withdraws, sorted: empty when the pair changes no claim.
     pub withdrawn: Vec<Name>,
+    /// Whether `position` is in an argument of `first`'s left-hand side and `second` is rooted at
+    /// an equation head or an overloaded symbol ([`Self::in_argument`]).
+    pub rewrites_argument: bool,
 }
 
 impl UnjoinedPair {
@@ -625,6 +631,29 @@ impl UnjoinedPair {
     #[must_use]
     pub fn relevant(&self) -> bool {
         !self.withdrawn.is_empty()
+    }
+
+    /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
+    /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
+    /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
+    /// hold whether or not the definition makes claims.
+    #[must_use]
+    pub fn reported(&self) -> bool {
+        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
+    }
+
+    /// Whether the pair is an inner pair at an argument of `first`'s left-hand side whose
+    /// `second` is rooted at an equation head or an overloaded symbol: `second` rewrites some
+    /// instance of an argument pattern of `first`. Both equations are axioms, so at
+    /// such an instance the application `first` rewrites equals both `first`'s right-hand side
+    /// and the application with the rewritten argument. Not joined, the two are not shown equal,
+    /// so `first` is not shown consistent with `second` there: the condition that keeps an
+    /// equation with an anywhere head in an argument consistent (its argument pattern is normal
+    /// on every instance, or every such pair joins) is not shown to hold
+    /// (`docs/compatibility.md`, "Anywhere heads in equation arguments").
+    #[must_use]
+    pub fn in_argument(&self) -> bool {
+        self.rewrites_argument
     }
 
     /// The pair's terms, in order: the overlap, the two reducts, what the join reached from
@@ -712,11 +741,24 @@ pub enum UnjoinedReason {
     /// bind: the evaluator never applies it, yet it is an axiom.
     UnboundResultVariables,
     /// The equation's left-hand side holds an application of a declared function, a macro or an
-    /// uninterpreted symbol below its root: the evaluator never applies it to normal-form
-    /// arguments, yet it is an axiom.
+    /// uninterpreted symbol below its root: the evaluator applies it only where the subject
+    /// spells that application, never where the argument holds the value the application
+    /// computes, yet it is an axiom.
     ComputedBelowRoot(Name),
     /// A right-hand side the join does not read (a disjunction, `\top` or predicates).
     UnsupportedRightHandSide,
+}
+
+impl UnjoinedReason {
+    /// Whether the reason is about one equation alone, not a pair: an equation the evaluator does
+    /// not apply to every subject it describes, although the definition states it as an axiom.
+    #[must_use]
+    pub fn describes_one_equation(&self) -> bool {
+        matches!(
+            self,
+            Self::UnboundResultVariables | Self::ComputedBelowRoot(_)
+        )
+    }
 }
 
 impl std::fmt::Display for UnjoinedReason {
@@ -852,6 +894,20 @@ fn inner_positions(lhs: &Term) -> Vec<(Vec<usize>, Term)> {
         }
     }
     positions
+}
+
+/// Whether `path` (an [`inner_positions`] position) leads into an argument of `lhs`: it passes
+/// below some term that is not an `\and`. A path through `\and` conjuncts alone reaches a
+/// conjunct, which is the left-hand side's root, not one of its arguments.
+fn argument_position(lhs: &Term, path: &[usize]) -> bool {
+    let mut term = lhs.clone();
+    for index in path {
+        if !matches!(term.kind(), TermKind::And(..)) {
+            return true;
+        }
+        term = children(&term)[*index].clone();
+    }
+    false
 }
 
 /// The immediate subterms of `term`, in the order positions count them.
@@ -1673,6 +1729,7 @@ fn unjoined_report(candidate: &Candidate<'_>, reason: UnjoinedReason) -> Unjoine
         refused: None,
         reason,
         withdrawn: Vec::new(),
+        rewrites_argument: false,
     }
 }
 
@@ -1772,6 +1829,38 @@ fn check_detached(
             });
         }
     }
+    // Per-equation reports: equations the evaluator never applies as written. Each describes one
+    // axiom against the evaluator, whatever claims the definition makes, so the walk runs before
+    // the check decides whether any claim can be withdrawn; where claims exist, the reported
+    // equations are also seeded into the closure like pairs that do not join.
+    let mut unjoined = equations
+        .iter()
+        .filter_map(|equation| {
+            let reason = if equation
+                .rule
+                .computed_attributes
+                .unbound_result_variables
+                .is_empty()
+            {
+                computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)?
+            } else {
+                UnjoinedReason::UnboundResultVariables
+            };
+            Some(UnjoinedPair {
+                first: Arc::clone(&equation.rule),
+                second: Arc::clone(&equation.rule),
+                position: Vec::new(),
+                overlap: None,
+                sides: None,
+                reached: None,
+                refused: None,
+                reason,
+                withdrawn: Vec::new(),
+                rewrites_argument: false,
+            })
+        })
+        .collect::<Vec<_>>();
+
     let withdrawable = definition
         .symbols()
         .values()
@@ -1782,6 +1871,8 @@ fn check_detached(
         // equation head, hooked or not, and every overloaded symbol is a free constructor or
         // hooked. So no pair changes a claim, and the collection claims read only equations
         // indexed at a collection or a bare variable, which the rows above taint.
+        checked.counts.unjoined = unjoined.len();
+        checked.unjoined = unjoined;
         return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
     }
 
@@ -1798,7 +1889,6 @@ fn check_detached(
     };
     context.counts.equations = checked.counts.equations;
     context.counts.families = context.families.len();
-    let mut unjoined = Vec::new();
 
     // P5 rows of the overload families.
     let mut family_violations = vec![false; context.families.len()];
@@ -1853,33 +1943,6 @@ fn check_detached(
         }
     }
 
-    // Per-equation reports: equations the evaluator never applies as written.
-    for equation in &equations {
-        let reason = if !equation
-            .rule
-            .computed_attributes
-            .unbound_result_variables
-            .is_empty()
-        {
-            Some(UnjoinedReason::UnboundResultVariables)
-        } else {
-            computed_below_root(&equation.rule.lhs).map(UnjoinedReason::ComputedBelowRoot)
-        };
-        if let Some(reason) = reason {
-            unjoined.push(UnjoinedPair {
-                first: Arc::clone(&equation.rule),
-                second: Arc::clone(&equation.rule),
-                position: Vec::new(),
-                overlap: None,
-                sides: None,
-                reached: None,
-                refused: None,
-                reason,
-                withdrawn: Vec::new(),
-            });
-        }
-    }
-
     // Self pairs: an equation whose left-hand side matches one subject in several ways is a
     // root peak with itself (R2.2). It joins when its right-hand side and `ensures` read only
     // variables every matching gives the same value; otherwise it is not shown to join.
@@ -1926,6 +1989,7 @@ fn check_detached(
             refused: None,
             reason: UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches),
             withdrawn: Vec::new(),
+            rewrites_argument: false,
         });
     }
 
@@ -2020,7 +2084,17 @@ fn check_detached(
                 {
                     continue;
                 }
-                if !classified(&equation.rule, &second) {
+                // A pair at an argument whose second equation is rooted at a symbol a gate site
+                // is asked about (an equation head or an overloaded symbol) is reported whatever
+                // its relevance (`UnjoinedPair::in_argument`), so it is classified under every
+                // scope. Such an equation's closure reaches its own root, so the pair is relevant
+                // too; the disjunct states the class instead of relying on that.
+                let rewrites_argument = argument_position(&equation.rule.lhs, &position)
+                    && matches!(
+                        term_index(&second.lhs),
+                        TermIndex::Symbol(name) if gate_symbol(definition, &name)
+                    );
+                if !classified(&equation.rule, &second) && !rewrites_argument {
                     context.counts.skipped += 1;
                     continue;
                 }
@@ -2030,7 +2104,8 @@ fn check_detached(
                     position: position.clone(),
                     lifting: true,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                    pair.rewrites_argument = rewrites_argument;
                     unjoined.push(*pair);
                 }
             }
