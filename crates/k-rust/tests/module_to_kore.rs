@@ -3199,6 +3199,74 @@ fn hooks_on_functions_and_on_undeclared_or_unadmitted_productions_compile_and_lo
     );
 }
 
+/// A hooked symbol `f : S1 ... Sn -> S` denotes a value of `S` whatever computes it, so a
+/// collection hook declared where it gives no value of its result sort is rejected at the
+/// production, by the rule the backend applies when it loads a definition: a definition that
+/// compiles declares no symbol the backend refuses.
+fn assert_collection_hook_misfit_is_a_located_error(declaration: &str, hook: &str, reason: &str) {
+    let source = format!(
+        "module MAIN\n  imports MAP\n  imports LIST\n  imports INT\n  syntax Stmt\n  syntax Op\n  syntax Op ::= Map\n  {declaration}\nendmodule\n"
+    );
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, 8, "{message}");
+    assert!(
+        message.contains(&format!("is hooked to {hook}"))
+            && message.contains("denotes no value of its result sort")
+            && message.contains(reason),
+        "{message}"
+    );
+}
+
+case_tests! {
+    a_collection_hook_that_gives_no_value_of_its_result_sort_is_a_located_error =>
+        assert_collection_hook_misfit_is_a_located_error {
+        // The generative-compile reproducer: one argument more than a map binding has.
+        map_element_arity: (
+            "syntax Op ::= bar1(K, Stmt, Map) [function, klabel(s2), hook(MAP.element)]",
+            "MAP.element",
+            "MAP.element takes 2 arguments, the symbol 3",
+        ),
+        // A map built at a sort that is no map sort.
+        map_element_result: (
+            "syntax Op ::= bar1(KItem, KItem) [function, symbol(bar1), hook(MAP.element)]",
+            "MAP.element",
+            "MAP.element gives a map, but the result sort Op is no map sort",
+        ),
+        // An element-returning hook: a list's element is a `KItem`, which is no `Int`.
+        list_get_result: (
+            "syntax Int ::= List \"<\" Int \">\" [function, symbol(at), hook(LIST.get)]",
+            "LIST.get",
+            "an element of argument 1 of LIST.get, of sort KItem, is the result, but KItem is not Int or a subsort of it",
+        ),
+        // The default of a lookup is a possible result, and a `K` is no `KItem`.
+        map_lookup_default: (
+            "syntax KItem ::= Map \"<\" KItem \",\" K \">\" [function, symbol(at), hook(MAP.lookupOrDefault)]",
+            "MAP.lookupOrDefault",
+            "argument 3 of MAP.lookupOrDefault, of sort K, is a possible result, but K is not KItem or a subsort of it",
+        ),
+    }
+}
+
+/// A collection hook declared at sorts under which it gives a value of its result sort compiles
+/// and loads: an element of a strict subsort of the result is injected.
+#[test]
+fn collection_hooks_that_give_a_value_of_their_result_sort_compile_and_load() {
+    assert_compiles_and_loads(
+        indoc! {r#"
+            module MAIN
+              imports MAP
+              imports LIST
+              imports INT
+              syntax Op ::= Map
+              syntax KItem ::= List "<" Int ">" [function, symbol(at), hook(LIST.get)]
+              syntax Map ::= bind(Int, Int) [function, symbol(bind), hook(MAP.element)]
+              syntax KItem ::= Map "<" KItem "," Int ">" [function, symbol(lookup), hook(MAP.lookupOrDefault)]
+            endmodule
+        "#},
+        "MAIN",
+    );
+}
+
 /// B3 of the generated-input experiment: `owise` is itself a priority, so a rule carrying both
 /// `owise` and `priority` is rejected at the rule, whatever the priority's value.
 #[test]

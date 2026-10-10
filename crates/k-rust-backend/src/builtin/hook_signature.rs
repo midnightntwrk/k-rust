@@ -14,7 +14,9 @@
 //! general: `makeBad(Int, Int) : Vals [hook(LIST.make)]` on a list of `Val` would build a list
 //! of `Val` holding an `Int`, and `Int ::= Vals "[" Int "]" [hook(LIST.get)]` an `Int` that is a
 //! `Val`. Such a declaration has no model in which the hook computes the symbol, so the
-//! definition is rejected where the symbol is declared ([`misfit`]).
+//! definition is rejected where the symbol is declared ([`misfit`]). The rule is stated over the
+//! facts [`SortFacts`] names, so the frontend decides a declaration with it before it emits one,
+//! in the definition's own sorts, and the loader decides KORE from any producer the same way.
 //!
 //! An argument that is only read (an index, a key looked up or removed, a set whose elements are
 //! removed) is not moved into the result, so its sort decides nothing here.
@@ -32,14 +34,6 @@ enum Kind {
 }
 
 impl Kind {
-    const fn of(collection: &CollectionMetadata) -> Self {
-        match collection {
-            CollectionMetadata::List(_) => Self::List,
-            CollectionMetadata::Set(_) => Self::Set,
-            CollectionMetadata::Map(_) => Self::Map,
-        }
-    }
-
     const fn noun(self) -> &'static str {
         match self {
             Self::List => "list",
@@ -143,15 +137,80 @@ pub(crate) fn member_of_result(
     below.then(|| crate::term::Term::injection(from, result_sort.clone(), value))
 }
 
+/// What a collection holds, in the sorts of the definition at hand: a list's or set's element
+/// sort, a map's key and value sorts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CollectionShape<S> {
+    List(S),
+    Set(S),
+    Map { key: S, value: S },
+}
+
+impl<S> CollectionShape<S> {
+    const fn kind(&self) -> Kind {
+        match self {
+            Self::List(_) => Kind::List,
+            Self::Set(_) => Kind::Set,
+            Self::Map { .. } => Kind::Map,
+        }
+    }
+}
+
+/// The facts about a definition's sorts on which [`misfit`] decides: which sorts are collections
+/// and of what, and the subsort order. A definition supplies them in its own sorts, so the same
+/// rule decides a definition before it is emitted and the KORE that is loaded.
+pub trait SortFacts {
+    type Sort;
+    /// The collection `sort` is, if it is a collection sort.
+    fn collection(&self, sort: &Self::Sort) -> Option<CollectionShape<Self::Sort>>;
+    /// Whether `sub` is `sup` or a subsort of it.
+    fn below(&self, sub: &Self::Sort, sup: &Self::Sort) -> bool;
+    /// `sort` as the reason names it.
+    fn render(&self, sort: &Self::Sort) -> String;
+}
+
+/// The facts of a loaded definition: the collection of each collection sort and the closure of
+/// its subsort axioms.
+pub(crate) struct LoadedSorts<'a, C> {
+    pub(crate) collection: C,
+    pub(crate) sorts: &'a SortGraph,
+}
+
+impl<'c, C: Fn(&Sort) -> Option<&'c CollectionMetadata>> SortFacts for LoadedSorts<'_, C> {
+    type Sort = Sort;
+
+    fn collection(&self, sort: &Sort) -> Option<CollectionShape<Sort>> {
+        let named = |name: &Name| Sort::simple(name.clone());
+        (self.collection)(sort).map(|collection| match collection {
+            CollectionMetadata::List(definition) => {
+                CollectionShape::List(named(&definition.element_sort))
+            }
+            CollectionMetadata::Set(definition) => {
+                CollectionShape::Set(named(&definition.element_sort))
+            }
+            CollectionMetadata::Map(definition) => CollectionShape::Map {
+                key: named(&definition.key_sort),
+                value: named(&definition.value_sort),
+            },
+        })
+    }
+
+    fn below(&self, sub: &Sort, sup: &Sort) -> bool {
+        matches!(self.sorts.check_subsort(sub, sup), Ok(true))
+    }
+
+    fn render(&self, sort: &Sort) -> String {
+        render(sort)
+    }
+}
+
 /// Why a symbol `argument_sorts -> result_sort` hooked to `hook` denotes no value of
 /// `result_sort` in general, or `None` when it does or `hook` is no hook of [`signature`].
-/// `collection` gives a sort's collection, if it is a collection sort.
-pub(crate) fn misfit<'c>(
+pub fn misfit<F: SortFacts>(
     hook: &str,
-    argument_sorts: &[Sort],
-    result_sort: &Sort,
-    collection: impl Fn(&Sort) -> Option<&'c CollectionMetadata>,
-    sorts: &SortGraph,
+    argument_sorts: &[F::Sort],
+    result_sort: &F::Sort,
+    facts: &F,
 ) -> Option<String> {
     let (operands, gives) = signature(hook)?;
     if operands.len() != argument_sorts.len() {
@@ -161,9 +220,11 @@ pub(crate) fn misfit<'c>(
             argument_sorts.len()
         ));
     }
-    let below = |sub: &Sort, sup: &Sort| matches!(sorts.check_subsort(sub, sup), Ok(true));
-    let named = |name: &Name| Sort::simple(name.clone());
-    let of_kind = |sort: &Sort, kind: Kind| collection(sort).filter(|c| Kind::of(c) == kind);
+    let of_kind = |sort: &F::Sort, kind: Kind| {
+        facts
+            .collection(sort)
+            .filter(|collection| collection.kind() == kind)
+    };
     let result = match gives {
         Gives::Collection(kind) => match of_kind(result_sort, kind) {
             Some(result) => Some(result),
@@ -171,7 +232,7 @@ pub(crate) fn misfit<'c>(
                 return Some(format!(
                     "{hook} gives a {}, but the result sort {} is no {} sort",
                     kind.noun(),
-                    render(result_sort),
+                    facts.render(result_sort),
                     kind.noun()
                 ));
             }
@@ -180,25 +241,21 @@ pub(crate) fn misfit<'c>(
     };
     // The sorts of what the result holds: a list's or set's elements, a map's keys and values.
     let (element, key, value) = match result {
-        Some(CollectionMetadata::List(definition) | CollectionMetadata::Set(definition)) => {
-            (Some(named(&definition.element_sort)), None, None)
+        Some(CollectionShape::List(element) | CollectionShape::Set(element)) => {
+            (Some(element), None, None)
         }
-        Some(CollectionMetadata::Map(definition)) => (
-            None,
-            Some(named(&definition.key_sort)),
-            Some(named(&definition.value_sort)),
-        ),
+        Some(CollectionShape::Map { key, value }) => (None, Some(key), Some(value)),
         None => (None, None, None),
     };
     // `moved`, of sort `from` (described by `what`), is held in the result at `into`.
-    let fits = |what: String, from: &Sort, into: Option<&Sort>, role: &str| {
+    let fits = |what: String, from: &F::Sort, into: Option<&F::Sort>, role: &str| {
         let into = into.unwrap_or(result_sort);
-        (!below(from, into)).then(|| {
+        (!facts.below(from, into)).then(|| {
             format!(
                 "{what}, of sort {}, is {role}, but {} is not {} or a subsort of it",
-                render(from),
-                render(from),
-                render(into)
+                facts.render(from),
+                facts.render(from),
+                facts.render(into)
             )
         })
     };
@@ -221,13 +278,14 @@ pub(crate) fn misfit<'c>(
                     return Some(format!(
                         "{}, of sort {}, is no {} sort",
                         argument(),
-                        render(sort),
+                        facts.render(sort),
                         kind.noun()
                     ));
                 };
                 let source_is_result = matches!(operand, Operand::Source(_));
                 match source {
-                    CollectionMetadata::List(definition) | CollectionMetadata::Set(definition) => {
+                    CollectionShape::List(source_element)
+                    | CollectionShape::Set(source_element) => {
                         let role = if source_is_result {
                             "the result"
                         } else {
@@ -240,27 +298,33 @@ pub(crate) fn misfit<'c>(
                         };
                         fits(
                             format!("an element of {}", argument()),
-                            &named(&definition.element_sort),
+                            &source_element,
                             into,
                             role,
                         )
                     }
-                    CollectionMetadata::Map(definition) if source_is_result => fits(
+                    CollectionShape::Map {
+                        value: source_value,
+                        ..
+                    } if source_is_result => fits(
                         format!("a value of {}", argument()),
-                        &named(&definition.value_sort),
+                        &source_value,
                         None,
                         "the result",
                     ),
-                    CollectionMetadata::Map(definition) => fits(
+                    CollectionShape::Map {
+                        key: source_key,
+                        value: source_value,
+                    } => fits(
                         format!("a key of {}", argument()),
-                        &named(&definition.key_sort),
+                        &source_key,
                         key.as_ref(),
                         "a key of the result",
                     )
                     .or_else(|| {
                         fits(
                             format!("a value of {}", argument()),
-                            &named(&definition.value_sort),
+                            &source_value,
                             value.as_ref(),
                             "a value of the result",
                         )
@@ -268,21 +332,25 @@ pub(crate) fn misfit<'c>(
                 }
             }
             Operand::Keys | Operand::Values => {
-                let Some(CollectionMetadata::Map(source)) = of_kind(sort, Kind::Map) else {
+                let Some(CollectionShape::Map {
+                    key: source_key,
+                    value: source_value,
+                }) = of_kind(sort, Kind::Map)
+                else {
                     return Some(format!(
                         "{}, of sort {}, is no map sort",
                         argument(),
-                        render(sort)
+                        facts.render(sort)
                     ));
                 };
                 let (what, from) = if matches!(operand, Operand::Keys) {
-                    ("a key", &source.key_sort)
+                    ("a key", &source_key)
                 } else {
-                    ("a value", &source.value_sort)
+                    ("a value", &source_value)
                 };
                 fits(
                     format!("{what} of {}", argument()),
-                    &named(from),
+                    from,
                     element.as_ref(),
                     "an element of the result",
                 )

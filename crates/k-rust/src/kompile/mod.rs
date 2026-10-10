@@ -8,6 +8,7 @@
 
 mod compile;
 mod fresh_names;
+mod hook_signatures;
 pub mod initial_configuration;
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 mod invariants;

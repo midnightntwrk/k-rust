@@ -245,6 +245,12 @@ message = "names the builtin implementation of a function, but this production i
 reason = "a builtin hook implements a function; on a constructor it would never evaluate, and the emitted symbol could not carry it"
 
 [[category]]
+id = "collection-hook-misfit"
+outcome = "compile_error"
+message = 'is hooked to [A-Z]+\.\w+, but its declaration denotes no value of its result sort'
+reason = "a hooked symbol denotes a value of its result sort whatever computes it, and on arguments of the declared sorts the collection hook gives none (a wrong argument count, a result sort that is no collection of the hook's kind, or an element, key, value or default whose sort does not fit), so the declaration denotes no value of its result sort"
+
+[[category]]
 id = "anywhere-needs-configuration"
 outcome = "compile_error"
 message = "An anywhere rule must rewrite a single term"
