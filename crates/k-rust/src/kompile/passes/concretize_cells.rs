@@ -1483,8 +1483,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 let parent = &self.model.cells[&parent];
                 // Instances of `parent` are built only here, once per completion, so every item
                 // of its sort in `retained` or `others` (an alias), or in the body of a written
-                // cell above `parent` among them, is written; so is one written on both sides of
-                // a rewrite of cells above `parent` there, a written instance on each side.
+                // cell above `parent` among them, is written; so is the instance that a rewrite
+                // of cells above `parent` there holds on both sides, when a side writes it.
                 let mut written = Vec::new();
                 for item in retained.iter().map(|(item, _)| item).chain(&others) {
                     self.written_instances(item, &parent.sort, &mut written);
@@ -2266,10 +2266,16 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// Push onto `out` the written instances of the cell sort `parent` that `item`, an item of
     /// a cell body, is or holds: `item` itself when it is of that sort, and otherwise, when
     /// `item` is a cell above `parent` written as a cell body (or a one-cell `#as` of one, which
-    /// denotes its pattern), the instances its body items are or hold. A rewrite of cells above
-    /// `parent` holds an instance on each side: it is one written instance, with the parts
-    /// found on its left side and on its right side, when both sides have one; an instance on
-    /// one side only is no instance the rule keeps.
+    /// denotes its pattern), the instances its body items are or hold.
+    ///
+    /// A rewrite of cells above `parent` replaces, for each cell sort on both of its sides, the
+    /// same cells, so an instance of `parent` that those cells hold is on both sides: each side
+    /// holds it written or unwritten ([`Self::held_instances`]). It is one written instance,
+    /// with what each side holds, when each side holds one and some side writes it. An instance
+    /// no side writes is not written at this level: it is in a written cell above `parent`,
+    /// which is a written item at its own level, where the instance built here meets it. One a
+    /// rewrite removes or adds, with no cell of its sort on the other side, is on one side only
+    /// and is no instance the rule keeps.
     fn written_instances<'t>(
         &self,
         item: &'t Term,
@@ -2279,32 +2285,43 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         if self.model.slot_sort(item).as_ref() == Some(parent) {
             out.push(WrittenInstance {
                 shown: item,
-                sides: [side_parts(item, Side::Left), side_parts(item, Side::Right)],
+                sides: [Side::Left, Side::Right].map(|side| {
+                    side_parts(item, side)
+                        .into_iter()
+                        .map(Held::Written)
+                        .collect()
+                }),
             });
             return;
         }
         let cell = match item.unannotated() {
             Term::As { pattern, .. } => pattern,
             Term::Rewrite { left, right } => {
-                let found = [left, right].map(|side| {
-                    let mut found = Vec::new();
-                    // Invariant: `found` holds the instances found on this side before `inner`; each call descends into a cell of that side, so the walk ends.
-                    for inner in flatten_cells(side) {
-                        self.written_instances(inner, parent, &mut found);
+                let cells = [flatten_cells(left), flatten_cells(right)];
+                let held = [Side::Left, Side::Right].map(|side| {
+                    let (this, other) = (&cells[side as usize], &cells[1 - side as usize]);
+                    let mut held = Vec::new();
+                    // Invariant: `held` holds what the cells of this side before `cell` hold;
+                    // each cell is walked once by `held_instances`, which descends one
+                    // configured level per call.
+                    for cell in this {
+                        let sort = self.model.slot_sort(cell);
+                        if sort.is_some()
+                            && other
+                                .iter()
+                                .any(|other| self.model.slot_sort(other) == sort)
+                        {
+                            self.held_instances(cell, parent, side, &mut held);
+                        }
                     }
-                    found
+                    held
                 });
-                if let [left, right] = &found
-                    && let Some(first) = left.first()
-                    && !right.is_empty()
+                if let Some(shown) = held.iter().flatten().find_map(|held| match held {
+                    Held::Written(term) => Some(*term),
+                    Held::Unwritten => None,
+                }) && held.iter().all(|side| !side.is_empty())
                 {
-                    out.push(WrittenInstance {
-                        shown: first.shown,
-                        sides: [
-                            left.iter().flat_map(|w| w.sides[0].clone()).collect(),
-                            right.iter().flat_map(|w| w.sides[1].clone()).collect(),
-                        ],
-                    });
+                    out.push(WrittenInstance { shown, sides: held });
                 }
                 return;
             }
@@ -2326,15 +2343,87 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         }
     }
 
+    /// Push onto `out` the instances of the cell sort `parent` that `item`, a term on `side` of a
+    /// rewrite, holds on that side:
+    /// - `item` itself, written, when it is of `parent`'s sort;
+    /// - when `item` is a cell (or a one-cell `#as` of one, which denotes its pattern) of a sort
+    ///   strictly above `parent` written as a cell body, what its items of the next sort on the
+    ///   configured path down to `parent` hold on that side; when it writes none, one instance it
+    ///   leaves unwritten, if its frame `...` is open or a term of unknown cell sort in it on that
+    ///   side stands for its unwritten children (a closed cell that writes none holds none);
+    /// - when `item` is another term of such a sort (a variable, a function result), one
+    ///   unwritten instance: the term stands for one whole cell, and so for what it holds.
+    ///
+    /// On the left an unwritten instance is in the frame, or in the term that stands for it; on
+    /// the right of a rewrite of a cell, the children the right side does not write are built
+    /// with their initial values. Either way the rule writes none of its children on that side.
+    fn held_instances<'t>(
+        &self,
+        item: &'t Term,
+        parent: &Sort,
+        side: Side,
+        out: &mut Vec<Held<'t>>,
+    ) {
+        if self.model.slot_sort(item).as_ref() == Some(parent) {
+            out.push(Held::Written(item));
+            return;
+        }
+        let cell = match item.unannotated() {
+            Term::As { pattern, .. } => pattern,
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => item,
+        };
+        let Some(sort) = self.model.sort_for_term(cell) else {
+            return;
+        };
+        let Some(next) = self.child_toward(&sort, parent) else {
+            return;
+        };
+        let Some((open_left, body, open_right)) = self.cell_body(cell) else {
+            out.push(Held::Unwritten);
+            return;
+        };
+        let parts = flatten_cells(body)
+            .into_iter()
+            .flat_map(|item| side_parts(item, side))
+            .collect::<Vec<_>>();
+        let path = parts
+            .iter()
+            .filter(|part| self.model.slot_sort(part).as_ref() == Some(&next))
+            .collect::<Vec<_>>();
+        if path.is_empty() {
+            if open_left
+                || open_right
+                || parts
+                    .iter()
+                    .any(|part| self.model.sort_for_term(part).is_none())
+            {
+                out.push(Held::Unwritten);
+            }
+            return;
+        }
+        // Invariant: `out` holds what the path items before `part` hold; each call descends one
+        // configured level, so the walk ends.
+        for part in path {
+            self.held_instances(part, parent, side, out);
+        }
+    }
+
     /// Whether `holder`, an item of `parent`'s sort written beside `group` (a class of
     /// [`Self::instance_classes`] of cells whose configured parent is `parent`), may be the
     /// instance of `parent` that holds `group`.
     ///
     /// The instance built for `group` is on both sides of the rule, so `holder` may be it only
-    /// when, on each side, a cell of `holder` there may hold what `group` writes on that side
-    /// ([`Self::side_may_hold`]). A `holder` that is on one side only (removed or added by a
-    /// rewrite) cannot be it: the cells of `group` are then in an instance the rule keeps, and a
-    /// built instance is the only reading.
+    /// when, on each side, what `holder` holds there may hold what `group` writes on that side:
+    /// a written term when [`Self::side_may_hold`] says so, and an unwritten instance always,
+    /// since the rule writes none of its children there. A `holder` that is on one side only
+    /// (removed or added by a rewrite) cannot be it: the cells of `group` are then in an
+    /// instance the rule keeps, and a built instance is the only reading.
     fn written_instance_may_hold(
         &self,
         parent: &Cell,
@@ -2348,7 +2437,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 .collect::<Vec<_>>();
             holder.sides[side as usize]
                 .iter()
-                .any(|instance| self.side_may_hold(parent, instance, side, &parts))
+                .any(|instance| match instance {
+                    Held::Written(instance) => self.side_may_hold(parent, instance, side, &parts),
+                    Held::Unwritten => true,
+                })
         })
     }
 
@@ -3579,10 +3671,20 @@ enum Side {
 }
 
 /// A written instance of a cell, as [`Concretizer::written_instances`] finds it: the item a
-/// message names, and the parts of it on the left and on the right side of the rule.
+/// message names, and what of it the left and the right side of the rule hold.
 struct WrittenInstance<'t> {
     shown: &'t Term,
-    sides: [Vec<&'t Term>; 2],
+    sides: [Vec<Held<'t>>; 2],
+}
+
+/// An instance of a cell that one side of the rule holds ([`Concretizer::held_instances`]).
+#[derive(Clone, Copy)]
+enum Held<'t> {
+    /// Written as this term on that side.
+    Written(&'t Term),
+    /// Held by a cell above it that writes none of it on that side: none of its children is
+    /// written there.
+    Unwritten,
 }
 
 /// What `item`, an item of a cell body, writes in the `side` projection of the rule: the items of
