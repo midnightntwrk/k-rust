@@ -4567,12 +4567,18 @@ fn krun_repeats_the_effects_of_a_value_a_failed_attempt_computed() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A rule condition is decided without the console, so a value computed with the console is not
-/// served to it, even one whose computation changed nothing (reading the empty input): otherwise
-/// the condition's verdict would depend on whether the execution happened to compute that value
-/// before. `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether
-/// `A` computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g`
-/// stays unevaluated.
+/// A rule condition's verdict does not depend on whether the execution happened to compute a
+/// value it reads before. The console's own checks are pinned by
+/// `a_value_read_from_the_console_is_not_reused_without_it` and
+/// `a_failed_evaluation_that_read_the_console_is_not_reused_after_it_moved_on`; this test passes
+/// with either of them removed (the console position not compared, or a console hook not noted as
+/// read), because `Record::holds` also refuses the execution's record on its simplification
+/// options: the execution simplifies its term keeping a partial result when the budget runs out
+/// (`BudgetPolicy::KeepPartial`), and a rule condition is simplified failing then
+/// (`BudgetPolicy::Fail`). It fails only when that comparison is removed as well.
+/// `T = substr("abc", 4, 1)` reads standard input; `g`'s condition asks for `T`. Whether `A`
+/// computes `T` before `g` (`g(T)`) or not (`g("")`), the condition is the same and `g` stays
+/// unevaluated.
 #[test]
 fn krun_decides_a_condition_alike_whether_the_execution_computed_its_value_before() {
     let rules = |a: &str| {
