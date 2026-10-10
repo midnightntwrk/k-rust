@@ -7690,8 +7690,9 @@ const LIST_ITEM_SYNTAX: &str = "syntax Bag ::= bag(Int) [function]
 // Every shape an item of a cell body can have after parsing (a cell, a variable, a rewrite, an
 // alias, an empty bag, a function application, which a left side may not hold outside a rewrite),
 // each written in <stack> beside a <fr> placed there, with whether it may be or hold an instance
-// of <stack>'s list of <fr> cells. A term of unknown cell sort may; a rewrite or an alias may if
-// any part of it may. (An alias of other cells is rejected by child ordering, whatever it holds.)
+// of <stack>'s list of <fr> cells. A term of unknown cell sort may (the <fr> slot of <stack> is
+// `multiplicity="*"`, so always free); a rewrite or an alias may if any part of it may. (An alias
+// of several cells is rejected by child ordering, whatever it holds.)
 const LIST_ITEM_SHAPES: &[(&str, bool)] = &[
     ("<fr> <v> 1 </v> </fr>", true),
     ("(<fr> <v> 1 </v> </fr> => .Bag)", true),

@@ -484,7 +484,6 @@ fn completion_commutes_with_mirroring_every_rewrite() {
 /// those children between the variable and the frame gives the same rule, which is the rule
 /// without the variable. Writing it must not change the compiled rule.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: a `Bag` variable silently leaves the compiled rule (residual over-rejection)"]
 fn a_bag_variable_beside_the_frame_names_part_of_the_frame() {
     assert_compile_alike(&[
         (
@@ -506,6 +505,35 @@ fn a_bag_variable_beside_the_frame_names_part_of_the_frame() {
     ]);
 }
 
+/// Owner decision O1 (TQ20). A `Bag` variable that can stand for a free child beside the frame
+/// (or beside another such variable) and is read elsewhere has several readings: it is that
+/// child, or it is empty. Nothing in the rule chooses, so the rule is rejected, naming the
+/// variable and the child. A variable read nowhere else (the test above) is accepted.
+#[test]
+fn a_bag_variable_read_elsewhere_that_competes_for_a_free_cell_is_rejected_naming_both() {
+    let mut failures = Vec::new();
+    for (rule, variable, cell) in [
+        ("<a> <y> Y </y> (B => .Bag) ... </a>", "B", "<z>"),
+        (
+            "<a> <y> Y </y> B:Bag (<w> W </w> C:Bag => <w> W </w>) </a>",
+            "C",
+            "<z>",
+        ),
+        ("<a> <y> Y </y> <z> Z </z> B:Bag B:Bag </a>", "B", "<w>"),
+        ("<a> <y> Y </y> B:Bag ... </a> <k> B => .K </k>", "B", "<z>"),
+    ] {
+        let expected = format!("Cell variable {variable} in <a> can stand for the cell {cell}");
+        match completed(PLAIN, rule) {
+            Err(errors)
+                if errors.iter().any(|error| {
+                    error.contains(&expected) && error.contains("is read elsewhere in the rule")
+                }) => {}
+            outcome => failures.push(format!("\n  {rule}\n    -> {outcome:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join(""));
+}
+
 const LIST_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <z> 0 </z> <p> <y> 0 </y> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </p> </a> </T>"#;
 const MAP_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multiplicity="*" type="Map"> <rid> 0 </rid> <d> 0 </d> <e> 0 </e> </r> </p> </a> </T>"#;
 
@@ -514,7 +542,6 @@ const MAP_IN_P: &str = r#"<T> <k> 0 </k> <a> <x> 0 </x> <p> <y> 0 </y> <r multip
 /// stands only for the holder's children that no written cell occupies; when the written cells
 /// occupy them all, it can hold no instance of a list below them.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: conservative over-rejections (holder-side unknown items)"]
 fn a_cell_beside_its_only_holder_compiles_as_written_inside_it_despite_a_bag_variable() {
     assert_compile_alike(&[
         (
@@ -541,11 +568,23 @@ fn a_cell_beside_its_only_holder_compiles_as_written_inside_it_despite_a_bag_var
     ]);
 }
 
+/// Owner decision O3 (TQ22). An alias of several cells in a body names a part of an instance
+/// that is not one child; it has no term of its own there, so the rule is rejected naming the
+/// alias.
+#[test]
+fn an_alias_of_several_cells_is_rejected_naming_the_alias() {
+    let errors = completed(PLAIN, "<a> ((<y> Y </y> <z> Z </z>) #as F) ... </a>").unwrap_err();
+    assert!(
+        errors.iter().any(|error| error
+            .contains("The alias F in <a> names the cells <y> <z>; an alias written in a cell body names one cell")),
+        "{errors:?}"
+    );
+}
+
 /// Ticket C1 (item "`#as` of cells in a bag"). An alias names the term it is written around; the
 /// rule without the name is the same rule with one variable less. Completing the aliased rule
 /// and then removing the alias gives the completion of the rule written without it.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: conservative over-rejections (#as alias of cells in a bag)"]
 fn an_alias_of_a_cell_does_not_change_its_completion() {
     const THREADS: &str = r#"<T> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>"#;
     let mut failures = Vec::new();
@@ -794,7 +833,6 @@ fn projection_variables(term: &Term, right: bool, output: &mut BTreeMap<String, 
 /// written variable of a data sort is in the compiled rule, and a written variable on both sides
 /// of the rule is on both sides of the compiled rule or on neither.
 #[test]
-#[ignore = "guard of cells-tickets C1 (I0): passes on 934d29e7; un-ignore with C1"]
 fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
     let rules: &[(&str, &str)] = &[
         (PLAIN, "<a> <y> Y </y> <z> Z </z> <w> W </w> B:Bag </a>"),
@@ -804,7 +842,9 @@ fn a_written_variable_leaves_both_sides_together_and_data_variables_stay() {
             "(<a> <y> Y </y> B:Bag </a> => <a> <y> 1 </y> B:Bag </a>)",
         ),
         (PLAIN, "<a> (<y> 1 </y> B:Bag => <y> 2 </y> B:Bag) </a>"),
-        (PLAIN, "<a> <y> Y </y> (B:Bag => C:Bag) </a>"),
+        // Unannotated: the z3 build's sort inference rejects `(B:Bag => C:Bag)` here, which the
+        // portable build parses (a parser issue, not a completion one).
+        (PLAIN, "<a> <y> Y </y> (B => C) </a>"),
         (
             PLAIN,
             "<a> <y> Y </y> (<z> Z </z> => <z> Z </z>) ... </a> <b> V => V </b>",

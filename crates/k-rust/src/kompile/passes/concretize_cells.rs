@@ -653,6 +653,29 @@ impl CellModel {
         }
     }
 
+    /// The child slot `part`, one item of one side of a cell body, occupies: its cell sort, or,
+    /// for an alias `P #as V` of one cell `P`, the sort of `P` (an alias denotes its pattern).
+    fn slot_sort(&self, part: &Term) -> Option<Sort> {
+        match part.unannotated() {
+            Term::As { pattern, .. } => match flatten_cells(pattern)
+                .into_iter()
+                .filter(|part| !is_empty_cell_bag(part))
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                [one] => self.sort_for_term(one),
+                _ => None,
+            },
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => self.sort_for_term(part),
+        }
+    }
+
     fn sort_for_side(&self, term: &Term) -> Option<Sort> {
         let mut sorts = flatten_cells(term)
             .into_iter()
@@ -712,6 +735,14 @@ impl MovedCell {
             self.cell, self.written_in, self.written_in
         )
     }
+}
+
+/// The terms of unknown cell sort written directly in one body of a cell with children: the
+/// variables without a cell sort, the body's frame (`...`) among them, per side of the rule, in
+/// written order.
+struct BodyUnknowns {
+    parent: Sort,
+    sides: [Vec<String>; 2],
 }
 
 #[derive(Clone)]
@@ -847,9 +878,11 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         &mut self,
         roots: impl IntoIterator<Item = &'b Term>,
     ) -> Result<(), String> {
+        let roots = roots.into_iter().collect::<Vec<_>>();
         let mut observations = Vec::<(String, Sort, BTreeSet<Sort>)>::new();
-        for root in roots {
-            collect_fragment_observations(root, self.model, &mut observations);
+        let mut bodies = Vec::new();
+        for root in &roots {
+            collect_fragment_observations(root, self.model, &mut observations, &mut bodies);
         }
         for (name, parent, candidates) in observations {
             let entry = self.fragments.entry(name.clone()).or_insert(FragmentInfo {
@@ -869,6 +902,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 .cloned()
                 .collect();
         }
+        self.share_free_slots(&roots, &bodies)?;
         let pending = self
             .fragments
             .iter()
@@ -896,6 +930,138 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             self.fragments.get_mut(&name).unwrap().split = split;
         }
         Ok(())
+    }
+
+    /// Decide which of the terms of unknown cell sort of each body in `bodies` stands for each
+    /// free non-`multiplicity="*"` child, where several of them can (`roots` are the rule's
+    /// body and conditions).
+    ///
+    /// A cell has one child of such a sort, so when two unknown terms on one side of a body can
+    /// both stand for it, the rule means the union of its readings over the ways of giving the
+    /// child to one of them. When every one of those terms is *carried* (the frame `...`, or a
+    /// variable written once on each side of the rule, in this body, and nowhere else), every
+    /// reading denotes the same relation: what a carried term stands for is matched and kept
+    /// unchanged, and read nowhere. The child then goes to the first variable that can take it in
+    /// written order, the frame taking it only when no variable can, and the others stand for
+    /// nothing there. Otherwise a variable that can take the child is read elsewhere, its
+    /// readings differ (it is the child, or it is empty), nothing in the rule chooses between
+    /// them, and the rule is rejected naming the variable and the child.
+    fn share_free_slots(&mut self, roots: &[&Term], bodies: &[BodyUnknowns]) -> Result<(), String> {
+        // Invariant: every body before `body` has each contested non-`*` child kept by one of its
+        // unknown terms and removed from the candidates of the others, or the rule is rejected;
+        // each body compares every pair of its unknown terms per side, O(|unknowns|^2 x
+        // |children|), and walks the roots once per unknown term to count its occurrences.
+        for body in bodies {
+            let parent = &self.model.cells[&body.parent];
+            let repeated = |sort: &Sort| {
+                parent
+                    .children
+                    .iter()
+                    .any(|child| child.sort == *sort && child.multiplicity == Multiplicity::Star)
+            };
+            for (index, names) in body.sides.iter().enumerate() {
+                let candidates = |name: &String| {
+                    self.fragments
+                        .get(name)
+                        .map(|info| {
+                            info.candidates
+                                .iter()
+                                .filter(|sort| !repeated(sort))
+                                .cloned()
+                                .collect::<BTreeSet<_>>()
+                        })
+                        .unwrap_or_default()
+                };
+                let mut contested = BTreeMap::<Sort, Vec<&String>>::new();
+                for (position, name) in names.iter().enumerate() {
+                    for other in &names[position + 1..] {
+                        for sort in candidates(name).intersection(&candidates(other)) {
+                            let holders = contested.entry(sort.clone()).or_default();
+                            for term in [name, other] {
+                                if !holders.contains(&term) {
+                                    holders.push(term);
+                                }
+                            }
+                        }
+                    }
+                }
+                // In the configuration's order of the children, so a message names the first.
+                let contested = parent
+                    .children
+                    .iter()
+                    .filter_map(|child| contested.remove_entry(&child.sort))
+                    .collect::<Vec<_>>();
+                for (sort, holders) in contested {
+                    let is_frame = |name: &String| {
+                        self.generated
+                            .contains(&GeneratedVariableIdentity::element(name.clone()))
+                    };
+                    let read = holders
+                        .iter()
+                        .find(|name| !is_frame(name) && !self.is_carried(name, &body.sides, roots));
+                    if let Some(read) = read {
+                        let others = holders
+                            .iter()
+                            .filter(|other| *other != read)
+                            .map(|other| {
+                                if is_frame(other) {
+                                    "the frame `...`".to_owned()
+                                } else {
+                                    (*other).clone()
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        let competitors = if others.is_empty() {
+                            "another occurrence of it".to_owned()
+                        } else {
+                            others.join(" and ")
+                        };
+                        return Err(format!(
+                            "Cell variable {read} in {} can stand for the cell {} {} the rule, as can {competitors}, and {read} is read elsewhere in the rule, so the rule does not state whether {read} is that cell",
+                            parent.label.name,
+                            self.model.cells[&sort].label.name,
+                            if index == 0 {
+                                "on the left side of"
+                            } else {
+                                "on the right side of"
+                            },
+                        ));
+                    }
+                    let keeper = holders
+                        .iter()
+                        .find(|name| !is_frame(name))
+                        .unwrap_or(&holders[0]);
+                    let losers = holders
+                        .iter()
+                        .filter(|name| *name != keeper)
+                        .map(|name| (*name).clone())
+                        .collect::<Vec<_>>();
+                    for loser in losers {
+                        if let Some(info) = self.fragments.get_mut(&loser) {
+                            info.candidates.remove(&sort);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `name`, a variable written directly in a body whose unknown terms per side are
+    /// `sides`, is written once on each side of the rule, there, and nowhere else in `roots`.
+    fn is_carried(&self, name: &str, sides: &[Vec<String>; 2], roots: &[&Term]) -> bool {
+        let in_body = |side: usize| sides[side].iter().filter(|other| *other == name).count();
+        let [body, conditions @ ..] = roots else {
+            return false;
+        };
+        in_body(0) == 1
+            && in_body(1) == 1
+            && projection_occurrences(body, name, Side::Left) == 1
+            && projection_occurrences(body, name, Side::Right) == 1
+            && conditions.iter().all(|condition| {
+                projection_occurrences(condition, name, Side::Left) == 0
+                    && projection_occurrences(condition, name, Side::Right) == 0
+            })
     }
 
     fn add_root(&self, term: Term) -> Result<Term, String> {
@@ -1513,7 +1679,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     && self.moved_may_hold(term, list, holds_path_child)
             });
             if let Some((term, _)) = joining
-                && self.body_may_hold(&body_items, list)
+                && self.body_may_hold(cell, &body_items, list)
             {
                 let item = self
                     .model
@@ -1690,18 +1856,64 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.cell_body(term).map(|(_, body, _)| flatten_cells(body))
     }
 
-    /// Whether an item of `items`, the body of a written cell that cells written elsewhere are
-    /// placed into, may be or hold an instance of `sort` in the collection those cells join:
-    /// a cell they continue into ([`Self::continuation`]) is looked into, without its frame,
-    /// which is the rest of that collection, after the placed cells; every other item is decided
-    /// by [`Self::may_hold_instance`].
-    fn body_may_hold(&self, items: &[&Term], sort: &Sort) -> bool {
+    /// Whether an item of `items`, the body of a written cell of `parent` that cells written
+    /// elsewhere are placed into, may be or hold an instance of `sort` in the collection those
+    /// cells join: a cell they continue into ([`Self::continuation`]) is looked into, without
+    /// its frame, which is the rest of that collection, after the placed cells; every other item
+    /// is decided by [`Self::item_may_hold`], a term of unknown cell sort on a side of the rule
+    /// by [`Self::unknown_may_hold`] on that side.
+    fn body_may_hold(&self, parent: &Cell, items: &[&Term], sort: &Sort) -> bool {
+        let unknown =
+            [Side::Left, Side::Right].map(|side| self.unknown_may_hold(parent, items, side, sort));
         items
             .iter()
             .any(|item| match self.continuation(item, sort) {
-                Some(body) => self.body_may_hold(&body, sort),
-                None => self.may_hold_instance(item, sort),
+                Some(body) => {
+                    let continued = self
+                        .model
+                        .sort_for_term(item)
+                        .map(|continued| &self.model.cells[&continued])
+                        .expect("a continuation is a cell of a known sort");
+                    self.body_may_hold(continued, &body, sort)
+                }
+                None => match item.unannotated() {
+                    Term::Rewrite { left, right } => [(left, unknown[0]), (right, unknown[1])]
+                        .into_iter()
+                        .any(|(side, unknown)| {
+                            flatten_cells(side)
+                                .into_iter()
+                                .any(|part| self.item_may_hold(part, sort, unknown))
+                        }),
+                    Term::Apply { .. }
+                    | Term::Variable { .. }
+                    | Term::Token { .. }
+                    | Term::InjectedLabel(_)
+                    | Term::As { .. }
+                    | Term::Sequence(_)
+                    | Term::Annotated { .. } => {
+                        self.item_may_hold(item, sort, unknown[0] || unknown[1])
+                    }
+                },
             })
+    }
+
+    /// Whether a term of unknown cell sort written on `side` of the rule among `items`, the
+    /// items of a body of `parent`, may be or hold an instance of `sort`.
+    ///
+    /// Such a term stands for children of that instance of `parent` that no written item is on
+    /// that side (a `multiplicity="*"` child is never taken: the instance holds any number), so
+    /// it may be or hold an instance of `sort` only through such a free child of sort `sort` or
+    /// above it.
+    fn unknown_may_hold(&self, parent: &Cell, items: &[&Term], side: Side, sort: &Sort) -> bool {
+        let written = items
+            .iter()
+            .flat_map(|item| side_parts(item, side))
+            .filter_map(|part| self.model.slot_sort(part))
+            .collect::<BTreeSet<_>>();
+        parent.children.iter().any(|child| {
+            (child.multiplicity == Multiplicity::Star || !written.contains(&child.sort))
+                && (child.sort == *sort || self.model.is_strictly_below(sort, &child.sort))
+        })
     }
 
     /// Lift the cell `item` of sort `sort`, written inside `cell` (labelled `label`) with the
@@ -1865,7 +2077,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     fn nonrepeated_slots(&self, parent: &Cell, item: &Term, side: Side) -> BTreeSet<Sort> {
         side_parts(item, side)
             .into_iter()
-            .filter_map(|part| self.model.sort_for_term(part))
+            .filter_map(|part| self.model.slot_sort(part))
             // Invariant: each sort is tested against `parent.children` once, O(|parts| x |parent.children|).
             .filter(|sort| {
                 parent
@@ -2057,7 +2269,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         _ => item,
                     };
                     for term in flatten_cells(side) {
-                        if let Some(sort) = self.model.sort_for_term(term) {
+                        if let Some(sort) = self.model.slot_sort(term) {
                             required.remove(&sort);
                         } else if matches!(term.unannotated(), Term::Variable { .. }) {
                             required.clear();
@@ -2375,6 +2587,34 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 self.insert_child(&mut ordered, sort, item, cell)?;
             } else if matches!(item.unannotated(), Term::Variable { .. }) {
                 unknown.push(item);
+            } else if let Term::As { pattern, alias } = item.unannotated() {
+                // `P #as V` denotes `P` and binds `V` to it, so it takes the child slot `P`
+                // takes. An alias of several cells would name a part of the instance that is not
+                // one child, which has no term of its own here.
+                let cells = flatten_cells(pattern)
+                    .into_iter()
+                    .filter(|part| !is_empty_cell_bag(part))
+                    .collect::<Vec<_>>();
+                let Some(sort) = self.model.slot_sort(&item) else {
+                    return Err(format!(
+                        "The alias {} in {} names {}; an alias written in a cell body names one cell",
+                        alias_name(alias),
+                        label.name,
+                        if cells.is_empty() {
+                            "no cell".to_owned()
+                        } else {
+                            format!(
+                                "the cells {}",
+                                cells
+                                    .iter()
+                                    .map(|part| self.describe_cells(part))
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            )
+                        }
+                    ));
+                };
+                self.insert_child(&mut ordered, sort, item, cell)?;
             } else {
                 return Err(format!(
                     "Unexpected term in parent cell {} during child ordering",
@@ -2683,6 +2923,7 @@ fn collect_fragment_observations(
     term: &Term,
     model: &CellModel,
     observations: &mut Vec<(String, Sort, BTreeSet<Sort>)>,
+    bodies: &mut Vec<BodyUnknowns>,
 ) {
     match term.unannotated() {
         Term::Apply { label, arguments } => {
@@ -2692,7 +2933,7 @@ fn collect_fragment_observations(
                 let occupied = arguments
                     .iter()
                     .flat_map(flatten_cells)
-                    .filter_map(|item| model.sort_for_term(item))
+                    .filter_map(|item| model.slot_sort(item))
                     .filter(|sort| {
                         parent
                             .children
@@ -2727,22 +2968,48 @@ fn collect_fragment_observations(
                         .collect();
                     observations.push((name, parent.sort.clone(), candidates));
                 }
+                bodies.push(BodyUnknowns {
+                    parent: parent.sort.clone(),
+                    sides: [Side::Left, Side::Right].map(|side| {
+                        arguments
+                            .iter()
+                            .flat_map(|argument| side_parts(argument, side))
+                            .filter_map(|part| match part.unannotated() {
+                                Term::Variable { name, sort }
+                                    if !sort
+                                        .as_ref()
+                                        .is_some_and(|sort| model.cells.contains_key(sort)) =>
+                                {
+                                    Some(name.clone())
+                                }
+                                Term::Variable { .. }
+                                | Term::Apply { .. }
+                                | Term::Token { .. }
+                                | Term::InjectedLabel(_)
+                                | Term::Rewrite { .. }
+                                | Term::As { .. }
+                                | Term::Sequence(_)
+                                | Term::Annotated { .. } => None,
+                            })
+                            .collect()
+                    }),
+                });
             }
             for argument in arguments {
-                collect_fragment_observations(argument, model, observations);
+                collect_fragment_observations(argument, model, observations, bodies);
             }
         }
         Term::Rewrite { left, right } => {
-            collect_fragment_observations(left, model, observations);
-            collect_fragment_observations(right, model, observations);
+            collect_fragment_observations(left, model, observations, bodies);
+            collect_fragment_observations(right, model, observations, bodies);
         }
         Term::As { pattern, alias } => {
-            collect_fragment_observations(pattern, model, observations);
-            collect_fragment_observations(alias, model, observations);
+            collect_fragment_observations(pattern, model, observations, bodies);
+            collect_fragment_observations(alias, model, observations, bodies);
         }
         Term::Sequence(items) => {
             for item in items {
-                collect_fragment_observations(item, model, observations);
+                collect_fragment_observations(item, model, observations, bodies);
             }
         }
         Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {}
@@ -2971,6 +3238,45 @@ fn side_parts(item: &Term, side: Side) -> Vec<&Term> {
         .into_iter()
         .filter(|part| !is_empty_cell_bag(part))
         .collect()
+}
+
+/// The name of the variable of an alias `P #as V`, for a message.
+fn alias_name(alias: &Term) -> String {
+    match alias.unannotated() {
+        Term::Variable { name, .. } => name.clone(),
+        Term::Apply { .. }
+        | Term::Token { .. }
+        | Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Sequence(_)
+        | Term::Annotated { .. } => format!("{alias:?}"),
+    }
+}
+
+/// The number of occurrences of the variable `name` in the `side` projection of `term` (every
+/// rewrite replaced by that side of it).
+fn projection_occurrences(term: &Term, name: &str, side: Side) -> usize {
+    match term.unannotated() {
+        Term::Variable { name: other, .. } => usize::from(other == name),
+        Term::Apply { arguments, .. } => arguments
+            .iter()
+            .map(|argument| projection_occurrences(argument, name, side))
+            .sum(),
+        Term::Rewrite { left, right } => match side {
+            Side::Left => projection_occurrences(left, name, side),
+            Side::Right => projection_occurrences(right, name, side),
+        },
+        Term::As { pattern, alias } => {
+            projection_occurrences(pattern, name, side) + projection_occurrences(alias, name, side)
+        }
+        Term::Sequence(items) => items
+            .iter()
+            .map(|item| projection_occurrences(item, name, side))
+            .sum(),
+        Term::InjectedLabel(_) | Term::Token { .. } => 0,
+        Term::Annotated { .. } => unreachable!(),
+    }
 }
 
 /// The cell bag of `items`: the empty bag, the one item, or their concatenation.
