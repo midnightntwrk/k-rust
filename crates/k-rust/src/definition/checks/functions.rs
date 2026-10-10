@@ -47,7 +47,7 @@ use super::term_position::{TermPosition, positioned_children};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{InternalLabel, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Term};
 
 /// The hooks of the collection constructors: the unit, element and concatenation of each
 /// builtin collection sort.
@@ -208,8 +208,15 @@ impl Walk<'_> {
             return;
         }
 
+        // A sort projection `project:S`, written `{T}:>S`, is a function compilation declares for
+        // every sort that has one: it computes the value of its operand read in `S`, and is defined
+        // only where that value is in `S`. It is judged like any other function symbol, whether the
+        // definition declares its production yet or not, except that a rewrite rule never reads it
+        // by value.
+        let sort_projection = matches!(label.generated(), Some(GeneratedLabel::Projection { .. }));
         let attributes = self.productions.attributes_for(&LabelHead::from(label));
-        if self.internal_labels.contains(&label.name) || attributes.is_none() {
+        if !sort_projection && (self.internal_labels.contains(&label.name) || attributes.is_none())
+        {
             if *at_top {
                 *at_top = false;
                 // A root that is no production (a cell fragment, a K sequence) is not an
@@ -222,8 +229,9 @@ impl Walk<'_> {
             return;
         }
 
-        let attributes = attributes.expect("checked above");
-        let function = attributes.has(AttributeKey::Function);
+        let hook = attributes.and_then(|attributes| attributes.string(AttributeKey::Hook));
+        let function = sort_projection
+            || attributes.is_some_and(|attributes| attributes.has(AttributeKey::Function));
         if *at_top {
             *at_top = false;
             if self.reading == Reading::Undecided {
@@ -235,15 +243,14 @@ impl Walk<'_> {
                     Reading::Rewrite
                 };
             }
-            let constructor = is_collection_constructor(attributes.string(AttributeKey::Hook));
+            let constructor = is_collection_constructor(hook);
             let by_value = self.reading == Reading::Rewrite && constructor;
             self.visit_arguments(term, position, at_top, by_value);
             return;
         }
 
-        let hook = attributes.string(AttributeKey::Hook);
         let constructor = is_collection_constructor(hook);
-        if by_value && function && position.lhs && !constructor {
+        if by_value && function && position.lhs && !constructor && !sort_projection {
             // An application read by value is evaluated, so it binds none of its variables, and
             // everything below it is read with it.
             self.require_bound(
@@ -278,8 +285,13 @@ impl Walk<'_> {
             }
             return;
         }
-        if function && position.lhs && !by_value && !constructor {
-            let message = if self.reading == Reading::Equation {
+        if function && position.lhs && (!by_value || sort_projection) && !constructor {
+            let message = if sort_projection {
+                format!(
+                    "Illegal sort projection {} on LHS of rule: `{{T}}:>S` computes the value of T read in S, and a left-hand side is matched; a variable `X:S` matches the terms of sort S. Consider adding `simplification` attribute to the rule if this is intended.",
+                    label.name
+                )
+            } else if self.reading == Reading::Equation {
                 format!(
                     "Illegal function symbol {} below the root of an equation's left-hand side: an equation matches its argument patterns as written, so this application would never match the value it computes. Bind the position to a variable and state its value in the `requires` clause, or add the `simplification` attribute if the rule is a lemma.",
                     label.name

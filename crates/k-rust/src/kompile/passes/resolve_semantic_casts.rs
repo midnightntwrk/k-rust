@@ -84,8 +84,8 @@ fn unlocated_error(message: impl Into<String>) -> ResolveSemanticCastsError {
 /// sort metadata.
 ///
 /// A cast adds no `isSort` side condition here: a variable the cast types matches only terms of
-/// its sort, and sort injection realizes the cast of any other operand (an injection, a
-/// projection or a rejection), so the condition would constrain nothing more. Casted variables
+/// its sort, and sort injection judges the cast of any other operand (an injection or a
+/// rejection), so the condition would constrain nothing more. Casted variables
 /// retain their inferred sort in the public variable node as well.
 pub fn resolve_semantic_casts(
     definition: &Definition,
@@ -184,8 +184,8 @@ enum CastCondition {
 /// be declared nowhere and would be false on every argument. The cast still has its static
 /// meaning: its sort is the sort of the operand in the compiled pattern, where a variable is
 /// emitted with that sort and matches only terms of it, and sort injection checks a non-variable
-/// operand against the cast (an upcast, a downcast through a projection, or an incomparable
-/// cast), so leaving out the conjunct admits no ill-sorted pattern.
+/// operand against the cast (an upcast is placed, any other cast rejected), so leaving out the
+/// conjunct admits no ill-sorted pattern.
 const fn cast_condition(role: SortRole) -> CastCondition {
     use KernelSort as S;
     match role {

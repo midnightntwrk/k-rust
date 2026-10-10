@@ -4767,12 +4767,12 @@ fn a_macro_ancestor_is_retried_with_its_own_applied_rules() {
     assert_eq!(right_sides, ["pair2(b(.KList),a(.KList))"]);
 }
 
-/// A structured macro rule `a => a:Int` only adds a downcast to `a`, so the expanded term is
-/// equal to the parsed one, but `f`'s instance then follows the `Int` argument: the parsed
-/// `f{KItem}` no longer holds, and the macro rule about `f{Int}` applies instead of the `KItem`
-/// one.
+/// A structured macro rule `a => a:Int` writes a cast of `a`, a `Foo`, to `Int`, which lies below
+/// `Foo`: the cast computes nothing, so it cannot make `a` an `Int`. Expansion types the program
+/// tolerantly and leaves `f`'s instance open, so neither macro rule of `f` applies, and sort
+/// injection rejects the expanded program for that cast.
 #[test]
-fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
+fn a_macro_that_casts_below_its_operand_leaves_a_program_sort_injection_rejects() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -4821,9 +4821,16 @@ fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
         .unwrap()
         .expand_program("MAIN", program, &Sort::new("KItem"))
         .unwrap();
-    assert_eq!(
-        Printer::new().print_term(expanded.term()),
-        r#"#token("0","Int")"#
+    assert_eq!(Printer::new().print_term(expanded.term()), "f(a(.KList))");
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let error = k_rust::kompile::SortInjector::new(&resolved, "MAIN")
+        .unwrap()
+        .inject(expanded.term(), &Sort::new("KItem"))
+        .unwrap_err();
+    assert!(
+        matches!(&error, k_rust::kompile::SortInjectionError::CastBelowOperand(mismatch)
+            if mismatch.found == Sort::new("Foo") && mismatch.required == Sort::new("Int")),
+        "{error}"
     );
 }
 

@@ -439,16 +439,14 @@ fn search_pattern_compilation_tests_a_cast_around_a_rewrite_on_the_left_side() {
 }
 
 #[test]
-fn search_pattern_compilation_retains_requires_and_ignores_ensures_after_transforms() {
-    let without_ensures = compile("<k> a </k> requires false").unwrap();
-    let with_ensures = compile("<k> a </k> requires false ensures false").unwrap();
-    assert_eq!(with_ensures, without_ensures);
-    let Pattern::And { arguments, .. } = &with_ensures.pattern else {
+fn search_pattern_compilation_retains_requires_after_transforms() {
+    let compiled = compile("<k> a </k> requires false").unwrap();
+    let Pattern::And { arguments, .. } = &compiled.pattern else {
         panic!("expected conjunction")
     };
     assert!(matches!(arguments.as_slice(), [_, Pattern::Equals { .. }]));
 
-    let error = compile("<k> a </k> ensures cellPredicate(<top> <k> a </k> <k> b </k> </top>)")
+    let error = compile("<k> a </k> requires cellPredicate(<top> <k> a </k> <k> b </k> </top>)")
         .unwrap_err();
     let CompileSearchPatternError::CellConcretization(error) = error else {
         panic!("expected cell-concretization error: {error:?}")
@@ -462,13 +460,58 @@ fn search_pattern_compilation_retains_requires_and_ignores_ensures_after_transfo
     assert_eq!(error.diagnostics[0].location, Some(PATTERN_LOCATION));
 }
 
+/// A pattern denotes the configurations its left side matches under its `requires`, and
+/// describes no later state, so an `ensures` other than `true` says nothing it denotes and is
+/// rejected at the pattern; `ensures true` is the clause every pattern has.
 #[test]
-fn search_pattern_compilation_collects_casts_from_ensures_before_discarding_it() {
-    let compiled = compile("<k> a </k> ensures predicate(X:Exp)").unwrap();
-    let rendered = compiled.pattern.to_string();
-    assert!(rendered.contains("LblisExp"), "{rendered}");
-    assert!(rendered.contains("VarX"), "{rendered}");
-    assert!(!rendered.contains("Lblpredicate"), "{rendered}");
+fn search_pattern_compilation_rejects_an_ensures_clause() {
+    let error = compile("<k> a </k> ensures predicate(X:Exp)").unwrap_err();
+    let CompileSearchPatternError::Denotation(diagnostic) = &error else {
+        panic!("expected a denotation error: {error:?}")
+    };
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidSearchPattern
+    );
+    assert!(diagnostic.message.contains("`ensures`"), "{error}");
+    assert_eq!(diagnostic.source.as_deref(), Some(PATTERN_SOURCE));
+    assert!(diagnostic.location.is_some(), "{diagnostic:?}");
+    compile("<k> a </k> ensures true").unwrap();
+}
+
+/// A variable that occurs only on a rewrite's right side is constrained by nothing the pattern
+/// denotes, so the pattern is rejected naming it; one that also occurs on the left side, or in
+/// `requires`, is constrained, and an anonymous variable names nothing.
+#[test]
+fn search_pattern_compilation_rejects_a_variable_only_on_a_right_side() {
+    for (pattern, variables) in [
+        ("<k> X => Y </k>", "variable Y "),
+        ("<k> pair(X => Y, Z => W) </k>", "variables W, Y "),
+    ] {
+        let error = compile(pattern).unwrap_err();
+        let CompileSearchPatternError::Denotation(diagnostic) = &error else {
+            panic!("{pattern}: expected a denotation error: {error:?}")
+        };
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidSearchPattern
+        );
+        assert!(
+            diagnostic.message.contains(variables)
+                && diagnostic
+                    .message
+                    .contains("only on the right side of a rewrite"),
+            "{pattern}: {error}"
+        );
+        assert_eq!(diagnostic.source.as_deref(), Some(PATTERN_SOURCE));
+    }
+    for pattern in [
+        "<k> X => X </k>",
+        "<k> X => _ </k>",
+        "<k> pair(X, a => Y) </k> requires predicate(pair(X, Y))",
+    ] {
+        compile(pattern).unwrap_or_else(|error| panic!("{pattern}: {error}"));
+    }
 }
 
 #[test]
@@ -741,4 +784,60 @@ fn search_pattern_compilation_rejects_retained_unlicensed_injections() {
             "{invalid}: {error}"
         );
     }
+}
+
+/// Class test for the search-pattern ticket: a search pattern denotes the configurations its
+/// body's left side matches, under its `requires`, so a condition conjunct over a named variable
+/// that occurs only on a rewrite's right side or only in `ensures` holds whenever it is
+/// satisfiable at all and constrains nothing. Every named variable of the compiled condition must
+/// therefore occur in the compiled body or in the written `requires`, or the pattern must be
+/// rejected. The first two patterns are controls that hold on main (the cast's variable is on the
+/// left side). The third is a control that must also compile: `Y` occurs only in `requires`, an
+/// existential that constrains `X` through `predicate(pair(X, Y))`, so rejecting every variable
+/// outside the body would reject a pattern that means something. The others hold a written
+/// variable, and its cast, only on a rewrite's right side or only in `ensures`, which on main
+/// compile to a dead conjunct (`X => Y:Bool` matches what `X => Y:Exp` matches).
+#[test]
+fn a_compiled_search_condition_tests_only_variables_its_body_binds() {
+    let mut failures = Vec::new();
+    // Each pattern, with the variables its `requires` alone binds, and whether it must compile.
+    for (pattern, existential, must_compile) in [
+        ("<k> X:Bool </k>", &[][..], true),
+        ("<k> X => X:Bool </k>", &[], true),
+        (
+            "<k> X </k> requires predicate(Y:Exp) andBool predicate(pair(X, Y))",
+            &["VarY"],
+            true,
+        ),
+        ("<k> X => Y:Bool </k>", &[], false),
+        ("<k> X => Y:Bool ~> Z </k>", &[], false),
+        ("<k> (X => Y):Exp </k>", &[], false),
+        ("<k> a </k> ensures predicate(X:Exp)", &[], false),
+    ] {
+        let compiled = match compile(pattern) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                if must_compile {
+                    failures.push(format!("{pattern}: rejected: {error}"));
+                }
+                continue;
+            }
+        };
+        let Pattern::And { arguments, .. } = &compiled.pattern else {
+            panic!("expected a conjunction: {}", compiled.pattern)
+        };
+        let bound = variable_names(&arguments[0]);
+        let unbound = arguments[1..]
+            .iter()
+            .flat_map(variable_names)
+            .filter(|name| !bound.contains(name) && !existential.contains(&name.as_str()))
+            .collect::<BTreeSet<_>>();
+        if !unbound.is_empty() {
+            failures.push(format!(
+                "{pattern}: the condition tests {unbound:?}, which neither the body nor `requires` binds: {}",
+                compiled.pattern
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

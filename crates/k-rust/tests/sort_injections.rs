@@ -1110,9 +1110,10 @@ fn sequence_definition() -> (Definition, ResolvedDefinition) {
 }
 
 // A cast on a K sequence compares the target with the sequence's own sort `K` like any other
-// operand: `Int < K` is a downcast, realized by `project:Int`.
+// operand: `Int < K`, so the sequence may denote a value outside `Int`, and the cast, which
+// computes nothing, is rejected rather than read through `project:Int`.
 #[test]
-fn cast_of_a_k_sequence_below_k_is_a_projected_downcast() {
+fn cast_of_a_k_sequence_below_k_is_rejected() {
     let (_, resolved) = sequence_definition();
     let injector = SortInjector::new(&resolved, "MAIN").unwrap();
     let sequence = cast_to(
@@ -1123,13 +1124,12 @@ fn cast_of_a_k_sequence_below_k_is_a_projected_downcast() {
         }]),
     );
 
-    let injected = injector.inject(&sequence, &Sort::new("Int")).unwrap();
+    let error = injector.inject(&sequence, &Sort::new("Int")).unwrap_err();
 
     assert!(
-        matches!(injected.unannotated(), Term::Apply { label, arguments }
-            if label.name == "project:Int" && matches!(arguments.as_slice(), [argument]
-                if matches!(argument.unannotated(), Term::Sequence(_)))),
-        "{injected}"
+        matches!(&error, SortInjectionError::CastBelowOperand(mismatch)
+            if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("Int")),
+        "{error}"
     );
 }
 
@@ -1151,12 +1151,10 @@ fn cast_of_a_k_sequence_to_an_incomparable_sort_is_rejected() {
     );
 }
 
-// Here `KConfigVar < KItem < K`, so a K sequence cast to `KConfigVar` is a downcast. No K term has
-// sort `KConfigVar` (a configuration variable is a placeholder that configuration expansion
-// replaces), so the sort has no projection and the downcast is rejected rather than lowered to
-// a `project:KConfigVar` that no definition declares.
+// Here `KConfigVar < KItem < K`, so a K sequence cast to `KConfigVar` lies below its operand's
+// sort and is rejected as any such cast is, whether or not the target has a projection.
 #[test]
-fn downcast_of_a_k_sequence_to_a_sort_without_a_projection_is_rejected() {
+fn cast_of_a_k_sequence_to_a_sort_below_k_without_a_projection_is_rejected() {
     let definition = generate_sort_projections(&lowered(indoc! {r#"
         module MAIN
           syntax KItem ::= KConfigVar
@@ -1173,7 +1171,7 @@ fn downcast_of_a_k_sequence_to_a_sort_without_a_projection_is_rejected() {
         .unwrap_err();
 
     assert!(
-        matches!(&error, SortInjectionError::DowncastWithoutProjection(mismatch)
+        matches!(&error, SortInjectionError::CastBelowOperand(mismatch)
             if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("KConfigVar")),
         "{error}"
     );
@@ -1436,7 +1434,9 @@ fn semantic_bound_preserves_the_expected_sort_ceiling() {
 }
 
 #[test]
-fn semantic_casts_project_heterogeneous_collection_results() {
+// `List:get` and `Map:lookup` give a `KItem`, which may be no `Int`, so a semantic cast of their
+// result to `Int`, which computes nothing, is rejected rather than read through `project:Int`.
+fn semantic_casts_below_a_collection_hook_result_are_rejected() {
     let mut definition = lowered(indoc! {r#"
         module MAIN
           syntax Bool ::= "true" [token]
@@ -1496,41 +1496,19 @@ fn semantic_casts_project_heterogeneous_collection_results() {
     let definition = k_rust::kompile::resolve_semantic_casts(&definition).unwrap();
     let definition = k_rust::kompile::subsort_kitem(&definition).unwrap();
     let definition = generate_sort_projections(&definition).unwrap();
-    let definition = add_sort_injections_to_definition(&definition).unwrap();
-    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
-    let summaries = definition
-        .main_module()
-        .unwrap()
-        .local_sentences
-        .iter()
-        .filter_map(|sentence| match &**sentence {
-            Sentence::Rule {
-                body, attributes, ..
-            } if attributes.get("projection").is_none() => Some((
-                body.to_string(),
-                Printer::pretty(100)
-                    .print_pattern(&term_to_kore_from_resolved(&resolved, "MAIN", body).unwrap()),
-            )),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    insta::assert_debug_snapshot!(summaries, @r###"
-    [
-        (
-            "`project:Int`(`List:get`(COLLECTION,#token(\"0\",\"Int\")))",
-            "Lblproject'Coln'Int{}(\n  kseq{}(LblList'Coln'get{}(VarCOLLECTION:SortList{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n)",
-        ),
-        (
-            "`project:Int`(`Map:lookup`(COLLECTION,#token(\"0\",\"Int\")))",
-            "Lblproject'Coln'Int{}(\n  kseq{}(LblMap'Coln'lookup{}(VarCOLLECTION:SortMap{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n)",
-        ),
-    ]
-    "###);
+    let error = add_sort_injections_to_definition(&definition).unwrap_err();
+    assert!(
+        matches!(&error, SortInjectionError::Sentence { error, .. }
+            if matches!(&**error, SortInjectionError::CastBelowOperand(mismatch)
+                if mismatch.found == Sort::new("KItem") && mismatch.required == Sort::new("Int"))),
+        "{error:?}"
+    );
 }
 
 #[test]
-fn a_semantic_downcast_application_sorts_as_the_projection_the_injector_builds() {
+// A semantic cast on an application sorts as the application's own sort when it is an upcast,
+// and is rejected when its target lies below that sort.
+fn a_semantic_cast_application_sorts_as_its_operand_or_is_rejected() {
     let definition = lowered(indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -1565,18 +1543,12 @@ fn a_semantic_downcast_application_sorts_as_the_projection_the_injector_builds()
             ],
         )
     };
-    let downcast = cast(get(), "Int");
+    let below = cast(get(), "Int");
     let upcast = cast(Term::apply("size", vec![list()]), "KItem");
     let exact = cast(get(), "KItem");
 
     // (term, its sort, the term injected at that sort, the term injected at KItem)
     let cases = [
-        (
-            &downcast,
-            "Int",
-            "`project:Int`(`List:get`(L,#token(\"0\",\"Int\")))",
-            "inj{Int,KItem}(`project:Int`(`List:get`(L,#token(\"0\",\"Int\"))))",
-        ),
         (&upcast, "Int", "size(L)", "inj{Int,KItem}(size(L))"),
         (
             &exact,
@@ -1598,15 +1570,21 @@ fn a_semantic_downcast_application_sorts_as_the_projection_the_injector_builds()
         );
     }
 
-    // A rewrite whose right side is the downcast sorts at the left side's Int, not KItem.
+    // A cast below its operand's sort is rejected wherever it stands, also as a rewrite side.
+    let is_below = |error: &SortInjectionError| {
+        matches!(error, SortInjectionError::CastBelowOperand(mismatch)
+            if mismatch.found == Sort::new("KItem") && mismatch.required == Sort::new("Int"))
+    };
+    let error = injector.term_sort(&below, None).unwrap_err();
+    assert!(is_below(&error), "{error}");
+    let error = injector.inject(&below, &Sort::new("KItem")).unwrap_err();
+    assert!(is_below(&error), "{error}");
     let rewrite = Term::Rewrite {
         left: Box::new(Term::apply("size", vec![list()])),
-        right: Box::new(downcast.clone()),
+        right: Box::new(below.clone()),
     };
-    assert_eq!(
-        injector.term_sort(&rewrite, None).unwrap(),
-        Sort::new("Int")
-    );
+    let error = injector.term_sort(&rewrite, None).unwrap_err();
+    assert!(is_below(&error), "{error}");
 }
 
 injection_snapshot!(
@@ -1984,7 +1962,7 @@ fn synthetic_unsorted_variables_use_expected_sort_then_k() {
 }
 
 #[test]
-fn synthetic_application_sort_metadata_projects_only_strict_subsorts() {
+fn synthetic_application_sort_metadata_below_the_natural_sort_is_rejected() {
     let definition = generate_sort_projections(&lowered(indoc! {r#"
         module MAIN
           syntax Int ::= "int" [symbol(int)]
@@ -2011,14 +1989,19 @@ fn synthetic_application_sort_metadata_projects_only_strict_subsorts() {
         .inject(&upcast, &Sort::new("KItem"))
         .unwrap()
         .to_string();
-    let downcast = injector.inject_at_top(&downcast).unwrap().to_string();
-    let unrelated = injector.inject_at_top(&unrelated).unwrap().to_string();
-
     assert_eq!(exact, "item(.KList)");
     assert_eq!(upcast, "inj{Int,KItem}(int(.KList))");
-    // A downcast sorts as its target, so injecting it at its own sort adds no injection.
-    assert_eq!(downcast, "`project:Int`(item(.KList))");
-    assert_eq!(unrelated, "item(.KList)");
+    // A sort below the application's computes nothing that places it there: it is rejected,
+    // whether the order declares it below (`Int`) or only the implicit `KItem` subsorts place it
+    // there (`Other`).
+    for (term, target) in [(downcast, "Int"), (unrelated, "Other")] {
+        let error = injector.inject_at_top(&term).unwrap_err();
+        assert!(
+            matches!(&error, SortInjectionError::CastBelowOperand(mismatch)
+                if mismatch.found == Sort::new("KItem") && mismatch.required == Sort::new(target)),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -2708,8 +2691,8 @@ mod cast_instances {
     }
 
     // No instance of `id(Z:A)` has a result at or below `T` or `Low`, so the least instance that
-    // fits the argument, `id{A}`, is kept and the cast decides: `T` is incomparable with `A` and
-    // is rejected, while `Low` is strictly below `A`, so that downcast projects `id{A}(Z)`.
+    // fits the argument, `id{A}`, is kept and the cast decides: `T` is incomparable with `A`,
+    // and `Low` is strictly below `A`, so `id{A}(Z)` may be no `Low`; both are rejected.
     #[test]
     fn a_cast_no_instance_fits_is_decided_on_the_least_argument_instance() {
         let (kore, typing) = compiled(cast("T", applied("id")));
@@ -2735,14 +2718,26 @@ mod cast_instances {
         );
 
         let (kore, typing) = compiled(cast("Low", applied("id")));
-        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        let error = kore.expect_err("Low is below A");
+        assert_eq!(error.stage, "add sort injections", "{error}");
         assert!(
-            kore.contains(
-                "Lblproject'Coln'Low{}(kseq{}(inj{SortA{},SortKItem{}}(Lblid{SortA{}}(VarZ:SortA{})),dotk{}()))"
-            ),
-            "{kore}"
+            error.message.contains("cast-instance.k:28: ")
+                && error
+                    .message
+                    .contains("to sort Low lies strictly below its sort A"),
+            "{error}"
         );
-        typing.unwrap_or_else(|error| panic!("{error}"));
+        let error = typing.expect_err("Low is below A");
+        assert!(
+            matches!(
+                &error,
+                SentenceTypingError::Sort {
+                    error: SortInjectionError::CastBelowOperand(mismatch),
+                    ..
+                } if mismatch.found == Sort::new("A") && mismatch.required == Sort::new("Low")
+            ),
+            "{error}"
+        );
     }
 
     // `mk`'s parameter occurs only in its result, so the instances whose result fits the position

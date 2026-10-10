@@ -581,8 +581,9 @@ fn a_nested_cast_constrains_its_operand_by_both_sorts() {
             rewrite(z(), variable("X", None)),
         ],
     );
-    // A function result of sort `Exp` claimed to be a `Nat` is projected to `Nat`; the `Exp`
-    // cast around that claim is an upcast and does not undo it.
+    // A function result of sort `Exp` claimed to be a `Nat` may be no `Nat`, so the inner cast,
+    // which computes nothing, is rejected; the `Exp` cast around that claim is an upcast and
+    // does not make it acceptable.
     let term_body = app(
         "plus",
         vec![
@@ -600,9 +601,13 @@ fn a_nested_cast_constrains_its_operand_by_both_sorts() {
         }
     }
     for (route, loaded) in exps_with_cast_body(&base, term_body) {
-        let axiom = compiled_cast_axiom(&loaded).unwrap();
-        if !axiom.contains("inj{SortNat{},SortExp{}}(Lblproject'Coln'Nat{}(") {
-            failures.push(format!("function result, {route}: {axiom}"));
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "add sort injections"
+                    && error
+                        .message
+                        .contains("semantic cast of f(z(.KList)) to sort Nat lies strictly below its sort Exp") => {}
+            other => failures.push(format!("function result, {route}: {other:?}")),
         }
     }
     // `z:Bool` claims a `Nat` constructor is a `Bool`, whatever cast encloses the claim.
@@ -674,14 +679,16 @@ fn a_cast_around_a_rewrite_constrains_each_side() {
             other => failures.push(format!("sorted side, {route}: {other:?}")),
         }
     }
-    // A right side of sort `Exp` claimed to be a `Nat` is projected, as under a direct cast.
+    // A right side of sort `Exp` claimed to be a `Nat` is rejected, as under a direct cast.
     for (route, loaded) in exps_with_cast_body(
         &base,
         cast_rewrite(variable("E", None), app("f", vec![variable("E", None)])),
     ) {
-        let axiom = compiled_cast_axiom(&loaded).unwrap();
-        if !axiom.contains("inj{SortNat{},SortExp{}}(Lblproject'Coln'Nat{}(") {
-            failures.push(format!("function side, {route}: {axiom}"));
+        match compiled_cast_axiom(&loaded) {
+            Err(error)
+                if error.stage == "add sort injections"
+                    && error.message.contains("lies strictly below its sort Exp") => {}
+            other => failures.push(format!("function side, {route}: {other:?}")),
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -758,6 +765,219 @@ fn a_cast_around_an_as_pattern_constrains_the_pattern_and_the_alias() {
                         "variable V has explicit sort Exp outside semantic cast sort Nat",
                     ) => {}
             other => failures.push(format!("sorted alias, {route}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A semantic cast `t:S` states that the value of `t` is in `S`; source text rejects a cast whose
+// operand's sort lies strictly above `S` (`plus((plus(A, B) => z):Nat, z)` does not parse), and a
+// structured term is exactly as expressive as source text. On a rewrite's left side, `project:S`
+// would also put a function symbol where the rule matches, which no written rule holds. So every
+// term route must reject such a left side, whether the cast is written around the rewrite or on
+// the side itself, as text does. (A right side above the cast is projected today and pinned by
+// `a_cast_around_a_rewrite_constrains_each_side`; whether it should be rejected too is an owner
+// decision, so it is not asserted here.)
+#[test]
+fn a_semantic_cast_whose_left_side_operand_lies_above_it_is_rejected_on_every_route() {
+    let base = load_exps();
+    let mut failures = Vec::new();
+    for written in [
+        "plus((plus(A, B) => z):Nat, z)",
+        "plus(plus(A, B):Nat => z, z)",
+    ] {
+        let source = EXPS.replace("plus((E => z):Nat, z)", written);
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        let text = load_for_compilation(
+            ResolvedSource::new("exps.k", source),
+            "EXPS",
+            None,
+            &mut resolver,
+            &options(CompilationBackend::Rust),
+        );
+        if let Ok((loaded, _)) = text
+            && let Ok(axiom) = compiled_cast_axiom(&loaded)
+        {
+            failures.push(format!("text {written}: compiled to {axiom}"));
+        }
+    }
+    let plus_ab = || app("plus", vec![variable("A", None), variable("B", None)]);
+    let around = app("plus", vec![cast("Nat", rewrite(plus_ab(), z())), z()]);
+    let on_side = app("plus", vec![rewrite(cast("Nat", plus_ab()), z()), z()]);
+    for (shape, body) in [
+        ("cast around the rewrite", around),
+        ("cast on the left side", on_side),
+    ] {
+        for (route, loaded) in exps_with_cast_body(&base, body) {
+            if let Ok(axiom) = compiled_cast_axiom(&loaded) {
+                failures.push(format!("{shape}, {route}: compiled to {axiom}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// Class test for the cast tickets: one written rule means one thing whatever route brings it to
+// compilation. Source text, an edited-and-relinked loaded definition and a structured definition
+// are three spellings of the same rule body, so they must compile to the same axiom or all be
+// rejected. The bodies range over a cast to `Nat` or `Exp`, on a rewrite's left or right side or
+// around the rewrite, of a variable, a `Nat` constructor, an `Exp` constructor and an `Exp`
+// function application.
+#[test]
+fn every_route_compiles_one_written_cast_alike() {
+    let base = load_exps();
+    type Operand = (&'static str, fn() -> Term);
+    let operands: [Operand; 4] = [
+        ("E", || variable("E", None)),
+        ("s(z)", || app("s", vec![z()])),
+        ("plus(z, z)", || app("plus", vec![z(), z()])),
+        ("f(z)", || app("f", vec![z()])),
+    ];
+    let mut failures = Vec::new();
+    for (operand_text, operand) in operands {
+        for target in ["Nat", "Exp"] {
+            // The second argument keeps a variable operand bound on the right side.
+            let other_text = if operand_text == "E" { "E" } else { "z" };
+            let other = || {
+                if operand_text == "E" {
+                    variable("E", None)
+                } else {
+                    z()
+                }
+            };
+            let shapes: [(String, Term); 4] = [
+                (
+                    format!("plus({operand_text}:{target} => z, {other_text})"),
+                    app("plus", vec![rewrite(cast(target, operand()), z()), other()]),
+                ),
+                (
+                    format!("plus(z => {operand_text}:{target}, {other_text})"),
+                    app("plus", vec![rewrite(z(), cast(target, operand())), other()]),
+                ),
+                (
+                    format!("plus(({operand_text} => z):{target}, {other_text})"),
+                    app("plus", vec![cast(target, rewrite(operand(), z())), other()]),
+                ),
+                (
+                    format!("plus((z => {operand_text}):{target}, {other_text})"),
+                    app("plus", vec![cast(target, rewrite(z(), operand())), other()]),
+                ),
+            ];
+            for (written, body) in shapes {
+                let source = EXPS.replace("plus((E => z):Nat, z)", &written);
+                let mut resolver = |_: &str, required: &str| {
+                    builtin::embedded(required).ok_or_else(|| required.to_owned())
+                };
+                let text = load_for_compilation(
+                    ResolvedSource::new("exps.k", source),
+                    "EXPS",
+                    None,
+                    &mut resolver,
+                    &options(CompilationBackend::Rust),
+                )
+                .ok()
+                .and_then(|(loaded, _)| compiled_cast_axiom(&loaded).ok());
+                for (route, loaded) in exps_with_cast_body(&base, body) {
+                    let compiled = compiled_cast_axiom(&loaded).ok();
+                    if compiled != text {
+                        failures.push(format!(
+                            "{written}: text {}, {route} {}",
+                            text.as_deref().unwrap_or("rejected"),
+                            compiled.as_deref().unwrap_or("rejected"),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// A rewrite's left side is matched, so it holds no function symbol unless the rule is a
+// simplification. `{t}:>S` is the projection `project:S`, a function that computes the value of
+// `t` read in `S`, so it is judged like any other function symbol on every route, whether written
+// as a projection cast in text or as a `project:S` application in a term. A variable of sort `S`
+// is the spelling that matches the terms of `S`. A simplification states an equality and may
+// hold the projection on its left side, and a right side computes the rule's result.
+#[test]
+fn a_projection_on_a_rewrite_left_side_is_rejected_unless_the_rule_is_a_simplification() {
+    let base = load_exps();
+    let outcome = |loaded: &LoadedDefinition| {
+        compile(loaded, CompilationBackend::Rust)
+            .map(|_| ())
+            .map_err(|error| {
+                error
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.clone())
+                    .chain([error.message])
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+    };
+    let text = |rule: &str| {
+        let source = EXPS.replace("rule [cast]: plus((E => z):Nat, z)", rule);
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        load_for_compilation(
+            ResolvedSource::new("exps.k", source),
+            "EXPS",
+            None,
+            &mut resolver,
+            &options(CompilationBackend::Rust),
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|(loaded, _)| outcome(&loaded))
+    };
+    let rejected = |outcome: &Result<(), String>| {
+        outcome.as_ref().is_err_and(|error| {
+            error.contains("Illegal sort projection project:Nat on LHS of rule")
+        })
+    };
+    let mut failures = Vec::new();
+    for written in [
+        "plus({plus(A, B)}:>Nat => z, z)",
+        "plus({E}:>Nat => z, z)",
+        "plus(({E}:>Nat => z), {E}:>Nat)",
+        "f({E}:>Nat) => z",
+    ] {
+        let outcome = text(&format!("rule [cast]: {written}"));
+        if !rejected(&outcome) {
+            failures.push(format!("text {written}: {outcome:?}"));
+        }
+    }
+    for written in [
+        "rule [cast]: f({E}:>Nat) => z [simplification]",
+        "rule [cast]: f(plus({plus(A, B)}:>Nat, z)) => z [simplification]",
+        "rule [cast]: plus(z => {f(z)}:>Nat, z)",
+    ] {
+        let outcome = text(written);
+        if outcome.is_err() {
+            failures.push(format!("text {written}: {outcome:?}"));
+        }
+    }
+    // A macro that expands to a projection puts it on the left side it is written in; the
+    // compiled left side is what is judged.
+    let macro_rule = "syntax Nat ::= asNat(Exp) [macro]\n  rule asNat(X) => {X}:>Nat\n  rule [cast]: plus(asNat(E) => z, z)";
+    let through_macro = text(macro_rule);
+    if !rejected(&through_macro) {
+        failures.push(format!("text through a macro: {through_macro:?}"));
+    }
+    let projected = || {
+        app(
+            "project:Nat",
+            vec![app("plus", vec![variable("A", None), variable("B", None)])],
+        )
+    };
+    for (route, loaded) in
+        exps_with_cast_body(&base, app("plus", vec![rewrite(projected(), z()), z()]))
+    {
+        let outcome = outcome(&loaded);
+        if !rejected(&outcome) {
+            failures.push(format!("{route}: {outcome:?}"));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

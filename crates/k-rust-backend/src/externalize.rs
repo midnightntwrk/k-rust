@@ -1573,7 +1573,9 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                hooked-sort SortMap{} [hook{}("MAP.Map")]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()),
+                     concat{}(mapConcat{}())]
                 hooked-symbol mapUnit{}() : SortMap{}
                     [function{}(), total{}(), hook{}("MAP.unit"), unit{}()]
                 hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
@@ -1622,7 +1624,9 @@ mod tests {
             r#"[]
             module MAIN
                 sort SortInt{} [hasDomainValues{}()]
-                hooked-sort SortList{} [hook{}("LIST.List")]
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()),
+                     concat{}(listConcat{}())]
                 hooked-symbol listUnit{}() : SortList{}
                     [function{}(), total{}(), hook{}("LIST.unit"), unit{}()]
                 hooked-symbol listItem{}(SortInt{}) : SortList{}

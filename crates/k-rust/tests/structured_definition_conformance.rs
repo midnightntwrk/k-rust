@@ -491,8 +491,9 @@ fn collection_function(name: &str, collection: &str, key: &str) -> Sentence {
     }
 }
 
-/// `rule <name>(C, K) => #SemanticCastToInt(<lookup>(C, K))`
-fn semantic_downcast_equation(name: &str, lookup: &str, collection: &str, key: &str) -> Sentence {
+/// `rule <name>(C, K) => <read>(<lookup>(C, K))`, where `read` is `project:Int` (the projection
+/// `{C[K]}:>Int`) or `#SemanticCastToInt` (the cast `C[K]:Int`).
+fn lookup_equation(read: &str, name: &str, lookup: &str, collection: &str, key: &str) -> Sentence {
     let variable = |name: &str, sort: &str| Term::Variable {
         name: name.into(),
         sort: Some(Sort::new(sort)),
@@ -501,10 +502,7 @@ fn semantic_downcast_equation(name: &str, lookup: &str, collection: &str, key: &
     Sentence::Rule {
         body: Term::Rewrite {
             left: Box::new(Term::apply(name, arguments())),
-            right: Box::new(Term::apply(
-                "#SemanticCastToInt",
-                vec![Term::apply(lookup, arguments())],
-            )),
+            right: Box::new(Term::apply(read, vec![Term::apply(lookup, arguments())])),
         },
         requires: truth(),
         ensures: truth(),
@@ -531,7 +529,10 @@ fn equation_patterns(definition_kore: &str, name: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
+// A lookup gives a `KItem`, which may be no `Int`. Its projection to `Int` is a function
+// application inside the equation of `f`; the semantic cast `C[K]:Int`, which computes nothing,
+// is rejected, as source text rejects it.
+fn a_projection_equation_is_an_equation_of_its_function_and_a_cast_is_rejected() {
     for (name, lookup, collection, key) in [
         ("f", "List:get", "List", "Int"),
         ("g", "Map:lookup", "Map", "KItem"),
@@ -554,7 +555,7 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
             ],
             attributes: Attributes::new(BTreeMap::from([("function".into(), json!(""))])),
         };
-        let definition = Definition {
+        let definition = |read: &str| Definition {
             main_module: "MAIN".into(),
             modules: vec![FlatModule {
                 name: "MAIN".into(),
@@ -572,9 +573,9 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
                         sort: Sort::new(collection),
                         attributes: Attributes::default(),
                     },
-                    lookup_production,
+                    lookup_production.clone(),
                     collection_function(name, collection, key),
-                    semantic_downcast_equation(name, lookup, collection, key),
+                    lookup_equation(read, name, lookup, collection, key),
                 ]
                 .into_iter()
                 .map(std::sync::Arc::new)
@@ -583,7 +584,7 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
             }],
             attributes: Attributes::default(),
         };
-        assert_compiles_on_both_backends(hand_built(definition), |artifacts| {
+        assert_compiles_on_both_backends(hand_built(definition("project:Int")), |artifacts| {
             let equations = equation_patterns(&artifacts.definition_kore, name);
             assert_eq!(equations.len(), 1, "{equations:#?}");
             assert!(
@@ -592,12 +593,30 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
                 equations[0]
             );
         });
+        let cast = hand_built(definition("#SemanticCastToInt"));
+        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+            let error = compile_loaded_definition(
+                &cast,
+                CompileOptions {
+                    backend,
+                    ..CompileOptions::default()
+                },
+            )
+            .expect_err("a cast below its operand's sort is rejected");
+            assert!(
+                error.stage == "add sort injections"
+                    && error
+                        .message
+                        .contains("to sort Int lies strictly below its sort KItem"),
+                "{backend} {lookup}: {error}"
+            );
+        }
     }
 }
 
-/// A structured semantic downcast equation of `name` over `lookup` emits the equation the source
+/// A structured projection equation of `name` over `lookup` emits the equation the source
 /// projection cast `source_rule` emits, on `backend`.
-fn assert_semantic_downcast_equation_matches_the_source_projection_cast(
+fn assert_projection_equation_matches_the_source_projection_cast(
     backend: CompilationBackend,
     (name, lookup, collection, key, source_rule): (&str, &str, &str, &str, &str),
 ) {
@@ -621,7 +640,7 @@ fn assert_semantic_downcast_equation_matches_the_source_projection_cast(
                 }],
                 local_sentences: vec![
                     collection_function(name, collection, key),
-                    semantic_downcast_equation(name, lookup, collection, key),
+                    lookup_equation("project:Int", name, lookup, collection, key),
                 ]
                 .into_iter()
                 .map(std::sync::Arc::new)
@@ -659,9 +678,9 @@ fn assert_semantic_downcast_equation_matches_the_source_projection_cast(
 }
 
 /// One test per lookup and backend.
-mod load_structured_semantic_downcast_equation_matches_the_source_projection_cast {
+mod load_structured_projection_equation_matches_the_source_projection_cast {
     use super::{
-        CompilationBackend, assert_semantic_downcast_equation_matches_the_source_projection_cast,
+        CompilationBackend, assert_projection_equation_matches_the_source_projection_cast,
     };
 
     const LIST_GET: (&str, &str, &str, &str, &str) = (
@@ -681,7 +700,7 @@ mod load_structured_semantic_downcast_equation_matches_the_source_projection_cas
 
     #[test]
     fn list_get_rust() {
-        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+        assert_projection_equation_matches_the_source_projection_cast(
             CompilationBackend::Rust,
             LIST_GET,
         );
@@ -689,7 +708,7 @@ mod load_structured_semantic_downcast_equation_matches_the_source_projection_cas
 
     #[test]
     fn list_get_llvm() {
-        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+        assert_projection_equation_matches_the_source_projection_cast(
             CompilationBackend::Llvm,
             LIST_GET,
         );
@@ -697,7 +716,7 @@ mod load_structured_semantic_downcast_equation_matches_the_source_projection_cas
 
     #[test]
     fn map_lookup_rust() {
-        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+        assert_projection_equation_matches_the_source_projection_cast(
             CompilationBackend::Rust,
             MAP_LOOKUP,
         );
@@ -705,7 +724,7 @@ mod load_structured_semantic_downcast_equation_matches_the_source_projection_cas
 
     #[test]
     fn map_lookup_llvm() {
-        assert_semantic_downcast_equation_matches_the_source_projection_cast(
+        assert_projection_equation_matches_the_source_projection_cast(
             CompilationBackend::Llvm,
             MAP_LOOKUP,
         );

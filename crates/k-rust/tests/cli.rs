@@ -14803,3 +14803,70 @@ endmodule
         "{stdout}"
     );
 }
+
+/// Class test for the module-view ticket: a module's rule grammar is what its imports declare
+/// plus what compilation adds to that module, and a rule that parses in a module is typed in it.
+/// `OTHER` imports nothing and is not the main module, so the configuration is not in its view:
+/// neither `<k>` nor the cell compilation adds to the configuration, `<generatedCounter>`, parses
+/// there. Were the counter cell in `OTHER`'s view, its rule would parse and then fail to type, on
+/// the internal label `#SemanticCastToInt`, as `Int` is not in that view.
+#[cfg(unix)]
+#[test]
+fn a_compiler_added_cell_is_in_the_view_of_the_modules_that_see_the_configuration() {
+    let outcome = |cell_rule: &str| {
+        let source = format!(
+            "module OTHER\n  syntax Foo ::= \"foo\"\n  syntax KItem ::= Foo\n  {cell_rule}\nendmodule\nmodule MAIN\n  imports OTHER\n  imports INT\n  configuration <k> $PGM:Foo </k>\nendmodule\n"
+        );
+        let (root, definition) = fixture();
+        fs::write(&definition, source).unwrap();
+        let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kcompile", definition.to_str().unwrap()])
+            .args(["--main-module", "MAIN", "--syntax-module", "MAIN"])
+            .arg("--output-directory")
+            .arg(root.join("kompiled"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+        let stderr = String::from_utf8_lossy(&compiled.stderr).into_owned();
+        assert!(
+            !stderr.contains("#SemanticCastTo"),
+            "{cell_rule}: a rule that parsed failed on an internal label: {stderr}"
+        );
+        (
+            compiled.status.success(),
+            stderr.contains("could not parse rule"),
+        )
+    };
+    let counter = outcome("rule <generatedCounter> C => C </generatedCounter>");
+    assert_eq!(counter, outcome("rule <k> foo => .K </k>"));
+    assert_eq!(counter, (false, true));
+}
+
+/// The counter cell compilation adds to the configuration is a cell of every view that holds the
+/// configuration's cells, also outside the main module: `RULES` sees `CONF`'s configuration and
+/// names `<generatedCounter>` (docs/compatibility.md, "Compiler-resolved fresh constants").
+#[cfg(unix)]
+#[test]
+fn a_module_that_sees_the_configuration_names_the_compiler_added_cell() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        "module CONF\n  syntax Foo ::= \"foo\"\n  configuration <k> $PGM:Foo </k>\nendmodule\nmodule RULES\n  imports CONF\n  rule <generatedCounter> C => C </generatedCounter>\nendmodule\nmodule MAIN\n  imports RULES\n  imports INT\nendmodule\n",
+    )
+    .unwrap();
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
+        .args(["--main-module", "MAIN", "--syntax-module", "MAIN"])
+        .arg("--output-directory")
+        .arg(root.join("kompiled"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+}

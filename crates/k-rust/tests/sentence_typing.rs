@@ -287,8 +287,7 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
         "{error}"
     );
 
-    // `KConfigVar < KItem` (BASIC-K), so `.K` cast to `KConfigVar` is a downcast into a sort
-    // without a sort projection.
+    // `KConfigVar < KItem` (BASIC-K), so `.K` cast to `KConfigVar` lies below its operand's sort.
     let unprojectable = edited(
         &loaded,
         "TYPED.increment",
@@ -303,7 +302,7 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
         matches!(
             &error,
             SentenceTypingError::Sort {
-                error: SortInjectionError::DowncastWithoutProjection(mismatch),
+                error: SortInjectionError::CastBelowOperand(mismatch),
                 ..
             } if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("KConfigVar")
         ),
