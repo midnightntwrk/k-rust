@@ -125,7 +125,7 @@ const snippets = [
     source: '../tests/tour-composition/packages/root-semantics/src/lib.rs',
     mirror: 'src/snippets/composition-rule.rs',
     start: '#[k::rule]\npub fn cross_package(',
-    end: '#[allow(dead_code)]',
+    end: '#[must_use]',
   },
   {
     source: '../tests/tour-composition/packages/root-semantics/src/lib.rs',
