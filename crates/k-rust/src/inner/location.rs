@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.location.span"
 //! name = "mapping parser byte spans to source locations"
-//! sites = ["span_location"]
+//! sites = ["span_location", "text_location"]
 //! variable = "B = bytes before the span boundaries"
 //! counters = []
 //! no_counter = "source-location mapping has no dedicated counter"
@@ -24,11 +24,22 @@ pub(super) fn locate_ambiguity_places(
     attributes: &Attributes,
     contents: &str,
 ) {
+    locate_places(error, |span| span_location(attributes, contents, span));
+}
+
+/// Locate every subterm an ambiguity report names by its span in `text`, a whole input whose
+/// byte zero is line 1, column 1 (a program, or a configuration value), whatever source
+/// identity its spans carry.
+pub(super) fn locate_ambiguity_places_in_text(error: &mut ParseError, text: &str) {
+    locate_places(error, |span| {
+        text_location(text, span.start, span.end, 1, 1)
+    });
+}
+
+fn locate_places(error: &mut ParseError, locate: impl Fn(TermSpan) -> Option<Location>) {
     if let ParseError::Ambiguous { places, .. } = error {
         for place in places {
-            place.location = place
-                .span
-                .and_then(|span| span_location(attributes, contents, span));
+            place.location = place.span.and_then(&locate);
         }
     }
 }
@@ -45,16 +56,27 @@ pub(super) fn span_location(
         .unwrap_or(0);
     let start = span.start.checked_sub(content_offset)?;
     let end = span.end.checked_sub(content_offset)?;
-    let prefix = contents.get(..start)?;
-    let through = contents.get(start..end)?;
-    let mut line = attributes
+    let line = attributes
         .value(AttributeKey::ContentStartLine)
         .and_then(serde_json::Value::as_u64)
         .and_then(|line| u32::try_from(line).ok())?;
-    let mut column = attributes
+    let column = attributes
         .value(AttributeKey::ContentStartColumn)
         .and_then(serde_json::Value::as_u64)
         .and_then(|column| u32::try_from(column).ok())?;
+    text_location(contents, start, end, line, column)
+}
+
+/// The location of bytes `start..end` of `contents`, whose first byte is at `line`:`column`.
+fn text_location(
+    contents: &str,
+    start: usize,
+    end: usize,
+    mut line: u32,
+    mut column: u32,
+) -> Option<Location> {
+    let prefix = contents.get(..start)?;
+    let through = contents.get(start..end)?;
     advance(&mut line, &mut column, prefix);
     let (start_line, start_column) = (line, column);
     advance(&mut line, &mut column, through);

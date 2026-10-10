@@ -50,6 +50,7 @@ use crate::kast::printer::Printer;
 use crate::kast::{ProductionIdentity, Sort, Term, TermParts};
 use crate::provenance::SourceId;
 
+use super::location::locate_ambiguity_places_in_text;
 use super::parser::{DiagnosticWork, Grammar, ParseError, named_projection_productions};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -283,12 +284,24 @@ impl ProgramParser {
         self.grammar
             .parse_with_diagnostic_work(start_sort, source, diagnostic_work)
             .map(|term| ParsedProgram(without_source_spans(term)))
-            .map_err(|error| ProgramParseError {
-                module: self.module.clone(),
-                start_sort: start_sort.clone(),
-                error: Box::new(error),
-                item_attempt: None,
-            })
+            .map_err(|error| self.parse_error(start_sort, source, error))
+    }
+
+    /// The failure to parse `source` as `start_sort`: each subterm an ambiguity report names is
+    /// located by line and column in `source`, the text the user wrote.
+    fn parse_error(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+        mut error: ParseError,
+    ) -> ProgramParseError {
+        locate_ambiguity_places_in_text(&mut error, source);
+        ProgramParseError {
+            module: self.module.clone(),
+            start_sort: start_sort.clone(),
+            error: Box::new(error),
+            item_attempt: None,
+        }
     }
 
     /// Parse a K-declared configuration binding, preferring an existing item reading.
@@ -354,12 +367,7 @@ impl ProgramParser {
         self.grammar
             .parse_with_provenance(start_sort, source, source_id, 0)
             .map(ParsedProgram)
-            .map_err(|error| ProgramParseError {
-                module: self.module.clone(),
-                start_sort: start_sort.clone(),
-                error: Box::new(error),
-                item_attempt: None,
-            })
+            .map_err(|error| self.parse_error(start_sort, source, error))
     }
 
     /// Present a parse as user-facing KAST: remove from its labels the sort arguments that
@@ -771,6 +779,38 @@ endmodule
         assert_eq!(
             k_only.parse_configuration_k_value("whole").unwrap(),
             k_only.parse(&Sort::new("K"), "whole").unwrap()
+        );
+    }
+
+    #[test]
+    fn a_program_ambiguity_locates_its_subterms_by_line_and_column() {
+        let parser = parser(
+            r#"
+module MAIN
+  syntax Exp ::= "x" [symbol(first)] | "x" [symbol(second)]
+  syntax Pgm ::= "f" "(" Exp "," Exp ")" [symbol(f)]
+endmodule
+"#,
+        );
+        // Each `x` reads two ways independently, so the report names the two `x` as its
+        // subterms, located in the program text from line 1, column 1.
+        let error = parser.parse(&Sort::new("Pgm"), "f(x,\n  x)").unwrap_err();
+        let ParseError::Ambiguous { places, .. } = &*error.error else {
+            panic!("expected an ambiguity, got {error}");
+        };
+        let starts = places
+            .iter()
+            .map(|place| {
+                place
+                    .location
+                    .map(|location| (location.start_line, location.start_column))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(starts, [Some((1, 3)), Some((2, 3))]);
+        let message = error.to_string();
+        assert!(
+            message.contains("Subterm 1 at 1:3:") && message.contains("Subterm 2 at 2:3:"),
+            "{message}"
         );
     }
 
