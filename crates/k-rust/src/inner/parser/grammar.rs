@@ -214,13 +214,7 @@ impl Grammar {
                 | Sentence::Bubble { .. } => None,
             })
             .map(|items| match items.as_slice() {
-                [
-                    ProductionItem::RegexTerminal {
-                        precede_regex: None,
-                        regex,
-                        follow_regex: None,
-                    },
-                ] => Ok(regex.clone()),
+                [ProductionItem::RegexTerminal { regex }] => Ok(regex.clone()),
                 _ => Err(ParseError::InvalidLayoutProduction),
             })
             .collect::<Result<Vec<_>, _>>()?;

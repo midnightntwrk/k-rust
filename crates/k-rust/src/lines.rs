@@ -1,6 +1,6 @@
 //! Where lines end in a text that k-rust scans: one table, read by the source locations
-//! (`inner::location`), the token-regex line anchors and restriction anchors of the in-process
-//! scanner (`inner::parser::scanner`), and printed into the C runtime of generated scanners
+//! (`inner::location`), the token-regex line anchors of the in-process scanner
+//! (`inner::parser::scanner`), and printed into the C runtime of generated scanners
 //! (`bison::scanner`), so a location, a `^` and a `$` all see the same lines.
 //!
 //! A text is a sequence of lines separated by line terminators. A position is a line start when
@@ -53,8 +53,10 @@ pub(crate) fn starts_line(text: &str, index: usize) -> bool {
 }
 
 /// Whether byte `index` of `text` ends a line: a line terminator starts there and `index` is not
-/// inside another one.
-pub(crate) fn ends_line(text: &str, index: usize) -> bool {
+/// inside another one. The scanner reads line ends through [`line_end_regex`], which a test checks
+/// against this.
+#[cfg(test)]
+fn ends_line(text: &str, index: usize) -> bool {
     terminator_at(text, index).is_some() && !inside_terminator(text, index)
 }
 
@@ -78,25 +80,6 @@ pub(crate) fn line_end_regex() -> String {
         })
         .collect::<Vec<_>>();
     format!("(?:{})", alternatives.join("|"))
-}
-
-/// A regex (Rust `regex` syntax) that holds at a line start of the matched text: the start of the
-/// text, or after a line terminator it consumes. The CRLF-mode multi-line `^` after a consumed
-/// `\r` holds unless a `\n` follows, where the `\r` is the start of `\r\n` and the position is
-/// inside it.
-pub(crate) fn line_start_regex() -> String {
-    let alternatives = LINE_TERMINATORS
-        .into_iter()
-        .map(|terminator| {
-            let escaped = escape(terminator);
-            if terminator == "\r" {
-                format!("{escaped}(?Rm:^)")
-            } else {
-                escaped
-            }
-        })
-        .collect::<Vec<_>>();
-    format!(r"(?:\A|{})", alternatives.join("|"))
 }
 
 /// `terminator` as a Rust regex that matches exactly it.
@@ -125,8 +108,8 @@ mod tests {
         }
     }
 
-    /// The two regexes special-case `\r` and `\n`; this is the only place one terminator can
-    /// start or end inside another, which is what the CRLF-mode anchors exclude.
+    /// This is the only place one terminator can start or end inside another, which
+    /// [`inside_terminator`] and the line-end regex's CRLF-mode anchor exclude.
     #[test]
     fn only_the_newline_of_crlf_starts_inside_another_terminator() {
         let mut interior = Vec::new();
@@ -142,7 +125,7 @@ mod tests {
         assert_eq!(
             interior,
             [("\r\n", 1, "\n"), ("\r\n", 1, "\r")],
-            "a terminator inside another needs its own guard in the line regexes"
+            "a terminator inside another needs its own guard where line ends are read"
         );
     }
 
@@ -164,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn the_line_regexes_hold_where_the_position_functions_do() {
+    fn the_line_end_regex_holds_where_ends_line_does() {
         let texts = LINE_TERMINATORS
             .into_iter()
             .chain(["", "x", "\u{2027}"])
@@ -176,21 +159,14 @@ mod tests {
                 ]
             })
             .collect::<Vec<_>>();
-        // A body ending in `\r`, then one starting with `\n`, probes the inside of `\r\n`.
-        for (end, start) in [("a", "b"), ("a\r", "b"), ("a", "\nb")] {
+        // A body ending in `\r` probes the inside of `\r\n`.
+        for end in ["a", "a\r"] {
             let ends = Regex::new(&format!(r"\A(?:{end}){}", line_end_regex())).unwrap();
-            let starts = Regex::new(&format!(r"{}(?:{start})\z", line_start_regex())).unwrap();
             for text in &texts {
                 assert_eq!(
                     ends.is_match(text),
                     text.starts_with(end) && ends_line(text, end.len()),
                     "{end:?} in {text:?}"
-                );
-                let start_index = text.len() - start.len();
-                assert_eq!(
-                    starts.is_match(text),
-                    text.ends_with(start) && starts_line(text, start_index),
-                    "{start:?} in {text:?}"
                 );
             }
         }

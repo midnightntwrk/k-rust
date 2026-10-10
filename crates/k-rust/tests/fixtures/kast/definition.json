@@ -22,7 +22,7 @@
             "productionItems": [
               { "node": "KNonTerminal", "sort": { "node": "KSort", "name": "Bool", "params": [] }, "name": "left" },
               { "node": "KTerminal", "value": "and" },
-              { "node": "KRegexTerminal", "precedeRegex": "[A-Z]", "regex": "[a-z]+", "followRegex": "#" }
+              { "node": "KRegexTerminal", "precedeRegex": "#", "regex": "[a-z]+", "followRegex": "#" }
             ],
             "params": [],
             "sort": { "node": "KSort", "name": "Bool", "params": [] },

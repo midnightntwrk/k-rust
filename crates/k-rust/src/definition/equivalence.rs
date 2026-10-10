@@ -625,12 +625,8 @@ fn production_items_equivalent(left: &[ProductionItem], right: &[ProductionItem]
                     },
                 ) => left_sort == right_sort && left_name == right_name,
                 (
-                    ProductionItem::RegexTerminal {
-                        regex: left_regex, ..
-                    },
-                    ProductionItem::RegexTerminal {
-                        regex: right_regex, ..
-                    },
+                    ProductionItem::RegexTerminal { regex: left_regex },
+                    ProductionItem::RegexTerminal { regex: right_regex },
                 ) => left_regex == right_regex,
                 (ProductionItem::Terminal(left), ProductionItem::Terminal(right)) => left == right,
                 _ => false,

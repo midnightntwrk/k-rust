@@ -1865,11 +1865,7 @@ fn items_key(items: &[ProductionItem]) -> String {
             ProductionItem::NonTerminal { sort, name } => {
                 format!("N{}{:?}", sort_key(sort), name)
             }
-            ProductionItem::RegexTerminal {
-                precede_regex,
-                regex,
-                follow_regex,
-            } => format!("R{precede_regex:?}{}{follow_regex:?}", length_prefix(regex)),
+            ProductionItem::RegexTerminal { regex } => format!("R{}", length_prefix(regex)),
             ProductionItem::Terminal(value) => format!("T{}", length_prefix(value)),
         })
         .collect::<Vec<_>>()

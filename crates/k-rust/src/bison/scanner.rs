@@ -17,8 +17,9 @@ pub(super) enum TokenKey {
     /// equal precedence that match equal-length text are tried in the same order by both
     /// scanners (the token order is the Flex rule order, see [`Scanner::new`]).
     ///
-    /// The legacy KAST `precedeRegex` and `followRegex` fields are enforced by the in-process
-    /// scanner, but the pinned standalone generator has no corresponding lookaround mechanism.
+    /// A regex token's text is a match of its regex, whatever text surrounds it: a regex terminal
+    /// holds no restriction on its neighbours (the KAST JSON reader refuses a document that states
+    /// a precede or follow restriction), so the canonical form is the whole token language.
     Regex(String),
 }
 
@@ -576,28 +577,20 @@ mod tests {
 
     use super::Scanner;
 
-    fn regex_production(
-        label: &str,
-        precede_regex: Option<&str>,
-        follow_regex: Option<&str>,
-    ) -> Sentence {
+    fn regex_production(label: &str, regex: &str) -> Sentence {
         Sentence::Production {
             label: Some(Label::new(label)),
             parameters: Vec::new(),
             sort: Sort::new("Token"),
-            items: vec![ProductionItem::RegexTerminal {
-                precede_regex: precede_regex.map(str::to_owned),
-                regex: "[a-z]+".into(),
-                follow_regex: follow_regex.map(str::to_owned),
-            }],
+            items: vec![ProductionItem::regex(regex)],
             attributes: Attributes::default(),
         }
     }
 
     #[test]
-    fn standalone_regex_identity_ignores_legacy_restrictions() {
-        let left = regex_production("left", Some("[0-9]"), None);
-        let right = regex_production("right", None, Some("[A-Z]"));
+    fn regexes_with_one_canonical_form_are_one_token() {
+        let left = regex_production("left", "[a-z]+");
+        let right = regex_production("right", "([a-z]+)");
         let sentences = [left.clone(), right.clone()];
 
         let scanner = Scanner::new(&sentences).unwrap();
@@ -627,11 +620,7 @@ mod tests {
             label: None,
             parameters: Vec::new(),
             sort: Sort::new("Token"),
-            items: vec![ProductionItem::RegexTerminal {
-                precede_regex: None,
-                regex: regex.into(),
-                follow_regex: None,
-            }],
+            items: vec![ProductionItem::regex(regex)],
             attributes: Attributes::default(),
         }
     }

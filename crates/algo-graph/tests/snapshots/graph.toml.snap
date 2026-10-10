@@ -7857,7 +7857,7 @@ id = "parser.scanner.winner"
 provenance = "declared"
 area = "parser"
 name = "global-winner lexical scanning"
-variable = "B = input bytes; L = registered lexemes; Y = layout patterns; m = work of one regex attempt, including a precede-restriction match over the input prefix"
+variable = "B = input bytes; L = registered lexemes; Y = layout patterns; m = work of one regex attempt"
 table = "Algorithm::ALL"
 registry_name = "ParserScannerWinner"
 

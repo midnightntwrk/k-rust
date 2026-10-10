@@ -106,21 +106,78 @@ macro_rules! assert_definition_round_trip {
     }};
 }
 
+/// The fixture's one regex terminal, whose `precedeRegex` and `followRegex` are `"#"`.
+const FIXTURE_REGEX_TERMINAL: &str =
+    r##"{ "node": "KRegexTerminal", "precedeRegex": "#", "regex": "[a-z]+", "followRegex": "#" }"##;
+
 #[test]
 fn upstream_reduced_definition_round_trips_structurally() {
     let input = include_str!("fixtures/kast/definition.json");
     let definition = json::from_str(input).unwrap();
     let encoded = json::to_string(&definition).unwrap();
 
+    // `"#"` restricts nothing, so the regex terminal is read as its regex alone and written
+    // without the two fields.
+    let unrestricted = input.replacen(
+        FIXTURE_REGEX_TERMINAL,
+        r#"{ "node": "KRegexTerminal", "regex": "[a-z]+" }"#,
+        1,
+    );
+    assert_ne!(unrestricted, input);
     assert_eq!(
         serde_json::from_str::<Value>(&encoded).unwrap(),
-        serde_json::from_str::<Value>(input).unwrap()
+        serde_json::from_str::<Value>(&unrestricted).unwrap()
     );
+    assert_eq!(definition, json::from_str(&unrestricted).unwrap());
     assert_eq!(definition.main_module().unwrap().name, "IMP");
 
     let attributes = definition.modules[0].local_sentences[1].attributes();
     assert_eq!(attributes.source(), Some("imp.k"));
     assert_eq!(attributes.location().unwrap().start_line, 4);
+}
+
+#[test]
+fn kast_json_token_restrictions_are_refused_naming_the_production() {
+    let input = include_str!("fixtures/kast/definition.json");
+    let production = r#"production syntax Bool ::= left:Bool "and" r"[a-z]+" [klabel(`_andBool_`)] at imp.k (4,3,4,42)"#;
+    for (precede, follow, restrictions) in [
+        (
+            "[A-Z]",
+            "#",
+            r#"precedeRegex "[A-Z]" (no token may start where a match of it ends)"#,
+        ),
+        (
+            "#",
+            "[0-9]",
+            r#"followRegex "[0-9]" (no token may end where a match of it starts)"#,
+        ),
+        (
+            "[A-Z]",
+            "[0-9]",
+            r#"precedeRegex "[A-Z]" (no token may start where a match of it ends) and followRegex "[0-9]""#,
+        ),
+    ] {
+        let restricted = input.replacen(
+            FIXTURE_REGEX_TERMINAL,
+            &format!(
+                r#"{{ "node": "KRegexTerminal", "precedeRegex": "{precede}", "regex": "[a-z]+", "followRegex": "{follow}" }}"#
+            ),
+            1,
+        );
+        assert_ne!(restricted, input);
+        let message = json::from_str(&restricted).unwrap_err().to_string();
+        assert!(
+            message.starts_with(&format!(
+                r#"module BOOL-SYNTAX: {production}: regex terminal r"[a-z]+" has "#
+            )),
+            "{message}"
+        );
+        assert!(message.contains(restrictions), "{message}");
+        assert!(
+            message.ends_with(r##"reads only "#" (no restriction) in these fields"##),
+            "{message}"
+        );
+    }
 }
 
 #[test]

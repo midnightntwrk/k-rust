@@ -332,6 +332,17 @@ To skip marker lines without renumbering, declare their text as `#Layout`.
 The pinned K accepts the production: its generated scanner calls a C function `line_marker` that the user links in (`--bison-file`); krust has no such option.
 (`a_line_marker_production_means_one_thing_to_both_parsers` in [cli.rs](../crates/k-rust/tests/cli.rs).)
 
+## Token precede and follow restrictions
+
+A regex terminal in a KAST JSON document (`KRegexTerminal`) may carry `precedeRegex` and `followRegex` fields.
+The value `"#"` restricts nothing, and krust reads it as no field.
+Any other value makes the token's language depend on the text around it: a precede regex rejects a token that starts where a match of it ends, and a follow regex rejects a token that a match of it follows.
+No K source syntax writes such a restriction, krust's grammar has no place for one, and neither parser krust builds scans a token by its neighbours, so the KAST JSON reader refuses a document whose regex terminal states one, with a message that names the module, the production (sort, items, label, source and location) and each restriction.
+Reading the regex alone would accept a larger token language than the document states and say nothing: with an identifier regex restricted not to follow `[A-Za-z0-9_]`, `12abc` is an error, while the unrestricted regex scans it as `12` and `abc`.
+krust writes neither field.
+The pinned K's Python reader (`pyk`'s `KRegexTerminal`) keeps only the regex and reads such a document as unrestricted, where krust refuses it.
+(`kast_json_token_restrictions_are_refused_naming_the_production` in [definition_json.rs](../crates/k-rust/tests/definition_json.rs).)
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
@@ -515,7 +526,7 @@ Every production that mentions a literal declares its precedence, explicitly or 
 A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end.
 
 A line end is one of the eight line terminators that locations count (see "Generated parser locations"): `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029, with `\r\n` one terminator, so no line starts or ends between its `\r` and its `\n`.
-A token regex's anchors and its precede and follow restrictions' anchors read these lines too.
+A token regex's anchors read these lines too.
 A location says where lines start, and `^` and `$` say where a token is relative to lines; with one notion of line, a token that `^` accepts is located at column 1, and one that `$` accepts is the last on its line, whatever terminator the program uses.
 krust holds the terminators in one table (`crates/k-rust/src/lines.rs`), which the locations, both scanners' anchor checks and the C runtime of generated parsers read.
 This diverges from the pinned K's generated parsers, whose Flex `^` and `$` read only `\n` as a line end: there `r"^b"` rejects a `b` right after `\r`, U+2028 or another terminator other than `\n`, and `r"a$"` rejects an `a` right before one, where krust accepts both.
