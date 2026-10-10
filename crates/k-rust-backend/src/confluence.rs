@@ -8,7 +8,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition (check)"
-//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, simplified only when no earlier condition of the check renamed to it; then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
+//! bound = "one pass over the e equations for the rows of the constructor and overload preconditions; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort"
 //! ```
 //!
 //! The load-time check that decides which value claims a definition may make.
@@ -502,12 +502,23 @@ pub struct CheckCounts {
     /// Steps the join took.
     pub join_steps: usize,
     /// Conditions given to the predicate simplifier (to be refuted or decided), including those
-    /// the memo answered.
+    /// the memo answered. Each is answered in exactly one way, so this is the sum of
+    /// `condition_memo_hits`, `key_simplifications` and `as_written_simplifications`.
     pub simplifier_calls: usize,
     /// Of those, the conditions answered from the memo of condition simplifications
-    /// ([`ConditionMemo`]), with no simplification; zero with the memo off, every other count
-    /// being the same either way.
+    /// ([`ConditionMemo`]), with no simplification; zero with the memo off.
     pub condition_memo_hits: usize,
+    /// Of those, the conditions whose memo key (the condition with its free variables renamed
+    /// canonically, `memo.rs`) was simplified: one per key with the memo on, none with it off.
+    pub key_simplifications: usize,
+    /// Of those, the conditions simplified as written and not through their key: every
+    /// condition with the memo off, and with it on each condition whose key's answer the memo
+    /// refused earlier in the check.
+    pub as_written_simplifications: usize,
+    /// Of the key simplifications, those whose answer the memo refused (renaming it back could
+    /// capture or share a variable): the condition is then simplified as written too. The
+    /// simplifications run are `key_simplifications + as_written_simplifications` plus these.
+    pub condition_memo_refusals: usize,
     /// Equations whose left-hand side may match one subject in several ways (a map or set
     /// pattern with an entry the rest of the left-hand side does not fix): each is a root pair
     /// with itself, counted among the overlaps and as joined or not joined.
@@ -521,6 +532,22 @@ pub struct CheckCounts {
     /// Stage-2 candidate pairs not classified because neither equation is relevant (zero under
     /// [`CheckScope::All`]); `pairs` does not count them.
     pub skipped: usize,
+}
+
+impl CheckCounts {
+    /// The counts that do not depend on the memo of condition simplifications: these, with
+    /// the memo's own work (its hits, key simplifications, as-written simplifications and
+    /// refusals) zeroed. The check with and without the memo agrees on them.
+    #[must_use]
+    pub fn without_memo_work(self) -> Self {
+        Self {
+            condition_memo_hits: 0,
+            key_simplifications: 0,
+            as_written_simplifications: 0,
+            condition_memo_refusals: 0,
+            ..self
+        }
+    }
 }
 
 /// A critical pair that does not provably join, or an executable equation that the evaluator
@@ -1159,11 +1186,14 @@ impl<'d> Context<'d> {
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop:
     /// from the memo when a predicate that renames to the same key was simplified before
-    /// (`memo.rs`), else by [`Self::simplify_now`].
+    /// (`memo.rs`); else by [`Self::simplify_now`], of the predicate as written when the memo is
+    /// off or refused that key's answer before, and otherwise of the key, then of the predicate
+    /// as written if the memo refuses the key's answer.
     fn simplify(&mut self, predicate: Predicate) -> Option<Predicate> {
         self.counts.simplifier_calls += 1;
         measure::bump(Counter::ConfluenceSimplifierCalls);
         let Some(memo) = &self.memo else {
+            self.counts.as_written_simplifications += 1;
             return self.simplify_now(predicate);
         };
         let canonical = match memo.lookup(&predicate) {
@@ -1171,13 +1201,21 @@ impl<'d> Context<'d> {
                 self.counts.condition_memo_hits += 1;
                 return answer;
             }
+            memo::Lookup::AsWritten => {
+                self.counts.as_written_simplifications += 1;
+                return self.simplify_now(predicate);
+            }
             memo::Lookup::Miss(canonical) => canonical,
         };
+        self.counts.key_simplifications += 1;
         let answer = self.simplify_now(canonical.key.clone());
         let memo = self.memo.as_mut().expect("the memo is on");
         match memo.store(canonical, answer) {
             Ok(answer) => answer,
-            Err(()) => self.simplify_now(predicate),
+            Err(()) => {
+                self.counts.condition_memo_refusals += 1;
+                self.simplify_now(predicate)
+            }
         }
     }
 
@@ -1678,12 +1716,9 @@ fn check_detached(
             TermIndex::DomainValue | TermIndex::And => None,
         };
         if let Some(kind) = violation {
-            if matches!(
-                kind,
-                ViolationKind::ConstructorHeaded(_) | ViolationKind::InjectionHeaded
-            ) {
-                // An equation outside the check's reasoning: seeded into the closure like a pair
-                // that does not join (R1.5).
+            if kind.withdraws() {
+                // An equation outside the check's reasoning: its overlaps are never classified,
+                // so it is seeded into the closure like a pair that does not join (R1.5).
                 row_seeds.push(Arc::clone(&equation.rule));
             }
             checked.violations.push(Violation {
@@ -1695,10 +1730,10 @@ fn check_detached(
     let withdrawable = definition
         .symbols()
         .values()
-        .any(|symbol| closure::may_be_tainted(symbol) && certified_root(definition, symbol));
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
     if !withdrawable {
         // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted by any closure (`closure::may_be_tainted`): there is no
+        // classes) can be tainted by any closure (`closure::taintable`): there is no
         // equation head, hooked or not, and every overloaded symbol is a free constructor or
         // hooked. So no pair changes a claim, and the collection claims read only equations
         // indexed at a collection or a bare variable, which the rows above taint.
@@ -1959,6 +1994,13 @@ fn check_detached(
 
     checked.counts = context.counts;
     checked.counts.unjoined = unjoined.len();
+    debug_assert_eq!(
+        checked.counts.simplifier_calls,
+        checked.counts.condition_memo_hits
+            + checked.counts.key_simplifications
+            + checked.counts.as_written_simplifications,
+        "every condition is answered from the memo, through its key or as written"
+    );
     #[cfg(test)]
     {
         checked.families = Some(context.families.clone());
@@ -1991,8 +2033,8 @@ fn check_detached(
             || tainted.iter().all(|name| definition
                 .symbols()
                 .get(name)
-                .is_some_and(|symbol| closure::may_be_tainted(symbol))),
-        "the closure tainted a symbol outside `may_be_tainted`, which the shortcut reads: {tainted:?}"
+                .is_some_and(|symbol| closure::taintable(symbol))),
+        "the closure tainted a symbol outside `taintable`, which the shortcut reads: {tainted:?}"
     );
     for symbol in &tainted {
         checked

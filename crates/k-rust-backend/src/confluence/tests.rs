@@ -611,13 +611,18 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
         memo.store(canonical, Some(Predicate::Ceil(other.clone()))),
         Err(())
     );
-    let Lookup::Miss(canonical) = memo.lookup(&condition) else {
-        panic!("the refused answer is not stored");
-    };
+    assert!(
+        matches!(memo.lookup(&condition), Lookup::AsWritten),
+        "the refused answer is not stored, and the refusal is"
+    );
     let bound = crate::term::Variable::new("Z", crate::term::Sort::simple("SortNat"));
     let quantified = Predicate::Exists(bound, Box::new(Predicate::Ceil(other)));
+    let mut memo = Memo::default();
+    let Lookup::Miss(canonical) = memo.lookup(&condition) else {
+        panic!("an empty memo answers nothing");
+    };
     assert_eq!(memo.store(canonical, Some(quantified.clone())), Err(()));
-    assert!(matches!(memo.lookup(&condition), Lookup::Miss(_)));
+    assert!(matches!(memo.lookup(&condition), Lookup::AsWritten));
     // Keyed as written.
     let with_binder = Predicate::And(vec![condition, quantified.clone()]);
     assert_eq!(Canonical::of(&with_binder).key, with_binder);
@@ -632,6 +637,90 @@ fn the_memo_stores_no_answer_a_renaming_could_capture_in() {
         memo.lookup(&with_binder),
         Lookup::Hit(Some(answer)) if answer == quantified
     ));
+}
+
+/// A key is simplified at most once per check. When the memo refuses the key's answer, the
+/// caller simplifies the predicate as written; a later predicate with the same key must go
+/// straight to that, not simplify the key again only to have its answer refused again, which
+/// costs two simplifications per occurrence instead of one.
+#[test]
+fn a_key_whose_answer_was_refused_is_not_simplified_again() {
+    use super::memo::{Lookup, Memo};
+    use crate::rule::Predicate;
+    let definition = definition("");
+    let other = term(&definition, "f{}(Z:SortNat{})");
+    let mut memo = Memo::default();
+    let Lookup::Miss(canonical) = memo.lookup(&two_conjuncts(&definition, "X", "Y")) else {
+        panic!("an empty memo answers nothing");
+    };
+    assert_eq!(memo.store(canonical, Some(Predicate::Ceil(other))), Err(()));
+    assert!(
+        matches!(
+            memo.lookup(&two_conjuncts(&definition, "U", "V")),
+            Lookup::AsWritten
+        ),
+        "the memo asks again for the simplification of a key whose answer it refused"
+    );
+}
+
+/// `w(Y) = m(z) requires \ceil(f(Y))` beside `w(Y) = m(s(z))` and `w(Y) = m(s(s(z)))`, with
+/// the lemma `\ceil(f(X)) = \exists Z. X = s(Z)`: the first equation's two root pairs have
+/// the same condition with differently named variables, so one memo key, and that key's answer
+/// has a quantifier, which the memo refuses under a renamed key. Each condition is answered in
+/// one way (from the memo, through its key, or as written), and the key is simplified once: the
+/// second condition is simplified as written only. The verdict and the counts but the memo's
+/// own work are those of the check without the memo.
+#[test]
+fn a_check_simplifies_a_refused_key_once_and_counts_every_condition() {
+    use super::{CheckScope, ConditionMemo};
+    let w = |requires: &str, right: &str, id: &str| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}({requires}, \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, Y:SortNat{{}}), \top{{R}}())),
+                \equals{{SortS{{}}, R}}(w{{}}(X0:SortNat{{}}), \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}()))
+            ) [anywhere{{}}(), UNIQUE'Unds'ID{{}}("{id}")]"#
+        )
+    };
+    let definition = definition(&format!(
+        r#"{} {} {}
+        axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{R, R}}(
+            \ceil{{SortNat{{}}, R}}(f{{}}(X:SortNat{{}})),
+            \and{{R}}(\exists{{R}}(Z:SortNat{{}}, \equals{{SortNat{{}}, R}}(X:SortNat{{}}, s{{}}(Z:SortNat{{}}))), \top{{R}}())))
+            [simplification{{}}()]"#,
+        w(
+            r"\ceil{SortNat{}, R}(f{}(Y:SortNat{}))",
+            "m{}(z{}())",
+            "w-ceil"
+        ),
+        w(r"\top{R}()", "m{}(s{}(z{}()))", "w-one"),
+        w(r"\top{R}()", "m{}(s{}(s{}(z{}())))", "w-two"),
+    ));
+    for scope in [CheckScope::Gate, CheckScope::All] {
+        let on = definition.value_claims_checked(scope, ConditionMemo::On);
+        let counts = on.counts();
+        assert_eq!(
+            (
+                counts.simplifier_calls,
+                counts.condition_memo_hits,
+                counts.key_simplifications,
+                counts.as_written_simplifications,
+                counts.condition_memo_refusals,
+            ),
+            (2, 0, 1, 1, 1),
+            "{scope:?}: {counts:?}"
+        );
+        let off = definition.value_claims_checked(scope, ConditionMemo::Off);
+        assert!(on.verdict_differences(&off).is_empty(), "{scope:?}");
+        assert_eq!(
+            counts.without_memo_work(),
+            off.counts().without_memo_work(),
+            "{scope:?}"
+        );
+        assert_eq!(
+            off.counts().as_written_simplifications,
+            off.counts().simplifier_calls
+        );
+    }
 }
 
 /// `w(z) = m(z) requires f(z) = z` beside `w(z) = m(s(z))`, with `f(z) = f_z`: the pair's

@@ -1,10 +1,10 @@
 //! The load's scope (`CheckScope::Gate`) on the classes review 1 found no test reaching (the
 //! design's "Revision after review 1"): pairs at which the relevance filter's decision matters,
-//! which need an index that is not a taintable symbol (a hooked root, a collection, a bare
-//! variable); the overloaded symbols of `G`; definitions without an equation head; and the
+//! which need an index that is not a taintable symbol (a hooked function's root, a collection, a
+//! bare variable); the overloaded symbols of `G`; definitions without an equation head; and the
 //! spelling of a reported pair, which must not depend on what the check classified before it.
 //! Review 2 added definitions whose only equation head is hooked, which the closure withdraws
-//! through a variable's sort (T-obs) or a pin though T-sym never taints a hooked symbol.
+//! through a variable's sort (T-obs) or a pin, with no equation that mentions it.
 
 use super::definition;
 use crate::{
@@ -330,8 +330,8 @@ fn assert_withdrawn_alike(definition: &BackendDefinition, symbol: &str) {
 /// element of `S` can hold an application of the hooked head `hw`, so the pair withdraws `hw`
 /// though it never mentions it. The check must classify the pair although its only equation
 /// head is hooked; with an unrelated unhooked head `ww` beside it (no shortcut either way), the
-/// closure itself must return `hw`, a symbol T-sym never taints (the debug assertion that the
-/// closure returns only `may_be_tainted` symbols reads it).
+/// closure itself must return `hw`, which neither equation mentions (the debug assertion that
+/// the closure returns only `taintable` symbols reads it).
 #[test]
 fn a_hooked_equation_head_is_withdrawn_through_a_variable_sort() {
     for unrelated in ["", "symbol ww{}(SortNat{}) : SortNat{} [anywhere{}()]"] {

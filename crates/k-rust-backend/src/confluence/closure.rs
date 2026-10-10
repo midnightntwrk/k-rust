@@ -11,14 +11,19 @@
 //! - **T0**: both equations of every non-joined pair are tainted;
 //! - **T1**: an executable equation whose left-hand side mentions a tainted symbol is tainted;
 //! - **T-sym**: a tainted equation taints every symbol it mentions (left-hand side, right-hand
-//!   side, `requires`, `ensures`) that is neither a free constructor nor hooked (a free
-//!   constructor's applications are its own values in every model; a hook's interpretation is
-//!   fixed in every model, and precondition P6 makes its equations agree with it);
+//!   side, `requires`, `ensures`) that is [`taintable`]: neither a free constructor nor a hooked
+//!   symbol other than an equation head (a free constructor's applications are its own values in
+//!   every model; a hooked function's interpretation is fixed in every model, and precondition
+//!   P6 makes its equations agree with it; an equation head's applications denote what its
+//!   equations make of them, hooked or not, since a hooked head may be partial);
 //! - **T-obs**: a tainted equation taints every equation head whose applications can occur inside
 //!   an element of the sort of one of its variables ([`SortReach`]), in the model below.
 //!
-//! The closure is also seeded by the equations of the precondition rows that taint (an equation
-//! headed by a free constructor or an injection) and by the heads a pinned symbol withdraws.
+//! The closure is also seeded by the equations of every precondition row that withdraws
+//! ([`super::ViolationKind::withdraws`]: an equation headed by a free constructor or an
+//! injection, or indexed at a collection or a bare variable, whose overlaps the check does not
+//! classify, so it is withdrawn like a pair that does not join) and by the heads a pinned symbol
+//! withdraws.
 //!
 //! The operator is monotone on a finite lattice, so a worklist that visits each equation once
 //! and pushes each symbol once reaches its least fixpoint (Kleene iteration). With this closure,
@@ -234,19 +239,24 @@ impl<'e> Closure<'e> {
     }
 }
 
-/// Whether the closure taints `symbol` when a tainted equation mentions it (T-sym's filter
-/// only: T-obs and the pins never consult it).
+/// Whether some closure can taint `symbol`, and so whether a tainted equation that mentions it
+/// taints it (T-sym) and an equation whose left-hand side mentions it is tainted with it (T1):
+/// one predicate for every rule. T-obs and the pins push equation heads from [`SortReach`],
+/// which holds every equation head, hooked or not, so this admits them all: an equation head's
+/// applications denote what its equations make of them, and a hooked head may be partial, so an
+/// axiom that mentions it, or whose variable ranges over a sort that holds it, constrains it
+/// like any other head. A free constructor's applications are its own values in every model,
+/// and a hooked symbol that is not an equation head is interpreted by its hook in every model
+/// (its equations agree with the hook, precondition P6); neither is ever pushed.
+/// [`Closure::taint`] returns no other symbol.
 pub(super) fn taintable(symbol: &Symbol) -> bool {
-    symbol.attributes.head_role() != HeadRole::FreeConstructor && symbol.attributes.hook.is_none()
-}
-
-/// Whether some closure can taint `symbol`: the union of what the rules push. T-sym pushes the
-/// [`taintable`] symbols; T-obs and the pins push equation heads from [`SortReach`], which holds
-/// every equation head, hooked or not (a hooked head may be partial, so a pair whose variable
-/// ranges over its sort constrains it like any other head); T0 and T1 taint equations, not
-/// symbols. [`Closure::taint`] returns no other symbol.
-pub(super) fn may_be_tainted(symbol: &Symbol) -> bool {
-    taintable(symbol) || symbol.attributes.head_role() == HeadRole::EquationHead
+    match symbol.attributes.head_role() {
+        HeadRole::FreeConstructor => false,
+        HeadRole::EquationHead => true,
+        HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {
+            symbol.attributes.hook.is_none()
+        }
+    }
 }
 
 /// The taintable symbols `rule` mentions: anywhere, or in its left-hand side only when not

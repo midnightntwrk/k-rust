@@ -17,8 +17,13 @@
 //!   back is defined on all of them and two answers never share a variable the simplifier
 //!   introduced;
 //! - an answer with a quantifier is stored only under a key as written, so that renaming it back
-//!   cannot bring a free variable under a binder of the same name. Under a renamed key such an
-//!   answer is discarded and the predicate as written is simplified instead.
+//!   cannot bring a free variable under a binder of the same name.
+//!
+//! An answer either case keeps out is *refused*: the predicate as written is simplified instead,
+//! and the key is marked refused. Whether a key's answer is refused is a function of the key
+//! (both cases read only the answer, the key's free variables and whether the key is the
+//! predicate as written), so every later predicate with that key is simplified as written
+//! directly, and a key is simplified at most once per check.
 //!
 //! A stopped or failed simplification is stored as "decides nothing", which is what the check
 //! reads it as wherever it occurs.
@@ -38,7 +43,15 @@ use crate::{
 /// Stored answers, by canonical predicate.
 #[derive(Default)]
 pub(super) struct Memo {
-    answers: FxHashMap<Predicate, Option<Predicate>>,
+    answers: FxHashMap<Predicate, Stored>,
+}
+
+/// What the memo holds for a key.
+enum Stored {
+    /// The key's answer, `None` for "decides nothing".
+    Answer(Option<Predicate>),
+    /// The key's answer could not be renamed back.
+    Refused,
 }
 
 /// A predicate in the memo's canonical form, with the renaming back to the original's names.
@@ -52,6 +65,9 @@ pub(super) struct Canonical {
 pub(super) enum Lookup {
     /// The stored answer, renamed back to the predicate's names.
     Hit(Option<Predicate>),
+    /// The key's answer was refused earlier in the check: simplify the predicate as written,
+    /// and store nothing.
+    AsWritten,
     /// No answer stored: simplify [`Canonical::key`] and hand the answer to
     /// [`Memo::store`].
     Miss(Canonical),
@@ -61,14 +77,17 @@ impl Memo {
     pub(super) fn lookup(&self, predicate: &Predicate) -> Lookup {
         let canonical = Canonical::of(predicate);
         match self.answers.get(&canonical.key) {
-            Some(answer) => Lookup::Hit(answer.as_ref().map(|answer| canonical.back(answer))),
+            Some(Stored::Answer(answer)) => {
+                Lookup::Hit(answer.as_ref().map(|answer| canonical.back(answer)))
+            }
+            Some(Stored::Refused) => Lookup::AsWritten,
             None => Lookup::Miss(canonical),
         }
     }
 
     /// Store `answer`, the simplification of `canonical.key`, when it may be renamed back, and
-    /// return it renamed back; `Err(())` when it may not be, and the caller must simplify the
-    /// predicate as written.
+    /// return it renamed back; when it may not be, mark the key refused and return `Err(())`:
+    /// the caller must simplify the predicate as written.
     pub(super) fn store(
         &mut self,
         canonical: Canonical,
@@ -76,15 +95,15 @@ impl Memo {
     ) -> Result<Option<Predicate>, ()> {
         if let Some(answer) = &answer {
             let key_variables = canonical.key.free_variables();
-            if !answer.free_variables().is_subset(&key_variables) {
-                return Err(());
-            }
-            if !canonical.back.is_empty() && has_binder(answer) {
+            if !answer.free_variables().is_subset(&key_variables)
+                || (!canonical.back.is_empty() && has_binder(answer))
+            {
+                self.answers.insert(canonical.key, Stored::Refused);
                 return Err(());
             }
         }
         let renamed = answer.as_ref().map(|answer| canonical.back(answer));
-        self.answers.insert(canonical.key, answer);
+        self.answers.insert(canonical.key, Stored::Answer(answer));
         Ok(renamed)
     }
 }
