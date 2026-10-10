@@ -797,7 +797,7 @@ mod tests {
                     detail: format!(
                         "a List result of length a 65-bit integer is longer than its cap of \
                          {elements} elements (16 GiB of {reference}-byte references): all of the \
-                         16 GiB this process may use (given by the embedder), since one \
+                         16 GiB this process may use (given by the caller), since one \
                          application holds 1 byte per byte of its result"
                     ),
                 }

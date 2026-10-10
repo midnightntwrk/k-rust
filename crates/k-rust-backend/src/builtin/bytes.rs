@@ -218,7 +218,7 @@ fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<Buil
         "BYTES.padRight"
     };
     expect_arity(hook, arguments, 3)?;
-    let Some(mut bytes) = read_bytes(&arguments[0]) else {
+    let Some(input) = bytes_value(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let Some((length, value)) = read_int(&arguments[1]).zip(read_byte(&arguments[2])) else {
@@ -227,21 +227,30 @@ fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<Buil
     let Some(value) = value.filter(|_| length.sign() != Sign::Minus) else {
         return Ok(BuiltinResult::Bottom);
     };
+    // Padding to a length the input already reaches leaves it as it is: the result is the
+    // argument, which the run already holds, so the application allocates nothing and no cap
+    // applies to it.
+    if length
+        .to_usize()
+        .is_some_and(|length| length <= input.len())
+    {
+        return Ok(BuiltinResult::Value(arguments[0].clone()));
+    }
     let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
-    let additional = length.saturating_sub(bytes.len());
-    if left && additional != 0 {
-        let mut padded = vec![value; additional];
-        padded.extend(bytes);
-        bytes = padded;
+    // One buffer of exactly the result's length, filled in order: growing a shorter one may
+    // reserve more than the result, or hold the old and the new buffer at once.
+    let mut padded = Vec::with_capacity(length);
+    if left {
+        padded.resize(length - input.len(), value);
+        padded.extend_from_slice(input);
     } else {
-        // Exactly the result's length: `resize` alone may reserve up to twice it.
-        bytes.reserve_exact(additional);
-        bytes.resize(bytes.len() + additional, value);
+        padded.extend_from_slice(input);
+        padded.resize(length, value);
     }
-    Ok(BuiltinResult::Value(bytes_term(&bytes)))
+    Ok(BuiltinResult::Value(bytes_term(&padded)))
 }
 
 fn reverse(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -342,13 +351,18 @@ fn bytes_to_int(arguments: &[Term]) -> HookResult<BuiltinResult> {
 }
 
 pub(super) fn read_bytes(term: &Term) -> Option<Vec<u8>> {
+    bytes_value(term).map(<[u8]>::to_vec)
+}
+
+/// The octets of a concrete `Bytes` argument, borrowed from the term that holds them.
+fn bytes_value(term: &Term) -> Option<&[u8]> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };
     if !sort.is_builtin(BuiltinSort::Bytes) {
         return None;
     }
-    Some(value.as_bytes().to_vec())
+    Some(value.as_bytes())
 }
 
 /// A concrete `Int` argument as a position: `Some(None)` when it is negative or beyond every
@@ -695,7 +709,7 @@ mod tests {
         let expected = BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
             detail: format!(
                 "a Bytes result of length a {}-bit integer is longer than its cap of 8589934592 \
-                 bytes (8 GiB): half of the 16 GiB this process may use (given by the embedder), \
+                 bytes (8 GiB): half of the 16 GiB this process may use (given by the caller), \
                  since one application holds 2 bytes per byte of its result",
                 large_length.bits()
             ),
@@ -784,6 +798,39 @@ mod tests {
         assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
     }
 
+    /// Padding to a length the input already reaches yields the input, which the run already
+    /// holds, so it is computed whatever the cap: under an allowance of 1 MiB (a cap of 512 KiB),
+    /// a 600 KiB value padded to 1 byte or to 550 KiB is that value, on either side.
+    #[test]
+    fn padding_to_a_length_the_input_reaches_is_not_capped() {
+        let small = Allowance::given(1 << 20);
+        let input = bytes_term(&vec![7; 600 << 10]);
+        for left in [false, true] {
+            for length in [1_u64, 550 << 10, 600 << 10] {
+                assert!(
+                    super::pad(
+                        &[input.clone(), int_term(length.into()), integer(1)],
+                        left,
+                        &small
+                    ) == Ok(BuiltinResult::Value(input.clone())),
+                    "pad (left: {left}) to {length}"
+                );
+            }
+            assert!(
+                refused(super::pad(
+                    &[
+                        input.clone(),
+                        int_term(((600 << 10) + 1).into()),
+                        integer(1)
+                    ],
+                    left,
+                    &small
+                )),
+                "pad (left: {left}) past the input and the cap"
+            );
+        }
+    }
+
     /// On a 32-bit target, whose largest allocation is 2^31 - 1 bytes and whose whole memory is at
     /// most 4 GiB, a `Bytes` result is at most a sixteenth of that allocation, 128 MiB, whatever
     /// the allowance: half the address space would let a length past `isize::MAX` reach the
@@ -853,7 +900,8 @@ mod tests {
     /// The most memory one application holds, per byte of its result, is
     /// [`BYTES_RESULT_PEAK_FACTOR`]: measured with the test allocator at two result lengths, the
     /// peak grows by exactly that many bytes per byte of result, for each hook, each side of
-    /// padding and inputs from empty to nearly as long as the result. The difference between the
+    /// padding and padded inputs empty, one byte long, a quarter, half and all but one byte as
+    /// long as the result. The difference between the
     /// two lengths leaves out the few bytes an application holds whatever its length.
     #[test]
     fn bytes_hooks_hold_twice_their_result() {
@@ -872,6 +920,8 @@ mod tests {
         for left in [false, true] {
             for (shape, input_length) in [
                 ("empty", &(|_| 0_u64) as &dyn Fn(u64) -> u64),
+                ("one byte", &|_| 1),
+                ("a quarter as long", &|length| length / 4),
                 ("half as long", &|length| length / 2),
                 ("one byte shorter", &|length| length - 1),
             ] {

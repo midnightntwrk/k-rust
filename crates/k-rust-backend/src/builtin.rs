@@ -912,12 +912,13 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
 pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 
 /// The most bytes one `padRightBytes`, `padLeftBytes` or `Int2Bytes` application holds at once,
-/// per byte of its result, beyond reading its arguments: 2, the result as the hook builds it and
-/// its copy into the term that holds it (see [`ResultCap`]).
+/// per byte of its result, beyond reading its arguments: 2, the result as the hook builds it, in
+/// one buffer of exactly its length, and its copy into the term that holds it (see [`ResultCap`]).
 ///
 /// Measured, not chosen: `bytes_hooks_hold_twice_their_result` in `builtin/bytes.rs` records the
 /// most memory one application allocates and has not freed, with a counting allocator, at two
-/// result lengths, for each hook and for inputs empty, half and nearly as long as the result, and
+/// result lengths, for each hook and for padded inputs empty, one byte long, a quarter, half and
+/// all but one byte as long as the result, and
 /// takes the factor as the growth of that peak per byte of result between the two lengths, which
 /// leaves out the few bytes every application holds whatever its length.
 pub(crate) const BYTES_RESULT_PEAK_FACTOR: u64 = 2;

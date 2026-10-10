@@ -1,10 +1,10 @@
 //! The memory this process is allowed, read once per run.
 //!
-//! A hook whose result size an argument's value sets (`^Int`, `<<Int`, `padRightBytes`,
-//! `Int2Bytes`, `makeList`) may be asked for a result no allocation can hold. The allowance is the
-//! line against which such a result is judged: the smallest of the limits the operating system
-//! enforces on this process, each of which turns an allocation above it into a failed allocation
-//! or a killed process.
+//! A hook whose result size an argument's value sets (`padRightBytes`, `padLeftBytes`,
+//! `Int2Bytes`, `makeList`; `^Int` and `<<Int` keep their own bound, `MAX_INT_RESULT_BITS`) may
+//! be asked for a result no allocation can hold. The allowance is the line against which such a
+//! result is judged: the smallest of the limits the operating system enforces on this process,
+//! each of which turns an allocation above it into a failed allocation or a killed process.
 //!
 //! - **cgroup v2 `memory.max`** of the process's cgroup and of every ancestor up to the cgroup2
 //!   mount (Linux). The kernel charges a cgroup's memory to each of its ancestors and reclaims or
@@ -25,9 +25,9 @@
 //! far, on the timing of parallel branches, or on other processes sharing the cgroup; a result
 //! that fits the allowance but not what is left fails as any other allocation does.
 //!
-//! [`Allowance::of_process`] reads the limits once and keeps them for the run. Tests and
-//! embedders give an allowance of their own with [`Allowance::given`], so that whether a result
-//! is refused does not depend on the host.
+//! [`Allowance::of_process`] reads the limits once and keeps them for the run. Tests give an
+//! allowance of their own with [`Allowance::given`] and pass it to the hooks, so that whether a
+//! result is refused does not depend on the host.
 
 use std::fmt;
 #[cfg(target_os = "linux")]
@@ -55,7 +55,7 @@ pub enum AllowanceSource {
     PhysicalMemory,
     /// The address space of the target the backend is built for.
     TargetAddressSpace,
-    /// An allowance the embedder or a test gave ([`Allowance::given`]).
+    /// An allowance a test gave ([`Allowance::given`]).
     Given,
 }
 
@@ -94,7 +94,7 @@ impl fmt::Display for AllowanceSource {
             Self::DataLimit => formatter.write_str("RLIMIT_DATA"),
             Self::PhysicalMemory => formatter.write_str("physical memory"),
             Self::TargetAddressSpace => formatter.write_str("the target's address space"),
-            Self::Given => formatter.write_str("given by the embedder"),
+            Self::Given => formatter.write_str("given by the caller"),
         }
     }
 }
