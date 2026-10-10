@@ -39,18 +39,16 @@ pub(super) const FORCED: &str = "V6 (d)";
 pub(super) const SCOPES: &str = "V9";
 
 /// The tag of the memo's failures: the full check with and without its memo of condition
-/// simplifications differ in a verdict or a count other than the memo's hits.
+/// simplifications differ in a verdict or a count other than the memo's own work.
 pub(super) const MEMO: &str = "memo";
 
 /// Where the counts of `on`, a verdict computed with the memo of condition simplifications, and
-/// `off`, the same check's without it, differ beyond the memo's own hits, if anywhere.
+/// `off`, the same check's without it, differ beyond the memo's own work, if anywhere.
 pub(super) fn memo_count_difference(
     on: &crate::confluence::ValueClaims,
     off: &crate::confluence::ValueClaims,
 ) -> Option<String> {
-    let mut expected = on.counts();
-    expected.condition_memo_hits = 0;
-    (expected != off.counts()).then(|| {
+    (on.counts().without_memo_work() != off.counts().without_memo_work()).then(|| {
         format!(
             "counts with the memo {:?} against without {:?}",
             on.counts(),

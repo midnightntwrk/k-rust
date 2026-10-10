@@ -10,7 +10,8 @@
 //! (`CheckScope::All`), which also classifies the pairs that can change no claim. Each definition
 //! also passes V9: the two verdicts admit the same claims and warn about the same pairs. And in
 //! each scope the check without its memo of condition simplifications (`ConditionMemo::Off`)
-//! reaches the same verdict and the same counts but the memo's hits.
+//! reaches the same verdict and the same counts but the memo's own work
+//! (`CheckCounts::without_memo_work`).
 
 use std::time::Instant;
 
@@ -21,12 +22,10 @@ use k_rust_backend::{
 };
 
 /// Where `on`, a verdict computed with the memo of condition simplifications, and `off`, the same
-/// check's without it, differ: in the verdict, or in a count other than the memo's hits.
+/// check's without it, differ: in the verdict, or in a count other than the memo's own work.
 fn memo_differences(on: &ValueClaims, off: &ValueClaims) -> Vec<String> {
     let mut differences = on.verdict_differences(off);
-    let mut expected = on.counts();
-    expected.condition_memo_hits = 0;
-    if expected != off.counts() {
+    if on.counts().without_memo_work() != off.counts().without_memo_work() {
         differences.push(format!(
             "counts with the memo {:?} against without {:?}",
             on.counts(),
@@ -130,6 +129,8 @@ fn value_contract_corpus() {
             "condition_memo_hits": counts.condition_memo_hits,
             "full_simplifier_calls": full.counts().simplifier_calls,
             "full_condition_memo_hits": full.counts().condition_memo_hits,
+            "condition_memo_refusals": counts.condition_memo_refusals,
+            "full_condition_memo_refusals": full.counts().condition_memo_refusals,
         });
         println!("VALUE_CONTRACT {line}");
     }
