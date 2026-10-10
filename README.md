@@ -248,6 +248,7 @@ krust kast definition.k --module MAIN --sort Exp --gen-parser parser_Exp_MAIN
 ```
 
 `--gen-glr-parser` selects GLR generation and `--bison-stack-max-depth` sets the generated parser's stack bound.
+Printing the parsed term recurses once per level of nesting on the C stack, so a deep enough term ends in a segmentation fault under the default stack limit.
 
 Execute a concrete program using the in-process Rust backend:
 
