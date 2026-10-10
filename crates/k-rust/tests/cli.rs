@@ -10034,8 +10034,12 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `_ [ I <- J ]` would match a list only by finding some list whose update is the subject:
+/// the update is a function of a list, not a way to write one, and its list argument is bound
+/// nowhere else, so the rule reads it neither as written (no normal form is an update) nor by
+/// value. The definition checks reject it before any execution.
 #[test]
-fn krun_recovers_evaluable_collection_function_patterns() {
+fn krun_rejects_a_list_update_on_a_rewrite_rules_left_hand_side() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -10066,18 +10070,17 @@ endmodule
             "--depth",
             "20",
         ])
+        .stdin(Stdio::null())
         .output()
         .unwrap();
 
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        stderr.contains("Error[IllegalFunctionOnLhs]: Illegal function symbol List:set"),
+        "{stderr}"
     );
-    let output = String::from_utf8(output.stdout).unwrap();
-    assert!(output.contains("Lbl'-LT-'k'-GT-'{}(dotk{}())"), "{output}");
-    assert!(output.contains(r#"\dv{SortInt{}}("2")"#), "{output}");
-    assert!(!output.contains("Lbll'LPar"), "{output}");
+    assert!(output.stdout.is_empty());
 
     fs::remove_dir_all(root).unwrap();
 }
