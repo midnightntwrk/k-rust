@@ -1,8 +1,9 @@
 //! Class tests of the definedness cluster (`draft/open-issues-2026-10/tickets/definedness-tickets.md`).
 //!
 //! Each test states one invariant that follows from what the construct means, and checks krust
-//! against itself on small definitions; none compares with another implementation. They are
-//! ignored until the ticket that fixes their class lands, and each fails on `934d29e7`.
+//! against itself on small definitions; none compares with another implementation. The class
+//! tests failed on `934d29e7`; one that is a record rather than an acceptance test stays
+//! ignored, and one pins the decided reading of a computed pattern position.
 //!
 //! - An equation states nothing at an undefined argument: it binds each argument by membership
 //!   in its argument pattern, and an undefined term is a member of no pattern. So a step never
@@ -10,9 +11,8 @@
 //!   its `\ceil`, whether the equation consumes that subterm with a variable or with a pattern,
 //!   and whether the subterm is an application or a collection whose distinctness the pattern
 //!   splits.
-//! - A pattern denotes the values it can be instantiated to, so an application of a computed
-//!   symbol in a pattern matches the value it computes, as the same pattern with that value
-//!   written in its place does.
+//! - An equation matches its argument patterns as written, so an application of a computed
+//!   symbol in a pattern matches only the same application, never the value it computes.
 //! - The taint closure is a least fixpoint of its rules: an equation whose left-hand side
 //!   mentions a withdrawn symbol is withdrawn (T1), and an equation the check does not reason
 //!   about is withdrawn like a pair that does not join.
@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 use k_rust_backend::{
     definition::BackendDefinition,
     externalize,
-    rewrite::Pattern,
+    rewrite::{Pattern, RewriteResult},
     rule::{RuleRhs, TermIndex},
     simplify::SimplificationOptions,
     term::{HeadRole, Term, TermKind},
@@ -126,6 +126,15 @@ fn equation(
         .join(", ");
     format!(
         r"axiom{{R}} \implies{{R}}(\and{{R}}({requires}, {memberships}), \equals{{{result}, R}}({head}{{}}({parameters}), \and{{{result}}}({right}, \top{{{result}}}()))) [{attributes}]"
+    )
+}
+
+/// The unconditional simplification lemma `head(arguments) = right`, stated directly on its
+/// argument patterns.
+fn lemma(head: &str, result: &str, arguments: &[&str], right: &str) -> String {
+    format!(
+        r"axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{{result}, R}}({head}{{}}({}), \and{{{result}}}({right}, \top{{{result}}}()))) [simplification{{}}()]",
+        arguments.join(", ")
     )
 }
 
@@ -275,6 +284,25 @@ fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, Str
                 ],
             ),
             format!("fs{{}}(d{{}}(), {})", element("pf{}(d{}())")),
+            pf_d.clone(),
+        ),
+        // A simplification lemma states its equality without memberships, but an application
+        // is undefined where an argument is, so the lemma says nothing there either.
+        (
+            "lemma argument pattern",
+            definition(
+                PARTIAL,
+                &[
+                    pf_equation(),
+                    lemma(
+                        "fa",
+                        "SortS{}",
+                        &["VarX:SortFoo{}", "pf{}(VarX:SortFoo{})"],
+                        "one{}()",
+                    ),
+                ],
+            ),
+            "fa{}(d{}(), pf{}(d{}()))".to_owned(),
             pf_d,
         ),
         // A map or set is defined only where its keys (elements) are distinct, so
@@ -296,6 +324,25 @@ fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, Str
                 &["SortMap{}"],
                 &[
                     "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(c{}()), VarV:SortKItem{}), VarM:SortMap{})",
+                ],
+            ),
+            format!("fmr{{}}({})", symbolic_map()),
+            "VarY:SortFoo{}".to_owned(),
+        ),
+        (
+            "lemma map entry beside a rest",
+            definition(
+                PARTIAL,
+                &[
+                    pf_equation(),
+                    lemma(
+                        "fmr",
+                        "SortS{}",
+                        &[
+                            "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(c{}()), VarV:SortKItem{}), VarM:SortMap{})",
+                        ],
+                        "one{}()",
+                    ),
                 ],
             ),
             format!("fmr{{}}({})", symbolic_map()),
@@ -364,7 +411,6 @@ fn consumed_subterm_cases() -> Vec<(&'static str, BackendDefinition, String, Str
 /// `\ceil(u)` (a constraint mentions `u`). That does not depend on whether the equation consumes
 /// `u` with a variable or with a pattern; the variable case is the control.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Evaluator limit 1 (argument patterns); Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side; a collection pattern drops its collection's distinctness (definedness-stepback.md)"]
 fn a_step_keeps_or_carries_every_consumed_subterm_it_cannot_show_defined() {
     let mut failures = Vec::new();
     for (label, definition, subject, undefined) in consumed_subterm_cases() {
@@ -379,25 +425,131 @@ fn a_step_keeps_or_carries_every_consumed_subterm_it_cannot_show_defined() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// A pattern denotes the values its instances take, so an application of the partial function
-/// `pf` in a pattern matches the value it computes: with `pf(c) = c`, the subject `fa(c, c)`
-/// is an instance of `fa(X, pf(X))` at `X = c`, as it is of `fa(X, c)`, and so for a map key and
-/// a set element. The subject is written `fa(c, pf(c))` and evaluates innermost to `fa(c, c)`.
+/// An equation matches its argument patterns as written (`docs/compatibility.md`, "Function
+/// applications on a left-hand side"): an application of the partial function `pf` in a pattern
+/// matches only a subject that spells the same application, never the value it computes. With
+/// `pf(c) = c`, the subject `fa(c, pf(c))` evaluates innermost to `fa(c, c)`, which
+/// `fa(X, pf(X))` does not match, and so for a map key and a set element. (A rewrite rule reads
+/// such a position by value instead: `a_rewrite_rule_reads_a_computed_collection_position_by_value`
+/// in the k-rust CLI tests.)
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Evaluator limit 2 (below-root applications); Unjustified positions for a function symbol on a collection hook's left side"]
-fn a_computed_pattern_position_matches_the_value_it_computes() {
+fn an_equation_matches_a_computed_pattern_position_as_written() {
     let mut failures = Vec::new();
-    let one = printed_term(&internal_term(&definition(PARTIAL, &[]), "one{}()"));
     for (label, definition, subject, _) in consumed_subterm_cases()
         .into_iter()
         .filter(|(label, ..)| ["argument pattern", "map key", "set element"].contains(label))
     {
         let subject = subject.replace("d{}()", "c{}()");
+        let evaluated = simplified(&definition, &subject.replace("pf{}(c{}())", "c{}()"));
         let result = simplified(&definition, &subject);
-        if result != one {
+        if result != evaluated || result.contains("one{}") {
             failures.push(format!(
-                "{label}: {subject} simplifies to {result}, not {one}"
+                "{label}: {subject} simplifies to {result}, not to the unmatched {evaluated}"
             ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A ground subterm of an equation's left-hand side that is not in normal form is matched as
+/// written too: `fg(pf(c)) = one` with `pf(c) = c` applies neither to `fg(c)` nor to
+/// `fg(pf(c))`, which evaluates innermost to `fg(c)`. The subterm is one more pattern position
+/// the equation compares with its argument; nothing evaluates it first.
+#[test]
+fn an_equation_matches_a_ground_pattern_subterm_as_written() {
+    let definition = definition(
+        &format!("{PARTIAL} symbol fg{{}}(SortFoo{{}}) : SortS{{}} [function{{}}()]"),
+        &[
+            pf_equation(),
+            function_equation("fg", &["SortFoo{}"], &["pf{}(c{}())"]),
+        ],
+    );
+    let unmatched = printed_term(&internal_term(&definition, "fg{}(c{}())"));
+    for subject in ["fg{}(c{}())", "fg{}(pf{}(c{}()))"] {
+        assert_eq!(simplified(&definition, subject), unmatched, "{subject}");
+    }
+}
+
+/// The rewrite rule `rule(X, P) => one` for each pattern `P` of the computed-position shapes of
+/// [`consumed_subterm_cases`], rooted at the constructor `rule` (`ra`, `rk` or `rs`).
+fn computed_position_rewrite_cases() -> Vec<(&'static str, BackendDefinition, String)> {
+    let declarations = format!(
+        "{PARTIAL}
+        symbol ra{{}}(SortFoo{{}}, SortFoo{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol rk{{}}(SortFoo{{}}, SortMap{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+        symbol rs{{}}(SortFoo{{}}, SortSet{{}}) : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+    );
+    let rewrite = |head: &str, pattern: &str| {
+        definition(
+            &declarations,
+            &[
+                pf_equation(),
+                format!(
+                    r"axiom{{}} \rewrites{{SortS{{}}}}(\and{{SortS{{}}}}({head}{{}}(VarX:SortFoo{{}}, {pattern}), \top{{SortS{{}}}}()), one{{}}()) []"
+                ),
+            ],
+        )
+    };
+    vec![
+        (
+            "argument pattern",
+            rewrite("ra", "pf{}(VarX:SortFoo{})"),
+            "ra{}(c{}(), c{}())".to_owned(),
+        ),
+        (
+            "map key",
+            rewrite(
+                "rk",
+                "Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(pf{}(VarX:SortFoo{})), VarV:SortKItem{}), VarM:SortMap{})",
+            ),
+            "rk{}(c{}(), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortFoo{}, SortKItem{}}(c{}()), inj{SortFoo{}, SortKItem{}}(c{}())))".to_owned(),
+        ),
+        (
+            "set element",
+            rewrite(
+                "rs",
+                "Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortFoo{}, SortKItem{}}(pf{}(VarX:SortFoo{}))), VarS:SortSet{})",
+            ),
+            "rs{}(c{}(), LblSetItem{}(inj{SortFoo{}, SortKItem{}}(c{}())))".to_owned(),
+        ),
+    ]
+}
+
+/// A rewrite rule reads a computed position of its left-hand side by value (`docs/compatibility.md`,
+/// "Function applications on a left-hand side"): its step instantiates the variables bound
+/// elsewhere in the rule, evaluates the application and matches the result. With `pf(c) = c`,
+/// the configuration `ra(c, c)` is an instance of `ra(X, pf(X))` at `X = c`, and so for a map key
+/// and a set element; at `X = d`, where `pf` is undefined, no instance exists and the step is
+/// not taken.
+///
+/// This was the class test of the reading for every left-hand side. Equations are decided the
+/// other way (they match as written and carry the definedness of what they consume:
+/// `an_equation_matches_a_computed_pattern_position_as_written` and
+/// `a_step_keeps_or_carries_every_consumed_subterm_it_cannot_show_defined`), so the test keeps
+/// its three shapes but states them as rewrite rules rooted at a constructor, and adds the
+/// undefined control.
+#[test]
+fn a_computed_pattern_position_of_a_rewrite_rule_matches_the_value_it_computes() {
+    let mut failures = Vec::new();
+    for (label, definition, configuration) in computed_position_rewrite_cases() {
+        for (subject, expect_one) in [
+            (configuration.clone(), true),
+            (configuration.replacen("c{}()", "d{}()", 1), false),
+        ] {
+            let pattern = Pattern {
+                term: internal_term(&definition, &subject),
+                constraints: Vec::new(),
+            };
+            let result = unstopped::rewrite_step(
+                &definition,
+                &pattern,
+                &mut k_rust_backend::fresh::FreshCounter::default(),
+            );
+            let one = matches!(&result, RewriteResult::Finished(applied)
+                if printed_term(&applied.pattern.term) == "one{}()");
+            if one != expect_one {
+                failures.push(format!("{label}: {subject} steps to {result:?}"));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
