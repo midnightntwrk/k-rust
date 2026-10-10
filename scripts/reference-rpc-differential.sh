@@ -220,9 +220,13 @@ generate_state() {
   )
 }
 
-collect_responses() {
+# Every request goes through the pinned kore-rpc-client or a raw socket, whichever server answers,
+# so the whole collection runs as a reference call: in a subshell, under the reference's memory
+# bound, with the client's (non-threaded) GHC runtime options.
+collect_responses() (
   local port=$1
   local prefix=$2
+  ulimit -v "$reference_memory_kib"
   export GHCRTS=
   if [[ "$name" == imp ]]; then
     "$rpc_client" --port "$port" execute "$work/state.json" \
@@ -313,7 +317,7 @@ collect_responses() {
       }
     }' "$work/start.json")" \
     "$work/$prefix-error-implies-top.json"
-}
+)
 
 # N28: a backend error (error.code 1..9) is compared by class: code, message, and each
 # detail's error sentence. The context lines are the port's own diagnostics and the term is

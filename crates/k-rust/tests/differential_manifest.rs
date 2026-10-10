@@ -4203,6 +4203,29 @@ fn rpc_gate_reads_each_server_port_from_the_server_it_started() {
     }
 }
 
+/// Every request of an RPC session goes through the pinned `kore-rpc-client` or a raw socket,
+/// whichever server answers, so the session is a reference call like the gate's others: its
+/// function body is one subshell that applies the reference memory bound before any request.
+#[test]
+fn rpc_gate_sessions_run_under_the_reference_memory_bound() {
+    let start = RPC_SCRIPT
+        .find("\ncollect_responses() (\n")
+        .expect("the RPC session is a function whose body is a subshell");
+    let body = &RPC_SCRIPT[start + 1..];
+    let end = body.find("\n)\n").expect("the session subshell ends");
+    let body = &body[..end];
+    let bound = body
+        .find("ulimit -v \"$reference_memory_kib\"")
+        .expect("the session applies the reference memory bound");
+    let first_request = body
+        .find("\"$rpc_client\"")
+        .expect("the session sends requests through the reference client");
+    assert!(
+        bound < first_request,
+        "the bound must precede every request"
+    );
+}
+
 /// The RPC gate's request states are functions of the case's program and definition, so its
 /// reference `krun` calls run on an empty standard input, the reference-output cache's default
 /// without `--stdin`, rather than reading (or, for a terminal or an open pipe, blocking on and
