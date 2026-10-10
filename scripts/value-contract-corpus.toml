@@ -7,8 +7,10 @@
 # equation); the `full_` keys are the full check's (`CheckScope::All`), which also names the pairs
 # that withdraw no claim. The harness fails when the two verdicts admit different claims (V9), or
 # when either scope without the memo of condition simplifications (`ConditionMemo::Off`) differs in
-# its verdict or in a count other than the memo's hits; `simplifier_calls` counts the conditions
-# simplified or answered from the memo, `condition_memo_hits` those answered from it.
+# its verdict or in a count other than the memo's own; `simplifier_calls` counts the conditions
+# simplified or answered from the memo, `condition_memo_hits` those answered from it, and
+# `condition_memo_refusals` the memo keys whose answer the memo refused to store (each such key is
+# simplified as written from then on).
 
 [[case]]
 name = "fun"
@@ -38,6 +40,8 @@ simplifier_calls = 7
 condition_memo_hits = 3
 full_simplifier_calls = 12
 full_condition_memo_hits = 4
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "simple-untyped"
@@ -67,6 +71,8 @@ simplifier_calls = 2
 condition_memo_hits = 0
 full_simplifier_calls = 7
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "simple-typed-static"
@@ -96,6 +102,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 6
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "simple-typed-dynamic"
@@ -125,6 +133,8 @@ simplifier_calls = 2
 condition_memo_hits = 0
 full_simplifier_calls = 7
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "kool-untyped"
@@ -154,6 +164,8 @@ simplifier_calls = 3
 condition_memo_hits = 0
 full_simplifier_calls = 8
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "kool-typed-dynamic"
@@ -183,6 +195,8 @@ simplifier_calls = 5
 condition_memo_hits = 0
 full_simplifier_calls = 10
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "kool-typed-static"
@@ -212,6 +226,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 6
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "iele-bison-glr-bug"
@@ -241,6 +257,8 @@ simplifier_calls = 0
 condition_memo_hits = 0
 full_simplifier_calls = 0
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "glr2"
@@ -270,6 +288,8 @@ simplifier_calls = 0
 condition_memo_hits = 0
 full_simplifier_calls = 0
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "glr3"
@@ -299,6 +319,8 @@ simplifier_calls = 0
 condition_memo_hits = 0
 full_simplifier_calls = 0
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "glr4"
@@ -328,6 +350,8 @@ simplifier_calls = 0
 condition_memo_hits = 0
 full_simplifier_calls = 0
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "overload"
@@ -357,6 +381,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 6
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "issue-1090"
@@ -386,6 +412,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 6
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "issue-2909-llvm"
@@ -415,6 +443,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 2
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "issue-2909-haskell"
@@ -444,6 +474,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 2
 full_condition_memo_hits = 0
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "issue-4142"
@@ -473,6 +505,8 @@ simplifier_calls = 1
 condition_memo_hits = 0
 full_simplifier_calls = 6
 full_condition_memo_hits = 1
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
 
 [[case]]
 name = "wasm"
@@ -502,3 +536,5 @@ simplifier_calls = 68
 condition_memo_hits = 57
 full_simplifier_calls = 1738
 full_condition_memo_hits = 1480
+condition_memo_refusals = 0
+full_condition_memo_refusals = 0
