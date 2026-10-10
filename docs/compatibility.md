@@ -128,6 +128,10 @@ The definition's order relates sorts, and KORE's subsort axioms relate sorts, so
 Write the subsort of each declared instance instead, for example `syntax Foo ::= MInt{8} | MInt{16}`.
 This is a recorded divergence from the pinned K frontend: it accepts such a declaration and writes a definition that its own backend validation refuses.
 
+A collection sort (`hook(LIST.List)`, `hook(SET.Set)`, `hook(MAP.Map)`) whose `element` symbol takes an instance of `MInt`, such as `syntax MyL ::= myItem(MInt{64}) [function, total, hook(LIST.element), symbol(myItem)]` or a map binding with an `MInt{64}` key or value, is rejected by `kcompile` at that production with `UnsupportedParametricSort` (`Production myItem is the element symbol of collection sort MyL, but its element sorts include the parametric sort instance MInt{64}: parametric collection element sorts are not supported.`, `parametric map element sorts` for a map).
+A closed instance is an ordinary sort, but the backend's collection metadata names element, key and value sorts by sort name, so it refuses such a collection when it loads the definition; the compile-time error reports that refusal at the production until the backend carries those sorts whole.
+A collection of a sort above the instance (`syntax Foo ::= MInt{64}` with a list of `Foo`) compiles and loads.
+
 A sort synonym is a spelling of the sort at the end of its chain in the module's full view, including private imports.
 Sorts are named in production positions, casts, sort-valued attributes, and data given to a parser (start sorts and `#token` sort strings); all use that denotation.
 An alias must have no second meaning in the grammar views built at load, including views widened by implicit MAP and DEFAULT-CONFIGURATION imports.

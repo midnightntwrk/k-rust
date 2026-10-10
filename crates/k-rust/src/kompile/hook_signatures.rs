@@ -8,8 +8,13 @@
 //! emitted declarations state: the emitted symbol's argument and result sorts are the production's
 //! non-terminal and result sorts, a collection sort's element (key, value) sorts are the argument
 //! sorts of the symbol its `element` attribute names, and the subsort order is the one the
-//! emitted subsort axioms state, which has no pair into `K`. So a definition that compiles declares no symbol the backend
-//! refuses to load, and the error names the production rather than its KORE symbol.
+//! emitted subsort axioms state, which has no pair into `K`. So a definition that compiles
+//! declares no symbol the backend refuses to load, and the error names the production rather than
+//! its KORE symbol.
+//!
+//! The backend also refuses a collection whose element symbol takes an instance of a parametric
+//! sort (`MInt{64}`), because it names element (key, value) sorts by sort name; such an element
+//! symbol is rejected here too, at its production, until the backend carries those sorts whole.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -57,10 +62,11 @@ fn non_terminal_sorts(items: &[ProductionItem]) -> Vec<Sort> {
         .collect()
 }
 
-/// One error for every production of the main module that declares a hooked symbol (a
-/// `function` whose hook namespace is builtin or in `admitted`) under whose declaration the hook
-/// gives no value of the symbol's result sort.
-pub(super) fn collection_hook_misfit_diagnostics(
+/// One error for every element symbol of a collection sort of the main module that takes an
+/// instance of a parametric sort, and one for every production of the main module that declares
+/// a hooked symbol (a `function` whose hook namespace is builtin or in `admitted`) under whose
+/// declaration the hook gives no value of the symbol's result sort.
+pub(super) fn collection_hook_diagnostics(
     definition: &ResolvedDefinition,
     admitted: &[String],
 ) -> Vec<Diagnostic> {
@@ -77,6 +83,9 @@ pub(super) fn collection_hook_misfit_diagnostics(
     };
     let sorts = definition.sort_catalog(module);
     let mut collections = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    // The collection sorts rejected for a parametric element sort, whose shape is not decided.
+    let mut undecided = BTreeSet::new();
     for (head, attributes) in sorts.attributes_by_head() {
         let hook = attributes.string(AttributeKey::Hook);
         if head.parameters() != 0 || !matches!(hook, Some("LIST.List" | "SET.Set" | "MAP.Map")) {
@@ -98,7 +107,30 @@ pub(super) fn collection_hook_misfit_diagnostics(
         let Sentence::Production { items, .. } = productions.production(*id) else {
             continue;
         };
-        let shape = match (hook, non_terminal_sorts(items).as_slice()) {
+        let element_sorts = non_terminal_sorts(items);
+        // The backend names a collection's element (key, value) sorts by sort name, which no
+        // instance of a parametric sort such as `MInt{64}` has; it refuses such a collection.
+        if let Some(applied) = element_sorts
+            .iter()
+            .find(|sort| !sort.parameters.is_empty())
+        {
+            let (kind, roles) = if hook == Some("MAP.Map") {
+                ("map", "key and value")
+            } else {
+                ("collection", "element")
+            };
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::UnsupportedParametricSort,
+                format!(
+                    "Production {element} is the element symbol of collection sort {}, but its {roles} sorts include the parametric sort instance {applied}: parametric {kind} element sorts are not supported.",
+                    head.as_str()
+                ),
+                productions.production(*id),
+            ));
+            undecided.insert(Sort::new(head.as_str()));
+            continue;
+        }
+        let shape = match (hook, element_sorts.as_slice()) {
             (Some("LIST.List"), [element]) => CollectionShape::List(element.clone()),
             (Some("SET.Set"), [element]) => CollectionShape::Set(element.clone()),
             (Some("MAP.Map"), [key, value]) => CollectionShape::Map {
@@ -114,9 +146,9 @@ pub(super) fn collection_hook_misfit_diagnostics(
         subsorts: &subsorts,
     };
     let mut reported = BTreeSet::new();
-    let mut diagnostics = Vec::new();
-    // Invariant: `diagnostics` has one error for every label before `production` that declares a
-    // hooked symbol whose declaration `collection_hook_misfit` rejects.
+    // Invariant: besides the parametric element errors, `diagnostics` has one error for every
+    // label before `production` that declares a hooked symbol whose declaration
+    // `collection_hook_misfit` rejects.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
@@ -136,8 +168,12 @@ pub(super) fn collection_hook_misfit_diagnostics(
         let Some(hook) = attributes.string(AttributeKey::Hook) else {
             continue;
         };
-        let Some(reason) = collection_hook_misfit(hook, &non_terminal_sorts(items), sort, &facts)
-        else {
+        let arguments = non_terminal_sorts(items);
+        // Whether a hook fits a collection sort of undecided shape is not decided.
+        if undecided.contains(sort) || arguments.iter().any(|sort| undecided.contains(sort)) {
+            continue;
+        }
+        let Some(reason) = collection_hook_misfit(hook, &arguments, sort, &facts) else {
             continue;
         };
         if !reported.insert(label.name.clone()) {

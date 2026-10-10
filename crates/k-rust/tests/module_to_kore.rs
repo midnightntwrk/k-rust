@@ -3274,6 +3274,56 @@ case_tests! {
     }
 }
 
+/// The backend's collection metadata names a collection's element (key, value) sorts by sort
+/// name, so it cannot hold a closed instance of a parametric sort such as `MInt{64}`; a
+/// collection whose `element` symbol takes one would compile and then be refused at load. It is
+/// rejected at the element production, with the backend's reason.
+fn assert_parametric_collection_element_is_a_located_error(
+    kind: &str,
+    element: &str,
+    reason: &str,
+) {
+    let (unit_hook, concat) = match kind {
+        "MAP" => (
+            "MAP.unit",
+            "syntax C ::= C C [left, function, hook(MAP.concat), symbol(_C_), assoc, comm, unit(.C), element(cItem), index(0)]",
+        ),
+        "SET" => (
+            "SET.unit",
+            "syntax C ::= C C [left, function, total, hook(SET.concat), symbol(_C_), assoc, comm, unit(.C), element(cItem)]",
+        ),
+        _ => (
+            "LIST.unit",
+            "syntax C ::= C C [left, function, total, hook(LIST.concat), symbol(_C_), assoc, unit(.C), element(cItem)]",
+        ),
+    };
+    let collection = match kind {
+        "MAP" => "Map",
+        "SET" => "Set",
+        _ => "List",
+    };
+    let source = format!(
+        "module MAIN\n  imports MINT\n  imports INT\n  syntax C [hook({kind}.{collection})]\n  {concat}\n  syntax C ::= \".C\" [function, total, hook({unit_hook}), symbol(.C)]\n  syntax C ::= cItem({element}) [function, total, hook({kind}.element), symbol(cItem)]\n  syntax MInt{{64}}\nendmodule\n"
+    );
+    let (start_line, message) = compile_error(&source, "MAIN");
+    assert_eq!(start_line, 7, "{message}");
+    assert!(
+        message.contains("Production cItem is the element symbol of collection sort C")
+            && message.contains(reason),
+        "{message}"
+    );
+}
+
+case_tests! {
+    a_collection_element_of_a_parametric_sort_is_a_located_error =>
+        assert_parametric_collection_element_is_a_located_error {
+        list: ("LIST", "MInt{64}", "parametric collection element sorts are not supported"),
+        set: ("SET", "MInt{64}", "parametric collection element sorts are not supported"),
+        map_key: ("MAP", "MInt{64}, Int", "parametric map element sorts are not supported"),
+        map_value: ("MAP", "Int, MInt{64}", "parametric map element sorts are not supported"),
+    }
+}
+
 /// A collection hook declared at sorts under which it gives a value of its result sort compiles
 /// and loads: an element of a strict subsort of the result is injected.
 #[test]
