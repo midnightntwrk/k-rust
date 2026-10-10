@@ -2784,6 +2784,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         }
                     ));
                 };
+                let item = alias_of_cell_sort(item, &sort, self.model);
                 self.insert_child(&mut ordered, sort, item, cell)?;
             } else {
                 return Err(self.unplaceable_item(&item, None, cell));
@@ -3546,6 +3547,25 @@ fn set_variable_sort(term: Term, sort: Sort) -> Term {
         },
         metadata,
     )
+}
+
+/// The alias `P #as V` of one cell `P` of sort `sort`, placed in `P`'s child slot, with `V` of
+/// sort `sort` when it has no cell sort. `V` names the one cell `P`, so its value is a term of
+/// `sort`; a sort it took from the cell body it is written in (`Bag`, which a term of any number
+/// of cells has) would type the placed alias as a bag where the slot holds one cell.
+fn alias_of_cell_sort(item: Term, sort: &Sort, model: &CellModel) -> Term {
+    let metadata = item.metadata().cloned();
+    let TermParts::As { pattern, alias } = item.into_unannotated().into_parts() else {
+        unreachable!("only an alias is given a cell sort")
+    };
+    let alias = if matches!(alias.unannotated(), Term::Variable { .. })
+        && model.sort_for_term(&alias).is_none()
+    {
+        Box::new(set_variable_sort(*alias, sort.clone()))
+    } else {
+        alias
+    };
+    with_metadata(Term::As { pattern, alias }, metadata)
 }
 
 fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Term {

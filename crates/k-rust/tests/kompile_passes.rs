@@ -6978,6 +6978,43 @@ fn places_a_cell_sorted_function_on_a_rewrite_side_by_its_sort() {
     assert!(body.contains("mkoc"), "{body}");
 }
 
+// An alias `P #as V` of one cell names that cell, so `V` is a term of the cell's sort whatever
+// sort parsing gave it from the cell body it is written in (`Bag`). The rule compiles, through
+// the whole pipeline, as the one that writes `V` with the cell's sort.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_alias_of_one_cell_compiles_as_the_alias_written_with_the_cells_sort() {
+    let probe = |rule: &str| {
+        let source = format!(
+            r#"module TEST
+  imports INT
+  configuration <T> <k> $PGM:Int </k> <a> <y> 0 </y> <z> 0 </z> </a> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </T>
+  rule <k> 0 => 1 </k> {rule} [label(probe)]
+endmodule
+"#
+        );
+        let kore = compile_fixture("alias.k", &source, "TEST").definition_kore;
+        let axiom = kore
+            .split("axiom")
+            .find(|axiom| axiom.contains(r#"label{}("probe")"#))
+            .unwrap_or_else(|| panic!("{rule}: no probe axiom"));
+        // The axiom without its attributes, which locate it in the source.
+        axiom[..axiom.rfind('[').unwrap()].to_owned()
+    };
+    for (inferred, written) in [
+        (
+            "<a> (<y> Y </y> #as YC) ... </a>",
+            "<a> (<y> Y </y> #as YC:YCell) ... </a>",
+        ),
+        (
+            "<threads> (<thread> <id> 1 </id> ... </thread> #as TC) ... </threads>",
+            "<threads> (<thread> <id> 1 </id> ... </thread> #as TC:ThreadCell) ... </threads>",
+        ),
+    ] {
+        assert_eq!(probe(inferred), probe(written), "{inferred}");
+    }
+}
+
 // An item written among a cell's children outside any rewrite is placed by the same rule as one
 // on a rewrite side, so an item no child holds is rejected with the same message, located in the
 // cell's body.
