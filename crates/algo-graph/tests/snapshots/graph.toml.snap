@@ -7699,6 +7699,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/location.rs"
 symbol = "span_location"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/location.rs"
+symbol = "text_location"
+
 [[node.cost]]
 mode = "one span"
 bound = "O(B)"
