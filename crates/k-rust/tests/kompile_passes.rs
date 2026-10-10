@@ -7631,31 +7631,38 @@ fn places_a_bag_cell_written_beside_its_only_possible_parent_beside_written_inst
 // <top> holds one <threads>, and that <threads> holds many <thread> cells; likewise for the
 // <d> of some <a2> in some <r> of the one <a>. A cell written beside the one <threads> (or <a>)
 // states nothing its spelling inside that cell does not, so it is moved there and both spellings
-// compile to one rule, whatever completion reads inside that cell.
+// are one rule. Inside it the written <thread> (or the <r> of the written <a2>) may hold the
+// moved cell, as may another instance, and the rule does not state which: both spellings are
+// rejected alike, naming the cell, the repeated cell and the written instance.
 #[test]
-fn compiles_a_cell_beside_its_only_possible_ancestor_through_a_repeated_cell_as_inside_it() {
-    for (configuration, beside, inside) in [
+fn rejects_a_cell_beside_its_only_possible_ancestor_through_a_repeated_cell_as_inside_it() {
+    for (configuration, beside, inside, error) in [
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E => 0 </env>",
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E => 0 </env> ... </threads>",
+            "Ambiguous completion: <env>, written outside every <thread>, can be in the written <thread> (holding <id>) or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it",
         ),
         (
             r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="List"> <id> 0 </id> <env> 0 </env> </thread> </threads> </top>"#,
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> ... </threads> <env> E </env>",
             "<k> 0 => 1 </k> <threads> <thread> <id> 1 </id> ... </thread> <env> E </env> ... </threads>",
+            "Ambiguous completion: <env>, written outside every <thread>, can be in the written <thread> (holding <id>) or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it",
         ),
         (
             r#"<top> <k> 0 </k> <a> <x> 0 </x> <r multiplicity="*" type="Map"> <rid> 0 </rid> <a2> <y> 0 </y> <d> 0 </d> </a2> </r> </a> </top>"#,
             "<k> 0 => 1 </k> <a> <x> X </x> ... </a> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d>",
             "<k> 0 => 1 </k> <a> <x> X </x> <a2> <y> 1 </y> ... </a2> <d> 5 => 6 </d> ... </a>",
+            "Ambiguous completion: <d>, written outside every <a2>, can be in the <r> of the written <a2> (holding <y>) or in another <r>, and the rule does not state which; write <d> inside the <a2> that holds it",
         ),
     ] {
-        let placed = concretized_cell_rule(configuration, beside)
-            .unwrap_or_else(|errors| panic!("{beside}: {errors:?}"));
-        let in_place = concretized_cell_rule(configuration, inside)
-            .unwrap_or_else(|errors| panic!("{inside}: {errors:?}"));
-        assert_eq!(placed, in_place, "{beside}");
+        let placed = concretized_cell_rule(configuration, beside);
+        assert_eq!(placed, Err(vec![error.to_owned()]), "{beside}");
+        assert_eq!(
+            placed,
+            concretized_cell_rule(configuration, inside),
+            "{inside}"
+        );
     }
 }
 
@@ -8030,30 +8037,90 @@ fn compiles_a_cell_beside_its_only_possible_ancestor_as_inside_it_whatever_the_a
     );
 }
 
-// The <a> written in <top> is in one of many <r> cells, and the rule does not state that the <d>
-// written beside it is in that <r>: <d> is not placed in the written <a>. Completion then needs a
-// second <r> for it. The <s> can share an <r> with either <a>, and the two <a> cannot share one,
-// so the rule does not state which <r> holds the <s>.
+// The <a> written in <top> is in one of many <r> cells, and the rule does not state whether the
+// <d> written beside it is in that <r>: the written <a> may hold it (its <d> is free and its frame
+// open), and so may an <a> in another <r>. The rule is rejected naming <d>, <r> and the written
+// <a>, before the <s> is grouped. When the written <a> already holds a <d>, only another <r> can
+// hold the loose one, which completion builds.
 #[test]
-fn leaves_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
+fn rejects_a_cell_beside_its_written_ancestor_when_a_repeated_cell_lies_above_that_ancestor() {
     let configuration = r#"<top> <k> 0 </k> <r multiplicity="*" type="Map"> <rid> 0 </rid> <s> 0 </s> <a> <e> 0 </e> <d> 0 </d> </a> </r> </top>"#;
-    let errors = concretized_cell_rule(
-        configuration,
+    for rule in [
         "<s> 1 </s> <a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
+        "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>",
+    ] {
+        assert_eq!(
+            concretized_cell_rule(configuration, rule),
+            Err(vec!["Ambiguous completion: <d>, written outside every <a>, can be in the <r> of the written <a> (holding <e>) or in another <r>, and the rule does not state which; write <d> inside the <a> that holds it".to_owned()]),
+            "{rule}"
+        );
+    }
+    let body = concretized_cell_rule(
+        configuration,
+        "<a> <e> 1 </e> <d> D </d> ... </a> <d> 5 => 6 </d>",
     )
-    .unwrap_err();
-    assert_eq!(
-        errors,
-        [
-            "Ambiguous completion: <r>: <a> (holding <d>) can share one <r> with <s> but not with <a> (holding <e>), which can share one with <s>, so the rule does not state which <r> holds it"
-        ]
-    );
-    let body =
-        concretized_cell_rule(configuration, "<a> <e> 1 </e> ... </a> <d> 5 => 6 </d>").unwrap();
+    .unwrap();
     assert_eq!(
         body,
-        r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),_DotVar3)),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
+        r#"`<generatedTop>`(`<top>`(_Gen6,`_RCellMap_`(`_RCellMap_`(`<r>`(_Gen8,_Gen9,`<a>`(`<e>`(#token("1","Int")),`<d>`(D))),`<r>`(_Gen10,_Gen11,`<a>`(_DotVar5,`<d>`(#token("5","Int")=>#token("6","Int"))))),_Gen7)),_DotVar0)"#
     );
+}
+
+// Whether an item of <thread>'s sort written beside a loose <env> may be the <thread> that holds
+// it, by the shape of that item. The <thread> completion builds for the <env> is on both sides of
+// the rule, so an item may be it only when it is a <thread> on both sides that leaves <env> free on
+// each, with a frame or a term of unknown cell sort to stand for it, or a term that stands for one
+// whole <thread> (a variable of its sort). A term of unknown cell sort (a `Bag` variable, the
+// frame) stands for any number of instances, and a built instance beside it already denotes the
+// one among them that holds the <env>, so it is no other reading.
+#[test]
+fn rejects_a_loose_cell_only_where_a_written_instance_may_hold_it() {
+    let configuration = r#"<top> <k> 0 </k> <threads> <thread multiplicity="*" type="Map"> <id> 0 </id> <env> 0 </env> <o> 0 </o> </thread> </threads> </top>"#;
+    let mut failures = Vec::new();
+    for (written, holder) in [
+        (
+            "<thread> <id> 1 </id> ... </thread>",
+            Some("<thread> (holding <id>)"),
+        ),
+        (
+            "(<thread> <id> 1 </id> ... </thread> #as T)",
+            Some("<thread> (holding <id>) #as T"),
+        ),
+        ("T:ThreadCell", Some("<thread> T")),
+        (
+            "<thread> <id> 1 </id> <o> 0 </o> B:Bag </thread>",
+            Some("<thread> (holding an item <id> <o>)"),
+        ),
+        (
+            "(<thread> <id> 1 </id> ... </thread> => <thread> <id> 2 </id> ... </thread>)",
+            Some("<thread> (holding <id>)"),
+        ),
+        ("<thread> <id> 1 </id> <env> X </env> ... </thread>", None),
+        (
+            "<thread> <id> 1 </id> <env> X </env> <o> 0 </o> </thread>",
+            None,
+        ),
+        ("(<thread> <id> 1 </id> ... </thread> => .Bag)", None),
+        ("(.Bag => <thread> <id> 1 </id> ... </thread>)", None),
+        ("B:Bag", None),
+    ] {
+        let rule = format!("<threads> {written} ... </threads> <env> E => 0 </env>");
+        let outcome = concretized_cell_rule(configuration, &rule);
+        let expected = holder.map(|holder| {
+            vec![format!(
+                "Ambiguous completion: <env>, written outside every <thread>, can be in the written {holder} or in another <thread>, and the rule does not state which; write <env> inside the <thread> that holds it"
+            )]
+        });
+        let agrees = match (&outcome, expected) {
+            (Ok(_), None) => true,
+            (Err(errors), Some(expected)) => *errors == expected,
+            _ => false,
+        };
+        if !agrees {
+            failures.push(format!("\n  {written}\n    -> {outcome:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join(""));
 }
 
 fn omitted_thread_parent_fixture(rule: &str) -> Definition {

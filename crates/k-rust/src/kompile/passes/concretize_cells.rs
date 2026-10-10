@@ -1418,7 +1418,17 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
             for (parent, items) in grouped {
                 let parent = &self.model.cells[&parent];
-                retained.extend(self.make_parents(parent, open_left || open_right, items)?);
+                // Instances of `parent` are built only here, once per completion, so every item
+                // of its sort in `retained` or `others` (an alias) is written.
+                let written = retained
+                    .iter()
+                    .map(|(item, _)| item)
+                    .chain(&others)
+                    .filter(|item| self.model.slot_sort(item).as_ref() == Some(&parent.sort))
+                    .collect::<Vec<_>>();
+                let built =
+                    self.make_parents(cell, parent, open_left || open_right, items, &written)?;
+                retained.extend(built);
             }
             completion = retained;
         }
@@ -2036,16 +2046,40 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// with the cells lifted out of its items that belong in it; return the wrappers with the
     /// lifted cells that belong higher. The instances are the classes of
     /// [`Self::instance_classes`], in the order of their first items.
+    ///
+    /// `scope` is the cell being completed and `written` the items of its body of `parent`'s
+    /// sort. A class is in some instance of `parent`, and a built instance stands for one that no
+    /// item written in `scope` is. That is the only reading when no written item can be the
+    /// instance that holds the class ([`Self::written_instance_may_hold`]), or when `parent` and
+    /// its ancestors below `scope` are not `multiplicity="*"` (then `scope` holds one instance of
+    /// `parent`, and a written one has taken the class in already: see
+    /// [`Self::place_in_written_ancestors`]). Otherwise, below a `multiplicity="*"` cell, the
+    /// rule writes the class in either instance and does not state which, and it is rejected
+    /// naming the class, the `multiplicity="*"` cell and the written item.
     fn make_parents(
         &self,
+        scope: &Cell,
         parent: &Cell,
         open: bool,
         items: Vec<(Term, Vec<MovedCell>)>,
+        written: &[&Term],
     ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
-        let classes = self.instance_classes(
-            parent,
-            &items.iter().map(|(item, _)| item).collect::<Vec<_>>(),
-        )?;
+        let item_terms = items.iter().map(|(item, _)| item).collect::<Vec<_>>();
+        let classes = self.instance_classes(parent, &item_terms)?;
+        if let Some(repeated) = self.repeated_between(scope, parent) {
+            for class in &classes {
+                let group = class
+                    .iter()
+                    .map(|index| item_terms[*index])
+                    .collect::<Vec<_>>();
+                if let Some(holder) = written
+                    .iter()
+                    .find(|holder| self.written_instance_may_hold(parent, holder, &group))
+                {
+                    return Err(self.unstated_instance(parent, repeated, holder, &group));
+                }
+            }
+        }
         let mut slots = items.into_iter().map(Some).collect::<Vec<_>>();
         classes
             .into_iter()
@@ -2145,6 +2179,150 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
         }
         Ok(classes)
+    }
+
+    /// The closest `multiplicity="*"` cell from `parent` (inclusive) up to `scope` (exclusive),
+    /// `parent` being strictly below `scope`.
+    fn repeated_between(&self, scope: &Cell, parent: &Cell) -> Option<&Cell> {
+        let mut current = &parent.sort;
+        // Invariant: `current` is `parent.sort` or one of its ancestors strictly below
+        // `scope.sort`, none closer to `parent` repeated; at most `self.model.cells.len()` parent
+        // links (the bound of `is_strictly_below`).
+        for _ in 0..self.model.cells.len() {
+            if *current == scope.sort {
+                return None;
+            }
+            if self.model.is_repeated(current) {
+                return Some(&self.model.cells[current]);
+            }
+            current = self.model.parents.get(current)?;
+        }
+        None
+    }
+
+    /// Whether `holder`, an item of `parent`'s sort written beside `group` (a class of
+    /// [`Self::instance_classes`] of cells whose configured parent is `parent`), may be the
+    /// instance of `parent` that holds `group`.
+    ///
+    /// The instance built for `group` is on both sides of the rule, so `holder` may be it only
+    /// when, on each side, a cell of `holder` there may hold what `group` writes on that side
+    /// ([`Self::side_may_hold`]). A `holder` that is on one side only (removed or added by a
+    /// rewrite) cannot be it: the cells of `group` are then in an instance the rule keeps, and a
+    /// built instance is the only reading.
+    fn written_instance_may_hold(&self, parent: &Cell, holder: &Term, group: &[&Term]) -> bool {
+        [Side::Left, Side::Right].into_iter().all(|side| {
+            let parts = group
+                .iter()
+                .flat_map(|item| side_parts(item, side))
+                .collect::<Vec<_>>();
+            side_parts(holder, side)
+                .into_iter()
+                .any(|instance| self.side_may_hold(parent, instance, side, &parts))
+        })
+    }
+
+    /// Whether `instance`, a term on `side` of the rule, may be an instance of `parent` that also
+    /// holds `parts`, cells whose configured parent is `parent` written outside it on that side:
+    /// - an `#as` pattern of one cell may when that cell may (it denotes its pattern);
+    /// - a cell body may when it writes, on that side, none of the children of `parent` that are
+    ///   not `multiplicity="*"` and that `parts` write, and when, if `parts` is not empty, its
+    ///   frame `...` is open or a term of unknown cell sort in it on that side may stand for
+    ///   them (each stands for the children no item written there is);
+    /// - a complete cell may not: it writes every child of its instance;
+    /// - any other term of `parent`'s sort (a variable, a function result) stands for one whole
+    ///   instance, which may be the one that holds `parts`;
+    /// - a term of no cell sort or of another one may not: a term of unknown cell sort (a `Bag`
+    ///   variable, a frame) stands for any number of instances, so a built instance beside it
+    ///   already denotes the one among them that holds `parts`, and is no other reading.
+    fn side_may_hold(&self, parent: &Cell, instance: &Term, side: Side, parts: &[&Term]) -> bool {
+        if self.model.slot_sort(instance).as_ref() != Some(&parent.sort) {
+            return false;
+        }
+        let instance = match instance.unannotated() {
+            Term::As { pattern, .. } => flatten_cells(pattern)
+                .into_iter()
+                .find(|part| !is_empty_cell_bag(part))
+                .expect("an alias with a slot is of one cell"),
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => instance,
+        };
+        let Some((open_left, body, open_right)) = self.cell_body(instance) else {
+            return match instance.unannotated() {
+                Term::Apply { label, .. } => self.model.cell_for_label(label).is_none(),
+                Term::Variable { .. }
+                | Term::Token { .. }
+                | Term::InjectedLabel(_)
+                | Term::Rewrite { .. }
+                | Term::As { .. }
+                | Term::Sequence(_)
+                | Term::Annotated { .. } => true,
+            };
+        };
+        if parts.is_empty() {
+            return true;
+        }
+        let items = flatten_cells(body);
+        let taken = items
+            .iter()
+            .flat_map(|item| self.nonrepeated_slots(parent, item, side))
+            .collect::<BTreeSet<_>>();
+        let wanted = parts
+            .iter()
+            .flat_map(|part| self.nonrepeated_slots(parent, part, side))
+            .collect::<BTreeSet<_>>();
+        taken.is_disjoint(&wanted)
+            && (open_left
+                || open_right
+                || items.iter().any(|item| {
+                    side_parts(item, side)
+                        .into_iter()
+                        .any(|part| self.model.sort_for_term(part).is_none())
+                }))
+    }
+
+    /// The rejection of `group`, cells whose configured parent is `parent` written without it,
+    /// that `holder`, a written item of `parent`'s sort, may hold, with `repeated` the
+    /// `multiplicity="*"` cell at or above `parent` whose instance the rule does not state.
+    fn unstated_instance(
+        &self,
+        parent: &Cell,
+        repeated: &Cell,
+        holder: &Term,
+        group: &[&Term],
+    ) -> String {
+        let cells = group
+            .iter()
+            .map(|item| self.describe_cells(item))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let holder = match holder.unannotated() {
+            Term::As { pattern, alias } => {
+                format!("{} #as {}", self.describe_cells(pattern), alias_name(alias))
+            }
+            Term::Variable { name, .. } => format!("{} {name}", self.describe_cells(holder)),
+            Term::Apply { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => self.describe_cells(holder),
+        };
+        let r = &repeated.label.name;
+        let p = &parent.label.name;
+        if repeated.sort == parent.sort {
+            format!(
+                "Ambiguous completion: {cells}, written outside every {p}, can be in the written {holder} or in another {r}, and the rule does not state which; write {cells} inside the {p} that holds it"
+            )
+        } else {
+            format!(
+                "Ambiguous completion: {cells}, written outside every {p}, can be in the {r} of the written {holder} or in another {r}, and the rule does not state which; write {cells} inside the {p} that holds it"
+            )
+        }
     }
 
     /// The cells of `item` (both sides of a rewrite) by label, each cell written as a cell body

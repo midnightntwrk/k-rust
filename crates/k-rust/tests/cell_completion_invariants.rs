@@ -711,7 +711,6 @@ fn writing_a_uniquely_determined_ancestor_does_not_change_the_rule() {
 /// instance of a `multiplicity="*"` cell holds a cell written outside every instance, the message
 /// names that cell and the `multiplicity="*"` cell, so the author knows what to write.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: Cells: `*`-cell rejections give generic messages"]
 fn a_rejection_for_an_unstated_instance_names_the_cell_and_the_repeated_cell() {
     let threads_list = THREADS_MAP.replace(r#"type="Map""#, r#"type="List""#);
     let list_in_p = MAP_IN_P.replace(r#"type="Map""#, r#"type="List""#);
