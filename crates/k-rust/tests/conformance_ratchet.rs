@@ -151,7 +151,6 @@ cp "$FAKE_RESULTS" "$results"
             .env("CONFORMANCE_TEST_BINARY", &self.fake_binary)
             .env("CONFORMANCE_DRIVER_VERSION", "fixture-driver-v1")
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
-            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
             .env("CONFORMANCE_BACKLOG", "")
             .env("FAKE_ARGS", &self.args);
         command
