@@ -8,9 +8,9 @@
     "src/lib.rs": "c465b10bbf1cc28fe4a9328f5be2fb837db0d4ea574de4c36089bc43615347f0"
   },
   "artifacts_sha256": {
-    "definition-ir.json": "732f524ccdc48c24dc53a039d88048deeafb9be736baf388b08c0d5f6f875f71",
+    "definition-ir.json": "10e15904219eca386d19f9488a443306d35462d574a5e2912446b58d60f6eeaa",
     "definition.k": "aa6ac4b917e467176b434ee680af6af4374163811f43303905ebb6cfe2552df2",
-    "descriptor-bundle.json": "2518430bda161cba8502a458d45b338b767039c69948cbb11b2114bbc1680bba",
+    "descriptor-bundle.json": "61fc4e446e037749cc3a714e531fd30405dd3e5c1c490b8ee689df4d097a689d",
     "dollar-ids/definition.k": "2ae47d2a60f4e757658562c780218b9082a0a898d2988d6e08bfc34370581b4c",
     "dollar-ids/spec.k": "23ad5f85b0bc8863eda2286af43f5b7ac7dcf31dc47f023ecfeed41c02493a30",
     "expand.rs": "7297130c999b0aedb41e9797b190673b43600f66471710feab6bb5756910b0f2",
@@ -18,7 +18,7 @@
     "native/definition.kore": "cbaa6b8d4d82877335ae9f5ea49ba4982a49ab8f6064f311f9865ff877e7d2a8",
     "native/macros.kore": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "native/syntaxDefinition.kore": "3c5d9ce77de315572e4edecfea4d579a8d25ca995dad5f4db51361c53588373a",
-    "semantic-ir.json": "c402541e2acbafeedc504ee08f951597ae77ea25312bd8bdc8b65bb38df5307e",
+    "semantic-ir.json": "c229878b0b6dc8eaf7b4ffb050dfb1797ff8dac58c2a37e7dd6ae8f45eee1ce3",
     "sources.json": "0bb155aa28f310c3feb170575b80c9b4f280d2c6a11ef7ae1d24277ed4b0aa1a",
     "symbols.json": "9ce43a3ef5fc44b00f8f1aa361c5c1a7af22bd24b1b75c93bcdee3c3ed1cc1d5",
     "claims/definition.k": "60452bfd9704f22bad28e4f8908848867628369257ef6c3b7ae4d50d3540921f",
