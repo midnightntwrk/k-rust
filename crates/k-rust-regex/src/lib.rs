@@ -38,13 +38,16 @@ use std::fmt::{Display, Write};
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Regex {
     /// `^`: the token starts a line, i.e. it starts at the start of the scanned text or right
-    /// after a `\n`.
+    /// after a line terminator. The line terminators are the ones source locations count:
+    /// `\r\n`, `\n`, `\r`, vertical tab, form feed, U+0085, U+2028 and U+2029, with `\r\n` one
+    /// terminator, so no line starts or ends between its `\r` and its `\n` (k-rust's `lines`
+    /// module holds the table).
     pub start_line: bool,
     pub body: RegexBody,
-    /// `$`: the token ends a line, i.e. a `\n` follows it. The newline is not part of the token,
-    /// so it does not count in the longest-match comparison between candidate tokens either; and
-    /// the end of the text is not a line end: text after the last newline is an unterminated
-    /// line.
+    /// `$`: the token ends a line, i.e. a line terminator follows it. The terminator is not part
+    /// of the token, so it does not count in the longest-match comparison between candidate tokens
+    /// either; and the end of the text is not a line end: text after the last terminator is an
+    /// unterminated line.
     pub end_line: bool,
 }
 
@@ -74,11 +77,11 @@ impl Regex {
 
     /// Render this regular expression as a deterministic Flex pattern.
     ///
-    /// A Flex rule's leading `^` and trailing `$` accept the token positions the line anchors of a
-    /// token regex accept (see [`Regex::start_line`]) and apply to the whole rule, so both are
-    /// printed as held. Flex's `$` is trailing context, though, whose newline Flex counts when it
-    /// compares candidate matches, so a scanner that must compare token lengths prints a
-    /// `$`-anchored rule from its body and checks the newline itself.
+    /// The line anchors are printed as held, as Flex's leading `^` and trailing `$`, which apply
+    /// to the whole rule. Flex reads only `\n` as a line end, though, and its `$` is trailing
+    /// context, whose newline Flex counts when it compares candidate matches, so a scanner that
+    /// must give the anchors their meaning (see [`Regex::start_line`]) prints an anchored rule
+    /// from its body and checks the anchors itself.
     /// This is a semantic input to Flex, not a byte-parity contract with K's renderer.
     pub fn to_flex_string(&self) -> String {
         print_flex_regex(self)

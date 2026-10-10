@@ -473,9 +473,15 @@ Every production that mentions a literal declares its precedence, explicitly or 
 
 ## Token regex line anchors
 
-A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end. A line end is `\n`.
+A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end.
 
-The in-process scanner and generated parsers give anchors this meaning alike (`tests/support/line_anchors.rs`).
+A line end is one of the eight line terminators that locations count (see "Generated parser locations"): `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029, with `\r\n` one terminator, so no line starts or ends between its `\r` and its `\n`.
+A token regex's anchors and its precede and follow restrictions' anchors read these lines too.
+A location says where lines start, and `^` and `$` say where a token is relative to lines; with one notion of line, a token that `^` accepts is located at column 1, and one that `$` accepts is the last on its line, whatever terminator the program uses.
+krust holds the terminators in one table (`crates/k-rust/src/lines.rs`), which the locations, both scanners' anchor checks and the C runtime of generated parsers read.
+This diverges from the pinned K's generated parsers, whose Flex `^` and `$` read only `\n` as a line end: there `r"^b"` rejects a `b` right after `\r`, U+2028 or another terminator other than `\n`, and `r"a$"` rejects an `a` right before one, where krust accepts both.
+
+The in-process scanner and generated parsers give anchors this meaning alike (`tests/support/line_anchors.rs`, and the CLI test `regex_line_anchors_hold_at_every_line_end_a_location_counts`).
 
 The pinned K's in-process `kast` reads `r"^b"` as also requiring a newline after the token and reads `r"a$"` as `r"a"`: it accepts `a` with no newline after it and rejects `b` at the end of the input; krust does neither.
 

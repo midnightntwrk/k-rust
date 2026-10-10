@@ -10759,6 +10759,30 @@ fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_rea
     assert_both_scanners_decide(line_anchors::DEFINITION, "ANCHOR-SYNTAX", &programs);
 }
 
+/// Class test for the two-parser ticket, line ends: `^` holds where a line starts and `$` where
+/// one ends, and a location says where lines start (column 1 of the next line follows every line
+/// end it counts). So both scanners must accept a `^b` token, and an `a$` token, at every line
+/// end the location code counts, not only after `\n`.
+#[cfg(unix)]
+#[test]
+fn regex_line_anchors_hold_at_every_line_end_a_location_counts() {
+    const LINE_ENDS: [&str; 8] = [
+        "\n", "\r", "\r\n", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+    ];
+    // The layout holds every line end, so a scanner rejects a program only for its anchors.
+    let definition = "module LINE-END-SYNTAX\n  syntax #Layout ::= r\"[\\\\ \\\\n\\\\r\\\\t\u{b}\u{c}\u{85}\u{2028}\u{2029}]\" [token]\n  syntax Bar ::= r\"^b\" [token]\n  syntax Foo ::= r\"a$\" [token]\n  syntax Pgm ::= Bar Bar | Foo Bar\nendmodule\n";
+    let programs = LINE_ENDS
+        .iter()
+        .flat_map(|line_end| {
+            [
+                (format!("b{line_end}b"), true),
+                (format!("a{line_end}b"), true),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_both_scanners_decide(definition, "LINE-END-SYNTAX", &programs);
+}
+
 /// A `$`-anchored candidate the generated scanner rejects, here one whose text spans a newline,
 /// must not move the line or column of the tokens scanned after it: the locations are those of
 /// the same definition without the anchored lexeme.
@@ -10988,10 +11012,13 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A scanner with a `$`-anchored rule scans its whole input with a state buffer of its own
+/// A scanner with an anchored rule scans its whole input with a state buffer of its own
 /// (`bison::scanner::SCAN_WHOLE_INPUT`); a buffer one state too small is written past its end,
-/// which an uninstrumented parser survives. Built with AddressSanitizer, the parser must run the
-/// empty input, short programs and long candidates without a report. Without a C compiler that
+/// which an uninstrumented parser survives. Its anchor checks read the bytes around a match
+/// (`bison::scanner::LINE_ANCHORS`), up to three after it and before it. Built with
+/// AddressSanitizer, the parser must run the empty input, short programs, long candidates and
+/// anchors at both ends of the input, beside multi-byte and truncated line terminators, without a
+/// report. Without a C compiler that
 /// can build and run an AddressSanitizer program the test checks nothing.
 #[cfg(unix)]
 #[test]
@@ -11033,7 +11060,8 @@ fn kast_gen_parser_anchored_scanner_stays_in_its_buffers_under_address_sanitizer
 module LOOKAHEAD-SYNTAX
   syntax Q ::= r"<[a-z ]*>" [token]
   syntax Foo ::= r"a$" [token]
-  syntax Pgm ::= "<" "z" | Q | Foo
+  syntax Bar ::= r"^b" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo | Bar
 endmodule
 "#;
     let (root, parser) = generate_parser(
@@ -11045,11 +11073,18 @@ endmodule
         ],
     );
     let programs = [
-        (String::new(), false),
-        ("a\n".to_owned(), true),
-        ("a".to_owned(), false),
-        (format!("<{}z", " ".repeat(20_000)), true),
-        (format!("<{}", "a".repeat(20_000)), false),
+        (Vec::new(), false),
+        (b"a\n".to_vec(), true),
+        (b"a".to_vec(), false),
+        (format!("<{}z", " ".repeat(20_000)).into_bytes(), true),
+        (format!("<{}", "a".repeat(20_000)).into_bytes(), false),
+        (b"a\r".to_vec(), true),
+        (b"b".to_vec(), true),
+        (b"\rb".to_vec(), true),
+        ("\u{2028}b".as_bytes().to_vec(), false),
+        ("a\u{2028}".as_bytes().to_vec(), false),
+        (b"a\xE2\x80".to_vec(), false),
+        (b"\xE2\x80b".to_vec(), false),
     ];
     for (index, (program, accepted)) in programs.iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));

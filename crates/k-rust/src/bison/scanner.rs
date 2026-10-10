@@ -40,11 +40,14 @@ pub(super) struct Scanner {
 
 /// One Flex rule's regex: its Flex body and its line anchors.
 ///
-/// A `$`-anchored token (or layout) competes in the longest-match rule with the length of its
-/// token, which does not include the newline `$` requires (K user manual, "`prec` attribute":
-/// longer tokens win, and precedence orders tokens of equal length). Flex's own `$` is trailing
-/// context, whose length Flex adds to the match it compares, so the rule is printed without `$`
-/// and its action rejects the match when no newline follows it (see [`Scanner::render`]).
+/// The anchors are checked by the rule's action, not printed as Flex's `^` and `$`: those see
+/// only `\n` as a line end, where a K anchor sees every line terminator a location counts
+/// (`crate::lines`). Flex's `$` is also trailing context, whose length Flex adds to the match it
+/// compares, while a `$`-anchored token (or layout) competes in the longest-match rule with the
+/// length of its token, which does not include the line terminator `$` requires (K user manual,
+/// "`prec` attribute": longer tokens win, and precedence orders tokens of equal length). So the
+/// rule is printed as its body, and its action rejects the match where an anchor does not hold
+/// (see [`Scanner::render`]).
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct FlexRule {
     start_line: bool,
@@ -212,24 +215,25 @@ impl Scanner {
     /// line and column past the matched text (see [`LOCATE`]); the default rule's `ECHO` runs it
     /// as well. The location is
     /// set in the action rather than by `YY_USER_ACTION` and `%option yylineno`, which Flex runs
-    /// before the action, because a `$`-anchored rule's action may still reject its match, and a
+    /// before the action, because an anchored rule's action may still reject its match, and a
     /// rejected match must not move the line or column.
     ///
-    /// A `$`-anchored rule `R` is printed as `R` with an action that executes `REJECT` unless
-    /// the character after the match is a newline; `REJECT` makes Flex take its next candidate
-    /// (the same length later in the rule order, then shorter matches, of any rule), so the winner
-    /// is the longest token among the candidates whose anchors hold, then the first in rule
-    /// order.
+    /// An anchored rule `^R`, `R$` or `^R$` is printed as `R` with an action that executes
+    /// `REJECT` unless the match starts a line (`KRUST_AT_LINE_START`) or ends one
+    /// (`KRUST_AT_LINE_END`), as [`LINE_ANCHORS`] decides; `REJECT` makes Flex take its next
+    /// candidate (the same length later in the rule order, then shorter matches, of any rule), so
+    /// the winner is the longest token among the candidates whose anchors hold, then the first in
+    /// rule order.
     ///
-    /// Only a scanner with a `$`-anchored rule contains `REJECT`. Such a scanner keeps one DFA
+    /// Only a scanner with an anchored rule contains `REJECT`. Such a scanner keeps one DFA
     /// state per character scanned for the current match, in a state buffer Flex sizes for its
     /// input buffer; Flex therefore cannot enlarge that input buffer, and a scanner reading its
     /// input in chunks stops ("input buffer overflow, can't enlarge buffer because scanner uses
     /// REJECT") as soon as the text scanned for one match, which includes the lookahead for a
     /// longer candidate that then fails, outgrows the buffer. So this scanner reads its whole
     /// input into one buffer before scanning (`YY_USER_INIT`) and sizes the state buffer for it:
-    /// no match can scan past that buffer, and the character after every match, the one the
-    /// anchor check reads, is in it.
+    /// no match can scan past that buffer, and the characters around every match, the ones the
+    /// anchor checks read, are in it.
     /// It only stops on input that does not fit in memory or in Flex's `int` buffer sizes, with
     /// an error. `REJECT` also slows all of that scanner's matching.
     pub fn render(&self) -> Result<String, Error> {
@@ -243,7 +247,7 @@ impl Scanner {
             .iter()
             .chain(&self.layout)
             .chain(&rules)
-            .any(|rule| rule.end_line);
+            .any(|rule| rule.start_line || rule.end_line);
         let mut output = String::from(
             "%{\n\
 #include \"node.h\"\n\
@@ -251,7 +255,6 @@ impl Scanner {
 char *filename;\n\
 static void krust_locate(yyscan_t yyscanner, YYLTYPE *location);\n\
 #define KRUST_LOCATE krust_locate(yyscanner, yylloc)\n\
-#define KRUST_AT_LINE_END (yyg->yy_hold_char == '\\n')\n\
 #define ECHO do {\\\n\
   KRUST_LOCATE;\\\n\
   fprintf (stderr, \"%d:%d:%d:%d:syntax error: unexpected %s\\n\", yylloc->first_line, yylloc->first_column, yylloc->last_line, yylloc->last_column, yytext);\\\n\
@@ -264,7 +267,11 @@ void line_marker(char *, void *);\n\
             output.push_str(
                 "#include <limits.h>\n\
 static void krust_scan_whole_input(yyscan_t yyscanner);\n\
-#define YY_USER_INIT krust_scan_whole_input(yyscanner);\n",
+#define YY_USER_INIT krust_scan_whole_input(yyscanner);\n\
+static int krust_at_line_start(yyscan_t yyscanner);\n\
+static int krust_at_line_end(yyscan_t yyscanner);\n\
+#define KRUST_AT_LINE_START krust_at_line_start(yyscanner)\n\
+#define KRUST_AT_LINE_END krust_at_line_end(yyscanner)\n",
             );
         }
         output.push_str(
@@ -272,7 +279,7 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
 %option reentrant bison-bridge\n\
 %option bison-locations\n\
 %option noyywrap\n\
-%option extra-type=\"int\"\n",
+%option extra-type=\"const char *\"\n",
         );
         for (name, regex) in &self.lexical {
             writeln!(
@@ -302,12 +309,53 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
             );
         }
         output.push_str("%%\n\n");
+        output.push_str(&line_terminator_table());
         output.push_str(LOCATE);
         if uses_reject {
             output.push_str(SCAN_WHOLE_INPUT);
+            output.push_str(LINE_ANCHORS);
         }
         Ok(output)
     }
+}
+
+/// The line terminators of `crate::lines`, in its order, as a C array of byte strings, and
+/// `krust_terminator_at`, the length of the first of them in that order (so the longest) that a
+/// NUL-terminated text starts with, or 0, and `krust_terminator_rest`, the rest of the first
+/// terminator strictly longer than the `length` bytes at `text` that starts with them, or `NULL`.
+/// No terminator holds a NUL byte, so a comparison stops at the end of `yytext` or of a buffer.
+fn line_terminator_table() -> String {
+    let terminators = crate::lines::LINE_TERMINATORS
+        .into_iter()
+        .map(|terminator| {
+            let escaped = terminator
+                .bytes()
+                .map(|byte| format!("\\x{byte:02X}"))
+                .collect::<String>();
+            format!("\"{escaped}\"")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "static const char *const krust_line_terminators[] = {{{terminators}}};\n\
+#define KRUST_LINE_TERMINATORS (sizeof krust_line_terminators / sizeof *krust_line_terminators)\n\
+static size_t krust_terminator_at(const unsigned char *text) {{\n\
+  for (size_t index = 0; index < KRUST_LINE_TERMINATORS; ++index) {{\n\
+    size_t length = strlen(krust_line_terminators[index]);\n\
+    if (strncmp((const char *)text, krust_line_terminators[index], length) == 0)\n\
+      return length;\n\
+  }}\n\
+  return 0;\n\
+}}\n\
+static const char *krust_terminator_rest(const unsigned char *text, size_t length) {{\n\
+  for (size_t index = 0; index < KRUST_LINE_TERMINATORS; ++index) {{\n\
+    const char *terminator = krust_line_terminators[index];\n\
+    if (strlen(terminator) > length && strncmp(terminator, (const char *)text, length) == 0)\n\
+      return terminator + length;\n\
+  }}\n\
+  return NULL;\n\
+}}\n"
+    )
 }
 
 /// The user-code function behind `KRUST_LOCATE` (see [`Scanner::render`]): set the location of
@@ -317,41 +365,87 @@ static void krust_scan_whole_input(yyscan_t yyscanner);\n\
 /// UTF-8 byte that does not continue a sequence), and ends at the column after the last character,
 /// so an empty span starts where it ends and a one-line token's width is its end column minus its
 /// start column; these are the locations the in-process parser gives (`inner::location`), on every
-/// line alike. `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029 each end a
-/// line. `yycolumn` holds the number of columns already on the line, which is where Flex starts it
-/// for a new buffer (0), and `yyextra` records that the last character located was `\r`, so the
-/// `\n` of a `\r\n` that two tokens split (the default layout matches one character at a time)
-/// does not end a second line.
+/// line alike. Each line terminator of `crate::lines` ends a line (see
+/// [`line_terminator_table`]). `yycolumn` holds the number of columns already on the line, which
+/// is where Flex starts it for a new buffer (0). A token that ends with a terminator that a
+/// longer one extends (`\r`, which `\r\n` extends) leaves the rest of the longer one in
+/// `yyextra`, so that rest at the start of the next token (the `\n` of a `\r\n` that two tokens
+/// split, as the default layout matching one character at a time does) does not end a second
+/// line.
 const LOCATE: &str = "static void krust_locate(yyscan_t yyscanner, YYLTYPE *location) {\n\
   struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
   const unsigned char *text = (const unsigned char *)yytext;\n\
+  int index = 0;\n\
   location->first_line = yylineno;\n\
   location->first_column = yycolumn + 1;\n\
-  for (int index = 0; index < yyleng; ++index) {\n\
-    unsigned char byte = text[index];\n\
-    if (byte == '\\n' && yyextra) {\n\
-      yyextra = 0;\n\
-      continue;\n\
-    }\n\
-    yyextra = byte == '\\r';\n\
-    int extra = 0;\n\
-    if (byte == 0xC2 && index + 1 < yyleng && text[index + 1] == 0x85)\n\
-      extra = 1;\n\
-    else if (byte == 0xE2 && index + 2 < yyleng && text[index + 1] == 0x80 &&\n\
-             (text[index + 2] == 0xA8 || text[index + 2] == 0xA9))\n\
-      extra = 2;\n\
-    if (extra || byte == '\\n' || byte == '\\r' || byte == '\\v' || byte == '\\f') {\n\
+  if (yyextra) {\n\
+    size_t rest = strlen(yyextra);\n\
+    if (strncmp(yytext, yyextra, rest) == 0)\n\
+      index = (int)rest;\n\
+    yyextra = NULL;\n\
+  }\n\
+  while (index < yyleng) {\n\
+    size_t length = krust_terminator_at(text + index);\n\
+    if (length) {\n\
       yylineno++;\n\
       yycolumn = 0;\n\
-      index += extra;\n\
-    } else if ((byte & 0xC0) != 0x80) {\n\
-      yycolumn++;\n\
+      if (index + (int)length == yyleng)\n\
+        yyextra = krust_terminator_rest(text + index, length);\n\
+      index += (int)length;\n\
+    } else {\n\
+      if ((text[index] & 0xC0) != 0x80)\n\
+        yycolumn++;\n\
+      index++;\n\
     }\n\
   }\n\
   location->last_line = yylineno;\n\
   location->last_column = yycolumn + 1;\n\
   location->filename = filename;\n\
 }\n";
+
+/// The user-code functions behind `KRUST_AT_LINE_START` and `KRUST_AT_LINE_END` (see
+/// [`Scanner::render`]), which hold where `crate::lines::starts_line` and `ends_line` hold at the
+/// start and the end of the match. Only a scanner that reads its whole input into one buffer uses
+/// them, so the text around the match, before it included, is in that buffer, which ends with
+/// Flex's NUL end-of-buffer characters. Flex puts a NUL after the match while its action runs;
+/// the checks put the character back for their reading and the NUL again after it.
+const LINE_ANCHORS: &str = "\n\
+static int krust_inside_terminator(const unsigned char *start, const unsigned char *position) {\n\
+  for (size_t index = 0; index < KRUST_LINE_TERMINATORS; ++index) {\n\
+    const char *terminator = krust_line_terminators[index];\n\
+    size_t length = strlen(terminator);\n\
+    for (size_t offset = 1; offset < length; ++offset)\n\
+      if ((size_t)(position - start) >= offset &&\n\
+          strncmp((const char *)position - offset, terminator, length) == 0)\n\
+        return 1;\n\
+  }\n\
+  return 0;\n\
+}\n\
+static int krust_starts_line(const unsigned char *start, const unsigned char *position) {\n\
+  if (position == start)\n\
+    return 1;\n\
+  for (size_t index = 0; index < KRUST_LINE_TERMINATORS; ++index) {\n\
+    const char *terminator = krust_line_terminators[index];\n\
+    size_t length = strlen(terminator);\n\
+    if ((size_t)(position - start) >= length &&\n\
+        strncmp((const char *)position - length, terminator, length) == 0)\n\
+      return !krust_inside_terminator(start, position);\n\
+  }\n\
+  return 0;\n\
+}\n\
+static int krust_at_line_boundary(yyscan_t yyscanner, int end) {\n\
+  struct yyguts_t *yyg = (struct yyguts_t *)yyscanner;\n\
+  const unsigned char *start = (const unsigned char *)YY_CURRENT_BUFFER_LVALUE->yy_ch_buf;\n\
+  const unsigned char *position = (const unsigned char *)yytext + (end ? yyleng : 0);\n\
+  int result;\n\
+  yytext[yyleng] = yyg->yy_hold_char;\n\
+  result = end ? krust_terminator_at(position) && !krust_inside_terminator(start, position)\n\
+               : krust_starts_line(start, position);\n\
+  yytext[yyleng] = '\\0';\n\
+  return result;\n\
+}\n\
+static int krust_at_line_start(yyscan_t yyscanner) { return krust_at_line_boundary(yyscanner, 0); }\n\
+static int krust_at_line_end(yyscan_t yyscanner) { return krust_at_line_boundary(yyscanner, 1); }\n";
 
 /// The user-code section of a scanner that uses `REJECT` (see [`Scanner::render`]): read all of
 /// `yyin` into one buffer that ends with Flex's two end-of-buffer characters, scan that buffer,
@@ -406,9 +500,11 @@ static void krust_scan_whole_input(yyscan_t yyscanner) {\n\
 impl FlexRule {
     /// Write this rule with `action` after the anchor check and the location bookkeeping.
     fn render(&self, output: &mut String, action: &str) {
-        let start = if self.start_line { "^" } else { "" };
         let body = &self.body;
-        writeln!(output, "{start}{body} {{").expect("writing to a string cannot fail");
+        writeln!(output, "{body} {{").expect("writing to a string cannot fail");
+        if self.start_line {
+            output.push_str("  if (!KRUST_AT_LINE_START) REJECT;\n");
+        }
         if self.end_line {
             output.push_str("  if (!KRUST_AT_LINE_END) REJECT;\n");
         }
@@ -539,11 +635,16 @@ mod tests {
         }
     }
 
-    /// Only a scanner with a `$`-anchored rule uses `REJECT`, and only such a scanner reads its
+    /// Only a scanner with an anchored rule uses `REJECT`, and only such a scanner reads its
     /// whole input before scanning; any other scanner keeps Flex's chunked reading.
     #[test]
-    fn only_a_scanner_with_an_end_anchored_rule_rejects_and_reads_its_whole_input() {
-        for (regex, anchored) in [("[a-z]+", false), ("^[a-z]+", false), ("[a-z]+$", true)] {
+    fn only_a_scanner_with_an_anchored_rule_rejects_and_reads_its_whole_input() {
+        for (regex, anchored) in [
+            ("[a-z]+", false),
+            ("^[a-z]+", true),
+            ("[a-z]+$", true),
+            ("^[a-z]+$", true),
+        ] {
             let rendered = Scanner::new(&[token_production(regex)])
                 .unwrap()
                 .render()

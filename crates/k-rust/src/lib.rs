@@ -9,6 +9,7 @@ pub mod diagnostic;
 pub mod inner;
 pub mod kast;
 pub mod kompile;
+mod lines;
 pub use k_rust_kore::kore;
 pub use k_rust_kore::names;
 #[cfg(feature = "cli")]

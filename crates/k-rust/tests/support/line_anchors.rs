@@ -4,9 +4,10 @@
 //!
 //! Test binaries include this file with `#[path = "support/line_anchors.rs"] mod line_anchors;`.
 
-/// `^` requires a token to start at the start of the text or right after a newline, `$` requires
-/// a newline right after the token (the newline is not part of it), and both apply to the whole
-/// alternation.
+/// `^` requires a token to start at the start of the text or right after a line terminator, `$`
+/// requires a line terminator right after the token (the terminator is not part of it), and both
+/// apply to the whole alternation. `\r\n` is one terminator, so neither holds between its `\r` and
+/// its `\n`.
 pub const DEFINITION: &str = r#"
 module ANCHOR-SYNTAX
   syntax Foo ::= r"a$" [token]
@@ -14,7 +15,9 @@ module ANCHOR-SYNTAX
   syntax Baz ::= r"^c$" [token]
   syntax Alt ::= r"^d|e$" [token]
   syntax Short ::= r"x(\\ny)?$" [token]
-  syntax Pgm ::= Foo | Bar | Baz | Alt | Short "y"
+  syntax Cr ::= r"q\\r$" [token]
+  syntax Nl ::= r"^\\nw" [token]
+  syntax Pgm ::= Foo | Bar | Baz | Alt | Short "y" | Cr | Nl
 endmodule
 
 module ANCHOR
@@ -24,7 +27,7 @@ endmodule
 "#;
 
 /// `(program, accepted)` for the start sort `Pgm` of [`DEFINITION`].
-pub const PROGRAMS: [(&str, bool); 22] = [
+pub const PROGRAMS: [(&str, bool); 28] = [
     // `a$`: a newline must follow; where the token starts does not matter.
     ("a\n", true),
     (" a\n", true),
@@ -54,6 +57,14 @@ pub const PROGRAMS: [(&str, bool); 22] = [
     ("x\ny\n", false),
     ("xy", false),
     ("x", false),
+    // `q\r$`: a line ends after the `\r` only where it is not the start of `\r\n`.
+    ("q\r", false),
+    ("q\r\n", false),
+    ("q\r\r\n", true),
+    // `^\nw`: a line starts before the `\n` only where it is not the end of `\r\n`.
+    ("\n\nw", true),
+    ("\r\nw", false),
+    ("\r\n\nw", true),
 ];
 
 /// Anchored candidates competing with other lexemes. The longest-match rule compares token

@@ -10,8 +10,9 @@
 //! bound = "O(B x (L + Y) x m)"
 //! ```
 //!
-//! K global-winner scanning: longest token, then precedence, then lexeme key. The newline a `$`
-//! anchor requires is not part of the token, so it does not lengthen the candidate.
+//! K global-winner scanning: longest token, then precedence, then lexeme key. The line terminator
+//! a `$` anchor requires is not part of the token, so it does not lengthen the candidate. Lines
+//! are those of `crate::lines`, the ones locations count.
 //!
 //! A winner costs O(L) lexeme attempts (terminals only when they start with the input's next
 //! byte) plus one attempt per layout pattern, each a regex match
@@ -21,13 +22,13 @@
 
 use std::collections::BTreeMap;
 
-use regex::Regex as CompiledRegex;
-use regex_automata::{MatchKind, meta::Regex as LongestRegex};
+use regex_automata::{Anchored, Input, MatchKind, meta, meta::Regex as LongestRegex};
 
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::{ProductionItem, Regex as KRegex, parse_regex};
 use crate::kast::Sort;
+use crate::lines;
 
 use super::grammar::ProductionText;
 use super::{ParseError, TokenPrecedenceDeclaration, expand_regex_body};
@@ -106,9 +107,9 @@ pub(super) enum ScanWinner {
 pub(super) type ScanCacheEntry = Option<Option<ScanWinner>>;
 
 /// A token regex compiled for the scanner. Its line anchors are positions in the scanned text
-/// (see [`KRegex::start_line`]): `^` is checked before matching, and `$` is compiled into
-/// `pattern` as a trailing newline, so the longest match is taken among the body matches a newline
-/// follows.
+/// (see [`KRegex::start_line`] and `crate::lines`): `^` is checked before matching, and `$` is
+/// compiled into `pattern` as a trailing line terminator at a line end, so the longest match is
+/// taken among the body matches that end a line.
 #[derive(Clone, Debug)]
 pub(super) struct CompiledKRegex {
     canonical: String,
@@ -121,10 +122,17 @@ pub(super) struct CompiledKRegex {
 /// A precede or follow restriction: the token is rejected when the text before it ends (or the
 /// text after it starts) with a match of the restriction, that match satisfying the
 /// restriction's own line anchors in the whole scanned text.
+///
+/// A precede restriction's `pattern` is matched against the text before the token and ends at its
+/// end; a follow restriction's is matched anchored at the token's end in the whole text, so a
+/// line end it reads sees the characters before it. A precede restriction's `^` needs the
+/// character after the line start it reads, which may be the token's first: `before_character`
+/// is `pattern` followed by one character, matched against the text through that character.
 #[derive(Clone, Debug)]
 pub(super) struct Restriction {
     canonical: String,
-    pattern: CompiledRegex,
+    pattern: meta::Regex,
+    before_character: Option<meta::Regex>,
     start_line: bool,
     end_line: bool,
 }
@@ -428,10 +436,12 @@ fn compile_longest_regex(
     end_line: bool,
     reported_source: &str,
 ) -> Result<LongestRegex, ParseError> {
+    // Matched anchored at a position of the whole text (see `match_k_regex`), so the line end
+    // after the body sees the characters before it.
     let pattern = if end_line {
-        format!(r"\A(?:{source})\n")
+        format!(r"(?:{source}){}", lines::line_end_regex())
     } else {
-        format!(r"\A(?:{source})")
+        format!(r"(?:{source})")
     };
     LongestRegex::builder()
         .configure(LongestRegex::config().match_kind(MatchKind::All))
@@ -448,36 +458,55 @@ fn compile_restriction(
     start: bool,
 ) -> Result<Restriction, ParseError> {
     let compiled = compile_k_regex(source, lexical)?;
-    // A follow restriction is matched at the start of the text after the token, so its `$` is a
-    // newline after the match; a precede restriction is matched against the text before the
-    // token, a prefix of the scanned text, where multi-line `^` holds exactly at line starts.
+    let body = &compiled.rust_body;
+    // A follow restriction is matched anchored at the end of the token, so its `$` is a line
+    // terminator after the match; a precede restriction is matched against the text before the
+    // token, where its `^` is a line start it reads before the match.
     let pattern = match (start, compiled.start_line, compiled.end_line) {
-        (true, _, false) => format!(r"\A(?:{})", compiled.rust_body),
-        (true, _, true) => format!(r"\A(?:{})\n", compiled.rust_body),
-        (false, false, _) => format!(r"(?:{})\z", compiled.rust_body),
-        (false, true, _) => format!(r"(?m:^)(?:{})\z", compiled.rust_body),
+        (true, _, false) => format!(r"(?:{body})"),
+        (true, _, true) => format!(r"(?:{body}){}", lines::line_end_regex()),
+        (false, false, _) => format!(r"(?:{body})\z"),
+        (false, true, _) => format!(r"{}(?:{body})\z", lines::line_start_regex()),
     };
-    let pattern = CompiledRegex::new(&pattern).map_err(|error| ParseError::InvalidRegex {
-        regex: source.to_owned(),
-        message: error.to_string(),
-    })?;
+    let before_character = (!start && compiled.start_line)
+        .then(|| format!(r"{}(?:{body})(?s:.)\z", lines::line_start_regex()));
+    let build = |pattern: &str| {
+        meta::Regex::new(pattern).map_err(|error| ParseError::InvalidRegex {
+            regex: source.to_owned(),
+            message: error.to_string(),
+        })
+    };
     Ok(Restriction {
         canonical: compiled.canonical,
-        pattern,
+        pattern: build(&pattern)?,
+        before_character: before_character.as_deref().map(build).transpose()?,
         // The anchors the pattern does not express are positions at the token's boundary.
         start_line: start && compiled.start_line,
         end_line: !start && compiled.end_line,
     })
 }
 
-/// Whether `position` starts a line of `input`: it is the start, or a newline precedes it.
-fn at_line_start(input: &str, position: usize) -> bool {
-    position == 0 || input.as_bytes()[position - 1] == b'\n'
-}
+impl Restriction {
+    /// Whether the text before byte `position` of `input` ends with a match of this precede
+    /// restriction.
+    fn precedes(&self, input: &str, position: usize) -> bool {
+        if self.end_line && !lines::ends_line(input, position) {
+            return false;
+        }
+        match (&self.before_character, input[position..].chars().next()) {
+            (Some(pattern), Some(next)) => pattern.is_match(&input[..position + next.len_utf8()]),
+            _ => self.pattern.is_match(&input[..position]),
+        }
+    }
 
-/// Whether `position` ends a line of `input`: a newline follows it.
-fn at_line_end(input: &str, position: usize) -> bool {
-    input.as_bytes().get(position) == Some(&b'\n')
+    /// Whether the text after byte `end` of `input` starts with a match of this follow
+    /// restriction.
+    fn follows(&self, input: &str, end: usize) -> bool {
+        (!self.start_line || lines::starts_line(input, end))
+            && self
+                .pattern
+                .is_match(Input::new(input).range(end..).anchored(Anchored::Yes))
+    }
 }
 
 fn lexeme_key(item: &Item) -> Option<LexemeKey> {
@@ -544,10 +573,7 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
             if restrictions
                 .as_deref()
                 .and_then(|restrictions| restrictions.precede.as_ref())
-                .is_some_and(|restriction| {
-                    (!restriction.end_line || at_line_end(input, position))
-                        && restriction.pattern.is_match(&input[..position])
-                })
+                .is_some_and(|restriction| restriction.precedes(input, position))
             {
                 return None;
             }
@@ -555,10 +581,7 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
             if restrictions
                 .as_deref()
                 .and_then(|restrictions| restrictions.follow.as_ref())
-                .is_some_and(|restriction| {
-                    (!restriction.start_line || at_line_start(input, end))
-                        && restriction.pattern.is_match(&input[end..])
-                })
+                .is_some_and(|restriction| restriction.follows(input, end))
             {
                 return None;
             }
@@ -569,12 +592,24 @@ fn match_lexeme(item: &Item, input: &str, position: usize) -> Option<usize> {
 }
 
 fn match_k_regex(regex: &CompiledKRegex, input: &str, position: usize) -> Option<usize> {
-    if regex.start_line && !at_line_start(input, position) {
+    if regex.start_line && !lines::starts_line(input, position) {
         return None;
     }
-    let found = regex.pattern.find(&input[position..])?;
-    // An end-anchored pattern's match ends with the newline after the token.
-    Some(position + found.end() - usize::from(regex.end_line))
+    let found = regex
+        .pattern
+        .search(&Input::new(input).range(position..).anchored(Anchored::Yes))?;
+    if !regex.end_line {
+        return Some(found.end());
+    }
+    // An end-anchored pattern's match ends with the line terminator after the token: the first in
+    // table order that the match ends with, since a terminator precedes its suffixes and a `\n`
+    // after a `\r` belongs to the `\r\n` it completes.
+    let matched = &input[position..found.end()];
+    let terminator = lines::LINE_TERMINATORS
+        .into_iter()
+        .find(|terminator| matched.ends_with(terminator))
+        .expect("an end-anchored match ends with a line terminator");
+    Some(found.end() - terminator.len())
 }
 
 #[cfg(test)]
@@ -643,15 +678,39 @@ mod tests {
     }
 
     fn restricted_regex(precede: Option<&str>, follow: Option<&str>) -> Item {
+        restricted("b", precede, follow)
+    }
+
+    fn restricted(regex: &str, precede: Option<&str>, follow: Option<&str>) -> Item {
         compile_item(
             &ProductionItem::RegexTerminal {
                 precede_regex: precede.map(str::to_owned),
-                regex: "b".into(),
+                regex: regex.into(),
                 follow_regex: follow.map(str::to_owned),
             },
             &BTreeMap::new(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn regex_restriction_anchors_see_every_line_terminator_and_none_inside_crlf() {
+        let precede = restricted_regex(Some("^a"), None);
+        let follow = restricted_regex(None, Some("c$"));
+        for terminator in lines::LINE_TERMINATORS {
+            let before = format!("x{terminator}ab");
+            assert_eq!(match_lexeme(&precede, &before, before.len() - 1), None);
+            assert_eq!(match_lexeme(&follow, &format!("bc{terminator}"), 0), None);
+        }
+
+        // Between the `\r` and the `\n` of `\r\n` no line starts or ends, also for a restriction
+        // whose match there is empty and so reads only the token's own boundary.
+        let precede = restricted(r"\nb", Some("^x?"), None);
+        assert_eq!(match_lexeme(&precede, "\r\nb", 1), Some(3));
+        assert_eq!(match_lexeme(&precede, "\n\nb", 1), None);
+        let follow = restricted(r"b\r", None, Some("x?$"));
+        assert_eq!(match_lexeme(&follow, "b\r\n", 0), Some(2));
+        assert_eq!(match_lexeme(&follow, "b\r\r\n", 0), None);
     }
 
     #[test]
