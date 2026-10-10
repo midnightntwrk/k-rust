@@ -1514,68 +1514,132 @@ fn simplification_rules_and_internal_labels_are_exempt() {
     );
 }
 
-#[test]
-fn collection_hooks_admit_functions_only_at_keys_set_elements_and_list_indices() {
-    let function = production(
-        Some("f"),
-        "Int",
-        &["Int"],
-        attrs(&[("function", json!(""))]),
-    );
-    let map_element = production(
-        Some("mapElement"),
-        "Map",
-        &["Int", "Int"],
-        attrs(&[("function", json!("")), ("hook", json!("MAP.element"))]),
-    );
-    let set_element = production(
-        Some("setElement"),
-        "Set",
-        &["Int"],
-        attrs(&[("function", json!("")), ("hook", json!("SET.element"))]),
-    );
-    let list_update = production(
-        Some("listUpdate"),
-        "List",
-        &["List", "Int", "Int"],
-        attrs(&[("function", json!("")), ("hook", json!("LIST.update"))]),
-    );
-    let map_rule = rule_with_body(rewrite(
-        Term::apply(
-            "mapElement",
-            vec![
-                Term::apply("f", vec![token("0")]),
-                Term::apply("f", vec![token("1")]),
-            ],
+/// The productions of the collection-position tests: a function `f`, a function root `g`, a
+/// constructor root `wrap`, the element constructors of a map, a set and a list, and a list
+/// update.
+fn collection_position_productions() -> Vec<Sentence> {
+    let hooked = |label: &str, sort: &str, arguments: &[&str], hook: &str| {
+        production(
+            Some(label),
+            sort,
+            arguments,
+            attrs(&[("function", json!("")), ("hook", json!(hook))]),
+        )
+    };
+    vec![
+        production(
+            Some("f"),
+            "Int",
+            &["Int"],
+            attrs(&[("function", json!(""))]),
         ),
-        token("2"),
-    ));
-    let set_rule = rule_with_body(rewrite(
-        Term::apply("setElement", vec![Term::apply("f", vec![token("0")])]),
+        production(Some("g"), "Int", &["K"], attrs(&[("function", json!(""))])),
+        production(Some("wrap"), "Int", &["K"], Attributes::default()),
+        hooked("mapElement", "Map", &["Int", "Int"], "MAP.element"),
+        hooked("setElement", "Set", &["Int"], "SET.element"),
+        hooked("listElement", "List", &["Int"], "LIST.element"),
+        hooked("listUpdate", "List", &["List", "Int", "Int"], "LIST.update"),
+    ]
+}
+
+/// The collection patterns of the collection-position tests, each with one function
+/// application at one argument of a collection constructor, and a list update.
+fn collection_patterns() -> Vec<(&'static str, Term)> {
+    let f = |value: &str| Term::apply("f", vec![token(value)]);
+    vec![
+        (
+            "map key",
+            Term::apply("mapElement", vec![f("0"), token("1")]),
+        ),
+        (
+            "map value",
+            Term::apply("mapElement", vec![token("0"), f("1")]),
+        ),
+        ("set element", Term::apply("setElement", vec![f("0")])),
+        ("list element", Term::apply("listElement", vec![f("0")])),
+        (
+            "list update",
+            Term::apply("listUpdate", vec![token("0"), token("1"), token("2")]),
+        ),
+    ]
+}
+
+#[test]
+fn an_equation_admits_only_collection_constructors_below_its_root() {
+    // An equation matches its argument patterns as written, so a function application below
+    // its root never matches the value it computes: every position is rejected alike, and a
+    // list update, a function of a list rather than a way to write one, is rejected too.
+    let productions = collection_position_productions();
+    let productions = productions.iter().collect::<Vec<_>>();
+    for (position, pattern) in collection_patterns() {
+        let equation = rule_with_body(rewrite(Term::apply("g", vec![pattern]), token("1")));
+        let diagnostics = function_diagnostics(&[&equation], &productions);
+        assert_eq!(diagnostics.len(), 1, "{position}: {diagnostics:?}");
+        assert_eq!(diagnostics[0].code, DiagnosticCode::IllegalFunctionOnLhs);
+        assert!(
+            diagnostics[0].message.contains("equation"),
+            "{position}: {}",
+            diagnostics[0].message
+        );
+    }
+    // The constructors alone are admitted.
+    let constructors = rule_with_body(rewrite(
+        Term::apply(
+            "g",
+            vec![Term::apply("mapElement", vec![token("0"), token("1")])],
+        ),
         token("1"),
     ));
-    let list_rule = rule_with_body(rewrite(
-        Term::apply(
-            "listUpdate",
-            vec![
-                Term::apply("f", vec![token("0")]),
-                Term::apply("f", vec![token("1")]),
-                Term::apply("f", vec![token("2")]),
-            ],
+    assert!(function_diagnostics(&[&constructors], &productions).is_empty());
+    // An anywhere rule is an equation of its root, whatever that root is.
+    let anywhere = Sentence::Rule {
+        body: rewrite(
+            Term::apply(
+                "wrap",
+                vec![Term::apply(
+                    "setElement",
+                    vec![Term::apply("f", vec![token("0")])],
+                )],
+            ),
+            token("1"),
         ),
-        token("3"),
-    ));
-    let diagnostics = function_diagnostics(
-        &[&map_rule, &set_rule, &list_rule],
-        &[&function, &map_element, &set_element, &list_update],
-    );
+        requires: truth(),
+        ensures: truth(),
+        attributes: attrs(&[("anywhere", json!(""))]),
+    };
+    assert_eq!(function_diagnostics(&[&anywhere], &productions).len(), 1);
+}
 
-    assert_eq!(diagnostics.len(), 3);
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| { diagnostic.code == DiagnosticCode::IllegalFunctionOnLhs })
-    );
+#[test]
+fn a_rewrite_rule_reads_a_function_application_by_value_at_every_collection_argument() {
+    // A rewrite rule reads a function application inside a collection's key, value or element
+    // by value, alike at every argument of a collection constructor and below it; a list
+    // update outside a collection argument is a function application like any other.
+    let productions = collection_position_productions();
+    let productions = productions.iter().collect::<Vec<_>>();
+    for (position, pattern) in collection_patterns() {
+        let rule = rule_with_body(rewrite(Term::apply("wrap", vec![pattern]), token("1")));
+        let diagnostics = function_diagnostics(&[&rule], &productions);
+        let expected = usize::from(position == "list update");
+        assert_eq!(diagnostics.len(), expected, "{position}: {diagnostics:?}");
+    }
+    let nested = rule_with_body(rewrite(
+        Term::apply(
+            "wrap",
+            vec![Term::apply(
+                "setElement",
+                vec![Term::apply(
+                    "wrap",
+                    vec![Term::apply(
+                        "listUpdate",
+                        vec![token("0"), Term::apply("f", vec![token("1")]), token("2")],
+                    )],
+                )],
+            )],
+        ),
+        token("1"),
+    ));
+    assert!(function_diagnostics(&[&nested], &productions).is_empty());
 }
 
 #[test]

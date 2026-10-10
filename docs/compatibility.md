@@ -627,6 +627,23 @@ The `verifier-anywhere-argument` exclusion covers exactly this rejection: a `kor
 The conformance driver records a `kore-verify` rejection as its own step after all other steps of the case and still runs the `definition.kore` comparison, so the exclusion leaves the comparison and every program step of the case ranked.
 Its limit is the verifier's: it reports only the first rejected sentence, so a later, different rejection of the same definition stays hidden until the first is resolved. For FUN this was checked by verifying again after deleting each reported axiom: exactly the `exps`, `names` and `getMatching` equations above are rejected, and the rest of the definition verifies. The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
 
+## Function applications on a left-hand side
+
+A function application on a rule's left-hand side is read in one of two ways, decided by the kind of rule and the same at every position (`definition/checks/functions.rs`).
+
+An equation (a function rule, whose left-hand side is rooted at a `function` production; an `anywhere` rule; a macro-like rule) matches its argument patterns as written: the evaluator compares them with the arguments of the application it rewrites, and does not evaluate them.
+An application of a computed symbol below an equation's root would therefore match only a subject that spells the same application, never the value it computes, which is the subject an evaluated argument holds there.
+Below an equation's root only the collection constructors are admitted (the unit, element and concatenation of a `LIST`, `SET`, `MAP` or `BAG` sort, which build the collection their arguments describe), and their arguments are checked like every other argument; any other function application there is rejected with `IllegalFunctionOnLhs`, at every position alike: a map key, a map value, a set element, a list element, and a list update `L[I <- V]` (a function of a list, not a way to write one).
+A definition that needs the value of a computed position binds the position to a variable and states the value in `requires` (`f(X, (K |-> V) _M) => V requires K ==K pf(X)`), which says what it means and which the evaluator decides.
+A simplification lemma is not checked: it is a theorem of the definition, read as written.
+
+A rewrite rule (or a context) reads a function application inside a key, value or element of a collection, or an operand of a collection concatenation, by value: it matches the entry whose key, value or element equals the value the application computes once the variables in it are bound elsewhere in the rule (`#ContextLookup(IDS, TFIDX) |-> ADDR` matches the binding of the address the lookup computes).
+The reading is the same at every argument of a collection constructor and at every depth below it, and it is how the rewrite step matches such a position: it instantiates the bound variables, evaluates the application and matches the result.
+Elsewhere on a rewrite rule's left-hand side a function application is rejected, as is a list update outside a collection argument.
+
+K's reference toolchain admits a function application at a map key, a set element and a list-update index on every left-hand side, and nowhere else below the root; krust rejects these three positions in equations (where the evaluator never applies such an equation to a value, so a definition loses no evaluation) and admits a map value and a list element in rewrite rules, so that one reading holds at every argument of a collection constructor.
+(`an_equation_admits_only_collection_constructors_below_its_root` and `a_rewrite_rule_reads_a_function_application_by_value_at_every_collection_argument` in [definition_checks.rs](../crates/k-rust/tests/definition_checks.rs), `a_function_application_is_admitted_alike_at_every_collection_hook_argument` and `a_rewrite_rule_reads_a_computed_collection_position_by_value` in [definedness_classes.rs](../crates/k-rust/tests/definedness_classes.rs).)
+
 ## Concrete rewrite instantiation
 
 When the entire initial term is constructor-like, applying a rewrite rule requires a substitution covering every free variable on its left-hand side.
