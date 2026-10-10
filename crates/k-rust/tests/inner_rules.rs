@@ -672,12 +672,23 @@ fn user_list_singletons_remain_ambiguous_without_an_overload_group() {
     let error = resolve_rule_bubbles(&lowered(source))
         .expect_err("the synthetic list subsort alone must not select a production");
 
-    assert!(
-        matches!(
-            error,
-            RuleError::Parse(ref error)
-                if matches!(error.error, ParseError::Ambiguous { parses: 2, .. })
-        ),
+    // Each side reads `test(foo)` as `testFoo` or `testFoos`, independently of the other.
+    let RuleError::Parse(ref parse) = error else {
+        panic!("{error:?}")
+    };
+    let ParseError::Ambiguous {
+        parses, ref places, ..
+    } = parse.error
+    else {
+        panic!("{error:?}")
+    };
+    assert_eq!(parses, 4, "{error:?}");
+    assert_eq!(
+        places
+            .iter()
+            .map(|place| place.alternatives.len())
+            .collect::<Vec<_>>(),
+        [2, 2],
         "{error:?}"
     );
 }
@@ -1014,6 +1025,7 @@ fn incomparable_maximal_typings_are_reported_as_ambiguity() {
         parses,
         alternatives,
         span,
+        ..
     } = error.error
     else {
         panic!("expected an ambiguity, got {:?}", error.error)
@@ -1091,6 +1103,7 @@ fn rejects_non_function_rewrite_siblings_that_remain_ambiguous() {
             parses,
             alternatives,
             span,
+            ..
         } = error.error
         else {
             panic!("expected an ambiguity, got {:?}", error.error)
@@ -5061,7 +5074,10 @@ fn resolved_rule_body(source: &str) -> Result<String, RuleError> {
     Ok(body.clone())
 }
 
-fn assert_ambiguous_between(result: Result<String, RuleError>, readings: [&str; 2]) {
+fn assert_ambiguous_between<const N: usize>(
+    result: Result<String, RuleError>,
+    readings: [&str; N],
+) {
     let Err(RuleError::Parse(error)) = &result else {
         panic!("expected an ambiguity, got {result:?}")
     };
@@ -5073,7 +5089,7 @@ fn assert_ambiguous_between(result: Result<String, RuleError>, readings: [&str; 
     else {
         panic!("expected an ambiguity, got {:?}", error.error)
     };
-    assert_eq!(*parses, 2, "{alternatives:#?}");
+    assert_eq!(*parses, N, "{alternatives:#?}");
     let mut terms = alternatives
         .iter()
         .map(|alternative| alternative.term.as_str())
@@ -5103,9 +5119,16 @@ fn avoided_constructor_at_one_of_two_divergence_points_is_dropped() {
 // `class(T)` through `Exp ::= Type`.
 #[test]
 fn constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous() {
+    // The `Type` typing of `T` has one reading. The `Id` typing has two, which differ on the
+    // right side only, so the readings differ on both sides but not independently: the whole
+    // rule is reported, with its three readings.
     assert_ambiguous_between(
         resolved_rule_body(&class_constructor_source("")),
-        ["#SemanticCastToId(T)", "class(#SemanticCastToId(T))"],
+        [
+            CLASS_TYPE_READING,
+            "arrayRef(`_[]_MAIN_Type_Type`(class(#SemanticCastToId(T))),`_,__MAIN_Types_Type_Types`(`int_MAIN_Type`(.KList),#SemanticCastToTypes(Ts)))=>arrayRef(#SemanticCastToId(T),#SemanticCastToTypes(Ts))",
+            CLASS_ID_READING,
+        ],
     );
 }
 

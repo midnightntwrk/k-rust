@@ -1412,6 +1412,11 @@ fn checked_inference_result(
 }
 
 /// The lowered-term comparison of `Grammar::checked_ambiguous_parse`; returns Z3's result.
+///
+/// Two rejections agree unless one of them is an ambiguity that the other is not: an
+/// ambiguity is reported from the readings the decision kept, so two engines that keep the
+/// same trees report it alike, while an ill-sorted forest is explained by each engine in its
+/// own terms.
 #[cfg(feature = "z3-inference")]
 fn checked_lowered_result(
     portable: Result<Term, ParseError>,
@@ -1419,13 +1424,24 @@ fn checked_lowered_result(
 ) -> Result<Term, ParseError> {
     match (portable, z3) {
         (Ok(portable), Ok(z3)) if portable.identical(&z3) => Ok(z3),
-        (Err(_), Err(z3)) => Err(z3),
+        (Err(portable), Err(z3)) if rejections_agree(&portable, &z3) => Err(z3),
         (portable, z3) => Err(engine_disagreement(portable, z3, true)),
     }
 }
 
-/// The outcome of checked inference when the engines differ: at least one accepted, so the
-/// term is neither inferred nor rejected.
+/// Whether two engines' rejections of one forest are one rejection (`checked_lowered_result`).
+#[cfg(feature = "z3-inference")]
+fn rejections_agree(portable: &ParseError, z3: &ParseError) -> bool {
+    let ambiguity = |error: &ParseError| matches!(error, ParseError::Ambiguous { .. });
+    if ambiguity(portable) || ambiguity(z3) {
+        return portable == z3;
+    }
+    true
+}
+
+/// The outcome of checked inference when the engines differ: at least one accepted, or both
+/// rejected and at least one reported an ambiguity the other did not, so the term is neither
+/// inferred nor rejected.
 #[cfg(feature = "z3-inference")]
 fn engine_disagreement<T: std::fmt::Debug>(
     portable: Result<T, ParseError>,
@@ -2264,6 +2280,28 @@ mod tests {
                 Err(inference_error("Z3 rejection")),
             ),
             Err(ParseError::SortInference { ref message }) if message == "Z3 rejection"
+        ));
+        let ambiguity = |parses| ParseError::Ambiguous {
+            parses,
+            alternatives: Vec::new(),
+            span: None,
+            places: Vec::new(),
+        };
+        assert_eq!(
+            checked_lowered_result(Err(ambiguity(2)), Err(ambiguity(2))),
+            Err(ambiguity(2))
+        );
+        assert_eq!(
+            checked_lowered_result(Err(ambiguity(14)), Err(ambiguity(2))),
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Err(ambiguity(14).to_string()),
+                z3: Err(ambiguity(2).to_string()),
+                ambiguous_parse: true,
+            })
+        );
+        assert!(matches!(
+            checked_lowered_result(Err(ambiguity(2)), Err(inference_error("Z3 rejection"))),
+            Err(ParseError::InferenceEngineDisagreement { .. })
         ));
         assert_eq!(
             checked_lowered_result(Ok(s()), Ok(annotated())),

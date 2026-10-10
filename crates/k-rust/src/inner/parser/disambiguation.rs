@@ -121,7 +121,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+//! bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise an ambiguity whose alternatives have several readings, and a node whose lowering joins or drops children over several readings, expand their readings, at most one term per tree below them, while independent choices below a node that keeps its children stay unexpanded; the report then renders each reading of each place once"
 //! ```
 //!
 //! Packed-DAG and owned-tree disambiguation in the following pipeline order.
@@ -151,8 +151,8 @@ use std::rc::Rc;
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use super::{
-    AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts, ParsedTerm,
-    Production, StructuralOrder, cmp_packed_structurally, lower_term,
+    AmbiguityPlace, AmbiguousParse, Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedParts,
+    ParsedTerm, Production, StructuralOrder, cmp_packed_structurally, lower_term,
 };
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term, TermSpan, string};
 
@@ -1082,76 +1082,315 @@ impl Grammar {
         None
     }
 
+    /// Lower an inferred tree to the one term it denotes, or report the readings it still has.
+    ///
+    /// A tree with ambiguity nodes denotes a set of readings: the distinct terms its choices
+    /// lower to, compared without their metadata as parse results are. When the set has one
+    /// element the result is that term, as the first choice lowers it. Otherwise the report is
+    /// a function of the set, so two packings of one set report alike (`ambiguity_report`).
     pub(super) fn resolve_ambiguities(&self, term: ParsedTerm) -> Result<Term, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveAmbiguity);
-        self.resolve_ambiguities_node(term)
+        let mut products = Vec::new();
+        match self.resolve_ambiguities_node(term, &mut products)? {
+            Readings::One(term) => Ok(term),
+            readings => Err(self.ambiguity_report(&readings, &products)),
+        }
     }
 
+    /// The readings of one node of an inferred tree, with the nodes of its products in
+    /// `products`.
+    ///
+    /// A production node over children of one reading each is lowered as it stands. Over a
+    /// child of several readings, its readings are one per combination of its children's
+    /// readings; when its lowering tells distinct children apart (`lowering_keeps_children`),
+    /// distinct combinations are distinct readings and the combinations are kept unexpanded
+    /// as a product. An ambiguity node's readings are the union of its alternatives'; a union
+    /// can hold one term twice, so the alternatives are expanded and their terms compared,
+    /// keeping each distinct term as the first alternative lowers it. An expansion lowers at
+    /// most one term per tree below the node. A tree with one reading expands nothing it did
+    /// not lower already: an alternative with several readings makes the union several, so the
+    /// expansions of products happen only for a tree that is reported, or below a node whose
+    /// lowering joins its children.
+    ///
     /// ```toml algorithm-site
     /// id = "parser.diagnostic.ambiguity"
     /// role = "part"
-    /// sites = ["Grammar::resolve_ambiguities_node"]
+    /// sites = ["Grammar::resolve_ambiguities_node", "Grammar::ambiguity_report", "Grammar::factor_readings", "Grammar::ambiguity_place"]
     /// ```
-    fn resolve_ambiguities_node(&self, term: ParsedTerm) -> Result<Term, ParseError> {
+    fn resolve_ambiguities_node(
+        &self,
+        term: ParsedTerm,
+        products: &mut Vec<ProductNode>,
+    ) -> Result<Readings, ParseError> {
         crate::stack::guarded(|| match term.into_parts() {
-            ParsedParts::Term(term) => Ok(term),
+            ParsedParts::Term(term) => Ok(Readings::One(term)),
             ParsedParts::Production {
                 production,
                 children,
                 metadata,
-            } => {
-                let children = children
-                    .into_iter()
-                    .map(|child| self.resolve_ambiguities_node(child))
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.lower_production(production, None, children, metadata)
-            }
+            } => self.resolve_production_node(production, None, children, metadata, products),
             ParsedParts::InstantiatedProduction {
                 production,
                 parameters,
                 children,
                 metadata,
-            } => {
-                let children = children
-                    .into_iter()
-                    .map(|child| self.resolve_ambiguities_node(child))
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.lower_production(production, Some(&parameters), children, metadata)
-            }
+            } => self.resolve_production_node(
+                production,
+                Some(parameters),
+                children,
+                metadata,
+                products,
+            ),
             ParsedParts::Ambiguity(alternatives) => {
-                let parses = alternatives.iter().fold(0usize, |count, alternative| {
-                    count.saturating_add(Self::ambiguity_count(alternative))
-                });
-                let span = alternatives.iter().next().and_then(parsed_term_span);
-                let mut seen = BTreeSet::new();
-                let mut lowered = Vec::new();
+                let mut readings = DistinctReadings::default();
                 for alternative in alternatives {
-                    let production = self.reported_production(&alternative);
-                    let term = self.resolve_ambiguities_node(alternative)?;
-                    if seen.insert(term.clone()) {
-                        lowered.push((term, production));
-                    }
+                    let alternative = self.resolve_ambiguities_node(alternative, products)?;
+                    self.expand_readings(alternative, products, &mut readings)?;
                 }
-                if lowered.len() > 1 {
-                    return Err(ParseError::Ambiguous {
-                        parses,
-                        alternatives: lowered
-                            .into_iter()
-                            .map(|(term, production)| AmbiguousParse {
-                                production,
-                                term: term.to_string(),
-                            })
-                            .collect(),
-                        span,
-                    });
-                }
-                Ok(lowered
-                    .into_iter()
-                    .next()
-                    .map(|(term, _)| term)
-                    .expect("an ambiguity has at least one alternative"))
+                Ok(readings.into_readings())
             }
         })
+    }
+
+    fn resolve_production_node(
+        &self,
+        production: usize,
+        parameters: Option<Vec<Sort>>,
+        children: Vec<ParsedTerm>,
+        metadata: crate::kast::TermMetadata,
+        products: &mut Vec<ProductNode>,
+    ) -> Result<Readings, ParseError> {
+        let children = children
+            .into_iter()
+            .map(|child| self.resolve_ambiguities_node(child, products))
+            .collect::<Result<Vec<_>, _>>()?;
+        if children
+            .iter()
+            .all(|child| matches!(child, Readings::One(_)))
+        {
+            let children = children
+                .into_iter()
+                .map(|child| match child {
+                    Readings::One(term) => term,
+                    Readings::Listed(_) | Readings::Product(_) => {
+                        unreachable!("every child has one reading")
+                    }
+                })
+                .collect();
+            return self
+                .lower_production(production, parameters.as_deref(), children, metadata)
+                .map(Readings::One);
+        }
+        let node = ProductNode {
+            production,
+            parameters,
+            metadata,
+            children,
+        };
+        if lowering_keeps_children(&self.productions[production], node.children.len()) {
+            products.push(node);
+            return Ok(Readings::Product(products.len() - 1));
+        }
+        let mut readings = DistinctReadings::default();
+        self.expand_product(&node, products, &mut readings)?;
+        Ok(readings.into_readings())
+    }
+
+    /// Add every term of `readings` to `into`.
+    fn expand_readings(
+        &self,
+        readings: Readings,
+        products: &[ProductNode],
+        into: &mut DistinctReadings,
+    ) -> Result<(), ParseError> {
+        match readings {
+            Readings::One(term) => into.insert(term),
+            Readings::Listed(terms) => terms.into_iter().for_each(|term| into.insert(term)),
+            Readings::Product(index) => self.expand_product(&products[index], products, into)?,
+        }
+        Ok(())
+    }
+
+    /// Add to `into` the lowering of every combination of `node`'s children's readings, the
+    /// first child's varying slowest.
+    fn expand_product(
+        &self,
+        node: &ProductNode,
+        products: &[ProductNode],
+        into: &mut DistinctReadings,
+    ) -> Result<(), ParseError> {
+        crate::stack::guarded(|| {
+            let mut choices = Vec::with_capacity(node.children.len());
+            for child in &node.children {
+                let mut readings = DistinctReadings::default();
+                self.expand_readings(child.clone(), products, &mut readings)?;
+                choices.push(readings.terms);
+            }
+            let mut position = vec![0; choices.len()];
+            loop {
+                let children = position
+                    .iter()
+                    .zip(&choices)
+                    .map(|(index, terms)| terms[*index].clone())
+                    .collect();
+                into.insert(self.lower_production(
+                    node.production,
+                    node.parameters.as_deref(),
+                    children,
+                    node.metadata.clone(),
+                )?);
+                let Some(next) = (0..choices.len())
+                    .rev()
+                    .find(|child| position[*child] + 1 < choices[*child].len())
+                else {
+                    return Ok(());
+                };
+                position[next] += 1;
+                position[next + 1..].fill(0);
+            }
+        })
+    }
+
+    /// The diagnostic of a tree with several readings: the smallest subterm outside which
+    /// every reading agrees, and the number of distinct readings.
+    ///
+    /// The readings are narrowed to that subterm (`Grammar::factor_readings`). When the
+    /// readings of the subterm are every combination of the readings of several of its
+    /// children, they differ independently at several places, and each place is reported with
+    /// its own readings, the count being their product; otherwise the subterm's readings are
+    /// listed. Both are properties of the set of readings, read the same way from a product
+    /// left unexpanded and from its expansion, so two packings of one set of readings give one
+    /// diagnostic.
+    fn ambiguity_report(&self, readings: &Readings, products: &[ProductNode]) -> ParseError {
+        match self.factor_readings(readings, products) {
+            FactoredReadings::Place(place) => ParseError::Ambiguous {
+                parses: place.alternatives.len(),
+                alternatives: place.alternatives,
+                span: place.span,
+                places: Vec::new(),
+            },
+            FactoredReadings::Independent { span, places } => ParseError::Ambiguous {
+                parses: places.iter().fold(1usize, |count, place| {
+                    count.saturating_mul(place.alternatives.len())
+                }),
+                alternatives: Vec::new(),
+                span,
+                places,
+            },
+        }
+    }
+
+    /// The smallest subterm outside which several `readings` agree, as one place or as
+    /// independent places.
+    ///
+    /// Below a product whose children all have one reading but one, every reading agrees
+    /// outside that child. A product with several such children has as readings every
+    /// combination of theirs, so its places are theirs. A listed set is narrowed down its terms
+    /// while they share a head and differ at one child only; where they differ at several
+    /// children and are every combination of the distinct terms at those children, they are a
+    /// product of those children's readings as well.
+    fn factor_readings(&self, readings: &Readings, products: &[ProductNode]) -> FactoredReadings {
+        crate::stack::guarded(|| match readings {
+            Readings::One(_) => unreachable!("only several readings are factored"),
+            Readings::Product(index) => {
+                let node = &products[*index];
+                let several = node
+                    .children
+                    .iter()
+                    .filter(|child| !matches!(child, Readings::One(_)))
+                    .collect::<Vec<_>>();
+                if let [only] = several[..] {
+                    return self.factor_readings(only, products);
+                }
+                let places = several
+                    .into_iter()
+                    .flat_map(|child| self.factor_readings(child, products).into_places())
+                    .collect();
+                FactoredReadings::Independent {
+                    span: node.metadata.span,
+                    places,
+                }
+            }
+            Readings::Listed(terms) => {
+                let mut place = terms.iter().collect::<Vec<_>>();
+                while let Some((positions, children)) = differing_children(&place) {
+                    if let [position] = positions[..] {
+                        place = children[position].clone();
+                        continue;
+                    }
+                    let distinct = positions
+                        .iter()
+                        .map(|position| {
+                            children[*position].iter().copied().collect::<BTreeSet<_>>()
+                        })
+                        .collect::<Vec<_>>();
+                    let combinations = distinct
+                        .iter()
+                        .try_fold(1usize, |count, terms| count.checked_mul(terms.len()));
+                    if combinations != Some(place.len()) {
+                        break;
+                    }
+                    let places = distinct
+                        .into_iter()
+                        .flat_map(|terms| {
+                            let terms = terms.into_iter().cloned().collect();
+                            self.factor_readings(&Readings::Listed(terms), products)
+                                .into_places()
+                        })
+                        .collect();
+                    return FactoredReadings::Independent {
+                        span: covered_span(&place),
+                        places,
+                    };
+                }
+                FactoredReadings::Place(self.ambiguity_place(place))
+            }
+        })
+    }
+
+    /// The distinct readings of one place, in term order, with the span they cover.
+    fn ambiguity_place(&self, mut terms: Vec<&Term>) -> AmbiguityPlace {
+        terms.sort();
+        terms.dedup();
+        AmbiguityPlace {
+            span: covered_span(&terms),
+            alternatives: terms
+                .into_iter()
+                .map(|term| AmbiguousParse {
+                    production: self.reading_production_text(term),
+                    term: term.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The text of the production a reading's root came from: the source production its
+    /// metadata names, or, for a production the grammar generated, the one text of the
+    /// grammar's productions of the root's label.
+    fn reading_production_text(&self, term: &Term) -> Option<String> {
+        if let Some(text) = term
+            .metadata()
+            .and_then(|metadata| metadata.production)
+            .and_then(|production| self.source_production_texts.get(&production))
+        {
+            return Some(text.as_str().to_owned());
+        }
+        let Term::Apply { label, .. } = term.unannotated() else {
+            return None;
+        };
+        let mut texts = self
+            .productions
+            .iter()
+            .filter(|production| {
+                production
+                    .label
+                    .as_ref()
+                    .is_some_and(|own| own.name == label.name)
+            })
+            .filter_map(|production| production.source_production_text.as_ref())
+            .map(|text| text.as_str());
+        let first = texts.next()?;
+        texts.all(|text| text == first).then(|| first.to_owned())
     }
 
     fn lower_production(
@@ -1174,23 +1413,6 @@ impl Grammar {
             lower_term(production, children, span, &self.sort_denotations)?
         };
         Ok(term.with_metadata(metadata))
-    }
-
-    fn reported_production(&self, term: &ParsedTerm) -> Option<String> {
-        match term {
-            ParsedTerm::Production { production, .. }
-            | ParsedTerm::InstantiatedProduction { production, .. } => self.productions
-                [*production]
-                .source_production_text
-                .as_ref()
-                .map(|text| text.as_str().to_owned()),
-            ParsedTerm::Term(term) => term
-                .metadata()
-                .and_then(|metadata| metadata.production)
-                .and_then(|production| self.source_production_texts.get(&production))
-                .map(|text| text.as_str().to_owned()),
-            ParsedTerm::Ambiguity(_) => None,
-        }
     }
 
     /// Remove the nodes that only shaped the parse: a bracket denotes its child, and a syntactic
@@ -2565,6 +2787,7 @@ impl Grammar {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn ambiguity_count(term: &ParsedTerm) -> usize {
         crate::stack::guarded(|| match term {
             ParsedTerm::Term(_) => 1,
@@ -2587,13 +2810,143 @@ impl Grammar {
     }
 }
 
-fn parsed_term_span(term: &ParsedTerm) -> Option<TermSpan> {
-    match term {
-        ParsedTerm::Production { metadata, .. }
-        | ParsedTerm::InstantiatedProduction { metadata, .. } => metadata.span,
-        ParsedTerm::Term(term) => term.metadata().and_then(|metadata| metadata.span),
-        ParsedTerm::Ambiguity(alternatives) => {
-            alternatives.iter().next().and_then(parsed_term_span)
+/// The readings of one node of an inferred tree (`Grammar::resolve_ambiguities_node`): the set
+/// of terms it lowers to, compared without their metadata.
+#[derive(Clone)]
+enum Readings {
+    One(Term),
+    /// At least two distinct terms.
+    Listed(Vec<Term>),
+    /// A node of `ProductNode`s by index: the lowering of every combination of its children's
+    /// readings, all distinct.
+    Product(usize),
+}
+
+/// A production node with a child of several readings, whose lowering tells distinct children
+/// apart (`lowering_keeps_children`).
+struct ProductNode {
+    production: usize,
+    parameters: Option<Vec<Sort>>,
+    metadata: crate::kast::TermMetadata,
+    children: Vec<Readings>,
+}
+
+/// Distinct terms in the order they were met, each as first met.
+#[derive(Default)]
+struct DistinctReadings {
+    terms: Vec<Term>,
+    seen: BTreeSet<Term>,
+}
+
+impl DistinctReadings {
+    fn insert(&mut self, term: Term) {
+        if !self.seen.contains(&term) {
+            self.seen.insert(term.clone());
+            self.terms.push(term);
+        }
+    }
+
+    fn into_readings(mut self) -> Readings {
+        if self.terms.len() == 1 {
+            Readings::One(self.terms.pop().expect("one term"))
+        } else {
+            Readings::Listed(self.terms)
+        }
+    }
+}
+
+/// Whether `lower_term` gives distinct terms for distinct vectors of `arity` children of
+/// `production`. It does unless it drops a child (a bracket over several), joins the children
+/// into one value (a `#KToken` of a string and a sort) or splices them (a `~>` sequence, which
+/// flattens a child that is itself a sequence).
+fn lowering_keeps_children(production: &Production, arity: usize) -> bool {
+    if production.transparent {
+        return arity == 1;
+    }
+    !production
+        .label
+        .as_ref()
+        .is_some_and(|label| label.is(InternalLabel::KToken) || label.is(InternalLabel::KSequence))
+}
+
+/// The head of a lowered term that has children, and its children: two terms with the same
+/// head and as many children differ only in their children.
+#[derive(PartialEq)]
+enum TermHead<'a> {
+    Rewrite,
+    As,
+    Sequence,
+    Apply(&'a crate::kast::Label),
+}
+
+fn term_children(term: &Term) -> Option<(TermHead<'_>, Vec<&Term>)> {
+    match term.unannotated() {
+        Term::Rewrite { left, right } => Some((TermHead::Rewrite, vec![&**left, &**right])),
+        Term::As { pattern, alias } => Some((TermHead::As, vec![&**pattern, &**alias])),
+        Term::Sequence(items) => Some((TermHead::Sequence, items.iter().collect())),
+        Term::Apply { label, arguments } => {
+            Some((TermHead::Apply(label), arguments.iter().collect()))
+        }
+        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+        Term::Annotated { .. } => unreachable!("an unannotated term"),
+    }
+}
+
+/// When `terms` all have one head and arity: the child positions at which they differ, and
+/// every term's children by position.
+fn differing_children<'a>(terms: &[&'a Term]) -> Option<(Vec<usize>, Vec<Vec<&'a Term>>)> {
+    let (first, _) = terms.split_first()?;
+    let (head, arity) = term_children(first).map(|(head, children)| (head, children.len()))?;
+    let mut by_position = vec![Vec::with_capacity(terms.len()); arity];
+    for term in terms {
+        let (other_head, children) = term_children(term)?;
+        if other_head != head || children.len() != arity {
+            return None;
+        }
+        for (position, child) in children.into_iter().enumerate() {
+            by_position[position].push(child);
+        }
+    }
+    let positions = (0..arity)
+        .filter(|position| {
+            let (first, rest) = by_position[*position]
+                .split_first()
+                .expect("a position of every term");
+            rest.iter().any(|child| child != first)
+        })
+        .collect();
+    Some((positions, by_position))
+}
+
+/// The span the spanned `terms` cover together.
+fn covered_span(terms: &[&Term]) -> Option<TermSpan> {
+    terms
+        .iter()
+        .filter_map(|term| term.metadata().and_then(|metadata| metadata.span))
+        .reduce(|covered, span| TermSpan {
+            source: covered.source,
+            start: covered.start.min(span.start),
+            end: covered.end.max(span.end),
+        })
+}
+
+/// Several readings, narrowed to the smallest subterm outside which they agree
+/// (`Grammar::factor_readings`).
+enum FactoredReadings {
+    /// The subterm's readings, listed.
+    Place(AmbiguityPlace),
+    /// The subterm's readings are every combination of those of the places, which lie in it.
+    Independent {
+        span: Option<TermSpan>,
+        places: Vec<AmbiguityPlace>,
+    },
+}
+
+impl FactoredReadings {
+    fn into_places(self) -> Vec<AmbiguityPlace> {
+        match self {
+            Self::Place(place) => vec![place],
+            Self::Independent { places, .. } => places,
         }
     }
 }
@@ -2765,6 +3118,7 @@ mod tests {
     use crate::provenance::SourceId;
     use k_rust_kore::measure::{Counter, snapshot};
     use proptest::prelude::*;
+    use std::collections::BTreeMap;
 
     fn identity(value: usize) -> ProductionIdentity {
         ProductionIdentity::from_hex(&format!("{value:032x}")).unwrap()
@@ -3077,16 +3431,25 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn reports_the_structurally_first_nested_ambiguity() {
+    /// A grammar of `wrapper(Exp)`, `pair(Exp, Exp)` and constants `a` to `d` and `outer`, and
+    /// a builder of its production nodes over `start..start + 1`.
+    fn readings_fixture() -> (Grammar, impl Fn(&str, Vec<ParsedTerm>, usize) -> ParsedTerm) {
         let mut grammar = Grammar::default();
-        let wrapper = add_production(&mut grammar, "Exp", &["Exp"], "wrapper");
-        let first = add_production(&mut grammar, "Exp", &[], "first");
-        let second = add_production(&mut grammar, "Exp", &[], "second");
-        let outer = add_production(&mut grammar, "Exp", &[], "outer");
-        let production = |production, start| ParsedTerm::Production {
-            production,
-            children: Vec::new(),
+        let mut productions = BTreeMap::new();
+        productions.insert(
+            "wrapper",
+            add_production(&mut grammar, "Exp", &["Exp"], "wrapper"),
+        );
+        productions.insert(
+            "pair",
+            add_production(&mut grammar, "Exp", &["Exp", "Exp"], "pair"),
+        );
+        for name in ["a", "b", "c", "d", "outer"] {
+            productions.insert(name, add_production(&mut grammar, "Exp", &[], name));
+        }
+        let node = move |name: &str, children, start| ParsedTerm::Production {
+            production: productions[name],
+            children,
             metadata: crate::kast::TermMetadata {
                 span: Some(TermSpan {
                     source: SourceId(0),
@@ -3096,42 +3459,165 @@ mod tests {
                 ..Default::default()
             },
         };
-        let nested = ParsedTerm::Ambiguity(BTreeSet::from([
-            production(first, 10),
-            production(second, 10),
-        ]));
-        let root = ParsedTerm::Ambiguity(BTreeSet::from([
-            ParsedTerm::Production {
-                production: wrapper,
-                children: vec![nested],
-                metadata: crate::kast::TermMetadata {
-                    span: Some(TermSpan {
-                        source: SourceId(0),
-                        start: 0,
-                        end: 20,
-                    }),
-                    ..Default::default()
-                },
-            },
-            production(outer, 30),
-        ]));
+        (grammar, node)
+    }
 
+    fn ambiguity(alternatives: impl IntoIterator<Item = ParsedTerm>) -> ParsedTerm {
+        ParsedTerm::Ambiguity(alternatives.into_iter().collect())
+    }
+
+    fn rendered(alternatives: &[AmbiguousParse]) -> Vec<&str> {
+        alternatives
+            .iter()
+            .map(|alternative| alternative.term.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn reports_the_smallest_subterm_outside_which_every_reading_agrees() {
+        let (grammar, node) = readings_fixture();
+        // `wrapper(a)`, `wrapper(b)` and `outer` differ at the root, so the report is the root
+        // with all three readings, not the inner ambiguity between `a` and `b`.
+        let root = ambiguity([
+            node(
+                "wrapper",
+                vec![ambiguity([node("a", vec![], 10), node("b", vec![], 10)])],
+                0,
+            ),
+            node("outer", vec![], 0),
+        ]);
         let ParseError::Ambiguous {
             parses,
             alternatives,
             span,
+            places,
         } = grammar.resolve_ambiguities(root).unwrap_err()
         else {
-            panic!("expected nested ambiguity")
+            panic!("expected an ambiguity")
+        };
+        assert_eq!(parses, 3);
+        assert_eq!(span.map(|span| span.start), Some(0));
+        assert_eq!(
+            rendered(&alternatives),
+            ["outer(.KList)", "wrapper(a(.KList))", "wrapper(b(.KList))"]
+        );
+        assert!(places.is_empty());
+    }
+
+    #[test]
+    fn two_packings_of_one_set_of_readings_report_alike() {
+        let (grammar, node) = readings_fixture();
+        let leaf = |name| node(name, vec![], 10);
+        let packed = node("wrapper", vec![ambiguity([leaf("a"), leaf("b")])], 0);
+        let flat = ambiguity([
+            node("wrapper", vec![leaf("a")], 0),
+            node("wrapper", vec![leaf("b")], 0),
+        ]);
+        let report = grammar.resolve_ambiguities(packed).unwrap_err();
+        assert_eq!(grammar.resolve_ambiguities(flat).unwrap_err(), report);
+        let ParseError::Ambiguous {
+            parses,
+            alternatives,
+            span,
+            ..
+        } = report
+        else {
+            panic!("expected an ambiguity")
         };
         assert_eq!(parses, 2);
         assert_eq!(span.map(|span| span.start), Some(10));
+        assert_eq!(rendered(&alternatives), ["a(.KList)", "b(.KList)"]);
+
+        // Two independent choices, packed below `pair` or listed as four readings.
+        let left = |name| node(name, vec![], 10);
+        let right = |name| node(name, vec![], 20);
+        let packed = node(
+            "pair",
+            vec![
+                ambiguity([left("a"), left("b")]),
+                ambiguity([right("c"), right("d")]),
+            ],
+            0,
+        );
+        let flat = ambiguity(
+            [("a", "c"), ("a", "d"), ("b", "c"), ("b", "d")]
+                .map(|(first, second)| node("pair", vec![left(first), right(second)], 0)),
+        );
+        let report = grammar.resolve_ambiguities(packed).unwrap_err();
+        assert_eq!(grammar.resolve_ambiguities(flat).unwrap_err(), report);
+        let ParseError::Ambiguous {
+            parses,
+            alternatives,
+            span,
+            places,
+        } = &report
+        else {
+            panic!("expected an ambiguity")
+        };
+        assert_eq!(*parses, 4);
+        assert_eq!(span.map(|span| span.start), Some(0));
+        assert!(alternatives.is_empty());
         assert_eq!(
-            alternatives
+            places
                 .iter()
-                .map(|alternative| alternative.term.as_str())
+                .map(|place| (
+                    place.span.map(|span| span.start),
+                    rendered(&place.alternatives)
+                ))
                 .collect::<Vec<_>>(),
-            ["first(.KList)", "second(.KList)"]
+            [
+                (Some(10), vec!["a(.KList)", "b(.KList)"]),
+                (Some(20), vec!["c(.KList)", "d(.KList)"]),
+            ]
+        );
+        assert!(
+            report.to_string().starts_with(
+                "Parsing ambiguity: 4 readings, which differ independently in 2 subterms."
+            ),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn readings_that_differ_together_at_two_places_are_listed_at_their_common_subterm() {
+        let (grammar, node) = readings_fixture();
+        let left = |name| node(name, vec![], 10);
+        let right = |name| node(name, vec![], 20);
+        let root = ambiguity([
+            node("pair", vec![left("a"), right("c")], 0),
+            node("pair", vec![left("b"), right("d")], 0),
+        ]);
+        let ParseError::Ambiguous {
+            parses,
+            alternatives,
+            span,
+            places,
+        } = grammar.resolve_ambiguities(root).unwrap_err()
+        else {
+            panic!("expected an ambiguity")
+        };
+        assert_eq!(parses, 2);
+        assert_eq!(span.map(|span| span.start), Some(0));
+        assert_eq!(
+            rendered(&alternatives),
+            ["pair(a(.KList),c(.KList))", "pair(b(.KList),d(.KList))"]
+        );
+        assert!(places.is_empty());
+    }
+
+    #[test]
+    fn alternatives_that_lower_alike_are_one_reading() {
+        let (grammar, node) = readings_fixture();
+        // Two trees of one term (as two derivations through different unlabelled
+        // productions would be) are one reading, and the ambiguity resolves to it.
+        let root = node(
+            "wrapper",
+            vec![ambiguity([node("a", vec![], 10), node("a", vec![], 11)])],
+            0,
+        );
+        assert_eq!(
+            grammar.resolve_ambiguities(root).unwrap().to_string(),
+            "wrapper(a(.KList))"
         );
     }
 

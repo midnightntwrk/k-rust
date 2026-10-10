@@ -721,10 +721,20 @@ struct Recognition {
     work_limit_reached: bool,
 }
 
+/// One reading of an ambiguous subterm: its rendered term and the text of the production its
+/// root came from, when the definition has one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguousParse {
     pub production: Option<String>,
     pub term: String,
+}
+
+/// One of several subterms whose readings vary independently of each other's: the span it
+/// covers and its distinct readings.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmbiguityPlace {
+    pub span: Option<TermSpan>,
+    pub alternatives: Vec<AmbiguousParse>,
 }
 
 /// Input encountered at the furthest point reached by the recognizer.
@@ -789,10 +799,18 @@ pub enum ParseError {
     InvalidParseShape {
         expected: String,
     },
+    /// The input has several readings, the distinct terms its parses lower to.
     Ambiguous {
+        /// The number of distinct readings.
         parses: usize,
+        /// The distinct readings of the subterm at `span`, when the readings differ at one
+        /// place; empty when they differ at several (`places`).
         alternatives: Vec<AmbiguousParse>,
+        /// The smallest subterm outside which every reading agrees.
         span: Option<TermSpan>,
+        /// When the readings differ independently at several subterms of the one at `span`,
+        /// those subterms, each with its readings; `parses` is the product of their counts.
+        places: Vec<AmbiguityPlace>,
     },
     /// A sort derives itself over a text without consuming input.
     CyclicDerivation(Box<CyclicDerivation>),
@@ -836,8 +854,9 @@ pub enum ParseError {
     /// Checked inference only (`KRUST_TYPE_INFERENCE_MODE=checked`): the portable and Z3
     /// engines reached different outcomes on one term. Each engine's outcome is `Ok` with the
     /// `Debug` rendering of the term it inferred (for an ambiguous parse, of the term it
-    /// lowered the parse to) or `Err` with the message of its rejection. The checked
-    /// comparison never builds one in which both engines rejected: that is agreement.
+    /// lowered the parse to) or `Err` with the message of its rejection. Two rejections are
+    /// agreement unless one of them is an ambiguity the other does not report alike, since
+    /// an ambiguity is reported from the readings both engines must keep.
     ///
     /// It is kept apart from `SortInference`, so a caller that expects a rejection does not
     /// take a term that one engine accepted, or that the engines inferred differently, for one.
@@ -959,16 +978,37 @@ impl fmt::Display for ParseError {
                     "parsed term does not have the expected {expected} shape"
                 )
             }
-            Self::Ambiguous { alternatives, .. } => {
-                formatter.write_str("Parsing ambiguity.")?;
-                for (index, alternative) in alternatives.iter().enumerate() {
-                    write!(
-                        formatter,
-                        "\n{}: {}\n    {}",
-                        index + 1,
-                        alternative.production.as_deref().unwrap_or(""),
-                        alternative.term
-                    )?;
+            Self::Ambiguous {
+                parses,
+                alternatives,
+                places,
+                ..
+            } => {
+                let write_alternatives =
+                    |formatter: &mut fmt::Formatter<'_>, alternatives: &[AmbiguousParse]| {
+                        for (index, alternative) in alternatives.iter().enumerate() {
+                            write!(
+                                formatter,
+                                "\n{}: {}\n    {}",
+                                index + 1,
+                                alternative.production.as_deref().unwrap_or(""),
+                                alternative.term
+                            )?;
+                        }
+                        Ok(())
+                    };
+                if places.is_empty() {
+                    formatter.write_str("Parsing ambiguity.")?;
+                    return write_alternatives(formatter, alternatives);
+                }
+                write!(
+                    formatter,
+                    "Parsing ambiguity: {parses} readings, which differ independently in {} subterms.",
+                    places.len()
+                )?;
+                for (index, place) in places.iter().enumerate() {
+                    write!(formatter, "\nSubterm {}:", index + 1)?;
+                    write_alternatives(formatter, &place.alternatives)?;
                 }
                 Ok(())
             }

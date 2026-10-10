@@ -6589,6 +6589,21 @@ symbol = "Grammar::resolve_ambiguities_node"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::ambiguity_report"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::factor_readings"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::ambiguity_place"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
 symbol = "AmbiguousParse"
 
@@ -6895,7 +6910,7 @@ symbol = "Grammar::factor_ambiguities"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N) lowering (parser.lower.term) plus, per alternative, one clone of its lowered term and, when the ambiguity remains, one rendering of it"
+bound = "O(N) lowering (parser.lower.term) when every ambiguity has one reading; otherwise an ambiguity whose alternatives have several readings, and a node whose lowering joins or drops children over several readings, expand their readings, at most one term per tree below them, while independent choices below a node that keeps its children stay unexpanded; the report then renders each reading of each place once"
 
 [[node]]
 kind = "algorithm"
