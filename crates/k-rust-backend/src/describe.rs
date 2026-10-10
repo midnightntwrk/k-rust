@@ -166,19 +166,29 @@ impl Display for AtSort<'_, HaltReason> {
                 branches,
                 remainder,
             } => {
-                write!(
-                    formatter,
-                    "the step branches into {} by rules {}",
-                    plural(branches.len(), "successor", "successors"),
-                    applied_rule_names(branches)
-                )?;
-                match remainder {
-                    Some(remainder) => write!(
-                        formatter,
-                        ", and the remainder where none of rules {} applies",
+                let remainder = remainder.as_ref().map(|remainder| {
+                    format!(
+                        "the remainder where none of rules {} applies",
                         english_list(&remainder.rule_ids)
-                    ),
-                    None => Ok(()),
+                    )
+                });
+                match (branches.as_slice(), remainder) {
+                    ([], Some(remainder)) => {
+                        write!(formatter, "the step leaves only {remainder}")
+                    }
+                    ([], None) => formatter.write_str("the step branches into no successor"),
+                    (branches, remainder) => {
+                        write!(
+                            formatter,
+                            "the step branches into {} by rules {}",
+                            plural(branches.len(), "successor", "successors"),
+                            applied_rule_names(branches)
+                        )?;
+                        match remainder {
+                            Some(remainder) => write!(formatter, ", and {remainder}"),
+                            None => Ok(()),
+                        }
+                    }
                 }
             }
             HaltReason::CutPointRule { rule, next_states } => write!(

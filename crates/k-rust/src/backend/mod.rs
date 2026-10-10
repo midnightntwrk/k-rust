@@ -2379,6 +2379,35 @@ mod tests {
         );
     }
 
+    /// A leaf's `detail` is for a reader: a branch states its successors' count and rules in
+    /// words, not the reason's Rust value with its patterns and substitutions.
+    #[test]
+    fn a_branch_leaf_states_its_detail_in_words() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-candidates.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                stop_at_branch: true,
+                ..ExecuteRequest::new(kore("start{}()"))
+            })
+            .unwrap();
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one branch leaf: {:?}", result.leaves);
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::Branch);
+        let detail = leaf.detail.as_deref().unwrap_or_default();
+        assert!(
+            ["to-b and to-g", "to-g and to-b"]
+                .map(|rules| format!("the step branches into 2 successors by rules {rules}"))
+                .contains(&detail.to_owned()),
+            "{detail}"
+        );
+    }
+
     #[test]
     fn branch_candidates_expose_only_their_own_diagnostics_on_the_wire() {
         let mut backend = Backend::new(
