@@ -3,6 +3,8 @@
 
 #[path = "backend/anywhere_matching.rs"]
 mod anywhere_matching;
+#[path = "backend/definedness_classes.rs"]
+mod definedness_classes;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/names.rs"]

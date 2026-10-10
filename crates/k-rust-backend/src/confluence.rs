@@ -1678,12 +1678,9 @@ fn check_detached(
             TermIndex::DomainValue | TermIndex::And => None,
         };
         if let Some(kind) = violation {
-            if matches!(
-                kind,
-                ViolationKind::ConstructorHeaded(_) | ViolationKind::InjectionHeaded
-            ) {
-                // An equation outside the check's reasoning: seeded into the closure like a pair
-                // that does not join (R1.5).
+            if kind.withdraws() {
+                // An equation outside the check's reasoning: its overlaps are never classified,
+                // so it is seeded into the closure like a pair that does not join (R1.5).
                 row_seeds.push(Arc::clone(&equation.rule));
             }
             checked.violations.push(Violation {
@@ -1695,10 +1692,10 @@ fn check_detached(
     let withdrawable = definition
         .symbols()
         .values()
-        .any(|symbol| closure::may_be_tainted(symbol) && certified_root(definition, symbol));
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
     if !withdrawable {
         // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted by any closure (`closure::may_be_tainted`): there is no
+        // classes) can be tainted by any closure (`closure::taintable`): there is no
         // equation head, hooked or not, and every overloaded symbol is a free constructor or
         // hooked. So no pair changes a claim, and the collection claims read only equations
         // indexed at a collection or a bare variable, which the rows above taint.
@@ -1991,8 +1988,8 @@ fn check_detached(
             || tainted.iter().all(|name| definition
                 .symbols()
                 .get(name)
-                .is_some_and(|symbol| closure::may_be_tainted(symbol))),
-        "the closure tainted a symbol outside `may_be_tainted`, which the shortcut reads: {tainted:?}"
+                .is_some_and(|symbol| closure::taintable(symbol))),
+        "the closure tainted a symbol outside `taintable`, which the shortcut reads: {tainted:?}"
     );
     for symbol in &tainted {
         checked
