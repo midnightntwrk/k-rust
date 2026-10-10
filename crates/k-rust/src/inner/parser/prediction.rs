@@ -1948,6 +1948,127 @@ mod tests {
         assert_eq!(metadata(&parsed), metadata(&baseline));
     }
 
+    /// A production of the pruning proptests' item codes with an optional label and attributes.
+    fn coded_production(
+        result: u8,
+        items: &[u8],
+        label: Option<String>,
+        attributes: Attributes,
+    ) -> Sentence {
+        Sentence::Production {
+            label: label.map(Label::new),
+            parameters: vec![],
+            sort: Sort::new(format!("S{result}")),
+            items: items
+                .iter()
+                .map(|item| match item {
+                    0..=2 => nt(&format!("S{item}")),
+                    3 => terminal("a"),
+                    4 => terminal("b"),
+                    5 => terminal("c"),
+                    6 => terminal("d"),
+                    _ => nt("S0"),
+                })
+                .collect(),
+            attributes,
+        }
+    }
+
+    proptest! {
+        /// Class test for the parser-proptest ticket: the pruning proptests above build every
+        /// production labelled and attribute-free, so they never reach the shapes the pruning
+        /// and the relations treat specially. This one generates, beside the same priorities,
+        /// unlabelled pass-throughs (`S1 ::= S2`), `applyPriority` positions, deliberate
+        /// duplicates of a production under another label, and associativity groups of several
+        /// tags; recognition with pruning must still agree with the unfiltered one.
+        #[test]
+        fn completion_pruning_matches_unfiltered_recognition_beyond_labelled_productions(
+            productions in prop::collection::vec(
+                (0u8..3, prop::collection::vec(0u8..8, 0..5)),
+                1..9,
+            ),
+            unlabelled in prop::collection::btree_set(0usize..9, 0..3),
+            apply in prop::collection::btree_map(0usize..9, 1u8..3, 0..3),
+            duplicates in prop::collection::btree_set(0usize..9, 0..3),
+            levels in prop::collection::btree_map(0usize..18, 0u8..3, 1..7),
+            associativity in prop::collection::vec(
+                (1u8..4, prop::collection::btree_set(0usize..18, 1..3)),
+                0..3,
+            ),
+            random_input in "[abc ]{0,11}",
+            choices in prop::collection::vec(any::<u8>(), 0..24),
+        ) {
+            let mut sentences = vec![production("Start", vec![nt("S0")], "start")];
+            // A tag names `p{i}` for production `i < 9` and the duplicate `q{i}` for `9 + i`.
+            let mut tags = BTreeSet::new();
+            for (index, (result, items)) in productions.iter().enumerate() {
+                let pass_through = items.len() == 1 && matches!(items[0], 0..=2 | 7);
+                let label = (!(pass_through && unlabelled.contains(&index)))
+                    .then(|| format!("p{index}"));
+                let attributes = apply.get(&index).map_or_else(Attributes::default, |position| {
+                    Attributes::new(std::collections::BTreeMap::from([(
+                        "applyPriority".to_owned(),
+                        serde_json::json!(position.to_string()),
+                    )]))
+                });
+                if let Some(label) = &label {
+                    tags.insert((index, label.clone()));
+                }
+                sentences.push(coded_production(*result, items, label, attributes.clone()));
+                if duplicates.contains(&index) {
+                    tags.insert((9 + index, format!("q{index}")));
+                    sentences.push(coded_production(
+                        *result,
+                        items,
+                        Some(format!("q{index}")),
+                        attributes,
+                    ));
+                }
+            }
+            let input = derived_sentence(&productions, &choices).unwrap_or(random_input);
+            let tag = |member: &usize| {
+                tags.iter()
+                    .find(|(index, _)| index == member)
+                    .map(|(_, tag)| tag.clone())
+            };
+            let priorities = (0u8..3)
+                .map(|level| {
+                    levels
+                        .iter()
+                        .filter(|(_, at)| **at == level)
+                        .filter_map(|(member, _)| tag(member))
+                        .collect::<Vec<_>>()
+                })
+                .filter(|group| !group.is_empty())
+                .collect::<Vec<_>>();
+            if priorities.len() >= 2 {
+                sentences.push(Sentence::SyntaxPriority {
+                    priorities,
+                    attributes: Attributes::default(),
+                });
+            }
+            for (associativity, members) in &associativity {
+                let group = members.iter().filter_map(tag).collect::<Vec<_>>();
+                if group.is_empty() {
+                    continue;
+                }
+                sentences.push(Sentence::SyntaxAssociativity {
+                    associativity: match associativity {
+                        1 => crate::definition::Associativity::Left,
+                        2 => crate::definition::Associativity::Right,
+                        _ => crate::definition::Associativity::NonAssoc,
+                    },
+                    tags: group,
+                    attributes: Attributes::default(),
+                });
+            }
+            let Ok(grammar) = Grammar::from_sentences(&sentences) else {
+                return Ok(());
+            };
+            pruning_agrees_with_unfiltered_recognition(&grammar, &input)?;
+        }
+    }
+
     /// The operator grammar of the end-position tests: `F ::= a | F "+" F [plus]` (and the
     /// duplicate `plustwo` when asked), `E ::= F` without a label, which builds no node, and
     /// `E ::= <left> "#" E [hash]`, with `applyPriority(2)` when asked, under
@@ -2122,6 +2243,397 @@ mod tests {
             parse_outcome(filtered(&grammar, "a + a")),
             "start(wrap(plus(fa(.KList),fa(.KList))))"
         );
+    }
+
+    /// One operator of the structured generator's grammars ([`operator_grammar`]), as
+    /// `(result, form, left, right, token, applyPriority, duplicate, scope)`:
+    /// - `result`, `left`, `right` pick `S0` or `S1` for the result and the operands;
+    /// - `form` 0 is infix (`left token right`), 1 prefix (`token right`), 2 postfix
+    ///   (`left token`), 3 a labelled unary production `S1 ::= S0`;
+    /// - `token` picks one of `+ * # -`;
+    /// - `applyPriority` 1 or 2 names that one position of an infix operator, 0 none;
+    /// - `duplicate` adds the same items under another label;
+    /// - `scope` 1 makes an infix operator a rewrite (`=>`, labelled `#KRewrite`), 2 a
+    ///   sequence (`~>`, labelled `#KSequence`), 0 neither.
+    type GeneratedOperator = (u8, u8, u8, u8, u8, u8, bool, u8);
+
+    const OPERATOR_TOKENS: [&str; 4] = ["+", "*", "#", "-"];
+
+    /// The items of a generated operator, and the tokens of the language it is part of.
+    fn operator_items(operator: &GeneratedOperator) -> Vec<ProductionItem> {
+        let &(_, form, left, right, token, _, _, scope) = operator;
+        let operand = |sort: u8| nt(&format!("S{}", sort % 2));
+        let token = match scope {
+            1 => "=>",
+            2 => "~>",
+            _ => OPERATOR_TOKENS[usize::from(token % 4)],
+        };
+        match (form % 4, scope) {
+            (_, 1 | 2) | (0, _) => vec![operand(left), terminal(token), operand(right)],
+            (1, _) => vec![terminal(token), operand(right)],
+            (2, _) => vec![operand(left), terminal(token)],
+            _ => vec![nt("S0")],
+        }
+    }
+
+    fn operator_result(operator: &GeneratedOperator) -> String {
+        let &(result, form, _, _, _, _, _, scope) = operator;
+        if form % 4 == 3 && scope == 0 {
+            // A unary production in the direction of `S1 ::= S0`, so that it closes no cycle.
+            "S1".to_owned()
+        } else {
+            format!("S{}", result % 2)
+        }
+    }
+
+    /// The label of operator `index`, or of its duplicate.
+    fn operator_label(operators: &[GeneratedOperator], index: usize, duplicate: bool) -> String {
+        match (operators[index].7, duplicate) {
+            (1, false) => InternalLabel::KRewrite.as_str().to_owned(),
+            (2, false) => InternalLabel::KSequence.as_str().to_owned(),
+            (_, false) => format!("o{index}"),
+            (_, true) => format!("d{index}"),
+        }
+    }
+
+    /// The structured generator's operator grammar: `Start ::= S1 [start]`, `S1 ::= S0`
+    /// without a label, `S0 ::= "a"`, the operators, their duplicates, and the priorities and
+    /// associativity groups over the operators' labels (`levels` and `groups` name operator
+    /// `i` as `i` and its duplicate as `i + operators.len()`, modulo twice that length). With `inlined` = `(i, k)`, the
+    /// `k`-th nonterminal of operator `i` is written through a fresh sort `P` whose only
+    /// production is the unlabelled `P ::= S`: a pass-through, which builds no node, so the
+    /// grammar derives the same trees as without it.
+    fn operator_grammar(
+        operators: &[GeneratedOperator],
+        levels: &BTreeMap<usize, u8>,
+        groups: &[(u8, BTreeSet<usize>)],
+        inlined: Option<(usize, usize)>,
+    ) -> Option<Grammar> {
+        let mut sentences = vec![
+            production("Start", vec![nt("S1")], "start"),
+            production("S0", vec![terminal("a")], "atom"),
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("S1"),
+                items: vec![nt("S0")],
+                attributes: Attributes::default(),
+            },
+        ];
+        let count = operators.len();
+        let mut tags = BTreeMap::new();
+        for (index, operator) in operators.iter().enumerate() {
+            let mut items = operator_items(operator);
+            if let Some((at, position)) = inlined
+                && at == index
+            {
+                let slot = items
+                    .iter_mut()
+                    .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                    .nth(position)?;
+                let ProductionItem::NonTerminal { sort, .. } = slot else {
+                    unreachable!("a nonterminal was selected")
+                };
+                sentences.push(Sentence::Production {
+                    label: None,
+                    parameters: vec![],
+                    sort: Sort::new("P"),
+                    items: vec![nt(&sort.name)],
+                    attributes: Attributes::default(),
+                });
+                *slot = nt("P");
+            }
+            let attributes = match (operator.5 % 3, items.len()) {
+                (position @ 1..=2, 3) => Attributes::new(BTreeMap::from([(
+                    "applyPriority".to_owned(),
+                    serde_json::json!(position.to_string()),
+                )])),
+                _ => Attributes::default(),
+            };
+            let label = operator_label(operators, index, false);
+            tags.insert(index, label.clone());
+            sentences.push(Sentence::Production {
+                label: Some(Label::new(label)),
+                parameters: vec![],
+                sort: Sort::new(operator_result(operator)),
+                items: items.clone(),
+                attributes: attributes.clone(),
+            });
+            if operator.6 && operator.7 == 0 {
+                let label = operator_label(operators, index, true);
+                tags.insert(count + index, label.clone());
+                sentences.push(Sentence::Production {
+                    label: Some(Label::new(label)),
+                    parameters: vec![],
+                    sort: Sort::new(operator_result(operator)),
+                    items,
+                    attributes,
+                });
+            }
+        }
+        // A member index names a tag modulo the number of tags an operator and its duplicate
+        // can have, so that the relations hold the grammar's operators whatever their count.
+        let member = |index: &usize| tags.get(&(index % (2 * count))).cloned();
+        let mut leveled = BTreeMap::new();
+        for (index, level) in levels {
+            if let Some(tag) = member(index) {
+                leveled.entry(tag).or_insert(*level);
+            }
+        }
+        let priorities = (0u8..3)
+            .map(|level| {
+                leveled
+                    .iter()
+                    .filter(|(_, at)| **at == level)
+                    .map(|(tag, _)| tag.clone())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|group| !group.is_empty())
+            .collect::<Vec<_>>();
+        if priorities.len() >= 2 {
+            sentences.push(Sentence::SyntaxPriority {
+                priorities,
+                attributes: Attributes::default(),
+            });
+        }
+        for (associativity, members) in groups {
+            let group = members
+                .iter()
+                .filter_map(member)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            if group.is_empty() {
+                continue;
+            }
+            sentences.push(Sentence::SyntaxAssociativity {
+                associativity: match associativity % 3 {
+                    0 => crate::definition::Associativity::Left,
+                    1 => crate::definition::Associativity::Right,
+                    _ => crate::definition::Associativity::NonAssoc,
+                },
+                tags: group,
+                attributes: Attributes::default(),
+            });
+        }
+        Grammar::from_sentences(&sentences).ok()
+    }
+
+    /// A sentence of an operator grammar, derived from `S1` by taking, at each nonterminal in
+    /// order, the alternative `choices` names next; `None` when the choices run out first.
+    fn operator_sentence(operators: &[GeneratedOperator], choices: &[u8]) -> Option<String> {
+        let mut choices = choices.iter();
+        let mut pending = vec![nt("S1")];
+        let mut sentence = Vec::new();
+        // Invariant: `pending` holds, last first, the items still to expand.
+        while let Some(item) = pending.pop() {
+            match item {
+                ProductionItem::NonTerminal { sort, .. } => {
+                    let mut alternatives = operators
+                        .iter()
+                        .filter(|operator| operator_result(operator) == sort.name)
+                        .map(operator_items)
+                        .collect::<Vec<_>>();
+                    alternatives.push(if sort.name == "S0" {
+                        vec![terminal("a")]
+                    } else {
+                        vec![nt("S0")]
+                    });
+                    let choice = usize::from(*choices.next()?) % alternatives.len();
+                    pending.extend(alternatives.swap_remove(choice).into_iter().rev());
+                }
+                ProductionItem::Terminal(text) => sentence.push(text),
+                ProductionItem::RegexTerminal { .. } => unreachable!("operators have no regex"),
+            }
+        }
+        Some(sentence.join(" "))
+    }
+
+    proptest! {
+        /// The structured pruning generator: an operator grammar (infix, prefix and postfix
+        /// operators over two sorts, labelled unary productions, duplicates of an operator under
+        /// another label, `applyPriority` naming one end, priorities, associativity groups, and
+        /// rewrites and sequences, whose scope errors are deferred), and its metamorphic pair,
+        /// the same grammar with one operand of one operator written through an unlabelled
+        /// pass-through (`P ::= S`). The pass-through builds no node, so both grammars derive
+        /// the same trees under the same labels, priorities and associativity; where the
+        /// operator is not an overload, nothing else the parse reads differs, so each of the
+        /// pruned and the unfiltered parser gives both one outcome. In each grammar, the pruned
+        /// recognition agrees with the unfiltered one. The input is a sentence of the grammar
+        /// when `choices` derive one; with two rewrite or sequence operators it can hold two or
+        /// more of their tokens.
+        #[test]
+        #[ignore = "K29: finds the open defects pinned below; run with PROPTEST_CASES=5000, un-ignore when they are fixed"]
+        fn an_operator_grammar_and_its_pass_through_pair_parse_alike(
+            operators in prop::collection::vec(
+                (0u8..2, 0u8..4, 0u8..2, 0u8..2, 0u8..4, 0u8..3, any::<bool>(), 0u8..3),
+                1..6,
+            ),
+            levels in prop::collection::btree_map(0usize..12, 0u8..3, 0..6),
+            groups in prop::collection::vec(
+                (0u8..3, prop::collection::btree_set(0usize..12, 1..4)),
+                0..3,
+            ),
+            inlined in (any::<prop::sample::Index>(), 0usize..2),
+            choices in prop::collection::vec(any::<u8>(), 0..24),
+            random_input in prop::collection::vec(0usize..7, 0..9),
+        ) {
+            let tokens = ["a", "+", "*", "#", "-", "=>", "~>"];
+            let input = operator_sentence(&operators, &choices).unwrap_or_else(|| {
+                random_input
+                    .iter()
+                    .map(|token| tokens[*token])
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+            let at = inlined.0.index(operators.len());
+            let scope = operators[at].7;
+            let Some(original) = operator_grammar(&operators, &levels, &groups, None) else {
+                return Ok(());
+            };
+            let Some(passed) = operator_grammar(&operators, &levels, &groups, Some((at, inlined.1)))
+            else {
+                return Ok(());
+            };
+            pruning_agrees_with_unfiltered_recognition(&original, &input)?;
+            pruning_agrees_with_unfiltered_recognition(&passed, &input)?;
+            // Two rewrite or two sequence operators share one label: they are overloads, which
+            // the overload filter orders by their argument sorts. `P ::= S` makes `P` a
+            // supersort of `S` and not a subsort, so writing an operand of an overload through
+            // it can change that order, and with it the parse: the two grammars derive the same
+            // trees but are not the same grammar. Only an operator with a label of its own is
+            // compared with its pair.
+            if scope != 0 && operators.iter().filter(|operator| operator.7 == scope).count() > 1 {
+                return Ok(());
+            }
+            // The decision is compared: the term accepted, or a rejection. Which error a
+            // rejection reports is compared once the three pinned reports
+            // (`an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence`,
+            // `..._above_a_rewrite`, `a_rejection_does_not_depend_on_a_pass_through_above_a_rewrite`)
+            // hold, and the decision for an operand of a rewrite or a sequence once
+            // `a_rewrite_reading_does_not_depend_on_a_pass_through_at_its_operand` holds.
+            if scope != 0 {
+                return Ok(());
+            }
+            let outcome = |result: Result<Term, ParseError>| {
+                result.map_or_else(|_| "rejected".to_owned(), |term| term.to_string())
+            };
+            prop_assert_eq!(
+                outcome(filtered(&passed, &input)),
+                outcome(filtered(&original, &input)),
+                "pruned"
+            );
+            prop_assert_eq!(
+                outcome(unfiltered(&passed, &input)),
+                outcome(unfiltered(&original, &input)),
+                "unfiltered"
+            );
+        }
+    }
+
+    /// An ambiguity report found by the structured generator below: under
+    /// `S1 ::= S1 "~>" S0` and `S1 ::= S0 "+" S1 [applyPriority(1)]`, `a + a ~> a ~> a` has
+    /// three readings, two sequences (of three items and of two) and a sum, and the report
+    /// lists one entry per root key, so three. With the sequence's left operand written
+    /// through `P ::= S1`, which builds no node, the readings are the same trees, but the
+    /// report lists two entries: it merges the two sequences.
+    #[test]
+    #[ignore = "K29 finding: the report merges sequence readings behind a pass-through; un-ignore with its fix"]
+    fn an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence() {
+        let operators: Vec<GeneratedOperator> =
+            vec![(1, 0, 1, 0, 0, 0, false, 2), (1, 0, 0, 1, 0, 1, false, 0)];
+        let input = "a + a ~> a ~> a";
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
+        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 0))).unwrap();
+        assert_eq!(
+            parse_outcome(filtered(&passed, input)),
+            parse_outcome(filtered(&original, input))
+        );
+    }
+
+    /// The second report the structured generator found: under `S0 ::= S0 "=>" S1`
+    /// (a rewrite), `S1 ::= S0 [o1]`, `S1 ::= S0 [o2]` and `S1 ::= S1 "+" S0 [o3]`, writing
+    /// `o3`'s left operand through `P ::= S1` drops the reading `o3(o1(a => a => a), a)` of
+    /// `a => a => a + a` from the report.
+    #[test]
+    #[ignore = "K29 finding: the report drops a reading behind a pass-through above a rewrite; un-ignore with its fix"]
+    fn an_ambiguity_report_does_not_depend_on_a_pass_through_above_a_rewrite() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 0, 0, 1, 0, 0, false, 1),
+            (0, 3, 0, 0, 0, 0, false, 0),
+            (0, 3, 0, 0, 0, 0, false, 0),
+            (1, 0, 1, 0, 0, 0, false, 0),
+        ];
+        let input = "a => a => a + a";
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
+        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((3, 0))).unwrap();
+        assert_eq!(
+            parse_outcome(filtered(&passed, input)),
+            parse_outcome(filtered(&original, input))
+        );
+    }
+
+    /// The third report the structured generator found: under `S1 ::= S1 "+" S1 [o0]`,
+    /// `S0 ::= S0 "=>" S0` (a rewrite) and `S1 ::= S0 [o2]`, every reading of `a => a + a`
+    /// holds the rewrite below `o0` or `o2`, a scope error. Both grammars reject it, but with
+    /// `o0`'s left operand written through `P ::= S1` the rejection is that scope error, and
+    /// without it an ambiguity between `atom` and `o2(atom)` at the right operand.
+    #[test]
+    #[ignore = "K29 finding: a rejection's error depends on a pass-through above a rewrite; un-ignore with its fix"]
+    fn a_rejection_does_not_depend_on_a_pass_through_above_a_rewrite() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (1, 0, 1, 1, 0, 0, false, 0),
+            (0, 0, 0, 0, 0, 0, false, 1),
+            (0, 3, 0, 0, 0, 0, false, 0),
+        ];
+        let input = "a => a + a";
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
+        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 0))).unwrap();
+        assert_eq!(
+            parse_outcome(filtered(&passed, input)),
+            parse_outcome(filtered(&original, input))
+        );
+    }
+
+    /// The fourth difference the structured generator found, the one that changes the
+    /// decision: under `S0 ::= S0 "=>" S0` (a rewrite) and `S0 ::= S0 "~>" S0
+    /// [applyPriority(2)]` (a sequence), `a => a ~> a` parses as the rewrite of `a` to
+    /// `a ~> a`. With the rewrite's right operand written through `P ::= S0`, which builds no
+    /// node, it is reported ambiguous between that reading and the sequence of `a => a` and
+    /// `a`.
+    #[test]
+    #[ignore = "K29 finding: the rewrite reading is preferred only without a pass-through at its operand; un-ignore with its fix"]
+    fn a_rewrite_reading_does_not_depend_on_a_pass_through_at_its_operand() {
+        let operators: Vec<GeneratedOperator> =
+            vec![(0, 0, 0, 0, 0, 0, false, 1), (0, 0, 0, 0, 0, 2, false, 2)];
+        let input = "a => a ~> a";
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
+        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 1))).unwrap();
+        assert_eq!(
+            parse_outcome(filtered(&passed, input)),
+            parse_outcome(filtered(&original, input))
+        );
+    }
+
+    /// The pruning difference the structured generator found: a postfix `S1 ::= S1 "+" [o2]`
+    /// beside a rewrite, written `S1 ::= P "+"` through `P ::= S1`. On `a => a +` the parse
+    /// gives the unfiltered recognition's scope error, but only through the retry: the first
+    /// filtered attempt, keeping every edge to a doomed node, finds no derivation where the
+    /// unfiltered recognition finds one. Without the pass-through the two agree.
+    #[test]
+    #[ignore = "K29 finding: a first pruned attempt misses a derivation behind a pass-through; un-ignore with its fix"]
+    fn a_pass_through_below_a_postfix_operator_keeps_the_first_attempts_derivation() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (1, 1, 1, 0, 3, 0, true, 0),
+            (1, 0, 0, 0, 3, 1, true, 1),
+            (1, 2, 1, 0, 0, 0, false, 0),
+            (1, 0, 1, 1, 2, 2, false, 0),
+            (1, 0, 0, 0, 3, 1, true, 1),
+        ];
+        let levels = BTreeMap::from([(3, 1), (6, 0), (7, 2), (11, 1)]);
+        let groups = [(1, BTreeSet::from([2, 8, 11]))];
+        let passed = operator_grammar(&operators, &levels, &groups, Some((2, 0))).unwrap();
+        pruning_agrees_with_unfiltered_recognition(&passed, "a => a +").unwrap();
     }
 
     /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
