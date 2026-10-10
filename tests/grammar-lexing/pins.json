@@ -46,7 +46,7 @@
       "definition.k": "9239c886bb626a77fa248bc8060eb70ba180bf71636541ac2091fc61144dbe78"
     },
     "krs-grammar-layout": {
-      "definition.k": "a4e0dc19387556de0c0cdc8945827567ceb0ec1b1f013b678fcf17be13f3e69f"
+      "definition.k": "fc36015dec666de6c77d8b0036e8ceb6538658f874f7af4542f279eddd0a4bcd"
     },
     "krs-grammar-lists": {
       "definition.k": "18defbcf9dc5ff3d43483e21f65969699debe1244a44e76902a9ff857ed2a4c0"
@@ -79,7 +79,7 @@
     "krs-grammar-memo": "2ff051ad1d3385c224da52f74d6b8f89e912159bba792a4bf10b9415df55fe73",
     "krs-grammar-tokens": "ec27c996aaf89289c55b607d15717390145bf97113ddbf225c5ca3294058410f",
     "krs-grammar-token-id": "fd1ce5f47f678ce5a92ddf5c3101322a5cd1093905a74e8b3b3b2529e6398410",
-    "krs-grammar-layout": "22e5d15bbb07a613871dc86454cdef557993ef88233ab807a01acdefcf944324",
+    "krs-grammar-layout": "b2c919376686d4ef725d5e8e661707a4ca44b8c0c03b60e868e34487eeff2b7e",
     "krs-grammar-lists": "4539b5bf0f0a925702f8839f72f1417c8be3132ed4b1008cfa258ebb07dda903",
     "krs-grammar-strict-lists": "438aad1f171bc1501c8cc0f88c72b20d0708973307ee5a496a0588c985d7c9ec"
   },
