@@ -822,6 +822,172 @@ fn only_rule_body(definition: &k_rust::definition::Definition) -> String {
         .expect("the rule should be resolved")
 }
 
+/// A module whose user syntax reuses `=>` as an ordinary production (a match arm), with one
+/// rule over it.
+fn arrow_module(rule: &str) -> String {
+    format!(
+        r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)]
+  rule {rule}
+endmodule
+"#
+    )
+}
+
+/// With user syntax that reuses `=>`, a rule body has a reading through it beside the rewrite
+/// its `=>` spells. Among the readings of the whole body that denote a term, the one rooted at
+/// the rule's own rewrite is the body. The choice is made once, on the readings of the whole
+/// body, so it does not depend on an invalid reading packed beside a valid one: `a => a`, which
+/// has none (no reading puts a rewrite below `+`), reads as the rewrite like `a => a + a`.
+#[test]
+fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
+    for (rule, expected) in [
+        ("a => a", "a(.KList)=>a(.KList)"),
+        ("a => a + a", "a(.KList)=>plus(a(.KList),a(.KList))"),
+        ("a + a => a", "plus(a(.KList),a(.KList))=>a(.KList)"),
+        ("a => a * a", "a(.KList)=>times(a(.KList),a(.KList))"),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// The preference is a choice among the readings of the whole body. Below its root, as in an
+/// argument (or a cell), a rewrite and another reading of the same text stay an ambiguity,
+/// whether or not an invalid reading (`(a => a) + a`, a rewrite below `+`) exists beside them.
+#[test]
+fn a_rewrite_below_the_body_root_does_not_win_over_user_syntax_reusing_its_token() {
+    for rule in ["f(a => a) => .K", "f(a => a + a) => .K"] {
+        let error = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
+            .expect_err("the argument has a rewrite and an arrow reading");
+        let RuleError::Parse(ref parse) = error else {
+            panic!("{rule}: {error:?}")
+        };
+        assert!(
+            matches!(parse.error, ParseError::Ambiguous { .. }),
+            "{rule}: {error:?}"
+        );
+    }
+}
+
+/// Each reading of a body is judged by itself. With user syntax that reuses `=>` twice
+/// (`A "=>" A "=>" A`), `a => (b => a) + a => a` has readings rooted at either of the rule's
+/// unparenthesized `=>`, and each puts one rewrite directly below the other, which the rewrite's
+/// associativity forbids, so neither denotes a term. The reading through the user's syntax,
+/// `two(a, (b => a) + a, a)`, puts its one rewrite under parentheses, where a rewrite may stand:
+/// it is the only term the text denotes, so it is the body, with no error to report.
+#[test]
+fn a_body_whose_rewrite_readings_all_break_a_relation_reads_through_user_syntax() {
+    let source = r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | "b" [symbol(b)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax S ::= A "=>" A "=>" A [symbol(two)]
+  rule a => (b => a) + a => a
+endmodule
+"#;
+    let definition = resolve_rule_bubbles(&lowered(source)).unwrap();
+    assert_eq!(
+        only_rule_body(&definition),
+        "two(a(.KList),plus(b(.KList)=>a(.KList),a(.KList)),a(.KList))"
+    );
+}
+
+/// The error of a rule body none of whose readings denotes a term, in a module of plain operators
+/// that reuse no structural token.
+fn plain_rule_error(rule: &str) -> ParseError {
+    let source = format!(
+        r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax KItem ::= g(K, K) [symbol(g)]
+  rule {rule}
+endmodule
+"#
+    );
+    match resolve_rule_bubbles(&lowered(&source)) {
+        Err(RuleError::Parse(error)) => error.error,
+        other => panic!("{rule}: expected a parse error, got {other:?}"),
+    }
+}
+
+/// When no reading of a body denotes a term and some derivation puts a rewrite where it has no
+/// meaning, the misplaced rewrite is reported: `a => a ~> a => a` meant `(a => a) ~> (a => a)`,
+/// and parentheses are the fix. Every derivation that keeps both rewrites out of the sequence
+/// makes one the right child of the other, but that violation only follows from moving a rewrite
+/// out of the place the user wrote it.
+///
+/// The portable build's rule grammar derives a rewrite's sides from the rewritten sort, so a
+/// rewrite is never a side there: the `#let` body, each of whose readings needs one rewrite as a
+/// side of another or inside the `#let`, has no derivation, and the text is reported where it
+/// ends.
+#[test]
+fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation() {
+    for (rule, parent) in [
+        ("a => a => a ~> a", "#KSequence"),
+        ("a => a ~> a => a", "#KSequence"),
+        ("a ~> a => a => a", "#KSequence"),
+        ("a => #let a = a #in a => a", "#let"),
+    ] {
+        #[cfg(not(feature = "z3-inference"))]
+        if parent == "#let" {
+            let error = plain_rule_error(rule);
+            assert!(
+                matches!(error, ParseError::NoParse { position, .. } if position == rule.len()),
+                "{rule}: {error:?}"
+            );
+            continue;
+        }
+        assert_eq!(
+            plain_rule_error(rule),
+            ParseError::Scope {
+                parent: parent.to_owned(),
+                child: "#KRewrite".to_owned(),
+            },
+            "{rule}"
+        );
+    }
+}
+
+/// Without a derivation that breaks a scope where the readings fail, the violation of a body
+/// with no reading is the one its derivations do break there: `a => a => a` keeps every rewrite
+/// where a rewrite may stand. In `g(a => a => a, a => a + a)` only the first argument has no
+/// reading; the second has a valid one (`a => (a + a)`), so its misplaced reading
+/// (`(a => a) + a`) is not what fails, and the first argument's violation is reported.
+///
+/// Both readings of `a => a => a` break the rewrite's associativity, one at its left child and
+/// one at its right; the two errors differ only in the side they name, and the reported one is
+/// the least by what it says (`ParseError::violation_order`), the left.
+///
+/// In the portable build's rule grammar a rewrite is never a side of another, so `a => a => a`
+/// has no derivation and is reported where it ends: the whole body, or the first argument.
+#[test]
+fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
+    for rule in ["a => a => a", "g(a => a => a, a => a + a)"] {
+        let error = plain_rule_error(rule);
+        #[cfg(feature = "z3-inference")]
+        let reported = matches!(
+            error,
+            ParseError::Associativity { ref parent, ref child, side }
+                if parent == "#KRewrite" && child == "#KRewrite" && side == "left"
+        );
+        #[cfg(not(feature = "z3-inference"))]
+        let reported = matches!(
+            error,
+            ParseError::NoParse { position, .. }
+                if position == rule.find(',').unwrap_or(rule.len())
+        );
+        assert!(reported, "{rule}: {error:?}");
+    }
+}
+
 /// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
 /// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
 /// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.

@@ -38,7 +38,6 @@ use k_rust_kore::measure::{self, Counter};
 #[cfg(test)]
 use super::Sort;
 use super::{Grammar, Item};
-use crate::kast::InternalLabel;
 
 /// A set of scanner lexeme ids, one bit per id; ids are dense indexes into the scanner.
 #[derive(Clone, Default, Eq, PartialEq)]
@@ -144,29 +143,6 @@ pub(super) struct PredictionAnalysis {
     /// For each active production and each dot position, what the items from the dot to the end
     /// can begin with; `None` for a production the predictor never adds.
     rests: Vec<Option<ProductionRests>>,
-    /// The productions the predictor adds that build a rewrite, a sequence or a `#let`, whose
-    /// scope errors the priority filter defers, as the tokens their nodes contain.
-    deferred_scopes: DeferredScopes,
-}
-
-/// Where a node whose scope error the priority filter defers (one built by a production
-/// labelled `#KRewrite`, `#KSequence` or `#let`) can lie in the input.
-#[derive(Clone, Debug)]
-pub(super) enum DeferredScopes {
-    /// The grammar builds no such node.
-    Absent,
-    /// Every such node contains a token of one of these lexemes (each production's first
-    /// lexical item), so a span without one contains none.
-    Witnessed(LexemeSet),
-    /// Some such production has no lexical item, so any span may contain its node.
-    Unwitnessed,
-}
-
-impl DeferredScopes {
-    /// Whether a token of `lexeme` witnesses a deferred node (`Witnessed` only).
-    pub(super) fn witnesses(&self, lexeme: usize) -> bool {
-        matches!(self, Self::Witnessed(lexemes) if lexemes.contains(lexeme))
-    }
 }
 
 /// The FIRST sets and nullability of the suffixes of one production's items.
@@ -340,58 +316,13 @@ impl PredictionAnalysis {
                 nullable,
             });
         }
-        let deferred = |index: usize| {
-            grammar.productions[index]
-                .parse_label
-                .as_deref()
-                .is_some_and(|label| {
-                    [
-                        InternalLabel::KRewrite,
-                        InternalLabel::KSequence,
-                        InternalLabel::Let,
-                    ]
-                    .iter()
-                    .any(|deferred| label == deferred.as_str())
-                })
-        };
-        let mut deferred_scopes = DeferredScopes::Absent;
-        for index in grammar.by_result.iter().flatten() {
-            let production = &grammar.productions[*index];
-            if !deferred(*index) && !production.term_production.is_some_and(deferred) {
-                continue;
-            }
-            let witness = production
-                .items
-                .iter()
-                .filter(|item| !matches!(item, Item::NonTerminal(_)))
-                .find_map(|item| grammar.scanner.lexeme_id(item));
-            deferred_scopes = match (deferred_scopes, witness) {
-                (DeferredScopes::Unwitnessed, _) | (_, None) => DeferredScopes::Unwitnessed,
-                (DeferredScopes::Absent, Some(lexeme)) => {
-                    let mut lexemes = LexemeSet::default();
-                    lexemes.insert(lexeme);
-                    DeferredScopes::Witnessed(lexemes)
-                }
-                (DeferredScopes::Witnessed(mut lexemes), Some(lexeme)) => {
-                    lexemes.insert(lexeme);
-                    DeferredScopes::Witnessed(lexemes)
-                }
-            };
-        }
         Self {
             first_items,
             epsilon,
             first,
             buckets,
             rests,
-            deferred_scopes,
         }
-    }
-
-    /// Where the nodes whose scope errors the priority filter defers can lie
-    /// (`Grammar::boundary_admits`).
-    pub(super) fn deferred_scopes(&self) -> &DeferredScopes {
-        &self.deferred_scopes
     }
 
     /// Whether the items of `production` from `dot` on can begin with the lexeme `winner`, the
@@ -483,16 +414,16 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::{
-        CHART_COMPLETION_CANDIDATES, DiagnosticWork, DoomedEdges, NONTERMINAL_PREDICTIONS_SKIPPED,
-        NoParseInput, PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm,
-        ParseContext, ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning,
-        Recognition, SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata, WorkMeter,
+        CHART_COMPLETION_CANDIDATES, DiagnosticWork, NONTERMINAL_PREDICTIONS_SKIPPED, NoParseInput,
+        PARSE_ATTEMPTS, PREDICTION_ANALYSIS_BUILDS, PackedPriorityMemos, PackedTerm, ParseContext,
+        ParseError, ParseProvenance, PredictionMode, PriorityFilter, Pruning, Recognition,
+        SameSpanCycles, ScanWinner, SourceId, Term, TermMetadata, WorkMeter,
     };
     use super::*;
     use crate::definition::{
         Attributes, ProductionCatalog, ProductionItem, Sentence, SortDenotations,
     };
-    use crate::kast::{Label, TermSpan};
+    use crate::kast::{InternalLabel, Label, TermSpan};
     fn nt(sort: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(sort),
@@ -1063,7 +994,6 @@ mod tests {
                     PriorityFilter::Ignored,
                     stand_in,
                     false,
-                    DoomedEdges::Kept,
                     &mut false,
                     &mut WorkMeter::unlimited(),
                     &mut scanner_cache,
@@ -1088,13 +1018,13 @@ mod tests {
             }
         }
 
-        /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`,
-        /// whose scope errors below an operator the priority filter defers: the doomed nodes
-        /// it keeps can be read by the preference among the readings of the root, so skipping
-        /// items must keep every one it can read (`Grammar::priority_admits`), and an attempt
-        /// that skipped the others and failed is made again keeping them (`DoomedEdges`).
+        /// The same in a grammar with productions labelled `#KRewrite`, `#KSequence` or `#let`:
+        /// a node of one below an operator is a scope error, which drops the reading at
+        /// completion like every other violation, so skipping the items that would build one
+        /// loses no parse (`Grammar::boundary_admits`); and an ambiguity prefers its readings
+        /// rooted at such a node, which the skipped items must leave unchanged.
         #[test]
-        fn completion_pruning_matches_unfiltered_recognition_with_deferred_scopes(
+        fn completion_pruning_matches_unfiltered_recognition_with_rewrites_sequences_and_lets(
             productions in prop::collection::vec(
                 (0u8..3, prop::collection::vec(0u8..8, 0..5)),
                 1..9,
@@ -1415,19 +1345,15 @@ mod tests {
         ));
     }
 
-    /// In a grammar with a rewrite, the priority filter keeps a node whose child is a rewrite
-    /// below an operator: the scope error is deferred, so that a reading rooted at the rewrite
-    /// can be preferred over it, and until then the doomed node, with every edge below it, is
-    /// part of the forest. Under `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and
-    /// `S0 ::= S2 S0 | ""`, `a c c c` is ambiguous. A first attempt that skipped every item
-    /// whose edge the filter rejects, the deferred ones included, built a smaller forest than an
-    /// unfiltered recognition, with other readings. The report is a function of the readings
-    /// (the smallest subterm outside which they all agree, and where they differ), so it is pinned
-    /// once for both engines, and the forests are compared directly. The input holds three
-    /// `c`, each a token a rewrite node can hold, so
-    /// the full parse skips no edge to a doomed node either (`DoomedEdges`).
+    /// In a grammar with a rewrite, a rewrite below an operator is a scope error, which drops
+    /// the node holding it at completion like every other violation, and a filtered
+    /// recognition skips the items that would build such a node. Under
+    /// `S2 ::= "a" | S0 "c" | S2 S0 "c" [#KRewrite]` and `S0 ::= S2 S0 | ""`, `a c c c` is
+    /// ambiguous. The report is a function of the readings (the smallest subterm outside which
+    /// they all agree, and where they differ), not of how a forest packs them, so the filtered
+    /// attempt, the full parse and an unfiltered recognition report the same ambiguity.
     #[test]
-    fn edges_below_a_deferred_scope_error_are_kept() {
+    fn an_ambiguity_beside_a_rewrite_below_an_operator_is_reported_by_its_readings() {
         let grammar = Grammar::from_sentences(&[
             production("Start", vec![nt("S0")], "start"),
             production("S1", vec![], "p0"),
@@ -1442,44 +1368,9 @@ mod tests {
             production("S0", vec![], "p5"),
         ])
         .unwrap();
-        let forest = |mode: PredictionMode| {
-            let input = "a c c c";
-            let start = grammar.sort_id(grammar.sort_denotations.denote(&Sort::new("Start")));
-            let mut scanner_cache = vec![None; input.len() + 1];
-            let start_position = grammar.canonical_position(input, 0, &mut scanner_cache);
-            grammar
-                .recognize(
-                    start.unwrap(),
-                    start_position,
-                    input,
-                    ParseProvenance {
-                        source: SourceId(7),
-                        base_offset: 100,
-                    },
-                    mode,
-                    PriorityFilter::Enforced,
-                    None,
-                    false,
-                    DoomedEdges::Kept,
-                    &mut false,
-                    &mut WorkMeter::unlimited(),
-                    &mut scanner_cache,
-                    &std::cell::RefCell::new(PackedPriorityMemos::default()),
-                )
-                .map(|recognition| recognition.parses)
-        };
-        let unfiltered_forest = forest(PredictionMode::Unfiltered);
-        assert!(
-            unfiltered_forest
-                .as_ref()
-                .is_ok_and(|parses| !parses.is_empty()),
-            "{unfiltered_forest:?}"
-        );
-        assert_eq!(forest(PredictionMode::Filtered), unfiltered_forest);
 
         // The readings differ at both children of the root's `S2 S0`, so the whole input is
-        // reported, with those two subterms, whichever engine decided the forest and however
-        // it packed the readings.
+        // reported, with those two subterms.
         let (start, end) = (100, 107);
         let expected = unfiltered(&grammar, "a c c c");
         assert!(
@@ -1510,23 +1401,20 @@ mod tests {
         assert_eq!(filtered(&grammar, "a c c c"), expected);
     }
 
-    /// Two witnesses: a doomed node the preference reads. `Start ::= S` passes its child
-    /// through, so the readings of `S` are the readings of the root, among which the preference
-    /// keeps those rooted at a rewrite. `S ::= A "=>" X` is a rewrite and
-    /// `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X` derives only
-    /// `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first child, and
-    /// `times > plus`. In `a => a => a * a + a` the only `X` is
-    /// `times(rewrite(a, a), plus(a, a))`: the filter meets the rewrite below `times` (a scope
-    /// error it defers) before the sum below it (a priority violation), so that node is doomed
-    /// and stays in the forest. It lies inside `rewrite(a, times(..))`, the one reading of `S`
-    /// rooted at a rewrite, and `imp(a, ytail(a, a, plus(a, a)))` is the other. The preference
-    /// keeps the rewrite reading, whose doomed node fails the filter, so the input has no
-    /// parse. A recognition that skipped the edge from `times` to the sum would not build that
-    /// reading, and would accept the input through `imp`. So in an input with two witnesses
-    /// (here the two `=>`, the first lexical item of each rewrite), the first attempt keeps
-    /// the edges to doomed nodes (`DoomedEdges`).
+    /// A reading with a rewrite below an operator denotes nothing, so it is dropped when its
+    /// node completes and is no candidate for the preference among the readings of the root.
+    /// `Start ::= S` passes its child through, so the readings of `S` are the readings of the
+    /// root, among which the preference, once every relation has judged them, keeps those
+    /// rooted at a rewrite. `S ::= A "=>" X` is a
+    /// rewrite and `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X`
+    /// derives only `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first
+    /// child, and `times > plus`. In `a => a => a * a + a` the only `X` is
+    /// `times(rewrite(a, a), plus(a, a))`, which breaks two relations (the rewrite below
+    /// `times`, the sum below `times`) and is dropped, so `S` has no reading rooted at a
+    /// rewrite and its one reading, `imp(a, ytail(a, a, plus(a, a)))`, is the parse, whichever
+    /// of the two violations is met first.
     #[test]
-    fn a_doomed_node_inside_a_rewrite_with_two_witnesses_is_kept() {
+    fn a_reading_with_a_rewrite_below_an_operator_is_no_candidate_for_the_preference() {
         let grammar = Grammar::from_sentences(&[
             Sentence::Production {
                 label: None,
@@ -1563,8 +1451,10 @@ mod tests {
         let input = "a => a => a * a + a";
         let expected = unfiltered(&grammar, input);
         assert!(
-            matches!(&expected, Err(ParseError::Scope { parent, child })
-                if parent == "times" && child == InternalLabel::KRewrite.as_str()),
+            matches!(&expected, Ok(term) if matches!(
+                term.unannotated(),
+                Term::Apply { label, .. } if label.name == "imp"
+            )),
             "{expected:?}"
         );
         assert_eq!(filtered(&grammar, input), expected);
@@ -2296,7 +2186,9 @@ mod tests {
         }
     }
 
-    /// The structured generator's operator grammar: `Start ::= S1 [start]`, `S1 ::= S0`
+    /// The structured generator's operator grammar: `Start ::= S1`, labelled `start` when
+    /// `labelled_start` (so that the parse's root is that node) and else a pass-through (so
+    /// that the parse is rooted at its sentence's own root, as a rule body is), `S1 ::= S0`
     /// without a label, `S0 ::= "a"`, the operators, their duplicates, and the priorities and
     /// associativity groups over the operators' labels (`levels` and `groups` name operator
     /// `i` as `i` and its duplicate as `i + operators.len()`, modulo twice that length). With `inlined` = `(i, k)`, the
@@ -2307,10 +2199,22 @@ mod tests {
         operators: &[GeneratedOperator],
         levels: &BTreeMap<usize, u8>,
         groups: &[(u8, BTreeSet<usize>)],
+        labelled_start: bool,
         inlined: Option<(usize, usize)>,
     ) -> Option<Grammar> {
+        let start = if labelled_start {
+            production("Start", vec![nt("S1")], "start")
+        } else {
+            Sentence::Production {
+                label: None,
+                parameters: vec![],
+                sort: Sort::new("Start"),
+                items: vec![nt("S1")],
+                attributes: Attributes::default(),
+            }
+        };
         let mut sentences = vec![
-            production("Start", vec![nt("S1")], "start"),
+            start,
             production("S0", vec![terminal("a")], "atom"),
             Sentence::Production {
                 label: None,
@@ -2449,21 +2353,139 @@ mod tests {
         Some(sentence.join(" "))
     }
 
+    /// The cases of the structured generator: enough that a run finds the defect of judging
+    /// associativity at an end `applyPriority` leaves unjudged, the shape the generator was
+    /// built to reach (`a + a + a` under a non-associative `S0 ::= S0 "+" S0
+    /// [applyPriority(1)]`). With that defect seeded and no saved failure, 20 of 20 seeded runs
+    /// found it at this count, 19 at half of it and 11 at an eighth.
+    const OPERATOR_GRAMMAR_CASES: u32 = 2048;
+
+    /// The parse of `input` by an operator grammar and by its pass-through pair, the same
+    /// grammar with the operand `inlined` = `(i, k)` written through `P ::= S`
+    /// ([`operator_grammar`]); `None` when either grammar is not built.
+    ///
+    /// In each grammar the pruned recognition agrees with the unfiltered one. The pass-through
+    /// builds no node, so both grammars derive the same trees under the same labels, priorities
+    /// and associativity, and where operator `i` has a label of its own nothing else the parse
+    /// reads differs: then the two grammars give one outcome, pruned and unfiltered, the term
+    /// or the whole error. An error names productions by their text, which in the pair writes
+    /// `P` for the operand's own sort; it is compared with that sort written back. Two rewrite
+    /// or two sequence operators share one label: they are overloads, which the overload filter
+    /// orders by their argument sorts, and `P ::= S` makes `P` a supersort of `S` and not a
+    /// subsort, so writing an operand of an overload through it can change that order and with
+    /// it the parse; such a pair is not the same grammar and is not compared. The outcome is
+    /// returned as [`parse_outcome`] writes it.
+    fn pass_through_pair_outcome(
+        operators: &[GeneratedOperator],
+        levels: &BTreeMap<usize, u8>,
+        groups: &[(u8, BTreeSet<usize>)],
+        labelled_start: bool,
+        inlined: (usize, usize),
+        input: &str,
+    ) -> Result<Option<String>, TestCaseError> {
+        let Some(original) = operator_grammar(operators, levels, groups, labelled_start, None)
+        else {
+            return Ok(None);
+        };
+        let Some(passed) =
+            operator_grammar(operators, levels, groups, labelled_start, Some(inlined))
+        else {
+            return Ok(None);
+        };
+        pruning_agrees_with_unfiltered_recognition(&original, input)?;
+        pruning_agrees_with_unfiltered_recognition(&passed, input)?;
+        let (at, position) = inlined;
+        let scope = operators[at].7;
+        let overloaded = scope != 0
+            && operators
+                .iter()
+                .filter(|operator| operator.7 == scope)
+                .count()
+                > 1;
+        if !overloaded {
+            let operand = operator_items(&operators[at])
+                .into_iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.name.clone()),
+                    _ => None,
+                })
+                .nth(position)
+                .expect("the pair was built, so the operand exists");
+            let pass_through_sort = regex::Regex::new(r"\bP\b").expect("a valid pattern");
+            // A failure without a derivation names the sorts expected where it stops, as a set;
+            // `P` is expected exactly where its operand's sort is, so written back it names
+            // nothing more.
+            let outcome = |result: Result<Term, ParseError>, pair: bool| {
+                let text = match result {
+                    Ok(term) => term.to_string(),
+                    Err(ParseError::NoParse {
+                        position,
+                        expected,
+                        input,
+                        previous,
+                        span,
+                        work_limit,
+                    }) => {
+                        let expected = expected
+                            .iter()
+                            .map(|name| if pair && name == "P" { &operand } else { name })
+                            .collect::<BTreeSet<_>>();
+                        format!(
+                            "NoParse {position} {expected:?} {input:?} {previous:?} {span:?} {work_limit:?}"
+                        )
+                    }
+                    Err(error) => format!("{error:?}"),
+                };
+                if pair {
+                    pass_through_sort
+                        .replace_all(&text, operand.as_str())
+                        .into_owned()
+                } else {
+                    text
+                }
+            };
+            // A build without Z3 declines to type an ambiguous forest outside its decision
+            // (`Z3InferenceRequired`: too many trees, or no greatest typing), which is no
+            // outcome of the parse. `P` is a sort of its own, so the forest the pair hands to
+            // sort inference can differ in those respects where the readings are the same; such
+            // a pair is not compared.
+            let declined = |result: &Result<Term, ParseError>| {
+                matches!(result, Err(ParseError::Z3InferenceRequired { .. }))
+            };
+            for (mode, recognize) in [
+                (
+                    "pruned",
+                    filtered as fn(&Grammar, &str) -> Result<Term, ParseError>,
+                ),
+                ("unfiltered", unfiltered),
+            ] {
+                let (pair, single) = (recognize(&passed, input), recognize(&original, input));
+                if !declined(&pair) && !declined(&single) {
+                    prop_assert_eq!(outcome(pair, true), outcome(single, false), "{}", mode);
+                }
+            }
+        }
+        Ok(Some(parse_outcome(filtered(&original, input))))
+    }
+
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(OPERATOR_GRAMMAR_CASES))]
+
         /// The structured pruning generator: an operator grammar (infix, prefix and postfix
         /// operators over two sorts, labelled unary productions, duplicates of an operator under
         /// another label, `applyPriority` naming one end, priorities, associativity groups, and
-        /// rewrites and sequences, whose scope errors are deferred), and its metamorphic pair,
-        /// the same grammar with one operand of one operator written through an unlabelled
-        /// pass-through (`P ::= S`). The pass-through builds no node, so both grammars derive
-        /// the same trees under the same labels, priorities and associativity; where the
-        /// operator is not an overload, nothing else the parse reads differs, so each of the
-        /// pruned and the unfiltered parser gives both one outcome. In each grammar, the pruned
-        /// recognition agrees with the unfiltered one. The input is a sentence of the grammar
-        /// when `choices` derive one; with two rewrite or sequence operators it can hold two or
-        /// more of their tokens.
+        /// rewrites and sequences, which are scope errors below an operator), with a labelled
+        /// start production or a pass-through one, and its metamorphic pair, the same grammar
+        /// with one operand of one operator written through an unlabelled pass-through
+        /// (`P ::= S`): both parse alike and prune alike ([`pass_through_pair_outcome`]). The
+        /// input is a sentence of the grammar when `choices` derive one; with two rewrite or
+        /// sequence operators it can hold two or more of their tokens. The choices are few
+        /// enough that a sentence has a handful of operators: under duplicates and labelled
+        /// unary productions a longer one has exponentially many readings, which the tree
+        /// sort inference reads copies out (`docs/compatibility.md`, the ambiguity report): with
+        /// up to 24 choices, single cases of five to nine operators took from seconds to over
+        /// two minutes.
         #[test]
-        #[ignore = "K29: finds the open defects pinned below; run with PROPTEST_CASES=5000, un-ignore when they are fixed"]
         fn an_operator_grammar_and_its_pass_through_pair_parse_alike(
             operators in prop::collection::vec(
                 (0u8..2, 0u8..4, 0u8..2, 0u8..2, 0u8..4, 0u8..3, any::<bool>(), 0u8..3),
@@ -2474,8 +2496,9 @@ mod tests {
                 (0u8..3, prop::collection::btree_set(0usize..12, 1..4)),
                 0..3,
             ),
+            labelled_start in any::<bool>(),
             inlined in (any::<prop::sample::Index>(), 0usize..2),
-            choices in prop::collection::vec(any::<u8>(), 0..24),
+            choices in prop::collection::vec(any::<u8>(), 0..12),
             random_input in prop::collection::vec(0usize..7, 0..9),
         ) {
             let tokens = ["a", "+", "*", "#", "-", "=>", "~>"];
@@ -2487,76 +2510,115 @@ mod tests {
                     .join(" ")
             });
             let at = inlined.0.index(operators.len());
-            let scope = operators[at].7;
-            let Some(original) = operator_grammar(&operators, &levels, &groups, None) else {
-                return Ok(());
-            };
-            let Some(passed) = operator_grammar(&operators, &levels, &groups, Some((at, inlined.1)))
-            else {
-                return Ok(());
-            };
-            pruning_agrees_with_unfiltered_recognition(&original, &input)?;
-            pruning_agrees_with_unfiltered_recognition(&passed, &input)?;
-            // Two rewrite or two sequence operators share one label: they are overloads, which
-            // the overload filter orders by their argument sorts. `P ::= S` makes `P` a
-            // supersort of `S` and not a subsort, so writing an operand of an overload through
-            // it can change that order, and with it the parse: the two grammars derive the same
-            // trees but are not the same grammar. Only an operator with a label of its own is
-            // compared with its pair.
-            if scope != 0 && operators.iter().filter(|operator| operator.7 == scope).count() > 1 {
-                return Ok(());
-            }
-            // The decision is compared: the term accepted, or a rejection. Which error a
-            // rejection reports is compared once the three pinned reports
-            // (`an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence`,
-            // `..._above_a_rewrite`, `a_rejection_does_not_depend_on_a_pass_through_above_a_rewrite`)
-            // hold, and the decision for an operand of a rewrite or a sequence once
-            // `a_rewrite_reading_does_not_depend_on_a_pass_through_at_its_operand` holds.
-            if scope != 0 {
-                return Ok(());
-            }
-            let outcome = |result: Result<Term, ParseError>| {
-                result.map_or_else(|_| "rejected".to_owned(), |term| term.to_string())
-            };
-            prop_assert_eq!(
-                outcome(filtered(&passed, &input)),
-                outcome(filtered(&original, &input)),
-                "pruned"
-            );
-            prop_assert_eq!(
-                outcome(unfiltered(&passed, &input)),
-                outcome(unfiltered(&original, &input)),
-                "unfiltered"
-            );
+            pass_through_pair_outcome(
+                &operators,
+                &levels,
+                &groups,
+                labelled_start,
+                (at, inlined.1),
+                &input,
+            )?;
         }
     }
 
-    /// An ambiguity report found by the structured generator below: under
-    /// `S1 ::= S1 "~>" S0` and `S1 ::= S0 "+" S1 [applyPriority(1)]`, `a + a ~> a ~> a` has
-    /// three readings, two sequences (of three items and of two) and a sum, and the report
-    /// lists one entry per root key, so three. With the sequence's left operand written
-    /// through `P ::= S1`, which builds no node, the readings are the same trees, but the
-    /// report lists two entries: it merges the two sequences.
+    /// Under `S0 ::= "+" S1 [o2]` and `S1 ::= S0 [o0]`, non-associative together, with
+    /// `S1 ::= S0` also a pass-through, every reading of `+ + a` breaks `o2`'s right edge,
+    /// below it `o0` or `o2`. Writing `o0`'s operand through `P ::= S0` numbers the productions
+    /// differently and changes no tree, so it changes no reported violation either
+    /// (`canonical_packed_error`).
     #[test]
-    #[ignore = "K29 finding: the report merges sequence readings behind a pass-through; un-ignore with its fix"]
-    fn an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence() {
-        let operators: Vec<GeneratedOperator> =
-            vec![(1, 0, 1, 0, 0, 0, false, 2), (1, 0, 0, 1, 0, 1, false, 0)];
-        let input = "a + a ~> a ~> a";
-        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
-        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 0))).unwrap();
+    fn a_reported_violation_does_not_depend_on_a_pass_through_renumbering_productions() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 3, 0, 0, 0, 0, false, 0),
+            (1, 0, 0, 0, 0, 0, false, 0),
+            (0, 1, 0, 1, 0, 0, false, 0),
+            (0, 0, 0, 0, 0, 0, false, 0),
+            (1, 0, 0, 0, 0, 0, false, 0),
+        ];
+        let groups = [(2, BTreeSet::from([2, 10]))];
+        pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &groups,
+            false,
+            (0, 0),
+            "+ + a",
+        )
+        .unwrap();
+        let original =
+            operator_grammar(&operators, &BTreeMap::new(), &groups, false, None).unwrap();
         assert_eq!(
-            parse_outcome(filtered(&passed, input)),
-            parse_outcome(filtered(&original, input))
+            filtered(&original, "+ + a"),
+            Err(ParseError::Associativity {
+                parent: "o2".to_owned(),
+                child: "o0".to_owned(),
+                side: "right",
+            })
         );
     }
 
-    /// The second report the structured generator found: under `S0 ::= S0 "=>" S1`
-    /// (a rewrite), `S1 ::= S0 [o1]`, `S1 ::= S0 [o2]` and `S1 ::= S1 "+" S0 [o3]`, writing
-    /// `o3`'s left operand through `P ::= S1` drops the reading `o3(o1(a => a => a), a)` of
-    /// `a => a => a + a` from the report.
+    /// Under `S0 ::= S0 "=>" S1` (a rewrite), `S1 ::= "+" S0 [o3]` and three sequences
+    /// (`S0 ::= S0 "~>" S0`, `S0 ::= S0 "~>" S1`, `S1 ::= S1 "~>" S1`), every reading of
+    /// `+ a => a ~> + a` puts a rewrite or a sequence below `o3`. Writing the rewrite's right
+    /// operand through `P ::= S1` changes no tree, and the same scope error is reported.
     #[test]
-    #[ignore = "K29 finding: the report drops a reading behind a pass-through above a rewrite; un-ignore with its fix"]
+    fn a_reported_scope_error_does_not_depend_on_a_pass_through_below_a_rewrite() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 0, 0, 0, 0, 0, false, 2),
+            (0, 0, 0, 1, 0, 0, false, 1),
+            (0, 0, 0, 1, 0, 0, false, 2),
+            (1, 1, 0, 0, 0, 0, false, 0),
+            (1, 0, 1, 1, 0, 0, false, 2),
+        ];
+        let input = "+ a => a ~> + a";
+        pass_through_pair_outcome(&operators, &BTreeMap::new(), &[], false, (1, 1), input).unwrap();
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], false, None).unwrap();
+        assert_eq!(
+            filtered(&original, input),
+            Err(ParseError::Scope {
+                parent: "o3".to_owned(),
+                child: InternalLabel::KRewrite.as_str().to_owned(),
+            })
+        );
+    }
+
+    /// Under `S1 ::= S1 "~>" S0` (a sequence) and `S1 ::= S0 "+" S1 [applyPriority(1)]`,
+    /// `a + a ~> a ~> a` has three readings: sequences of three items and of two, and a sum
+    /// whose right operand, which `applyPriority(1)` leaves unjudged, is a sequence. With the
+    /// sequence's left operand written through `P ::= S1` the trees are the same, and so is the
+    /// report: one entry per root key.
+    #[test]
+    fn an_ambiguity_report_does_not_depend_on_a_pass_through_below_a_sequence() {
+        let operators: Vec<GeneratedOperator> =
+            vec![(1, 0, 1, 0, 0, 0, false, 2), (1, 0, 0, 1, 0, 1, false, 0)];
+        let outcome = pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &[],
+            true,
+            (0, 0),
+            "a + a ~> a ~> a",
+        )
+        .unwrap();
+        assert_eq!(
+            outcome.as_deref(),
+            Some(concat!(
+                r#"ambiguous {"o1(atom(.KList),atom(.KList))~>atom(.KList)~>atom(.KList)", "#,
+                r#""o1(atom(.KList),atom(.KList)~>atom(.KList))~>atom(.KList)", "#,
+                r#""o1(atom(.KList),atom(.KList)~>atom(.KList)~>atom(.KList))"}"#,
+            ))
+        );
+    }
+
+    /// Under `S0 ::= S0 "=>" S1` (a rewrite), `S1 ::= S0 [o1]`, `S1 ::= S0 [o2]` and
+    /// `S1 ::= S1 "+" S0 [o3]`, `a => a => a + a` has readings rooted at the rewrite and at
+    /// `o1` and `o2`, which as syntactic subsorts judge no child, so `o3(o1(a => a => a), a)` is
+    /// one of them. Writing `o3`'s left operand through `P ::= S1` changes no tree and no
+    /// entry of the report. The forest has more trees than a build without Z3 types
+    /// (`PORTABLE_AMBIGUITY_TREE_LIMIT`), so the test needs the native inference
+    /// (`docs/testing.md`).
+    #[cfg(feature = "z3-inference")]
+    #[test]
     fn an_ambiguity_report_does_not_depend_on_a_pass_through_above_a_rewrite() {
         let operators: Vec<GeneratedOperator> = vec![
             (0, 0, 0, 1, 0, 0, false, 1),
@@ -2564,64 +2626,129 @@ mod tests {
             (0, 3, 0, 0, 0, 0, false, 0),
             (1, 0, 1, 0, 0, 0, false, 0),
         ];
-        let input = "a => a => a + a";
-        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
-        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((3, 0))).unwrap();
+        let outcome = pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &[],
+            true,
+            (3, 0),
+            "a => a => a + a",
+        )
+        .unwrap();
         assert_eq!(
-            parse_outcome(filtered(&passed, input)),
-            parse_outcome(filtered(&original, input))
+            outcome.as_deref(),
+            Some(concat!(
+                r#"ambiguous {"atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList))", "#,
+                r#""o1(atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList)))", "#,
+                r#""o2(atom(.KList)=>atom(.KList)=>o3(atom(.KList),atom(.KList)))", "#,
+                r#""o3(o1(atom(.KList)=>atom(.KList)=>atom(.KList)),atom(.KList))"}"#,
+            ))
         );
     }
 
-    /// The third report the structured generator found: under `S1 ::= S1 "+" S1 [o0]`,
-    /// `S0 ::= S0 "=>" S0` (a rewrite) and `S1 ::= S0 [o2]`, every reading of `a => a + a`
-    /// holds the rewrite below `o0` or `o2`, a scope error. Both grammars reject it, but with
-    /// `o0`'s left operand written through `P ::= S1` the rejection is that scope error, and
-    /// without it an ambiguity between `atom` and `o2(atom)` at the right operand.
+    /// Under `S1 ::= S1 "+" S1 [o0]`, `S0 ::= S0 "=>" S0` (a rewrite) and `S1 ::= S0 [o2]`,
+    /// the rewrite of `a => a + a` cannot stand directly below `o0`, a scope error, but it can
+    /// below `o2`, a syntactic subsort, which judges no child. Two readings are left,
+    /// `o0(o2(a => a), a)` and `o0(o2(a => a), o2(a))`, which differ at the last `a` only, and
+    /// both grammars report that ambiguity, with `o0`'s left operand written through `P ::= S1`
+    /// or not.
     #[test]
-    #[ignore = "K29 finding: a rejection's error depends on a pass-through above a rewrite; un-ignore with its fix"]
     fn a_rejection_does_not_depend_on_a_pass_through_above_a_rewrite() {
         let operators: Vec<GeneratedOperator> = vec![
             (1, 0, 1, 1, 0, 0, false, 0),
             (0, 0, 0, 0, 0, 0, false, 1),
             (0, 3, 0, 0, 0, 0, false, 0),
         ];
-        let input = "a => a + a";
-        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
-        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 0))).unwrap();
+        let outcome = pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &[],
+            true,
+            (0, 0),
+            "a => a + a",
+        )
+        .unwrap();
         assert_eq!(
-            parse_outcome(filtered(&passed, input)),
-            parse_outcome(filtered(&original, input))
+            outcome.as_deref(),
+            Some(r#"ambiguous {"atom(.KList)", "o2(atom(.KList))"}"#)
         );
     }
 
-    /// The fourth difference the structured generator found, the one that changes the
-    /// decision: under `S0 ::= S0 "=>" S0` (a rewrite) and `S0 ::= S0 "~>" S0
-    /// [applyPriority(2)]` (a sequence), `a => a ~> a` parses as the rewrite of `a` to
-    /// `a ~> a`. With the rewrite's right operand written through `P ::= S0`, which builds no
-    /// node, it is reported ambiguous between that reading and the sequence of `a => a` and
-    /// `a`.
+    /// Under `S0 ::= S0 "=>" S0` (a rewrite) and `S0 ::= S0 "~>" S0 [applyPriority(2)]` (a
+    /// sequence, whose left operand is unjudged), `a => a ~> a` has two readings, the rewrite of
+    /// `a` to `a ~> a` and the sequence of `a => a` and `a`. Where the parse is rooted at the
+    /// sentence (a pass-through start production, as a rule body is) the reading rooted at the
+    /// rewrite is chosen ([`Grammar::prefer_structural_body_readings`]); below a labelled start
+    /// production nothing chooses and both are reported. The choice is made per tree by its
+    /// root, so writing the rewrite's right operand through `P ::= S0` changes neither.
     #[test]
-    #[ignore = "K29 finding: the rewrite reading is preferred only without a pass-through at its operand; un-ignore with its fix"]
     fn a_rewrite_reading_does_not_depend_on_a_pass_through_at_its_operand() {
         let operators: Vec<GeneratedOperator> =
             vec![(0, 0, 0, 0, 0, 0, false, 1), (0, 0, 0, 0, 0, 2, false, 2)];
-        let input = "a => a ~> a";
-        let original = operator_grammar(&operators, &BTreeMap::new(), &[], None).unwrap();
-        let passed = operator_grammar(&operators, &BTreeMap::new(), &[], Some((0, 1))).unwrap();
+        let outcome = |labelled_start| {
+            pass_through_pair_outcome(
+                &operators,
+                &BTreeMap::new(),
+                &[],
+                labelled_start,
+                (0, 1),
+                "a => a ~> a",
+            )
+            .unwrap()
+        };
         assert_eq!(
-            parse_outcome(filtered(&passed, input)),
-            parse_outcome(filtered(&original, input))
+            outcome(false).as_deref(),
+            Some("atom(.KList)=>atom(.KList)~>atom(.KList)")
+        );
+        assert_eq!(
+            outcome(true).as_deref(),
+            Some(concat!(
+                r#"ambiguous {"``atom(.KList)=>atom(.KList)``~>atom(.KList)", "#,
+                r#""atom(.KList)=>atom(.KList)~>atom(.KList)"}"#,
+            ))
         );
     }
 
-    /// The pruning difference the structured generator found: a postfix `S1 ::= S1 "+" [o2]`
-    /// beside a rewrite, written `S1 ::= P "+"` through `P ::= S1`. On `a => a +` the parse
-    /// gives the unfiltered recognition's scope error, but only through the retry: the first
-    /// filtered attempt, keeping every edge to a doomed node, finds no derivation where the
-    /// unfiltered recognition finds one. Without the pass-through the two agree.
+    /// Two rewrites of one label, `S0 ::= S0 "=>" S1` and `S0 ::= S1 "=>" S0`, beside
+    /// `S1 ::= S0 [o0]`: in `a => a => a`, each `a => a` is the one term `a => a` built by either
+    /// rewrite, and the report's entry for it names the production of the least text, whatever
+    /// order the forest lists the two in, so writing `o0`'s operand through `P ::= S0` changes
+    /// no entry.
     #[test]
-    #[ignore = "K29 finding: a first pruned attempt misses a derivation behind a pass-through; un-ignore with its fix"]
+    fn an_ambiguity_entry_names_one_production_of_overloads_building_one_term() {
+        let operators: Vec<GeneratedOperator> = vec![
+            (0, 3, 0, 0, 0, 0, false, 0),
+            (0, 0, 0, 1, 0, 0, false, 1),
+            (0, 0, 1, 0, 0, 0, false, 1),
+        ];
+        let outcome = pass_through_pair_outcome(
+            &operators,
+            &BTreeMap::new(),
+            &[],
+            false,
+            (0, 0),
+            "a => a => a",
+        )
+        .unwrap();
+        assert_eq!(outcome.as_deref(), Some("ambiguous {}"));
+        let original = operator_grammar(&operators, &BTreeMap::new(), &[], false, None).unwrap();
+        let Err(ParseError::Ambiguous { places, .. }) = filtered(&original, "a => a => a") else {
+            panic!("`a => a => a` is ambiguous at both rewrites");
+        };
+        let named = places
+            .iter()
+            .flat_map(|place| &place.alternatives)
+            .filter(|entry| entry.term == "atom(.KList)=>atom(.KList)")
+            .map(|entry| entry.production.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(named, [Some(r#"syntax S0 ::= S0 "=>" S1"#); 2]);
+    }
+
+    /// A postfix `S1 ::= S1 "+" [o2]` beside a rewrite, written `S1 ::= P "+"` through
+    /// `P ::= S1`: on `a => a +` every reading puts the rewrite below `o2`, a scope error, and
+    /// the pruned recognition, which drops such a node where it completes, finds no derivation
+    /// exactly when the unfiltered one finds none, and reports that scope error alike.
+    #[test]
     fn a_pass_through_below_a_postfix_operator_keeps_the_first_attempts_derivation() {
         let operators: Vec<GeneratedOperator> = vec![
             (1, 1, 1, 0, 3, 0, true, 0),
@@ -2632,14 +2759,22 @@ mod tests {
         ];
         let levels = BTreeMap::from([(3, 1), (6, 0), (7, 2), (11, 1)]);
         let groups = [(1, BTreeSet::from([2, 8, 11]))];
-        let passed = operator_grammar(&operators, &levels, &groups, Some((2, 0))).unwrap();
+        let passed = operator_grammar(&operators, &levels, &groups, true, Some((2, 0))).unwrap();
         pruning_agrees_with_unfiltered_recognition(&passed, "a => a +").unwrap();
+        assert_eq!(
+            filtered(&passed, "a => a +"),
+            Err(ParseError::Scope {
+                parent: "o2".to_owned(),
+                child: InternalLabel::KRewrite.as_str().to_owned(),
+            })
+        );
     }
 
     /// Class test for the inference-engine ticket: the Z3 and portable engines implement one
     /// decision (which readings of a forest are the parse), so on one forest they reject alike:
     /// the same error, the same reported ambiguity, span and subterms. The forest is
-    /// the one `edges_below_a_deferred_scope_error_are_kept` pins per engine; both engines are
+    /// the one `an_ambiguity_beside_a_rewrite_below_an_operator_is_reported_by_its_readings`
+    /// pins per engine; both engines are
     /// run on it in one build, after the same recognition and pre-inference passes.
     #[cfg(feature = "z3-inference")]
     #[test]
@@ -2677,7 +2812,6 @@ mod tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
-                DoomedEdges::Kept,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,

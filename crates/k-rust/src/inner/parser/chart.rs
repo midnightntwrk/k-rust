@@ -14,7 +14,7 @@
 //! id = "parser.chart.completed_memo"
 //! name = "completed-node memoization for Earley charts"
 //! sites = ["completed_nodes", "Chart::invalidate_completed_node"]
-//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
+//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_completed_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
 //! counters = ["ParserCompletedNodesHits", "ParserCompletedNodesMisses", "ParserCompletedNodesInvalidated", "ParserChartCompletionCandidates"]
 //!
 //! [[cost]]
@@ -719,7 +719,7 @@ pub(super) fn completed_nodes(
             };
             let filtered = match filter {
                 PriorityFilter::Enforced => {
-                    grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos)
+                    grammar.filter_completed_packed_priority(Rc::clone(&term), priority_memos)
                 }
                 PriorityFilter::Ignored => Ok(Rc::clone(&term)),
             };
@@ -763,10 +763,34 @@ pub(super) fn completed_nodes(
     completed
 }
 
+/// The error of an ambiguity none of whose readings passes: the least of their errors in
+/// [`ParseError::violation_order`], so a scope error when some reading breaks a scope
+/// ([`ParseError::is_scope`]). Readings with equal errors report the same error, and errors
+/// that order alike without being equal are told apart by their readings' structural order,
+/// so the choice depends on the readings and their errors and not on the order they arrived
+/// in.
+///
+/// A misplaced rewrite, sequence or `#let` is the error to report where a reading breaks one:
+/// in `a => a ~> a => a`, meant as `(a => a) ~> (a => a)`, parentheses are the fix, and the
+/// associativity violation of the readings that move a rewrite out of the sequence
+/// (`a => ((a ~> a) => a)`) follows only from reading a rewrite where it was not written.
+///
+/// Any other violation of a reading is true of a derivation of the input, so any of them is a
+/// correct report; they are ordered by what they say rather than by their readings' structure,
+/// which compares production numbers that writing an operand through a pass-through sort
+/// changes without changing a tree. Under `S0 ::= "+" S1 [o2]` and `S1 ::= S0 [o0]`,
+/// non-associative together, with `S1 ::= S0` also a pass-through, every reading of `+ + a`
+/// breaks `o2`'s right edge, below it `o0` or `o2`; the report names `o0` however the grammar
+/// numbers them.
 pub(super) fn canonical_packed_error(errors: Vec<(Rc<PackedTerm>, ParseError)>) -> ParseError {
     errors
         .into_iter()
-        .min_by(|(left, _), (right, _)| cmp_packed_structurally(left, right))
+        .min_by(|(left, left_error), (right, right_error)| {
+            left_error
+                .violation_order()
+                .cmp(&right_error.violation_order())
+                .then_with(|| cmp_packed_structurally(left, right))
+        })
         .map(|(_, error)| error)
         .expect("an empty packed ambiguity had no invalid alternative")
 }
@@ -912,7 +936,7 @@ mod tests {
             },
         );
         let parent = grammar
-            .filter_or_defer_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
+            .filter_completed_packed_priority(parent, &RefCell::new(PackedPriorityMemos::default()))
             .expect("packed parent satisfies priority");
         let PackedNode::Production { children, .. } = &parent.node else {
             panic!("expected packed production");
