@@ -66,7 +66,7 @@ Phases:
   - 40 declare deferred totality → 41 check simplification rules
   - 42 finalize KItem subsorts: = kompile.sort_helpers.generate (phase 20)
   - 43 concretize cells
-    - kompile.cells.concretize — O(P + C x |children| + r^2) per module plus the… +1 mode — at k-rust/kompile/passes/concretize_cells.rs `concretize_cells`
+    - kompile.cells.concretize — O(P + C x |children| + r^2) per module plus the… +2 modes — at k-rust/kompile/passes/concretize_cells.rs `concretize_cells`
   - 44 add semantics module → 45 resolve configuration variables → 46 add cool-like attributes
   - 47 generate sort predicate rules: = kompile.sort_helpers.generate (phase 20)
   - 48 number sentences (final): = kompile.sentences.number (phase 25)

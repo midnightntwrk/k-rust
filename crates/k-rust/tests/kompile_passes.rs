@@ -8564,6 +8564,147 @@ fn rejects_a_cell_that_an_instance_a_rewrite_writes_on_one_side_only_may_hold() 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+// A <p> written as one value on both sides (a variable outside every rewrite, or one named
+// variable on both sides of a rewrite) cannot hold a loose cell that the rule changes between two
+// values apart: that <p> would hold both values in its one cell. The loose cell is then in a built
+// <r>, and the rule compiles. Values apart are distinct tokens, distinct free constructors, one
+// free constructor with arguments apart, and sequences with items apart or of different lengths.
+// When the two values may be equal (a variable, a function, an `anywhere` rule, terms of different
+// sorts, equal values) or the holder is two values (two variables), the <p> may hold the cell and
+// the rule is rejected as before.
+#[test]
+fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() {
+    let configuration = r#"<top> <k> 0 </k> <u> <ux> 0 </ux> <r multiplicity="*" type="Map"> <rid> 0 </rid> <p> <px> 0 </px> <c> 0 </c> <s> .K </s> <q> <qx> 0 </qx> <e> 0 </e> </q> </p> </r> </u> </top>"#;
+    let syntax = r#"
+          syntax KItem [hook(K.KItem)]
+          syntax KItem ::= "foo" | "bar" | f(Int) | g(Int)
+          syntax Int ::= h(Int) [function]
+          syntax PCell ::= mk(Int) [function]
+          rule g(_) => foo [anywhere]
+    "#;
+    let mut failures = Vec::new();
+    for rule in [
+        "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 05 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> _:PCell <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> mk(1) <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <e> 5 => 6 </e> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell (<c> 5 </c> => <c> 6 </c>) ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <s> foo => bar ... </s> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <s> foo ~> bar => foo </s> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <s> f(1) => f(2) </s> ... </u>",
+        "<k> 0 => 1 </k> <u> V1:PCell <s> foo => f(1) </s> ... </u>",
+        "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:PCell ... </r> => <r> <rid> 2 </rid> V1:PCell ... </r>) <c> 5 => 6 </c> ... </u>",
+    ] {
+        if let Err(errors) = concretized_cell_rule_in(syntax, configuration, rule, "") {
+            failures.push(format!("{rule}: expected to compile, {errors:?}"));
+        }
+    }
+    for (rule, holder) in [
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <c> E => 6 </c> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 5 </c> ... </u>",
+            "V1",
+        ),
+        // A function result with a rewrite in it is two values.
+        (
+            "<k> 0 => 1 </k> <u> mk(1 => 2) <c> 5 => 6 </c> ... </u>",
+            "",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => h(6) </c> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <s> foo => g(1) </s> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <s> foo => 1 </s> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <s> X ~> foo => bar </s> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <s> foo => foo ~> X </s> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> V1:PCell <s> ... foo => bar </s> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> V1:PCell ... </r> => <r> <rid> 2 </rid> V2:PCell ... </r>) <c> 5 => 6 </c> ... </u>",
+            "V1",
+        ),
+        (
+            "<k> 0 => 1 </k> <u> (<r> <rid> 1 </rid> _:PCell ... </r> => <r> <rid> 2 </rid> _:PCell ... </r>) <c> 5 => 6 </c> ... </u>",
+            "_",
+        ),
+    ] {
+        let message = "Ambiguous completion: <c>, written outside every <p>, can be in the <r> of the written <p> ";
+        let message_s = "Ambiguous completion: <s>, written outside every <p>, can be in the <r> of the written <p> ";
+        match concretized_cell_rule_in(syntax, configuration, rule, "") {
+            Err(errors)
+                if errors.iter().any(|error| {
+                    (error.starts_with(message) || error.starts_with(message_s))
+                        && error.contains(&format!("<p> {holder}"))
+                }) => {}
+            outcome => failures.push(format!("{rule}: expected a rejection, {outcome:?}")),
+        }
+    }
+    // With `Int` hooked, a token denotes its integer: `05` is `5`. With `Bool` hooked, `true`
+    // and `false` are its two values. A rule that rewrites a token anywhere may make two tokens
+    // equal, so no tokens are apart beside it.
+    let hooked = format!("{syntax}\n          syntax Int [hook(INT.Int)]");
+    let hooked_bool = format!(
+        "{syntax}\n          syntax Bool ::= \"true\" [token] | \"false\" [token]\n          syntax Bool [hook(BOOL.Bool)]"
+    );
+    let token_rewritten = format!("{syntax}\n          rule 7 => 8 [anywhere]");
+    for (syntax, rule, compiles) in [
+        (
+            &hooked,
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
+            true,
+        ),
+        (
+            &hooked,
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 05 </c> ... </u>",
+            false,
+        ),
+        (
+            &hooked_bool,
+            "<k> 0 => 1 </k> <u> V1:PCell <s> true => false </s> ... </u>",
+            true,
+        ),
+        (
+            &token_rewritten,
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
+            false,
+        ),
+    ] {
+        let outcome = concretized_cell_rule_in(syntax, configuration, rule, "");
+        let as_expected = match &outcome {
+            Ok(_) => compiles,
+            Err(errors) => {
+                !compiles
+                    && errors
+                        .iter()
+                        .any(|error| error.contains("can be in the <r> of the written <p> V1"))
+            }
+        };
+        if !as_expected {
+            failures.push(format!("{rule} with {syntax}: {outcome:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 // With a repeated <s> inside the repeated <r>, a rewrite of the <r> or of an <s> that writes the
 // <p> on one side only holds that <p> on both sides all the same, so the loose <c> may be in the
 // <s> of that <p> or in another <s>; when the written <p> already holds a <c>, or the <s> is
