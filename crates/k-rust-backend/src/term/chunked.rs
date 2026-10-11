@@ -476,16 +476,18 @@ impl<I: Item> Node<I> {
     }
 }
 
-/// The sizes of the parts of `n` things cut into parts of `min..=b` things (one part of all of
-/// them when `n <= b`), as even as possible: the number of parts nearest `n/target`, kept
-/// between `⌈n/b⌉` (so no part exceeds `b`) and `⌊n/min⌋` (so none is below `min`), of
-/// `⌊n/parts⌋` or one more. For `n > b` that range is not empty: with `min <= b/2`,
-/// `⌊n/min⌋ >= ⌊2n/b⌋ >= ⌈n/b⌉`.
+/// The sizes of the parts of `n` things cut into parts of `min + 1..b` things, strictly
+/// between the fill bounds (one part of all of them when `n <= b`), as even as possible: the
+/// number of parts nearest `n/target`, kept between `⌈n/(b-1)⌉` (so no part is full) and
+/// `⌊n/(min+1)⌋` (so none is at the minimum), of `⌊n/parts⌋` or one more. For `n > b` that range
+/// is not empty when `b > 2·min` and `min >= 2`: `p` parts cover the lengths
+/// `p·(min+1)..=p·(b-1)`, two parts start at `2·min + 2 <= b + 1`, and the ranges of `p` and
+/// `p + 1` parts (`p >= 2`) meet, since `p·(b - 1) + 1 >= p·2·min + 1 >= (p + 1)·(min + 1)`.
 fn even_parts(n: usize, b: usize, min: usize, target: usize) -> impl Iterator<Item = usize> {
     let parts = if n <= b {
         n.min(1)
     } else {
-        ((n + target / 2) / target).clamp(n.div_ceil(b), n / min)
+        ((n + target / 2) / target).clamp(n.div_ceil(b - 1), n / (min + 1))
     };
     // No parts (and no division) for nothing.
     let base = n.checked_div(parts).unwrap_or(0);

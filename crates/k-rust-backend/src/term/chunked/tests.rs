@@ -788,9 +788,9 @@ fn inner_widths<I: Item>(node: &Node<I>, is_root: bool, widths: &mut Vec<usize>)
 }
 
 /// A bulk-loaded tree leaves room in every node other than the root for an insertion and a
-/// removal, so its first edits split or merge nothing. Not every branching factor allows this
-/// for every length: at `B = 5` the only widths strictly between the bounds are 3 and 4, and at
-/// `B = 9` a level of 17 is cut into 9 and 8, two being the part count nearest `17/7`.
+/// removal, so its first edits split or merge nothing. The part count nearest `n/target` alone
+/// would miss some lengths (at `B = 5`, nine items cut into 5 and 4; at `B = 9`, 17 cut into 9
+/// and 8), so both are checked with the default.
 fn bulk_load_leaves_room<const B: usize>(max: usize) {
     for n in B + 1..max {
         let tree: Chunked<Entry, B> = Chunked::from_vec(
@@ -814,6 +814,8 @@ fn bulk_load_leaves_room<const B: usize>(max: usize) {
 
 #[test]
 fn a_bulk_load_leaves_room_in_every_node_but_the_root() {
+    bulk_load_leaves_room::<5>(3_000);
     bulk_load_leaves_room::<6>(3_000);
+    bulk_load_leaves_room::<9>(3_000);
     bulk_load_leaves_room::<DEFAULT>(3_000);
 }
