@@ -3662,6 +3662,42 @@ print(json.dumps({
     );
 }
 
+/// The ratchet refuses an expectations file whose exclusions do not say what they leave unranked:
+/// a case exclusion removes every step, present and future, so it must state why no step can be
+/// ranked; a `whole_case_reason` with nothing excluded justifies nothing; and a step exclusion
+/// with no selector names no step. Each row is appended to an otherwise valid file and the
+/// ratchet is run on it, so the refusal is the ratchet's, not a check of the committed file.
+#[test]
+fn the_ratchet_refuses_exclusions_that_do_not_name_what_they_leave_unranked() {
+    let rows = [
+        (
+            "[[case]]\nname = \"e\"\nbaseline_verdict = \"mismatch\"\nbaseline_stage = \"krun\"\nexclusion = \"x\"\nreason = \"r\"\n",
+            "whole_case_reason",
+        ),
+        (
+            "[[case]]\nname = \"e\"\nbaseline_verdict = \"mismatch\"\nbaseline_stage = \"krun\"\nexclusion = \"\"\nreason = \"r\"\nwhole_case_reason = \"w\"\n",
+            "but no exclusion",
+        ),
+        (
+            "[[case]]\nname = \"e\"\nbaseline_verdict = \"mismatch\"\nbaseline_stage = \"krun\"\nexclusion = \"\"\nreason = \"r\"\nstep_exclusions = [\n  { exclusion = \"x\", reason = \"r\" },\n]\n",
+            "without a selector",
+        ),
+    ];
+    for (row, refusal) in rows {
+        let fixture = Fixture::new();
+        let mut expectations = fs::read_to_string(&fixture.expectations).unwrap();
+        expectations.push('\n');
+        expectations.push_str(row);
+        fs::write(&fixture.expectations, expectations).unwrap();
+        let results = fixture.results("results", &[("a", "match", "krun")]);
+        let output = fixture.seed(&results);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{refusal}: accepted\n{stderr}");
+        assert!(stderr.contains(refusal), "{refusal}: {stderr}");
+        assert!(!fixture.log.exists(), "{refusal}: a log was written");
+    }
+}
+
 /// A run that measures only the generated Bison parsers ranks a case by its `bison-parser` steps,
 /// and records that it did; the ratchet, re-ranking a case after deleting its excluded steps,
 /// selects the same steps, so the compilation that only produces the parsers ranks in neither.
