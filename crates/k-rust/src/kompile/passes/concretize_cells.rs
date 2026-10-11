@@ -1489,6 +1489,11 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ///
     /// A cell item below `cell` written beside the only instance of one of its ancestors that
     /// `cell` can hold is placed inside that instance (see [`Self::place_in_written_ancestors`]).
+    ///
+    /// An alias `P #as V` of one cell `P` is placed as `P` is ([`CellModel::slot_sort`]): it
+    /// denotes `P` and binds `V` to it, so wrapping it in `P`'s missing parents, lifting it, or
+    /// completing `P` with the cells that belong inside it leaves `V` naming the cell `P` is in
+    /// the completed rule, which is the cell the alias names.
     fn complete_parent(
         &self,
         label: &Label,
@@ -1517,7 +1522,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
         });
         for (item, item_riders) in items {
-            match self.model.sort_for_term(&item) {
+            match self.model.slot_sort(&item) {
                 Some(sort) if self.model.is_strictly_below(&sort, &cell.sort) => {
                     completion.push((item, item_riders));
                 }
@@ -1534,7 +1539,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         let target_level = self.model.levels[&cell.sort] + 1;
         let level = |(item, _): &(Term, Vec<MovedCell>)| {
             self.model
-                .sort_for_term(item)
+                .slot_sort(item)
                 .and_then(|sort| self.model.levels.get(&sort).copied())
         };
         // Invariant: `completion` holds the terms still to be placed under `cell`, all of sorts strictly below `cell.sort`, each with the lifted cells whose configured parent is an ancestor of its sort; each iteration replaces every item at the `deepest` level by `make_parents` cells one level up, so the deepest level above `target_level` decreases, and the loop ends with every item a child of `cell`.
@@ -1550,7 +1555,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             let mut grouped = BTreeMap::<Sort, Vec<(Term, Vec<MovedCell>)>>::new();
             let mut retained = Vec::new();
             for item in completion {
-                let Some(sort) = self.model.sort_for_term(&item.0) else {
+                let Some(sort) = self.model.slot_sort(&item.0) else {
                     retained.push(item);
                     continue;
                 };
@@ -1566,9 +1571,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             for (parent, items) in grouped {
                 let parent = &self.model.cells[&parent];
                 // Instances of `parent` are built only here, once per completion, so every item
-                // of its sort in `retained` or `others` (an alias), or in the body of a written
-                // cell above `parent` among them, is written; so is the instance that a rewrite
-                // of cells above `parent` there holds on both sides, when a side writes it.
+                // of its sort in `retained` or `others` (a cell or an alias of one), or in the
+                // body of a written cell above `parent` among them, is written; so is the instance
+                // that a rewrite of cells above `parent` there holds on both sides, when a side
+                // writes it.
                 let mut written = Vec::new();
                 for item in retained.iter().map(|(item, _)| item).chain(&others) {
                     self.written_instances(item, &parent.sort, &mut written);
@@ -1688,7 +1694,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     ) -> Result<Vec<(Term, Vec<MovedCell>)>, String> {
         let sorts = items
             .iter()
-            .map(|(item, _)| self.model.sort_for_term(item))
+            .map(|(item, _)| self.model.slot_sort(item))
             .collect::<Vec<_>>();
         let mut written = BTreeMap::<&Sort, Vec<usize>>::new();
         // Invariant: `written` maps each sort to the indices of the items before `index` of that sort; each item is visited once.
@@ -1772,15 +1778,59 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         (ancestor, mut ancestor_riders): (Term, Vec<MovedCell>),
         added: Vec<(Term, Vec<MovedCell>)>,
     ) -> Result<(Term, Vec<MovedCell>), String> {
+        if let Term::As { pattern, alias } = ancestor.unannotated()
+            && let [cell] = flatten_cells(pattern)
+                .into_iter()
+                .filter(|part| !is_empty_cell_bag(part))
+                .collect::<Vec<_>>()
+                .as_slice()
+        {
+            // `P #as V` denotes the one cell `P` and binds `V` to it, so the cells that belong
+            // inside it complete `P`, and `V` names that completed cell, the one the configuration
+            // makes the only holder of `added` (the empty bags beside `P` denote nothing).
+            let name = |sort: Sort| self.model.cells[&sort].label.name.clone();
+            let holder = self.model.sort_for_term(cell).map(name).unwrap_or_default();
+            let has_rewrite = |term: &Term| {
+                let mut found = false;
+                term.visit_preorder(&mut |part| {
+                    found |= matches!(part.unannotated(), Term::Rewrite { .. });
+                });
+                found
+            };
+            let item = added
+                .iter()
+                .find(|(item, _)| has_rewrite(item))
+                .or_else(|| added.first())
+                .and_then(|(item, _)| self.model.slot_sort(item))
+                .map(name)
+                .unwrap_or_default();
+            let (completed, riders) =
+                self.place_in_written_cell(((*cell).clone(), ancestor_riders), added)?;
+            // An alias is matched, never rewritten: `V` names the cell the rule matches, and the
+            // right side of the rule holds `V` where the alias is, so a rewrite placed inside `P`
+            // would have no right side. The written pattern holds none (a rewrite written inside
+            // an `#as` pattern is rejected before completion), so any rewrite here was placed.
+            if has_rewrite(&completed) {
+                return Err(format!(
+                    "Cell {item} written beside {holder} belongs inside it: the configuration allows only one {holder} there, and it is written as the alias {}, which names the cell the rule matches, so the rewrite placed inside it has no right side",
+                    alias_name(alias)
+                ));
+            }
+            let aliased = Term::As {
+                pattern: Box::new(completed),
+                alias: alias.clone(),
+            };
+            return Ok((with_metadata(aliased, ancestor.metadata().cloned()), riders));
+        }
         let name = |sort: &Sort| self.model.cells[sort].label.name.clone();
         let holder = self
             .model
-            .sort_for_term(&ancestor)
+            .slot_sort(&ancestor)
             .map(|sort| name(&sort))
             .unwrap_or_default();
         let item = added
             .first()
-            .and_then(|(item, _)| self.model.sort_for_term(item))
+            .and_then(|(item, _)| self.model.slot_sort(item))
             .map(|sort| name(&sort))
             .unwrap_or_default();
         let reason = |item: &str| {
@@ -1830,7 +1880,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             // An added cell above `list` brings its own instance of the list's parent.
             let joining = added.iter().find(|(term, _)| {
                 self.model
-                    .sort_for_term(term)
+                    .slot_sort(term)
                     .is_none_or(|sort| !self.model.is_strictly_below(list, &sort))
                     && self.moved_may_hold(cell, &beside, term, list)
             });
@@ -1839,7 +1889,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             {
                 let item = self
                     .model
-                    .sort_for_term(term)
+                    .slot_sort(term)
                     .map(|sort| name(&sort))
                     .unwrap_or_default();
                 return Err(format!(
@@ -1950,7 +2000,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     fn moved_may_hold(&self, holder: &Cell, beside: &[&Term], term: &Term, list: &Sort) -> bool {
         let parent = self
             .model
-            .sort_for_term(term)
+            .slot_sort(term)
             .and_then(|sort| self.model.parents.get(&sort))
             .map(|parent| &self.model.cells[parent]);
         let unknown = [Side::Left, Side::Right].map(|side| match parent {
@@ -2011,15 +2061,17 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     /// The items of `term` when it is a cell that cells placed beside it continue into on their
-    /// way to an instance of `sort`: a cell written as a cell body, of a sort strictly above
-    /// `sort` that is not `multiplicity="*"`, hence the only cell of its sort where it is
-    /// written. The placed cells go inside it, beside its `...` frame, as cells written there do.
+    /// way to an instance of `sort`: a cell written as a cell body, or an alias of one, of a sort
+    /// strictly above `sort` that is not `multiplicity="*"`, hence the only cell of its sort
+    /// where it is written. The placed cells go inside it, beside its `...` frame, as cells
+    /// written there do.
     fn continuation<'t>(&self, term: &'t Term, sort: &Sort) -> Option<Vec<&'t Term>> {
-        let term_sort = self.model.sort_for_term(term)?;
+        let term_sort = self.model.slot_sort(term)?;
         if !self.model.is_strictly_below(sort, &term_sort) || self.model.is_repeated(&term_sort) {
             return None;
         }
-        self.cell_body(term).map(|(_, body, _)| flatten_cells(body))
+        self.cell_body(one_cell(term))
+            .map(|(_, body, _)| flatten_cells(body))
     }
 
     /// Whether an item of `items`, the body of a written cell of `parent` that cells written
@@ -2037,7 +2089,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 Some(body) => {
                     let continued = self
                         .model
-                        .sort_for_term(item)
+                        .slot_sort(item)
                         .map(|continued| &self.model.cells[&continued])
                         .expect("a continuation is a cell of a known sort");
                     self.body_may_hold(continued, &body, sort)
@@ -2176,7 +2228,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             if !repeatable
                 && body
                     .iter()
-                    .any(|item| self.model.sort_for_term(item).as_ref() == Some(&rider.sort))
+                    .any(|item| self.model.slot_sort(item).as_ref() == Some(&rider.sort))
             {
                 return Err(format!(
                     "Cell {} written inside {} belongs in the {} that holds {}, which already has a {}",
