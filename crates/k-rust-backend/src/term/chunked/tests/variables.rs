@@ -613,3 +613,97 @@ proptest! {
         moving_rebuild::<DEFAULT>(model, shape, pick);
     }
 }
+
+/// A bulk-loaded ordered tree of `n` items at `B = 5`, each mentioning two variables that no
+/// other item mentions, so the root's multiset has `2n` entries. Keys are even, so an odd key
+/// falls between two items.
+fn symbolic(n: u32) -> (Chunked<Mentions, 5>, Vec<Mentions>) {
+    let items: Vec<Mentions> = (0..n)
+        .map(|i| Mentions {
+            key: 2 * i,
+            variables: vec![2 * i, 2 * i + 1],
+        })
+        .collect();
+    (Chunked::from_vec(items.clone()), items)
+}
+
+/// The entry updates of `edit` on symbolic trees of 1,000, 4,000 and 16,000 items, with each
+/// tree's height, after checking each result against its model.
+fn tallies(
+    edit: impl Fn(&Chunked<Mentions, 5>, &[Mentions]) -> Vec<(Chunked<Mentions, 5>, Vec<Mentions>)>,
+) -> Vec<(usize, usize)> {
+    [1_000, 4_000, 16_000]
+        .into_iter()
+        .map(|n| {
+            let (tree, model) = symbolic(n);
+            let (results, updates) = entry_updates(|| edit(&tree, &model));
+            for (result, expected) in &results {
+                check_mentions(result, expected);
+            }
+            (height(&tree), updates)
+        })
+        .collect()
+}
+
+/// An edit whose group work is that of the nodes on one path, each changed by the few items
+/// the edit adds or cuts away, costs `a + b (h + 1)` entry updates on a tree of height `h`
+/// (`a` for the items' own multisets, `b` per copied node): from one size to the next, the
+/// count may grow at most as the number of nodes on a path, `h + 1`, does. Work over the
+/// multisets of whole runs of children grows with the variables below them, four times from one
+/// size to the next, against a path that grows by a level.
+fn assert_grows_with_the_depth(edit: &str, tallies: &[(usize, usize)]) {
+    eprintln!("{edit}: (height, entry updates) at n = 1k, 4k, 16k: {tallies:?}");
+    for pair in tallies.windows(2) {
+        let ((low, fewer), (high, more)) = (pair[0], pair[1]);
+        assert!(
+            more * (low + 1) <= fewer * (high + 1),
+            "{edit}: {fewer} entry updates at height {low}, {more} at height {high}"
+        );
+    }
+}
+
+#[test]
+fn a_split_cutting_one_item_away_does_the_work_of_a_path() {
+    let first = tallies(|tree, model| {
+        let (left, right) = tree.split_at(1);
+        vec![(left, model[..1].to_vec()), (right, model[1..].to_vec())]
+    });
+    assert_grows_with_the_depth("split_at(1)", &first);
+    let last = tallies(|tree, model| {
+        let (left, right) = tree.split_at(model.len() - 1);
+        let cut = model.len() - 1;
+        vec![
+            (left, model[..cut].to_vec()),
+            (right, model[cut..].to_vec()),
+        ]
+    });
+    assert_grows_with_the_depth("split_at(n - 1)", &last);
+    let key = tallies(|tree, model| {
+        let (left, right) = tree.split_at_key(&model[model.len() - 1].key);
+        let cut = model.len() - 1;
+        vec![
+            (left, model[..cut].to_vec()),
+            (right, model[cut..].to_vec()),
+        ]
+    });
+    assert_grows_with_the_depth("split_at_key(last key)", &key);
+}
+
+#[test]
+fn a_union_with_one_item_does_the_work_of_a_path() {
+    let middle = tallies(|tree, model| {
+        let at = model.len() / 2;
+        let item = Mentions {
+            key: model[at].key + 1,
+            variables: vec![u32::MAX - 1, u32::MAX],
+        };
+        let one = Chunked::from_vec(vec![item.clone()]);
+        let mut expected = model.to_vec();
+        expected.insert(at + 1, item);
+        vec![
+            (tree.union(&one), expected.clone()),
+            (one.union(tree), expected),
+        ]
+    });
+    assert_grows_with_the_depth("union with one item (both ways)", &middle);
+}

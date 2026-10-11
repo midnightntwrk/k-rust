@@ -164,11 +164,13 @@ fn join<const B: usize>(left: Vec<Entry>, right: Vec<Entry>, shapes: (Vec<u8>, V
     assert!(unshared(&joined, &[&a, &b]) <= 2 * levels + 1);
 }
 
-// Each side of a split is built level by level: at a level of height `l`, at most one node
-// over the children beside the path, joined with the side built below, whose height is at
-// least `l - 2` when that node exists. Each join copies at most `2 (d + 1) + 1` nodes for a
-// height difference `d`, and the differences sum to at most `2h` over the levels, so a side
-// holds at most `8 (h + 1)` nodes not in the tree it was split from.
+// Each side of a split is built level by level: at each level, at most one node over the
+// children beside the cut and the side built below, which is either one of those children or
+// joined to the child beside it. Such a join copies at most `2 (d + 1)` nodes for a height
+// difference `d`; a joined side is at most one level below the next level's children, and a
+// side passed up unjoined loses a level per level it passes, so the differences sum to at most
+// `2h`, and a side holds at most `(h + 1) + 6h`, within `8 (h + 1)`, nodes not in the tree it
+// was split from.
 fn split_at<const B: usize>(items: Vec<Entry>, shape: Vec<u8>, at: usize) {
     let tree = shaped::<Entry, B>(items.clone(), shape);
     let index = at % (items.len() + 1);
@@ -256,16 +258,15 @@ fn union<const B: usize>(left: Vec<Entry>, right: Vec<Entry>, shapes: (Vec<u8>, 
     check(&b, &before_b);
 }
 
-// A union with one item copies what an insertion of it copies, plus the run of children kept
-// on either side of the path at each level, which is at most one node per level and side, and
-// at most two more nodes per level where a join concatenates or splits: `5 (h + 1) + 1`.
+// A union with one item copies what an insertion of it copies: the node on the path at each
+// level, or the two halves it overflows into, and possibly a new root: `2 (h + 1) + 1`.
 fn union_with_one<const B: usize>(items: Vec<Entry>, shape: Vec<u8>, item: Entry) {
     let (tree, mut model) = ordered::<B>(items, shape);
     let one = Chunked::<Entry, B>::from_vec(vec![item.clone()]);
     let united = tree.union(&one);
     *model.entry(item).or_insert(0) += 1;
     check(&united, &flatten(&model));
-    assert!(unshared(&united, &[&tree, &one]) <= 5 * (height(&tree) + 1) + 1);
+    assert!(unshared(&united, &[&tree, &one]) <= 2 * (height(&tree) + 1) + 1);
 }
 
 proptest! {

@@ -511,6 +511,10 @@ impl<I: Item, const B: usize> Chunked<I, B> {
         (B - 1) / 2
     };
 
+    /// The width a node built from many items or children is given when nothing else decides
+    /// it: about midway between `MIN_FILL` and `B` (see [`from_vec`](Self::from_vec)).
+    const FILL_TARGET: usize = (Self::MIN_FILL + 1 + B) / 2;
+
     /// The empty sequence.
     pub(crate) const fn new() -> Self {
         Self { root: None }
@@ -525,7 +529,7 @@ impl<I: Item, const B: usize> Chunked<I, B> {
     /// split at every level up to the first node with room, each folding the group summary of
     /// half a node.
     pub(crate) fn from_vec(items: Vec<I>) -> Self {
-        let target = (Self::MIN_FILL + 1 + B) / 2;
+        let target = Self::FILL_TARGET;
         let mut items = items.into_iter();
         let mut level: Vec<Arc<Node<I>>> = even_parts(items.len(), B, Self::MIN_FILL, target)
             .map(|size| Arc::new(Node::leaf(items.by_ref().take(size).collect())))
