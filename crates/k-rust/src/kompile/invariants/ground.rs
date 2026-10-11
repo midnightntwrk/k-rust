@@ -37,8 +37,7 @@ pub(crate) fn assert_ground_instances(
         let Some((0, body_path)) = path.split_first() else {
             continue;
         };
-        let Some(Term::Apply { label, .. }) = at_path(term, body_path).map(Term::unannotated)
-        else {
+        let Some(Term::Apply { label, .. }) = term.at_path(body_path).map(Term::unannotated) else {
             continue;
         };
         if parametric(productions, label) {
@@ -86,23 +85,4 @@ fn closed(sort: &Sort) -> Option<Sort> {
         sort.is_rigid_variable() || sort.parameters.iter().any(mentions_variable)
     }
     (!mentions_variable(sort)).then(|| sort.clone())
-}
-
-fn at_path<'a>(mut term: &'a Term, path: &[u32]) -> Option<&'a Term> {
-    for &step in path {
-        let index = usize::try_from(step).ok()?;
-        term = match term.unannotated() {
-            Term::Apply { arguments, .. } => arguments.get(index)?,
-            Term::Sequence(items) => items.get(index)?,
-            Term::Rewrite { left, right } => [left.as_ref(), right.as_ref()].get(index).copied()?,
-            Term::As { pattern, alias } => {
-                [pattern.as_ref(), alias.as_ref()].get(index).copied()?
-            }
-            Term::InjectedLabel(_)
-            | Term::Variable { .. }
-            | Term::Token { .. }
-            | Term::Annotated { .. } => return None,
-        };
-    }
-    Some(term)
 }

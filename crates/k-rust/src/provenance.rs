@@ -759,7 +759,9 @@ pub struct DestinationAnchor {
     pub path: AnchorPath,
 }
 
-/// The path of a destination anchor: the field of the sentence, then a child step per level.
+/// The path of a destination anchor: the field of the sentence, then a child step per level, a
+/// step of [`Term::children`]; [`Sentence::term_at`](crate::definition::Sentence::term_at)
+/// resolves it.
 ///
 /// The anchors a pass gives the nodes of a term it generates are its root's anchor extended by
 /// one step per level, so a path is held as its parent's path, shared, and its last step: a
@@ -1871,17 +1873,18 @@ fn address(term: &Term) -> usize {
     std::ptr::from_ref(term) as usize
 }
 
-/// The direct subterms of `term`, an annotation's term included.
+/// The direct subterms of `term`: an annotation's term, or the children of an unannotated node
+/// in step order ([`Term::children`]).
 fn term_children(term: &Term) -> Vec<&Term> {
     match term {
         Term::Annotated { term, .. } => vec![term],
-        Term::Rewrite { left, right } => vec![left, right],
-        Term::As { pattern, alias } => vec![pattern, alias],
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => items.iter().collect(),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
+        node @ (Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. }) => node.children(),
     }
 }
 
@@ -2009,7 +2012,7 @@ fn annotate_level(
     // Compared position by position instead, the moved term would be taken as generated, every
     // node of it receipted and each receipt's origins holding those of the nodes above it.
     if let Some(before) = before {
-        let mut children = children_mut(term);
+        let mut children = term.children_mut();
         if let Some(moved) = children
             .iter()
             .position(|child| same_term(child, before, context))
@@ -2028,84 +2031,25 @@ fn annotate_level(
         }
     }
 
-    let before = before.map(Term::unannotated);
-    match (unannotated_mut(term), before) {
-        (
-            Term::Rewrite { left, right },
-            Some(Term::Rewrite {
-                left: before_left,
-                right: before_right,
-            }),
-        ) => {
-            annotate_child(left, Some(before_left), 0, context, &own_origins, &path);
-            annotate_child(right, Some(before_right), 1, context, &own_origins, &path);
-        }
-        (
-            Term::As { pattern, alias },
-            Some(Term::As {
-                pattern: before_pattern,
-                alias: before_alias,
-            }),
-        ) => {
-            annotate_child(
-                pattern,
-                Some(before_pattern),
-                0,
-                context,
-                &own_origins,
-                &path,
-            );
-            annotate_child(alias, Some(before_alias), 1, context, &own_origins, &path);
-        }
-        (Term::Sequence(items), Some(Term::Sequence(before_items)))
-        | (
-            Term::Apply {
-                arguments: items, ..
-            },
-            Some(Term::Apply {
-                arguments: before_items,
-                ..
-            }),
-        ) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                annotate_child(
-                    item,
-                    before_items.get(index),
-                    u32::try_from(index).expect("term arity fits u32"),
-                    context,
-                    &own_origins,
-                    &path,
-                );
-            }
-        }
-        (Term::Rewrite { left, right }, _) => {
-            annotate_child(left, None, 0, context, &own_origins, &path);
-            annotate_child(right, None, 1, context, &own_origins, &path);
-        }
-        (Term::As { pattern, alias }, _) => {
-            annotate_child(pattern, None, 0, context, &own_origins, &path);
-            annotate_child(alias, None, 1, context, &own_origins, &path);
-        }
-        (
-            Term::Sequence(items)
-            | Term::Apply {
-                arguments: items, ..
-            },
-            _,
-        ) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                annotate_child(
-                    item,
-                    None,
-                    u32::try_from(index).expect("term arity fits u32"),
-                    context,
-                    &own_origins,
-                    &path,
-                );
-            }
-        }
-        (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }, _) => {}
-        (Term::Annotated { .. }, _) => unreachable!(),
+    // A child keeps its counterpart when the node kept its constructor: the child at the same
+    // step of the node it was.
+    let before = before
+        .map(Term::unannotated)
+        .filter(|before| {
+            std::mem::discriminant(*before) == std::mem::discriminant(term.unannotated())
+        })
+        .map(Term::children);
+    for (index, child) in term.children_mut().into_iter().enumerate() {
+        annotate_child(
+            child,
+            before
+                .as_ref()
+                .and_then(|before| before.get(index).copied()),
+            u32::try_from(index).expect("term arity fits u32"),
+            context,
+            &own_origins,
+            &path,
+        );
     }
 }
 
@@ -2145,33 +2089,6 @@ fn built_set(links: Vec<ProvenanceLink>) -> OriginSet {
     measure::bump(Counter::ProvenanceSetNodesBuilt);
     measure::add(Counter::ProvenanceSetPartsBuilt, links.len() as u64);
     OriginSet::from(links)
-}
-
-/// The children of `term`, its annotations removed, in order.
-fn children_mut(term: &mut Term) -> Vec<&mut Term> {
-    match unannotated_mut(term) {
-        Term::Rewrite { left, right } => vec![&mut **left, &mut **right],
-        Term::As { pattern, alias } => vec![&mut **pattern, &mut **alias],
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => items.iter_mut().collect(),
-        Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
-        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
-    }
-}
-
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Term is not a sentence kind; only the listed variants are special here"
-)]
-fn unannotated_mut(mut term: &mut Term) -> &mut Term {
-    loop {
-        match term {
-            Term::Annotated { term: inner, .. } => term = inner,
-            term => return term,
-        }
-    }
 }
 
 fn annotate_child(
@@ -3739,7 +3656,7 @@ mod tests {
             let positions = crate::kast::test_terms::positions(term);
             positions[at.index(positions.len())].0.clone()
         };
-        let node = crate::kast::test_terms::at_path_mut(term, &steps);
+        let node = term.at_path_mut(&steps).expect("a step names a child");
         let original = node.clone();
         *node = match kind {
             0 => replacement.clone(),

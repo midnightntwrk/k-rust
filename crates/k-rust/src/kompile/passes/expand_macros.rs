@@ -3074,10 +3074,7 @@ mod identity_tests {
     };
 
     use super::{Identities, Shape, children_of};
-    use crate::kast::{
-        Label, Sort, Term,
-        test_terms::{at_path_mut, positions},
-    };
+    use crate::kast::{Label, Sort, Term, test_terms::positions};
 
     /// The identity expansion gives `term` when it records `term` and its subterms, children
     /// first, as `Expander` records a node after its children.
@@ -3167,7 +3164,11 @@ mod identity_tests {
         let mut neighbours = Vec::new();
         for (steps, _) in positions(term) {
             let mut edits: Vec<(&'static str, Edit)> = Vec::new();
-            match at_path_mut(&mut term.clone(), &steps) {
+            match term
+                .clone()
+                .at_path_mut(&steps)
+                .expect("a step names a child")
+            {
                 Term::Token { .. } => {
                     edits.push((
                         "token text",
@@ -3232,7 +3233,7 @@ mod identity_tests {
             }
             for (field, edit) in edits {
                 let mut neighbour = term.clone();
-                edit(at_path_mut(&mut neighbour, &steps));
+                edit(neighbour.at_path_mut(&steps).expect("a step names a child"));
                 neighbours.push((field, neighbour));
             }
         }

@@ -780,6 +780,18 @@ impl Sentence {
         let index = usize::try_from(field).ok()?;
         self.term_fields_mut().into_iter().nth(index).flatten()
     }
+
+    /// The subterm a destination path names in this sentence: the path's first entry is a field
+    /// numbered as in [`Sentence::terms`], and the rest are steps from that field's term, resolved
+    /// by [`Term::at_path`]. The subterm is returned as stored, its annotation included. `None`
+    /// when the path is empty, the sentence has no such field, or a step names no child.
+    ///
+    /// A path recorded in one definition names a subterm of that definition only: a pass that
+    /// adds sentences or builds terms around existing ones changes the paths of what it moves.
+    pub fn term_at(&self, path: &[u32]) -> Option<&Term> {
+        let (field, steps) = path.split_first()?;
+        self.term(*field)?.at_path(steps)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -965,12 +977,40 @@ mod term_field_tests {
                     .map(|(_, term)| term.clone());
                 assert_eq!(sentence.term(field).cloned(), listed, "term({field})");
                 assert_eq!(
+                    sentence.term_at(&[field]).cloned(),
+                    listed,
+                    "term_at([{field}])"
+                );
+                assert_eq!(
                     sentence.term_mut(field).map(|term| term.clone()),
                     listed,
                     "term_mut({field})"
                 );
             }
+            assert_eq!(sentence.term_at(&[]), None, "term_at([]) of {sentence:?}");
         }
+    }
+
+    /// A destination path names a field, then takes one step per level of that field's term.
+    #[test]
+    fn term_at_steps_into_the_numbered_field() {
+        let sentence = Sentence::Configuration {
+            body: Term::apply("cell", vec![term("first"), term("second")]),
+            ensures: term("ensures"),
+            attributes: Attributes::default(),
+        };
+        assert_eq!(sentence.term_at(&[0, 1]), Some(&term("second")));
+        assert_eq!(sentence.term_at(&[0, 2]), None, "the cell has two children");
+        assert_eq!(
+            sentence.term_at(&[1, 0]),
+            None,
+            "a variable has no children"
+        );
+        assert_eq!(
+            sentence.term_at(&[2, 0]),
+            None,
+            "a configuration has two fields"
+        );
     }
 
     #[test]

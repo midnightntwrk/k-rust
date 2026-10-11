@@ -34,6 +34,7 @@ A sentence's receipt always names a flat set, one whose parts are all links.
 `Term::identical`, the reuse test of incremental resolution, compares receipts by allocation: a receipt is identical only to itself.
 
 A destination anchor names a module, a sentence, the sentence's index in its module, and a path: the field of the sentence, then one child index per level.
+A child index is a step of `Term::children`, which lists a node's children in one order (a rewrite's left then right side, an alias's pattern then alias, an application's or a sequence's items), annotations taking no step; `Sentence::term_at` resolves a path to the subterm it names.
 Its module and sentence names are shared by every receipt of one sentence, and its path shares its parent's path.
 
 `KRUST-PROVENANCE` version 8 writes the definition, its `sources` table, and three tables that receipts and metadata name by index:
