@@ -390,6 +390,8 @@ impl<T: Stored + Keyed<Key = Term> + Item<Summary = ItemSummary>> Items<T> {
     /// ancestors, `O(s log n)` nodes; a vector is filtered.
     pub(crate) fn symbolic_keyed(&self) -> impl Iterator<Item = &T> {
         let (vector, tree) = match &self.0 {
+            // No descent when the root's summary counts none.
+            Backing::Tree(_) if self.symbolic_keys() == 0 => (None, None),
             Backing::Vec(items) => (Some(items.iter().filter(|item| symbolic_key(*item))), None),
             Backing::Tree(tree) => (
                 None,

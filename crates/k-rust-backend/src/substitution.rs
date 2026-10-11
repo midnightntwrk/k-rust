@@ -101,17 +101,20 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             entries,
             rest,
         } => {
-            let mentions = |term: &Term| !term.attributes().variables.is_disjoint(substitution);
             Term::map_of_items(
                 definition.clone(),
                 entries.rebuild_where(
                     |summary| !crate::term::variables::disjoint(&summary.group, substitution),
-                    |(key, value)| mentions(key) || mentions(value),
+                    // Within an admitted subtree, `substitute` itself returns a term that
+                    // mentions no bound variable at once, and such an entry is kept.
+                    |_| true,
                     |(key, value)| {
-                        Some((
+                        let (new_key, new_value) = (
                             substitute(key, substitution),
                             substitute(value, substitution),
-                        ))
+                        );
+                        (!new_key.ptr_eq(key) || !new_value.ptr_eq(value))
+                            .then_some((new_key, new_value))
                     },
                 ),
                 rest.as_ref().map(|term| substitute(term, substitution)),

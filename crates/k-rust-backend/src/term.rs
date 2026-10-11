@@ -3030,10 +3030,10 @@ pub(crate) fn equal_terms_on_work_list(left: &Term, right: &Term) -> bool {
 /// A comparison [`equal_terms_on_work_list`] owes: of two children, or of the entries two maps
 /// hold at the same positions, which it takes one pair at a time from a walk that skips the tree
 /// nodes the maps share (`Items::aligned`), so two versions of a map cost the paths where they
-/// differ.
+/// differ. The walk is boxed, so that the other comparisons owed stay two references wide.
 enum PendingEqual<'a> {
     Terms(&'a Term, &'a Term),
-    Entries(items::Aligned<'a, (Term, Term)>),
+    Entries(Box<items::Aligned<'a, (Term, Term)>>),
 }
 
 /// What [`equal_nodes`] hands the pairs of children of two nodes to.
@@ -3135,8 +3135,10 @@ fn equal_nodes<'a, R>(
                 if definition == other_definition && entries.len() == other_entries.len() =>
             {
                 queue(
-                    &mut std::iter::once(PendingEqual::Entries(entries.aligned(other_entries)))
-                        .chain(terms(rest.into_iter())),
+                    &mut std::iter::once(PendingEqual::Entries(Box::new(
+                        entries.aligned(other_entries),
+                    )))
+                    .chain(terms(rest.into_iter())),
                 )
             }
             Some(_) | None => None,
@@ -3285,11 +3287,12 @@ pub(crate) fn order_terms_on_work_list(left: &Term, right: &Term) -> Ordering {
 /// A comparison the derived order of two nodes makes: of two children, one already made, or of
 /// the entries two maps hold at the same positions, up to the end of the shorter map, which the
 /// work list takes one pair at a time from a walk that skips the tree nodes the maps share
-/// (`Items::aligned`), so two versions of a map cost the paths where they differ.
+/// (`Items::aligned`), so two versions of a map cost the paths where they differ. The walk is
+/// boxed, so that the other comparisons owed stay two references wide.
 enum PendingOrder<'a> {
     Terms(&'a Term, &'a Term),
     Decided(Ordering),
-    Entries(items::Aligned<'a, (Term, Term)>),
+    Entries(Box<items::Aligned<'a, (Term, Term)>>),
 }
 
 /// The position of a kind's variant in `TermKind`'s declaration, which the derived order
@@ -3405,9 +3408,9 @@ fn order_nodes<'a, R>(
             },
         ) => queue(
             &mut decided(definition.cmp(other_definition))
-                .chain(std::iter::once(PendingOrder::Entries(
+                .chain(std::iter::once(PendingOrder::Entries(Box::new(
                     entries.aligned(other_entries),
-                )))
+                ))))
                 .chain(decided(entries.len().cmp(&other_entries.len())))
                 .chain(optional(rest.as_ref(), other_rest.as_ref())),
         ),

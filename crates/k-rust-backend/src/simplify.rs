@@ -4732,12 +4732,9 @@ fn simplify_children(
                             &path_condition.substitution,
                         )
                 },
-                |(key, value)| {
-                    let skipped = |term: &Term| {
-                        term.attributes().evaluated && !path_condition.can_change(term)
-                    };
-                    !skipped(key) || !skipped(value)
-                },
+                // Within an admitted subtree, `child` itself returns an entry's terms that need no
+                // work at once.
+                |_| true,
                 |(key, value)| {
                     if failed.is_some() {
                         return None;
