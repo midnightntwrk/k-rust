@@ -1,6 +1,6 @@
 //! Fail-closed native/reference KORE comparison for the complete IMP gate.
 //!
-//! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30).
+//! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30; upstream k-rust/constructor-axiom-order, declined, so the canonicalization is permanent).
 //! Beyond metadata and per-sentence alpha normalization, it excludes no sentence: a named field projection (`project:<owner>:<field>`) on either route is compared like any other sentence, so one that only one route declares is a difference.
 //! It also applies two declared k-rust differences, `scripts/reference-normalisations.toml` N33 and N37.
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
@@ -127,7 +127,7 @@ pub fn run_canonicalize(
 ///
 /// Within each module, the generated lambda symbols of each `#lambda<hint1>_<hint2>_` family are renumbered by content, as the comparator pairs them, and the sentences are ordered by their printed form.
 /// The comparator reads a module as a sentence multiset and names lambdas by content, so it reads the result as it reads the input.
-/// Java K numbers a lambda family in an order that varies between runs of one kompile, so a stored `definition.kore` passes through this rewrite.
+/// Java K numbers a lambda family by a hash that includes the source path, so the numbering differs between checkouts and a stored `definition.kore` passes through this rewrite (upstream k/resolvefun-lambda-label-nondeterminism).
 ///
 /// # Errors
 ///
@@ -601,7 +601,7 @@ fn alpha_normalize_sentence(sentence: &mut Sentence) {
 /// Canonicalize the commutative alternatives in one generated constructor no-junk axiom.
 ///
 /// Each constructor alternative owns its existential binders.
-/// Normalize those local names before comparing complete alternatives as a multiset under k-rust's `scripts/reference-normalisations.toml` N6 and N13.
+/// Normalize those local names before comparing complete alternatives as a multiset under k-rust's `scripts/reference-normalisations.toml` N6 and N13 (upstream k-rust/constructor-axiom-order).
 fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
     let Sentence::Axiom {
         pattern,
@@ -626,7 +626,7 @@ fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
 
 /// Canonicalize the commutative constructor pair in one generated no-confusion axiom.
 ///
-/// K orders the pair by `Production.ord`; k-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order (normalization N30).
+/// K orders the pair by `Production.ord`; k-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order (normalization N30; upstream k-rust/constructor-axiom-order).
 /// The conjunction is commutative and its generated free variables are alpha-equivalent, so the comparator orders the applications by symbol and argument sorts before its ordinary per-sentence alpha normalization.
 fn canonicalize_no_confusion_pair(sentence: &mut Sentence) {
     let Sentence::Axiom {
@@ -704,6 +704,8 @@ pub fn normalize_standalone_pattern(pattern: &mut Pattern) {
     alpha_normalize_pattern(pattern, &mut BTreeMap::new());
 }
 
+// upstream k-rust/existential-binder-order (declined): k-rust orders claim existentials
+// lexically, Java K by its generated counter, so adjacent binders are compared unordered.
 fn normalize_commuting_exists(pattern: &mut Pattern) {
     match pattern {
         Pattern::Application { arguments, .. }

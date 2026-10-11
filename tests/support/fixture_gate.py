@@ -297,7 +297,7 @@ class FixtureGate:
                 except GateError as error:
                     # k-rust refuses some states outright, such as one that
                     # still holds a macro symbol; such an outcome can only be
-                    # a pinned divergence.
+                    # a pinned divergence (upstream k-rust/macro-own-symbol-refused).
                     refusal = re.sub(r"^gate request \d+ failed: ", "", str(error))
                     outcomes[program.name] = {"parse": ACCEPTED, "run": "refused: " + refusal}
                     continue

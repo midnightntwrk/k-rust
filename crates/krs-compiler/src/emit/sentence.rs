@@ -99,7 +99,8 @@ pub(super) fn emit_sentence(
         }
         DefinitionSentence::Layout(sentence) => {
             // Java K 7.1.337 requires `[token]` on a layout production
-            // ("Symbol ..#Layout is not unique" otherwise).
+            // ("Symbol ..#Layout is not unique" otherwise;
+            // upstream k/layout-production-requires-token).
             writer.push("syntax #Layout ::= r");
             writer.push(&quoted_outer(sentence.regex()));
             writer.push(" [token]");
@@ -169,8 +170,8 @@ fn emit_production(
     // constructor on a sort that has domain values. A bracket production is
     // parse-only, so no term contains its symbol; Java K declares a labelled
     // bracket as a constructor in definition.kore while k-rust declares none
-    // (bracket-production-constructor), so an unlabelled bracket is the form
-    // on which both routes agree.
+    // (upstream k-rust/bracket-production-constructor, fixed natively), so an
+    // unlabelled bracket is the form on which both routes agree.
     let is_parse_only = sentence.attributes().iter().any(|attribute| {
         matches!(
             attribute,

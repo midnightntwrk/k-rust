@@ -3,6 +3,7 @@
 //! `ProgramParser` uses visible program productions and adds `KItem` subsorts, but does not add the implicit `KSEQ` productions `K ::= ".K"` and `K ::= K "~>" K`.
 //! `BASIC-K` supplies the subsort path for a single item at `K`, but supplies neither sequence production.
 //! Cell expectations must therefore split top-level sequence delimiters outside quoted strings, parse each item at `KItem`, and assemble `Term::sequence`.
+//! upstream k-rust/configuration-assembly-api: the split goes once `ProgramParser` supplies the `KSEQ` productions, which the test `program_grammar_does_not_supply_implicit_kseq_productions` detects.
 
 use k_rust::{
     definition::{Definition, Sentence},
@@ -41,6 +42,7 @@ pub struct Configuration {
     macro_definition: MacroExpansionDefinition,
 }
 
+// upstream k-rust/configuration-assembly-api: `ProgramParser` has no implicit `KSEQ` productions.
 fn split_k_sequence(source: &str) -> Result<Option<Vec<&str>>, String> {
     let mut items = Vec::new();
     let mut start = 0;
@@ -151,6 +153,7 @@ impl Configuration {
             .get(parser_module)
             .expect("parser was inserted above");
         let item_sort = KastSort::builtin(BuiltinSort::KItem);
+        // upstream k-rust/configuration-assembly-api: a `K` value is assembled item by item.
         let value = if sort.is_builtin(BuiltinSort::K) && !k_item {
             if source.trim() == ".K" {
                 ParsedProgram::from_term(Term::sequence(Vec::new()))
@@ -451,6 +454,9 @@ impl Configuration {
 }
 
 /// The sort `$PGM` is parsed at: its declared sort, or `KItem` when it is declared `K`.
+///
+/// upstream k-rust/program-start-sort (reviewed, not a request): k-rust parses at the
+/// sort its caller passes, and KRS passes `KItem` as K's generated program parser does.
 fn program_start_sort(declared: &KastSort) -> KastSort {
     if declared.is_builtin(BuiltinSort::K) {
         KastSort::builtin(BuiltinSort::KItem)
@@ -482,6 +488,7 @@ mod tests {
         assert!(split_k_sequence("a ~> ").is_err());
     }
 
+    // upstream k-rust/configuration-assembly-api: removal trigger for `split_k_sequence`.
     #[test]
     fn program_grammar_does_not_supply_implicit_kseq_productions() {
         let parsed = k_rust::outer::parse(

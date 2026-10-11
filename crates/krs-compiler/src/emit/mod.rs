@@ -217,7 +217,8 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
         spec_writer.push(DEFINITION_ARTIFACT);
         spec_writer.push("\"\n");
         // MAP-SYMBOLIC is in `domains.md`, which a definition that imports
-        // only MAP does not load for `kprove`.
+        // only MAP does not load for `kprove`
+        // (upstream k/map-symbolic-not-loaded-for-kprove).
         let map_symbolic = generated_imports.contains(&k_surface::MAP_SYMBOLIC_MODULE)
             || author_modules.iter().any(|module| {
                 builtin_imports(module, ImportPolicy::SourceText.for_module(module))

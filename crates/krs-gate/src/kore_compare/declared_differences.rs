@@ -2,6 +2,8 @@
 //!
 //! Each normalization ports one entry of k-rust's `scripts/reference-normalisations.toml` at the pinned commit.
 //! Each acts only on the exact generated shapes that entry names and fails closed otherwise.
+//! upstream k-rust/declared-difference-normalizations (reviewed, not a request): both are documented k-rust contract differences.
+//! For N33, upstream k/injective-on-anywhere-macro-alias-heads asks whether K's `injective` on such heads is sound.
 
 use std::collections::BTreeSet;
 

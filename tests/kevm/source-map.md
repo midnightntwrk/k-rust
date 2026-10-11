@@ -129,7 +129,7 @@ KRS exposes them as `bytes::update` and `bytes::pad_right`, emits the upstream u
 The KEVM memory rules use them to write individual bytes and extend memory without a port-local byte-array adapter.
 
 Descriptor protocol 23 and Definition IR schema 16 add typed Map lookup and key membership plus the builtin Set sort and its empty, item, concatenation, and membership operations.
-K's `Set` concatenation is defined only on disjoint operands: concatenating a set with an element it already holds is `#Bottom` in the Haskell backend, although concrete backends such as native K-Rust silently accept it.
+K's `Set` concatenation is defined only on disjoint operands: concatenating a set with an element it already holds is `#Bottom` in the Haskell backend and in K-Rust at the pinned revision, although Java K's LLVM backend silently accepts it.
 KRS exposes the pinned `|Set` union as `set::union`, so the port inserts access-list, touched-account, and accessed-storage elements with the same operation used by upstream KEVM.
 Descriptor protocol 24 and Definition IR schema 17 add classified repeated-cell multiplicity and collection type, retain nested-cell ancestry for rule emission, and transport readable head-rule `requires` clauses end to end.
 Canonical K and native K-Rust compilation therefore preserve the account collection boundary instead of flattening storage leaves into top-level adapter cells.
@@ -184,13 +184,12 @@ The development gate executes the full corpus through K-Rust and defers Java ref
 
 The behavior matrix additionally covers present and absent accounts, EIP-161 account emptiness across code, nonce, and balance, warm and cold account access, byte-exact external code copying and hashing, log memory extraction and zero padding, ordered topics, SHA3 empty and expanded-memory hashing, successful/reverted/exceptional warm-account nonempty-code `STATICCALL`, child access-list rollback, revert returndata copying, ECREC/SHA-256/RIPEMD-160/identity/MODEXP/ECADD/ECMUL/ECPAIRING-precompile success and forwarded-gas failure, invalid-signature ECREC success with empty returndata, MODEXP modulus-zero and zero-output-width results, the 200-gas EIP-2565 floor, an above-floor long-exponent vector, ECADD infinity and invalid-point behavior, ECMUL generator-times-two and zero-scalar infinity behavior, ECPAIRING empty-product identity, non-identity generator product, malformed length, invalid G1/G2 points, post-charge mutation, atomic out-of-gas behavior, static rejection, all selected stack-underflow partitions, and self-balance lookup.
 The structured K-Rust behavior SHA-256 is `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
-Cell concretization's rejection of already-complete nested configuration cells was fixed upstream in 23a6efc7 before the pinned revision.
 KRS passes complete fixed-arity cells directly to the structured frontend.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
 The K-Rust backend executes all 240 cases through persistent worker processes.
 The K-Rust frontend compiles Definition IR directly to KORE, so ordinary qualification invokes no Java process.
-Two K-Rust defects surfaced during this qualification and are fixed at the pinned k-rust revision: the frontend omitted the `KRYPTO` hook namespace from backend hook metadata, which left KRYPTO-backed functions such as SHA3 uninterpreted, and cell concretization rejected already-complete fixed-arity nested cells such as the 15-child `CallState`.
+The pinned k-rust revision includes `KRYPTO` in its default backend hook metadata and accepts already-complete fixed-arity nested cells such as the 15-child `CallState`, so KRS needs no workaround for either.
 The eight Java/K proofs are deliberately deferred during ordinary development and must run at a signed milestone or final validation point.
 The `--java-reference` route kompiles the claim-free definition with `--hook-namespaces KRYPTO`, because the Java frontend otherwise drops the KRYPTO hooks, and passes every configuration variable except `$PGM` to `krun` as the same KORE value the K-Rust route builds.
 The pinned Haskell backend cannot concretely execute 22 corpus cases: it implements no `KRYPTO.sha256raw`, `KRYPTO.ripemd160raw`, `KRYPTO.bn128valid`, or `KRYPTO.bn128ate` hook, its `KRYPTO.keccak256raw` result is rejected by `BYTES.length`, and its `KRYPTO.ecdsaRecover` fails an internal assertion on an invalid signature.

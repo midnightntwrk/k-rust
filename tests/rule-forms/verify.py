@@ -20,10 +20,12 @@ the outcomes must agree:
   parentheses, so K reads back the tree KRS lowered; reassociating
   `(b ; c) ; d` is a pinned divergence (k-rust leaves the left-hand side,
   which nests the anywhere-headed `;`, unreduced with a residual `#Ceil`;
-  Java LLVM reassociates); each emitted rule carries `anywhere` and a
+  Java LLVM reassociates; upstream k-rust/anywhere-nested-own-symbol); each
+  emitted rule carries `anywhere` and a
   `// krs-capability: AnywhereRule` comment, `symbols.json` records the
   requirement, and the Java Haskell reference route refuses the definition
-  with `krs::capability::unavailable` before anything is kompiled;
+  with `krs::capability::unavailable` before anything is kompiled (upstream
+  k/anywhere-rules-on-haskell, reviewed, not a request);
 - `casts`: typed binder parameters on rule fns. `_e: Exp` narrows the
   `Phrase` argument of `isExpression`, whose `owise` equation declares no
   binders, so `isExpression(1)` and `isExpression(1 + 2)` are `true` and
@@ -33,7 +35,8 @@ the outcomes must agree:
   emitted rules carry `_E:Exp` and `I:Int`. `baz(12)` projects the block
   `foo(12)` into `Int`, which has no value: a pinned divergence, as for
   KF-013's failing projections (Java K aborts, `undefined`; k-rust ends in a
-  stuck leaf and a `#Bottom` leaf);
+  stuck leaf and a `#Bottom` leaf; upstream k-rust/undefined-projection-stuck-leaf,
+  reviewed, not a request);
 - `fresh`: a readable clause with `#[k::fresh(l: Loc)]` and a reference
   `#[k::rule]` fn with `#[k::fresh(t: Int)]` draw from the one shared
   generated counter, so `alloc a; tx; alloc b; tx;` ends with store
@@ -50,7 +53,8 @@ the outcomes must agree:
   routes; `int x, y, z;` (recursive) declares all three names, while
   `decl x, y, z;` (plain) expands one step to `var x; decl y, z;`, a pinned
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
-  state that holds the macro symbol `declareOnce`); and
+  state that holds the macro symbol `declareOnce`; upstream
+  k-rust/macro-own-symbol-refused); and
   `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
   backwards as `nest(1 , 2 , .Ints)`; the desugars `twin` and `anyPair` are
   written in rule patterns, and their clauses list `unbound_variables`
@@ -176,10 +180,12 @@ ANYWHERE_PROGRAMS = (
     Program("drop-repeated", "a ; a ; c", "accepted", "c"),
     # A pinned divergence: k-rust leaves `(b ; c) ; d` unreduced with a
     # residual `#Ceil(b ; c)`, because the left-hand side nests the
-    # anywhere-headed `;`; Java LLVM reassociates.
+    # anywhere-headed `;`; Java LLVM reassociates
+    # (upstream k-rust/anywhere-nested-own-symbol).
     Program("reassociate", "(b ; c) ; d", "accepted", "b ; c ; d"),
     Program("reassociate-nested", "wrap((b ; c) ; d)", "accepted", "wrap(b ; c ; d)"),
 )
+# upstream k/anywhere-rules-on-haskell (reviewed, not a request).
 ANYWHERE_REFUSAL = (
     "error[krs::capability::unavailable]: definition contains anywhere rules [drop-a, reassociate]; "
     "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); "

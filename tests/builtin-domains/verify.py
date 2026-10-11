@@ -90,16 +90,19 @@ operation, and a corpus of programs that apply them to concrete values:
   closed with `krs::native::raw-k-parse` at the `raw_k!` text.
 
 `known_divergences` in `pins.json` pins the two failing projections of
-`sort-tests`, and `ite-undefined-branch`, the k-equal
+`sort-tests` (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a
+request), and `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
 function that has no equations: Java K's LLVM backend evaluates only the taken
 branch and ends in `1`, while k-rust, strict in both branches, splits on whether
-`Undef()` is defined and ends in two leaves. It also pins the `\xc1` programs
+`Undef()` is defined and ends in two leaves (upstream
+k-rust/ite-untaken-branch-definedness). It also pins the `\xc1` programs
 on which the routes disagree. k-rust stores a `\xHH` escape as the raw byte, so its `ordChar`,
 `chrChar` (which yields UTF-8), and `String2Bytes` disagree with K's Latin-1
-code points; and Java K's LLVM backend does not match the rule literal
-`"\xc1"` against the same program literal, which k-rust does. The gate fails
-when either route's pinned outcome changes.
+code points (upstream k-rust/string-hex-escape-latin1); and Java K's LLVM
+backend does not match the rule literal `"\xc1"` against the same program
+literal, which k-rust does (upstream k/llvm-latin1-string-literal-match). The
+gate fails when either route's pinned outcome changes.
 
 Every program runs natively through k-rust and through Java K's LLVM backend;
 the normalized final computation cells must agree with each other and with the
@@ -333,6 +336,9 @@ FLOAT_OUTPUTS = {
 """The `floats` programs whose result holds a Float, each printed by every `--output` format."""
 FLOAT_KORE = re.compile(r'\\dv\{SortFloat\{\}\}\("([^"]*)"\)')
 
+# Refused natively: `ground` needs MPFR folding (upstream k-rust/mpfr-folding-disabled,
+# reviewed, not a request) and `binary128` a precision beyond binary64
+# (upstream k-rust/float-beyond-binary64).
 FLOAT_JAVA_ONLY = Fixture(MANIFEST, "krs-builtin-float-java-only")
 FLOAT_JAVA_ONLY_PROGRAMS = (
     case("ground", "isHalf(0.5)", "true"),

@@ -142,6 +142,7 @@ implemented = [
   "source-shaped niche-pointer Option allocations with all-zero bytes decoded to the empty variant-zero aggregate, while unsupported nonzero pointer/reference encodings remain undefined",
   "source-shaped constantKindZeroSized operands materialized for struct, tuple, fixed zero-length array, and function-item TypeInfo as empty aggregates or ranges",
   "source-shaped ordinary ADT, array, tuple, and closure Rvalue aggregates with ordered builtin-List operand accumulation, preserved copies, ordinary move invalidation, nonzero ADT variants, and exact Aggregate or Range materialization",
+  # upstream mir-semantics/union-cross-field-reinterpretation
   "source-shaped union ADT aggregate construction with exactly one active field plus same-active-field reads, persistent writes, projected moves, and reference creation; cross-field reinterpretation remains undefined as in the pinned upstream TODO",
   "source-shaped RawPtr aggregate construction from a local pointer and either u64 dynamic length or empty-unit metadata, including requested mutability, retained offsets and origin sizes, trailing zero ConstantIndex removal for fat pointers, and noMetadataSize thin pointers",
   "source-shaped Repeat and Len array rvalues with allocation-backed little-endian TyConst lengths, pinned LIST.make repetition, constant/copy/move element evaluation, zero-length arrays, move invalidation, and whole or projected Range lengths returned as u64-width usize values",
@@ -190,6 +191,7 @@ implemented = [
 ]
 adapters = []
 deferred = [
+  # upstream mir-semantics/null-op-offset-of, mir-semantics/union-cross-field-reinterpretation
   "nullOpOffsetOf, which has pinned syntax but no pinned operational rule, plus cross-field union reinterpretation, which remains an upstream TODO",
   "remaining Stable MIR syntax and type metadata beyond the retained primitive, aggregate-layout, array, pointer/reference, function, dynamic, void, and opaque local Ty surfaces",
   "opaque-cast, subtype, and remaining projection kinds",

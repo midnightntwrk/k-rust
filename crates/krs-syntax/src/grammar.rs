@@ -1082,6 +1082,8 @@ fn validate_token_terminal(literal: &LitStr) -> ParseResult<()> {
     Ok(())
 }
 
+// upstream k-rust/standalone-token-regex (fixed): the pinned `k-rust-regex` crate
+// can replace this hand-written scan.
 pub(crate) fn validate_regex(literal: &LitStr) -> ParseResult<()> {
     let text = literal.value();
     if text.is_empty() {

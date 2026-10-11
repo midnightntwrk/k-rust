@@ -175,7 +175,9 @@ impl Adapter<'_> {
                     // Unnamed, as the emitted K writes it: K derives record
                     // productions (`sum(... items: I)`) from a named
                     // non-terminal of a prefix production, which Java K would
-                    // then not parse, and k-rust prints through.
+                    // then not parse in programs, and k-rust prints through
+                    // (upstream k/record-production-from-prefix-named-nonterminals;
+                    // k-rust/record-production-format, reviewed, not a request).
                     GrammarProductionItemKind::NonTerminal { sort, .. } => {
                         Ok(NativeItem::NonTerminal {
                             sort: self.sort(sort, item.origin())?,
@@ -212,9 +214,10 @@ impl Adapter<'_> {
             ],
             None => items,
         };
-        // token-production-constructor: token values lower to KORE domain
-        // values, never applications of their parser production. Omit the
-        // unused label to match the source frontend's unlabelled-token form.
+        // upstream k-rust/token-production-constructor: token values lower to
+        // KORE domain values, never applications of their parser production.
+        // Omit the unused label to match the source frontend's unlabelled-token
+        // form.
         // A parametric production declares its parameters on the production
         // and on its label, as k-rust's outer lowering of `syntax {S}` does
         // (KF-027); labels in terms never carry them (X9.1).

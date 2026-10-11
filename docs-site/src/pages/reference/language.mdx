@@ -53,7 +53,7 @@ A production's K symbol is its variant or struct name with a lowercase first let
 Two enum variants of one definition with the same name would share that symbol, so each of them takes its enum's name as a prefix instead: `ExpSyntax::Dot` is `expSyntaxDot` and `LValSyntax::Dot` is `lValSyntaxDot`, while a variant whose name is unique keeps the short symbol; any symbol that still collides is rejected with `krs::analysis::symbol-name-collision`.
 A format is the syntax template plus K's layout codes `%n`, `%i`, and `%d`, the colour codes `%c` and `%r`, and `%%`; KRS emits each terminal by its position, so `while ({condition}) {body}` prints with `format(%1 %2%3%4 %5)`.
 Colours belong to terminals: `color = "magenta"` paints every terminal, and `colors = ["blue", "blue"]` names one colour per printed terminal and one per `%c`, in printing order; `%r` resets.
-`krun --color on` and `krs run --color always` print them; `kast --output program` does not, and prints an authored `%c` or `%r` as the letter `c` or `r`.
+`krun --color on` and `krs run --color always` print them; `kast --output program`, `kast --output pretty`, and `krun --output program` do not, and print an authored `%c` or `%r` as the letter `c` or `r`.
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 Initializer parameters may use `#[k::config_var(name = "PGM", main)]`.
@@ -190,7 +190,7 @@ A name that occurs twice tests equality, as `Pair(x, x)` does; a name read once 
 The trap is a pattern name that is also a rule binder: in K, `pair(X, _) :=K E` binds a new `X` and ignores the rule's `X`, so KRS rejects it (`krs::analysis::invalid-matches`) and points to `int::eq` or `bool::eq` for a comparison.
 A pattern whose sort cannot meet the subject's, which would always be false, is rejected as well.
 K rejects `#as` in a rule's right-hand side, so `name @ pattern` inside `k::matches!` is accepted only in conditions, as in `k::matches!(e, Pair(p @ Pair(_, _), p))`.
-`k::matches!` in a left-hand side or inside a pattern, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `:=K` in a claim).
+`k::matches!` in a left-hand side or inside a pattern, std's bare `matches!` (which tests a host value; ``did you mean `k::matches!`?``), and an `if` guard are syntax errors, as is `k::matches!` in a `cells!` cell value, an initializer, or a claim (Java K's `kprove` and the native prover both reject `:=K` in a claim).
 
 ### Local bindings
 
@@ -199,12 +199,12 @@ A Rust block in a term position is K's `#let`: zero or more `let pattern = term;
 A block nests anywhere a term does, `int::mul({ let n: Int = int::div(bytes::length(data), 160); int::mul(n, g1_mul(n)) }, 2)`, and is valid in results and in `#[k::requires]` and `#[k::ensures]` conditions; each `#let` is parenthesised, and several statements nest to the right.
 K defines `#let P = A #in B` as `#fun(P => B)(A)`: a generated function with the one equation `P => B`, applied to `A`.
 Two things differ from Rust.
-First, the pattern may be refutable, and a failed pattern makes the term **undefined**, where rustc would have rejected the program: `swap(3)` aborts on Java K's LLVM backend (the [boundaries](/reference/boundaries) record how the pinned native backend differs).
+First, the pattern may be refutable, and a failed pattern makes the term **undefined**, where rustc would have rejected the program: `swap(3)` aborts on Java K's LLVM backend (the [boundaries](/reference/boundaries) record how the pinned native backend and Java K's Haskell backend differ).
 `let x: Sort = term;` is a runtime sort test of the same kind, not rustc's static check: `let m: Int = e;` emits `#let M:Int = E:Exp`, which is undefined when `E` is not an `Int`.
 Second, the `let` is a function call, not a statement sequence: `A` is evaluated outside the pattern's scope, and each statement's names are local binders, visible in its pattern and the rest of the block only and emitted under names of their own, so a `let` that shadows a rule binder, `{ let e = Pair(e, e); e }`, leaves the outer `e` as it was.
 A block holds only `let` statements and one result without a semicolon (``a term block is `let pattern = term;`* followed by one result term (K's #let)``): `let .. else`, `mut` and `ref` bindings, expression statements, and items are rejected.
 A `let` pattern takes one alternative (`#let patterns take one alternative`) and no `name @ pattern`, because K accepts `#as` only on a rule's left-hand side; an ascription names one binder.
-A block in a pattern, a let-bound name used outside its block, and a pattern whose sort cannot meet its value's (`krs::analysis::invalid-let`) are rejected, as is a block in a `cells!` cell value, an initializer, or a claim (the pinned native prover cannot resolve `#let` in a claim).
+A block in a pattern, a let-bound name used outside its block, and a pattern whose sort cannot meet its value's (`krs::analysis::invalid-let`) are rejected, as is a block in a `cells!` cell value, an initializer, or a claim (Java K's `kprove` and the native prover both reject `#let` in a claim).
 
 ### Function contexts
 
@@ -619,7 +619,7 @@ Stream cells cover console I/O, so these direct hooks are rarely needed.
 They differ from `int::eq` only on symbolic terms.
 `kequal::ite(c, t, e)` is K's `#if c #then t #else e #fi`, a sort-parametric function rather than control flow.
 Its sort is the least sort of its two branches that fits where it occurs, the rule k-rust uses, so `ite(b, 1, 2)` in an `Exp` position has sort `Int`; branches with no unique such sort are an error that asks you to narrow one with a typed binder or `where`.
-k-rust and K's Haskell backend evaluate both branches, while Java K's LLVM backend evaluates only the taken one, so keep both branches defined and every backend agrees.
+k-rust keeps the definedness condition of the untaken branch, while Java K's LLVM and Haskell backends answer with the taken branch alone, so keep both branches defined and every backend agrees.
 There is deliberately no Rust `if` sugar for it, because a Rust `if` evaluates one branch.
 
 Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.

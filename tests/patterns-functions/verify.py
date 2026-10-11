@@ -56,13 +56,16 @@ the outcomes must agree:
   that fails, `swap(3)` and `swapPair(3)`, and a failed ascription,
   `scale(pair(1, 2))`, make the term undefined on Java K's LLVM backend from
   both sources; natively the failed ascription leaves the generated lambda's
-  application stuck (a pinned divergence), and the failed constructor
-  patterns, on which the pinned native backend does not terminate, run on
-  Java K only. The native and Java `definition.kore` differ in a pinned
-  divergence: k-rust lifts a `#let` whose pattern is a variable into a lambda
-  whose parameter sort is `K` and which it does not declare total, where K's
-  `ResolveFun` takes the least upper bound of the pattern's and the
-  argument's sorts and declares the lambda `functional` and `total`;
+  application stuck (a pinned divergence; upstream
+  k-rust/undefined-projection-stuck-leaf, reviewed, not a request), and the
+  failed constructor patterns, on which neither the pinned native backend nor
+  Java K's Haskell backend terminates, run on Java K's LLVM backend only. The
+  native and Java `definition.kore` differ in a pinned divergence (upstream
+  k-rust/let-lambda-signature): k-rust lifts a `#let` whose pattern is a
+  variable into a lambda whose parameter sort is `K` and which it does not
+  declare total, where K's `ResolveFun` takes the least upper bound of the
+  pattern's and the argument's sorts and declares the lambda `functional` and
+  `total`;
 - `contexts`: an equation whose last parameter is
   `k::cells! { bar: Cell(b), baz: Cell(0), .. }: Machine` reads the
   configuration it is evaluated in, K's function context
@@ -175,11 +178,15 @@ LETS_PROGRAMS = (
 # session timeout), so these programs run on Java K only; the failed
 # ascription `scale-refuted` is a pinned divergence (native leaves the
 # generated lambda's application stuck).
+# upstream k-rust/let-refuted-constructor-pattern-diverges
 LETS_JAVA_ONLY = ("swap-refuted", "swap-pair-refuted")
-# Natively stuck programs, whose native outcome is the stuck computation.
+# Natively stuck programs, whose native outcome is the stuck computation
+# (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a request).
 LETS_STUCK = ("scale-refuted",)
-# Java K's Haskell backend prints an undefined term rather than aborting, so
-# only the defined programs run there.
+# Java K's Haskell backend leaves the failed ascription stuck rather than
+# aborting, and does not terminate on the failed constructor patterns
+# (upstream haskell-backend/let-refuted-constructor-pattern-diverges), so only
+# the defined programs run there.
 LETS_HASKELL_PROGRAMS = tuple(program for program in LETS_PROGRAMS if program.run != "undefined")
 LETS_REFERENCE = Fixture(MANIFEST, "krs-patterns-functions-lets-reference")
 

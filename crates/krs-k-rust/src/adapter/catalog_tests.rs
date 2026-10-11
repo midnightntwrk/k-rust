@@ -7,7 +7,8 @@
 //! and `IO.putc` are the exception (KF-035): k-rust performs them only in
 //! committed execution with console state, which its request API does not
 //! supply, so they are pinned as unevaluated here, and the `native-rust` route
-//! refuses a definition that uses them (`ConsoleWriteHook`).
+//! refuses a definition that uses them (`ConsoleWriteHook`; upstream
+//! k-rust/console-write-through-execute).
 
 use std::collections::{BTreeMap, BTreeSet};
 

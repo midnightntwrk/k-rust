@@ -205,7 +205,8 @@ impl CellMultiplicity {
 }
 
 /// Supported collection types for repeated cells. K's cell bags are
-/// unsupported by its LLVM and Haskell backends, so KRS rejects them.
+/// unsupported by its LLVM and Haskell backends, so KRS rejects them
+/// (upstream k/cell-bags-unsupported, reviewed, not a request).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellCollectionType {

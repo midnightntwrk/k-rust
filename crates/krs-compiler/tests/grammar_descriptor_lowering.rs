@@ -1200,7 +1200,7 @@ fn named_record_wildcard_bare_constructor_and_generated_bracket_lower() {
     assert!(k.source().contains("syntax priority"));
     assert!(k.source().contains("syntax left"));
     // A bracket is parse-only and is emitted without a symbol
-    // (bracket-production-constructor).
+    // (upstream k-rust/bracket-production-constructor).
     assert!(k.source().contains("[bracket, format(%1%2%3)]"));
     assert!(
         !k.source()

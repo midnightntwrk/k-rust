@@ -11,6 +11,9 @@
 //! highest `prec`, a tie included. A user regex that matches a whole cell name
 //! or property name at a `prec` at least as high as every K token that matches
 //! it takes the lexeme from K, and Java K cannot parse the configuration.
+//!
+//! upstream k/token-regex-collisions (reviewed, not a request): K and k-rust
+//! agree, and KRS checks the collision up front.
 
 use krs_ir::{CellAttribute, FixedCell, FixedCellContent, GrammarProductionItemKind};
 use krs_ir::{ConfigurationRoot, ProductionAttribute};

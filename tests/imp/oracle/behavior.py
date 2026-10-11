@@ -589,7 +589,8 @@ def compare_native(
     application, while k-rust evaluates it before it counts steps; each
     depth-zero state must show exactly that difference (krun's root label is
     the divergence's pinned `krun_root`, and `krs run` is depth-bound after
-    zero steps), so a change on either side fails.
+    zero steps), so a change on either side fails. It is upstream
+    k-rust/depth-zero-initial-evaluation (reviewed, not a request).
     """
 
     native: dict[str, Any] = {"execution": {}, "search": {}, "pretty": {}, "program": {}}

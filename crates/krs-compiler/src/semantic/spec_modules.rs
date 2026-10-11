@@ -6,7 +6,8 @@
 //! wins); K allows a proof module only claims, simplification lemmas, and
 //! token productions, terminal or regex, for sorts the definition declares.
 //! KRS also keeps `smt_lemma` lemmas out of spec modules: kore-exec ignores
-//! `smt-lemma` outside the definition. The module imports the
+//! `smt-lemma` outside the definition
+//! (upstream haskell-backend/smt-lemma-ignored-in-spec-module). The module imports the
 //! definition explicitly through `imports = [..]`; the import graph is
 //! acyclic and must reach the definition's main module.
 //!
@@ -406,7 +407,8 @@ fn dependency_module(
         .map(|(_, module)| module.clone())
 }
 
-/// Rejects an `smt_lemma` simplification in a spec module: kore-exec ignores it there.
+/// Rejects an `smt_lemma` simplification in a spec module: kore-exec ignores it there
+/// (upstream haskell-backend/smt-lemma-ignored-in-spec-module).
 pub(super) fn check_spec_lemmas(modules: &[SemanticModule]) -> Result<(), DescriptorLoweringError> {
     for module in modules.iter().filter(|module| module.is_spec()) {
         for rule in module.rules() {

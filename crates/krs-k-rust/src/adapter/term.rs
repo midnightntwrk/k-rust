@@ -409,7 +409,7 @@ impl Adapter<'_> {
         if !spec.is_projected() {
             return Ok(native);
         }
-        // semantic-cast-projection-widening: represent a typed
+        // upstream k-rust/semantic-cast-projection-widening: represent a typed
         // heterogeneous lookup with the project:<Sort> term used
         // by k-rust's semantic downcast. Keep the Definition IR
         // result sort explicit.

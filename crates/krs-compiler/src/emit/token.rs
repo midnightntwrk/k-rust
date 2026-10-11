@@ -95,7 +95,8 @@ impl Precedence {
 /// Returns the precedence of the builtin token production that lexes exactly `value` as `sort`.
 ///
 /// `Id` has no rule-grammar lexical syntax: `ID-SYNTAX` declares `syntax Id [token]`, and its
-/// identifier regex lives in `ID-SYNTAX-PROGRAM-PARSING`, which K adds only for program parsing.
+/// identifier regex lives in `ID-SYNTAX-PROGRAM-PARSING`, which K adds only for program parsing
+/// (upstream k/dollar-id-not-lexed, reviewed, not a request: K's design).
 fn builtin_token_precedence(sort: BuiltinSort, value: &str) -> Option<Precedence> {
     match sort {
         // INT-SYNTAX: r"[\\+\\-]?[0-9]+" [prefer, token, prec(2)]

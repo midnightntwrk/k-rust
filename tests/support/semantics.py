@@ -490,6 +490,8 @@ def java_reference_gate(
                 continue
             surface = hooks.configuration_variables(case)
             if hooks.kore_configuration:
+                # upstream k/kparse-heap-kevm-block-hash-list: kparse cannot parse some
+                # configuration values, so krun reads their KORE through `-pNAME=cat`.
                 configured = session.configure(surface)["variables"]
                 names = [name for name in surface if name != "PGM"]
                 arguments = [

@@ -316,7 +316,8 @@ pub enum DescriptorLoweringError {
         range: Option<Box<SourceRange>>,
     },
     /// A token regex collides with one of K's own tokens, which both routes
-    /// or Java K's configuration parser then reject.
+    /// or Java K's configuration parser then reject
+    /// (upstream k/token-regex-collisions, reviewed, not a request).
     TokenCollision {
         /// The token production.
         item: Box<StableItemId>,

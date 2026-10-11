@@ -206,6 +206,9 @@ impl KrsSyntax for LayoutDeclaration {
 ///
 /// Escaped braces and braces inside a character class are literal, and a
 /// `{n}` or `{n,m}` repetition count is not a reference.
+///
+/// upstream k-rust/standalone-token-regex (fixed): the pinned `k-rust-regex`
+/// crate can replace this hand-written scan.
 #[must_use]
 pub fn regex_references(regex: &str) -> Vec<String> {
     let mut references = Vec::<String>::new();

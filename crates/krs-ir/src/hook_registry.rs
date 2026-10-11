@@ -7,6 +7,10 @@
 //! `crates/k-rust/tests/fixtures/hook-capabilities.toml` at the `Krs.lock`
 //! pin, without the structural sort hooks (`INT.Int`, ...), which never name
 //! a function. A sync test fails when that file changes.
+//!
+//! The unsupported hooks are open upstream requests: upstream k-rust/mint-hooks,
+//! k-rust/buffer-hooks, k-rust/int-bitrange-hooks, and
+//! k-rust/map-set-choice-difference-hooks.
 
 /// What the in-process k-rust backend does with a hooked function.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -14,7 +18,7 @@ pub enum NativeHookCapability {
     /// k-rust evaluates the hook.
     Implemented,
     /// k-rust evaluates the hook only during ordinary execution, with its
-    /// console state (`IO.write`, ...).
+    /// console state (`IO.write`, ...; upstream k-rust/console-write-through-execute).
     ExecutionOnly,
     /// k-rust accepts the declaration but cannot evaluate the hook.
     Unsupported,

@@ -19,14 +19,15 @@ natively through k-rust and through Java K, and the outcomes must agree:
   equations apply `choose` at exactly the instances Int, Bool, and Exp.
   `krs build --backend llvm` refuses the definition with the pinned
   `krs::capability::unavailable` message: K's llvm-kompile crashes on
-  parametric function equations, in Java K's KORE and in k-rust's alike;
+  parametric function equations, in Java K's KORE and in k-rust's alike
+  (upstream k/llvm-kompile-parametric-function-segfault);
 - `constructors` (F2): `Wrap<S>` is the value-building schema
   `syntax {S} S ::= wrap(S)`. `go(7)` builds `wrap(v(7))`, at `Val`, and a
   rule on `Wrap::<Val>` makes it `v(-8)`; `fin(7)` builds `wrap(done(7))`, at
   `Done`, and a rule on `Wrap::<Done>` unwraps it to `done(7)`. The programs
   agree natively and on Java K's LLVM backend; the sidecar records the
   `ParametricConstructorSchema` requirement, which Java K's Haskell backend
-  lacks;
+  lacks (upstream haskell-backend/parametric-constructor-rejected-at-validation);
 - negative fixtures, each failing `krs check` with a pinned diagnostic: a
   lifetime, const, unbounded, otherwise bounded, defaulted, or unused sort
   parameter, a where clause, generics on an enum family, on a sort trait, and

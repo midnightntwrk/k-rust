@@ -408,7 +408,8 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
 
 /// The multiplicity keys (KF-023): `multiplicity` is `"?"` or `"*"`; a `*`
 /// collection names its `cell_type` (Set, Map, or List; K's cell bags are
-/// unsupported by its LLVM and Haskell backends) and is `nested`;
+/// unsupported by its LLVM and Haskell backends; upstream k/cell-bags-unsupported,
+/// reviewed, not a request) and is `nested`;
 /// `cell_type` belongs to a `*` cell and `initial` to a `?` or `*` cell.
 fn validate_multiplicity(
     multiplicity: Option<&LitStr>,
@@ -433,6 +434,7 @@ fn validate_multiplicity(
         },
     };
     if let Some(value) = cell_type {
+        // upstream k/cell-bags-unsupported (reviewed, not a request).
         if value.value() == "Bag" {
             return Err(invalid(
                 "cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\"",

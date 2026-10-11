@@ -311,7 +311,9 @@ impl TermUse {
             self.console_write = true;
         }
         // k-rust folds every hooked application whose arguments are all tokens
-        // (`constant_folding.rs`); its FLOAT hooks need the MPFR build.
+        // (`constant_folding.rs`); its FLOAT hooks need the MPFR build, which
+        // KRS does not enable (upstream k-rust/mpfr-folding-disabled, reviewed,
+        // not a request).
         if operation
             .spec()
             .k_hook
@@ -404,7 +406,8 @@ pub fn capability_requirements(definition: &DefinitionIr) -> Vec<CapabilityRequi
 }
 
 /// `warning[krs::capability::ignored-ensures]` for each transition with an
-/// `ensures` condition: concrete (LLVM) execution does not assume it.
+/// `ensures` condition: concrete (LLVM) execution does not assume it
+/// (upstream k/llvm-no-existentials, reviewed, not a request).
 #[must_use]
 pub fn concrete_execution_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
     let mut warnings = Vec::new();

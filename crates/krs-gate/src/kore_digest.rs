@@ -3,7 +3,7 @@
 //! Source locations are rewritten only inside the K frontend's `Source` attributes.
 //! Compiler-generated `Var'Unds'GenN` names are alpha-normalized per sentence through the comparator's variable walker.
 //! The K frontend emits a module's `subsort` axioms in hash-set order, which varies between runs of the same input,
-//! so those axioms are sorted among the positions they occupy.
+//! so those axioms are sorted among the positions they occupy (upstream k/subsort-axiom-order-nondeterminism).
 //! Other variable names, the order of every other sentence, and all sentence structure remain significant.
 
 use std::{error::Error, fs, path::Path};
@@ -53,6 +53,7 @@ pub fn digest(source: &str, semantics: &Path) -> Result<String, Box<dyn Error>> 
 }
 
 /// Sort a module's `subsort` axioms by their printed form, keeping the positions they occupy.
+/// upstream k/subsort-axiom-order-nondeterminism
 fn sort_subsort_axioms(sentences: &mut [Sentence], printer: Printer) {
     let positions: Vec<usize> = sentences
         .iter()

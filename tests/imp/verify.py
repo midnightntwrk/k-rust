@@ -833,8 +833,10 @@ def phase_native_run(context: Context, rust_build: RustBuild, artifacts: Artifac
     at the Java proof bound with Z3; each verdict is pinned in
     `native_proof_verdicts` and must agree with the pinned Java status in
     `proof_outcomes`, or be a named known divergence in
-    `native_proof_divergences`. `native_run_divergences` names the reviewed
-    execution divergences (`depth-zero`, see `behavior.compare_native`).
+    `native_proof_divergences` (the `bmc-loop` claims: upstream
+    k-rust/bmc-loop-disproved, reviewed, not a request).
+    `native_run_divergences` names the reviewed execution divergences
+    (`depth-zero`, see `behavior.compare_native`).
     """
 
     if context.behavior_evidence is None:

@@ -1,4 +1,4 @@
-//! The pinned native prover cannot resolve K's #let in a claim.
+//! Java K's kprove and the native prover both reject K's #let in a claim.
 
 use k::KResult;
 use k::Term;

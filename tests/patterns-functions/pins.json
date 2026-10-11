@@ -210,7 +210,7 @@
       "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"
     ],
     "matches-claim": [
-      "error[krs::expand::matches-outside-condition]: `k::matches!` is not supported in claims: the pinned native prover cannot resolve K's :=K in a claim; match the shape in the claim's subject instead"
+      "error[krs::expand::matches-outside-condition]: `k::matches!` is not supported in claims: Java K's kprove and the native prover both reject K's :=K in a claim; match the shape in the claim's subject instead"
     ],
     "let-shape": [
       "error[krs::syntax::invalid-let]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
@@ -231,7 +231,7 @@
       "error[krs::analysis::invalid-let]: the pattern has sort `Bool` and the value has sort `Exp`, which share no subsort, so this `let` is always undefined"
     ],
     "let-claim": [
-      "error[krs::expand::let-outside-term]: `let` blocks are not supported in claims: the pinned native prover cannot resolve K's #let in a claim; bind the value in the claim's subject instead"
+      "error[krs::expand::let-outside-term]: `let` blocks are not supported in claims: Java K's kprove and the native prover both reject K's #let in a claim; bind the value in the claim's subject instead"
     ],
     "context-remainder": [
       "error[krs::syntax::invalid-function-context]: a function context frames the rest of the configuration with an anonymous `..`"

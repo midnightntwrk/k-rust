@@ -68,6 +68,9 @@ CLAIM_COUNT = 8
 # Cases the pinned Haskell backend (kore-exec 0.1.155, K 7.1.337) cannot execute
 # concretely. The K-Rust route still executes them; the Java reference route
 # skips them and compares the remaining cases with native outcomes.
+# upstream haskell-backend/krypto-raw-hash-and-bn128-hooks-missing (_NO_HOOK),
+# upstream haskell-backend/keccak256raw-result-rejected-by-bytes-length (_KECCAK),
+# upstream haskell-backend/ecdsarecover-invalid-signature-assertion (ecrec invalid signature).
 _NO_HOOK = "the Haskell backend implements no {} hook"
 _KECCAK = "the Haskell backend's KRYPTO.keccak256raw result is rejected by BYTES.length"
 HASKELL_BACKEND_GAPS: Mapping[str, str] = {
@@ -130,6 +133,7 @@ HOOKS = semantics.Hooks(
     claim_count=CLAIM_COUNT,
     configuration_variables=native.configuration_variables,
     # kparse exhausts its heap on the block-hash List, so krun receives configured KORE values through cat for every variable except PGM.
+    # upstream k/kparse-heap-kevm-block-hash-list
     kore_configuration=True,
     summary=summary,
     definition_checks=definition_checks,

@@ -320,6 +320,9 @@ def substitute(pattern: str, replacement: str) -> Callable[[str], str]:
     return lambda text: compiled.sub(replacement, text)
 
 
+# upstream k/run-dependent-output-text covers this and the reducers below that remove
+# run-dependent Java K text: k-util temp names, fold -s breaks, kprove temp
+# directories, and KORE import order.
 reduce_kore_exec_log = substitute(r"(?m)^kore-exec: \[\d+\]", "kore-exec: [-]")
 """kore-exec prefixes each log line with a run-dependent number; no comparator reads it."""
 
@@ -340,6 +343,7 @@ def reduce_k_util_temp(text: str) -> str:
     return _K_UTIL_TEMP_FILE.sub(lambda match: f"{match.group(1)}TEMP", text)
 
 
+# upstream k/resolvefun-lambda-label-nondeterminism
 _K_LAMBDA = re.compile(r"(#lambda[^\s()`'\"]*_)[0-9]*(?![A-Za-z0-9_])")
 
 
@@ -348,8 +352,9 @@ def reduce_lambda_suffixes(text: str) -> str:
 
     K's `ResolveFun` numbers the lambdas that share both hints in an order
     that depends on hashes of the sentences, source paths included, so one
-    kompile names a lambda differently on different runs; its warnings and
-    `krun`'s output of a stuck lambda application print that name. A label
+    definition kompiled from different checkouts names a lambda differently;
+    its warnings and `krun`'s output of a stuck lambda application print that
+    name. A label
     whose hint contains a parenthesis or quote is left as it is; a stored KORE
     definition is renumbered by `krs-gate kore-canonicalize` instead.
     """
@@ -398,6 +403,7 @@ def _fold_break(segment: str, following: str) -> bool:
     return columns == _K_UTIL_FOLD_WIDTH and not any(blank in segment for blank in _BLANKS)
 
 
+# upstream k/run-dependent-output-text
 def unfold_k_util_errors(text: str) -> str:
     """Rejoin the lines `fold -s` split in an error message of a shell-wrapped K tool.
 
@@ -438,6 +444,7 @@ def reduce_run_dependent_text(text: str) -> str:
     return reduce_lambda_suffixes(reduce_k_util_temp(reduce_kore_exec_log(text)))
 
 
+# upstream k/run-dependent-output-text
 reduce_kprove_temp = substitute(r"\.kprove-[0-9a-f-]+", ".kprove-TEMP")
 """kprove names its directory under `--temp-dir` by time and a random UUID; no comparator reads it."""
 
@@ -461,6 +468,7 @@ def _kore_sentences(text: str) -> list[list[str]]:
     return chunks
 
 
+# upstream k/run-dependent-output-text
 def sorted_kore_imports(text: str) -> str:
     """A reducer that sorts each run of consecutive `import` lines of a KORE text.
 

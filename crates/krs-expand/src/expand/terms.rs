@@ -554,11 +554,13 @@ impl<'a> TermBuilder<'a> {
                 "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern",
             ));
         }
+        // upstream k/claim-let-and-matches-unresolved (k-rust/claim-let-and-matches:
+        // reviewed, not a request, since k-rust agrees with K).
         if self.claim {
             return Err(ExpandError::new(
                 expand::LET_OUTSIDE_TERM,
                 range.first(),
-                "`let` blocks are not supported in claims: the pinned native prover cannot resolve K's #let in a claim; bind the value in the claim's subject instead",
+                "`let` blocks are not supported in claims: Java K's kprove and the native prover both reject K's #let in a claim; bind the value in the claim's subject instead",
             ));
         }
         let ordinal = self.let_ordinal;
@@ -687,11 +689,13 @@ impl<'a> TermBuilder<'a> {
                 "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern",
             ));
         }
+        // upstream k/claim-let-and-matches-unresolved (k-rust/claim-let-and-matches:
+        // reviewed, not a request, since k-rust agrees with K).
         if self.claim {
             return Err(ExpandError::new(
                 expand::MATCHES_OUTSIDE_CONDITION,
                 range.first(),
-                "`k::matches!` is not supported in claims: the pinned native prover cannot resolve K's :=K in a claim; match the shape in the claim's subject instead",
+                "`k::matches!` is not supported in claims: Java K's kprove and the native prover both reject K's :=K in a claim; match the shape in the claim's subject instead",
             ));
         }
         let ordinal = self.matches_ordinal;

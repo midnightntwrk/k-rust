@@ -2,6 +2,7 @@
 //!
 //! K's `ResolveFun` and k-rust's `resolve_fun` lift each occurrence into a fresh function symbol `#lambda<hint1>_<hint2>_<n>`, numbering the occurrences that share both hints in the order the pass meets them.
 //! The two frontends meet the sentences of a module in different orders, so one lambda can carry a different `<n>`, or different hints, on each route.
+//! Java K's numbering also depends on the source path (upstream k/resolvefun-lambda-label-nondeterminism).
 //! A generated lambda symbol is bound by the definition that generates it, so renaming it bijectively is alpha-equivalence.
 //! The comparator names each one after its definition and its uses instead, by refining a partition of the lambda symbols until it is stable.
 //! Lambdas that the refinement cannot tell apart are named in either order only when exchanging them leaves the module's sentences unchanged; otherwise the comparison fails closed.

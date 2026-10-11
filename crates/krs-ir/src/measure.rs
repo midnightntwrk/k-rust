@@ -92,7 +92,8 @@
 //!
 //! `native.compile` children are k-rust's own `PhaseTimings` names, unchanged
 //! and in k-rust's order, one level deeper than in k-rust. A native failure
-//! loses them, because k-rust returns no timings with its error.
+//! loses them, because k-rust returns no timings with its error (upstream
+//! k-rust/compile-error-phase-timings).
 //!
 //! `krs-gate compile` uses `native.input` (read and decode the Definition
 //! IR JSON), then the `native.*` ids above.

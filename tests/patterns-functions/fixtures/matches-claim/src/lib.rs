@@ -1,4 +1,4 @@
-//! The pinned native prover cannot resolve K's `:=K` in a claim, so a claim cannot test a shape with `k::matches!`.
+//! Java K's kprove and the native prover both reject K's `:=K` in a claim, so a claim cannot test a shape with `k::matches!`.
 
 use k::KResult;
 use k::Term;

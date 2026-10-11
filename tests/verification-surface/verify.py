@@ -58,8 +58,9 @@ only `helper-axiom` makes provable. The emitted `spec.k` carries `[trusted]`;
 and warns `krs::emit::trusted-claim`, as `krs build --backend haskell` does.
 Java `kprove` of the emitted spec proves it (`#Top`). The ablation
 `trusted-ablation` drops `helper-axiom`: `call-spec` then fails on both
-routes. Java prints `#Top` even for a spec of only trusted claims, so the
-trusted status is pinned from the native report alone. Negative fixtures in
+routes. Java prints `#Top` even for a spec of only trusted claims (upstream
+k/kprove-top-for-trusted-only-spec), so the trusted status is pinned from the
+native report alone. Negative fixtures in
 the macro tests pin `trusted` with `circularity`, twice, and with a value.
 
 SMT translations (KF-044): `hook` declares `myAbs` with

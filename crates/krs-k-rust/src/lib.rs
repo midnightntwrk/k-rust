@@ -68,6 +68,9 @@ pub enum Backend {
     #[default]
     Llvm,
     /// Emit symbolic KORE for the Rust backend through the historical Haskell compatibility name.
+    ///
+    /// upstream k-rust/backend-haskell-spelling (reviewed, not a request): the
+    /// name is a KRS choice; it maps to k-rust's `CompilationBackend::Rust`.
     Haskell,
 }
 
@@ -194,54 +197,64 @@ pub struct RouteCapability {
 
 /// The backend capability table, one row per feature (append-only).
 pub const ROUTE_CAPABILITIES: &[RouteCapability] = &[
+    // upstream k/anywhere-rules-on-haskell (reviewed, not a request: K's documented choice).
     RouteCapability {
         feature: "AnywhereRule",
         unavailable_on: &[Route::JavaHaskellReference],
         reason: "K 7.1.337's Haskell backend rejects them (and --allow-anywhere-haskell would drop them); run this on the LLVM or k-rust route",
         evidence: "Java kompile --backend haskell refuses an `anywhere` rule unless --allow-anywhere-haskell, which drops it; k-rust implements anywhere rules (docs/compatibility.md)",
     },
+    // upstream k-rust/mpfr-folding-disabled (reviewed, not a request: KRS builds without MPFR).
     RouteCapability {
         feature: "GroundFloatFolding",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
         reason: "the pinned native frontend folds ground Float applications and is built without MPFR; bind a variable or write the folded literal",
         evidence: "k-rust 195a7718 kompile/passes/constant_folding.rs refuses FLOAT.* folding without the mpfr-folding feature, which KRS does not enable (FRONTEND_CAPABILITIES.mpfr_folding)",
     },
+    // upstream k-rust/float-beyond-binary64
     RouteCapability {
         feature: "FloatPrecisionBeyondBinary64",
         unavailable_on: &[Route::NativeRust, Route::NativeLlvm, Route::Browser],
         reason: "k-rust evaluates Float only as binary32 (p24x8, f32) and binary64 (p53x11, f64); run this on Java K's LLVM backend",
         evidence: "k-rust 195a7718 k-rust-backend builtin/float.rs rejects other precisions and exponent ranges",
     },
+    // upstream k-rust/console-write-through-execute: the backend API performs no host IO.
     RouteCapability {
         feature: "ConsoleIO",
         unavailable_on: &[Route::Browser],
         reason: "the browser route has no standard input or output; run it with `krs run` or Java K's krun",
         evidence: "the browser lesson runtime executes requests through the k-rust backend API, which performs no host IO (k-rust 195a7718 docs/compatibility.md: RPC does not perform host IO)",
     },
+    // upstream k/llvm-no-existentials (reviewed, not a request: concrete execution by design).
     RouteCapability {
         feature: "RuleExistential",
         unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
         reason: "concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell",
         evidence: "Java kompile --backend llvm rejects a rule with a `?X` right-hand-side variable (K tutorial lesson 1.21); the Haskell backend and k-rust execute it symbolically (k-rust 195a7718 docs/compatibility.md: existential right-hand-side variables follow K's Haskell policy)",
     },
+    // upstream k/llvm-kompile-parametric-function-segfault
     RouteCapability {
         feature: "ParametricFunctionEquations",
         unavailable_on: &[Route::NativeLlvm, Route::JavaLlvmReference],
         reason: "backend llvm cannot compile equations of a parametric function (K 7.1.337's llvm-kompile crashes on them, from Java K's KORE and from k-rust's alike); build with --backend haskell",
         evidence: "llvm-kompile 7.1.337 exits 139 (segmentation fault) on `syntax {S} S ::= choose(Bool, S, S) [function, total]` with one equation per instance, both on Java kompile's KORE (KF-027 probe, 2026-10-09) and on the native LLVM KORE that `krs build --backend llvm` writes for tests/sorts-algebra's functions package with this row lifted (k-rust 195a7718, probe 2026-10-10: llvm-kompile-matching succeeds, then llvm-kompile segfaults; the constructors package's native LLVM KORE compiles)",
     },
+    // upstream haskell-backend/parametric-constructor-rejected-at-validation
     RouteCapability {
         feature: "ParametricConstructorSchema",
         unavailable_on: &[Route::JavaHaskellReference],
         reason: "K 7.1.337's Haskell backend rejects a parametric constructor when it validates the compiled definition; run this on the LLVM or k-rust route",
         evidence: "kompile --backend haskell 7.1.337 exits 113 (\"Haskell backend reported errors validating compiled definition\") on `syntax {S} S ::= wrap(S)`, which kompile --backend llvm accepts and runs (KF-027 probe, 2026-10-09)",
     },
+    // upstream k-rust/user-algebraic-matching, k/llvm-user-algebraic-axioms-silently-free,
+    // haskell-backend/user-algebraic-function-equations-rejected
     RouteCapability {
         feature: "UserAlgebraicMatching",
         unavailable_on: &Route::ALL,
         reason: "no pinned backend matches modulo user-declared `assoc`, `comm`, `idem`, or `unit` axioms; use the builtin List, Set, or Map sorts, whose hooks implement them",
         evidence: "reserved for KF-019, which KRS does not implement: on `syntax Bag ::= Bag \"&\" Bag [assoc, comm, unit(bagNil)]` Java K 7.1.337's LLVM backend matches the symbol as a free constructor (the axioms are silently weakened), kore-exec rejects function equations over it, and k-rust 195a7718 drops the axioms at load and leaves the symbol uninterpreted (k-rust-backend/src/rule.rs; docs/compatibility.md)",
     },
+    // upstream k-rust/console-write-through-execute
     RouteCapability {
         feature: "ConsoleWriteHook",
         unavailable_on: &[Route::NativeRust, Route::Browser],
@@ -355,6 +368,7 @@ pub fn prepare_definition(
     let prelude = builtin::embedded("prelude.md").ok_or(PreparationError::MissingPrelude)?;
     let excluded = match backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm.excluded_module_attribute(),
+        // upstream k-rust/backend-haskell-spelling (reviewed, not a request).
         Backend::Haskell => kompile::CompilationBackend::Rust.excluded_module_attribute(),
     };
     load_structured(
@@ -546,6 +560,7 @@ fn compile_loaded_definition_with(
 ) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
+        // upstream k-rust/backend-haskell-spelling (reviewed, not a request).
         Backend::Haskell => kompile::CompilationBackend::Rust,
     };
     let (artifacts, phases) = kompile::compile_loaded_definition_timed(
@@ -554,6 +569,8 @@ fn compile_loaded_definition_with(
             backend,
             kore_width: options.kore_width,
             default_claims_to_all_path: false,
+            // upstream k-rust/krypto-hook-namespace (fixed): the backend's default
+            // hook inventory includes KRYPTO, so KRS passes none.
             hook_namespaces: None,
             // Definition IR represents a self-contained proof unit: when it
             // contains claims, the semantics and specification intentionally
