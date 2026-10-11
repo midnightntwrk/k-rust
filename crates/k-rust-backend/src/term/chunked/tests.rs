@@ -767,3 +767,53 @@ fn a_deep_nesting_held_by_a_tree_drops_on_a_small_stack() {
         drop(outer);
     });
 }
+
+/// The widths of the nodes other than the root.
+fn inner_widths<I: Item>(node: &Node<I>, is_root: bool, widths: &mut Vec<usize>) {
+    match node {
+        Node::Leaf { items, .. } => {
+            if !is_root {
+                widths.push(items.len());
+            }
+        }
+        Node::Internal { children, .. } => {
+            if !is_root {
+                widths.push(children.len());
+            }
+            for child in children {
+                inner_widths(child, false, widths);
+            }
+        }
+    }
+}
+
+/// A bulk-loaded tree leaves room in every node other than the root for an insertion and a
+/// removal, so its first edits split or merge nothing. Not every branching factor allows this
+/// for every length: at `B = 5` the only widths strictly between the bounds are 3 and 4, and at
+/// `B = 9` a level of 17 is cut into 9 and 8, two being the part count nearest `17/7`.
+fn bulk_load_leaves_room<const B: usize>(max: usize) {
+    for n in B + 1..max {
+        let tree: Chunked<Entry, B> = Chunked::from_vec(
+            (0..n)
+                .map(|key| Entry {
+                    key: u8::try_from(key % 256).expect("below 256"),
+                    value: 0,
+                })
+                .collect(),
+        );
+        let mut widths = Vec::new();
+        inner_widths(tree.root.as_deref().expect("items"), true, &mut widths);
+        assert!(
+            widths
+                .iter()
+                .all(|&width| Chunked::<Entry, B>::MIN_FILL < width && width < B),
+            "{n} items: widths {widths:?}"
+        );
+    }
+}
+
+#[test]
+fn a_bulk_load_leaves_room_in_every_node_but_the_root() {
+    bulk_load_leaves_room::<6>(3_000);
+    bulk_load_leaves_room::<DEFAULT>(3_000);
+}

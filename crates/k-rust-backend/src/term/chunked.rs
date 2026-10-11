@@ -476,11 +476,17 @@ impl<I: Item> Node<I> {
     }
 }
 
-/// The sizes of the parts of `n` things cut into as few parts of at most `b` as possible, as
-/// even as possible: `⌈n/b⌉` parts of `⌊n/parts⌋` or one more. With two parts or more each part
-/// holds more than `b/2` things (`n > (parts - 1)·b`), so at least `(b - 1)/2`.
-fn even_parts(n: usize, b: usize) -> impl Iterator<Item = usize> {
-    let parts = n.div_ceil(b);
+/// The sizes of the parts of `n` things cut into parts of `min..=b` things (one part of all of
+/// them when `n <= b`), as even as possible: the number of parts nearest `n/target`, kept
+/// between `⌈n/b⌉` (so no part exceeds `b`) and `⌊n/min⌋` (so none is below `min`), of
+/// `⌊n/parts⌋` or one more. For `n > b` that range is not empty: with `min <= b/2`,
+/// `⌊n/min⌋ >= ⌊2n/b⌋ >= ⌈n/b⌉`.
+fn even_parts(n: usize, b: usize, min: usize, target: usize) -> impl Iterator<Item = usize> {
+    let parts = if n <= b {
+        n.min(1)
+    } else {
+        ((n + target / 2) / target).clamp(n.div_ceil(b), n / min)
+    };
     // No parts (and no division) for nothing.
     let base = n.checked_div(parts).unwrap_or(0);
     let longer = n.checked_rem(parts).unwrap_or(0);
@@ -510,17 +516,23 @@ impl<I: Item, const B: usize> Chunked<I, B> {
 
     /// The sequence of `items`, in their order, built bottom-up in time linear in their number.
     /// For an ordered collection the caller passes them in nondecreasing order of key.
+    ///
+    /// Nodes other than the root are filled to about midway between `MIN_FILL` and `B`, not to
+    /// `B`: a full node splits at the first insertion below it, so a tree of full nodes would
+    /// pay, at its first insertion (and again in each successor of a state that holds it), a
+    /// split at every level up to the first node with room, each folding the group summary of
+    /// half a node.
     pub(crate) fn from_vec(items: Vec<I>) -> Self {
-        let _ = Self::MIN_FILL;
+        let target = (Self::MIN_FILL + 1 + B) / 2;
         let mut items = items.into_iter();
-        let mut level: Vec<Arc<Node<I>>> = even_parts(items.len(), B)
+        let mut level: Vec<Arc<Node<I>>> = even_parts(items.len(), B, Self::MIN_FILL, target)
             .map(|size| Arc::new(Node::leaf(items.by_ref().take(size).collect())))
             .collect();
         let mut height = 0;
         while level.len() > 1 {
             height += 1;
             let mut nodes = level.into_iter();
-            level = even_parts(nodes.len(), B)
+            level = even_parts(nodes.len(), B, Self::MIN_FILL, target)
                 .map(|size| Arc::new(Node::internal(height, nodes.by_ref().take(size).collect())))
                 .collect();
         }
