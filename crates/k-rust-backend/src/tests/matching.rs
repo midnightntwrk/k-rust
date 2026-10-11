@@ -1285,3 +1285,31 @@ fn a_ground_key_missing_beside_a_symbolic_subject_key_is_not_refuted() {
         }
     }
 }
+
+/// A ground pattern key that a subject with a map frame does not bind syntactically may be bound
+/// in the frame (`FRAME := b |-> x` makes the subject an instance of the pattern), so the match is
+/// not refuted.
+#[test]
+fn a_ground_key_missing_beside_a_subject_frame_is_not_refuted() {
+    let definition = map_definition();
+    let key = |name: &str| domain_value(Sort::simple("MapKey"), name);
+    let subject = Term::map(
+        definition.clone(),
+        vec![(key("a"), domain_value(Sort::simple("MapValue"), "1"))],
+        Some(var("FRAME", Sort::simple("MapSort"))),
+    );
+    for rest in [None, Some(var("REST", Sort::simple("MapSort")))] {
+        let pattern = Term::map(
+            definition.clone(),
+            vec![(key("b"), var("VALUE", Sort::simple("MapValue")))],
+            rest,
+        );
+        for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+            let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+            assert!(
+                !matches!(result, MatchResult::Failed(_)),
+                "{mode:?}: {result:?}"
+            );
+        }
+    }
+}

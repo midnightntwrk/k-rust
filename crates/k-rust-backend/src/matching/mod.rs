@@ -176,7 +176,7 @@ pub enum FailReason {
     VariableRecursion(RigidCycle),
     VariableConflict(Variable, Term, Term),
     /// A constructor-like map key or set element of the pattern that the subject, whose keys or
-    /// elements are all constructor-like, does not contain.
+    /// elements are all constructor-like and which has no rest, does not contain.
     KeyNotFound(Term),
     /// A map key or a set element that occurs twice, and the collection: `\bottom`.
     DuplicateKeys(Term, Term),
@@ -1734,8 +1734,9 @@ impl<'a> Matcher<'a> {
             self.queue.extend(found.values);
             return Ok(());
         }
-        // A constructor-like pattern key that no subject entry binds syntactically, while every
-        // other key of the subject is constructor-like too, is bound by no subject entry at all:
+        // A constructor-like pattern key that no subject entry binds syntactically, while the
+        // subject has no rest (which could bind it) and every other key of the subject is
+        // constructor-like too, is bound by no subject entry at all:
         // distinct constructor-like terms denote distinct values. The match fails on that key,
         // decided from key attributes alone, before the subject's other entries are copied: the
         // failure names the key and nothing else, since no reader of a failed match needs the
@@ -1744,6 +1745,7 @@ impl<'a> Matcher<'a> {
             .pattern_only
             .iter()
             .find(|(key, _)| key.attributes().constructor_like)
+            && subject_rest.is_none()
             && (subject.attributes().constructor_like
                 || found
                     .others(subject_entries)
@@ -1879,8 +1881,9 @@ impl<'a> Matcher<'a> {
         subject: MapRemainder,
     ) -> Result<Vec<(Term, Term)>, FailReason> {
         if !pattern.concrete.is_empty() {
-            // `match_maps` refutes a pattern key the subject's constructor-like keys lack.
-            debug_assert!(!subject.symbolic.is_empty());
+            // `match_maps` refutes a pattern key that a subject without a rest and with
+            // constructor-like keys only lacks.
+            debug_assert!(!subject.symbolic.is_empty() || subject.rest.is_some());
             self.defer(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),
