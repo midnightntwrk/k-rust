@@ -40,12 +40,12 @@ module PICK
 endmodule
 "#;
 
-fn compile() -> String {
+fn compile(source: &str) -> String {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
     let loaded = load_with_options(
-        ResolvedSource::new("pick.k", SOURCE),
+        ResolvedSource::new("pick.k", source),
         "PICK",
         &mut resolver,
         &LoadOptions {
@@ -120,7 +120,7 @@ fn verdict(backend: &mut Backend, leaf: &ExecutionLeaf, conditions: &[String]) -
 }
 
 fn backend() -> Backend {
-    Backend::new(&compile(), "PICK", BackendOptions::default()).unwrap()
+    Backend::new(&compile(SOURCE), "PICK", BackendOptions::default()).unwrap()
 }
 
 /// The leaves of `go(X, Y)` under `strategy` whose state is a successor of the step.
@@ -219,4 +219,59 @@ fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_all() {
 )]
 fn every_match_of_a_higher_rule_blocks_the_lower_priority_under_strategy_any() {
     assert_priority_respected(&mut backend(), ExecutionStrategy::Any);
+}
+
+/// `pick` applies to `0` but its result `10 /Int 0` is undefined there, so the instance goes to
+/// the next match, whose result is defined.
+const UNDEFINED_FIRST: &str = r#"module PICK-SYNTAX
+  imports INT-SYNTAX
+  imports SET
+  syntax Prog ::= go(Set) [symbol(go)]
+                | "other" [symbol(other)]
+                | res(Int) [symbol(res)]
+endmodule
+
+module PICK
+  imports PICK-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports BOOL
+  imports SET
+  configuration <k> $PGM:Prog </k>
+
+  rule [pick]: <k> go(SetItem(X:Int) _:Set) => res(10 /Int X) </k> requires X >=Int 0 [priority(10)]
+  rule [low]:  <k> go(_) => other </k> [priority(50)]
+endmodule
+"#;
+
+/// A ground instance where one match of `pick` has an undefined result follows another match
+/// whose result is defined, and is undefined (`trivial`, never `low`'s) when no match has one.
+#[test]
+fn a_ground_instance_skips_a_match_whose_result_is_undefined() {
+    let mut backend =
+        Backend::new(&compile(UNDEFINED_FIRST), "PICK", BackendOptions::default()).unwrap();
+    let ground = |value: &str| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
+    for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+        for (first, second) in [("0", "5"), ("5", "0")] {
+            let result = backend
+                .execute(request(&program(&ground(first), &ground(second)), strategy))
+                .unwrap();
+            let [leaf] = &result.leaves[..] else {
+                panic!("{strategy:?}: one leaf: {:#?}", summary(&result));
+            };
+            assert_eq!(leaf.reason, HaltReasonOutput::Stuck, "{strategy:?}");
+            assert!(
+                text(leaf).contains(r#"Lblres{}(\dv{SortInt{}}("2"))"#),
+                "{strategy:?}: {:#?}",
+                summary(&result)
+            );
+        }
+        let result = backend
+            .execute(request(&program(&ground("0"), &ground("-1")), strategy))
+            .unwrap();
+        let [leaf] = &result.leaves[..] else {
+            panic!("{strategy:?}: one leaf: {:#?}", summary(&result));
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::Trivial, "{strategy:?}");
+    }
 }
