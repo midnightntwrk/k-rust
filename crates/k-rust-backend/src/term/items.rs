@@ -337,6 +337,47 @@ impl<T: Stored + Keyed> Items<T> {
     }
 }
 
+impl<T: Stored + Keyed<Key = Term> + Item<Summary = ItemSummary>> Items<T> {
+    /// The number of items whose key is not constructor-like: the root summary's count for a
+    /// tree, a pass over the items for a vector.
+    pub(crate) fn symbolic_keys(&self) -> usize {
+        match &self.0 {
+            Backing::Vec(items) => items.iter().filter(|item| symbolic_key(*item)).count(),
+            Backing::Tree(tree) => tree
+                .summary()
+                .map_or(0, |summary| summary.extra.symbolic_keys()),
+        }
+    }
+
+    /// The items whose key is not constructor-like, in order. A tree is descended only into the
+    /// subtrees whose summary counts such a key, so the `s` items are reached through their
+    /// ancestors, `O(s log n)` nodes; a vector is filtered.
+    pub(crate) fn symbolic_keyed(&self) -> impl Iterator<Item = &T> {
+        let (vector, tree) = match &self.0 {
+            Backing::Vec(items) => (Some(items.iter().filter(|item| symbolic_key(*item))), None),
+            Backing::Tree(tree) => (
+                None,
+                Some(
+                    tree.seek(chunked::seek::Where::new(
+                        |summary: &NodeSummary<T>| summary.extra.symbolic_keys() > 0,
+                        |item: &T| symbolic_key(item),
+                    ))
+                    .map(|(_, item)| item),
+                ),
+            ),
+        };
+        vector
+            .into_iter()
+            .flatten()
+            .chain(tree.into_iter().flatten())
+    }
+}
+
+/// Whether `item`'s key is not constructor-like.
+fn symbolic_key<T: Keyed<Key = Term>>(item: &T) -> bool {
+    !Keyed::key(item).attributes().constructor_like
+}
+
 impl<T: Stored + Ord> Items<T> {
     /// In an ordered sequence, the sequence with `item` added after the items not above it.
     pub fn insert(&self, item: T) -> Self {
@@ -699,9 +740,7 @@ impl ItemSummary {
         u8::try_from(self.k_cells.get()).expect("a count saturated at 2")
     }
 
-    /// The number of items whose key is not constructor-like. Read by the tests until map
-    /// matching partitions a remainder by it (design K22, step 4).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The number of items whose key is not constructor-like.
     pub(crate) fn symbolic_keys(&self) -> usize {
         self.symbolic_keys.0
     }
@@ -774,6 +813,14 @@ thread_local! {
     /// Test builds: the map entries whose own summary this thread has computed, which a node
     /// does for each entry it holds when it is built from its entries.
     static ENTRY_SUMMARIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test builds: the number of map entries whose own summary `run` computes on this thread.
+#[cfg(test)]
+pub(crate) fn entry_summaries_during(run: impl FnOnce()) -> usize {
+    let before = ENTRY_SUMMARIES.with(std::cell::Cell::get);
+    run();
+    ENTRY_SUMMARIES.with(std::cell::Cell::get) - before
 }
 
 /// A map entry: searched by its key, hashed by the hashes its two terms store.

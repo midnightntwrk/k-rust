@@ -288,18 +288,6 @@ impl MapResult<'_> {
         self.converted_entries(entries, from).map(Cow::Owned)
     }
 
-    /// Entries the hook computed in collection `from`, as entries of the result.
-    pub(super) fn owned_entries(
-        &self,
-        entries: Vec<(Term, Term)>,
-        from: &MapDefinition,
-    ) -> Option<Vec<(Term, Term)>> {
-        if self.same_sorts(from) {
-            return Some(entries);
-        }
-        self.converted_entries(&entries, from)
-    }
-
     fn same_sorts(&self, from: &MapDefinition) -> bool {
         from.key_sort == self.definition.key_sort && from.value_sort == self.definition.value_sort
     }
@@ -343,6 +331,40 @@ impl MapResult<'_> {
         Some(Term::map(self.definition, entries, rest))
     }
 
+    /// The map of `entries`, and of an opaque `rest` when it is a value of the result sort; the
+    /// entries are already the result's and in the order a map holds them (those of a map of
+    /// the result's sorts, as [`entries`](Self::entries) borrows them, after ordered edits), so
+    /// their tree is kept as it is.
+    pub(super) fn build_ordered(
+        self,
+        entries: Items<(Term, Term)>,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if rest
+            .as_ref()
+            .is_some_and(|rest| !fits(rest, &self.definition.map_sort))
+        {
+            return None;
+        }
+        Some(Term::map_of_items(self.definition, entries, rest))
+    }
+
+    /// The map of `entries`, in the order a map of collection `from` holds them, as entries of
+    /// the result: their tree is kept when the sorts agree, and the entries are converted and
+    /// ordered again otherwise.
+    pub(super) fn build_from(
+        self,
+        entries: Cow<'_, Items<(Term, Term)>>,
+        from: &MapDefinition,
+        rest: Option<Term>,
+    ) -> Option<Term> {
+        if self.same_sorts(from) {
+            return self.build_ordered(entries.into_owned(), rest);
+        }
+        let entries = self.converted_entries(entries.iter(), from)?;
+        self.build(entries, rest)
+    }
+
     /// A whole map argument returned as the result: itself when it is a value of the result
     /// sort, else its entries rebuilt in the result's collection.
     pub(super) fn adopt(self, map: &Term) -> Option<Term> {
@@ -357,7 +379,6 @@ impl MapResult<'_> {
         if *definition == self.definition {
             return Some(map.clone());
         }
-        let entries = self.entries(entries, definition)?.into_owned().into();
-        self.build(entries, rest.clone())
+        self.build_from(Cow::Borrowed(entries), definition, rest.clone())
     }
 }

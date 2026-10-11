@@ -1,16 +1,13 @@
 //! Concrete `MAP` hooks: per-call operations on the internal map representation; a
 //! responsibility, not an algorithm; no counter of its own, no worklist.
 
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::borrow::Cow;
 
 use num_bigint::BigInt;
 
 use super::{
     BuiltinError, BuiltinResult, HookResult, ResultCollection, UnsupportedHookReason, bool_term,
-    expect_arity, expect_sort, int_term, values_differ,
+    expect_arity, expect_sort, int_term, result_collection::MapResult, values_differ,
 };
 use crate::{
     matching::SortGraph,
@@ -104,23 +101,19 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     let Some(into) = result.map(Some(definition)) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    if left_entries.iter().any(|(left_key, _)| {
-        right_entries
-            .iter()
-            .any(|(right_key, _)| left_key == right_key)
-    }) {
+    // A key both operands bind makes the concatenation `\bottom`. Each operand binds a key
+    // once (`evaluate`) and holds its entries ordered by key, so in the ordered union of the two
+    // the entries of a key both bind stand side by side, which the union's summary records
+    // (`collision`): the check costs the union, `O(m log(n/m + 1))` nodes for operands of `n`
+    // and `m` entries, rather than a comparison of every pair of keys.
+    let united = left_entries.union(right_entries);
+    if united.summary().collision {
         return Ok(BuiltinResult::Bottom);
     }
-    let (Some(left_entries), Some(right_entries)) = (
-        into.entries(left_entries, definition),
-        into.entries(right_entries, definition),
-    ) else {
-        return Ok(BuiltinResult::NotApplicable);
-    };
-    let entries = left_entries.join(&right_entries);
     Ok(into
-        .build(
-            entries.into(),
+        .build_from(
+            Cow::Owned(united),
+            definition,
             left_rest.clone().or_else(|| right_rest.clone()),
         )
         .into())
@@ -167,25 +160,45 @@ where
 /// Whether `key`, which binds none of `entries` syntactically, is bound nowhere in the map.
 ///
 /// Without a rest, every possible key is among the entries. Strict operands make apartness a
-/// difference of values, so a key different from each entry is absent. Two constructor-like
-/// terms denote different values exactly when they differ syntactically, so when the key and
-/// every entry are constructor-like (`entries_constructor_like`: the map's own attribute, the
-/// conjunction over its keys and values), the key differs from each entry already; otherwise it
-/// is compared with each entry.
+/// difference of values, so a key different from each entry's key is absent. Two
+/// constructor-like terms denote different values exactly when they differ syntactically, so a
+/// constructor-like key differs from every constructor-like key of the entries already, and is
+/// compared only with the keys that are not constructor-like: the entries' summary counts them
+/// and leads to them (`Items::symbolic_keyed`), `O(s log n)` nodes for `s` such keys among `n`.
+/// A key that is not constructor-like is compared with each entry.
 fn absent(
     sorts: Option<&SortGraph>,
     key: &Term,
     entries: &Items<(Term, Term)>,
-    entries_constructor_like: bool,
     rest: &Option<Term>,
 ) -> bool {
+    let differs = |(existing, _): &(Term, Term)| {
+        #[cfg(test)]
+        compared_with_an_entry();
+        values_differ(sorts, key, existing)
+    };
     rest.is_none()
-        && ((entries_constructor_like && key.attributes().constructor_like)
-            || entries.iter().all(|(existing, _)| {
-                #[cfg(test)]
-                compared_with_an_entry();
-                values_differ(sorts, key, existing)
-            }))
+        && if key.attributes().constructor_like {
+            entries.symbolic_keyed().all(differs)
+        } else {
+            entries.iter().all(differs)
+        }
+}
+
+/// The result map of `entries`, edited from a map argument's entries as the result's sorts
+/// give them (`MapResult::entries`): the argument's own (`stored`), whose edits keep their
+/// order and their tree, or converted ones, which are ordered again.
+fn built(
+    into: MapResult<'_>,
+    entries: Items<(Term, Term)>,
+    stored: bool,
+    rest: Option<Term>,
+) -> Option<Term> {
+    if stored {
+        into.build_ordered(entries, rest)
+    } else {
+        into.build(entries.into(), rest)
+    }
 }
 
 fn update(
@@ -231,20 +244,14 @@ fn update(
     match place {
         Ok(index) => {
             let updated = entries.replace_at(index, (key, new_value));
-            Ok(into.build(updated.into(), rest.clone()))
+            Ok(built(into, updated, stored, rest.clone()))
         }
         Err(index) => {
-            if !absent(
-                sorts,
-                &key,
-                &entries,
-                stored && map.attributes().constructor_like,
-                rest,
-            ) {
+            if !absent(sorts, &key, &entries, rest) {
                 return Ok(None);
             }
             let updated = entries.insert_at(index, (key, new_value));
-            Ok(into.build(updated.into(), None))
+            Ok(built(into, updated, stored, None))
         }
     }
 }
@@ -326,36 +333,35 @@ fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
         );
     }
 
-    let original_map = original_entries.iter().cloned().collect::<BTreeMap<_, _>>();
-    let update_map = update_entries.iter().cloned().collect::<BTreeMap<_, _>>();
-    let original_keys = original_map.keys().cloned().collect::<BTreeSet<_>>();
-    let update_keys = update_map.keys().cloned().collect::<BTreeSet<_>>();
-    let untouched_keys = original_keys
-        .difference(&update_keys)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let added_keys = update_keys
-        .difference(&original_keys)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-
-    let can_apply = untouched_keys.is_empty()
-        || (update_rest.is_none()
-            && (added_keys.is_empty()
-                || untouched_keys
-                    .iter()
-                    .chain(&added_keys)
-                    .all(|key| key.attributes().constructor_like)));
+    // Each binding of the updates replaces the original's binding of its key or is added: the
+    // original without the keys the updates bind, united with the updates. Each update key is
+    // searched among the original's, and the original's binding of it removed, so the result
+    // costs `O(log n)` nodes per update binding and the union, and shares the rest of both
+    // trees. The keys both bind (`shared`) say which keys the updates leave untouched and which
+    // they add, and the entries' summaries how many of each are not constructor-like.
+    let mut kept = original_entries.clone();
+    let (mut shared, mut shared_symbolic) = (0, 0);
+    for (key, _) in update_entries {
+        if let Some(index) = bound_at(&kept, key) {
+            kept = kept.remove_at(index).0;
+            shared += 1;
+            shared_symbolic += usize::from(!key.attributes().constructor_like);
+        }
+    }
+    let untouched = original_entries.len() - shared;
+    let added = update_entries.len() - shared;
+    let untouched_and_added_constructor_like = original_entries.symbolic_keys() == shared_symbolic
+        && update_entries.symbolic_keys() == shared_symbolic;
+    let can_apply = untouched == 0
+        || (update_rest.is_none() && (added == 0 || untouched_and_added_constructor_like));
     if !can_apply {
         return Ok(None);
     }
-
-    let mut updated = original_map;
-    updated.extend(update_map);
-    let updated = updated.into_iter().collect::<Vec<_>>();
-    Ok(into
-        .owned_entries(updated, definition)
-        .and_then(|entries| into.build(entries, update_rest.clone())))
+    Ok(into.build_from(
+        Cow::Owned(kept.union(update_entries)),
+        definition,
+        update_rest.clone(),
+    ))
 }
 
 fn remove(
@@ -392,15 +398,9 @@ fn remove(
     };
     if let Some(index) = index {
         let (updated, _) = entries.remove_at(index);
-        return Ok(into.build(updated.into(), rest.clone()));
+        return Ok(built(into, updated, stored, rest.clone()));
     }
-    if !absent(
-        sorts,
-        &key,
-        &entries,
-        stored && map.attributes().constructor_like,
-        rest,
-    ) {
+    if !absent(sorts, &key, &entries, rest) {
         Ok(None)
     } else {
         Ok(into.adopt(map))
@@ -434,26 +434,20 @@ fn remove_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
     if set_definition.element_sort != definition.key_sort {
         return Ok(None);
     }
-    if entries
-        .iter()
-        .any(|(key, _)| !key.attributes().constructor_like)
-        || elements
-            .iter()
-            .any(|element| !element.attributes().constructor_like)
-    {
+    if entries.symbolic_keys() > 0 || elements.symbolic_keys() > 0 {
         return Ok(None);
     }
     let Some(into) = result.map(Some(definition)) else {
         return Ok(None);
     };
-    let kept = entries
-        .iter()
-        .filter(|(key, _)| elements.search(key).is_err())
-        .cloned()
-        .collect::<Vec<_>>();
-    Ok(into
-        .owned_entries(kept, definition)
-        .and_then(|kept| into.build(kept, None)))
+    // One removal per element the map binds, each a search and a path copy, `O(log n)` nodes.
+    let mut kept = entries.clone();
+    for element in elements {
+        if let Some(index) = bound_at(&kept, element) {
+            kept = kept.remove_at(index).0;
+        }
+    }
+    Ok(into.build_from(Cow::Owned(kept), definition, None))
 }
 
 fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -481,10 +475,7 @@ fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinRe
         let (_, value) = entries.get(index).expect("a bound key's entry");
         return Ok(BuiltinResult::Value(value.clone()));
     }
-    if rest.is_none()
-        && (entries.is_empty()
-            || absent(sorts, key, entries, map.attributes().constructor_like, rest))
-    {
+    if rest.is_none() && (entries.is_empty() || absent(sorts, key, entries, rest)) {
         Ok(BuiltinResult::Bottom)
     } else {
         Ok(BuiltinResult::NotApplicable)
@@ -503,7 +494,7 @@ fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResul
         let (_, value) = entries.get(index).expect("a bound key's entry");
         return Ok(Some(value.clone()));
     }
-    if !absent(sorts, key, entries, map.attributes().constructor_like, rest) {
+    if !absent(sorts, key, entries, rest) {
         Ok(None)
     } else {
         Ok(Some(default.clone()))
@@ -521,7 +512,7 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
     if bound_at(entries, key).is_some() {
         return Ok(Some(bool_term(true)));
     }
-    if absent(sorts, key, entries, map.attributes().constructor_like, rest) {
+    if absent(sorts, key, entries, rest) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
@@ -545,10 +536,7 @@ fn ordered_entries(map: &Term) -> Option<(&MapDefinition, &Items<(Term, Term)>)>
     else {
         return None;
     };
-    entries
-        .iter()
-        .all(|(key, _)| key.attributes().constructor_like)
-        .then_some((definition, entries))
+    (entries.symbolic_keys() == 0).then_some((definition, entries))
 }
 
 fn keys_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<Term>> {
@@ -575,10 +563,7 @@ fn keys(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<T
     else {
         return Ok(None);
     };
-    if entries
-        .iter()
-        .any(|(key, _)| !key.attributes().constructor_like)
-    {
+    if entries.symbolic_keys() > 0 {
         return Ok(None);
     }
     let Some(into) = result.set(None) else {
@@ -661,16 +646,20 @@ fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
     }
 }
 
+/// Whether each binding of a closed left map is a binding of the right one, or `None` when that
+/// is not decided. Each left key is searched among the right keys (`bound_at`: the right map
+/// binds each key once), `O(log m)`, and whether every right key is constructor-like is read
+/// from the right entries' summary.
 fn entry_inclusion(
     left_entries: &Items<(Term, Term)>,
     right_entries: &Items<(Term, Term)>,
     right_rest: &Option<Term>,
 ) -> HookResult<Option<Term>> {
+    let right_keys_constructor_like = right_entries.symbolic_keys() == 0;
     let mut undecided = false;
     for (left_key, left_value) in left_entries {
-        if let Some((_, right_value)) = right_entries
-            .iter()
-            .find(|(right_key, _)| left_key == right_key)
+        if let Some((_, right_value)) =
+            bound_at(right_entries, left_key).and_then(|index| right_entries.get(index))
         {
             if left_value == right_value {
                 continue;
@@ -684,9 +673,7 @@ fn entry_inclusion(
         }
         if right_rest.is_some()
             || !left_key.attributes().constructor_like
-            || right_entries
-                .iter()
-                .any(|(right_key, _)| !right_key.attributes().constructor_like)
+            || !right_keys_constructor_like
         {
             undecided = true;
             continue;
@@ -702,7 +689,7 @@ fn map_sort(definition: &MapDefinition) -> crate::term::Sort {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::Cell, sync::Arc};
+    use std::{cell::Cell, collections::BTreeMap, sync::Arc};
 
     use super::*;
     use crate::counted::Counted;
@@ -1464,5 +1451,122 @@ mod tests {
             values(&[map], into(&value_list())),
             Ok(Some(expected_values))
         );
+    }
+
+    /// A hook that changes a few bindings of a large map copies the paths to them and shares
+    /// the rest of the map's tree: it summarizes only the entries of the leaves it rebuilds, each
+    /// edit at most the leaf it edits and one neighbour it merges with or cuts off, whatever the
+    /// map's size. Concatenation's check that the operands bind no key twice is read from the
+    /// summary of their union, and an operand binding a key of the other is still `\bottom`.
+    #[test]
+    fn hooks_that_change_a_few_bindings_summarize_only_the_leaves_they_edit() {
+        const ENTRIES: u32 = 4096;
+        let leaf = crate::term::chunked::DEFAULT_BRANCHING;
+        let definition = definition("SortMap");
+        let bindings = (1..=ENTRIES)
+            .map(|index| (2 * index, 2 * index + 1))
+            .collect::<BTreeMap<_, _>>();
+        let map = bindings_map(&definition, &bindings);
+        let one = |bound: u32| bindings_map(&definition, &BTreeMap::from([(bound, 0)]));
+        let key_set =
+            |bound: u32| Term::set(key_set_definition(), vec![key(&bound.to_string())], None);
+        for (name, arguments, edits, size) in [
+            (
+                "MAP.update",
+                vec![map.clone(), key("8"), value("0")],
+                1,
+                ENTRIES,
+            ),
+            (
+                "MAP.update",
+                vec![map.clone(), key("9"), value("0")],
+                1,
+                ENTRIES + 1,
+            ),
+            ("MAP.remove", vec![map.clone(), key("8")], 1, ENTRIES - 1),
+            ("MAP.concat", vec![map.clone(), one(9)], 1, ENTRIES + 1),
+            ("MAP.concat", vec![one(9), map.clone()], 1, ENTRIES + 1),
+            ("MAP.updateAll", vec![map.clone(), one(8)], 2, ENTRIES),
+            ("MAP.updateAll", vec![map.clone(), one(9)], 2, ENTRIES + 1),
+            (
+                "MAP.removeAll",
+                vec![map.clone(), key_set(8)],
+                1,
+                ENTRIES - 1,
+            ),
+            ("MAP.removeAll", vec![map.clone(), key_set(9)], 1, ENTRIES),
+        ] {
+            let mut result = None;
+            let summaries = crate::term::items::entry_summaries_during(|| {
+                result = Some(hook(name, &arguments));
+            });
+            let Some(BuiltinResult::Value(result)) = result else {
+                panic!("{name}: {result:?}");
+            };
+            let TermKind::Map { entries, .. } = result.kind() else {
+                panic!("{name}: {result:?}");
+            };
+            assert_eq!(entries.len(), size as usize, "{name}");
+            assert!(
+                summaries <= 2 * leaf * edits,
+                "{name}: {summaries} entry summaries for {edits} edits of leaves of at most {leaf}"
+            );
+        }
+        assert_eq!(
+            hook("MAP.concat", &[map.clone(), one(8)]),
+            BuiltinResult::Bottom
+        );
+        assert_eq!(
+            hook("MAP.concat", &[one(2 * ENTRIES), map]),
+            BuiltinResult::Bottom
+        );
+    }
+
+    /// A constructor-like key that binds no entry differs from every constructor-like key, so
+    /// absence compares it only with the keys that are not constructor-like, which the entries'
+    /// summary leads to: none when only values are symbolic, one for one symbolic key.
+    #[test]
+    fn absence_of_a_ground_key_compares_it_only_with_the_symbolic_keys() {
+        const ENTRIES: u32 = 4096;
+        let definition = definition("SortMap");
+        let mut entries = (1..=ENTRIES)
+            .map(|index| (key(&(2 * index).to_string()), value("1")))
+            .collect::<Vec<_>>();
+        entries[100].1 = Term::variable(Variable::new("V", Sort::simple("SortValue")));
+        let symbolic_values = Term::map(definition.clone(), entries.clone(), None);
+        assert!(!symbolic_values.attributes().constructor_like);
+        entries[100].1 = value("1");
+        entries.push((
+            Term::variable(Variable::new("K", Sort::simple("SortKey"))),
+            value("2"),
+        ));
+        let symbolic_key = Term::map(definition, entries, None);
+        let TermKind::Map {
+            entries: stored, ..
+        } = symbolic_values.kind()
+        else {
+            unreachable!("a map term")
+        };
+        let probe = key("15");
+        let compared_by = |run: &dyn Fn()| {
+            ENTRY_COMPARISONS.with(|count| count.set(0));
+            run();
+            ENTRY_COMPARISONS.with(Cell::get)
+        };
+        let searched = compared_by(&|| {
+            let _ = place_of(stored, &probe);
+        });
+        for (map, symbolic, expected) in [
+            (symbolic_values, 0, BuiltinResult::Value(bool_term(false))),
+            (symbolic_key, 1, BuiltinResult::NotApplicable),
+        ] {
+            let made = compared_by(&|| {
+                assert_eq!(hook("MAP.in_keys", &[probe.clone(), map.clone()]), expected);
+            });
+            assert!(
+                made <= searched + 1 + symbolic,
+                "{made} entries compared, the search compares {searched}, {symbolic} symbolic keys"
+            );
+        }
     }
 }

@@ -1220,8 +1220,9 @@ impl Term {
         Self::map_of_items(definition, Items::from_vec(entries), rest)
     }
 
-    /// [`Term::map`] of entries already in order, as a tree.
-    fn map_of_items(
+    /// [`Term::map`] of entries already in its order, as a tree: the tree is kept, or united
+    /// with a map rest's, without reading its entries.
+    pub(crate) fn map_of_items(
         definition: Arc<MapDefinition>,
         entries: Items<(Self, Self)>,
         rest: Option<Self>,
