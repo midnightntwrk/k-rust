@@ -919,9 +919,9 @@ pub const MAX_INT_RESULT_BITS: u64 = 1 << 24;
 /// Measured, not chosen: `bytes_hooks_hold_twice_their_result` in `builtin/bytes.rs` records the
 /// most memory one application allocates and has not freed, with a counting allocator, at two
 /// result lengths, for each hook and for padded inputs empty, one byte long, a quarter, half and
-/// all but one byte as long as the result, and
-/// takes the factor as the growth of that peak per byte of result between the two lengths, which
-/// leaves out the few bytes every application holds whatever its length.
+/// all but one byte as long as the result, and takes the factor as the growth of that peak per
+/// byte of result between the two lengths, which leaves out the few bytes every application holds
+/// whatever its length.
 pub(crate) const BYTES_RESULT_PEAK_FACTOR: u64 = 2;
 
 /// The most bytes one `makeList` application holds at once, per byte of its result (one term
