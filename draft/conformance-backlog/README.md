@@ -22,7 +22,7 @@ Seeded 2026-09-18 from ratchet sequence 4 (`target/conformance/ratchet.toml`, la
 
 ## Current queue (2026-09-20, measured through CB-15 closure sequence 31)
 
-The ledger has no open ticket, and no open ticket owns a pending conformance verdict.
+The ledger's open tickets are CB-23 and CB-24 (opened 2026-10-11), each owning one pending case; every earlier ticket is closed.
 2026-10-11: CB-23 and CB-24 were opened for two cases the K30 step-exclusion ranking surfaced on the w4-tooling head9 run; the table below lists them.
 The combined audit over shared history, CB-20 closure, the CB-12/CB-22 acceptance, and CB-15 closure sequence 31 reports zero pending cases, zero pending cases without an open owner, and three below-floor cases that are all covered by existing exclusions.
 All eleven `[[decision]]` rows are decided; no owner policy choice blocks the queue.
