@@ -2646,21 +2646,34 @@ fn negates_configuration(component: &kore::Pattern) -> bool {
 /// of configurations rather than only `\top` or `\bottom`. An alias application counts as a term,
 /// whatever its body.
 pub(crate) fn has_term_in_predicate_position(pattern: &kore::Pattern) -> bool {
+    has_term_in_predicate_position_with(pattern, &mut |_| true)
+}
+
+/// As [`has_term_in_predicate_position`], with `application` deciding whether an application
+/// in predicate position counts as a term, so a caller that knows what an alias application
+/// denotes can say so.
+pub(crate) fn has_term_in_predicate_position_with<'p>(
+    pattern: &'p kore::Pattern,
+    application: &mut dyn FnMut(&'p kore::Pattern) -> bool,
+) -> bool {
     match pattern {
+        kore::Pattern::Application { .. } => application(pattern),
         kore::Pattern::String(_)
         | kore::Pattern::Variable(_)
-        | kore::Pattern::Application { .. }
         | kore::Pattern::DomainValue { .. }
         | kore::Pattern::AssociativeApplication { .. } => true,
-        kore::Pattern::Not { argument, .. } => has_term_in_predicate_position(argument),
-        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
-            arguments.iter().any(has_term_in_predicate_position)
+        kore::Pattern::Not { argument, .. } => {
+            has_term_in_predicate_position_with(argument, application)
         }
+        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => arguments
+            .iter()
+            .any(|argument| has_term_in_predicate_position_with(argument, application)),
         kore::Pattern::Implies { left, right, .. } | kore::Pattern::Iff { left, right, .. } => {
-            has_term_in_predicate_position(left) || has_term_in_predicate_position(right)
+            has_term_in_predicate_position_with(left, application)
+                || has_term_in_predicate_position_with(right, application)
         }
         kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
-            has_term_in_predicate_position(body)
+            has_term_in_predicate_position_with(body, application)
         }
         kore::Pattern::Top { .. }
         | kore::Pattern::Bottom { .. }

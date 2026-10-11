@@ -979,8 +979,10 @@ Applicable instances arise only from the injection composition schema, whose ins
 
 ### Priority conjuncts in rewrite left-hand sides
 
-A rewrite left-hand-side component `\not(A{}())`, with `A` an alias without parameters whose body is a pattern of configurations (a term pattern in predicate position), states that the rule applies only outside what `A` denotes.
-An alias without parameters whose body is a predicate is not such a component: negated, it is a condition like any other and is read as one.
+A rewrite left-hand-side component `\not(A{}())`, with `A` an alias without parameters that denotes a set of configurations, states that the rule applies only outside what `A` denotes.
+`A` denotes a set of configurations when its written body has a term pattern in predicate position, an application of another alias without parameters counting as one exactly when that alias denotes a set of configurations (an application denotes what the alias's body denotes; an application of an alias with parameters counts as one whatever its body), or when its body is `\bottom`, the empty set.
+An alias without parameters whose body is a predicate, directly or through further aliases without parameters, is not such a component: negated, it is a condition like any other and is read as one.
+For `\bottom`, the empty set and the false predicate, both readings of the negation are `\top`; it is taken as a component, which is discharged, so the rules an empty priority group precedes are named without it.
 In `--strategy all`, and for a concrete subject in either strategy, a rule of priority `p` is offered only subjects to which no executable rule of smaller priority applies, so the component holds on every subject the rule is offered when everything `A` denotes is a configuration where such a rule applies; whether a symbolic `any` step can pass to a lower priority instances that a later application group of a higher rule covers is open and independent of these components.
 A non-executable rule is offered no subject, so its components are not checked.
 The backend shows this at load, from the written definition: each disjunct of `A` (nested `\or` flattened, `\bottom`s discarded) either names an executable, non-sort-parametric rewrite axiom (it is `\exists` of exactly its free variables over that rule's left-hand-side components, priority conjuncts and `\top`s removed, equal up to a renaming of variables) or applies another such alias, and the highest priority reached is strictly below `p`.

@@ -1,13 +1,16 @@
 //! What a priority conjunct of a rewrite axiom excludes, read from the written definition.
 //!
 //! A *priority conjunct* is a left-hand-side component `\not{S}(A{}())` of a rewrite axiom with
-//! `A` a nullary alias (no sort parameters, no parameters) whose written body has a term pattern
-//! in predicate position (`rule::has_term_in_predicate_position`), so it denotes a set of
-//! configurations. It states that the rule applies only outside what `A` denotes. A negated
-//! nullary alias of a predicate is a condition like any other and is not one. The *applicability pattern* `App(ρ)` of a
-//! rewrite axiom ρ is its written left-hand-side components (nested `\and` flattened) other than
-//! priority conjuncts and `\top`s, in written order; the requires is among them, so a
-//! configuration satisfies `App(ρ)` exactly when ρ applies to it.
+//! `A` a nullary alias (no sort parameters, no parameters) that denotes a set of configurations
+//! (`denotes_configurations`): its written body has a term pattern in predicate position
+//! (`rule::has_term_in_predicate_position_with`), an application of a nullary alias counting as
+//! one exactly when that alias denotes configurations, or its body is `\bottom`, the empty set.
+//! It states that the rule applies only outside what `A` denotes. A negated nullary alias of a
+//! predicate, reached through any number of nullary aliases, is a condition like any other, not
+//! a priority conjunct. The *applicability pattern* `App(ρ)` of a rewrite axiom ρ is its written
+//! left-hand-side components (nested `\and` flattened) other than priority conjuncts and `\top`s,
+//! in written order; the requires is among them, so a configuration satisfies `App(ρ)` exactly
+//! when ρ applies to it.
 //!
 //! A disjunct δ of a nullary alias (the arguments of its written body after flattening nested
 //! `\or`, `\bottom`s discarded) *names* the rewrite axiom ρ' when:
@@ -59,7 +62,7 @@ use crate::{
     definition::DefinitionError,
     rule::{
         AxiomError, RuleAttributes, SentenceKey, VariableRenaming, flatten_and,
-        has_term_in_predicate_position, hash_pattern_shape,
+        has_term_in_predicate_position_with, hash_pattern_shape,
     },
     term::Name,
 };
@@ -376,8 +379,9 @@ impl<'m, 'a> Discharge<'m, 'a> {
 
     /// The axiom `pattern`, written with `attributes` as the sentence `sentence`, with each
     /// priority conjunct of its rewrite left-hand side replaced by `\top` of its sort: borrowed
-    /// when it has none or the axiom is non-executable. Refused when one is not discharged; a malformed attribute of the axiom
-    /// or of a rule a disjunct names gives the error classifying that axiom gives.
+    /// when it has none or the axiom is non-executable. Refused when one is not discharged; a
+    /// malformed attribute of the axiom or of a rule a disjunct names gives the error classifying
+    /// that axiom gives.
     pub(crate) fn discharge(
         &mut self,
         pattern: &'a kore::Pattern,
@@ -471,9 +475,9 @@ enum Named {
     Nothing,
 }
 
-/// The nullary alias whose negation `component` is, when it is a priority conjunct: the alias's
-/// written body denotes a set of configurations ([`denotes_configurations`]). A nullary alias of
-/// any other predicate, negated, is a condition on the subject, read as any other.
+/// The nullary alias whose negation `component` is, when it is a priority conjunct: the alias
+/// denotes a set of configurations ([`denotes_configurations`]). A nullary alias of any other
+/// predicate, negated, is a condition on the subject, read as any other.
 pub(crate) fn priority_conjunct<'p>(
     component: &'p kore::Pattern,
     aliases: &BTreeMap<String, AliasDefinition>,
@@ -481,18 +485,40 @@ pub(crate) fn priority_conjunct<'p>(
     let kore::Pattern::Not { argument, .. } = component else {
         return None;
     };
-    nested_alias(argument, aliases).filter(|alias| denotes_configurations(&aliases[*alias].right))
+    nested_alias(argument, aliases)
+        .filter(|alias| denotes_configurations(alias, aliases, &mut HashMap::new()))
 }
 
-/// Whether the body of a nullary alias denotes a set of configurations: it has a term pattern in
-/// predicate position, or it is `\bottom` (nested `\or` of `\bottom`s), the empty set, which is
-/// also the false predicate. For `\bottom` both readings of the negation are `\top`, so
-/// discharging it is the predicate reading, and the rules an empty priority group precedes are
-/// named without it, as their priority aliases write them.
-fn denotes_configurations(body: &kore::Pattern) -> bool {
+/// Whether the nullary alias `alias` denotes a set of configurations: its body has a term pattern
+/// in predicate position, an application of a nullary alias counting as one exactly when that
+/// alias denotes configurations (an application denotes what the alias's body denotes), or its
+/// body is `\bottom` (nested `\or` of `\bottom`s), the empty set, which is also the false
+/// predicate. For `\bottom` both readings of the negation are `\top`, so discharging it is the
+/// predicate reading, and the rules an empty priority group precedes are named without it, as
+/// their priority aliases write them. An application of an alias with parameters counts as a
+/// term. `known` holds the aliases already decided, so each is walked once even when the
+/// aliases reach it along many paths; the recursion ends because alias cycles are refused at
+/// declaration.
+fn denotes_configurations<'a>(
+    alias: &str,
+    aliases: &'a BTreeMap<String, AliasDefinition>,
+    known: &mut HashMap<&'a str, bool>,
+) -> bool {
+    let (alias, definition) = aliases
+        .get_key_value(alias)
+        .expect("a nested alias is declared");
+    if let Some(&denotes) = known.get(alias.as_str()) {
+        return denotes;
+    }
     let mut disjuncts = Vec::new();
-    flatten_or(body, &mut disjuncts);
-    disjuncts.is_empty() || has_term_in_predicate_position(body)
+    flatten_or(&definition.right, &mut disjuncts);
+    let denotes = disjuncts.is_empty()
+        || has_term_in_predicate_position_with(&definition.right, &mut |application| {
+            nested_alias(application, aliases)
+                .is_none_or(|nested| denotes_configurations(nested, aliases, known))
+        });
+    known.insert(alias, denotes);
+    denotes
 }
 
 /// The alias `pattern` applies when it is an application `A{}()` of a nullary alias.
@@ -780,6 +806,58 @@ mod tests {
         assert_eq!(
             summaries(&text, &["priorityLE35", "priorityLE40"]),
             [Ok(None), witness(40, R1, &[("priorityLE40", 1)])]
+        );
+    }
+
+    /// An application of a nullary alias denotes what that alias's body denotes, so a nullary
+    /// alias is classified as what it reaches through nested nullary aliases: `viaEmpty` reaches
+    /// only `\bottom`, the empty set of configurations, as `empty` is; `cond2` reaches only a
+    /// predicate, as `cond` does; `viaTerm` reaches a configuration; and `viaParametric` applies
+    /// an alias with parameters, which counts as a term whatever its body.
+    #[test]
+    fn a_nullary_alias_denotes_what_the_nullary_aliases_it_applies_denote() {
+        let text = variant(&[(
+            "  axiom{} \\rewrites{SortS{}}(rule0LHS{}()",
+            indoc! {r"
+                  alias empty{}() : SortS{} where empty{}() := \bottom{SortS{}}() []
+                  alias viaEmpty{}() : SortS{} where viaEmpty{}() := \or{SortS{}}(empty{}(), \bottom{SortS{}}()) []
+                  alias cond{}() : SortS{} where cond{}() := \equals{SortS{}, SortS{}}(a{}(), b{}()) []
+                  alias cond2{}() : SortS{} where cond2{}() := \not{SortS{}}(cond{}()) []
+                  alias viaTerm{}() : SortS{} where viaTerm{}() := \and{SortS{}}(cond{}(), rule2LHS{}()) []
+                  alias isA{}(SortS{}) : SortS{} where isA{}(X:SortS{}) := \equals{SortS{}, SortS{}}(X:SortS{}, a{}()) []
+                  alias viaParametric{}() : SortS{} where viaParametric{}() := isA{}(b{}()) []
+                  axiom{} \rewrites{SortS{}}(rule0LHS{}()"},
+        )]);
+        let definition = parse_definition(&text).expect("the variant parses");
+        let modules = definition.modules.iter().collect::<Vec<_>>();
+        let declared = crate::alias::collect(&modules, &BTreeMap::new())
+            .expect("the variant's aliases are well formed");
+        let classified = [
+            "priorityLE40",
+            "empty",
+            "viaEmpty",
+            "cond",
+            "cond2",
+            "viaTerm",
+            "viaParametric",
+        ]
+        .map(|alias| {
+            (
+                alias,
+                denotes_configurations(alias, &declared, &mut HashMap::new()),
+            )
+        });
+        assert_eq!(
+            classified,
+            [
+                ("priorityLE40", true),
+                ("empty", true),
+                ("viaEmpty", true),
+                ("cond", false),
+                ("cond2", false),
+                ("viaTerm", true),
+                ("viaParametric", true),
+            ]
         );
     }
 
