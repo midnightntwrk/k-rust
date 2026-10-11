@@ -668,6 +668,37 @@ pub enum RulePatternError {
     },
 }
 
+/// What is wrong with a pattern the backend reads as a constrained term (a rule's side, a
+/// claim's side, an execution or search state, a search pattern), in terms of what it states.
+impl std::fmt::Display for RulePatternError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingTerm => formatter
+                .write_str("the pattern states no term, only predicates, where a term is needed"),
+            Self::TermDisjunction => formatter.write_str(
+                "a term of the pattern is a disjunction (\\or) of terms where one term is needed",
+            ),
+            Self::UnsupportedPredicate(connective) => write!(
+                formatter,
+                "a predicate of the pattern uses \\{connective}, which the backend does not read \
+                 as a predicate"
+            ),
+            Self::BinderSortMismatch(variable) => write!(
+                formatter,
+                "the argument binder variable {variable} has another sort than a term it binds"
+            ),
+            Self::NegatedConfiguration { sentence } => write!(
+                formatter,
+                "the left-hand side of the rewrite at sentence index {} (zero-based) of module {} \
+                 negates (\\not) a pattern with a term in a predicate position, which states \
+                 that the subject is outside a set of configurations, and no rule condition \
+                 states that",
+                sentence.1, sentence.0
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConstraintKind {
     Concrete,
@@ -808,6 +839,52 @@ impl From<MalformedAttribute> for AxiomError {
     /// The payload is the attribute's KORE name, as the backend has always reported it.
     fn from(malformed: MalformedAttribute) -> Self {
         Self::MalformedAttribute(malformed.attribute.as_str().into())
+    }
+}
+
+/// What is wrong with an axiom the backend cannot read, as the author of its KORE would fix it.
+impl std::fmt::Display for AxiomError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MalformedRewrite => {
+                formatter.write_str("the left-hand side of the rewrite is not an \\and pattern")
+            }
+            Self::UnsupportedAliasRewrite(symbol) => write!(
+                formatter,
+                "the left-hand side of the rewrite is an application of {symbol}, not an \\and \
+                 pattern"
+            ),
+            Self::MalformedEquation => {
+                formatter.write_str("the equation does not have a shape the backend reads")
+            }
+            Self::MalformedArgumentBinder => formatter.write_str(
+                "the equation's argument condition is not \\top or \\in memberships of \
+                 variables joined by \\and",
+            ),
+            Self::Unexpected => formatter
+                .write_str("the axiom is an implication whose conclusion is not an equation"),
+            Self::ConflictingPriorities(attributes) => write!(
+                formatter,
+                "the attributes {} each set the priority, and an axiom may have one of them",
+                attributes.join(", ")
+            ),
+            Self::InvalidPriority(value) => write!(
+                formatter,
+                "the priority '{value}' is not a whole number below {OWISE_RULE_PRIORITY}"
+            ),
+            Self::InvalidConcreteness(text) => write!(
+                formatter,
+                "the concreteness constraint '{text}' is not a variable name and sort written \
+                 name:sort"
+            ),
+            Self::ConcretenessOverlap(overlap) => write!(
+                formatter,
+                "the concrete and symbolic attributes overlap ({overlap})"
+            ),
+            Self::MalformedAttribute(attribute) => {
+                write!(formatter, "malformed attribute: {attribute}")
+            }
+        }
     }
 }
 
@@ -2646,21 +2723,34 @@ fn negates_configuration(component: &kore::Pattern) -> bool {
 /// of configurations rather than only `\top` or `\bottom`. An alias application counts as a term,
 /// whatever its body.
 pub(crate) fn has_term_in_predicate_position(pattern: &kore::Pattern) -> bool {
+    has_term_in_predicate_position_with(pattern, &mut |_| true)
+}
+
+/// As [`has_term_in_predicate_position`], with `application` deciding whether an application
+/// in predicate position counts as a term, so a caller that knows what an alias application
+/// denotes can say so.
+pub(crate) fn has_term_in_predicate_position_with<'p>(
+    pattern: &'p kore::Pattern,
+    application: &mut dyn FnMut(&'p kore::Pattern) -> bool,
+) -> bool {
     match pattern {
+        kore::Pattern::Application { .. } => application(pattern),
         kore::Pattern::String(_)
         | kore::Pattern::Variable(_)
-        | kore::Pattern::Application { .. }
         | kore::Pattern::DomainValue { .. }
         | kore::Pattern::AssociativeApplication { .. } => true,
-        kore::Pattern::Not { argument, .. } => has_term_in_predicate_position(argument),
-        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => {
-            arguments.iter().any(has_term_in_predicate_position)
+        kore::Pattern::Not { argument, .. } => {
+            has_term_in_predicate_position_with(argument, application)
         }
+        kore::Pattern::And { arguments, .. } | kore::Pattern::Or { arguments, .. } => arguments
+            .iter()
+            .any(|argument| has_term_in_predicate_position_with(argument, application)),
         kore::Pattern::Implies { left, right, .. } | kore::Pattern::Iff { left, right, .. } => {
-            has_term_in_predicate_position(left) || has_term_in_predicate_position(right)
+            has_term_in_predicate_position_with(left, application)
+                || has_term_in_predicate_position_with(right, application)
         }
         kore::Pattern::Exists { body, .. } | kore::Pattern::Forall { body, .. } => {
-            has_term_in_predicate_position(body)
+            has_term_in_predicate_position_with(body, application)
         }
         kore::Pattern::Top { .. }
         | kore::Pattern::Bottom { .. }

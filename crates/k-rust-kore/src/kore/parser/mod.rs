@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.peek() {
             return Err(ParseError {
                 offset: token.offset,
-                message: format!("unexpected trailing token {:?}", token.kind),
+                message: format!("unexpected trailing token {}", token.kind),
             });
         }
         Ok(value)
@@ -103,11 +103,11 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(actual) => ParseError {
                 offset: actual.offset,
-                message: format!("expected {expected:?}, found {:?}", actual.kind),
+                message: format!("expected {expected}, found {}", actual.kind),
             },
             None => ParseError {
                 offset: self.input_len,
-                message: format!("expected {expected:?}, found end of input"),
+                message: format!("expected {expected}, found end of input"),
             },
         }
     }

@@ -3,9 +3,14 @@ disallowed-methods = [
   { path = "serde_json::to_string_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
   { path = "serde_json::to_writer_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
   { path = "serde_json::to_vec_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
-  { path = "serde_json::ser::PrettyFormatter::new", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
-  { path = "serde_json::ser::PrettyFormatter::with_indent", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
   { path = "serde_json::ser::Serializer::pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+]
+# The type entry rejects every spelling that names serde_json's uncapped pretty formatter, its
+# constructors included, and so also PrettyFormatter::default() and Default::default() at that
+# type, which a method path cannot name; Serializer::pretty builds one without naming the type,
+# so it keeps its method entry.
+disallowed-types = [
+  { path = "serde_json::ser::PrettyFormatter", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
 ]
 # In debug builds a term carries the mark of definedness::check_ceil_free (an AtomicBool), which
 # its Hash, Eq and Ord never read, so a term is not a mutable key.

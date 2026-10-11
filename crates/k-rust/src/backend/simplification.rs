@@ -231,14 +231,15 @@ mod tests {
                 }
             ))
             .0,
-            r#"could not simplify model predicate: DisjunctiveResult { rule_id: "rule", alternatives: 2 }"#
+            "could not simplify model predicate: equation rule gives 2 alternative results where \
+             simplification needs one"
         );
         assert_eq!(
             BackendError::from(ModelError::Solver(
                 k_rust_backend::smt::SmtError::Unavailable
             ))
             .0,
-            "could not obtain model: Unavailable"
+            "could not obtain model: no solver is available"
         );
     }
 }

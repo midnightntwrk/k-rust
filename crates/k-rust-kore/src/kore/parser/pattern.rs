@@ -206,7 +206,7 @@ impl Parser<'_> {
             }
             actual => Err(ParseError {
                 offset: token.offset,
-                message: format!("expected pattern, found {actual:?}"),
+                message: format!("expected pattern, found {actual}"),
             }),
         }
     }
@@ -552,6 +552,30 @@ mod tests {
                 insta::assert_debug_snapshot!(pattern);
             });
         }};
+    }
+
+    /// A parse error names the token it expected and the one it found as KORE text spells or
+    /// classifies them.
+    #[test]
+    fn parse_errors_name_tokens_as_kore_text_does() {
+        let message = |source: &str| {
+            crate::kore::parser::parse_pattern(source)
+                .unwrap_err()
+                .to_string()
+        };
+        assert_eq!(
+            message("f g{}()"),
+            "expected '{', found an identifier at byte 2"
+        );
+        assert_eq!(
+            message("\\and{S{}}(a{}() b{}())"),
+            "expected ')', found an identifier at byte 16"
+        );
+        assert_eq!(message(":"), "expected pattern, found ':' at byte 0");
+        assert_eq!(
+            message("a{}() endmodule"),
+            "unexpected trailing token 'endmodule' at byte 6"
+        );
     }
 
     #[test]

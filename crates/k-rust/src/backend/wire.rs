@@ -1242,6 +1242,7 @@ fn diagnostic_output<K: WireKore>(
     Ok(match diagnostic {
         BackendDiagnostic::UndecidedCondition {
             rule_id,
+            origin: _,
             reason,
             predicates,
             rule_variables,
@@ -2180,6 +2181,7 @@ mod tests {
         let condition = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
+                origin: None,
                 reason: ConditionIndeterminacy::NoSolver,
                 predicates: vec![Predicate::True],
                 rule_variables: Vec::new(),
@@ -2220,6 +2222,7 @@ mod tests {
         let output = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
+                origin: None,
                 reason: ConditionIndeterminacy::UnboundResultVariables(vec!["VarY".into()]),
                 predicates: vec![
                     Predicate::Equals(variable("Eq#VarY"), variable("Eq-hVarY")),

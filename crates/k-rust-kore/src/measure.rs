@@ -505,7 +505,10 @@ pub enum Counter {
     SimplifyAssumptionNodes,
     /// Predicate nodes visited by the walks that ask which variables a predicate mentions
     /// (whether it mentions some, or one free; the variables and binders it holds; its binders
-    /// renamed apart) and by matching a predicate equation's left-hand side against a predicate.
+    /// renamed apart), by matching a predicate equation's left-hand side against a predicate, by
+    /// reading a predicate's truth (`predicate_truth` and `predicate_root_truth`, one per node
+    /// read), and by normalizing a predicate (`normalize_predicate`, `normalize_root`,
+    /// `normalize_hereditary`, one per node normalized).
     SimplifyPredicateNodesVisited,
     /// Predicate nodes of the conjuncts each conjunction simplification takes as input (one
     /// round of the conjunction fixpoint), counted once per call.

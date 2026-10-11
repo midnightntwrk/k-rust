@@ -112,7 +112,7 @@ mod tests {
     fn rejects_definitions_without_modules() {
         let error = crate::kore::parser::parse_definition("[]").unwrap_err();
         assert_eq!(error.offset, 2);
-        assert_eq!(error.message, "expected Module, found end of input");
+        assert_eq!(error.message, "expected 'module', found end of input");
     }
 
     #[test]

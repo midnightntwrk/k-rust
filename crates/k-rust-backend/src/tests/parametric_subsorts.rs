@@ -155,6 +155,18 @@ fn e_schematic_instances_report_variables_unless_every_instance_is_unrelated() {
             .check_subsort(&mint("Sort8"), &schematic),
         Err(SortError::FoundSortVariable("W".into())),
     );
+    assert_eq!(
+        SortError::FoundSortVariable("W".into()).to_string(),
+        "whether one sort is a subsort of another depends on the sort variable W"
+    );
+    let undeclared = definition
+        .sort_graph()
+        .check_subsort(&schematic, &Sort::simple("SortUndeclared"))
+        .unwrap_err();
+    assert_eq!(
+        undeclared.to_string(),
+        "the sort SortUndeclared{} is not declared"
+    );
 }
 
 #[test]

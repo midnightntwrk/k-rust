@@ -1709,8 +1709,8 @@ enum EquationCondition {
 
 /// Decide the `requires` of an equation `instance` under the path condition. It is simplified
 /// first, keyed by `anchor` against re-entry, and a verdict the solver could not reach is
-/// reported as a diagnostic of `rule_id`; without an anchor the definedness of its terms is
-/// stated and it is decided as it is.
+/// reported as a diagnostic of the equation `rule`; without an anchor the definedness of its
+/// terms is stated and it is decided as it is.
 ///
 /// An equation whose result has variables its left-hand side does not bind
 /// (`unbound_result`, from `ComputedRuleAttributes::unbound_result_variables`) is satisfied by
@@ -1720,7 +1720,7 @@ enum EquationCondition {
 /// holds for no value of them and the equation says nothing about the subject, as for any
 /// equation; otherwise the verdict is `Indeterminate(UnboundResultVariables)`, which keeps the
 /// subject, and for a function blocks the lower-priority equations, as an open `requires` does.
-/// That verdict is reported as an `UndecidedCondition` diagnostic of `rule_id` with the decided
+/// That verdict is reported as an `UndecidedCondition` diagnostic of `rule` with the decided
 /// `requires`. Every caller that uses an equation's result reaches it through `Satisfied`.
 ///
 /// The diagnostics emitted here belong to the attempt: its caller buffers them and keeps them
@@ -1733,7 +1733,7 @@ enum EquationCondition {
 #[allow(clippy::too_many_arguments)]
 fn evaluate_equation_condition(
     definition: &BackendDefinition,
-    rule_id: &str,
+    rule: &RuleAttributes,
     unbound_result: &[String],
     rule_variables: &BTreeSet<Variable>,
     anchor: Option<&Term>,
@@ -1743,6 +1743,7 @@ fn evaluate_equation_condition(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationCondition> {
+    let rule_id = rule.unique_id.as_str();
     let (requires, matched) = instance.into_requires();
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
@@ -1793,13 +1794,7 @@ fn evaluate_equation_condition(
         requires.with_definedness(definition, definedness_known)
     };
     Ok(
-        match decide_rule_condition(
-            rule_id,
-            &predicates,
-            rule_variables,
-            known_predicates,
-            solver,
-        )? {
+        match decide_rule_condition(rule, &predicates, rule_variables, known_predicates, solver)? {
             RuleCondition::Refuted => EquationCondition::Refuted,
             RuleCondition::Satisfied | RuleCondition::Indeterminate(_)
                 if !unbound_result.is_empty() =>
@@ -1808,6 +1803,7 @@ fn evaluate_equation_condition(
                     ConditionIndeterminacy::UnboundResultVariables(unbound_result.to_vec());
                 diagnostic::emit(BackendDiagnostic::UndecidedCondition {
                     rule_id: rule_id.to_owned(),
+                    origin: rule.origins.first().cloned(),
                     reason: reason.clone(),
                     rule_variables: condition_rule_variables(&predicates, rule_variables),
                     predicates,
@@ -1821,10 +1817,10 @@ fn evaluate_equation_condition(
 }
 
 /// Decide already simplified condition predicates under the path condition, reporting a
-/// verdict the solver could not reach as a diagnostic of `rule_id` that lists those of
+/// verdict the solver could not reach as a diagnostic of the equation `rule` that lists those of
 /// `rule_variables` free in `predicates` (see `evaluate_equation_condition`).
 fn decide_rule_condition(
-    rule_id: &str,
+    rule: &RuleAttributes,
     predicates: &[Predicate],
     rule_variables: &BTreeSet<Variable>,
     known_predicates: &[Predicate],
@@ -1832,7 +1828,7 @@ fn decide_rule_condition(
 ) -> SimplifyResult<RuleCondition> {
     let condition = decide_condition(predicates, known_predicates, solver)?.map_err(|error| {
         SimplificationError::Smt {
-            rule_id: rule_id.to_owned(),
+            rule_id: rule.unique_id.clone(),
             error,
         }
     })?;
@@ -1840,7 +1836,8 @@ fn decide_rule_condition(
         && solver_could_not_answer(reason)
     {
         diagnostic::emit(BackendDiagnostic::UndecidedCondition {
-            rule_id: rule_id.to_owned(),
+            rule_id: rule.unique_id.clone(),
+            origin: rule.origins.first().cloned(),
             reason: reason.clone(),
             predicates: predicates.to_vec(),
             rule_variables: condition_rule_variables(predicates, rule_variables),
@@ -2918,7 +2915,7 @@ fn apply_ceil_equation_instance(
     let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
     let matched = match evaluate_equation_condition(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         &rule.computed_attributes.unbound_result_variables,
         &rule.computed_attributes.unbound_variables,
         Some(term),
@@ -2944,7 +2941,7 @@ fn apply_ceil_equation_instance(
     // makes the subject `\bottom`.
     let defined = match decide_equation_bindings(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         Some(term),
         matched,
         known_predicates,
@@ -3079,7 +3076,7 @@ fn apply_predicate_equation(
     );
     let matched = match evaluate_equation_condition(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         &rule.unbound_result_variables,
         &rule.variables.unbound,
         first_predicate_term(predicate),
@@ -3112,7 +3109,7 @@ fn apply_predicate_equation(
     );
     match decide_equation_bindings(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         first_predicate_term(predicate),
         matched,
         known_predicates,
@@ -4588,7 +4585,7 @@ fn top_equation_instance(
     let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed);
     let matched = match evaluate_equation_condition(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         &rule.computed_attributes.unbound_result_variables,
         &rule.computed_attributes.unbound_variables,
         Some(term),
@@ -4610,7 +4607,7 @@ fn top_equation_instance(
     Ok(EquationAttempt::Applied(
         match decide_equation_bindings(
             definition,
-            &rule.attributes.unique_id,
+            &rule.attributes,
             Some(term),
             matched,
             known_predicates,
@@ -6312,11 +6309,11 @@ fn apply_theory_noting_cuts<K: TermTheory>(
 /// Decide the binding obligations of an equation instance whose `requires` holds
 /// ([`MatchedEquation::decide`]). The obligations are simplified under the path condition first,
 /// keyed by `anchor` against re-entry as `evaluate_equation_condition` does, and a verdict the
-/// solver could not reach is reported as a diagnostic of `rule_id`.
+/// solver could not reach is reported as a diagnostic of the equation `rule`.
 #[allow(clippy::too_many_arguments)]
 fn decide_equation_bindings(
     definition: &BackendDefinition,
-    rule_id: &str,
+    rule: &RuleAttributes,
     anchor: Option<&Term>,
     matched: MatchedEquation,
     known_predicates: &[Predicate],
@@ -6324,6 +6321,7 @@ fn decide_equation_bindings(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<DecidedEquation> {
+    let rule_id = rule.unique_id.as_str();
     let decided = matched.decide(|obligations| {
         let decide = || {
             let obligations = if let Some(anchor) = anchor {
@@ -6343,7 +6341,7 @@ fn decide_equation_bindings(
             // The obligations state the definedness of terms of the subject, which the
             // equation's variables are renamed apart from: none of them is the equation's.
             let verdict = decide_rule_condition(
-                rule_id,
+                rule,
                 &obligations,
                 &BTreeSet::new(),
                 known_predicates,
@@ -6576,7 +6574,7 @@ fn apply_equation_instance(
     // simplifier calls with different path conditions.
     let matched = match evaluate_equation_condition(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         &rule.computed_attributes.unbound_result_variables,
         &rule.computed_attributes.unbound_variables,
         Some(term),
@@ -6601,7 +6599,7 @@ fn apply_equation_instance(
     // decided above, says nothing about the subject when refuted.
     let defined = match decide_equation_bindings(
         definition,
-        &rule.attributes.unique_id,
+        &rule.attributes,
         Some(term),
         matched,
         known_predicates,

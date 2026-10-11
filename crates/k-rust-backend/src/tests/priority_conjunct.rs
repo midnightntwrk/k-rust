@@ -3,10 +3,11 @@
 //! In `--strategy all`, and for a concrete subject in either strategy, a rule of priority `p` is
 //! offered only subjects to which no executable rule of smaller priority applies, so a conjunct
 //! `\not(A{}())` whose alias `A` denotes only configurations where such a rule applies holds on
-//! every subject the rule is offered: the load replaces it by `\top` and never unfolds `A`.
-//! Whether a symbolic `any` step can pass to a lower priority instances that a later application
-//! group of a higher rule covers is open and independent of these conjuncts. One it cannot show so refuses the load, as does any other negated
-//! configuration in a rewrite left-hand side, which no predicate of a rule expresses.
+//! every subject the rule is offered: the load replaces it by `\top` and never unfolds `A`. A
+//! conjunct it cannot show so refuses the load, as does any other negated configuration in a
+//! rewrite left-hand side, which no predicate of a rule expresses. Whether a symbolic `any` step
+//! can pass to a lower priority instances that a later application group of a higher rule covers
+//! is open and independent of these conjuncts.
 
 use indoc::indoc;
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
@@ -113,10 +114,8 @@ fn path(steps: &[(&str, usize)]) -> Vec<DisjunctStep> {
         .collect()
 }
 
-/// The results of one step of `start` in `--strategy all` with `solver`, each rendered as a
-/// constrained pattern, in the order the step gives them; refused when a configuration is left
-/// over.
-fn one_step(definition: &BackendDefinition, start: &str, solver: &dyn SmtSolver) -> Vec<String> {
+/// One step of `start` in `--strategy all` with `solver`.
+fn step(definition: &BackendDefinition, start: &str, solver: &dyn SmtSolver) -> RewriteResult {
     let term = definition
         .internalize_term(&parse_pattern(start).expect("the start parses"), &[])
         .expect("the start internalizes");
@@ -124,7 +123,7 @@ fn one_step(definition: &BackendDefinition, start: &str, solver: &dyn SmtSolver)
         term,
         constraints: Vec::new(),
     };
-    let result = rewrite_step_with_mode(
+    rewrite_step_with_mode(
         definition,
         &subject,
         &mut crate::fresh::FreshCounter::default(),
@@ -133,8 +132,14 @@ fn one_step(definition: &BackendDefinition, start: &str, solver: &dyn SmtSolver)
         ExecutionMode::All,
         false,
     )
-    .expect("no stop is armed");
-    let applied = match result {
+    .expect("no stop is armed")
+}
+
+/// The results of one step of `start` in `--strategy all` with `solver`, each rendered as a
+/// constrained pattern, in the order the step gives them; refused when a configuration is left
+/// over.
+fn one_step(definition: &BackendDefinition, start: &str, solver: &dyn SmtSolver) -> Vec<String> {
+    let applied = match step(definition, start, solver) {
         RewriteResult::Finished(applied) => vec![applied],
         RewriteResult::Branch {
             branches,
@@ -391,28 +396,58 @@ fn a_negated_configuration_in_a_rewrite_left_hand_side_is_refused() {
     }
 }
 
+/// `FIXTURE` with the alias declarations `declarations` added and `r3` carrying `\not(carried())`
+/// in place of its priority conjunct.
+fn carrying(declarations: &[&str], carried: &str) -> String {
+    let mut added = declarations.join("\n");
+    added.push_str("\naxiom{} \\rewrites{SortS{}}(rule0LHS{}()");
+    variant(&[
+        (r"axiom{} \rewrites{SortS{}}(rule0LHS{}()", &added),
+        (
+            r"\not{SortS{}}(priorityLE40{}()), rule3LHS",
+            &format!(r"\not{{SortS{{}}}}({carried}{{}}()), rule3LHS"),
+        ),
+    ])
+}
+
+/// `cond() := φ`.
+fn condition(predicate: &str) -> String {
+    format!("alias cond{{}}() : SortS{{}} where cond{{}}() := {predicate} []")
+}
+
+const UNEQUAL: &str = r"\equals{SortS{}, SortS{}}(a{}(), b{}())";
+const EQUAL: &str = r"\equals{SortS{}, SortS{}}(a{}(), a{}())";
+
 /// A negated nullary alias of a predicate is a condition, not a priority conjunct: it is read as
 /// the condition its body states, here one that holds, so `r3` takes `f(d)` to `c`.
 #[test]
 fn a_negated_nullary_alias_of_a_predicate_is_read_as_a_condition() {
-    let definition = loaded(&variant(&[
-        (
-            r"axiom{} \rewrites{SortS{}}(rule0LHS{}()",
-            concat!(
-                r"alias cond{}() : SortS{} where cond{}() := \equals{SortS{}, SortS{}}(a{}(), b{}()) []",
-                "\n",
-                r"axiom{} \rewrites{SortS{}}(rule0LHS{}()",
-            ),
-        ),
-        (
-            r"\not{SortS{}}(priorityLE40{}()), rule3LHS",
-            r"\not{SortS{}}(cond{}()), rule3LHS",
-        ),
-    ]));
+    let definition = loaded(&carrying(&[&condition(UNEQUAL)], "cond"));
     assert_eq!(
         one_step_terms(&definition, "f{}(d{}())", &NoSolver),
         ["c{}()"]
     );
+}
+
+/// The condition is read, not dropped: when the predicate is false, `r3` does not apply and
+/// `f(d)` has no step.
+#[test]
+fn a_negated_nullary_alias_of_a_false_predicate_blocks_the_rule() {
+    let definition = loaded(&carrying(&[&condition(EQUAL)], "cond"));
+    let result = step(&definition, "f{}(d{}())", &NoSolver);
+    assert!(matches!(result, RewriteResult::Stuck(_)), "{result:?}");
+}
+
+/// An application of a nullary alias denotes what its body denotes, so `cond2() := cond()` is
+/// the predicate `cond` states, and its negation is a condition read as `cond`'s.
+#[test]
+fn a_nullary_alias_reaching_a_predicate_through_another_is_read_as_a_condition() {
+    let cond2 = r"alias cond2{}() : SortS{} where cond2{}() := cond{}() []";
+    let holds = loaded(&carrying(&[&condition(UNEQUAL), cond2], "cond2"));
+    assert_eq!(one_step_terms(&holds, "f{}(d{}())", &NoSolver), ["c{}()"]);
+    let fails = loaded(&carrying(&[&condition(EQUAL), cond2], "cond2"));
+    let result = step(&fails, "f{}(d{}())", &NoSolver);
+    assert!(matches!(result, RewriteResult::Stuck(_)), "{result:?}");
 }
 
 /// A non-executable rule is offered no subject, so its conjunct is not checked, here one naming
@@ -502,4 +537,17 @@ fn priority_aliases_are_never_unfolded() {
         .expect("a chain of aliases each applying the next twice exceeds the unfolding budget");
     assert!(length > 1, "the fixture alone exceeds the unfolding budget");
     loaded(&budget_fixture(length - 1, true));
+}
+
+/// An application of an empty alias denotes `\bottom`, so `\or(empty(), cond())` is the
+/// predicate `cond` states, read as a condition like `\or(\bottom, cond())`.
+#[test]
+fn a_disjunct_reaching_bottom_through_an_alias_is_read_as_the_written_bottom() {
+    let empty = r"alias empty{}() : SortS{} where empty{}() := \bottom{SortS{}}() []";
+    let through = r"alias orX{}() : SortS{} where orX{}() := \or{SortS{}}(empty{}(), cond{}()) []";
+    let holds = loaded(&carrying(&[empty, &condition(UNEQUAL), through], "orX"));
+    assert_eq!(one_step_terms(&holds, "f{}(d{}())", &NoSolver), ["c{}()"]);
+    let fails = loaded(&carrying(&[empty, &condition(EQUAL), through], "orX"));
+    let result = step(&fails, "f{}(d{}())", &NoSolver);
+    assert!(matches!(result, RewriteResult::Stuck(_)), "{result:?}");
 }

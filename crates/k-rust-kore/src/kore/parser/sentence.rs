@@ -19,7 +19,7 @@ impl Parser<'_> {
             TokenKind::Claim => self.axiom(true),
             actual => Err(ParseError {
                 offset: token.offset,
-                message: format!("expected sentence, found {actual:?}"),
+                message: format!("expected sentence, found {actual}"),
             }),
         }
     }
@@ -115,7 +115,7 @@ impl Parser<'_> {
             actual => {
                 return Err(ParseError {
                     offset: token.offset,
-                    message: format!("expected variable in alias left-hand side, found {actual:?}"),
+                    message: format!("expected variable in alias left-hand side, found {actual}"),
                 });
             }
         };
@@ -128,7 +128,7 @@ impl Parser<'_> {
             return Err(ParseError {
                 offset: offending.offset,
                 message: format!(
-                    "expected variable in alias left-hand side, found {:?}",
+                    "expected variable in alias left-hand side, found {}",
                     offending.kind
                 ),
             });
@@ -251,7 +251,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.message,
-            "expected variable in alias left-hand side, found LBrace"
+            "expected variable in alias left-hand side, found '{'"
         );
     }
 }

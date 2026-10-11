@@ -1102,7 +1102,7 @@ impl fmt::Display for DefinitionError {
                 "Patterns and sorts nested {depth} levels deep need about {} bytes of stack, a native stack segment the system refused to map",
                 refused.size
             ),
-            Self::Axiom(error) => write!(formatter, "Invalid axiom: {error:?}"),
+            Self::Axiom(error) => write!(formatter, "Invalid axiom: {error}"),
             Self::PriorityConjunct {
                 sentence,
                 alias,
@@ -1115,8 +1115,8 @@ impl fmt::Display for DefinitionError {
                      {index} of module {module} is not discharged: {failure}"
                 )
             }
-            Self::RulePattern(error) => write!(formatter, "Invalid rule pattern: {error:?}"),
-            Self::Claim(error) => write!(formatter, "Invalid claim: {error:?}"),
+            Self::RulePattern(error) => write!(formatter, "Invalid pattern: {error}"),
+            Self::Claim(error) => write!(formatter, "Invalid claim: {error}"),
             Self::Verification(error) => write!(formatter, "{error}"),
         }
     }

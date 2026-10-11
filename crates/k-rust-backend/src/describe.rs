@@ -14,6 +14,7 @@ use k_rust_kore::kore::printer::Printer;
 use crate::{
     builtin::BuiltinError,
     externalize,
+    matching::SortError,
     rewrite::{AppliedRule, HaltReason, IndeterminateReason},
     rule::Predicate,
     search::{IncompleteSearch, PatternMatchError},
@@ -426,6 +427,22 @@ impl Display for ConditionIndeterminacy {
                 "the right-hand side or ensures uses {}, which the left-hand side does not bind",
                 english_list(variables)
             ),
+        }
+    }
+}
+
+/// Why a subsort question has no answer: an open sort stands for every one of its instances,
+/// and a sort that is not declared has no place in the order.
+impl Display for SortError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FoundSortVariable(name) => write!(
+                formatter,
+                "whether one sort is a subsort of another depends on the sort variable {name}"
+            ),
+            Self::FoundUnknownSort(sort) => {
+                write!(formatter, "the sort {} is not declared", printed_sort(sort))
+            }
         }
     }
 }

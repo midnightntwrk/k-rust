@@ -987,7 +987,7 @@ impl Grammar {
                 self.insert_subsort_pair(child, &result, SubsortRelation::Syntactic);
             }
         }
-        // The associativity index numbers each production's label.
+        // The associativity index numbers each production's label and holds its edges.
         self.associativity_index = std::sync::OnceLock::new();
         self.productions.push(Production {
             result: result.clone(),

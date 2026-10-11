@@ -48,6 +48,25 @@ pub enum ClaimError {
     MissingRightHandSide,
 }
 
+/// What is wrong with a reachability claim, in terms of what the claim states.
+impl std::fmt::Display for ClaimError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MalformedModality {
+                modality,
+                argument_count,
+            } => write!(
+                formatter,
+                "the modality {modality} is applied to {argument_count} arguments, and it takes \
+                 one, the claim's right-hand side"
+            ),
+            Self::MissingRightHandSide => formatter.write_str(
+                "the claim's right-hand side has no disjunct, so it states no configuration to reach",
+            ),
+        }
+    }
+}
+
 pub(crate) fn internalize_reachability_claim(
     definition: &BackendDefinition,
     claim: &PendingAxiom,

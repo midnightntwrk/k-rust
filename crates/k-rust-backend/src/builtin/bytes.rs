@@ -901,8 +901,8 @@ mod tests {
     /// [`BYTES_RESULT_PEAK_FACTOR`]: measured with the test allocator at two result lengths, the
     /// peak grows by exactly that many bytes per byte of result, for each hook, each side of
     /// padding and padded inputs empty, one byte long, a quarter, half and all but one byte as
-    /// long as the result. The difference between the
-    /// two lengths leaves out the few bytes an application holds whatever its length.
+    /// long as the result. The difference between the two lengths leaves out the few bytes an
+    /// application holds whatever its length.
     #[test]
     fn bytes_hooks_hold_twice_their_result() {
         use crate::peak_memory::peak_during;

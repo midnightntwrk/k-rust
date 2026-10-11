@@ -407,6 +407,27 @@ pub enum ObservationFilterError {
     AmbiguousRule(String),
 }
 
+impl fmt::Display for ObservationFilterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownRule(rule) => write!(
+                formatter,
+                "no executable rewrite, function equation, simplification or definedness rule \
+                 has the id '{rule}'"
+            ),
+            Self::DuplicateRule(rule) => {
+                write!(formatter, "the rule id '{rule}' is listed more than once")
+            }
+            Self::AmbiguousRule(rule) => write!(
+                formatter,
+                "the rule id '{rule}' is carried by axioms that differ, so it names no one rule"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ObservationFilterError {}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) struct ObservationNodeId(usize);
 

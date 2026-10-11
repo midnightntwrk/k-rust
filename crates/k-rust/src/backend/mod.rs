@@ -1642,8 +1642,8 @@ fn admit<'a>(
     }
 }
 
-fn error<E: fmt::Debug>(context: &'static str) -> impl FnOnce(E) -> BackendError {
-    move |cause| BackendError(format!("{context}: {cause:?}"))
+fn error<E: fmt::Display>(context: &'static str) -> impl FnOnce(E) -> BackendError {
+    move |cause| BackendError(format!("{context}: {cause}"))
 }
 
 #[cfg(test)]
@@ -1887,6 +1887,71 @@ mod tests {
 
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    /// A request the backend refuses is refused in words that name what is wrong: the rule
+    /// filter's unknown id, the sort an added module may not declare, what an execution state
+    /// lacks or has that a constrained term may not (without saying it is a rule's), the token a
+    /// module's text may not have.
+    #[test]
+    fn refused_requests_are_stated_in_words() {
+        let mut backend = backend();
+        let filter = backend
+            .execute_observed(ObservedRequest {
+                request: ExecuteRequest::new(kore("a{}()")),
+                rules: Some(vec!["missing".into()]),
+            })
+            .unwrap_err();
+        assert_eq!(
+            filter.0,
+            "could not install observation filter: no executable rewrite, function equation, \
+             simplification or definedness rule has the id 'missing'"
+        );
+        let sorted = backend
+            .add_module(
+                "module NEWSORT import MAIN [] sort SortNew{} [] endmodule []",
+                false,
+            )
+            .unwrap_err();
+        assert_eq!(
+            sorted.0,
+            "could not add KORE module: an added module may not declare sorts, and this one \
+             declares 'SortNew'"
+        );
+        let predicate = backend
+            .execute(ExecuteRequest::new(kore(r"\top{SortS{}}()")))
+            .unwrap_err();
+        assert_eq!(
+            predicate.0,
+            "could not internalize execution state: Invalid pattern: the pattern states no term, \
+             only predicates, where a term is needed"
+        );
+        let disjunction = backend
+            .execute(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
+            .unwrap_err();
+        assert_eq!(
+            disjunction.0,
+            "could not internalize execution state: Invalid pattern: a term of the pattern is a \
+             disjunction (\\or) of terms where one term is needed"
+        );
+        let rewrite = r"\and{SortS{}}(a{}(), \rewrites{SortS{}}(a{}(), b{}()))";
+        let rewrite = backend
+            .execute(ExecuteRequest::new(kore(rewrite)))
+            .unwrap_err();
+        assert_eq!(
+            rewrite.0,
+            "could not internalize execution state: Invalid pattern: a predicate of the pattern \
+             uses \\rewrites, which the backend does not read as a predicate"
+        );
+        let trailing = "module BROKEN import MAIN [] endmodule [] ]";
+        let broken = backend.add_module(trailing, false).unwrap_err();
+        assert_eq!(
+            broken.0,
+            format!(
+                "could not parse KORE module: unexpected trailing token ']' at byte {}",
+                trailing.len() - 1
+            )
+        );
     }
 
     #[test]
@@ -2902,7 +2967,10 @@ endmodule []"#;
                 rules: Some(vec!["a-to-b".into(), "missing".into()]),
             })
             .unwrap_err();
-        assert!(error.to_string().contains("UnknownRule"), "{error}");
+        assert!(
+            error.to_string().contains("has the id 'missing'"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -3662,7 +3730,9 @@ endmodule
                 for (route, outcome) in outcomes.into_iter().enumerate() {
                     if let Err(error) = outcome {
                         assert!(
-                            !error.to_string().contains("InsufficientStack"),
+                            !error
+                                .to_string()
+                                .contains("the backend provides for one operation"),
                             "term {term} route {route}: {error}"
                         );
                     }
@@ -3689,7 +3759,12 @@ endmodule
                     .state;
                 for error in every_route(&mut backend, &deep) {
                     let error = error.expect_err("a request too deep is refused");
-                    assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("the backend provides for one operation"),
+                        "{error}"
+                    );
                 }
             }
             let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
@@ -3732,7 +3807,9 @@ endmodule
                     .add_module(&module(levels, leaf), false)
                     .unwrap_err();
                 assert_eq!(
-                    error.to_string().contains("InsufficientStack"),
+                    error
+                        .to_string()
+                        .contains("the backend provides for one operation"),
                     refused,
                     "{error}"
                 );
@@ -3938,7 +4015,12 @@ endmodule
                     outcome.unwrap_or_else(|error| panic!("{conjuncts}: {error}"));
                 } else {
                     let error = outcome.unwrap_err();
-                    assert!(error.to_string().contains("InsufficientStack"), "{error}");
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("the backend provides for one operation"),
+                        "{error}"
+                    );
                 }
             }
         });
