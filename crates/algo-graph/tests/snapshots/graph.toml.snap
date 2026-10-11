@@ -5087,6 +5087,10 @@ bound = "O(P + C x |children| + r^2) per module plus the forced views.subsorts, 
 mode = "sentence concretization"
 bound = "O(N x D x (|children| + L))"
 
+[[node.cost]]
+mode = "value facts (ValueFacts::read)"
+bound = "O(R + P) for R visible rules, once per module, on the first written holder that denotes one value beside a group it may hold"
+
 [[node]]
 kind = "algorithm"
 id = "kompile.constant_folding.evaluate"

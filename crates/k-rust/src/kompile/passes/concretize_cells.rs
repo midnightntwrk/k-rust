@@ -13,6 +13,10 @@
 //! [[cost]]
 //! mode = "sentence concretization"
 //! bound = "O(N x D x (|children| + L))"
+//!
+//! [[cost]]
+//! mode = "value facts (ValueFacts::read)"
+//! bound = "O(R + P) for R visible rules, once per module, on the first written holder that denotes one value beside a group it may hold"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -88,7 +92,8 @@ pub fn concretize_cells_in_sentence(
     let model = CellModel::new(&views, model_module)
         .map_err(|message| sentence_error(message, &original))?;
     let productions = views.production_catalog(module_id);
-    let mut concretizer = Concretizer::new(&model, productions);
+    let values = ValueFacts::new(definition, module_id);
+    let mut concretizer = Concretizer::new(&model, productions, &values);
     let transformed = concretizer
         .sentence(sentence)
         .map_err(|message| sentence_error(message, &original))?;
@@ -151,9 +156,10 @@ pub(crate) fn concretize_cells_pass(
         // The first sentence of the module whose fragment test became a conjunction, which the
         // module's `BOOL` import is for; it locates the error when the definition has no `BOOL`.
         let mut first_conjunction = None;
+        let values = ValueFacts::new(resolved, module_id);
         for sentence in &mut module.local_sentences {
             let original = (**sentence).clone();
-            let mut concretizer = Concretizer::new(model, productions);
+            let mut concretizer = Concretizer::new(model, productions, &values);
             match concretizer.sentence(original) {
                 Ok(transformed) => {
                     if concretizer.conjoins_fragment && first_conjunction.is_none() {
@@ -735,9 +741,82 @@ impl CellModel {
     }
 }
 
+/// What one module's sentences say about the values of terms, read when completion needs to know
+/// that two written terms denote different values ([`Concretizer::apart`]). Most sentences never
+/// ask, so the module's rules are read on the first question.
+struct ValueFacts<'definition> {
+    definition: &'definition ResolvedDefinition,
+    module: ModuleId,
+    read: std::cell::OnceCell<ReadValueFacts>,
+}
+
+struct ReadValueFacts {
+    /// The heads of the labels some visible rule matches, or that a macro-like production or
+    /// rule declares: an equation, or a rewrite written outside the configuration, may relate
+    /// their applications to other terms.
+    rule_heads: BTreeSet<LabelHead>,
+    /// The hook of each hooked sort, by sort name.
+    hooks: BTreeMap<String, String>,
+    /// Whether a macro-like or `anywhere` rule matches a token, which may make two tokens equal.
+    token_equations: bool,
+}
+
+impl<'definition> ValueFacts<'definition> {
+    fn new(definition: &'definition ResolvedDefinition, module: ModuleId) -> Self {
+        Self {
+            definition,
+            module,
+            read: std::cell::OnceCell::new(),
+        }
+    }
+
+    fn read(&self) -> &ReadValueFacts {
+        self.read.get_or_init(|| {
+            let views = self.definition.views();
+            let productions = views.production_catalog(self.module);
+            let rules = self.definition.rule_catalog(self.module);
+            let token_equations = rules.rules().any(|(_, rule)| {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = rule
+                else {
+                    return false;
+                };
+                let mut left = match body.unannotated() {
+                    Term::Rewrite { left, .. } => left.as_ref(),
+                    Term::Apply { .. }
+                    | Term::Variable { .. }
+                    | Term::Token { .. }
+                    | Term::InjectedLabel(_)
+                    | Term::As { .. }
+                    | Term::Sequence(_)
+                    | Term::Annotated { .. } => body,
+                };
+                while let Term::As { pattern, .. } = left.unannotated() {
+                    left = pattern;
+                }
+                (attributes.has_any(&AttributeKey::MACRO_LIKE)
+                    || attributes.has(AttributeKey::Anywhere))
+                    && matches!(left.unannotated(), Term::Token { .. })
+            });
+            ReadValueFacts {
+                rule_heads: rules
+                    .rules_by_label()
+                    .keys()
+                    .cloned()
+                    .chain(rules.all_macro_labels(productions))
+                    .collect(),
+                hooks: views.sort_catalog(self.module).hooks().clone(),
+                token_equations,
+            }
+        })
+    }
+}
+
 struct Concretizer<'use_, 'definition> {
     model: &'use_ CellModel,
     productions: &'use_ ProductionCatalog<'definition>,
+    values: &'use_ ValueFacts<'use_>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
     fragments: BTreeMap<String, FragmentInfo>,
@@ -799,10 +878,15 @@ struct FragmentInfo {
 }
 
 impl<'use_, 'definition> Concretizer<'use_, 'definition> {
-    fn new(model: &'use_ CellModel, productions: &'use_ ProductionCatalog<'definition>) -> Self {
+    fn new(
+        model: &'use_ CellModel,
+        productions: &'use_ ProductionCatalog<'definition>,
+        values: &'use_ ValueFacts<'use_>,
+    ) -> Self {
         Self {
             model,
             productions,
+            values,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
             fragments: BTreeMap::new(),
@@ -2424,12 +2508,26 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// since the rule writes none of its children there. A `holder` that is on one side only
     /// (removed or added by a rewrite) cannot be it: the cells of `group` are then in an
     /// instance the rule keeps, and a built instance is the only reading.
+    ///
+    /// Nor can a `holder` that denotes one value on both sides when `group` writes, in a child
+    /// of `parent` that is not `multiplicity="*"`, values on the two sides that are apart
+    /// ([`Self::group_changes_apart`]): that instance would hold both in the one child, so the
+    /// reading with `group` inside `holder` has no instance, and a built instance is the only
+    /// reading again. When the two values are not shown apart, they may be equal, and that reading
+    /// stays.
     fn written_instance_may_hold(
         &self,
         parent: &Cell,
         holder: &WrittenInstance<'_>,
         group: &[&Term],
     ) -> bool {
+        if let ([Held::Written(left)], [Held::Written(right)]) =
+            (holder.sides[0].as_slice(), holder.sides[1].as_slice())
+            && self.one_value_on_both_sides(left, right)
+            && self.group_changes_apart(parent, group)
+        {
+            return false;
+        }
         [Side::Left, Side::Right].into_iter().all(|side| {
             let parts = group
                 .iter()
@@ -2506,6 +2604,311 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         .into_iter()
                         .any(|part| self.model.sort_for_term(part).is_none())
                 }))
+    }
+
+    /// Whether `left`, a written instance on the left of the rule, and `right`, the same instance
+    /// on the right, denote one value: they are one occurrence of a term that stands for a whole
+    /// cell (a variable or a function result, outside every rewrite), or two occurrences of one
+    /// named variable. A cell body (or an `#as` of one) does not: its unwritten children are not
+    /// written, so they are what the group may be written beside.
+    fn one_value_on_both_sides(&self, left: &Term, right: &Term) -> bool {
+        let whole = |term: &Term| {
+            !matches!(term.unannotated(), Term::As { .. }) && self.cell_body(term).is_none()
+        };
+        match (left.unannotated(), right.unannotated()) {
+            _ if std::ptr::eq(left, right) => whole(left),
+            (Term::Variable { name: left, .. }, Term::Variable { name: right, .. }) => {
+                left == right && !matches!(left.as_str(), "_" | "?_" | "!_" | "@_")
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `group`, cells whose configured parent is `parent`, writes on the left and on the
+    /// right of the rule values that are apart in one child of `parent` that is not
+    /// `multiplicity="*"`: some such child is written once on each side, and the two cells are
+    /// apart ([`Self::cells_apart`]).
+    fn group_changes_apart(&self, parent: &Cell, group: &[&Term]) -> bool {
+        let written = |side: Side, sort: &Sort| {
+            group
+                .iter()
+                .flat_map(|item| side_parts(item, side))
+                .filter(|part| self.model.slot_sort(part).as_ref() == Some(sort))
+                .collect::<Vec<_>>()
+        };
+        // Invariant: no child before `child` is written once on each side with apart cells; each child is visited once.
+        parent
+            .children
+            .iter()
+            .filter(|child| child.multiplicity != Multiplicity::Star)
+            .any(|child| {
+                matches!(
+                    (written(Side::Left, &child.sort).as_slice(), written(Side::Right, &child.sort).as_slice()),
+                    ([left], [right]) if self.cells_apart(left, right)
+                )
+            })
+    }
+
+    /// Whether `left`, a cell on the left of the rule, and `right`, a cell of the same sort on
+    /// the right, differ in every valuation of their variables, when both are the one cell of
+    /// their sort in one instance of its parent:
+    /// - a leaf cell whose content is not open on the left (no `...` before it) differs when the
+    ///   contents are apart as sequences ([`Self::sequences_apart`]), up to the shorter one when
+    ///   either is open on the right;
+    /// - a cell with children, written as a cell body, differs when one of its children that is
+    ///   not `multiplicity="*"` is written once in each body and differs: the two bodies are one
+    ///   instance, so that child is one cell.
+    ///
+    /// Any other pair is not shown to differ.
+    fn cells_apart(&self, left: &Term, right: &Term) -> bool {
+        let (left, right) = (one_cell(left), one_cell(right));
+        let Some(sort) = self.model.sort_for_term(left) else {
+            return false;
+        };
+        if self.model.sort_for_term(right).as_ref() != Some(&sort) {
+            return false;
+        }
+        let cell = &self.model.cells[&sort];
+        if cell.children.is_empty() {
+            return match (self.leaf_content(left), self.leaf_content(right)) {
+                (Some((false, left, left_open)), Some((false, right, right_open))) => self
+                    .sequences_apart(
+                        (left, Side::Left),
+                        (right, Side::Right),
+                        !left_open && !right_open,
+                    ),
+                _ => false,
+            };
+        }
+        let (Some((_, left, _)), Some((_, right, _))) =
+            (self.cell_body(left), self.cell_body(right))
+        else {
+            return false;
+        };
+        // Invariant: no child before `child` is written once in each body with cells apart; each child is visited once, and each call descends one configured level.
+        cell.children
+            .iter()
+            .filter(|child| child.multiplicity != Multiplicity::Star)
+            .any(|child| {
+                matches!(
+                    (self.parts_of(left, Side::Left, &child.sort).as_slice(), self.parts_of(right, Side::Right, &child.sort).as_slice()),
+                    ([left], [right]) if self.cells_apart(left, right)
+                )
+            })
+    }
+
+    /// The content of the leaf cell `term` with its `...` markers (none when it is complete), or
+    /// `None` when `term` is not written as a leaf cell.
+    fn leaf_content<'t>(&self, term: &'t Term) -> Option<(bool, &'t Term, bool)> {
+        match term.unannotated() {
+            Term::Apply { label, arguments } if self.model.cell_for_label(label).is_some() => {
+                match arguments.as_slice() {
+                    [content] => Some((false, content, false)),
+                    _ => incomplete_parts(arguments).ok(),
+                }
+            }
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => None,
+        }
+    }
+
+    /// The cells of the slot `sort` that the items of the cell body `body` write on `side`.
+    fn parts_of<'t>(&self, body: &'t Term, side: Side, sort: &Sort) -> Vec<&'t Term> {
+        flatten_cells(body)
+            .into_iter()
+            .flat_map(|item| side_parts(item, side))
+            .filter(|part| self.model.slot_sort(part).as_ref() == Some(sort))
+            .collect()
+    }
+
+    /// Whether the `left.1` projection of `left.0` and the `right.1` projection of `right.0`,
+    /// read as sequences of items (a `~>` sequence, `.K`, or one term), differ in every
+    /// valuation. A sequence is its items in order and nothing else, so two sequences that both
+    /// begin with one item each are equal only if those items are and the rests are. Walking
+    /// from the front while both items are single ([`Self::single_item`]), they differ when a pair
+    /// of items is apart ([`Self::apart`]), or, when both are `closed` (written to their end),
+    /// when one ends and the other still has a single item. A term of unknown length ends the walk.
+    fn sequences_apart(&self, left: (&Term, Side), right: (&Term, Side), closed: bool) -> bool {
+        let (left_items, right_items) = (
+            sequence_items(left.0, left.1),
+            sequence_items(right.0, right.1),
+        );
+        // Invariant: every pair before `index` is of single items not shown apart; each index is visited once.
+        for index in 0.. {
+            match (left_items.get(index), right_items.get(index)) {
+                (Some(l), Some(r)) => {
+                    if !self.single_item(l, left.1) || !self.single_item(r, right.1) {
+                        return false;
+                    }
+                    if self.apart((l, left.1), (r, right.1)) {
+                        return true;
+                    }
+                }
+                (Some(item), None) => return closed && self.single_item(item, left.1),
+                (None, Some(item)) => return closed && self.single_item(item, right.1),
+                (None, None) => return false,
+            }
+        }
+        false
+    }
+
+    /// Whether the `side` projection of `term` is one item of a sequence: a token, or an
+    /// application of a free constructor ([`Self::free_constructor_sort`]) whose sort is not `K`.
+    fn single_item(&self, term: &Term, side: Side) -> bool {
+        match projected(term, side) {
+            Term::Token { sort, .. } => sort.name != BuiltinSort::K.k_name(),
+            Term::Apply { label, .. } => self
+                .free_constructor_sort(label)
+                .is_some_and(|sort| sort.name != BuiltinSort::K.k_name()),
+            Term::Variable { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => false,
+        }
+    }
+
+    /// Whether the `left.1` projection of `left.0` and the `right.1` projection of `right.0`
+    /// denote different values in every valuation of their variables, decided without a solver:
+    /// - two tokens of one sort whose values differ ([`Self::tokens_apart`]);
+    /// - two applications of free constructors of one sort with different labels;
+    /// - two applications of one free constructor with an argument pair apart;
+    /// - two sequences apart ([`Self::sequences_apart`]), the arguments being written whole.
+    ///
+    /// A free constructor's applications are values that no rule relates to other terms, so
+    /// different constructors give different values, and one gives different values for
+    /// different arguments. Any other pair (a variable, a function, an `assoc` or hooked
+    /// operation, terms of different sorts) is not shown apart.
+    fn apart(&self, left: (&Term, Side), right: (&Term, Side)) -> bool {
+        let (l, r) = (projected(left.0, left.1), projected(right.0, right.1));
+        let sequence = |term: &Term| {
+            matches!(term, Term::Sequence(_))
+                || matches!(term, Term::Apply { label, .. } if InternalLabel::K_SEQUENCE.iter().any(|k| label.is(*k)))
+        };
+        if sequence(l) || sequence(r) {
+            return self.sequences_apart(left, right, true);
+        }
+        match (l, r) {
+            (
+                Term::Token {
+                    token: l,
+                    sort: left_sort,
+                },
+                Term::Token {
+                    token: r,
+                    sort: right_sort,
+                },
+            ) => left_sort == right_sort && self.tokens_apart(left_sort, l, r),
+            (
+                Term::Apply {
+                    label: left_label,
+                    arguments: left_arguments,
+                },
+                Term::Apply {
+                    label: right_label,
+                    arguments: right_arguments,
+                },
+            ) => {
+                let (Some(left_sort), Some(right_sort)) = (
+                    self.free_constructor_sort(left_label),
+                    self.free_constructor_sort(right_label),
+                ) else {
+                    return false;
+                };
+                if left_label != right_label {
+                    return left_sort == right_sort;
+                }
+                left_arguments.len() == right_arguments.len()
+                    && left_arguments
+                        .iter()
+                        .zip(right_arguments)
+                        .any(|(l, r)| self.apart((l, left.1), (r, right.1)))
+            }
+            _ => false,
+        }
+    }
+
+    /// The sort of the applications of `label` when it is a free constructor: every production
+    /// of it declares it at one sort, unhooked and not `K`, and none makes it a function, an
+    /// `assoc`, `comm`, `idem` or `unit` operation, a token, a bracket, a hook, a macro or an
+    /// overload; and no visible rule matches it ([`ReadValueFacts::rule_heads`]). Its applications
+    /// are then values that only its own arguments distinguish.
+    fn free_constructor_sort(&self, label: &Label) -> Option<Sort> {
+        if !label.parameters.is_empty() {
+            return None;
+        }
+        let head = LabelHead::from(label);
+        if self.productions.function_labels().contains(&head) {
+            return None;
+        }
+        let facts = self.values.read();
+        if facts.rule_heads.contains(&head) {
+            return None;
+        }
+        let mut result = None;
+        // Invariant: `result` is the sort of every production of `label` before `id`, none of which has an excluded attribute; each production is visited once.
+        for id in self.productions.productions_for(&head) {
+            let Sentence::Production {
+                sort, attributes, ..
+            } = self.productions.production(*id)
+            else {
+                return None;
+            };
+            if attributes.has_any(&[
+                AttributeKey::Function,
+                AttributeKey::Total,
+                AttributeKey::Functional,
+                AttributeKey::Assoc,
+                AttributeKey::Comm,
+                AttributeKey::Idem,
+                AttributeKey::Unit,
+                AttributeKey::Token,
+                AttributeKey::Bracket,
+                AttributeKey::Hook,
+                AttributeKey::Overload,
+                AttributeKey::SymbolOverload,
+            ]) || attributes.has_any(&AttributeKey::MACRO_LIKE)
+                || result.as_ref().is_some_and(|result| result != sort)
+            {
+                return None;
+            }
+            result = Some(sort.clone());
+        }
+        result.filter(|sort| {
+            sort.parameters.is_empty()
+                && sort.name != BuiltinSort::K.k_name()
+                && !facts.hooks.contains_key(&sort.name)
+        })
+    }
+
+    /// Whether the tokens `left` and `right` of `sort` denote different values. Without a hook,
+    /// a sort's domain values are its token strings, so different strings differ. With the
+    /// `INT.Int` hook a token is a decimal integer, compared by value; with `BOOL.Bool` it is
+    /// `true` or `false`. Tokens of any other hooked sort are not shown apart, nor any tokens
+    /// when a macro-like or `anywhere` rule matches a token.
+    fn tokens_apart(&self, sort: &Sort, left: &str, right: &str) -> bool {
+        let facts = self.values.read();
+        if left == right || facts.token_equations || !sort.parameters.is_empty() {
+            return false;
+        }
+        match facts.hooks.get(&sort.name).map(String::as_str) {
+            None => true,
+            Some("INT.Int") => match (integer_value(left), integer_value(right)) {
+                (Some(left), Some(right)) => left != right,
+                _ => false,
+            },
+            Some("BOOL.Bool") => [left, right]
+                .iter()
+                .all(|token| matches!(*token, "true" | "false")),
+            Some(_) => false,
+        }
     }
 
     /// The rejection of `group`, cells whose configured parent is `parent` written without it,
@@ -3707,6 +4110,94 @@ fn side_parts(item: &Term, side: Side) -> Vec<&Term> {
         .into_iter()
         .filter(|part| !is_empty_cell_bag(part))
         .collect()
+}
+
+/// The `side` projection of `term` at its root: the term without annotations, the `side` of a
+/// rewrite, and the pattern of an alias (which denotes it).
+fn projected(term: &Term, side: Side) -> &Term {
+    let mut term = term.unannotated();
+    // Invariant: `term` is the projection of the input down to the current node; each step removes one rewrite or alias node.
+    loop {
+        term = match term {
+            Term::Rewrite { left, right } => match side {
+                Side::Left => left.unannotated(),
+                Side::Right => right.unannotated(),
+            },
+            Term::As { pattern, .. } => pattern.unannotated(),
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Sequence(_)
+            | Term::Annotated { .. } => return term,
+        };
+    }
+}
+
+/// The one cell an item of a cell body written as `P #as V` denotes (its pattern `P`), or the item.
+fn one_cell(term: &Term) -> &Term {
+    match term.unannotated() {
+        Term::As { pattern, .. } => flatten_cells(pattern)
+            .into_iter()
+            .find(|part| !is_empty_cell_bag(part))
+            .unwrap_or(term),
+        Term::Apply { .. }
+        | Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::Sequence(_)
+        | Term::Annotated { .. } => term,
+    }
+}
+
+/// The items of the `side` projection of `term` read as a `~>` sequence, in order: the items of
+/// each part of a sequence, none for `.K`, and the term itself otherwise.
+fn sequence_items(term: &Term, side: Side) -> Vec<&Term> {
+    fn push<'t>(term: &'t Term, side: Side, out: &mut Vec<&'t Term>) {
+        let term = projected(term, side);
+        match term {
+            Term::Sequence(items) => {
+                // Invariant: `out` holds the items of the parts before `item`; each part is visited once.
+                for item in items {
+                    push(item, side, out);
+                }
+            }
+            Term::Apply { label, arguments } if label.is(InternalLabel::KSequence) => {
+                // Invariant: `out` holds the items of the arguments before `argument`; each argument is visited once.
+                for argument in arguments {
+                    push(argument, side, out);
+                }
+            }
+            Term::Apply { label, arguments }
+                if label.is(InternalLabel::EmptyK) && arguments.is_empty() => {}
+            Term::Apply { .. }
+            | Term::Variable { .. }
+            | Term::Token { .. }
+            | Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::As { .. }
+            | Term::Annotated { .. } => out.push(term),
+        }
+    }
+    let mut out = Vec::new();
+    push(term, side, &mut out);
+    out
+}
+
+/// The value of a decimal integer token (an optional sign and digits), as its sign and its
+/// digits without leading zeros, or `None` for another token.
+fn integer_value(token: &str) -> Option<(bool, &str)> {
+    let (negative, digits) = match token.as_bytes().first()? {
+        b'-' => (true, &token[1..]),
+        b'+' => (false, &token[1..]),
+        _ => (false, token),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let digits = digits.trim_start_matches('0');
+    Some((negative && !digits.is_empty(), digits))
 }
 
 /// The name of the variable of an alias `P #as V`, for a message.
