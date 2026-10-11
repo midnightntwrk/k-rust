@@ -2,15 +2,16 @@
 //!
 //! A *priority conjunct* is a left-hand-side component `\not{S}(A{}())` of a rewrite axiom with
 //! `A` a nullary alias (no sort parameters, no parameters) that denotes a set of configurations
-//! (`denotes_configurations`): its written body has a term pattern in predicate position
-//! (`rule::has_term_in_predicate_position_with`), an application of a nullary alias counting as
-//! one exactly when that alias denotes configurations, or its body is `\bottom`, the empty set.
-//! It states that the rule applies only outside what `A` denotes. A negated nullary alias of a
-//! predicate, reached through any number of nullary aliases, is a condition like any other, not
-//! a priority conjunct. The *applicability pattern* `App(ρ)` of a rewrite axiom ρ is its written
-//! left-hand-side components (nested `\and` flattened) other than priority conjuncts and `\top`s,
-//! in written order; the requires is among them, so a configuration satisfies `App(ρ)` exactly
-//! when ρ applies to it.
+//! (`denotes_configurations`): its body, read with every application of a nullary alias replaced
+//! by that alias's body (an application denotes what the body denotes), has a term pattern in
+//! predicate position (`rule::has_term_in_predicate_position_with`) or is `\bottom` (nested `\or`
+//! of `\bottom`s), the empty set; an application of an alias with parameters counts as a term
+//! pattern whatever its body. It states that the rule applies only outside what `A` denotes. A
+//! negated nullary alias of a predicate, reached through any number of nullary aliases, is a
+//! condition like any other, not a priority conjunct. The *applicability pattern* `App(ρ)` of a
+//! rewrite axiom ρ is its written left-hand-side components (nested `\and` flattened) other than
+//! priority conjuncts and `\top`s, in written order; the requires is among them, so a
+//! configuration satisfies `App(ρ)` exactly when ρ applies to it.
 //!
 //! A disjunct δ of a nullary alias (the arguments of its written body after flattening nested
 //! `\or`, `\bottom`s discarded) *names* the rewrite axiom ρ' when:
@@ -489,36 +490,59 @@ pub(crate) fn priority_conjunct<'p>(
         .filter(|alias| denotes_configurations(alias, aliases, &mut HashMap::new()))
 }
 
-/// Whether the nullary alias `alias` denotes a set of configurations: its body has a term pattern
-/// in predicate position, an application of a nullary alias counting as one exactly when that
-/// alias denotes configurations (an application denotes what the alias's body denotes), or its
-/// body is `\bottom` (nested `\or` of `\bottom`s), the empty set, which is also the false
-/// predicate. For `\bottom` both readings of the negation are `\top`, so discharging it is the
-/// predicate reading, and the rules an empty priority group precedes are named without it, as
-/// their priority aliases write them. An application of an alias with parameters counts as a
-/// term. `known` holds the aliases already decided, so each is walked once even when the
-/// aliases reach it along many paths; the recursion ends because alias cycles are refused at
-/// declaration.
+/// Whether the nullary alias `alias` denotes a set of configurations, read with every
+/// application of a nullary alias replaced by that alias's body (an application denotes what the
+/// body denotes): its body has a term pattern in predicate position, or it is `\bottom` (nested
+/// `\or` of `\bottom`s), the empty set, which is also the false predicate. For `\bottom` both
+/// readings of the negation are `\top`, so discharging it is the predicate reading, and the rules
+/// an empty priority group precedes are named without it, as their priority aliases write them.
+/// An application of an alias with parameters counts as a term. `known` holds the aliases already
+/// read, so each is walked once even when the aliases reach it along many paths; the recursion
+/// ends because alias cycles are refused at declaration.
 fn denotes_configurations<'a>(
     alias: &str,
     aliases: &'a BTreeMap<String, AliasDefinition>,
-    known: &mut HashMap<&'a str, bool>,
+    known: &mut HashMap<&'a str, Reading>,
 ) -> bool {
+    let reading = read(alias, aliases, known);
+    reading.empty || reading.term
+}
+
+/// A nullary alias's body read with every application of a nullary alias replaced by that
+/// alias's body.
+#[derive(Clone, Copy)]
+struct Reading {
+    /// It is `\bottom` (nested `\or` of `\bottom`s): every disjunct is `\bottom` or an
+    /// application of a nullary alias whose body so read is.
+    empty: bool,
+    /// It has a term pattern in predicate position, an application of a nullary alias counting as
+    /// one exactly when that alias's body so read has one.
+    term: bool,
+}
+
+/// The [`Reading`] of the nullary alias `alias`, memoised in `known`.
+fn read<'a>(
+    alias: &str,
+    aliases: &'a BTreeMap<String, AliasDefinition>,
+    known: &mut HashMap<&'a str, Reading>,
+) -> Reading {
     let (alias, definition) = aliases
         .get_key_value(alias)
         .expect("a nested alias is declared");
-    if let Some(&denotes) = known.get(alias.as_str()) {
-        return denotes;
+    if let Some(&reading) = known.get(alias.as_str()) {
+        return reading;
     }
     let mut disjuncts = Vec::new();
     flatten_or(&definition.right, &mut disjuncts);
-    let denotes = disjuncts.is_empty()
-        || has_term_in_predicate_position_with(&definition.right, &mut |application| {
-            nested_alias(application, aliases)
-                .is_none_or(|nested| denotes_configurations(nested, aliases, known))
-        });
-    known.insert(alias, denotes);
-    denotes
+    let empty = disjuncts.iter().all(|disjunct| {
+        nested_alias(disjunct, aliases).is_some_and(|nested| read(nested, aliases, known).empty)
+    });
+    let term = has_term_in_predicate_position_with(&definition.right, &mut |application| {
+        nested_alias(application, aliases).is_none_or(|nested| read(nested, aliases, known).term)
+    });
+    let reading = Reading { empty, term };
+    known.insert(alias, reading);
+    reading
 }
 
 /// The alias `pattern` applies when it is an application `A{}()` of a nullary alias.
@@ -826,6 +850,8 @@ mod tests {
                   alias viaTerm{}() : SortS{} where viaTerm{}() := \and{SortS{}}(cond{}(), rule2LHS{}()) []
                   alias isA{}(SortS{}) : SortS{} where isA{}(X:SortS{}) := \equals{SortS{}, SortS{}}(X:SortS{}, a{}()) []
                   alias viaParametric{}() : SortS{} where viaParametric{}() := isA{}(b{}()) []
+                  alias orEmpty{}() : SortS{} where orEmpty{}() := \or{SortS{}}(empty{}(), cond{}()) []
+                  alias notEmpty{}() : SortS{} where notEmpty{}() := \and{SortS{}}(cond{}(), \not{SortS{}}(empty{}())) []
                   axiom{} \rewrites{SortS{}}(rule0LHS{}()"},
         )]);
         let definition = parse_definition(&text).expect("the variant parses");
@@ -840,6 +866,8 @@ mod tests {
             "cond2",
             "viaTerm",
             "viaParametric",
+            "orEmpty",
+            "notEmpty",
         ]
         .map(|alias| {
             (
@@ -857,6 +885,8 @@ mod tests {
                 ("cond2", false),
                 ("viaTerm", true),
                 ("viaParametric", true),
+                ("orEmpty", false),
+                ("notEmpty", false),
             ]
         );
     }

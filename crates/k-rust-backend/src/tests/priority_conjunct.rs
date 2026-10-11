@@ -538,3 +538,16 @@ fn priority_aliases_are_never_unfolded() {
     assert!(length > 1, "the fixture alone exceeds the unfolding budget");
     loaded(&budget_fixture(length - 1, true));
 }
+
+/// An application of an empty alias denotes `\bottom`, so `\or(empty(), cond())` is the
+/// predicate `cond` states, read as a condition like `\or(\bottom, cond())`.
+#[test]
+fn a_disjunct_reaching_bottom_through_an_alias_is_read_as_the_written_bottom() {
+    let empty = r"alias empty{}() : SortS{} where empty{}() := \bottom{SortS{}}() []";
+    let through = r"alias orX{}() : SortS{} where orX{}() := \or{SortS{}}(empty{}(), cond{}()) []";
+    let holds = loaded(&carrying(&[empty, &condition(UNEQUAL), through], "orX"));
+    assert_eq!(one_step_terms(&holds, "f{}(d{}())", &NoSolver), ["c{}()"]);
+    let fails = loaded(&carrying(&[empty, &condition(EQUAL), through], "orX"));
+    let result = step(&fails, "f{}(d{}())", &NoSolver);
+    assert!(matches!(result, RewriteResult::Stuck(_)), "{result:?}");
+}
