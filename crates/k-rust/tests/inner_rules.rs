@@ -991,14 +991,8 @@ fn a_construct_whose_sort_cannot_stand_at_a_place_is_not_preferred_there() {
 /// `A "=>" A` both reused, `a => a ~> a => a` has two readings rooted at the rule's rewrite,
 /// `(arrow(a, a) ~> a) => a` and `a => (a ~> arrow(a, a))`: they split the text at different
 /// `=>`, so every position below the root belongs to one of them only, and both remain an
-/// ambiguity. In `a => a ~> a` the rewrite's sort is part of the reading: a rewrite of sort `K`
-/// to the sequence `a ~> a` and one of sort `KItem` to `seqish(a, a)` differ at the root, so
-/// their right sides are not compared either.
-///
-/// The portable build's rule grammar has one rewrite at the body's root, `#RuleK ::= K "=>" K`
-/// (a rewrite of another sort stands only at an argument of that sort), so the readings of
-/// `a => a ~> a` share the root and its right side is one position, where the sequence is
-/// chosen over `seqish(a, a)`.
+/// ambiguity. `a => a ~> a` has one split, so its readings agree at the root and differ only at
+/// the rewrite's right side, where the sequence is chosen over `seqish(a, a)`.
 #[test]
 fn readings_that_differ_above_a_position_are_not_compared_at_it() {
     let source = |rule: &str| {
@@ -1012,28 +1006,97 @@ endmodule
 "#
         )
     };
-    #[cfg(not(feature = "z3-inference"))]
-    {
-        let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
-        assert_eq!(
-            only_rule_body(&definition),
-            "a(.KList)=>a(.KList)~>a(.KList)"
-        );
+    let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
+    assert_eq!(
+        only_rule_body(&definition),
+        "a(.KList)=>a(.KList)~>a(.KList)"
+    );
+    let rule = "a => a ~> a => a";
+    let error =
+        resolve_rule_bubbles(&lowered(&source(rule))).expect_err("two readings differ at the root");
+    let RuleError::Parse(ref parse) = error else {
+        panic!("{rule}: {error:?}")
+    };
+    assert!(
+        matches!(parse.error, ParseError::Ambiguous { .. }),
+        "{rule}: {error:?}"
+    );
+}
+
+/// A rewrite's sort is a parameter that inference chooses, at most the sort of the place it
+/// stands at, so the rewrite is preferred at a place of any sort (`h(Foo)`, with the user's
+/// `Foo ::= Bar "=>" Bar`), and its sides stand at that place: as the argument of `g(K)` the
+/// rule's sequence is its right side, as the argument of `f(KItem)` a sequence cannot be, and
+/// the user's `seqish` is.
+#[test]
+fn a_rewrite_is_preferred_at_a_place_of_any_sort_and_its_sides_stand_there() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+  syntax KItem ::= A "~>" A [symbol(seqish)]
+  syntax KItem ::= f(KItem) [symbol(f)] | g(K) [symbol(g)]
+  syntax Bar ::= "bar" [symbol(bar)]
+  syntax Foo ::= Bar
+  syntax Foo ::= Bar "=>" Bar [symbol(arrowfoo)]
+  syntax KItem ::= h(Foo) [symbol(h)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        ("h(bar => bar)", "h(bar(.KList)=>bar(.KList))"),
+        ("g(a => a ~> a)", "g(a(.KList)=>a(.KList)~>a(.KList))"),
+        (
+            "f(a => a ~> a)",
+            "f(a(.KList)=>seqish(a(.KList),a(.KList)))",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&source(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
     }
-    #[cfg(feature = "z3-inference")]
-    let rules = ["a => a ~> a => a", "a => a ~> a"];
-    #[cfg(not(feature = "z3-inference"))]
-    let rules = ["a => a ~> a => a"];
-    for rule in rules {
-        let error = resolve_rule_bubbles(&lowered(&source(rule)))
-            .expect_err("two readings differ at the root");
-        let RuleError::Parse(ref parse) = error else {
-            panic!("{rule}: {error:?}")
-        };
-        assert!(
-            matches!(parse.error, ParseError::Ambiguous { .. }),
-            "{rule}: {error:?}"
-        );
+}
+
+/// A rewrite's sort is at least each of its sides' sorts, so where a side's sort cannot stand
+/// at a place the rewrite cannot either, and the choice does not prefer it there: in a match
+/// arm `syntax Arm ::= Pat "=>" Exp`, the `=>` of `match(V, p => e)` cannot be the rule's
+/// rewrite of an `Arm` (a `Pat` and an `Exp` are no `Arm`), so it is the arm, whatever other
+/// sorts the module declares; so with a token (`1`, a `Num`) or a sort written on a variable
+/// (`P:Pat`) on a side.
+#[test]
+fn a_rewrite_whose_sides_cannot_stand_at_a_place_is_not_preferred_there() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax Num ::= r"[0-9]+" [token]
+  syntax Pat ::= "p" [symbol(p)] | Num
+  syntax Exp ::= "e" [symbol(e)] | Num
+  syntax Arm ::= Pat "=>" Exp [symbol(arm)]
+  syntax Exp ::= match(Exp, Arm) [symbol(match)]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        (
+            "match(V, p => e) => e",
+            "match(#SemanticCastToExp(V),arm(p(.KList),e(.KList)))=>e(.KList)",
+        ),
+        (
+            "match(V, 1 => B) => B",
+            r#"match(#SemanticCastToExp(V),arm(#token("1","Num"),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)"#,
+        ),
+        (
+            "match(V, P:Pat => B) => B",
+            "match(#SemanticCastToExp(V),arm(#SemanticCastToPat(P),#SemanticCastToExp(B)))=>#SemanticCastToExp(B)",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&source(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
     }
 }
 

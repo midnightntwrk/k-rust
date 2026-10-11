@@ -603,12 +603,13 @@ impl Grammar {
     /// The choice is defined on trees. A position of a tree is a node occurrence in it, standing
     /// at a child slot of its parent's production; the rank of the subtree there is read at its
     /// root seen through pass-through productions (as [`Self::packed_top_parse_label`] reads it):
-    /// rewrite, sequence, `#let`, anything else, where a construct whose node does not stand for
-    /// a term of a sort below the one its place declares ranks as anything else
-    /// ([`Self::structural_reading_fits`]): a sequence, of sort `K`, is no `KItem` argument, so
-    /// it is not what the rule means there. A tree is kept when, at each of its positions, its
-    /// subtree has the least rank among the trees that agree with it everywhere outside that
-    /// position. A position that some readings do not have is compared only among those that
+    /// rewrite, sequence, `#let`, anything else, where a construct that cannot stand for a term
+    /// of a sort below the one its place declares ranks as anything else ([`Self::may_stand`]):
+    /// a sequence, of sort `K`, is no `KItem` argument, and a rewrite of a `Pat` to an `Exp` is
+    /// no `Arm`, so neither is what the rule means there. A rewrite's own sort is chosen by
+    /// inference, at most its place's, so its sides stand at that place. A tree is kept when, at
+    /// each of its positions, its subtree has the least rank among the trees that agree with it
+    /// everywhere outside that position. A position that some readings do not have is compared only among those that
     /// have it; there is one condition per position and no order between them, so choosing
     /// top-down, bottom-up or in any order keeps the same trees, and since every comparison
     /// includes the tree itself, the choice never leaves a forest empty.
@@ -657,7 +658,7 @@ impl Grammar {
             .into_iter()
             .find_map(|label| self.restrict_root_label(term, label.as_str(), place))
             .unwrap_or_else(|| Rc::clone(term));
-            let preferred = self.prefer_structural_readings_below(&restricted, memo);
+            let preferred = self.prefer_structural_readings_below(&restricted, place, memo);
             memo.insert(key, (Rc::clone(term), Rc::clone(&preferred)));
             preferred
         })
@@ -668,6 +669,7 @@ impl Grammar {
     fn prefer_structural_readings_below(
         &self,
         term: &Rc<PackedTerm>,
+        place: Option<StructuralPlace<'_>>,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
         match &term.node {
@@ -677,11 +679,11 @@ impl Grammar {
                 for group in self.alternatives_at_one_position(alternatives) {
                     let kept = match group.as_slice() {
                         [alternative] => {
-                            vec![self.prefer_structural_readings_below(alternative, memo)]
+                            vec![self.prefer_structural_readings_below(alternative, place, memo)]
                         }
                         _ => {
                             let merged = merge_alternatives_at_one_position(&group);
-                            let kept = self.prefer_structural_readings_below(&merged, memo);
+                            let kept = self.prefer_structural_readings_below(&merged, place, memo);
                             if Rc::ptr_eq(&kept, &merged) {
                                 group
                                     .iter()
@@ -719,14 +721,14 @@ impl Grammar {
                 children,
                 metadata,
             } => {
-                let places = self.structural_places(*production);
+                let places = self.structural_places(*production, place);
                 let preferred = children
                     .iter()
                     .enumerate()
                     .map(|(index, child)| {
                         self.prefer_structural_readings_memo(
                             child,
-                            places.get(index).copied(),
+                            places.get(index).copied().flatten(),
                             memo,
                         )
                     })
@@ -799,11 +801,15 @@ impl Grammar {
             } => {
                 let descriptor = &self.productions[*production];
                 match descriptor.parse_label.as_deref() {
-                    Some(own) => (own == label
-                        && self.structural_reading_fits(&descriptor.result, place))
-                    .then(|| Rc::clone(term)),
+                    Some(own) => {
+                        (own == label && self.may_stand(term, place)).then(|| Rc::clone(term))
+                    }
                     None if descriptor.syntactic_subsort || children.len() == 1 => {
-                        let inner = self.structural_places(*production).first().copied();
+                        let inner = self
+                            .structural_places(*production, place)
+                            .first()
+                            .copied()
+                            .flatten();
                         let child = self.restrict_root_label(children.first()?, label, inner)?;
                         if Rc::ptr_eq(&child, &children[0]) {
                             Some(Rc::clone(term))
@@ -824,12 +830,11 @@ impl Grammar {
         })
     }
 
-    /// Whether a rewrite, sequence or `#let` node of sort `sort` can be well sorted at `place`:
-    /// where the term the node stands for has a sort not below the one the place declares, no
-    /// reading puts the construct there with a meaning, and the choice does not prefer it there
-    /// ([`Self::prefer_structural_readings`]). A node stands for a term of its production's
-    /// sort, except a node of the scaffolding sort a widened place is recognized at, which
-    /// stands for a term of the sort the place declares
+    /// Whether a node standing for a term of sort `sort` can be well sorted at `place`: where
+    /// the sort is not below the one the place declares, no reading puts the node there with a
+    /// meaning, and the choice does not prefer a construct there
+    /// ([`Self::prefer_structural_readings`]). A node of the scaffolding sort a widened place is
+    /// recognized at stands for a term of the sort the place declares
     /// (`Grammar::admit_rewrites_in_argument_positions`): in the portable build a rewrite at a
     /// `KItem` argument is a node of `#RuleKItem`, a rewrite of sort `KItem`. A place of no sort
     /// (the parse's root) or of a sort outside the subsort order (a sort parameter) admits it.
@@ -846,19 +851,91 @@ impl Grammar {
         !order.contains(place.declared) || order.less_than_eq(sort, place.declared)
     }
 
-    /// The place of each nonterminal child slot of `production`, in order.
-    fn structural_places(&self, production: usize) -> Vec<StructuralPlace<'_>> {
+    /// Whether some reading of `term` can be well sorted at `place` as far as the sorts written in
+    /// it say: a node of a production stands for a term of the production's sort
+    /// ([`Self::structural_reading_fits`]); a node of a parametric production whose sort is its
+    /// result parameter (a rewrite, `#as`, `#let`) for a term of a sort that is at most the
+    /// place's and at least each operand's at that parameter, so it can stand there exactly when
+    /// each of those operands can; a pass-through for its child's term or one of its own sort; a
+    /// token for a term of its sort; a variable for a term of any sort. A reading this rejects
+    /// is rejected by inference too, so the choice does not prefer a construct where no term puts
+    /// it ([`Self::prefer_structural_readings`]). It reads only the sorts written in the reading,
+    /// not a variable's sort from its other occurrences, which only inference relates.
+    fn may_stand(&self, term: &Rc<PackedTerm>, place: Option<StructuralPlace<'_>>) -> bool {
+        if place.is_none() {
+            return true;
+        }
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .any(|alternative| self.may_stand(alternative, place)),
+            PackedNode::Production {
+                production,
+                children,
+                ..
+            } => {
+                let descriptor = &self.productions[*production];
+                if let Some(origin) = &descriptor.parametric_origin
+                    && origin.result_is_parameter()
+                {
+                    return origin
+                        .nonterminal_sorts()
+                        .zip(children)
+                        .filter(|(sort, _)| **sort == origin.result)
+                        .all(|(_, child)| self.may_stand(child, place));
+                }
+                self.structural_reading_fits(&descriptor.result, place)
+                    || ((descriptor.parse_label.is_none() || descriptor.syntactic_subsort)
+                        && children.len() == 1
+                        && self.may_stand(&children[0], place))
+            }
+            PackedNode::Term(term) => match term.unannotated() {
+                Term::Token { sort, .. } => self.structural_reading_fits(sort, place),
+                _ => true,
+            },
+            PackedNode::InstantiatedProduction { .. } => true,
+        }
+    }
+
+    /// The place of each nonterminal child slot of `production`, in order, for a node standing
+    /// at `own` (`None`: a place that admits every construct). An operand declared at the
+    /// parametric production's result parameter stands at the node's own place, since the
+    /// parameter is at most that place's sort; an operand of another parameter admits every
+    /// construct; every other operand's place is the one the production declares there.
+    fn structural_places<'a>(
+        &'a self,
+        production: usize,
+        own: Option<StructuralPlace<'a>>,
+    ) -> Vec<Option<StructuralPlace<'a>>> {
         let descriptor = &self.productions[production];
+        let origin_sorts = descriptor
+            .parametric_origin
+            .as_ref()
+            .map(|origin| (origin, origin.nonterminal_sorts().collect::<Vec<_>>()));
         descriptor
             .items
             .iter()
             .zip(&descriptor.item_sort_ids)
             .filter_map(|(item, sort_id)| match item {
-                Item::NonTerminal(declared) => Some(StructuralPlace {
+                Item::NonTerminal(declared) => Some((declared, sort_id)),
+                _ => None,
+            })
+            .enumerate()
+            .map(|(slot, (declared, sort_id))| {
+                if let Some((origin, sorts)) = &origin_sorts
+                    && let Some(sort) = sorts.get(slot)
+                {
+                    if origin.result_is_parameter() && **sort == origin.result {
+                        return own;
+                    }
+                    if mentions_parameter(sort, &origin.parameters) {
+                        return None;
+                    }
+                }
+                Some(StructuralPlace {
                     declared,
                     recognized: sort_id.map_or(declared, |id| &self.sorts[id]),
-                }),
-                _ => None,
+                })
             })
             .collect()
     }
@@ -4346,6 +4423,15 @@ fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a Par
             collect_frontier(&below, frontier);
         }
     })
+}
+
+/// Whether `sort` is one of `parameters` or applies a sort constructor to one.
+fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
+    parameters.contains(sort)
+        || sort
+            .parameters
+            .iter()
+            .any(|inner| mentions_parameter(inner, parameters))
 }
 
 /// A child slot as [`Grammar::prefer_structural_readings`] sees it: the sort its production

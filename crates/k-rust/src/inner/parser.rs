@@ -1245,6 +1245,22 @@ impl ParametricOrigin {
     fn hook(&self) -> Option<&str> {
         self.attributes.string(AttributeKey::Hook)
     }
+
+    /// The sorts of the origin's nonterminal items, in order.
+    pub(crate) fn nonterminal_sorts(&self) -> impl Iterator<Item = &Sort> {
+        self.items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        })
+    }
+
+    /// Whether the origin's result is one of its parameters (a rewrite, `#as`, `#let`): every
+    /// instance builds a node of one production of the family (`Production::term_production`),
+    /// so that production's sort is not the sort of the term the node stands for, which
+    /// inference chooses, at most the sort of the place the node stands at.
+    pub(crate) fn result_is_parameter(&self) -> bool {
+        self.parameters.contains(&self.result)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
