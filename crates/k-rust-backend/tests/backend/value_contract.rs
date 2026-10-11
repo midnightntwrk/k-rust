@@ -1849,6 +1849,64 @@ fn a_predicate_lemma_reads_a_ground_normal_form_in_its_terms_as_its_value() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
+/// A term of a predicate lemma's left-hand side is compared with a term of the subject predicate,
+/// which may have any root, so a term that is itself a ground normal form is read as its value
+/// there, as one written below it is. `\equals(a, X)` is rewritten to `\top` by the first lemma
+/// and to `\bottom` by the second one, at a lower priority, which applies only where the first one
+/// fails to match. For two distinct ground normal forms `a` and `b`, the predicate
+/// `\equals(b, Z)` under the lemma written with `a`, and the exchanged pair, both reach the second
+/// lemma: `k()` is a constructor, and `h(1)` and `j(1)` are certified normal forms of two
+/// equation heads, so each pair is two distinct values.
+#[test]
+fn a_predicate_lemma_term_that_is_a_ground_normal_form_is_read_as_its_value() {
+    let lemma = |pattern: &str, result: &str, priority: u32| {
+        format!(
+            r#"axiom{{R, Q}} \implies{{R}}(\top{{R}}(), \equals{{Q, R}}(\equals{{SortA{{}}, Q}}({pattern}, VarX:SortA{{}}), \and{{Q}}({result}, \top{{Q}}()))) [simplification{{}}("{priority}")]"#
+        )
+    };
+    let definition = |pattern: &str| {
+        let axioms = [
+            lemma(pattern, r"\top{Q}()", 40),
+            lemma("VarY:SortA{}", r"\bottom{Q}()", 60),
+        ];
+        let definition = definition(GROUND_VALUES, &axioms);
+        assert_eq!(definition.predicate_simplification_theory().len(), 2);
+        definition
+    };
+    let query = |definition: &BackendDefinition, value: &str| {
+        let query = format!(r"\equals{{SortA{{}}, SortS{{}}}}({value}, VarZ:SortA{{}})");
+        let syntax = k_rust_kore::kore::parser::parse_pattern(&query).expect("the query parses");
+        let (predicate, _) = definition
+            .admit_unverified(&syntax, &[])
+            .internalize_predicate()
+            .expect("the query internalizes");
+        simplify_predicate_with_solver(
+            definition,
+            &predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the query simplifies")
+    };
+    let h = |value: i64| format!("h{{}}({})", int(value));
+    let pairs = [
+        ("k{}()".to_owned(), h(1)),
+        (h(1), format!("j{{}}({})", int(1))),
+    ];
+    let mut failures = Vec::new();
+    for (left, right) in &pairs {
+        let one = query(&definition(left), right);
+        let other = query(&definition(right), left);
+        if one != Predicate::False || other != Predicate::False {
+            failures.push(format!(
+                "lemma {left}, query {right}: {one:?}\nlemma {right}, query {left}: {other:?}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
 /// FOLLOWUPS 2.2 "Value-claim precision limits", third bullet (K12 bullet 3, a root range per
 /// equation head): `f(f(inj{K,F}(k(X)))) = c` with `K < F`. Up to equations, an `f` application
 /// denotes a normal form rooted at `f` or the value of one of `f`'s right-hand sides, here `c`;
