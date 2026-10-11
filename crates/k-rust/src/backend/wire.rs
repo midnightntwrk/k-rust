@@ -1614,7 +1614,7 @@ pub(super) fn execution_response<K: WireKore>(
             .leaves
             .into_iter()
             .map(|leaf| {
-                let (reason, detail) = halt_reason(&leaf.halt_reason)?;
+                let (reason, detail) = halt_reason(&leaf.halt_reason, &leaf.pattern.term.sort())?;
                 let (rule_id, rule_label) = match &leaf.halt_reason {
                     HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
                     HaltReason::Stopped(_)

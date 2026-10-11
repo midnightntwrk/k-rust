@@ -83,11 +83,13 @@ use crate::{
     priority_conjunct::Discharge,
     rewrite::Pattern,
     rule::{
-        AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
-        RuleKind, RulePatternError, SentenceKey, TermIndex, Theory, algebraic_axiom_roots,
-        classify_axiom, collapse_equal_axioms, insert_rewrite_theory, insert_theory,
-        internalize_axiom, internalize_model_predicate as internalize_rule_model_predicate,
-        internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
+        AxiomError, ClassifiedAxiom, InternalizedRule, MALFORMED_OVERLOAD, Predicate,
+        PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey, TermIndex, Theory,
+        algebraic_axiom_roots, classify_axiom, collapse_equal_axioms, insert_rewrite_theory,
+        insert_theory, internalize_axiom,
+        internalize_model_predicate as internalize_rule_model_predicate,
+        internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
+        overload_pair, rule_index,
     },
     smt::{SExpr, SmtType},
     term::{
@@ -3547,28 +3549,14 @@ fn reject_collection_hook_misfits(
 /// A declaration's written position, `path:line:column`, from its KORE `Source` and `Location`
 /// attributes; `None` when it carries neither.
 fn written_position(attributes: &kore::Attributes) -> Result<Option<String>, DefinitionError> {
-    let source = attributes.string(KoreAttribute::Source)?.map(|source| {
-        source
-            .strip_prefix("Source(")
-            .and_then(|path| path.strip_suffix(')'))
-            .unwrap_or(source)
-    });
-    let location = attributes.string(KoreAttribute::Location)?.map(|location| {
-        let start = location
-            .strip_prefix("Location(")
-            .and_then(|inner| inner.strip_suffix(')'))
-            .map(|inner| inner.split(',').take(2).collect::<Vec<_>>());
-        match start {
-            Some(parts) if parts.len() == 2 => format!("{}:{}", parts[0], parts[1]),
-            _ => location.to_owned(),
-        }
-    });
-    Ok(match (source, location) {
-        (Some(source), Some(location)) => Some(format!("{source}:{location}")),
-        (Some(source), None) => Some(source.to_owned()),
-        (None, Some(location)) => Some(location),
-        (None, None) => None,
-    })
+    let origin = crate::rule::RuleOrigin {
+        source: attributes.string(KoreAttribute::Source)?.map(str::to_owned),
+        location: attributes
+            .string(KoreAttribute::Location)?
+            .map(str::to_owned),
+        sentence: None,
+    };
+    Ok(origin.written_position())
 }
 
 fn build_sort_graph(
@@ -3689,36 +3677,8 @@ fn subsort_attribute(
 fn overload_attribute(
     attributes: &kore::Attributes,
 ) -> Result<Option<(Name, Name)>, DefinitionError> {
-    let Some(arguments) = attributes
-        .arguments(KoreAttribute::SymbolOverload)
-        .or_else(|| attributes.arguments(KoreAttribute::Overload))
-    else {
-        return Ok(None);
-    };
-    let [
-        kore::Pattern::Application {
-            symbol: greater,
-            arguments: greater_arguments,
-        },
-        kore::Pattern::Application {
-            symbol: lesser,
-            arguments: lesser_arguments,
-        },
-    ] = arguments
-    else {
-        return Err(DefinitionError::MalformedAttribute(
-            "symbol-overload must contain two nullary symbols".into(),
-        ));
-    };
-    if !greater_arguments.is_empty() || !lesser_arguments.is_empty() {
-        return Err(DefinitionError::MalformedAttribute(
-            "symbol-overload must contain two nullary symbols".into(),
-        ));
-    }
-    Ok(Some((
-        greater.name.as_str().into(),
-        lesser.name.as_str().into(),
-    )))
+    overload_pair(attributes)
+        .map_err(|()| DefinitionError::MalformedAttribute(MALFORMED_OVERLOAD.into()))
 }
 
 fn reject_duplicates(parameters: &[String]) -> Result<(), DefinitionError> {

@@ -265,7 +265,7 @@ fn run_kore_measured<T>(
             "total_wall_seconds": started.elapsed().as_secs_f64(),
             "phases": [{"name": name, "seconds": started.elapsed().as_secs_f64(), "depth": 0}],
         });
-        fs::write(path, serde_json::to_string_pretty(&timing)?)?;
+        fs::write(path, k_rust_kore::json_tree::to_string_pretty(&timing)?)?;
     }
     result
 }
@@ -1293,7 +1293,7 @@ struct ClaimTiming {
 impl ProofTimings {
     fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
         if let Some(path) = path {
-            fs::write(path, serde_json::to_string_pretty(self)?)?;
+            fs::write(path, k_rust_kore::json_tree::to_string_pretty(self)?)?;
         }
         Ok(())
     }
@@ -1350,7 +1350,7 @@ impl CompileTimings {
 
     fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
         if let Some(path) = path {
-            fs::write(path, serde_json::to_string_pretty(self)?)?;
+            fs::write(path, k_rust_kore::json_tree::to_string_pretty(self)?)?;
         }
         Ok(())
     }
@@ -1370,7 +1370,7 @@ struct KrunTimings {
 impl KrunTimings {
     fn write(&self, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
         if let Some(path) = path {
-            fs::write(path, serde_json::to_string_pretty(self)?)?;
+            fs::write(path, k_rust_kore::json_tree::to_string_pretty(self)?)?;
         }
         Ok(())
     }
@@ -2040,7 +2040,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                     };
                     fs::write(
                         options.output_directory.join(PREPARED_MANIFEST),
-                        serde_json::to_string_pretty(&manifest)?,
+                        k_rust_kore::json_tree::to_string_pretty(&manifest)?,
                     )?;
                 }
                 fs::write(
@@ -2215,18 +2215,20 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         if options.output != OutputFormat::Json {
             return Err("KAST batch mode requires --output json".into());
         }
-        let mut output = serde_json::Map::new();
+        let mut accepted = Vec::with_capacity(options.batch_cases.len());
         for case in options.batch_cases {
             let sort = parse_sort(&case.sort)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
             let program = parser
                 .parse_for_presentation(&sort, &case.expression)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let encoded: serde_json::Value = serde_json::from_str(&program.to_kast_json_pretty()?)?;
-            if output.insert(case.name.clone(), encoded).is_some() {
-                return Err(format!("duplicate KAST batch case name {:?}", case.name).into());
-            }
+            accepted.push((case.name, program));
         }
+        let output = k_rust::kast::json::batch_to_string_pretty(
+            accepted
+                .iter()
+                .map(|(name, program)| (name.as_str(), program.term())),
+        )?;
         for case in options.batch_reject_cases {
             let sort = parse_sort(&case.sort)
                 .map_err(|error| format!("KAST rejection batch case {:?}: {error}", case.name))?;
@@ -2238,7 +2240,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
                 .into());
             }
         }
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        println!("{output}");
         return Ok(());
     }
     let source = read_program_source(options.expression, options.program_file)?;
@@ -2880,7 +2882,7 @@ fn model_output(
     if let Some(substitution) = substitution {
         output["substitution"] = kore_json::to_value(&substitution)?;
     }
-    Ok(serde_json::to_string_pretty(&output)?)
+    Ok(k_rust_kore::json_tree::to_string_pretty(&output)?)
 }
 
 fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {

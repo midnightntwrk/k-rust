@@ -76,7 +76,6 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::BTreeSet,
-    fmt,
     sync::Arc,
 };
 
@@ -108,7 +107,7 @@ use crate::{
         violates_finite_constructor_domain,
     },
     rule::{
-        Absence, Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs,
+        Absence, Predicate, PredicateRewriteRule, RewriteRule, RuleAttributes, RuleOrigin, RuleRhs,
         applicable_groups, mentions_free, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
@@ -229,6 +228,10 @@ pub struct ContradictedTotal {
     pub label: Option<String>,
     /// Where the equation is written (its first origin), when the KORE carries it.
     pub origin: Option<RuleOrigin>,
+    /// The equation's attributes, by which a diagnostic names it
+    /// ([`RuleAttributes::diagnostic_name`]); `rule_id`, `label` and `origin` are the parts of
+    /// them a reply carries.
+    pub attributes: RuleAttributes,
     /// The undefined term the equation's result reached.
     pub undefined_term: Term,
 }
@@ -248,6 +251,7 @@ impl ContradictedTotal {
             rule_id: rule.attributes.unique_id.clone(),
             label: rule.attributes.label.clone(),
             origin: rule.attributes.origins.first().cloned(),
+            attributes: rule.attributes.clone(),
             undefined_term,
         })
     }
@@ -322,18 +326,6 @@ pub enum SimplificationError {
         reason: UnsupportedHookReason,
         term: Term,
     },
-}
-
-impl fmt::Display for SimplificationError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnsupportedHook { hook, reason, .. } => write!(
-                formatter,
-                "unsupported hook '{hook}' on constructor-like arguments: {reason}"
-            ),
-            _ => write!(formatter, "{self:?}"),
-        }
-    }
 }
 
 /// The result of a simplification inside this module: `?` propagates a stop and a failure alike.

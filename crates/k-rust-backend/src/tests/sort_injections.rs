@@ -48,14 +48,14 @@ fn assert_written_refused(axiom: &str, identity: &str) {
 }
 
 #[test]
-fn function_written_injection_is_refused_with_axiom_identity() {
-    assert_written_refused(
-        r#"axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()),
+fn function_written_injection_is_refused_naming_the_label_over_the_unique_id() {
+    let axiom = r#"axiom{R} \implies{R}(\and{R}(\top{R}(), \top{R}()),
             \equals{SortB{},R}(f{}(), \and{SortB{}}(
                 inj{SortA{},SortB{}}(a{}()), \top{SortB{}}())))
-            [UNIQUE'Unds'ID{}("written-function"), label{}("fallback-label")]"#,
-        "written-function",
-    );
+            [UNIQUE'Unds'ID{}("a1b2c3"), label{}("written-function")]"#;
+    assert_written_refused(axiom, "written-function");
+    let error = load(&source(axiom)).expect_err("written unlicensed injection must be refused");
+    assert!(!error.to_string().contains("a1b2c3"), "{error}");
 }
 
 #[test]
@@ -83,19 +83,19 @@ fn written_injection_with_unknown_unique_id_uses_label() {
 }
 
 #[test]
-fn written_injection_without_identity_formats_origin() {
+fn written_injection_without_identity_names_its_position() {
     for (attributes, expected) in [
         (
             r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
-            "source Source(fixture.k), location Location(3,1,7,2)",
+            "at fixture.k:3:1",
         ),
         (
             r#"org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,1,7,2)")"#,
-            "location Location(3,1,7,2)",
+            "at 3:1",
         ),
         (
             r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(fixture.k)")"#,
-            "source Source(fixture.k)",
+            "at fixture.k",
         ),
     ] {
         let error = load(&source(&format!(
@@ -119,7 +119,7 @@ fn written_injection_without_identity_reports_module_and_sentence() {
     .expect_err("written unlicensed injection must be refused");
     assert_eq!(
         error.to_string(),
-        "Unlicensed injection from SortA{} to SortB{} in axiom module TEST, sentence index 7 (zero-based)",
+        "Unlicensed injection from SortA{} to SortB{} in axiom at sentence index 7 (zero-based) of module TEST",
     );
 }
 

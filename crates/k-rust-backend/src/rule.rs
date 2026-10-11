@@ -700,14 +700,51 @@ pub struct RuleAttributes {
     /// first being the representative whose variable names the rule keeps. The list is never
     /// empty, and no other field of these attributes is provenance.
     pub origins: Vec<RuleOrigin>,
+    /// The `(greater, lesser)` symbols of the axiom's `symbol-overload` attribute: the axiom
+    /// equates an application of the greater symbol with the injected application of the
+    /// lesser one. An axiom with this attribute is made by the compiler from the overload
+    /// relation, so the pair is what names it.
+    pub overload: Option<(Name, Name)>,
 }
 
-/// The written position of one axiom sentence: its KORE `Source` and `Location` attributes,
-/// each absent when the sentence does not carry it.
+/// One axiom sentence: its KORE `Source` and `Location` attributes, each absent when the
+/// sentence does not carry it, and its place in the definition.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuleOrigin {
     pub source: Option<String>,
     pub location: Option<String>,
+    /// The declaring module and the sentence's zero-based position in that module's sentence
+    /// list (sorts, symbols and imports counted), recorded when a definition internalizes the
+    /// axiom; absent for a sentence read on its own, such as a claim.
+    pub sentence: Option<SentenceKey>,
+}
+
+impl RuleOrigin {
+    /// The written position, `path:line:column`, from the `Source` and `Location` attributes;
+    /// `None` when the sentence carries neither.
+    pub fn written_position(&self) -> Option<String> {
+        let source = self.source.as_deref().map(|source| {
+            source
+                .strip_prefix("Source(")
+                .and_then(|path| path.strip_suffix(')'))
+                .unwrap_or(source)
+        });
+        let location = self.location.as_deref().map(|location| {
+            let inner = location
+                .strip_prefix("Location(")
+                .and_then(|inner| inner.strip_suffix(')'));
+            match inner.map(|inner| inner.split(',').take(2).collect::<Vec<_>>()) {
+                Some(parts) if parts.len() == 2 => format!("{}:{}", parts[0], parts[1]),
+                _ => location.to_owned(),
+            }
+        });
+        match (source, location) {
+            (Some(source), Some(location)) => Some(format!("{source}:{location}")),
+            (Some(source), None) => Some(source.to_owned()),
+            (None, Some(location)) => Some(location),
+            (None, None) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1004,8 +1041,9 @@ pub type SentenceKey = (Name, usize);
 /// declaring module is not compared because it locates the sentence and does not affect its
 /// instances.
 ///
-/// The first axiom of a class in declaration order is kept with its variable names and sentence
-/// key for load diagnostics, and the origins of the others are appended to its origin list in
+/// Each axiom's origin records its sentence key first, so a collapsed rule's origins locate
+/// every sentence it stands for. The first axiom of a class in declaration order is kept with
+/// its variable names and sentence key for load diagnostics, and the origins of the others are appended to its origin list in
 /// declaration order. The loader reads each module once (`visit_module`) and each of its
 /// sentences once (`rule_sentence_indices`), so no two items share a sentence key and appending
 /// never lists a sentence twice (`import_paths.rs` holds that a module reached by two import
@@ -1022,6 +1060,9 @@ pub(crate) fn collapse_equal_axioms(
     let mut sentences = Vec::<SentenceKey>::new();
     let mut classes = BTreeMap::<(String, u64), Vec<usize>>::new();
     for (mut axiom, sentence) in axioms {
+        for origin in &mut axiom.attributes_mut().origins {
+            origin.sentence = Some(sentence.clone());
+        }
         let candidates = classes
             .entry((axiom.attributes().unique_id.clone(), axiom_shape(&axiom)))
             .or_default();
@@ -1336,6 +1377,7 @@ impl<'a> VariableRenaming<'a> {
             smt_lemma,
             executable,
             origins: _,
+            overload,
         } = left;
         *priority == right.priority
             && *label == right.label
@@ -1344,6 +1386,7 @@ impl<'a> VariableRenaming<'a> {
             && *preserves_definedness == right.preserves_definedness
             && *smt_lemma == right.smt_lemma
             && *executable == right.executable
+            && *overload == right.overload
             && self.concreteness(concreteness, &right.concreteness)
     }
 
@@ -1797,33 +1840,6 @@ fn definition_spellings(variables: &BTreeSet<Variable>) -> Vec<String> {
         .collect()
 }
 
-/// How an error names an axiom: its `UNIQUE_ID`, else its label, else its source location,
-/// else its position among the module's sentences.
-fn axiom_identity(attributes: &RuleAttributes, sentence: &SentenceKey) -> String {
-    // The index counts all module sentences, including sorts, symbols and imports.
-    let fallback = || {
-        format!(
-            "module {}, sentence index {} (zero-based)",
-            sentence.0, sentence.1
-        )
-    };
-    if attributes.unique_id != "UNKNOWN" {
-        attributes.unique_id.clone()
-    } else if let Some(label) = &attributes.label {
-        // An explicit UNIQUE_ID of "UNKNOWN" overrides the parser's label fallback.
-        label.clone()
-    } else {
-        attributes.origins.first().map_or_else(fallback, |origin| {
-            match (&origin.source, &origin.location) {
-                (Some(source), Some(location)) => format!("source {source}, location {location}"),
-                (Some(source), None) => format!("source {source}"),
-                (None, Some(location)) => format!("location {location}"),
-                (None, None) => fallback(),
-            }
-        })
-    }
-}
-
 pub(crate) fn written_injection_error(
     error: DefinitionError,
     attributes: &RuleAttributes,
@@ -1832,7 +1848,7 @@ pub(crate) fn written_injection_error(
     let DefinitionError::NotSubsort { source, target } = error else {
         return error;
     };
-    let axiom = axiom_identity(attributes, sentence);
+    let axiom = attributes.diagnostic_name(str::to_owned);
     DefinitionError::UnlicensedInjection {
         source,
         target,
@@ -3447,7 +3463,7 @@ impl RuleAttributes {
             .string(KoreAttribute::UniqueId)?
             .map(str::to_owned)
             .or_else(|| label.clone())
-            .unwrap_or_else(|| "UNKNOWN".into());
+            .unwrap_or_else(|| UNKNOWN_UNIQUE_ID.into());
         Ok(Self {
             priority,
             label,
@@ -3462,8 +3478,90 @@ impl RuleAttributes {
                 location: attributes
                     .string(KoreAttribute::Location)?
                     .map(str::to_owned),
+                sentence: None,
             }],
+            overload: overload_pair(attributes)
+                .map_err(|_| AxiomError::MalformedAttribute(MALFORMED_OVERLOAD.into()))?,
         })
+    }
+
+    /// The axiom's unique id when it picks out this axiom alone: `None` when the axiom carries
+    /// neither a `UNIQUE_ID` nor a label (a compiler-generated axiom, for one), whose
+    /// [`unique_id`](Self::unique_id) `UNKNOWN` it shares with every other such axiom. A
+    /// finding keyed by unique id names no axiom by `None`.
+    pub fn identifier(&self) -> Option<&str> {
+        (self.unique_id != UNKNOWN_UNIQUE_ID).then_some(self.unique_id.as_str())
+    }
+
+    /// How a diagnostic names the axiom: what calls it — its label, else its own `UNIQUE_ID`,
+    /// else, for an axiom the compiler made from the overload relation, the overloaded pair,
+    /// each symbol written by `symbol` from its KORE name — followed by where its first
+    /// sentence is written; the position alone when nothing calls it; and its module and
+    /// sentence index when it has neither.
+    ///
+    /// A label and a `UNIQUE_ID` each name one axiom of a definition, and a definition has
+    /// one overload axiom per overloaded pair. The equations internalized from one axiom share
+    /// its name, as they share its attributes.
+    pub fn diagnostic_name(&self, symbol: impl Fn(&str) -> String) -> String {
+        let called = self
+            .label
+            .clone()
+            .or_else(|| self.identifier().map(str::to_owned))
+            .or_else(|| {
+                self.overload.as_ref().map(|(greater, lesser)| {
+                    format!(
+                        "overload axiom of {} over {}",
+                        symbol(greater),
+                        symbol(lesser)
+                    )
+                })
+            });
+        let origin = self.origins.first();
+        let position = origin.and_then(RuleOrigin::written_position);
+        match (called, position) {
+            (Some(called), Some(position)) => format!("{called} at {position}"),
+            (Some(called), None) => called,
+            (None, Some(position)) => format!("at {position}"),
+            (None, None) => match origin.and_then(|origin| origin.sentence.as_ref()) {
+                Some((module, index)) => {
+                    format!("at sentence index {index} (zero-based) of module {module}")
+                }
+                None => "with no name, position or sentence index".to_owned(),
+            },
+        }
+    }
+}
+
+/// The `unique_id` of an axiom that carries neither a `UNIQUE_ID` nor a label.
+const UNKNOWN_UNIQUE_ID: &str = "UNKNOWN";
+
+/// Why a `symbol-overload` attribute is malformed.
+pub(crate) const MALFORMED_OVERLOAD: &str = "symbol-overload must contain two nullary symbols";
+
+/// The `(greater, lesser)` symbols of a `symbol-overload` (or `overload`) attribute, `None`
+/// without one; `Err` when its arguments are not two nullary symbol applications.
+pub(crate) fn overload_pair(attributes: &kore::Attributes) -> Result<Option<(Name, Name)>, ()> {
+    let Some(arguments) = attributes
+        .arguments(KoreAttribute::SymbolOverload)
+        .or_else(|| attributes.arguments(KoreAttribute::Overload))
+    else {
+        return Ok(None);
+    };
+    match arguments {
+        [
+            kore::Pattern::Application {
+                symbol: greater,
+                arguments: greater_arguments,
+            },
+            kore::Pattern::Application {
+                symbol: lesser,
+                arguments: lesser_arguments,
+            },
+        ] if greater_arguments.is_empty() && lesser_arguments.is_empty() => Ok(Some((
+            greater.name.as_str().into(),
+            lesser.name.as_str().into(),
+        ))),
+        _ => Err(()),
     }
 }
 
@@ -3691,7 +3789,7 @@ mod tests {
     fn overload_classification_precedes_algebraic_tags() {
         for overload in ["overload", "symbol-overload"] {
             let source = format!(
-                r"axiom{{R}} \equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), h{{}}(X:SortS{{}})) [{overload}{{}}(), idem{{}}()]"
+                r"axiom{{R}} \equals{{SortS{{}}, R}}(g{{}}(X:SortS{{}}), h{{}}(X:SortS{{}})) [{overload}{{}}(g{{}}(), h{{}}()), idem{{}}()]"
             );
             let kore::Sentence::Axiom {
                 pattern,
@@ -3702,10 +3800,12 @@ mod tests {
                 panic!("expected axiom");
             };
             assert_eq!(algebraic_axiom_roots(&pattern, &attributes), None);
-            assert!(matches!(
-                classify(&source),
-                Ok(Some(ClassifiedAxiom::Function { .. }))
-            ));
+            let classified = classify(&source).expect("overload axiom should classify");
+            assert!(matches!(classified, Some(ClassifiedAxiom::Function { .. })));
+            assert_eq!(
+                classified.expect("classified").attributes().overload,
+                Some((Name::from("g"), Name::from("h")))
+            );
         }
     }
 
@@ -4143,6 +4243,7 @@ mod tests {
             [RuleOrigin {
                 source: Some("Source(fixture.k)".into()),
                 location: Some("Location(3,1,7,2)".into()),
+                sentence: None,
             }]
         );
     }
@@ -4672,6 +4773,7 @@ mod tests {
                 smt_lemma: false,
                 executable: true,
                 origins: vec![],
+                overload: None,
             },
         );
         assert_eq!(

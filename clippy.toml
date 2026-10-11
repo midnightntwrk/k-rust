@@ -1,5 +1,11 @@
 disallowed-methods = [
   { path = "k_rust_backend::rewrite::predicates::substitute_predicates", reason = "instantiate a condition through k_rust_backend::condition (Condition::instantiate, instantiate_constraints, EquationInstance, eliminate_bindings); a renaming or a normalization by a pattern's own equalities states in #[expect(clippy::disallowed_methods, reason = ...)] why definedness is preserved" },
+  { path = "serde_json::to_string_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+  { path = "serde_json::to_writer_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+  { path = "serde_json::to_vec_pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+  { path = "serde_json::ser::PrettyFormatter::new", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+  { path = "serde_json::ser::PrettyFormatter::with_indent", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
+  { path = "serde_json::ser::Serializer::pretty", reason = "write pretty JSON with k_rust_kore::json_tree::{to_string_pretty, to_writer_pretty, to_vec_pretty}: the project's one pretty layout, whose indentation is capped so that a document N levels deep is O(N) bytes" },
 ]
 # In debug builds a term carries the mark of definedness::check_ceil_free (an AtomicBool), which
 # its Hash, Eq and Ord never read, so a term is not a mutable key.

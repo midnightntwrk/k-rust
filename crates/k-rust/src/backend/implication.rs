@@ -217,7 +217,7 @@ pub fn cli_output(
         let sides = ImplicationSides::new(antecedent, consequent);
         output["condition"] = cli_condition_output(&condition, result_sort, &sides)?;
     }
-    Ok(serde_json::to_string_pretty(&output)?)
+    Ok(k_rust_kore::json_tree::to_string_pretty(&output)?)
 }
 
 pub fn cli_condition_output(

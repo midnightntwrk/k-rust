@@ -1233,7 +1233,7 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
         | error @ SmtError::InconsistentGroundTruth
         | error @ SmtError::MissingModel
         | error @ SmtError::MissingModelValue(_)
-        | error @ SmtError::InvalidModelValue { .. } => format!("{error:?}"),
+        | error @ SmtError::InvalidModelValue { .. } => error.to_string(),
     };
     let Ok(term) = encode_kore(&term) else {
         return RpcFault::runtime("could not encode the predicate rejected by SMT", None);
@@ -4160,7 +4160,7 @@ endmodule
                 .data_value()
                 .as_ref()
                 .and_then(Value::as_str)
-                .is_some_and(|error| error.contains("IterationLimit")),
+                .is_some_and(|error| error.contains("simplification reached its limit of")),
             "{debug}"
         );
     }
@@ -5592,7 +5592,7 @@ endmodule
         assert!(
             fault["error"]["data"]
                 .as_str()
-                .is_some_and(|error| error.contains("IterationLimit")),
+                .is_some_and(|error| error.contains("simplification reached its limit of")),
             "{fault:#}"
         );
     }

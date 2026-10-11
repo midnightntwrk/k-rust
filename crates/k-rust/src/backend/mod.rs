@@ -1522,31 +1522,29 @@ fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
     }
 }
 
-fn halt_reason(reason: &HaltReason) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
+/// The published reason of a leaf and its detail: the reason in words, a predicate it names
+/// printed at `sort`, the sort of the leaf's term. A consumer branches on the typed reason; the
+/// detail is for a reader.
+fn halt_reason(
+    reason: &HaltReason,
+    sort: &Sort,
+) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
+    let detail = || Some(reason.at(sort).to_string());
     Ok(match reason {
-        HaltReason::Stopped(cause) => return stopped_halt_reason(cause, reason),
+        HaltReason::Stopped(cause) => return stopped_halt_reason(cause),
         HaltReason::Stuck => (HaltReasonOutput::Stuck, None),
         HaltReason::Trivial { .. } => (HaltReasonOutput::Trivial, None),
         HaltReason::Vacuous { .. } => (HaltReasonOutput::Vacuous, None),
-        HaltReason::Branch { .. } => (HaltReasonOutput::Branch, Some(format!("{reason:?}"))),
-        HaltReason::CutPointRule { .. } => {
-            (HaltReasonOutput::CutPoint, Some(format!("{reason:?}")))
-        }
-        HaltReason::TerminalRule { .. } => {
-            (HaltReasonOutput::Terminal, Some(format!("{reason:?}")))
-        }
+        HaltReason::Branch { .. } => (HaltReasonOutput::Branch, detail()),
+        HaltReason::CutPointRule { .. } => (HaltReasonOutput::CutPoint, detail()),
+        HaltReason::TerminalRule { .. } => (HaltReasonOutput::Terminal, detail()),
         HaltReason::DepthBound => (HaltReasonOutput::DepthBound, None),
         HaltReason::BreadthBound => (HaltReasonOutput::BreadthBound, None),
-        HaltReason::Indeterminate(_) => {
-            (HaltReasonOutput::Indeterminate, Some(format!("{reason:?}")))
-        }
+        HaltReason::Indeterminate(_) => (HaltReasonOutput::Indeterminate, detail()),
         HaltReason::Simplification(error @ SimplificationError::UnsupportedHook { .. }) => {
             (HaltReasonOutput::UnsupportedHook, Some(error.to_string()))
         }
-        HaltReason::Simplification(_) => (
-            HaltReasonOutput::SimplificationError,
-            Some(format!("{reason:?}")),
-        ),
+        HaltReason::Simplification(_) => (HaltReasonOutput::SimplificationError, detail()),
     })
 }
 
@@ -1557,14 +1555,13 @@ fn halt_reason(reason: &HaltReason) -> Result<(HaltReasonOutput, Option<String>)
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stopped_halt_reason(
     cause: &StopCause,
-    reason: &HaltReason,
 ) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
     match cause {
         StopCause::Cancelled => Ok((HaltReasonOutput::Cancelled, None)),
-        StopCause::Deadline(_) => Ok((HaltReasonOutput::Timeout, Some(format!("{reason:?}")))),
+        StopCause::Deadline(_) => Ok((HaltReasonOutput::Timeout, Some(cause.to_string()))),
         StopCause::StackExhausted(_) => Ok((
             HaltReasonOutput::SimplificationError,
-            Some(format!("{reason:?}")),
+            Some(cause.to_string()),
         )),
         StopCause::SolverPrelude(_) => Err(BackendError::from(cause.clone())),
     }
@@ -2379,6 +2376,35 @@ mod tests {
                 "limit": 3,
                 "subject": "term"
             }])
+        );
+    }
+
+    /// A leaf's `detail` is for a reader: a branch states its successors' count and rules in
+    /// words, not the reason's Rust value with its patterns and substitutions.
+    #[test]
+    fn a_branch_leaf_states_its_detail_in_words() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-candidates.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                stop_at_branch: true,
+                ..ExecuteRequest::new(kore("start{}()"))
+            })
+            .unwrap();
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one branch leaf: {:?}", result.leaves);
+        };
+        assert_eq!(leaf.reason, HaltReasonOutput::Branch);
+        let detail = leaf.detail.as_deref().unwrap_or_default();
+        assert!(
+            ["to-b and to-g", "to-g and to-b"]
+                .map(|rules| format!("the step branches into 2 successors by rules {rules}"))
+                .contains(&detail.to_owned()),
+            "{detail}"
         );
     }
 

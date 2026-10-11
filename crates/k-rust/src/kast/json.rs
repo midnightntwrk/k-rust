@@ -81,6 +81,32 @@ pub fn to_string_pretty(term: &Term) -> Result<String, Error> {
     Ok(json_tree::to_string(&envelope_node(term), true))
 }
 
+/// The pretty JSON object of a KAST batch: one member per case, in order, named by the case and
+/// holding the KAST document [`to_string_pretty`] writes for its term. A name given twice is an
+/// [`Error::Shape`], since a JSON object has one member per name.
+pub fn batch_to_string_pretty<'a>(
+    cases: impl IntoIterator<Item = (&'a str, &'a Term)>,
+) -> Result<String, Error> {
+    let mut names = std::collections::HashSet::new();
+    let mut members = Vec::new();
+    for (name, term) in cases {
+        if !names.insert(name) {
+            return Err(Error::Shape(format!(
+                "duplicate KAST batch case name {name:?}"
+            )));
+        }
+        members.push((name.to_owned(), envelope_node(term)));
+    }
+    Ok(json_tree::to_string(&Node::Object(members), true))
+}
+
+/// The JSON text of `term` alone, with no envelope, as a raw value to embed in a larger
+/// document: compact, or pretty to be re-indented where it is embedded.
+pub(crate) fn term_raw_value(term: &Term, pretty: bool) -> Box<serde_json::value::RawValue> {
+    serde_json::value::RawValue::from_string(json_tree::to_string(&term_node(term), pretty))
+        .expect("json_tree writes one JSON value")
+}
+
 struct Fields {
     values: Vec<(String, Node)>,
 }
@@ -335,7 +361,7 @@ fn term_head(node: Node) -> Result<(TermHead, Vec<Node>), Error> {
             )));
         }
     };
-    // JsonTerm intentionally ignores unknown fields, matching its former serde representation.
+    // The fields a term node of this kind does not use are ignored.
     Ok((head, children))
 }
 
@@ -581,79 +607,6 @@ impl From<JsonLabel> for Label {
         Self {
             name: label.name,
             parameters: label.params.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-/// The serialized form of a KAST term inside a definition document. It is only written: a term
-/// is read with explicit work stacks ([`term_from_str`]), since deserializing this tagged enum
-/// recurses once per level of the term.
-#[derive(Serialize)]
-#[serde(tag = "node")]
-pub(crate) enum JsonTerm {
-    KToken {
-        sort: JsonSort,
-        token: String,
-    },
-    KApply {
-        label: JsonLabel,
-        arity: usize,
-        args: Vec<JsonTerm>,
-    },
-    KSequence {
-        arity: usize,
-        items: Vec<JsonTerm>,
-    },
-    KVariable {
-        name: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        sort: Option<JsonSort>,
-    },
-    KRewrite {
-        lhs: Box<JsonTerm>,
-        rhs: Box<JsonTerm>,
-    },
-    KAs {
-        pattern: Box<JsonTerm>,
-        alias: Box<JsonTerm>,
-    },
-    InjectedKLabel {
-        label: JsonLabel,
-    },
-}
-
-impl From<&Term> for JsonTerm {
-    fn from(term: &Term) -> Self {
-        match term.unannotated() {
-            Term::Token { token, sort } => Self::KToken {
-                sort: sort.into(),
-                token: token.clone(),
-            },
-            Term::Apply { label, arguments } => Self::KApply {
-                label: label.into(),
-                arity: arguments.len(),
-                args: arguments.iter().map(Into::into).collect(),
-            },
-            Term::Sequence(items) => Self::KSequence {
-                arity: items.len(),
-                items: items.iter().map(Into::into).collect(),
-            },
-            Term::Variable { name, sort } => Self::KVariable {
-                name: name.clone(),
-                sort: sort.as_ref().map(Into::into),
-            },
-            Term::Rewrite { left, right } => Self::KRewrite {
-                lhs: Box::new(left.as_ref().into()),
-                rhs: Box::new(right.as_ref().into()),
-            },
-            Term::As { pattern, alias } => Self::KAs {
-                pattern: Box::new(pattern.as_ref().into()),
-                alias: Box::new(alias.as_ref().into()),
-            },
-            Term::InjectedLabel(label) => Self::InjectedKLabel {
-                label: label.into(),
-            },
-            Term::Annotated { .. } => unreachable!(),
         }
     }
 }

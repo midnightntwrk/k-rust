@@ -154,7 +154,7 @@ pub fn write_runnable_artifact(
             .collect(),
         execution_rewrite_order: execution_rewrite_order.to_vec(),
     };
-    let manifest = serde_json::to_vec_pretty(&manifest)?;
+    let manifest = k_rust_kore::json_tree::to_vec_pretty(&manifest)?;
     write_atomic(&directory.join(RUNTIME_MANIFEST), &manifest)?;
     Ok(())
 }

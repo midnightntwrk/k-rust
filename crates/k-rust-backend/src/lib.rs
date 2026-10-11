@@ -14,6 +14,7 @@ pub mod condition;
 pub mod confluence;
 pub mod definedness;
 pub mod definition;
+pub mod describe;
 pub mod diagnostic;
 pub mod externalize;
 pub mod fresh;

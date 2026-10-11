@@ -1,6 +1,9 @@
 //! Stack-safe JSON syntax tree used by the KORE and KAST codecs.
 
-use std::fmt;
+use std::{fmt, io};
+
+use serde::Serialize;
+use serde_json::ser::{CompactFormatter, Formatter};
 
 #[derive(Debug)]
 pub enum Node {
@@ -430,98 +433,314 @@ impl Parser<'_> {
 /// The most spaces a pretty line starts with: the indentation of 50 levels. JSON whitespace
 /// carries no meaning, and past this width the depth of a line is no longer readable from its
 /// indentation, while indenting every line by its depth makes the text of a term N levels deep
-/// O(N^2) bytes. A term shallower than 50 levels is written exactly as `serde_json` pretty-prints
-/// it.
+/// O(N^2) bytes. A document shallower than 50 levels is written exactly as `serde_json`
+/// pretty-prints it.
 pub(crate) const PRETTY_INDENT_CAP: usize = 100;
 
-/// The JSON text of `root`, compact or pretty-printed with two spaces per level, the
-/// indentation capped at `PRETTY_INDENT_CAP` spaces.
-pub fn to_string(root: &Node, pretty: bool) -> String {
-    enum Task<'a> {
-        Node(&'a Node, usize),
-        Raw(&'static str),
-        String(&'a str),
-        Newline(usize),
+/// The spaces of one indentation level.
+const PRETTY_INDENT_STEP: usize = 2;
+
+/// The pretty JSON layout: one value or member per line, each line indented two spaces per
+/// level of nesting up to [`PRETTY_INDENT_CAP`], `": "` between a key and its value, and an
+/// empty array or object written `[]` or `{}`. It is the only pretty layout of the project:
+/// [`to_string`] writes a [`Node`] through it, and [`to_string_pretty`], [`to_writer_pretty`]
+/// and [`to_vec_pretty`] write any [`serde::Serialize`] value through it.
+///
+/// A raw fragment ([`serde_json::value::RawValue`]) is written re-indented to the depth it sits
+/// at, so a value written pretty on its own and then embedded reads as if it had been written
+/// in place.
+#[derive(Debug, Default)]
+struct CappedPrettyFormatter {
+    /// The nesting depth of the values being written: the number of open arrays and objects.
+    depth: usize,
+    /// Whether the innermost open array or object has a value, so that its closing bracket goes
+    /// on a line of its own.
+    has_value: bool,
+}
+
+/// The spaces a line `depth` levels deep starts with.
+fn indentation(depth: usize) -> usize {
+    depth
+        .saturating_mul(PRETTY_INDENT_STEP)
+        .min(PRETTY_INDENT_CAP)
+}
+
+fn write_newline<W: ?Sized + io::Write>(writer: &mut W, spaces: usize) -> io::Result<()> {
+    const SPACES: [u8; PRETTY_INDENT_CAP] = [b' '; PRETTY_INDENT_CAP];
+    writer.write_all(b"\n")?;
+    writer.write_all(&SPACES[..spaces.min(PRETTY_INDENT_CAP)])
+}
+
+impl Formatter for CappedPrettyFormatter {
+    fn begin_array<W: ?Sized + io::Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.depth += 1;
+        self.has_value = false;
+        writer.write_all(b"[")
     }
 
-    let mut output = String::new();
-    let mut stack = vec![Task::Node(root, 0)];
-    // Invariant: `output` holds the text of every task popped so far and `stack` holds the remaining tasks in reverse output order; a popped `Task::Node` either emits its text or emits its opening bracket and pushes tasks for its separators, direct children, and closing bracket, so each node of `root` is expanded once and `stack` empties.
+    fn end_array<W: ?Sized + io::Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.depth -= 1;
+        if self.has_value {
+            write_newline(writer, indentation(self.depth))?;
+        }
+        writer.write_all(b"]")
+    }
+
+    fn begin_array_value<W: ?Sized + io::Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> io::Result<()> {
+        if !first {
+            writer.write_all(b",")?;
+        }
+        write_newline(writer, indentation(self.depth))
+    }
+
+    fn end_array_value<W: ?Sized + io::Write>(&mut self, _writer: &mut W) -> io::Result<()> {
+        self.has_value = true;
+        Ok(())
+    }
+
+    fn begin_object<W: ?Sized + io::Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.depth += 1;
+        self.has_value = false;
+        writer.write_all(b"{")
+    }
+
+    fn end_object<W: ?Sized + io::Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.depth -= 1;
+        if self.has_value {
+            write_newline(writer, indentation(self.depth))?;
+        }
+        writer.write_all(b"}")
+    }
+
+    fn begin_object_key<W: ?Sized + io::Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> io::Result<()> {
+        if !first {
+            writer.write_all(b",")?;
+        }
+        write_newline(writer, indentation(self.depth))
+    }
+
+    fn begin_object_value<W: ?Sized + io::Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(b": ")
+    }
+
+    fn end_object_value<W: ?Sized + io::Write>(&mut self, _writer: &mut W) -> io::Result<()> {
+        self.has_value = true;
+        Ok(())
+    }
+
+    /// Writes `fragment`, a whole JSON value, with every line after its first moved right by
+    /// the indentation of the current depth, still capped. A newline in a JSON text lies
+    /// between two tokens (one inside a string is escaped), so the re-indented text is the same
+    /// value. A line indented `k` spaces in the fragment, `k` being twice its depth there or the
+    /// cap, is indented `min(2 * depth + k, cap)` spaces: the indentation of its depth in the
+    /// enclosing document.
+    fn write_raw_fragment<W: ?Sized + io::Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> io::Result<()> {
+        let shift = indentation(self.depth);
+        let mut lines = fragment.split('\n');
+        writer.write_all(lines.next().unwrap_or_default().as_bytes())?;
+        for line in lines {
+            let text = line.trim_start_matches(' ');
+            write_newline(writer, shift + (line.len() - text.len()))?;
+            writer.write_all(text.as_bytes())?;
+        }
+        Ok(())
+    }
+}
+
+/// The pretty JSON text of `value`, in the capped pretty layout: two spaces of indentation per
+/// level of nesting, up to a fixed cap.
+pub fn to_string_pretty<T: ?Sized + Serialize>(value: &T) -> serde_json::Result<String> {
+    let bytes = to_vec_pretty(value)?;
+    Ok(String::from_utf8(bytes).expect("serde_json writes UTF-8"))
+}
+
+/// The pretty JSON text of `value` as bytes, in the capped pretty layout of
+/// [`to_string_pretty`].
+pub fn to_vec_pretty<T: ?Sized + Serialize>(value: &T) -> serde_json::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    to_writer_pretty(&mut bytes, value)?;
+    Ok(bytes)
+}
+
+/// Write the pretty JSON text of `value` to `writer`, in the capped pretty layout of
+/// [`to_string_pretty`].
+pub fn to_writer_pretty<W: io::Write, T: ?Sized + Serialize>(
+    writer: W,
+    value: &T,
+) -> serde_json::Result<()> {
+    value.serialize(&mut serde_json::Serializer::with_formatter(
+        writer,
+        CappedPrettyFormatter::default(),
+    ))
+}
+
+/// The JSON text of `root`, compact or pretty (the capped pretty layout of
+/// [`to_string_pretty`]).
+pub fn to_string(root: &Node, pretty: bool) -> String {
+    let mut output = Vec::new();
+    let written = if pretty {
+        write_node(root, &mut CappedPrettyFormatter::default(), &mut output)
+    } else {
+        write_node(root, &mut CompactFormatter, &mut output)
+    };
+    written.expect("writing to a vector cannot fail");
+    String::from_utf8(output).expect("JSON text is UTF-8")
+}
+
+/// Write `root` to `output` through `formatter`, as serde_json's serializer would write the
+/// equivalent [`serde_json::Value`] with object members in their order in `root`.
+fn write_node<F: Formatter>(
+    root: &Node,
+    formatter: &mut F,
+    output: &mut Vec<u8>,
+) -> io::Result<()> {
+    enum Task<'a> {
+        Node(&'a Node),
+        ArrayValue(&'a Node, bool),
+        EndArrayValue,
+        EndArray,
+        Member(&'a str, &'a Node, bool),
+        EndObjectValue,
+        EndObject,
+    }
+
+    let mut stack = vec![Task::Node(root)];
+    // Invariant: `output` holds the text of every task popped so far and `stack` holds the remaining tasks in reverse output order; a popped `Task::Node` either emits its text or emits its opening bracket and pushes tasks for its direct children and its closing bracket, so each node of `root` is expanded once and `stack` empties.
     while let Some(task) = stack.pop() {
         match task {
-            Task::Raw(raw) => output.push_str(raw),
-            Task::String(value) => output.push_str(
-                &serde_json::to_string(value).expect("serializing a Rust string cannot fail"),
-            ),
-            Task::Newline(indent) => {
-                output.push('\n');
-                output.extend(std::iter::repeat_n(
-                    ' ',
-                    (indent * 2).min(PRETTY_INDENT_CAP),
-                ));
+            Task::Node(Node::Null) => formatter.write_null(output)?,
+            Task::Node(Node::Bool(value)) => formatter.write_bool(output, *value)?,
+            Task::Node(Node::Number(value)) => formatter.write_number_str(output, value)?,
+            Task::Node(Node::String(value)) => write_string(output, value)?,
+            Task::Node(Node::Array(values)) => {
+                formatter.begin_array(output)?;
+                stack.push(Task::EndArray);
+                stack.extend(
+                    values
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .map(|(index, value)| Task::ArrayValue(value, index == 0)),
+                );
             }
-            Task::Node(node, depth) => match node {
-                Node::Null => output.push_str("null"),
-                Node::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
-                Node::Number(value) => output.push_str(value),
-                Node::String(value) => output.push_str(
-                    &serde_json::to_string(value).expect("serializing a Rust string cannot fail"),
-                ),
-                Node::Array(values) if values.is_empty() => output.push_str("[]"),
-                Node::Array(values) => {
-                    output.push('[');
-                    let mut tasks = Vec::new();
-                    if pretty {
-                        tasks.push(Task::Newline(depth + 1));
-                    }
-                    for (index, value) in values.iter().enumerate() {
-                        if index > 0 {
-                            tasks.push(Task::Raw(","));
-                            if pretty {
-                                tasks.push(Task::Newline(depth + 1));
-                            }
-                        }
-                        tasks.push(Task::Node(value, depth + 1));
-                    }
-                    if pretty {
-                        tasks.push(Task::Newline(depth));
-                    }
-                    tasks.push(Task::Raw("]"));
-                    stack.extend(tasks.into_iter().rev());
-                }
-                Node::Object(fields) if fields.is_empty() => output.push_str("{}"),
-                Node::Object(fields) => {
-                    output.push('{');
-                    let mut tasks = Vec::new();
-                    if pretty {
-                        tasks.push(Task::Newline(depth + 1));
-                    }
-                    for (index, (key, value)) in fields.iter().enumerate() {
-                        if index > 0 {
-                            tasks.push(Task::Raw(","));
-                            if pretty {
-                                tasks.push(Task::Newline(depth + 1));
-                            }
-                        }
-                        tasks.push(Task::String(key));
-                        tasks.push(Task::Raw(if pretty { ": " } else { ":" }));
-                        tasks.push(Task::Node(value, depth + 1));
-                    }
-                    if pretty {
-                        tasks.push(Task::Newline(depth));
-                    }
-                    tasks.push(Task::Raw("}"));
-                    stack.extend(tasks.into_iter().rev());
-                }
-            },
+            Task::Node(Node::Object(fields)) => {
+                formatter.begin_object(output)?;
+                stack.push(Task::EndObject);
+                stack.extend(
+                    fields
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .map(|(index, (key, value))| Task::Member(key, value, index == 0)),
+                );
+            }
+            Task::ArrayValue(value, first) => {
+                formatter.begin_array_value(output, first)?;
+                stack.push(Task::EndArrayValue);
+                stack.push(Task::Node(value));
+            }
+            Task::EndArrayValue => formatter.end_array_value(output)?,
+            Task::EndArray => formatter.end_array(output)?,
+            Task::Member(key, value, first) => {
+                formatter.begin_object_key(output, first)?;
+                write_string(output, key)?;
+                formatter.end_object_key(output)?;
+                formatter.begin_object_value(output)?;
+                stack.push(Task::EndObjectValue);
+                stack.push(Task::Node(value));
+            }
+            Task::EndObjectValue => formatter.end_object_value(output)?,
+            Task::EndObject => formatter.end_object(output)?,
         }
     }
-    output
+    Ok(())
+}
+
+/// Write `value` as a JSON string, escaped as serde_json escapes it.
+fn write_string(output: &mut Vec<u8>, value: &str) -> io::Result<()> {
+    serde_json::to_writer(&mut *output, value).map_err(io::Error::from)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Node, parse, to_string};
+    use serde::Serialize;
+    use serde_json::value::RawValue;
+
+    use super::{Node, PRETTY_INDENT_CAP, parse, to_string, to_string_pretty};
+
+    /// serde_json's own pretty text of `value`, uncapped: the layout the capped writer must
+    /// reproduce on a document shallower than the cap.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the reference the capped pretty writer is compared with"
+    )]
+    fn uncapped_pretty<T: Serialize>(value: &T) -> String {
+        serde_json::to_string_pretty(value).unwrap()
+    }
+
+    /// `depth` arrays nested in one another, around `leaf`.
+    fn nested(depth: usize, leaf: &str) -> String {
+        format!("{}{leaf}{}", "[".repeat(depth), "]".repeat(depth))
+    }
+
+    /// Below the cap, the capped writer lays out any `Serialize` value as serde_json does,
+    /// including empty arrays and objects; a `Node` and the equivalent `Value` are written
+    /// alike at every depth.
+    #[test]
+    fn serialize_output_is_laid_out_as_a_node_is() {
+        let shallow = r#"{"a":[[],{},[1,{"b":[true,null]}]],"c":"x\ny","d":{}}"#;
+        let value = serde_json::from_str::<serde_json::Value>(shallow).unwrap();
+        assert_eq!(to_string_pretty(&value).unwrap(), uncapped_pretty(&value));
+        let deep = nested(300, r#"{"k":[1,2]}"#);
+        let value = parse(&deep).unwrap().into_value();
+        assert_eq!(
+            to_string_pretty(&value).unwrap(),
+            to_string(&parse(&deep).unwrap(), true)
+        );
+    }
+
+    /// A pretty fragment embedded as a raw value is re-indented to the depth it sits at: the
+    /// document reads exactly as the same tree written in place, below and past the cap.
+    #[test]
+    fn raw_fragments_are_reindented_to_their_depth() {
+        #[derive(Serialize)]
+        struct Outer {
+            name: &'static str,
+            items: Vec<Box<RawValue>>,
+        }
+        for depth in [0, 3, 48, 300] {
+            let inner = nested(depth, r#"{"k":[1,"a\nb"]}"#);
+            let fragment = to_string(&parse(&inner).unwrap(), true);
+            let document = Outer {
+                name: "n",
+                items: vec![RawValue::from_string(fragment).unwrap()],
+            };
+            let in_place = format!(r#"{{"name":"n","items":[{inner}]}}"#);
+            let written = to_string_pretty(&document).unwrap();
+            assert_eq!(
+                written,
+                to_string(&parse(&in_place).unwrap(), true),
+                "{depth}"
+            );
+            assert!(
+                written
+                    .lines()
+                    .all(|line| line.len() - line.trim_start().len() <= PRETTY_INDENT_CAP)
+            );
+        }
+    }
 
     /// A pretty line is indented by its depth up to the cap, so deep text grows linearly; the
     /// text still reads back as the same tree.
@@ -542,10 +761,7 @@ mod tests {
         let shallow = r#"{"a":[[[1,{"b":[true]}]]]}"#;
         assert_eq!(
             to_string(&parse(shallow).unwrap(), true),
-            serde_json::to_string_pretty(
-                &serde_json::from_str::<serde_json::Value>(shallow).unwrap()
-            )
-            .unwrap()
+            uncapped_pretty(&serde_json::from_str::<serde_json::Value>(shallow).unwrap())
         );
     }
 
@@ -558,10 +774,7 @@ mod tests {
             to_string(&node, false),
             serde_json::to_string(&value).unwrap()
         );
-        assert_eq!(
-            to_string(&node, true),
-            serde_json::to_string_pretty(&value).unwrap()
-        );
+        assert_eq!(to_string(&node, true), uncapped_pretty(&value));
         assert_eq!(
             node.into_value(),
             serde_json::from_str::<serde_json::Value>(source).unwrap()

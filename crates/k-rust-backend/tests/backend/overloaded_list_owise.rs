@@ -333,3 +333,52 @@ fn blocked_total_function_does_not_narrow_a_ground_configuration_with_z3() {
         ),
     );
 }
+
+/// No two axioms share the name a diagnostic gives their equations, and a compiler-generated
+/// overload axiom's name says which overloaded pair it comes from. The equations internalized
+/// from one axiom share its name; they are told apart from another axiom's by the sentences
+/// they stand for (their origins). The fixture's seven overload axioms carry neither a label
+/// nor a `UNIQUE_ID` nor a written position, which is how the compiler emits them.
+#[test]
+fn every_executable_equation_has_a_name_of_its_own() {
+    let definition = nil_cons_definition();
+    let mut axioms_by_name = std::collections::BTreeMap::<String, Vec<_>>::new();
+    for rule in definition
+        .function_theory()
+        .values()
+        .flat_map(|groups| groups.values())
+        .flatten()
+    {
+        let axioms = axioms_by_name
+            .entry(rule.attributes.diagnostic_name(str::to_owned))
+            .or_default();
+        if !axioms.contains(&rule.attributes.origins) {
+            axioms.push(rule.attributes.origins.clone());
+        }
+    }
+    let shared = axioms_by_name
+        .iter()
+        .filter(|(_, axioms)| axioms.len() > 1)
+        .collect::<Vec<_>>();
+    assert!(
+        shared.is_empty(),
+        "names shared by several axioms: {shared:?}"
+    );
+    let overload_names = axioms_by_name
+        .keys()
+        .filter(|name| name.starts_with("overload axiom of "))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        overload_names,
+        [
+            "overload axiom of dotExps over dotBottoms",
+            "overload axiom of dotExps over dotVals",
+            "overload axiom of dotVals over dotBottoms",
+            "overload axiom of exps over bottoms",
+            "overload axiom of exps over vals",
+            "overload axiom of listExp over listVal",
+            "overload axiom of vals over bottoms",
+        ]
+    );
+}
