@@ -2607,13 +2607,19 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     /// Whether `left`, a written instance on the left of the rule, and `right`, the same instance
-    /// on the right, denote one value: they are one occurrence of a term that stands for a whole
-    /// cell (a variable or a function result, outside every rewrite), or two occurrences of one
-    /// named variable. A cell body (or an `#as` of one) does not: its unwritten children are not
-    /// written, so they are what the group may be written beside.
+    /// on the right, denote one value: they are one occurrence, outside every rewrite and with no
+    /// rewrite in it, of a term that stands for a whole cell (a variable or a function result),
+    /// or two occurrences of one named variable. A cell body (or an `#as` of one) does not: its
+    /// unwritten children are not written, so they are what the group may be written beside.
     fn one_value_on_both_sides(&self, left: &Term, right: &Term) -> bool {
         let whole = |term: &Term| {
-            !matches!(term.unannotated(), Term::As { .. }) && self.cell_body(term).is_none()
+            let mut rewrites = false;
+            term.visit_preorder(&mut |part| {
+                rewrites |= matches!(part.unannotated(), Term::Rewrite { .. });
+            });
+            !rewrites
+                && !matches!(term.unannotated(), Term::As { .. })
+                && self.cell_body(term).is_none()
         };
         match (left.unannotated(), right.unannotated()) {
             _ if std::ptr::eq(left, right) => whole(left),

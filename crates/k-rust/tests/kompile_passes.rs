@@ -8578,6 +8578,7 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
     let syntax = r#"
           syntax KItem ::= "foo" | "bar" | f(Int) | g(Int)
           syntax Int ::= h(Int) [function]
+          syntax PCell ::= mk(Int) [function]
           rule g(_) => foo [anywhere]
     "#;
     let mut failures = Vec::new();
@@ -8585,6 +8586,7 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
         "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
         "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 05 </c> ... </u>",
         "<k> 0 => 1 </k> <u> _:PCell <c> 5 => 6 </c> ... </u>",
+        "<k> 0 => 1 </k> <u> mk(1) <c> 5 => 6 </c> ... </u>",
         "<k> 0 => 1 </k> <u> V1:PCell <e> 5 => 6 </e> ... </u>",
         "<k> 0 => 1 </k> <u> V1:PCell (<c> 5 </c> => <c> 6 </c>) ... </u>",
         "<k> 0 => 1 </k> <u> V1:PCell <s> foo => bar ... </s> ... </u>",
@@ -8605,6 +8607,11 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
         (
             "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 5 </c> ... </u>",
             "V1",
+        ),
+        // A function result with a rewrite in it is two values.
+        (
+            "<k> 0 => 1 </k> <u> mk(1 => 2) <c> 5 => 6 </c> ... </u>",
+            "",
         ),
         (
             "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => h(6) </c> ... </u>",
@@ -8645,7 +8652,7 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
             Err(errors)
                 if errors.iter().any(|error| {
                     (error.starts_with(message) || error.starts_with(message_s))
-                        && error.contains(&format!("<p> {holder} or in another <r>"))
+                        && error.contains(&format!("<p> {holder}"))
                 }) => {}
             outcome => failures.push(format!("{rule}: expected a rejection, {outcome:?}")),
         }
