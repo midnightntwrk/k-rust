@@ -364,6 +364,17 @@ fn kore_names_decode_as_kprint_decodes_them() {
 }
 
 #[test]
+fn string_values_quote_each_code_point_as_its_latin1_byte() {
+    // k-rust stores `chr(193)` as the UTF-8 encoding of U+00C1; krun prints its byte.
+    assert_eq!(enquote_string("A\u{c1}\n".as_bytes()), "\"A\\xc1\\n\"");
+    assert_eq!(
+        enquote_string("\u{c1}\u{100}\u{1f600}".as_bytes()),
+        "\"\\xc1\\u0100\\U0001f600\""
+    );
+    assert_eq!(enquote_string(b"\xc1"), "\"\\xc1\"");
+}
+
+#[test]
 fn result_floats_take_the_llvm_runtime_form_in_every_output() {
     let unparser = Unparser::from_kore(
         r#"[]

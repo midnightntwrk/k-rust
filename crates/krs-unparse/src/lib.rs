@@ -57,7 +57,7 @@ use crate::format::{Printer, Problems, ProgramFormats};
 use crate::node::{Node, from_pattern, instantiate, to_pattern};
 
 pub use crate::float::llvm_float_text;
-pub use crate::format::{decode_kore, enquote};
+pub use crate::format::{decode_kore, enquote, enquote_string};
 
 /// Which K printer to reproduce.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

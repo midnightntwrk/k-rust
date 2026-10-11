@@ -147,7 +147,7 @@ impl<'a> Printer<'a> {
                 self.sort(sort);
             }
             Node::Str(text) => {
-                let quoted = enquote(text);
+                let quoted = enquote_string(text);
                 self.append(quoted.as_bytes());
             }
             Node::App(app) if app.sym.name == "\\dv" => self.domain_value(app),
@@ -165,7 +165,7 @@ impl<'a> Printer<'a> {
         };
         match hook {
             Some("STRING.String") => {
-                let quoted = enquote(text);
+                let quoted = enquote_string(text);
                 self.append(quoted.as_bytes());
             }
             Some("BYTES.Bytes") => {
@@ -351,6 +351,45 @@ impl Printer<'_> {
             }
         }
     }
+}
+
+/// `kprint`'s `enquote` of a KORE string literal other than a `Bytes` value.
+///
+/// k-rust stores such a literal as the UTF-8 encoding of its code points, while
+/// the LLVM backend holds a K string as one byte per code point (K strings are
+/// Latin-1), so each code point up to U+00FF is quoted as that byte. A code point
+/// above U+00FF, which a K string cannot hold, is written with K's `\u` or `\U`
+/// escape, and a payload that is not UTF-8 is quoted byte by byte.
+#[must_use]
+pub fn enquote_string(text: &[u8]) -> String {
+    let Ok(text) = std::str::from_utf8(text) else {
+        return enquote(text);
+    };
+    if text.chars().all(|code_point| u32::from(code_point) <= 0xff) {
+        let latin1 = text
+            .chars()
+            .map(|code_point| u8::try_from(u32::from(code_point)).unwrap_or(b'?'))
+            .collect::<Vec<_>>();
+        return enquote(&latin1);
+    }
+    let mut result = String::with_capacity(text.len() + 2);
+    result.push('"');
+    for code_point in text.chars() {
+        match u32::from(code_point) {
+            value @ 0..=0xff => {
+                let quoted = enquote(&[u8::try_from(value).unwrap_or(b'?')]);
+                result.push_str(&quoted[1..quoted.len() - 1]);
+            }
+            value @ 0x100..=0xffff => {
+                let _ = write!(result, "\\u{value:04x}");
+            }
+            value => {
+                let _ = write!(result, "\\U{value:08x}");
+            }
+        }
+    }
+    result.push('"');
+    result
 }
 
 /// `kprint`'s `enquote`: K string syntax, escaping every byte outside printable ASCII.
