@@ -21,6 +21,9 @@ typedef struct node {
   char *symbol;
   char *sort;
   bool str;
+  /* The text a token production read, on the `\dv` node of a token or of a token subsort, which
+     decodes it by its own sort; NULL on every other node. */
+  char *token;
   size_t nchildren;
   bool hasLocation;
   YYLTYPE location;

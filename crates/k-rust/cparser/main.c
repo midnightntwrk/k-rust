@@ -423,6 +423,7 @@ YYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1) {
   n->symbol = symbol;
   n->sort = x0n->sort;
   n->str = false;
+  n->token = NULL;
   n->nchildren = 2;
   n->children[0] = x0n;
   n->children[1] = x1n;

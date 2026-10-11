@@ -12077,6 +12077,87 @@ endmodule
 }
 
 #[test]
+fn a_token_subsort_reads_its_text_as_a_token_of_its_own_sort() {
+    // `MyStr` has no hook, so a `MyStr` token's literal is its text as written, although the
+    // phrase it covers is a `String` token whose literal decodes the escapes; `Wrapped` reads
+    // the same text through a second token subsort.
+    let source = r##"
+module TOKSUB
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax MyStr ::= String [token]
+  syntax Wrapped ::= MyStr [token]
+endmodule
+"##;
+    let program = "\"a\\nb\\x41\"";
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let input = root.join("program.txt");
+    fs::write(&input, program).unwrap();
+    let parsed = k_rust::outer::parse("toksub.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "TOKSUB").unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&lowered).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "TOKSUB").unwrap();
+
+    for (sort, literal) in [
+        ("String", r#""a\nbA""#),
+        ("MyStr", r#""\"a\\nb\\x41\"""#),
+        ("Wrapped", r#""\"a\\nb\\x41\"""#),
+    ] {
+        let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKSUB", "--sort", sort])
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(
+            in_process.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&in_process.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(in_process.stdout).unwrap().trim_end(),
+            format!(r#"#token("\"a\\nb\\x41\"","{sort}")"#),
+            "{sort}"
+        );
+        let term = converter
+            .convert(&k_rust::kast::Term::Token {
+                token: program.into(),
+                sort: k_rust::kast::Sort::new(sort),
+            })
+            .map(|pattern| k_rust::kore::printer::Printer::compact().print_pattern(&pattern))
+            .unwrap();
+        assert_eq!(term, format!("\\dv{{Sort{sort}{{}}}}({literal})"), "{sort}");
+
+        let parser = root.join(format!("{sort}-parser"));
+        let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKSUB", "--sort", sort, "--gen-parser"])
+            .arg(&parser)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let output = Command::new(&parser).arg(&input).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{term}\n"),
+            "{sort}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();
     fs::write(

@@ -1161,7 +1161,7 @@ fn write_production(
     {
         write_subsort_action(output, sort, items, attributes, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
-        write_token_subsort_action(output, sort, has_location);
+        write_token_subsort_action(output, sort, sort_catalog, has_location);
     } else if is_subsort
         && (attributes.has(AttributeKey::NotInjection)
             || attributes.has(AttributeKey::BisonParsingOnlySubsort))
@@ -1252,7 +1252,7 @@ fn write_list_action(output: &mut String, part: ListPart, sort: &Sort, nontermin
     // there (`write_list_closers`).
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{children});\n  n->symbol = {LIST_PREFIX_SYMBOL};\n  n->sort = \"{}\";\n  n->str = false;\n  n->location = {location};\n  n->hasLocation = 0;\n  n->nchildren = {children};\n  n->children[0] = ${element}.nterm;{before}\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{children});\n  n->symbol = {LIST_PREFIX_SYMBOL};\n  n->sort = \"{}\";\n  n->str = false;\n  n->token = NULL;\n  n->location = {location};\n  n->hasLocation = 0;\n  n->nchildren = {children};\n  n->children[0] = ${element}.nterm;{before}\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
         c_kore_sort(sort)
     )
     .expect("writing to a string cannot fail");
@@ -1341,23 +1341,26 @@ fn write_token_action(
     sort_catalog: &SortCatalog<'_>,
     has_location: bool,
 ) {
-    // The code points of the token's KORE literal are those the in-process frontend reads from
-    // it by its sort's hook (`kompile::term_to_kore`); `krust_kore_literal` reads and writes
-    // them by the escape tables of `literals`.
-    let hook = sort_attributes(sort_catalog, sort).string(AttributeKey::Hook);
-    let kind = match hook {
-        Some("STRING.String") => "KRUST_TOKEN_STRING",
-        Some("BYTES.Bytes") => "KRUST_TOKEN_BYTES",
-        _ => "KRUST_TOKEN_TEXT",
-    };
+    let kind = token_literal_kind(sort, sort_catalog);
     let sort_name = escape_c_string(&sort.to_string());
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
+}
+
+/// How the generated parser reads the code points of a token of `sort` from its text: those the
+/// in-process frontend reads from it by the sort's hook (`kompile::term_to_kore`);
+/// `krust_kore_literal` reads and writes them by the escape tables of `literals`.
+fn token_literal_kind(sort: &Sort, sort_catalog: &SortCatalog<'_>) -> &'static str {
+    match sort_attributes(sort_catalog, sort).string(AttributeKey::Hook) {
+        Some("STRING.String") => "KRUST_TOKEN_STRING",
+        Some("BYTES.Bytes") => "KRUST_TOKEN_BYTES",
+        _ => "KRUST_TOKEN_TEXT",
+    }
 }
 
 /// Describes a production from its own sort, items, source and location attributes,
@@ -1456,7 +1459,7 @@ fn write_subsort_action(
         let cons = c_kore_label(&cons);
         writeln!(
             output,
-            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
+            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->token = NULL;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->token = NULL;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
             placements.has_location
         )
         .expect("writing to a string cannot fail");
@@ -1472,11 +1475,20 @@ fn write_subsort_action(
     Ok(())
 }
 
-fn write_token_subsort_action(output: &mut String, sort: &Sort, has_location: bool) {
+/// A token subsort (`syntax MyStr ::= String [token]`) reads its child's text as a token of its
+/// own sort, so its literal is that text decoded by its own sort's hook, not the child's literal.
+fn write_token_subsort_action(
+    output: &mut String,
+    sort: &Sort,
+    sort_catalog: &SortCatalog<'_>,
+    has_location: bool,
+) {
+    let kind = token_literal_kind(sort, sort_catalog);
+    let sort_name = escape_c_string(&sort.to_string());
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *));\n  n->symbol = \"\\\\dv{{{sort}}}\";\n  n->sort = \"{sort}\";\n  n->str = false;\n  n->location = @$;\n  n->hasLocation = {};\n  n->nchildren = 1;\n  n->children[0] = $1.nterm->children[0];\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = $1.nterm->token ? krust_kore_literal($1.nterm->token, {kind}, \"{sort_name}\", &error) : NULL;\n  if (!literal) {{\n    yyerror(&@$, scanner, error ? error : \"the phrase of a token subsort of sort {sort_name} is not a token\");\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.nterm->token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1498,7 +1510,7 @@ fn write_labeled_action(
 ) -> Result<(), GrammarError> {
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->location = {};\n  n->nchildren = {};",
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->token = NULL;\n  n->location = {};\n  n->nchildren = {};",
         operands.len(),
         placements.location,
         operands.len()
