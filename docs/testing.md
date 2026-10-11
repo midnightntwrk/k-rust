@@ -155,6 +155,8 @@ Version-1 logs with historical ownership fields remain readable and retain their
 The required rank is at least the versioned acceptance rank and the local log's first measured rank.
 A fresh log or a different driver version must not lower the versioned floor.
 Existing exclusions still apply; reference errors remain explicitly reported oracle changes rather than evidence of a Rust pass.
+A case with step exclusions is ranked by its remaining steps (its logged `ranked_verdict`), and a case exclusion leaves the case unranked ([compatibility.md](compatibility.md#driver-scope)).
+A run records the scale of its ranks (`ranking`); a rank logged on an earlier scale still bounds the floor, the case's first rank on the current scale bounds it too, and comparing against a run on another scale is a driver change.
 The rank is a coarse outcome ordering, not proof that every recipe or pipeline stage is covered.
 Review per-step results when accepting a change.
 Under the `RLIMIT_AS` fallback of `scripts/reference-memory-guard.sh`, the pinned LLVM interpreter cannot start because it reserves 2 TiB of address space; LLVM-recipe steps whose text differs therefore report `reference-error` in a sandbox and require a host-UID run under a user systemd scope for a verdict.

@@ -74,6 +74,7 @@ baseline_verdict = "match"
 baseline_stage = "kompile"
 exclusion = "fixture-exclusion"
 reason = "adjudicated fixture exclusion"
+whole_case_reason = "the fixture case has no step that can be ranked"
 
 [[case]]
 name = "d"
@@ -3075,7 +3076,7 @@ def probe(diagnostic, comparison_rc, program_verdict):
     return {
         "steps": [[s["step"], s["verdict"], s.get("verify_error")] for s in case.steps],
         "verdict": case.verdict,
-        "exclusion": ratchet.matching_step_exclusion(result, EXCLUSION),
+        "ranked": ratchet.ranked_case(result, EXCLUSION)[0],
     }
 
 print(json.dumps({
@@ -3109,10 +3110,10 @@ print(json.dumps({
         "{probes}"
     );
     assert_eq!(probes["alone"]["verdict"], "mismatch", "{probes}");
-    assert_eq!(probes["alone"]["exclusion"], "x", "{probes}");
+    assert_eq!(probes["alone"]["ranked"], "match", "{probes}");
     for key in ["program", "comparison", "other"] {
         assert_eq!(probes[key]["verdict"], "mismatch", "{probes}");
-        assert_eq!(probes[key]["exclusion"], "", "{key}: {probes}");
+        assert_eq!(probes[key]["ranked"], "mismatch", "{key}: {probes}");
     }
     assert_eq!(
         probes["other"]["steps"][2][2], "Expected function symbol, but found constructor symbol:",
@@ -3242,10 +3243,11 @@ print(json.dumps({"llvm": probe("llvm"), "haskell": probe("haskell")}))
 }
 
 #[test]
-fn a_step_exclusion_excludes_a_case_only_when_it_covers_every_step_at_the_case_verdict() {
-    // A step exclusion names one step's divergence. Another step at the case's verdict, before or
-    // after it, keeps the case ranked, so the exclusion of one recipe of a many-recipe case does
-    // not hide a later divergence of another.
+fn a_step_exclusion_ranks_a_case_by_the_steps_it_does_not_name() {
+    // A step exclusion names one step's divergence. Every other step, before or after it and at
+    // any verdict, keeps the case ranked, so the exclusion of one recipe of a many-recipe case
+    // does not hide a divergence of another. A case exclusion leaves the case unranked, and a
+    // case none of whose steps is excluded keeps the driver's own verdict.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
 import json, sys
@@ -3258,19 +3260,21 @@ other = {"step": "kompile", "out": "other.k.out", "verdict": "mismatch"}
 program = {"step": "krun", "test": "p", "verdict": "match"}
 error = {"step": "krun", "test": "p", "verdict": "krust-error"}
 
-def exclusion(verdict, steps):
-    return ratchet.matching_step_exclusion({"verdict": verdict, "step": steps}, EXCLUSION)
+def ranked(verdict, steps, expectation=EXCLUSION):
+    return ratchet.ranked_case({"verdict": verdict, "step": steps}, expectation)
 
 print(json.dumps({
-    "only": exclusion("mismatch", [bad, program]),
-    "later": exclusion("mismatch", [bad, other]),
-    "earlier": exclusion("mismatch", [other, bad]),
-    "worse": exclusion("krust-error", [bad, error]),
-    "case": ratchet.matching_step_exclusion({"verdict": "mismatch", "step": [other]}, {"exclusion": "y"}),
+    "only": ranked("mismatch", [bad, program]),
+    "later": ranked("mismatch", [bad, other]),
+    "earlier": ranked("mismatch", [other, bad]),
+    "worse": ranked("krust-error", [bad, error]),
+    "all": ranked("mismatch", [bad]),
+    "none": ranked("skipped-with-reason", [other], {}),
+    "case": ranked("mismatch", [other], {"exclusion": "y"}),
 }))
 "#;
     let output = Command::new("python3")
-        .args(["-c", script])
+        .args(["-I", "-c", script])
         .arg(workspace.join("scripts/conformance"))
         .output()
         .unwrap();
@@ -3282,7 +3286,15 @@ print(json.dumps({
     let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         probes,
-        serde_json::json!({"only": "x", "later": "", "earlier": "", "worse": "", "case": "y"})
+        serde_json::json!({
+            "only": ["match", ["x"], ""],
+            "later": ["mismatch", ["x"], ""],
+            "earlier": ["mismatch", ["x"], ""],
+            "worse": ["krust-error", ["x"], ""],
+            "all": ["match", ["x"], ""],
+            "none": ["skipped-with-reason", [], ""],
+            "case": ["mismatch", [], "y"],
+        })
     );
 }
 
@@ -3291,7 +3303,6 @@ print(json.dumps({
 /// and another recipe of the same case is `krust-unsupported`, ranked better than `mismatch` but
 /// below a `match` floor. Excluding the case would hide that recipe's divergence.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: The conformance ratchet's exclusion rule hides other failures"]
 fn a_step_exclusion_keeps_the_case_ranked_when_another_step_fails_at_a_better_rank() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
@@ -3303,7 +3314,7 @@ EXCLUSION = {"step_exclusions": [{"step": "kompile", "out": "bad.k.out", "exclus
 bad = {"step": "kompile", "out": "bad.k.out", "verdict": "mismatch"}
 for verdict in ("krust-unsupported", "skipped-with-reason"):
     other = {"step": "kompile", "out": "other.k.out", "verdict": verdict}
-    print(json.dumps(ratchet.matching_step_exclusion({"verdict": "mismatch", "step": [bad, other]}, EXCLUSION)))
+    print(json.dumps(ratchet.ranked_case({"verdict": "mismatch", "step": [bad, other]}, EXCLUSION)))
 "#;
     let output = Command::new("python3")
         .args(["-c", script])
@@ -3315,7 +3326,10 @@ for verdict in ("krust-unsupported", "skipped-with-reason"):
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "\"\"\n\"\"\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "[\"krust-unsupported\", [\"x\"], \"\"]\n[\"skipped-with-reason\", [\"x\"], \"\"]\n"
+    );
 }
 
 /// A step exclusion accepts the divergence of the steps it names, so excluding them must rank the
@@ -3325,7 +3339,6 @@ for verdict in ("krust-unsupported", "skipped-with-reason"):
 /// random floor), comparing `build_run` on the case with its exclusions against `build_run` on the
 /// same case with the excluded steps removed and its verdict recomputed from the rest.
 #[test]
-#[ignore = "reproduces FOLLOWUPS: The conformance ratchet's exclusion rule hides other failures (class: an exclusion is not the deletion of the steps it names)"]
 fn a_step_exclusion_ranks_a_case_as_if_its_named_steps_were_absent() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = r#"
@@ -3378,6 +3391,61 @@ print(json.dumps({"failures": len(failures), "first": failures[:3]}, indent=1))
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("\"failures\": 0,"), "{stdout}");
+}
+
+/// A rank logged before cases were ranked by their non-excluded steps counts an excluded step and
+/// can be lower than the case's rank on the current scale, so it is a loose floor. The first rank
+/// logged on the current scale re-establishes the floor without lowering it, and a measurement
+/// compared against a run on the earlier scale is a driver change.
+#[test]
+fn the_first_residual_rank_re_establishes_a_floor_logged_on_an_earlier_scale() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import ratchet
+
+EXPECTATION = {"name": "c", "step_exclusions": [{"step": "kast", "exclusion": "x", "reason": "r"}]}
+
+def measure(previous_runs, verdicts):
+    steps = [{"step": step, "verdict": verdict} for step, verdict in verdicts]
+    result = {"name": "c", "verdict": min((v for _, v in verdicts), key=ratchet.RANK.__getitem__), "step": steps}
+    return ratchet.build_run(
+        sequence=len(previous_runs), label="t", workspace_revision="w", k_revision="k",
+        driver_version="d", krust_sha256="", test_binary_sha256="", selection="all", jobs=1,
+        wall_seconds=0.0, peak_rss_mib=0, artifacts="", results=[result],
+        expectations={"c": EXPECTATION}, previous_runs=previous_runs,
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+
+# Entry 0 on the earlier scale ranked the case by its excluded kast step.
+legacy = {"driver_version": "d", "case": [{"name": "c", "verdict": "mismatch", "rank": 1}]}
+first = measure([legacy], [("kompile", "match"), ("kast", "mismatch")])
+second = measure([legacy, first], [("kompile", "krust-unsupported"), ("kast", "mismatch")])
+row = lambda run: run["case"][0]
+print(json.dumps({
+    "first": [row(first)["ranked_verdict"], row(first)["rank"], row(first)["floor_rank"], row(first)["delta"], first["driver_deltas"], first["ranking"]],
+    "second": [row(second)["ranked_verdict"], row(second)["floor_rank"], second["below_floor"], second["regressions"]],
+}))
+"#;
+    let output = Command::new("python3")
+        .args(["-I", "-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        probes,
+        serde_json::json!({
+            "first": ["match", 3, 1, "improvement", ["c"], "residual-steps"],
+            "second": ["krust-unsupported", 3, ["c"], ["c"]],
+        })
+    );
 }
 
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
@@ -3465,6 +3533,13 @@ fn conformance_expectations_cover_the_baseline_and_classify_accepted_failures() 
             assert!(
                 !case["reason"].as_str().unwrap_or_default().is_empty(),
                 "excluded case {name} needs a reason"
+            );
+            assert!(
+                !case["whole_case_reason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .is_empty(),
+                "case {name} is excluded as a whole and needs a whole_case_reason naming why no step can be ranked"
             );
         }
         if let Some(step_exclusions) = case.get("step_exclusions") {

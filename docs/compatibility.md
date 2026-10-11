@@ -1185,9 +1185,11 @@ When C9 detects that buffered stdin cannot reproduce an implicit recipe's tokeni
 A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
 The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
 
-Every case whose accepted verdict is not `match` carries exactly one of two dispositions.
-A non-empty `exclusion` names the category whose section here justifies leaving the difference, and the inline `reason` states the concrete feature or decision for that case; the justification is complete in this repository.
-An empty `exclusion` with a non-empty `reason` records a measured port or driver gap that is pending work; the work itself is tracked outside this repository, and [testing.md](testing.md#manual-conformance-acceptance) describes how a local backlog is audited against the measurements.
+Every case whose accepted verdict is not `match` carries a disposition: exclusions, or a pending reason.
+A non-empty `exclusion`, or the `exclusion` of a step exclusion, names the category whose section here justifies leaving the difference, and the inline `reason` states the concrete feature or decision for that case or step; the justification is complete in this repository.
+Where no exclusion covers a divergent step, the non-empty `reason` records a measured port or driver gap that is pending work; the work itself is tracked outside this repository, and [testing.md](testing.md#manual-conformance-acceptance) describes how a local backlog is audited against the measurements.
+A step exclusion (`step_exclusions`) accepts the divergence of the steps its selectors name and nothing else: the ratchet ranks the case as the driver would have ranked it had those steps not run, so any other step keeps the case ranked whatever its verdict, and a case whose every step is excluded ranks as `match`.
+A case `exclusion` leaves every step of the case unranked, including steps a later driver adds, so it also needs a `whole_case_reason` stating why no step of the case can be ranked; a difference confined to some steps is a step exclusion instead.
 
 ## Comparison contract
 

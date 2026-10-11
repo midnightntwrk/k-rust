@@ -27,7 +27,9 @@ import tomllib
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 import reference_cache  # noqa: E402  (scripts/reference_cache.py)
+from verdicts import RANK as VERDICT_RANK, case_verdict, step_verdict  # noqa: E402
 KR = str(HERE.parents[1])
 K_CHECKOUT = os.environ.get("K_CHECKOUT", f"{KR}/k")
 KBIN = os.path.dirname(os.environ["K_KOMPILE"]) if os.environ.get("K_KOMPILE") else f"{K_CHECKOUT}/result/bin"
@@ -2463,14 +2465,6 @@ def run_case(rel, kind):
     return finish(case)
 
 
-VERDICT_RANK = {
-    "reference-error": -1,
-    "krust-error": 0,
-    "mismatch": 1,
-    "krust-unsupported": 2,
-    "skipped-with-reason": 2,
-    "match": 3,
-}
 STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
 
 
@@ -2507,19 +2501,17 @@ def finish(case, verdict=None, reason=None):
         ranked_steps = case.steps
         if BISON_PARSER_ONLY:
             ranked_steps = [step for step in case.steps if step.get("step") == "bison-parser"]
-        vs = [s.get("verdict", "skipped-with-reason") for s in ranked_steps]
-        if not vs: verdict, reason = "skipped-with-reason", "no driven steps"
+        verdict = case_verdict(ranked_steps)
+        if verdict is None: verdict, reason = "skipped-with-reason", "no driven steps"
         else:
-            verdict = min(vs, key=VERDICT_RANK.__getitem__)
-            first = next(s for s in ranked_steps if s.get("verdict") == verdict)
+            first = next(s for s in ranked_steps if step_verdict(s) == verdict)
             reason = first.get("reason") or (f"{first.get('step')} {first.get('test', '')}".strip() + f": {verdict}")
     stages = [s.get("stage") for s in case.steps if s.get("stage")]
     stage = max(stages, key=STAGE_RANK.index) if stages else "none"
     case.verdict, case.reason, case.stage = verdict, reason, stage
     case.fallback_verdict = case.fallback_stage = None
     if any("fallback_sort" in s for s in case.steps):
-        vs = [s.get("fallback_verdict", s.get("verdict", "skipped-with-reason")) for s in case.steps]
-        case.fallback_verdict = min(vs, key=VERDICT_RANK.__getitem__)
+        case.fallback_verdict = case_verdict([{"verdict": s.get("fallback_verdict", step_verdict(s))} for s in case.steps])
         st = [s.get("fallback_stage", s.get("stage")) for s in case.steps if s.get("fallback_stage", s.get("stage"))]
         case.fallback_stage = max(st, key=STAGE_RANK.index) if st else stage
     return case
