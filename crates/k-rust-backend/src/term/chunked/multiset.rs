@@ -15,6 +15,7 @@ use std::{
 };
 
 use super::{Chunked, DEFAULT_BRANCHING, Group, Item, Summary};
+use crate::term::variables::VariableLookup;
 
 #[cfg(test)]
 thread_local! {
@@ -164,6 +165,21 @@ impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> Multiset<E, B> {
             None => panic!("a multiset removes at most the occurrences it holds"),
         };
         Self { entries }
+    }
+}
+
+/// The support of the multiset: the distinct elements, looked up by search.
+impl<E: Ord + Clone + Hash + fmt::Debug, const B: usize> VariableLookup<E> for Multiset<E, B> {
+    fn variable_count(&self) -> usize {
+        self.len()
+    }
+
+    fn holds_variable(&self, element: &E) -> bool {
+        self.count(element) > 0
+    }
+
+    fn any_variable(&self, test: &mut dyn FnMut(&E) -> bool) -> bool {
+        self.elements().any(test)
     }
 }
 

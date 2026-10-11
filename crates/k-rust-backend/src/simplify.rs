@@ -4711,18 +4711,58 @@ fn simplify_children(
             target,
             term,
         } => Term::injection(source.clone(), target.clone(), child(term)?),
+        // Only the entries `child` may change are visited: the tree is entered where a subtree
+        // holds an entry that is not evaluated or mentions a variable the path condition binds
+        // (its summary), or everywhere when the path condition replaces terms, which no summary
+        // locates. An unchanged entry is not copied, and an entry whose key changes is moved to
+        // its place (`Items::rebuild_where`).
         TermKind::Map {
             definition,
             entries,
             rest,
-        } => Term::map(
-            definition.clone(),
-            entries
-                .iter()
-                .map(|(key, value)| Ok((child(key)?, child(value)?)))
-                .collect::<SimplifyResult<Vec<_>>>()?,
-            rest.as_ref().map(&mut child).transpose()?,
-        ),
+        } => {
+            let path_condition = &assumptions.path_condition;
+            let mut failed = None;
+            let entries = entries.rebuild_where(
+                |summary| {
+                    !summary.extra.holds(crate::term::items::Flag::Evaluated)
+                        || !path_condition.replacements.is_empty()
+                        || !crate::term::variables::disjoint(
+                            &summary.group,
+                            &path_condition.substitution,
+                        )
+                },
+                |(key, value)| {
+                    let skipped = |term: &Term| {
+                        term.attributes().evaluated && !path_condition.can_change(term)
+                    };
+                    !skipped(key) || !skipped(value)
+                },
+                |(key, value)| {
+                    if failed.is_some() {
+                        return None;
+                    }
+                    match (|| Ok::<_, Unwind<SimplificationError>>((child(key)?, child(value)?)))()
+                    {
+                        Ok((new_key, new_value)) => (!new_key.ptr_eq(key)
+                            || !new_value.ptr_eq(value))
+                        .then_some((new_key, new_value)),
+                        Err(error) => {
+                            failed = Some(error);
+                            None
+                        }
+                    }
+                },
+            );
+            if let Some(error) = failed {
+                return Err(error);
+            }
+            Term::map_of_items(
+                definition.clone(),
+                entries,
+                rest.as_ref().map(&mut child).transpose()?,
+            )
+        }
         TermKind::List {
             definition,
             heads,

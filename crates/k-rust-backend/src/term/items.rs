@@ -402,6 +402,38 @@ fn symbolic_key<T: Keyed<Key = Term>>(item: &T) -> bool {
 }
 
 impl<T: Stored + Ord> Items<T> {
+    /// In an ordered sequence, the sequence with each item `wants` picks replaced by `change`'s
+    /// result, when it returns one, and in order again. A tree is entered only where `admits`
+    /// holds of a subtree's summary, which it must wherever an item `wants` picks is below; it
+    /// copies the paths to the changed items and moves those that are no longer in order
+    /// (`Chunked::rebuild_where`), so the work is that of the items reached. A vector is
+    /// rebuilt and sorted.
+    pub(crate) fn rebuild_where(
+        &self,
+        admits: impl Fn(&NodeSummary<T>) -> bool,
+        wants: impl Fn(&T) -> bool,
+        mut change: impl FnMut(&T) -> Option<T>,
+    ) -> Self {
+        match &self.0 {
+            Backing::Vec(items) => {
+                let mut items = items
+                    .iter()
+                    .map(|item| {
+                        wants(item)
+                            .then(|| change(item))
+                            .flatten()
+                            .unwrap_or_else(|| item.clone())
+                    })
+                    .collect::<Vec<_>>();
+                items.sort();
+                Self(Backing::Vec(items))
+            }
+            Backing::Tree(tree) => Self(Backing::Tree(
+                tree.rebuild_where(&chunked::seek::Where::new(admits, wants), change),
+            )),
+        }
+    }
+
     /// In an ordered sequence, the sequence with `item` added after the items not above it.
     pub fn insert(&self, item: T) -> Self {
         self.insert_at(self.partition_point(|other| *other <= item), item)
@@ -1050,5 +1082,44 @@ mod tests {
         assert_eq!(repeated.repeated_map_key(), Some(&key(50)));
         assert!(!repeated.attributes().ceil_free());
         assert!(!repeated.attributes().constructor_like);
+    }
+
+    /// Substituting into a map rebuilds only the entries that mention a bound variable: a value
+    /// is replaced in place, an entry whose key changes is moved to its place, and the result is
+    /// the map built from the substituted entries. The substitution summarizes at most the
+    /// entries of the leaves its three edits rebuild (the two rebuilt leaves, then the removal and
+    /// the insertion of the moved entry, each at most a leaf and a neighbour), whatever the
+    /// map's size.
+    #[test]
+    fn substitution_rebuilds_only_the_entries_that_mention_a_bound_variable() {
+        const ENTRIES: usize = 4096;
+        let mut bindings = (0..ENTRIES)
+            .map(|index| (key(2 * index), value(index)))
+            .collect::<Vec<_>>();
+        bindings.push((variable("K", "SortKey"), value(1)));
+        bindings.push((key(7), variable("V", "SortValue")));
+        let map = Term::map(definition(), bindings.clone(), None);
+        let substitution = std::collections::BTreeMap::from([
+            (Variable::new("K", Sort::simple("SortKey")), key(4097)),
+            (Variable::new("V", Sort::simple("SortValue")), value(5)),
+        ]);
+        let substitute = |term: &Term| crate::substitution::substitute(term, &substitution);
+        let mut substituted = None;
+        let summaries = entry_summaries_during(|| substituted = Some(substitute(&map)));
+        let expected = Term::map(
+            definition(),
+            bindings
+                .iter()
+                .map(|(key, value)| (substitute(key), substitute(value)))
+                .collect(),
+            None,
+        );
+        let substituted = substituted.expect("substituted");
+        assert_eq!(substituted, expected);
+        assert_eq!(entries(&substituted).to_vec(), entries(&expected).to_vec());
+        assert!(
+            summaries <= 3 * 2 * DEFAULT_BRANCHING,
+            "{summaries} entry summaries"
+        );
     }
 }

@@ -92,23 +92,31 @@ pub fn substitute(term: &Term, substitution: &Substitution) -> Term {
             target.clone(),
             substitute(term, substitution),
         ),
+        // Only the entries that mention a bound variable change: the tree is entered where the
+        // variables of a subtree (its group summary) meet the substitution, and an entry whose key
+        // changes is moved to its place (`Items::rebuild_where`), so the work is that of the
+        // entries reached, not of the map.
         TermKind::Map {
             definition,
             entries,
             rest,
-        } => Term::map(
-            definition.clone(),
-            entries
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        substitute(key, substitution),
-                        substitute(value, substitution),
-                    )
-                })
-                .collect(),
-            rest.as_ref().map(|term| substitute(term, substitution)),
-        ),
+        } => {
+            let mentions = |term: &Term| !term.attributes().variables.is_disjoint(substitution);
+            Term::map_of_items(
+                definition.clone(),
+                entries.rebuild_where(
+                    |summary| !crate::term::variables::disjoint(&summary.group, substitution),
+                    |(key, value)| mentions(key) || mentions(value),
+                    |(key, value)| {
+                        Some((
+                            substitute(key, substitution),
+                            substitute(value, substitution),
+                        ))
+                    },
+                ),
+                rest.as_ref().map(|term| substitute(term, substitution)),
+            )
+        }
         TermKind::List {
             definition,
             heads,
