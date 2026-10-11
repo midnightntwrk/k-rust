@@ -994,6 +994,11 @@ fn a_construct_whose_sort_cannot_stand_at_a_place_is_not_preferred_there() {
 /// ambiguity. In `a => a ~> a` the rewrite's sort is part of the reading: a rewrite of sort `K`
 /// to the sequence `a ~> a` and one of sort `KItem` to `seqish(a, a)` differ at the root, so
 /// their right sides are not compared either.
+///
+/// The portable build's rule grammar has one rewrite at the body's root, `#RuleK ::= K "=>" K`
+/// (a rewrite of another sort stands only at an argument of that sort), so the readings of
+/// `a => a ~> a` share the root and its right side is one position, where the sequence is
+/// chosen over `seqish(a, a)`.
 #[test]
 fn readings_that_differ_above_a_position_are_not_compared_at_it() {
     let source = |rule: &str| {
@@ -1007,7 +1012,19 @@ endmodule
 "#
         )
     };
-    for rule in ["a => a ~> a => a", "a => a ~> a"] {
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
+        assert_eq!(
+            only_rule_body(&definition),
+            "a(.KList)=>a(.KList)~>a(.KList)"
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    let rules = ["a => a ~> a => a", "a => a ~> a"];
+    #[cfg(not(feature = "z3-inference"))]
+    let rules = ["a => a ~> a => a"];
+    for rule in rules {
         let error = resolve_rule_bubbles(&lowered(&source(rule)))
             .expect_err("two readings differ at the root");
         let RuleError::Parse(ref parse) = error else {

@@ -603,8 +603,8 @@ impl Grammar {
     /// The choice is defined on trees. A position of a tree is a node occurrence in it, standing
     /// at a child slot of its parent's production; the rank of the subtree there is read at its
     /// root seen through pass-through productions (as [`Self::packed_top_parse_label`] reads it):
-    /// rewrite, sequence, `#let`, anything else, where a construct whose production's sort is
-    /// not below the sort its place declares ranks as anything else
+    /// rewrite, sequence, `#let`, anything else, where a construct whose node does not stand for
+    /// a term of a sort below the one its place declares ranks as anything else
     /// ([`Self::structural_reading_fits`]): a sequence, of sort `K`, is no `KItem` argument, so
     /// it is not what the rule means there. A tree is kept when, at each of its positions, its
     /// subtree has the least rank among the trees that agree with it everywhere outside that
@@ -631,18 +631,21 @@ impl Grammar {
         self.prefer_structural_readings_memo(&forest, None, &mut HashMap::new())
     }
 
-    /// The readings of `term`, every reading of a position whose place declares `place` (`None` at
-    /// the parse's root), that [`Self::prefer_structural_readings`] keeps.
+    /// The readings of `term`, every reading of a position at `place` (`None` at the parse's
+    /// root), that [`Self::prefer_structural_readings`] keeps.
     fn prefer_structural_readings_memo(
         &self,
         term: &Rc<PackedTerm>,
-        place: Option<&Sort>,
+        place: Option<StructuralPlace<'_>>,
         memo: &mut PreferenceMemo,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: an entry maps a node, kept alive beside it, at a place of one declared
-            // sort to its kept readings.
-            let key = (Rc::as_ptr(term), place.cloned());
+            // and one recognized sort to its kept readings.
+            let key = (
+                Rc::as_ptr(term),
+                place.map(|place| (place.declared.clone(), place.recognized.clone())),
+            );
             if let Some((_, preferred)) = memo.get(&key) {
                 return Rc::clone(preferred);
             }
@@ -716,14 +719,7 @@ impl Grammar {
                 children,
                 metadata,
             } => {
-                let places = self.productions[*production]
-                    .items
-                    .iter()
-                    .filter_map(|item| match item {
-                        Item::NonTerminal(sort) => Some(sort),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
+                let places = self.structural_places(*production);
                 let preferred = children
                     .iter()
                     .enumerate()
@@ -780,16 +776,15 @@ impl Grammar {
         groups
     }
 
-    /// The trees of a packed node, standing at a place that declares the sort `place` (`None`
-    /// at the parse's root), whose root, seen through pass-through productions as
-    /// [`Self::packed_top_parse_label`] sees it, is labelled `label` by a production whose sort
-    /// may stand where that production's node stands
+    /// The trees of a packed node, standing at `place` (`None` at the parse's root), whose root,
+    /// seen through pass-through productions as [`Self::packed_top_parse_label`] sees it, is
+    /// labelled `label` by a production whose node may stand where it stands
     /// ([`Self::structural_reading_fits`]).
     fn restrict_root_label(
         &self,
         term: &Rc<PackedTerm>,
         label: &str,
-        place: Option<&Sort>,
+        place: Option<StructuralPlace<'_>>,
     ) -> Option<Rc<PackedTerm>> {
         crate::stack::guarded(|| match &term.node {
             PackedNode::Ambiguity(alternatives) => {
@@ -808,10 +803,7 @@ impl Grammar {
                         && self.structural_reading_fits(&descriptor.result, place))
                     .then(|| Rc::clone(term)),
                     None if descriptor.syntactic_subsort || children.len() == 1 => {
-                        let inner = descriptor.items.iter().find_map(|item| match item {
-                            Item::NonTerminal(sort) => Some(sort),
-                            _ => None,
-                        });
+                        let inner = self.structural_places(*production).first().copied();
                         let child = self.restrict_root_label(children.first()?, label, inner)?;
                         if Rc::ptr_eq(&child, &children[0]) {
                             Some(Rc::clone(term))
@@ -832,19 +824,43 @@ impl Grammar {
         })
     }
 
-    /// Whether a rewrite, sequence or `#let` node of sort `sort` can be well sorted at a place
-    /// that declares `place`: a node's sort is its production's, so where that sort is not
-    /// below the place's, no reading puts the construct there with a meaning, and the choice
-    /// does not prefer it there ([`Self::prefer_structural_readings`]). A place of no sort (the
-    /// parse's root) or of a sort outside the subsort order (a sort parameter) admits it.
-    fn structural_reading_fits(&self, sort: &Sort, place: Option<&Sort>) -> bool {
+    /// Whether a rewrite, sequence or `#let` node of sort `sort` can be well sorted at `place`:
+    /// where the term the node stands for has a sort not below the one the place declares, no
+    /// reading puts the construct there with a meaning, and the choice does not prefer it there
+    /// ([`Self::prefer_structural_readings`]). A node stands for a term of its production's
+    /// sort, except a node of the scaffolding sort a widened place is recognized at, which
+    /// stands for a term of the sort the place declares
+    /// (`Grammar::admit_rewrites_in_argument_positions`): in the portable build a rewrite at a
+    /// `KItem` argument is a node of `#RuleKItem`, a rewrite of sort `KItem`. A place of no sort
+    /// (the parse's root) or of a sort outside the subsort order (a sort parameter) admits it.
+    fn structural_reading_fits(&self, sort: &Sort, place: Option<StructuralPlace<'_>>) -> bool {
         let Some(place) = place else {
             return true;
         };
+        if sort == place.recognized {
+            return true;
+        }
         let Ok(order) = self.subsort_relations.order() else {
             return true;
         };
-        !order.contains(place) || order.less_than_eq(sort, place)
+        !order.contains(place.declared) || order.less_than_eq(sort, place.declared)
+    }
+
+    /// The place of each nonterminal child slot of `production`, in order.
+    fn structural_places(&self, production: usize) -> Vec<StructuralPlace<'_>> {
+        let descriptor = &self.productions[production];
+        descriptor
+            .items
+            .iter()
+            .zip(&descriptor.item_sort_ids)
+            .filter_map(|(item, sort_id)| match item {
+                Item::NonTerminal(declared) => Some(StructuralPlace {
+                    declared,
+                    recognized: sort_id.map_or(declared, |id| &self.sorts[id]),
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The alternatives of an ambiguity that `restrict` keeps, the ambiguity itself when it keeps
@@ -4332,9 +4348,20 @@ fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a Par
     })
 }
 
-/// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place of a declared
-/// sort, by the node's identity and that sort, with the node kept alive beside its entry.
-type PreferenceMemo = HashMap<(*const PackedTerm, Option<Sort>), (Rc<PackedTerm>, Rc<PackedTerm>)>;
+/// A child slot as [`Grammar::prefer_structural_readings`] sees it: the sort its production
+/// declares there and the sort the recognizer predicts there, which differ only at a place
+/// widened to a rule-scaffolding sort (`Grammar::admit_rewrites_in_argument_positions`).
+#[derive(Clone, Copy, Debug)]
+struct StructuralPlace<'a> {
+    declared: &'a Sort,
+    recognized: &'a Sort,
+}
+
+/// The readings [`Grammar::prefer_structural_readings`] kept of a node at a place, by the node's
+/// identity and the place's declared and recognized sorts, with the node kept alive beside its
+/// entry.
+type PreferenceMemo =
+    HashMap<(*const PackedTerm, Option<(Sort, Sort)>), (Rc<PackedTerm>, Rc<PackedTerm>)>;
 
 /// What makes two alternatives of one ambiguity the same node over different packings of its
 /// children: the production, the node's metadata (its span among it) and every child's span.
