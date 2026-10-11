@@ -172,11 +172,7 @@ fn production_identity_case() -> impl Strategy<Value = (Sentence, Sentence, u8)>
                         sort: argument,
                         name: argument_name,
                     },
-                    ProductionItem::RegexTerminal {
-                        precede_regex: Some("left-precede".into()),
-                        regex,
-                        follow_regex: Some("left-follow".into()),
-                    },
+                    ProductionItem::RegexTerminal { regex },
                     ProductionItem::Terminal(terminal),
                 ];
                 let left = Sentence::Production {
@@ -187,22 +183,9 @@ fn production_identity_case() -> impl Strategy<Value = (Sentence, Sentence, u8)>
                     attributes,
                 };
                 let mut equivalent = left.clone();
-                let Sentence::Production {
-                    items, attributes, ..
-                } = &mut equivalent
-                else {
+                let Sentence::Production { attributes, .. } = &mut equivalent else {
                     unreachable!()
                 };
-                let ProductionItem::RegexTerminal {
-                    precede_regex,
-                    follow_regex,
-                    ..
-                } = &mut items[1]
-                else {
-                    unreachable!()
-                };
-                *precede_regex = Some("right-precede".into());
-                *follow_regex = Some("right-follow".into());
                 attributes.insert("ignored", json!("right"));
                 (left, equivalent, mutation)
             },

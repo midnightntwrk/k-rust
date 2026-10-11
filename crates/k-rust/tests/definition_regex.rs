@@ -164,13 +164,159 @@ fn flex_printer_preserves_repetition_and_precedence() {
 }
 
 #[test]
-fn flex_printer_groups_non_ascii_code_points_and_factors_classes() {
+fn flex_printer_groups_non_ascii_code_points_and_encodes_classes() {
     assert_eq!(regex::parse("🙂+").unwrap().to_flex_string(), "(🙂)+");
     assert_eq!(
         regex::parse("[a🙂b🙁]").unwrap().to_flex_string(),
-        "((🙂)|(🙁))|[ab]"
+        r"([\x61-\x62]|\xF0\x9F\x99[\x81-\x82])"
     );
     assert_eq!(regex::parse("[a-z]").unwrap().to_flex_string(), "[a-z]");
+    assert_eq!(
+        regex::parse(".+").unwrap().to_flex_string(),
+        concat!(
+            r"([\x00-\x09\x0B-\x7F]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]",
+            r"|[\xE1-\xEC][\x80-\xBF][\x80-\xBF]|\xED[\x80-\x9F][\x80-\xBF]",
+            r"|[\xEE-\xEF][\x80-\xBF][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF][\x80-\xBF]",
+            r"|[\xF1-\xF3][\x80-\xBF][\x80-\xBF][\x80-\xBF]|\xF4[\x80-\x8F][\x80-\xBF][\x80-\xBF])+"
+        )
+    );
+}
+
+#[test]
+fn flex_name_keeps_classes_as_written() {
+    assert_eq!(
+        regex::parse("^[^a-z]+.[a🙂]$").unwrap().to_flex_name(),
+        "^[^a-z]+.[a🙂]$"
+    );
+}
+
+/// A Flex pattern as a pattern over bytes for Rust's regex engine: the Flex printer writes a
+/// class, `.` and every byte outside ASCII in a syntax both engines read alike.
+fn flex_as_byte_regex(body: &regex::RegexBody) -> ::regex::bytes::Regex {
+    let flex = body.to_flex_string();
+    ::regex::bytes::Regex::new(&format!(r"(?-u)\A(?:{flex})\z"))
+        .unwrap_or_else(|error| panic!("{flex:?}: {error}"))
+}
+
+fn rust_character_regex(body: &regex::RegexBody) -> RustRegex {
+    RustRegex::new(&format!(r"\A(?:{})\z", body.to_rust_string().unwrap())).unwrap()
+}
+
+/// Byte strings that encode no character: lone and stray continuation bytes, truncated, overlong
+/// and surrogate encodings, a code point above U+10FFFF, and bytes no UTF-8 text holds.
+const NOT_UTF8: [&[u8]; 9] = [
+    b"\x80",
+    b"\xC3",
+    b"\xC0\x80",
+    b"\xE0\x80\x80",
+    b"\xED\xA0\x80",
+    b"\xF4\x90\x80\x80",
+    b"\xFF",
+    b"\xC3\xA9\x80",
+    b"\xF0\x9F\x99",
+];
+
+/// A generated scanner reads the UTF-8 bytes of its input, and the in-process scanner its
+/// characters; a token is a sequence of characters, so a class or `.` in a Flex pattern must match
+/// one whole character exactly where it matches that character in-process, never a part of one and
+/// never a byte sequence that encodes no character.
+#[test]
+fn flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does() {
+    let mut characters = (0..=0x7F).filter_map(char::from_u32).collect::<Vec<_>>();
+    characters.extend(
+        [
+            0x80, 0x81, 0xE9, 0xFC, 0xFF, 0x7FF, 0x800, 0x2028, 0xD7FF, 0xE000, 0xFFFD, 0xFFFF,
+            0x10000, 0x1F640, 0x1F641, 0x1F642, 0x1F643, 0x10FFFE, 0x10FFFF,
+        ]
+        .into_iter()
+        .filter_map(char::from_u32),
+    );
+    let pairs = ['a', 'b', '\n', 'é', '\u{2028}', '🙂'];
+    for source in [
+        ".",
+        "[^a-z]",
+        r"[^\n]",
+        "[a🙂b🙁]",
+        "[^é]",
+        "[^\u{7F}]",
+        "[^\u{80}]",
+        "[^\u{D7FF}]",
+        "[^\u{E000}]",
+        "[^\u{10FFFF}]",
+        "[\u{80}-\u{7FF}]",
+        "[é-🙂]",
+        "[^\u{0}-\u{10FFFF}]",
+        "[^a]{2}",
+        "a.b",
+        "(.|[^b])+",
+    ] {
+        let body = regex::parse(source).unwrap().body;
+        let bytes = flex_as_byte_regex(&body);
+        let characters_regex = rust_character_regex(&body);
+        let texts = characters
+            .iter()
+            .map(char::to_string)
+            .chain(
+                pairs
+                    .iter()
+                    .flat_map(|first| pairs.iter().map(move |second| format!("{first}{second}"))),
+            )
+            .chain(characters.iter().map(|character| format!("a{character}b")));
+        for text in texts {
+            assert_eq!(
+                bytes.is_match(text.as_bytes()),
+                characters_regex.is_match(&text),
+                "{source:?} on {text:?}"
+            );
+        }
+        for not_utf8 in NOT_UTF8 {
+            for text in [not_utf8.to_vec(), [b"a", not_utf8, b"b"].concat()] {
+                assert!(!bytes.is_match(&text), "{source:?} on {text:?}");
+            }
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn flex_printer_classes_denote_the_characters_of_the_class(
+        negated in any::<bool>(),
+        members in prop::collection::vec(
+            (any::<char>(), prop::option::of(0u32..0x2000)), 1..5),
+        probes in prop::collection::vec(any::<char>(), 1..16),
+    ) {
+        let members = members
+            .into_iter()
+            .map(|(start, width)| match width.and_then(|width| char::from_u32(start as u32 + width)) {
+                Some(end) => regex::CharClass::Range { start, end },
+                None => regex::CharClass::Char(start),
+            })
+            .collect::<Vec<_>>();
+        let body = regex::RegexBody::CharClass { negated, members: members.clone() };
+        let bytes = flex_as_byte_regex(&body);
+        let probes = probes.into_iter().chain(members.iter().flat_map(|member| match *member {
+            regex::CharClass::Char(character) => vec![character],
+            regex::CharClass::Range { start, end } => [start as u32, end as u32]
+                .into_iter()
+                .flat_map(|point| [point.wrapping_sub(1), point, point + 1])
+                .filter_map(char::from_u32)
+                .collect(),
+        }));
+        for probe in probes {
+            let member = members.iter().any(|member| match *member {
+                regex::CharClass::Char(character) => character == probe,
+                regex::CharClass::Range { start, end } => (start..=end).contains(&probe),
+            });
+            prop_assert_eq!(
+                bytes.is_match(probe.to_string().as_bytes()),
+                member != negated,
+                "{:?} on {:?}", body.to_flex_string(), probe
+            );
+        }
+        for not_utf8 in NOT_UTF8 {
+            prop_assert!(!bytes.is_match(not_utf8));
+        }
+    }
 }
 
 #[test]

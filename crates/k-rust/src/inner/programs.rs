@@ -35,22 +35,24 @@
 //! sentences for each visited module, O(modules * visible sentences); parse work is measured by
 //! the parser counter family.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::definition::AttributeKey;
+use crate::definition::{AttributeKey, Location};
 use crate::definition::{
-    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionItem, ResolveError,
-    ResolvedDefinition, Sentence, SortCatalog, SortSynonyms, push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionCatalog, ProductionItem,
+    ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead, SortSynonyms,
+    push_if_inequivalent,
 };
 use crate::kast::json as kast_json;
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
 use crate::kast::printer::Printer;
-use crate::kast::{ProductionIdentity, Sort, Term, TermParts};
+use crate::kast::{Label, ProductionIdentity, Sort, Term, TermParts};
+use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::SourceId;
 
-use super::location::locate_ambiguity_places_in_text;
+use super::location::{TextPositions, locate_ambiguity_places_in_text};
 use super::parser::{DiagnosticWork, Grammar, ParseError, named_projection_productions};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,6 +210,8 @@ pub struct ProgramParser {
     /// The identities of the parametric productions of the catalog the grammar was built from:
     /// a label a parse builds from one of them carries sort arguments that inference supplied.
     parametric_productions: BTreeSet<ProductionIdentity>,
+    /// What locating a parse needs; `None` when no sort of the grammar declares `[locations]`.
+    locations: Option<Locations>,
 }
 
 impl ProgramParser {
@@ -246,10 +250,12 @@ impl ProgramParser {
             })
             .map(|(id, _)| source_catalog.identity(id))
             .collect();
+        let locations = Locations::of(&sentences, &source_catalog);
         Ok(Self {
             module: module.to_owned(),
             grammar,
             parametric_productions,
+            locations,
         })
     }
 
@@ -262,7 +268,9 @@ impl ProgramParser {
         self.grammar.start_sort(spelling)
     }
 
-    /// Parse a program without claiming that it belongs to a known logical source.
+    /// Parse a program read from no file (standard input, or text given as an argument), without
+    /// claiming that it belongs to a known logical source: [`Self::parse_file`] with the file name
+    /// [`UNNAMED_PROGRAM`].
     ///
     /// Production and sort metadata remain available, but source spans are omitted.
     /// Use [`Self::parse_with_provenance`] when the caller owns a [`SourceId`].
@@ -271,20 +279,49 @@ impl ProgramParser {
         start_sort: &Sort,
         source: &str,
     ) -> Result<ParsedProgram, ProgramParseError> {
-        self.parse_within(start_sort, source, DiagnosticWork::from_environment())
+        self.parse_file(start_sort, source, UNNAMED_PROGRAM)
     }
 
-    /// `parse`, with the diagnostic of a failure limited to `diagnostic_work`.
+    /// Parse a program read from the file `file`, the name the `#location` wrappers of its
+    /// `[locations]` sorts carry.
+    pub fn parse_file(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+        file: &str,
+    ) -> Result<ParsedProgram, ProgramParseError> {
+        self.parse_within(start_sort, source, file, DiagnosticWork::from_environment())
+    }
+
+    /// `parse_file`, with the diagnostic of a failure limited to `diagnostic_work`.
     fn parse_within(
         &self,
         start_sort: &Sort,
         source: &str,
+        file: &str,
         diagnostic_work: DiagnosticWork,
     ) -> Result<ParsedProgram, ProgramParseError> {
         self.grammar
             .parse_with_diagnostic_work(start_sort, source, diagnostic_work)
-            .map(|term| ParsedProgram(without_source_spans(term)))
+            .map(|term| {
+                ParsedProgram(without_source_spans(
+                    self.locate(start_sort, source, file, term),
+                ))
+            })
             .map_err(|error| self.parse_error(start_sort, source, error))
+    }
+
+    /// `term`, parsed from `source` at `start_sort`, with its `[locations]` sorts located in
+    /// `file`.
+    fn locate(&self, start_sort: &Sort, source: &str, file: &str, term: Term) -> Term {
+        match &self.locations {
+            Some(locations) => locations.locate(
+                term,
+                self.grammar.start_sort(start_sort),
+                &ProgramText { source, file },
+            ),
+            None => term,
+        }
     }
 
     /// The failure to parse `source` as `start_sort`: each subterm an ambiguity report names is
@@ -325,11 +362,12 @@ impl ProgramParser {
         diagnostic_work: DiagnosticWork,
     ) -> Result<ParsedProgram, ProgramParseError> {
         let item = Sort::new("KItem");
-        match self.parse_within(&item, source, diagnostic_work) {
+        let file = UNNAMED_PROGRAM;
+        match self.parse_within(&item, source, file, diagnostic_work) {
             Ok(program) => Ok(program),
             Err(item_attempt) if matches!(*item_attempt.error, ParseError::NoParse { .. }) => {
                 let program = self
-                    .parse_within(&Sort::new("K"), source, diagnostic_work)
+                    .parse_within(&Sort::new("K"), source, file, diagnostic_work)
                     .map_err(|mut error| {
                         error.item_attempt = Some(Box::new(item_attempt.clone()));
                         error
@@ -343,7 +381,7 @@ impl ProgramParser {
                 ) {
                     return Ok(program);
                 }
-                match self.parse_within(&item, source, DiagnosticWork::Unlimited) {
+                match self.parse_within(&item, source, file, DiagnosticWork::Unlimited) {
                     Err(item_attempt)
                         if matches!(*item_attempt.error, ParseError::NoParse { .. }) =>
                     {
@@ -357,7 +395,8 @@ impl ProgramParser {
         }
     }
 
-    /// Parse a program whose byte zero belongs to `source_id`.
+    /// Parse a program whose byte zero belongs to `source_id`, read from no file (see
+    /// [`Self::parse`]).
     pub fn parse_with_provenance(
         &self,
         start_sort: &Sort,
@@ -366,7 +405,7 @@ impl ProgramParser {
     ) -> Result<ParsedProgram, ProgramParseError> {
         self.grammar
             .parse_with_provenance(start_sort, source, source_id, 0)
-            .map(ParsedProgram)
+            .map(|term| ParsedProgram(self.locate(start_sort, source, UNNAMED_PROGRAM, term)))
             .map_err(|error| self.parse_error(start_sort, source, error))
     }
 
@@ -451,6 +490,303 @@ pub fn definition_with_named_projections(definition: &Definition) -> Definition 
             .extend(generated.into_iter().map(Arc::new));
     }
     output
+}
+
+/// The file name a program's locations carry when it was read from no file: from standard input,
+/// or given as text on a command line or to a library call. No file is named `-` on a command
+/// line that takes a program path, where `-` already means standard input.
+pub const UNNAMED_PROGRAM: &str = "-";
+
+/// The file name a program read from `path` carries in its locations: the path as it was given,
+/// each of its bytes that is not part of a UTF-8 sequence read as the code point of its value, so
+/// that a path names one sequence of characters whatever bytes it holds.
+pub fn program_file_name(path: &std::path::Path) -> String {
+    let mut name = String::new();
+    for chunk in path.as_os_str().as_encoded_bytes().utf8_chunks() {
+        name.push_str(chunk.valid());
+        name.extend(chunk.invalid().iter().copied().map(char::from));
+    }
+    name
+}
+
+/// The label of `syntax {Sort} Sort ::= #location(Sort, String, Int, Int, Int, Int)`, module
+/// `K-LOCATIONS` of `kast.md`: a term, the file of its text, and the first line and column of that
+/// text and the line and column just after it.
+const LOCATION_LABEL: &str = "#location";
+
+/// A program's text and the file name its locations carry.
+struct ProgramText<'a> {
+    source: &'a str,
+    file: &'a str,
+}
+
+/// How a parse is located.
+///
+/// A sort that declares `[locations]` asks that each term of that sort a program's text denotes
+/// carry where that text is: such a term `t` is the term `#location{S}(t, file, l1, c1, l2, c2)`,
+/// lines and columns as in diagnostics (`location::advance`), the end the position after the
+/// text's last character. A term is of sort `S` in two ways, so it is located at `S` when either
+/// is `S`:
+///
+/// - its own sort, the result sort of the production that built it, or a token's sort;
+/// - the sort of its position, the argument of its parent production or the start sort, which a
+///   term of a subsort fills through that subsort: `1` at an `Exp` position of `Exp ::= Int` is
+///   an expression, located as one even when `Int` asks for nothing.
+///
+/// A term located at its position's sort `S` but of another sort `A` is placed under the wrapper
+/// by its injection, `#location{S}(inj{A, S}(t), ...)`: the instance of `#location` is the sort
+/// the term is located at, and the injection states it where the instance is inferred again from
+/// the argument's sort (macro expansion erases a parse's instances), which would otherwise give
+/// the least instance, `A`. When both sorts ask and differ, the term is located at its own sort
+/// inside its location at its position's sort, `#location{S}(inj{A, S}(#location{A}(t, ...)), ...)`. A
+/// subsort chain between the two sorts has no text of its own, so its intermediate sorts locate
+/// nothing, and the result does not depend on which chain a parse went through. A term whose text
+/// is empty, such as a list's terminator, is located at the empty span where it stands.
+#[derive(Clone, Debug)]
+struct Locations {
+    sorts: BTreeSet<SortHead>,
+    /// The productions of the parser's catalog, by the identity a parse records.
+    productions: BTreeMap<ProductionIdentity, ProductionShape>,
+}
+
+/// A production's parameters, result sort and argument sorts (its nonterminals, in order).
+#[derive(Clone, Debug)]
+struct ProductionShape {
+    parameters: Vec<Sort>,
+    result: Sort,
+    arguments: Vec<Sort>,
+}
+
+impl ProductionShape {
+    /// `sort` with each of this production's parameters replaced by its sort in `instance`.
+    fn instance(&self, sort: &Sort, instance: &[Sort]) -> Sort {
+        if let Some(index) = self
+            .parameters
+            .iter()
+            .position(|parameter| parameter == sort)
+        {
+            return instance[index].clone();
+        }
+        Sort::with_parameters(
+            sort.name.clone(),
+            sort.parameters
+                .iter()
+                .map(|sort| self.instance(sort, instance))
+                .collect(),
+        )
+    }
+}
+
+impl Locations {
+    /// The locations of the grammar of `sentences`, whose parses record identities of `catalog`;
+    /// `None` when no sort declares `[locations]`.
+    fn of(sentences: &[Sentence], catalog: &ProductionCatalog<'_>) -> Option<Self> {
+        let sort_catalog = SortCatalog::from_visible(sentences.iter());
+        let sorts = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
+                    Some(SortHead::from(sort))
+                }
+                _ => None,
+            })
+            .filter(|sort| {
+                sort_catalog
+                    .attributes_for(sort)
+                    .is_some_and(|attributes| attributes.value(AttributeKey::Locations).is_some())
+            })
+            .collect::<BTreeSet<_>>();
+        if sorts.is_empty() {
+            return None;
+        }
+        let productions = catalog
+            .productions()
+            .filter_map(|(id, production)| match production {
+                Sentence::Production {
+                    parameters,
+                    sort,
+                    items,
+                    ..
+                } => Some((
+                    catalog.identity(id),
+                    ProductionShape {
+                        parameters: parameters.clone(),
+                        result: sort.clone(),
+                        arguments: items
+                            .iter()
+                            .filter_map(|item| match item {
+                                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                                ProductionItem::RegexTerminal { .. }
+                                | ProductionItem::Terminal(_) => None,
+                            })
+                            .collect(),
+                    },
+                )),
+                _ => None,
+            })
+            .collect();
+        Some(Self { sorts, productions })
+    }
+
+    fn located(&self, sort: &Sort) -> bool {
+        self.sorts.contains(&SortHead::from(sort))
+    }
+
+    /// `term`, a parse of `text` at `start`, located.
+    fn locate(&self, term: Term, start: &Sort, text: &ProgramText<'_>) -> Term {
+        let mut offsets = Vec::new();
+        span_offsets(&term, &mut offsets);
+        let positions = TextPositions::new(text.source, offsets);
+        self.locate_at(term, Some(start), text.file, &positions)
+    }
+
+    /// `term`, at a position of sort `position` when that is known, located.
+    fn locate_at(
+        &self,
+        term: Term,
+        position: Option<&Sort>,
+        file: &str,
+        positions: &TextPositions,
+    ) -> Term {
+        let metadata = term.metadata().cloned();
+        let shape = metadata
+            .as_ref()
+            .and_then(|metadata| metadata.production)
+            .and_then(|production| self.productions.get(&production));
+        let locate =
+            |term, position: Option<&Sort>| self.locate_at(term, position, file, positions);
+        let (term, own) = match term.into_unannotated().into_parts() {
+            TermParts::Apply { label, arguments } => {
+                let shape = shape.filter(|shape| {
+                    shape.arguments.len() == arguments.len()
+                        && shape.parameters.len() == label.parameters.len()
+                });
+                let arguments = arguments
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let position = shape.map(|shape| {
+                            shape.instance(&shape.arguments[index], &label.parameters)
+                        });
+                        locate(argument, position.as_ref())
+                    })
+                    .collect();
+                let own = shape.map(|shape| shape.instance(&shape.result, &label.parameters));
+                (Term::Apply { label, arguments }, own)
+            }
+            TermParts::Token { token, sort } => {
+                let own = Some(sort.clone());
+                (Term::Token { token, sort }, own)
+            }
+            TermParts::Rewrite { left, right } => (
+                Term::Rewrite {
+                    left: Box::new(locate(*left, None)),
+                    right: Box::new(locate(*right, None)),
+                },
+                None,
+            ),
+            TermParts::As { pattern, alias } => (
+                Term::As {
+                    pattern: Box::new(locate(*pattern, None)),
+                    alias: Box::new(locate(*alias, None)),
+                },
+                None,
+            ),
+            TermParts::Sequence(items) => (
+                Term::Sequence(items.into_iter().map(|item| locate(item, None)).collect()),
+                None,
+            ),
+            leaf @ (TermParts::InjectedLabel(_) | TermParts::Variable { .. }) => {
+                (Term::from(leaf), None)
+            }
+            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        };
+        let Some(metadata) = metadata else {
+            return term;
+        };
+        let location = metadata
+            .span
+            .and_then(|span| positions.location(span.start, span.end));
+        let mut term = term.with_metadata(metadata);
+        let Some(location) = location else {
+            return term;
+        };
+        if let Some(own) = own.as_ref().filter(|own| self.located(own)) {
+            term = location_term(own, term, file, location);
+        }
+        if let Some(position) =
+            position.filter(|position| self.located(position) && own.as_ref() != Some(*position))
+        {
+            if let Some(own) = &own {
+                term = Term::Apply {
+                    label: Label::with_parameters(
+                        WellKnownSymbol::Inj.as_str(),
+                        vec![own.clone(), position.clone()],
+                    ),
+                    arguments: vec![term],
+                };
+            }
+            term = location_term(position, term, file, location);
+        }
+        term
+    }
+}
+
+/// Every span boundary in `term`.
+fn span_offsets(term: &Term, offsets: &mut Vec<usize>) {
+    if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
+        offsets.extend([span.start, span.end]);
+    }
+    match term.unannotated() {
+        Term::Apply { arguments, .. } => {
+            for argument in arguments {
+                span_offsets(argument, offsets);
+            }
+        }
+        Term::Rewrite { left, right } => {
+            span_offsets(left, offsets);
+            span_offsets(right, offsets);
+        }
+        Term::As { pattern, alias } => {
+            span_offsets(pattern, offsets);
+            span_offsets(alias, offsets);
+        }
+        Term::Sequence(items) => {
+            for item in items {
+                span_offsets(item, offsets);
+            }
+        }
+        Term::InjectedLabel(_)
+        | Term::Variable { .. }
+        | Term::Token { .. }
+        | Term::Annotated { .. } => {}
+    }
+}
+
+/// `#location{sort}(term, file, ...)` with the lines and columns of `location`; `term` is of sort
+/// `sort`.
+fn location_term(sort: &Sort, term: Term, file: &str, location: Location) -> Term {
+    let int = |value: u32| Term::Token {
+        token: value.to_string(),
+        sort: Sort::builtin(BuiltinSort::Int),
+    };
+    Term::Apply {
+        label: Label {
+            name: LOCATION_LABEL.to_owned(),
+            parameters: vec![sort.clone()],
+        },
+        arguments: vec![
+            term,
+            Term::Token {
+                token: crate::kast::string::quote(file),
+                sort: Sort::builtin(BuiltinSort::String),
+            },
+            int(location.start_line),
+            int(location.start_column),
+            int(location.end_line),
+            int(location.end_column),
+        ],
+    }
 }
 
 fn without_source_spans(term: Term) -> Term {
@@ -860,6 +1196,7 @@ endmodule
             .parse_within(
                 &Sort::new("KItem"),
                 &source,
+                UNNAMED_PROGRAM,
                 DiagnosticWork::Limited { floor: 0 },
             )
             .unwrap_err();
@@ -878,6 +1215,7 @@ endmodule
                 .parse_within(
                     &Sort::new("K"),
                     &source,
+                    UNNAMED_PROGRAM,
                     DiagnosticWork::Limited { floor: 0 }
                 )
                 .is_ok()

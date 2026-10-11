@@ -903,7 +903,19 @@ print(json.dumps({
     };
     assert!(args("lr").contains(&"--gen-bison-parser"));
     assert!(args("glr").contains(&"--gen-glr-bison-parser"));
-    assert!(args("glr").contains(&"--bison-lists"));
+    assert!(!args("glr").contains(&"--bison-lists"));
+    assert_eq!(
+        translated["glr"]["dropped"].as_array().unwrap().len(),
+        1,
+        "{translated}"
+    );
+    assert!(
+        translated["glr"]["dropped"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("--bison-lists (not forwarded"),
+        "{translated}"
+    );
     assert!(args("both").contains(&"--gen-bison-parser"));
     assert!(args("both").contains(&"--gen-glr-bison-parser"));
     assert!(args("library").contains(&"--bison-parser-library"));
@@ -912,7 +924,7 @@ print(json.dumps({
             .windows(2)
             .any(|pair| pair == ["--bison-stack-max-depth", "12000"])
     );
-    for row in ["lr", "glr", "both", "depth", "library"] {
+    for row in ["lr", "both", "depth", "library"] {
         assert_eq!(
             translated[row]["dropped"],
             serde_json::json!([]),

@@ -214,13 +214,7 @@ impl Grammar {
                 | Sentence::Bubble { .. } => None,
             })
             .map(|items| match items.as_slice() {
-                [
-                    ProductionItem::RegexTerminal {
-                        precede_regex: None,
-                        regex,
-                        follow_regex: None,
-                    },
-                ] => Ok(regex.clone()),
+                [ProductionItem::RegexTerminal { regex }] => Ok(regex.clone()),
                 _ => Err(ParseError::InvalidLayoutProduction),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -628,14 +622,14 @@ impl Grammar {
     pub(crate) fn add_left_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.left.insert((label.clone(), label));
-        self.associativity_index = std::sync::OnceLock::new();
+        self.relation_index = std::sync::OnceLock::new();
     }
 
     #[cfg(test)]
     pub(crate) fn add_right_associative(&mut self, label: impl Into<String>) {
         let label = label.into();
         self.associativities.right.insert((label.clone(), label));
-        self.associativity_index = std::sync::OnceLock::new();
+        self.relation_index = std::sync::OnceLock::new();
     }
 
     pub(in crate::inner) fn add_matching_terminal_tokens(
@@ -958,6 +952,12 @@ impl Grammar {
         // values of its result sort.
         let syntactic_subsort =
             !options.bracket && matches!(items.as_slice(), [Item::NonTerminal(_)]);
+        let nonterminals = items
+            .iter()
+            .filter(|item| matches!(item, Item::NonTerminal(_)))
+            .count();
+        let first_nonterminal = matches!(items.first(), Some(Item::NonTerminal(_)));
+        let last_nonterminal = matches!(items.last(), Some(Item::NonTerminal(_)));
         let parse_label = label
             .as_ref()
             .map(|label| label.name.clone())
@@ -987,8 +987,8 @@ impl Grammar {
                 self.insert_subsort_pair(child, &result, SubsortRelation::Syntactic);
             }
         }
-        // The associativity index numbers each production's label and holds its edges.
-        self.associativity_index = std::sync::OnceLock::new();
+        // The relation index numbers each production's label and holds its associativity edges.
+        self.relation_index = std::sync::OnceLock::new();
         self.productions.push(Production {
             result: result.clone(),
             result_id,
@@ -1001,6 +1001,9 @@ impl Grammar {
             transparent: options.transparent,
             bracket: options.bracket,
             syntactic_subsort,
+            nonterminals,
+            first_nonterminal,
+            last_nonterminal,
             parse_label,
             apply_priority,
             function: options.function,

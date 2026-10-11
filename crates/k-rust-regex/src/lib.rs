@@ -38,13 +38,16 @@ use std::fmt::{Display, Write};
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Regex {
     /// `^`: the token starts a line, i.e. it starts at the start of the scanned text or right
-    /// after a `\n`.
+    /// after a line terminator. The line terminators are the ones source locations count:
+    /// `\r\n`, `\n`, `\r`, vertical tab, form feed, U+0085, U+2028 and U+2029, with `\r\n` one
+    /// terminator, so no line starts or ends between its `\r` and its `\n` (k-rust's `lines`
+    /// module holds the table).
     pub start_line: bool,
     pub body: RegexBody,
-    /// `$`: the token ends a line, i.e. a `\n` follows it. The newline is not part of the token,
-    /// so it does not count in the longest-match comparison between candidate tokens either; and
-    /// the end of the text is not a line end: text after the last newline is an unterminated
-    /// line.
+    /// `$`: the token ends a line, i.e. a line terminator follows it. The terminator is not part
+    /// of the token, so it does not count in the longest-match comparison between candidate tokens
+    /// either; and the end of the text is not a line end: text after the last terminator is an
+    /// unterminated line.
     pub end_line: bool,
 }
 
@@ -74,14 +77,23 @@ impl Regex {
 
     /// Render this regular expression as a deterministic Flex pattern.
     ///
-    /// A Flex rule's leading `^` and trailing `$` accept the token positions the line anchors of a
-    /// token regex accept (see [`Regex::start_line`]) and apply to the whole rule, so both are
-    /// printed as held. Flex's `$` is trailing context, though, whose newline Flex counts when it
-    /// compares candidate matches, so a scanner that must compare token lengths prints a
-    /// `$`-anchored rule from its body and checks the newline itself.
+    /// The line anchors are printed as held, as Flex's leading `^` and trailing `$`, which apply
+    /// to the whole rule. Flex reads only `\n` as a line end, though, and its `$` is trailing
+    /// context, whose newline Flex counts when it compares candidate matches, so a scanner that
+    /// must give the anchors their meaning (see [`Regex::start_line`]) prints an anchored rule
+    /// from its body and checks the anchors itself.
+    /// The body is printed as [`RegexBody::to_flex_string`] prints it, for UTF-8 input.
     /// This is a semantic input to Flex, not a byte-parity contract with K's renderer.
     pub fn to_flex_string(&self) -> String {
-        print_flex_regex(self)
+        print_flex_regex(self, FlexClasses::Utf8)
+    }
+
+    /// This regular expression in Flex syntax with each character class and `.` as written: a
+    /// name for its tokens in a generated parser's diagnostics, which a reader recognizes from the
+    /// definition. It is no scanner pattern: Flex would read its classes as sets of bytes (see
+    /// [`Regex::to_flex_string`]).
+    pub fn to_flex_name(&self) -> String {
+        print_flex_regex(self, FlexClasses::AsWritten)
     }
 
     /// Translate K's regex AST to a Rust regex body, keeping the line anchors beside it: Rust
@@ -191,10 +203,16 @@ impl RegexBody {
     }
 
     /// Render this regular-expression body for Flex.
+    ///
+    /// The pattern matches the UTF-8 encodings of the texts the body denotes, the input a
+    /// generated scanner reads: a character class and `.` each match one whole character (the
+    /// byte sequences that encode exactly the characters they denote), and a character outside a
+    /// class is its encoding, grouped so that a repetition applies to all of it. A named reference
+    /// stays a Flex `{Name}` reference, with its name mangled by [`mangle_flex_identifier`].
     pub fn to_flex_string(&self) -> String {
-        let transformed = transform_flex_body(self);
         let mut output = String::new();
-        print_flex_union(&transformed, &mut output).expect("writing to a string cannot fail");
+        print_flex_union(self, FlexClasses::Utf8, &mut output)
+            .expect("writing to a string cannot fail");
         output
     }
 }
@@ -309,12 +327,12 @@ pub fn parse(input: &str) -> Result<Regex, ParseError> {
 /// - Well-formedness of the regex language: [`Issue::DescendingCharRange`] and
 ///   [`Issue::DescendingRepeat`] denote empty sets written in a form that is almost certainly a
 ///   mistake, so they are rejected rather than silently matching nothing.
-/// - Restrictions of the scanner target: [`Issue::NonAsciiInNegatedClass`] and
-///   [`Issue::NonAsciiInClassRange`] are well formed as regexes, but the Flex scanner generated
-///   from a definition reads UTF-8 input as bytes. A non-ASCII code point is several bytes, so it
-///   can neither be excluded by a byte class nor serve as a byte-range endpoint. A non-ASCII
-///   member of a plain class does not have this problem, because it is rewritten into an
-///   alternation (see [`Regex::to_flex_string`]).
+/// - Restrictions kept from a byte-level scanner target: [`Issue::NonAsciiInNegatedClass`] and
+///   [`Issue::NonAsciiInClassRange`] are well formed as regexes. They were rejected because a
+///   Flex class of bytes can neither exclude a non-ASCII character nor take one as a range
+///   endpoint; the Flex printer now writes every class as the UTF-8 encodings of its characters
+///   (see [`RegexBody::to_flex_string`]), so it would scan both, and the restrictions stay only
+///   until the definitions they reject are decided separately.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Issue {
@@ -748,149 +766,138 @@ impl Parser {
     }
 }
 
-fn print_flex_regex(regex: &Regex) -> String {
+/// How a Flex printer writes a character class and `.`.
+#[derive(Clone, Copy)]
+enum FlexClasses {
+    /// As written, for naming a token: Flex would read such a class as a set of bytes.
+    AsWritten,
+    /// As the UTF-8 encodings of the characters they denote, for a scanner (see
+    /// [`RegexBody::to_flex_string`]).
+    Utf8,
+}
+
+fn print_flex_regex(regex: &Regex, classes: FlexClasses) -> String {
     let mut output = String::new();
     if regex.start_line {
         output.push('^');
     }
-    print_flex_union(&transform_flex_body(&regex.body), &mut output)
-        .expect("writing to a string cannot fail");
+    print_flex_union(&regex.body, classes, &mut output).expect("writing to a string cannot fail");
     if regex.end_line {
         output.push('$');
     }
     output
 }
 
-// Invariant: each recursive call transforms a strict subexpression of `body`, so the size of `body` bounds the calls.
-fn transform_flex_body(body: &RegexBody) -> RegexBody {
-    match body {
-        RegexBody::Char(_) | RegexBody::AnyChar => body.clone(),
-        RegexBody::Named(name) => RegexBody::Named(mangle_flex_identifier(name)),
-        RegexBody::CharClass { negated, members } => {
-            if *negated {
-                return body.clone();
-            }
-
-            // Flex scans UTF-8 as bytes, so a non-ASCII code point cannot stay
-            // inside a byte-oriented character class. Preserve member order
-            // within both partitions and place the remaining class last.
-            let mut alternatives = Vec::new();
-            let mut ascii_and_ranges = Vec::new();
-            for member in members {
-                if let CharClass::Char(character) = member
-                    && !character.is_ascii()
-                {
-                    alternatives.push(RegexBody::Char(*character));
-                } else {
-                    ascii_and_ranges.push(member.clone());
-                }
-            }
-            if !ascii_and_ranges.is_empty() {
-                alternatives.push(RegexBody::CharClass {
-                    negated: false,
-                    members: ascii_and_ranges,
-                });
-            }
-            alternatives
-                .into_iter()
-                .reduce(|left, right| RegexBody::Union {
-                    left: Box::new(left),
-                    right: Box::new(right),
-                })
-                .unwrap_or_else(|| body.clone())
-        }
-        RegexBody::Union { left, right } => RegexBody::Union {
-            left: Box::new(transform_flex_body(left)),
-            right: Box::new(transform_flex_body(right)),
-        },
-        RegexBody::Concat(members) => {
-            RegexBody::Concat(members.iter().map(transform_flex_body).collect())
-        }
-        RegexBody::ZeroOrMore(body) => RegexBody::ZeroOrMore(Box::new(transform_flex_body(body))),
-        RegexBody::ZeroOrOne(body) => RegexBody::ZeroOrOne(Box::new(transform_flex_body(body))),
-        RegexBody::OneOrMore(body) => RegexBody::OneOrMore(Box::new(transform_flex_body(body))),
-        RegexBody::Exactly { body, count } => RegexBody::Exactly {
-            body: Box::new(transform_flex_body(body)),
-            count: *count,
-        },
-        RegexBody::AtLeast { body, count } => RegexBody::AtLeast {
-            body: Box::new(transform_flex_body(body)),
-            count: *count,
-        },
-        RegexBody::Range {
-            body,
-            at_least,
-            at_most,
-        } => RegexBody::Range {
-            body: Box::new(transform_flex_body(body)),
-            at_least: *at_least,
-            at_most: *at_most,
-        },
-    }
-}
-
 // Invariant: `output` holds the Flex text printed so far, and each path back to `print_flex_union` through `print_flex_concat`, `print_flex_repeat`, `print_flex_class`, and `print_flex_simple` receives a strict subexpression of `body`, so the size of `body` bounds the calls.
-fn print_flex_union(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+fn print_flex_union(
+    body: &RegexBody,
+    classes: FlexClasses,
+    output: &mut String,
+) -> std::fmt::Result {
     if let RegexBody::Union { left, right } = body {
-        print_flex_concat(left, output)?;
+        print_flex_concat(left, classes, output)?;
         output.push('|');
-        print_flex_concat(right, output)
+        print_flex_concat(right, classes, output)
     } else {
-        print_flex_concat(body, output)
+        print_flex_concat(body, classes, output)
     }
 }
 
-fn print_flex_concat(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+fn print_flex_concat(
+    body: &RegexBody,
+    classes: FlexClasses,
+    output: &mut String,
+) -> std::fmt::Result {
     if let RegexBody::Concat(members) = body {
         for member in members {
-            print_flex_repeat(member, output)?;
+            print_flex_repeat(member, classes, output)?;
         }
         Ok(())
     } else {
-        print_flex_repeat(body, output)
+        print_flex_repeat(body, classes, output)
     }
 }
 
-fn print_flex_repeat(body: &RegexBody, output: &mut String) -> std::fmt::Result {
-    match body {
-        RegexBody::ZeroOrOne(body) => print_flex_repeated(body, "?", output),
-        RegexBody::ZeroOrMore(body) => print_flex_repeated(body, "*", output),
-        RegexBody::OneOrMore(body) => print_flex_repeated(body, "+", output),
-        RegexBody::Exactly { body, count } => {
-            print_flex_repeated(body, &format!("{{{count}}}"), output)
-        }
-        RegexBody::AtLeast { body, count } => {
-            print_flex_repeated(body, &format!("{{{count},}}"), output)
-        }
+fn print_flex_repeat(
+    body: &RegexBody,
+    classes: FlexClasses,
+    output: &mut String,
+) -> std::fmt::Result {
+    let (body, suffix) = match body {
+        RegexBody::ZeroOrOne(body) => (body, "?".to_owned()),
+        RegexBody::ZeroOrMore(body) => (body, "*".to_owned()),
+        RegexBody::OneOrMore(body) => (body, "+".to_owned()),
+        RegexBody::Exactly { body, count } => (body, format!("{{{count}}}")),
+        RegexBody::AtLeast { body, count } => (body, format!("{{{count},}}")),
         RegexBody::Range {
             body,
             at_least,
             at_most,
-        } => print_flex_repeated(body, &format!("{{{at_least},{at_most}}}"), output),
-        _ => print_flex_class(body, output),
-    }
-}
-
-fn print_flex_repeated(body: &RegexBody, suffix: &str, output: &mut String) -> std::fmt::Result {
-    print_flex_class(body, output)?;
-    output.push_str(suffix);
+        } => (body, format!("{{{at_least},{at_most}}}")),
+        _ => return print_flex_class(body, classes, output),
+    };
+    print_flex_class(body, classes, output)?;
+    output.push_str(&suffix);
     Ok(())
 }
 
-fn print_flex_class(body: &RegexBody, output: &mut String) -> std::fmt::Result {
-    if let RegexBody::CharClass { negated, members } = body {
-        output.push('[');
-        if *negated {
-            output.push('^');
+fn print_flex_class(
+    body: &RegexBody,
+    classes: FlexClasses,
+    output: &mut String,
+) -> std::fmt::Result {
+    match (body, classes) {
+        (RegexBody::CharClass { negated, members }, FlexClasses::AsWritten) => {
+            print_flex_class_as_written(*negated, members, output)
         }
-        for member in members {
-            print_flex_class_member(member, output)?;
+        (RegexBody::CharClass { negated, members }, FlexClasses::Utf8) => {
+            if !negated
+                && members.iter().all(|member| match *member {
+                    CharClass::Char(character) => character.is_ascii(),
+                    CharClass::Range { start, end } => start.is_ascii() && end.is_ascii(),
+                })
+            {
+                // Every character it denotes is one byte, so the class is its own encoding.
+                print_flex_class_as_written(false, members, output)
+            } else {
+                let ranges = members.iter().filter_map(|member| match *member {
+                    CharClass::Char(character) => Some((character as u32, character as u32)),
+                    CharClass::Range { start, end } => {
+                        (start <= end).then_some((start as u32, end as u32))
+                    }
+                });
+                let set = merge_scalar_ranges(ranges);
+                let set = if *negated {
+                    complement_scalar_ranges(&set)
+                } else {
+                    set
+                };
+                print_flex_utf8_set(&set, output)
+            }
         }
-        output.push(']');
-        Ok(())
-    } else {
-        print_flex_simple(body, output)
+        (RegexBody::AnyChar, FlexClasses::Utf8) => {
+            // `.` is every character but `\n`.
+            let newline = u32::from(b'\n');
+            print_flex_utf8_set(&complement_scalar_ranges(&[(newline, newline)]), output)
+        }
+        _ => print_flex_simple(body, classes, output),
     }
+}
+
+fn print_flex_class_as_written(
+    negated: bool,
+    members: &[CharClass],
+    output: &mut String,
+) -> std::fmt::Result {
+    output.push('[');
+    if negated {
+        output.push('^');
+    }
+    for member in members {
+        print_flex_class_member(member, output)?;
+    }
+    output.push(']');
+    Ok(())
 }
 
 fn print_flex_class_member(member: &CharClass, output: &mut String) -> std::fmt::Result {
@@ -904,25 +911,209 @@ fn print_flex_class_member(member: &CharClass, output: &mut String) -> std::fmt:
     }
 }
 
-fn print_flex_simple(body: &RegexBody, output: &mut String) -> std::fmt::Result {
+fn print_flex_simple(
+    body: &RegexBody,
+    classes: FlexClasses,
+    output: &mut String,
+) -> std::fmt::Result {
     match body {
         RegexBody::Char(character) => print_flex_character(*character, false, output),
         RegexBody::AnyChar => {
             output.push('.');
             Ok(())
         }
-        RegexBody::Named(name) => write!(output, "{{{name}}}"),
+        RegexBody::Named(name) => write!(output, "{{{}}}", mangle_flex_identifier(name)),
         _ => {
             output.push('(');
-            print_flex_union(body, output)?;
+            print_flex_union(body, classes, output)?;
             output.push(')');
             Ok(())
         }
     }
 }
 
+/// The largest Unicode scalar value.
+const MAX_SCALAR: u32 = 0x10_FFFF;
+/// The surrogate code points, which are no Unicode scalar value, so no character of a K regex or
+/// of a UTF-8 text.
+const SURROGATES: (u32, u32) = (0xD800, 0xDFFF);
+
+/// The union of `ranges` (inclusive, each nonempty) as sorted, disjoint, non-adjacent ranges.
+fn merge_scalar_ranges(ranges: impl Iterator<Item = (u32, u32)>) -> Vec<(u32, u32)> {
+    let mut ranges = ranges.collect::<Vec<_>>();
+    ranges.sort_unstable();
+    let mut merged = Vec::<(u32, u32)>::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        match merged.last_mut() {
+            Some((_, last_end)) if start <= last_end.saturating_add(1) => {
+                *last_end = (*last_end).max(end);
+            }
+            _ => merged.push((start, end)),
+        }
+    }
+    merged
+}
+
+/// The scalar values outside the sorted, disjoint `set`, as sorted, disjoint ranges.
+fn complement_scalar_ranges(set: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut complement = Vec::with_capacity(set.len() + 1);
+    let mut next = 0;
+    for &(start, end) in set {
+        if next < start {
+            complement.push((next, start - 1));
+        }
+        next = end + 1;
+    }
+    if next <= MAX_SCALAR {
+        complement.push((next, MAX_SCALAR));
+    }
+    complement
+}
+
+/// Print a Flex pattern that matches exactly the UTF-8 encodings of the scalar values in `set`
+/// (sorted, disjoint ranges), one character each.
+///
+/// Flex reads its input as bytes, so a class that denotes characters matches only the one-byte
+/// ones. The ASCII part of `set` is one byte class; each other character is a sequence of two to
+/// four bytes, and [`utf8_sequences`] splits each range of them into sequences of byte ranges
+/// whose concatenations are exactly the encodings of that range, so a scanner matches one whole
+/// character where the in-process scanner does: never part of one, and never a byte sequence that
+/// encodes no character (a surrogate, or not UTF-8 at all). The alternation is parenthesized, so a
+/// repetition applies to the whole character.
+fn print_flex_utf8_set(set: &[(u32, u32)], output: &mut String) -> std::fmt::Result {
+    let mut alternatives = Vec::new();
+    let ascii = set
+        .iter()
+        .filter(|(start, _)| *start <= 0x7F)
+        .map(|&(start, end)| (start as u8, end.min(0x7F) as u8))
+        .collect::<Vec<_>>();
+    if !ascii.is_empty() {
+        let mut class = String::from("[");
+        for (start, end) in ascii {
+            print_flex_byte(start, &mut class)?;
+            if end > start {
+                class.push('-');
+                print_flex_byte(end, &mut class)?;
+            }
+        }
+        class.push(']');
+        alternatives.push(class);
+    }
+    let mut sequences = Vec::new();
+    for &(start, end) in set {
+        let start = start.max(0x80);
+        if start <= end {
+            utf8_sequences(start, end, &mut sequences);
+        }
+    }
+    for sequence in sequences {
+        let mut printed = String::new();
+        for (start, end) in sequence {
+            if start == end {
+                print_flex_byte(start, &mut printed)?;
+            } else {
+                printed.push('[');
+                print_flex_byte(start, &mut printed)?;
+                printed.push('-');
+                print_flex_byte(end, &mut printed)?;
+                printed.push(']');
+            }
+        }
+        alternatives.push(printed);
+    }
+    if alternatives.is_empty() {
+        // The empty set, which no text matches: the class of no byte.
+        output.push_str(r"[^\x00-\xFF]");
+        return Ok(());
+    }
+    output.push('(');
+    output.push_str(&alternatives.join("|"));
+    output.push(')');
+    Ok(())
+}
+
+/// The scalar values of each UTF-8 encoded length, in increasing order.
+const UTF8_LENGTHS: [(u32, u32); 4] = [
+    (0, 0x7F),
+    (0x80, 0x7FF),
+    (0x800, 0xFFFF),
+    (0x1_0000, MAX_SCALAR),
+];
+
+/// Append to `sequences` the UTF-8 encodings of the scalar values in `start..=end`, the
+/// surrogates excluded, as sequences of byte ranges, in increasing order of the values they
+/// encode: a sequence `[(s1, e1), ..., (sn, en)]` stands for every `n`-byte string whose `i`th
+/// byte lies in `si..=ei`, and the strings of all of them are exactly the encodings.
+///
+/// The encodings of a range whose values share their encoded length form such a product exactly
+/// when, for each number `k` of trailing continuation bytes, the start and the end either agree
+/// on every bit above those `k` bytes, or the start's `k` bytes are all minimal and the end's all
+/// maximal: UTF-8 writes a value's bits in order, six to a continuation byte, so the bytes then
+/// vary independently over their ranges. Any other range splits, at the first `k` that fails,
+/// into a part that completes the start's `k` bytes and the rest, or into the rest and a part
+/// that begins the end's.
+fn utf8_sequences(start: u32, end: u32, sequences: &mut Vec<Vec<(u8, u8)>>) {
+    let (low, high) = SURROGATES;
+    for (length_start, length_end) in UTF8_LENGTHS {
+        for (start, end) in [
+            (start.max(length_start), end.min(length_end).min(low - 1)),
+            (start.max(length_start).max(high + 1), end.min(length_end)),
+        ] {
+            if start <= end {
+                utf8_sequences_of_one_length(start, end, sequences);
+            }
+        }
+    }
+}
+
+// Invariant: `start..=end` is nonempty and holds scalar values of one encoded length and no
+// surrogate; each recursive call receives a strict subrange of it, so the size of the range bounds
+// the calls, and each split leaves one part aligned at the failing count of trailing bytes and at
+// every smaller one, so the depth is at most twice the encoded length.
+fn utf8_sequences_of_one_length(start: u32, end: u32, sequences: &mut Vec<Vec<(u8, u8)>>) {
+    let length = char::from_u32(start).map_or(1, char::len_utf8);
+    for trailing in 1..length {
+        let mask = (1u32 << (6 * trailing)) - 1;
+        if start & !mask != end & !mask {
+            if start & mask != 0 {
+                utf8_sequences_of_one_length(start, start | mask, sequences);
+                utf8_sequences_of_one_length((start | mask) + 1, end, sequences);
+                return;
+            }
+            if end & mask != mask {
+                utf8_sequences_of_one_length(start, (end & !mask) - 1, sequences);
+                utf8_sequences_of_one_length(end & !mask, end, sequences);
+                return;
+            }
+        }
+    }
+    let encode = |value: u32| {
+        let mut buffer = [0; 4];
+        char::from_u32(value)
+            .expect("the range holds scalar values only")
+            .encode_utf8(&mut buffer);
+        buffer
+    };
+    let (start_bytes, end_bytes) = (encode(start), encode(end));
+    sequences.push(
+        start_bytes[..length]
+            .iter()
+            .zip(&end_bytes[..length])
+            .map(|(&start, &end)| (start, end))
+            .collect(),
+    );
+}
+
+/// A byte as a Flex hexadecimal escape, which means that byte in a class and outside one alike.
+fn print_flex_byte(byte: u8, output: &mut String) -> std::fmt::Result {
+    write!(output, "\\x{byte:02X}")
+}
+
 fn print_flex_character(character: char, in_class: bool, output: &mut String) -> std::fmt::Result {
-    if !character.is_ascii() {
+    // Outside a class, a character of several bytes is grouped so that a repetition applies to
+    // all of them; a class is printed with one only when it names a token (`FlexClasses`).
+    let grouped = !in_class && !character.is_ascii();
+    if grouped {
         output.push('(');
     }
     match character {
@@ -961,7 +1152,7 @@ fn print_flex_character(character: char, in_class: bool, output: &mut String) ->
             output.push(character);
         }
     }
-    if !character.is_ascii() {
+    if grouped {
         output.push(')');
     }
     Ok(())
@@ -1226,4 +1417,43 @@ fn valid_identifier(name: &str) -> bool {
         .next()
         .is_some_and(|first| first.is_ascii_uppercase())
         && characters.all(|character| character.is_ascii_alphanumeric())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_SCALAR, utf8_sequences};
+
+    /// The printer's UTF-8 range splitting gives the sequences `regex-syntax`'s independent
+    /// implementation gives, for every range between values at the boundaries the encoding has:
+    /// encoded lengths, continuation-byte carries, the surrogates and the last scalar value.
+    #[test]
+    fn utf8_sequences_agree_with_an_independent_implementation() {
+        let mut points = vec![0, 0x7F, MAX_SCALAR];
+        for boundary in [
+            0x80, 0x800, 0x1000, 0xD800, 0xE000, 0x1_0000, 0x4_0000, 0x10_0000,
+        ] {
+            points.extend([boundary - 1, boundary, boundary + 1]);
+        }
+        points.extend([0xE9, 0x2028, 0xFFFD, 0x1_F642, 0x10_FFFE, 0x3_ABCD, 0xABCD]);
+        let points = points
+            .into_iter()
+            .filter_map(char::from_u32)
+            .collect::<Vec<_>>();
+        for &start in &points {
+            for &end in points.iter().filter(|&&end| end >= start) {
+                let mut ours = Vec::new();
+                utf8_sequences(start as u32, end as u32, &mut ours);
+                let theirs = regex_syntax::utf8::Utf8Sequences::new(start, end)
+                    .map(|sequence| {
+                        sequence
+                            .as_slice()
+                            .iter()
+                            .map(|range| (range.start, range.end))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(ours, theirs, "{start:?}..={end:?}");
+            }
+        }
+    }
 }

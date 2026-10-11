@@ -2,6 +2,30 @@
 
 use std::fmt::Write;
 
+/// The escapes of a K `String` or `Bytes` literal that name a code point by a letter, as
+/// (letter, code point): `\"`, `\\`, `\n`, `\r`, `\t` and `\f`.
+pub const NAMED_ESCAPES: [(char, char); 6] = [
+    ('"', '"'),
+    ('\\', '\\'),
+    ('n', '\n'),
+    ('r', '\r'),
+    ('t', '\t'),
+    ('f', '\u{000c}'),
+];
+
+/// The escapes of a K literal that give a number in exactly so many hexadecimal digits, as
+/// (letter, digits). In a `String` literal the number is a code point; in a `Bytes` literal a
+/// number of at most [`BYTE_DIGITS`] digits is one byte, and a longer one a code point, which
+/// contributes its UTF-8 encoding.
+pub const HEX_ESCAPES: [(char, usize); 3] = [('x', 2), ('u', 4), ('U', 8)];
+
+/// The most hexadecimal digits of a `Bytes` literal's escape that gives one byte.
+pub const BYTE_DIGITS: usize = 2;
+
+/// A backslash and a decimal digit begin an escape of this many octal digits, whose number is a
+/// code point in a `String` literal and one byte in a `Bytes` literal.
+pub const OCTAL_DIGITS: usize = 3;
+
 pub fn quote(value: &str) -> String {
     let mut output = String::from("\"");
     for character in value.chars() {
@@ -102,24 +126,11 @@ pub fn unquote_text(input: &str) -> Result<String, String> {
             continue;
         }
         let escape = characters.next().ok_or("truncated escape")?;
-        output.push(match escape {
-            '"' => '"',
-            '\\' => '\\',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            'f' => '\u{000c}',
-            'x' => read_escape(&mut characters, 2)?,
-            'u' => read_escape(&mut characters, 4)?,
-            'U' => read_escape(&mut characters, 8)?,
-            digit @ '0'..='9' => {
-                let mut digits = String::from(digit);
-                digits.push(characters.next().ok_or("truncated octal escape")?);
-                digits.push(characters.next().ok_or("truncated octal escape")?);
-                let value = u32::from_str_radix(&digits, 8).map_err(|_| "invalid octal escape")?;
-                char::from_u32(value).ok_or("invalid octal scalar")?
-            }
-            _ => return Err("unsupported escape".into()),
+        output.push(match escape_kind(escape)? {
+            Escape::Named(character) => character,
+            Escape::Hex(digits) => read_escape(&mut characters, digits)?,
+            Escape::Octal => char::from_u32(read_octal(escape, &mut characters)?)
+                .ok_or("invalid octal scalar")?,
         });
     }
     Ok(output)
@@ -142,35 +153,71 @@ pub fn unquote_bytes(input: &str) -> Result<Vec<u8>, String> {
             continue;
         }
         let escape = characters.next().ok_or("truncated escape")?;
-        match escape {
-            '"' => output.push(b'"'),
-            '\\' => output.push(b'\\'),
-            'n' => output.push(b'\n'),
-            'r' => output.push(b'\r'),
-            't' => output.push(b'\t'),
-            'f' => output.push(0x0c),
-            'x' => output.push(read_hex(&mut characters, 2)? as u8),
-            'u' => push_scalar_utf8(&mut output, read_hex(&mut characters, 4)?)?,
-            'U' => push_scalar_utf8(&mut output, read_hex(&mut characters, 8)?)?,
-            digit @ '0'..='9' => {
-                let mut digits = String::from(digit);
-                digits.push(characters.next().ok_or("truncated octal escape")?);
-                digits.push(characters.next().ok_or("truncated octal escape")?);
-                let value = u16::from_str_radix(&digits, 8).map_err(|_| "invalid octal escape")?;
-                output.push(u8::try_from(value).map_err(|_| "octal byte escape out of range")?);
+        match escape_kind(escape)? {
+            Escape::Named(character) => output.push(
+                u8::try_from(u32::from(character))
+                    .expect("a named escape names an ASCII code point"),
+            ),
+            Escape::Hex(digits) if digits <= BYTE_DIGITS => output.push(
+                u8::try_from(read_hex(&mut characters, digits)?)
+                    .expect("two hexadecimal digits give a byte"),
+            ),
+            Escape::Hex(digits) => {
+                push_scalar_utf8(&mut output, read_hex(&mut characters, digits)?)?
             }
-            _ => return Err("unsupported escape".into()),
+            Escape::Octal => output.push(
+                u8::try_from(read_octal(escape, &mut characters)?)
+                    .map_err(|_| "octal byte escape out of range")?,
+            ),
         }
     }
     Ok(output)
 }
 
-fn read_hex(characters: &mut impl Iterator<Item = char>, digits: usize) -> Result<u32, String> {
-    let value: String = characters.take(digits).collect();
-    if value.len() != digits {
-        return Err("truncated Unicode escape".into());
+/// What a backslash followed by `escape` begins in a K literal.
+enum Escape {
+    /// A code point named by its letter.
+    Named(char),
+    /// A number in this many hexadecimal digits.
+    Hex(usize),
+    /// A number in [`OCTAL_DIGITS`] octal digits, of which `escape` is the first.
+    Octal,
+}
+
+fn escape_kind(escape: char) -> Result<Escape, String> {
+    if let Some((_, character)) = NAMED_ESCAPES.iter().find(|(letter, _)| *letter == escape) {
+        Ok(Escape::Named(*character))
+    } else if let Some((_, digits)) = HEX_ESCAPES.iter().find(|(letter, _)| *letter == escape) {
+        Ok(Escape::Hex(*digits))
+    } else if escape.is_ascii_digit() {
+        Ok(Escape::Octal)
+    } else {
+        Err("unsupported escape".into())
     }
-    u32::from_str_radix(&value, 16).map_err(|_| "invalid Unicode escape".into())
+}
+
+/// The number of the octal escape whose first digit is `first` and whose others follow.
+fn read_octal(first: char, characters: &mut impl Iterator<Item = char>) -> Result<u32, String> {
+    let mut value = 0;
+    for index in 0..OCTAL_DIGITS {
+        let digit = if index == 0 {
+            first
+        } else {
+            characters.next().ok_or("truncated octal escape")?
+        };
+        value = value * 8 + digit.to_digit(8).ok_or("invalid octal escape")?;
+    }
+    Ok(value)
+}
+
+/// The number of the next `digits` hexadecimal digits.
+fn read_hex(characters: &mut impl Iterator<Item = char>, digits: usize) -> Result<u32, String> {
+    let mut value = 0;
+    for _ in 0..digits {
+        let digit = characters.next().ok_or("truncated Unicode escape")?;
+        value = value * 16 + digit.to_digit(16).ok_or("invalid Unicode escape")?;
+    }
+    Ok(value)
 }
 
 fn push_scalar_utf8(output: &mut Vec<u8>, value: u32) -> Result<(), String> {
@@ -181,12 +228,7 @@ fn push_scalar_utf8(output: &mut Vec<u8>, value: u32) -> Result<(), String> {
 }
 
 fn read_escape(characters: &mut impl Iterator<Item = char>, digits: usize) -> Result<char, String> {
-    let value: String = characters.take(digits).collect();
-    if value.len() != digits {
-        return Err("truncated Unicode escape".into());
-    }
-    let value = u32::from_str_radix(&value, 16).map_err(|_| "invalid Unicode escape")?;
-    char::from_u32(value).ok_or_else(|| "invalid Unicode scalar".into())
+    char::from_u32(read_hex(characters, digits)?).ok_or_else(|| "invalid Unicode scalar".into())
 }
 
 pub fn quote_label(value: &str) -> String {

@@ -10561,79 +10561,128 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Generate a Flex/Bison parser (`kast --gen-parser`) for `definition`'s `module` and start sort
-/// `Pgm`, run it on every program, and run the in-process parser on every program in one
-/// `--batch-case`/`--batch-reject-case` call; both must accept exactly the programs marked
-/// accepted.
+/// The differential of the two parsers krust builds for one grammar: the generated Flex/Bison
+/// parser (`kast --gen-parser` for `syntax_module` and start sort `Pgm`) and the in-process parser
+/// (`krun --depth 0` of the definition compiled with `main_module` and `syntax_module`, whose `<k>`
+/// cell holds the parsed program). Both are builds of one function from program text to a term,
+/// so on every program they must agree: both accept it and give it the same term once injections
+/// are removed (an injection places a term at a sort, it is not part of what was written), or
+/// both reject it, the in-process parser with a parse error. Each program must also be accepted
+/// exactly when it is marked accepted, and what the generated parser prints is KORE, whose
+/// string literals are printable ASCII.
 #[cfg(unix)]
-fn assert_both_scanners_decide(definition_source: &str, module: &str, programs: &[(String, bool)]) {
-    let (root, definition) = fixture();
-    fs::write(&definition, definition_source).unwrap();
-    let parser = root.join("anchor-parser");
-    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+fn assert_parsers_give_each_program_one_term(
+    definition_source: &str,
+    main_module: &str,
+    syntax_module: &str,
+    programs: &[(String, bool)],
+) {
+    let (root, parser) = generate_parser(definition_source, syntax_module, &[]);
+    let definition = root.join("definition.k");
+    let kompiled = root.join("kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
         .args([
-            "kast",
-            definition.to_str().unwrap(),
-            "--module",
-            module,
-            "--sort",
-            "Pgm",
-            "--gen-parser",
+            "--main-module",
+            main_module,
+            "--syntax-module",
+            syntax_module,
         ])
-        .arg(&parser)
+        .arg("--output-directory")
+        .arg(&kompiled)
+        .stdin(Stdio::null())
         .output()
         .unwrap();
     assert!(
-        generated.status.success(),
+        compiled.status.success(),
         "{}",
-        String::from_utf8_lossy(&generated.stderr)
+        String::from_utf8_lossy(&compiled.stderr)
     );
-
-    let mut in_process = Command::new(env!("CARGO_BIN_EXE_krust"));
-    in_process.args([
-        "kast",
-        definition.to_str().unwrap(),
-        "--module",
-        module,
-        "--output",
-        "json",
-    ]);
+    let mut failures = Vec::new();
     for (index, (program, accepted)) in programs.iter().enumerate() {
-        let input = root.join(format!("program-{index}.pgm"));
-        fs::write(&input, program).unwrap();
-        let standalone = Command::new(&parser).arg(&input).output().unwrap();
-        let shown = if program.len() > 64 {
+        let shown = if program.chars().count() > 64 {
             let prefix = program.chars().take(32).collect::<String>();
             format!("{prefix:?}... ({} bytes)", program.len())
         } else {
             format!("{program:?}")
         };
-        assert_eq!(
-            standalone.status.success(),
-            *accepted,
-            "generated parser on {shown}: {}{}",
-            String::from_utf8_lossy(&standalone.stdout),
-            String::from_utf8_lossy(&standalone.stderr)
-        );
-        in_process.args([
-            if *accepted {
-                "--batch-case"
-            } else {
-                "--batch-reject-case"
-            },
-            &format!("case-{index}"),
-            "Pgm",
-            program,
-        ]);
-    }
-    let batch = in_process.output().unwrap();
-    assert!(
-        batch.status.success(),
-        "{}",
-        String::from_utf8_lossy(&batch.stderr)
-    );
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
 
+        let generated = Command::new(&parser)
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let generated = if generated.status.success() {
+            if let Some(byte) = generated
+                .stdout
+                .iter()
+                .find(|byte| !(byte.is_ascii_graphic() || b" \n".contains(byte)))
+            {
+                failures.push(format!(
+                    "{shown}: the generated parser printed byte {byte:#04x}, outside KORE's printable ASCII"
+                ));
+            }
+            match parse_pattern(&String::from_utf8_lossy(&generated.stdout)) {
+                Ok(pattern) => Ok(program_term(&pattern)),
+                Err(error) => {
+                    failures.push(format!(
+                        "{shown}: the generated parser printed no KORE pattern: {error}"
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            Err(String::from_utf8_lossy(&generated.stderr).into_owned())
+        };
+
+        let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let in_process = if in_process.status.success() {
+            let configuration =
+                parse_pattern(&String::from_utf8_lossy(&in_process.stdout)).unwrap();
+            Ok(program_term(
+                k_cell_program(&configuration).expect("a <k> cell"),
+            ))
+        } else {
+            let stderr = String::from_utf8_lossy(&in_process.stderr).into_owned();
+            if !stderr.contains("could not parse program") {
+                failures.push(format!(
+                    "{shown}: the in-process run failed other than by rejecting the program: {stderr}"
+                ));
+                continue;
+            }
+            Err(stderr)
+        };
+
+        let decision = |result: &Result<String, String>| match result {
+            Ok(term) => format!("accepted as {term}"),
+            Err(error) => format!("rejected: {}", error.trim_end()),
+        };
+        if generated.as_ref().ok() != in_process.as_ref().ok() {
+            failures.push(format!(
+                "{shown}:\n  generated  {}\n  in-process {}",
+                decision(&generated),
+                decision(&in_process),
+            ));
+        } else if generated.is_ok() != *accepted {
+            failures.push(format!(
+                "{shown}: expected {}, both {}",
+                if *accepted { "accepted" } else { "rejected" },
+                decision(&generated),
+            ));
+        }
+    }
     fs::remove_dir_all(root).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[cfg(unix)]
@@ -10647,8 +10696,9 @@ fn owned_programs(programs: &[(&str, bool)]) -> Vec<(String, bool)> {
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
-    assert_both_scanners_decide(
+    assert_parsers_give_each_program_one_term(
         line_anchors::DEFINITION,
+        "ANCHOR",
         "ANCHOR-SYNTAX",
         &owned_programs(&line_anchors::PROGRAMS),
     );
@@ -10659,10 +10709,57 @@ fn kast_gen_parser_scanner_gives_regex_line_anchors_the_in_process_meaning() {
 #[cfg(unix)]
 #[test]
 fn kast_gen_parser_scanner_compares_anchored_candidates_by_token_length() {
-    assert_both_scanners_decide(
+    assert_parsers_give_each_program_one_term(
         line_anchors::TIE_DEFINITION,
+        "TIE",
         "TIE-SYNTAX",
         &owned_programs(&line_anchors::TIE_PROGRAMS),
+    );
+}
+
+/// A token is a sequence of characters, and a generated scanner reads the UTF-8 bytes of its
+/// input: a negated class and `.` must each match one whole character there, as they do in the
+/// in-process scanner, so a character of several bytes is one token, and `{2}` counts characters.
+/// Layout comments, whose classes are negated too, may hold any character.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters() {
+    let definition = r#"
+module CHARS-SYNTAX
+  syntax Other ::= r"~[^a-z\\n\\ ]" [token]
+  syntax Any ::= r"@.@" [token]
+  syntax Pair ::= r"\\|[^|]{2}\\|" [token]
+  syntax Pgm ::= "n" Other "z" | "d" Any | "p" Pair
+endmodule
+
+module CHARS
+  imports CHARS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("n ~% z", true),
+        ("n ~\u{e9} z", true),
+        ("n ~\u{2028} z", true),
+        ("n ~\u{1F642} z", true),
+        ("n ~\u{e9}\u{e9} z", false),
+        ("d @\u{e9}@", true),
+        ("d @\u{10FFFF}@", true),
+        ("d @\n@", false),
+        ("d @\u{e9}a@", false),
+        ("p |\u{e9}a|", true),
+        ("p |\u{e9}\u{fc}|", true),
+        ("p |\u{1F642}\u{1F642}|", true),
+        ("p |\u{e9}|", false),
+        ("p |\u{1F642}|", false),
+        ("p |a\u{e9}\u{fc}|", false),
+        ("n ~\u{e9} /* \u{1F642} \u{2028} */ z // \u{fc}", true),
+    ];
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "CHARS",
+        "CHARS-SYNTAX",
+        &owned_programs(&programs),
     );
 }
 
@@ -10675,7 +10772,41 @@ fn kast_gen_parser_scanner_sees_the_newline_after_an_anchored_token_across_a_rea
         .into_iter()
         .map(|program| (program, true))
         .collect::<Vec<_>>();
-    assert_both_scanners_decide(line_anchors::DEFINITION, "ANCHOR-SYNTAX", &programs);
+    assert_parsers_give_each_program_one_term(
+        line_anchors::DEFINITION,
+        "ANCHOR",
+        "ANCHOR-SYNTAX",
+        &programs,
+    );
+}
+
+/// Class test for the two-parser ticket, line ends: `^` holds where a line starts and `$` where
+/// one ends, and a location says where lines start (column 1 of the next line follows every line
+/// end it counts). So both scanners must accept a `^b` token, and an `a$` token, at every line
+/// end the location code counts, not only after `\n`.
+#[cfg(unix)]
+#[test]
+fn regex_line_anchors_hold_at_every_line_end_a_location_counts() {
+    const LINE_ENDS: [&str; 8] = [
+        "\n", "\r", "\r\n", "\u{b}", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}",
+    ];
+    // The layout holds every line end, so a scanner rejects a program only for its anchors.
+    let definition = "module LINE-END-SYNTAX\n  syntax #Layout ::= r\"[\\\\ \\\\n\\\\r\\\\t\u{b}\u{c}\u{85}\u{2028}\u{2029}]\" [token]\n  syntax Bar ::= r\"^b\" [token]\n  syntax Foo ::= r\"a$\" [token]\n  syntax Pgm ::= Bar Bar | Foo Bar\nendmodule\n";
+    let programs = LINE_ENDS
+        .iter()
+        .flat_map(|line_end| {
+            [
+                (format!("b{line_end}b"), true),
+                (format!("a{line_end}b"), true),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "LINE-END-SYNTAX",
+        "LINE-END-SYNTAX",
+        &programs,
+    );
 }
 
 /// A `$`-anchored candidate the generated scanner rejects, here one whose text spans a newline,
@@ -10764,7 +10895,12 @@ module ORDER-SYNTAX
 endmodule
 "##;
     let programs = [("a?", true), ("a!", false), ("1#", true), ("1%", true)];
-    assert_both_scanners_decide(definition, "ORDER-SYNTAX", &owned_programs(&programs));
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "ORDER-SYNTAX",
+        "ORDER-SYNTAX",
+        &owned_programs(&programs),
+    );
 }
 
 /// A scanner with a `$`-anchored rule uses Flex's `REJECT`; it must still accept a program
@@ -10788,7 +10924,12 @@ endmodule
         ("a\n".to_owned(), true),
         ("a".to_owned(), false),
     ];
-    assert_both_scanners_decide(definition, "LOOKAHEAD-SYNTAX", &programs);
+    assert_parsers_give_each_program_one_term(
+        definition,
+        "LOOKAHEAD-SYNTAX",
+        "LOOKAHEAD-SYNTAX",
+        &programs,
+    );
 }
 
 /// Write `definition_source` and generate its Flex/Bison parser for `module` and start sort `Pgm`
@@ -10841,7 +10982,12 @@ endmodule
 "#
         );
         let programs = [("ab?", regex_wins), ("ab!", !regex_wins), ("abc?", true)];
-        assert_both_scanners_decide(&definition, "PREC-SYNTAX", &owned_programs(&programs));
+        assert_parsers_give_each_program_one_term(
+            &definition,
+            "PREC-SYNTAX",
+            "PREC-SYNTAX",
+            &owned_programs(&programs),
+        );
     }
 }
 
@@ -10907,10 +11053,644 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A scanner with a `$`-anchored rule scans its whole input with a state buffer of its own
+/// In-process program parsing locates the terms of `[locations]` sorts as a generated parser
+/// does: a term is wrapped in `#location` at its own sort and at the sort of its position when
+/// either declares `[locations]` (`Val` inside `Exp`, through its injection, when both do), an
+/// empty list at the empty span where it stands, and the file name is the program path as given,
+/// `-` for standard input and `--expression`. `krun --depth 0` and the generated parser give each
+/// program one term once the injection into the start position is removed.
+#[cfg(unix)]
+#[test]
+fn in_process_parsing_locates_located_sorts_as_the_generated_parser() {
+    const DEFINITION: &str = r#"
+module L-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp [locations]
+  syntax Val [locations]
+  syntax Exps [locations]
+  syntax Val ::= Int | "v" [symbol(v)]
+  syntax Exp ::= Val | Exp "+" Exp [left, symbol(plus)] | "f" "(" Exps ")" [symbol(f)]
+               | "(" Exp ")" [bracket]
+  syntax Exps ::= List{Exp, ","}
+  syntax Pgm ::= Exp
+endmodule
+module L
+  imports L-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    /// `pattern` without the injection at its root.
+    fn uninjected(pattern: &Pattern) -> Pattern {
+        match pattern {
+            Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
+                let [argument] = arguments.as_slice() else {
+                    panic!("an injection has one argument")
+                };
+                argument.clone()
+            }
+            pattern => pattern.clone(),
+        }
+    }
+    let (root, parser) = generate_parser(DEFINITION, "L-SYNTAX", &[]);
+    let definition = root.join("definition.k");
+    let kompiled = root.join("kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
+        .args(["--main-module", "L", "--syntax-module", "L-SYNTAX"])
+        .arg("--output-directory")
+        .arg(&kompiled)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let generated = |input: &Path, file: Option<&str>| {
+        let output = Command::new(&parser)
+            .arg(input)
+            .args(file)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        uninjected(&parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap())
+    };
+    let in_process = |arguments: &[&std::ffi::OsStr], stdin: Option<&str>| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .args(arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.unwrap_or_default().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let configuration = parse_pattern(&String::from_utf8(output.stdout).unwrap()).unwrap();
+        let Some([Pattern::Application { symbol, arguments }]) = k_cell(&configuration) else {
+            panic!("no <k> cell in {configuration:?}")
+        };
+        assert_eq!(symbol.name, "kseq");
+        uninjected(&arguments[0])
+    };
+    let programs = ["v + 1", "f(1, 2)", "f()", "1", "(1 +\r\nv)\r+ f(3)\n"];
+    for (index, program) in programs.into_iter().enumerate() {
+        let input = root.join(format!("program-{index}.pgm"));
+        fs::write(&input, program).unwrap();
+        assert_eq!(
+            in_process(&[input.as_os_str()], None),
+            generated(&input, None),
+            "{program:?} read from {}",
+            input.display()
+        );
+        let unnamed = generated(&input, Some("-"));
+        assert_eq!(
+            in_process(&[], Some(program)),
+            unnamed,
+            "{program:?} on stdin"
+        );
+        assert_eq!(
+            in_process(&["-".as_ref()], Some(program)),
+            unnamed,
+            "{program:?} read from -"
+        );
+        assert_eq!(
+            in_process(&["--expression".as_ref(), program.as_ref()], None),
+            unnamed,
+            "{program:?} given by --expression"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Class test for the two-parser ticket: the generated parser and the in-process parser are two
+/// builds of one function from program text to a term, so each program must get the same term
+/// from both, modulo injections, or be rejected by both, and what the generated parser prints is
+/// KORE, whose string literals are printable ASCII. Programs: `[locations]` (both wrap, or
+/// neither), a non-ASCII token and a line separator matched by a negated class (a token is a
+/// sequence of characters), a `String` token holding non-ASCII and a control character, and
+/// operators whose nesting priority and associativity decide, among them a labelled production
+/// with one nonterminal and no terminal (`wrap`), below which neither parser judges an edge.
+#[cfg(unix)]
+#[test]
+fn generated_and_in_process_parsers_give_each_program_one_term() {
+    const TOKENS: &str = r#"
+module TOKENS-SYNTAX
+  imports STRING-SYNTAX
+  syntax Tok ::= r"[^a-z\\n\\ \"+]" [token]
+  syntax Exp ::= Tok | String | Exp "+" Exp [left, symbol(plus)] | "x" [symbol(x)]
+  syntax Pgm ::= Exp
+endmodule
+module TOKENS
+  imports TOKENS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    const LOCATIONS: &str = r#"
+module LOC-SYNTAX
+  syntax Exp [locations]
+  syntax Exp ::= Exp "+" Exp [left, symbol(plus)] | "x" [symbol(x)]
+  syntax Pgm ::= Exp
+endmodule
+module LOC
+  imports LOC-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        TOKENS,
+        "TOKENS",
+        "TOKENS-SYNTAX",
+        &owned_programs(&[
+            ("x + x", true),
+            ("\"a\" + x", true),
+            ("x + \u{e9}", true),
+            ("\u{2028}", true),
+            ("\"\u{e9}\u{1}\"", true),
+            ("x + a", false),
+        ]),
+    );
+    assert_parsers_give_each_program_one_term(
+        LOCATIONS,
+        "LOC",
+        "LOC-SYNTAX",
+        &owned_programs(&[("x + x", true), ("x +\nx", true), ("x +", false)]),
+    );
+    const RELATIONS: &str = r#"
+module REL-SYNTAX
+  syntax Exp ::= "x" [symbol(x)]
+               | "-" Exp [symbol(neg)]
+               | Exp "*" Exp [left, symbol(mul)]
+               | Exp "+" Exp [left, symbol(plus)]
+  syntax Top ::= Exp [symbol(wrap)]
+  syntax Pgm ::= Top
+  syntax priority neg > mul > plus
+  syntax priority wrap > plus
+endmodule
+module REL
+  imports REL-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        RELATIONS,
+        "REL",
+        "REL-SYNTAX",
+        &owned_programs(&[
+            ("x + x * x", true),
+            ("x * x + x", true),
+            ("- x + x * x", true),
+            ("x + x + x", true),
+            ("x * - x * x", true),
+            ("x", true),
+            ("x + ", false),
+        ]),
+    );
+}
+
+/// A `#LineMarker` production says which text is a marker but not what the marker sets for the
+/// text after it, so krust gives it no meaning and refuses the definition at load, alike on every
+/// parser route: in-process parsing, the generated parser of `kast --gen-parser`, and the parser
+/// `kcompile --gen-bison-parser` builds. Each refusal is krust's own diagnostic, located at the
+/// production, whether the production is in the parsed module or in a module it imports, and no
+/// parser is written. Declaring the same text as `#Layout`, the suggested replacement, skips it
+/// alike in both parsers.
+#[cfg(unix)]
+#[test]
+fn a_line_marker_production_means_one_thing_to_both_parsers() {
+    const MARKER: &str = r##"syntax #LineMarker ::= r"#line [0-9]+\\n" [token]"##;
+    for (case, source, location) in [
+        (
+            "main",
+            format!(
+                "module LM-SYNTAX\n  {MARKER}\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n"
+            ),
+            "definition.k:2:",
+        ),
+        (
+            "imported",
+            format!(
+                "module LM\n  {MARKER}\nendmodule\n\nmodule LM-SYNTAX\n  imports LM\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n"
+            ),
+            "definition.k:2:",
+        ),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, &source).unwrap();
+        let parser = root.join("line-marker-parser");
+        let kompiled = root.join("lm-kompiled");
+        let routes = [
+            (
+                "in-process",
+                vec!["kast", "--expression", "a", "--sort", "Pgm"],
+            ),
+            (
+                "kast --gen-parser",
+                vec![
+                    "kast",
+                    "--sort",
+                    "Pgm",
+                    "--gen-parser",
+                    parser.to_str().unwrap(),
+                ],
+            ),
+            (
+                "kcompile --gen-bison-parser",
+                vec![
+                    "kcompile",
+                    "--main-module",
+                    "LM-SYNTAX",
+                    "--syntax-module",
+                    "LM-SYNTAX",
+                    "--output-directory",
+                    kompiled.to_str().unwrap(),
+                    "--gen-bison-parser",
+                ],
+            ),
+        ];
+        for (route, arguments) in routes {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+            command.arg(arguments[0]).arg(&definition);
+            if arguments[0] == "kast" {
+                command.args(["--module", "LM-SYNTAX"]);
+            }
+            let output = command
+                .args(&arguments[1..])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success(), "{case}, {route}: accepted");
+            assert!(
+                stderr.contains(location) && stderr.contains("Error[UnsupportedLineMarker]"),
+                "{case}, {route}: not refused at the production: {stderr}"
+            );
+            assert!(
+                !stderr.contains("undefined reference"),
+                "{case}, {route}: refused by the linker: {stderr}"
+            );
+        }
+        assert!(!parser.exists() && !kompiled.join("parser_PGM").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        "module LM-SYNTAX\n  syntax #Layout ::= r\"(#line [0-9]+\\\\n|[ \\\\t\\\\n])+\"\n  syntax Pgm ::= \"a\" [symbol(a)]\nendmodule\n",
+    )
+    .unwrap();
+    let parser = root.join("layout-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LM-SYNTAX", "--sort", "Pgm", "--gen-parser"])
+        .arg(&parser)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let input = root.join("marked.pgm");
+    fs::write(&input, "#line 7\na").unwrap();
+    let standalone = Command::new(&parser).arg(&input).output().unwrap();
+    let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kast")
+        .arg(&definition)
+        .args(["--module", "LM-SYNTAX", "--sort", "Pgm"])
+        .arg(&input)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        standalone.status.success() && in_process.status.success(),
+        "generated: {}\nin-process: {}",
+        String::from_utf8_lossy(&standalone.stderr),
+        String::from_utf8_lossy(&in_process.stderr)
+    );
+    assert_eq!(
+        parse_pattern(String::from_utf8_lossy(&standalone.stdout).trim()).unwrap(),
+        parse_pattern("Lbla{}()").unwrap()
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&in_process.stdout).trim(),
+        "a(.KList)"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The term a successful parser run printed, as the KORE of the program with every injection
+/// removed (an injection places a term at a sort; it is not part of what was written), or why
+/// there is none.
+#[cfg(unix)]
+fn program_term(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
+            program_term(&arguments[0])
+        }
+        Pattern::Application { symbol, arguments } => format!(
+            "{}({})",
+            symbol.name,
+            arguments
+                .iter()
+                .map(program_term)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        other => other.to_string(),
+    }
+}
+
+/// The program inside the `<k>` cell of an initial configuration: `kseq{}(T, dotk{}())`'s `T`.
+#[cfg(unix)]
+fn k_cell_program(pattern: &Pattern) -> Option<&Pattern> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return None;
+    };
+    if symbol.name == "Lbl'-LT-'k'-GT-'" {
+        let [Pattern::Application { symbol, arguments }] = arguments.as_slice() else {
+            return None;
+        };
+        return (symbol.name == "kseq").then(|| &arguments[0]);
+    }
+    arguments.iter().find_map(k_cell_program)
+}
+
+/// A user list is read by the generated parser element after element (left recursion), while
+/// its constructor takes an element and the list after it: each program must still get the
+/// term the in-process parser gives it, for a `NeList` and a `List`, of `[locations]` sorts,
+/// with layout between the elements, and for a list whose separator is empty; the lists that
+/// are not programs must be rejected by both. No program has layout after an empty term (a
+/// `nil`), which the two parsers locate apart (`docs/compatibility.md`, "In-process program
+/// locations").
+#[cfg(unix)]
+#[test]
+fn generated_and_in_process_parsers_give_each_list_one_term() {
+    const LISTS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | "y" [symbol(y)]
+  syntax Toks [locations]
+  syntax Opt [locations]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Opt ::= List{Tok, ";"} [symbol(opt)]
+  syntax Adj ::= NeList{Tok, ""} [symbol(adj)]
+  syntax Pgm ::= "n" Toks [symbol(n)] | "m" Opt "." [symbol(m)] | "s" Adj "." [symbol(s)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  imports K-LOCATIONS
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let programs = [
+        ("n x", true),
+        ("n x, y, y", true),
+        ("n x ,\n y", true),
+        ("m.", true),
+        ("m x.", true),
+        ("m x; y ;x.", true),
+        ("m x;\n y.", true),
+        ("n", false),
+        ("n x,", false),
+        ("n x y", false),
+        ("m x; .", false),
+        ("m ; .", false),
+        ("s x.", true),
+        ("s x y\n x.", true),
+        ("s .", false),
+        ("s x, y .", false),
+    ]
+    .map(|(program, accepted)| (program.to_owned(), accepted));
+    assert_parsers_give_each_program_one_term(LISTS, "LISTS", "LISTS-SYNTAX", &programs);
+}
+
+/// A generated parser reads a list in a bounded stack: reading the next element reduces the list
+/// read so far, so a list far longer than `--bison-stack-max-depth` is read, by the LR and the
+/// GLR parser, with the term the in-process parser gives it, while nesting as deep as the list
+/// is long exceeds the bound. When the list is ambiguous, the GLR parser prints every reading
+/// merged (`Lblamb`): for `n x, ..., x` each way to group the elements into consecutive pairs
+/// trees, as list elements.
+#[cfg(unix)]
+#[test]
+fn generated_parsers_read_long_lists_in_a_bounded_stack_and_every_reading_of_an_ambiguous_list() {
+    const LISTS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | "(" Tok ")" [bracket]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Pgm ::= "n" Toks [symbol(n)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    const AMBIGUOUS: &str = r#"
+module LISTS-SYNTAX
+  syntax Tok ::= "x" [symbol(x)] | Tok "," Tok [symbol(pair)]
+  syntax Toks ::= NeList{Tok, ","} [symbol(toks)]
+  syntax Pgm ::= "n" Toks [symbol(n)]
+endmodule
+module LISTS
+  imports LISTS-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    /// The terms a printed term with merged readings stands for.
+    fn readings(pattern: &Pattern) -> BTreeSet<String> {
+        let Pattern::Application { symbol, arguments } = pattern else {
+            return BTreeSet::from([pattern.to_string()]);
+        };
+        if symbol.name == "Lblamb" {
+            return arguments.iter().flat_map(readings).collect();
+        }
+        arguments
+            .iter()
+            .fold(BTreeSet::from([Vec::new()]), |prefixes, argument| {
+                let readings = readings(argument);
+                prefixes
+                    .iter()
+                    .flat_map(|prefix| {
+                        readings.iter().map(move |reading| {
+                            let mut arguments: Vec<String> = prefix.clone();
+                            arguments.push(reading.clone());
+                            arguments
+                        })
+                    })
+                    .collect()
+            })
+            .into_iter()
+            .map(|arguments| format!("{}({})", symbol.name, arguments.join(",")))
+            .collect()
+    }
+    /// Every pair tree over `count` consecutive `x`.
+    fn pairs(count: usize, x: &str) -> Vec<String> {
+        if count == 1 {
+            return vec![x.to_owned()];
+        }
+        (1..count)
+            .flat_map(|left| {
+                let rights = pairs(count - left, x);
+                pairs(left, x).into_iter().flat_map(move |l| {
+                    rights
+                        .clone()
+                        .into_iter()
+                        .map(move |r| format!("Lblpair({l},{r})"))
+                })
+            })
+            .collect()
+    }
+    /// Every list of pair trees over `count` consecutive `x`, ending in `nil`.
+    fn lists(count: usize, x: &str, nil: &str) -> Vec<String> {
+        if count == 0 {
+            return vec![nil.to_owned()];
+        }
+        (1..=count)
+            .flat_map(|first| {
+                let rests = lists(count - first, x, nil);
+                pairs(first, x).into_iter().flat_map(move |element| {
+                    rests
+                        .clone()
+                        .into_iter()
+                        .map(move |rest| format!("Lbltoks({element},{rest})"))
+                })
+            })
+            .collect()
+    }
+    let (root, definition) = fixture();
+    let compile = |source: &str, name: &str, flags: &[&str]| {
+        fs::write(&definition, source).unwrap();
+        let kompiled = root.join(format!("{name}-kompiled"));
+        let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kcompile", definition.to_str().unwrap()])
+            .args(["--main-module", "LISTS", "--syntax-module", "LISTS-SYNTAX"])
+            .arg("--output-directory")
+            .arg(&kompiled)
+            .args(flags)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        kompiled
+    };
+    let input = root.join("program.pgm");
+    let parse = |kompiled: &Path, program: &str| {
+        fs::write(&input, program).unwrap();
+        let parsed = Command::new(kompiled.join("parser_PGM"))
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        parsed
+            .status
+            .success()
+            .then(|| parse_pattern(&String::from_utf8_lossy(&parsed.stdout)).unwrap())
+    };
+    let in_process = |kompiled: &Path, program: &str| {
+        fs::write(&input, program).unwrap();
+        let run = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let configuration = parse_pattern(&String::from_utf8_lossy(&run.stdout)).unwrap();
+        program_term(k_cell_program(&configuration).expect("a <k> cell"))
+    };
+    let long = format!("n {}x", "x, ".repeat(200));
+    let deep = format!("n {}x{}", "(".repeat(200), ")".repeat(200));
+    for mode in ["--gen-bison-parser", "--gen-glr-bison-parser"] {
+        let bounded = compile(LISTS, "bounded", &[mode, "--bison-stack-max-depth", "64"]);
+        let term = parse(&bounded, &long).map(|pattern| program_term(&pattern));
+        assert_eq!(term, Some(in_process(&bounded, &long)), "{mode}: long list");
+        assert_eq!(
+            parse(&bounded, &deep),
+            None,
+            "{mode}: the stack bound holds"
+        );
+        let unbounded = compile(LISTS, "unbounded", &[mode]);
+        assert!(parse(&unbounded, &deep).is_some(), "{mode}: deep nesting");
+    }
+
+    let glr = compile(AMBIGUOUS, "ambiguous", &["--gen-glr-bison-parser"]);
+    let single = parse(&glr, "n x").expect("n x");
+    let Pattern::Application { arguments, .. } = &single else {
+        panic!("{single}")
+    };
+    let Pattern::Application { symbol, arguments } = &arguments[0] else {
+        panic!("{single}")
+    };
+    assert_eq!(symbol.name, "Lbltoks", "{single}");
+    let [x, nil] = [&arguments[0], &arguments[1]].map(|argument| {
+        let reading = readings(argument);
+        assert_eq!(reading.len(), 1, "{single}");
+        reading.into_iter().next().unwrap()
+    });
+    for (count, expected) in [(1, 1), (2, 2), (3, 5), (4, 14)] {
+        let program = format!("n {}", vec!["x"; count].join(", "));
+        let printed = readings(&parse(&glr, &program).expect(&program));
+        let all = lists(count, &x, &nil)
+            .into_iter()
+            .map(|list| format!("Lbln({list})"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(all.len(), expected, "{program:?}");
+        assert_eq!(printed, all, "{program:?}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The arguments of the `<k>` cell of a configuration.
+fn k_cell(pattern: &Pattern) -> Option<&[Pattern]> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return None;
+    };
+    if symbol.name == "Lbl'-LT-'k'-GT-'" {
+        return Some(arguments);
+    }
+    arguments.iter().find_map(k_cell)
+}
+
+/// A scanner with an anchored rule scans its whole input with a state buffer of its own
 /// (`bison::scanner::SCAN_WHOLE_INPUT`); a buffer one state too small is written past its end,
-/// which an uninstrumented parser survives. Built with AddressSanitizer, the parser must run the
-/// empty input, short programs and long candidates without a report. Without a C compiler that
+/// which an uninstrumented parser survives. Its anchor checks read the bytes around a match
+/// (`bison::scanner::LINE_ANCHORS`), up to three after it and before it. Built with
+/// AddressSanitizer, the parser must run the empty input, short programs, long candidates and
+/// anchors at both ends of the input, beside multi-byte and truncated line terminators, without a
+/// report. Without a C compiler that
 /// can build and run an AddressSanitizer program the test checks nothing.
 #[cfg(unix)]
 #[test]
@@ -10952,7 +11732,8 @@ fn kast_gen_parser_anchored_scanner_stays_in_its_buffers_under_address_sanitizer
 module LOOKAHEAD-SYNTAX
   syntax Q ::= r"<[a-z ]*>" [token]
   syntax Foo ::= r"a$" [token]
-  syntax Pgm ::= "<" "z" | Q | Foo
+  syntax Bar ::= r"^b" [token]
+  syntax Pgm ::= "<" "z" | Q | Foo | Bar
 endmodule
 "#;
     let (root, parser) = generate_parser(
@@ -10964,11 +11745,18 @@ endmodule
         ],
     );
     let programs = [
-        (String::new(), false),
-        ("a\n".to_owned(), true),
-        ("a".to_owned(), false),
-        (format!("<{}z", " ".repeat(20_000)), true),
-        (format!("<{}", "a".repeat(20_000)), false),
+        (Vec::new(), false),
+        (b"a\n".to_vec(), true),
+        (b"a".to_vec(), false),
+        (format!("<{}z", " ".repeat(20_000)).into_bytes(), true),
+        (format!("<{}", "a".repeat(20_000)).into_bytes(), false),
+        (b"a\r".to_vec(), true),
+        (b"b".to_vec(), true),
+        (b"\rb".to_vec(), true),
+        ("\u{2028}b".as_bytes().to_vec(), false),
+        ("a\u{2028}".as_bytes().to_vec(), false),
+        (b"a\xE2\x80".to_vec(), false),
+        (b"\xE2\x80b".to_vec(), false),
     ];
     for (index, (program, accepted)) in programs.iter().enumerate() {
         let input = root.join(format!("program-{index}.pgm"));
@@ -11059,6 +11847,235 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A generated parser writes each token as the KORE literal of the code points the in-process
+/// frontend reads from it: a `String` token's characters after its K escapes, a `Bytes` token's
+/// bytes as the code points of their values, any other token's characters; so the term it prints
+/// is the in-process conversion of the token, and its text is KORE's printable ASCII. A token
+/// text that is no literal of its hook is a located syntax error, as it is no term in-process.
+#[cfg(unix)]
+#[test]
+fn kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points() {
+    let source = r##"
+module LITERALS
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Bytes [hook(BYTES.Bytes)]
+  syntax Bytes ::= r"b[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax Name ::= r"~[^ \\n]+" [token]
+  syntax Pgm ::= String | Bytes | Name
+endmodule
+"##;
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let parser = root.join("literals-parser");
+    let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kast", definition.to_str().unwrap()])
+        .args(["--module", "LITERALS", "--sort", "Pgm", "--gen-parser"])
+        .arg(&parser)
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let parsed = k_rust::outer::parse("literals.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "LITERALS").unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&lowered).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "LITERALS").unwrap();
+    let in_process = |sort: &str, token: &str| {
+        converter
+            .convert(&k_rust::kast::Term::Token {
+                token: token.into(),
+                sort: k_rust::kast::Sort::new(sort),
+            })
+            .map(|pattern| k_rust::kore::printer::Printer::compact().print_pattern(&pattern))
+    };
+    let run = |index: usize, token: &str| {
+        let input = root.join(format!("token-{index}.pgm"));
+        fs::write(&input, token).unwrap();
+        Command::new(&parser).arg(&input).output().unwrap()
+    };
+
+    let accepted = [
+        ("String", "\"plain\"", Some(r#""plain""#)),
+        ("String", "\"q\\\"b\\\\n\\n t\\t f\\f r\\r\"", None),
+        (
+            "String",
+            "\"\u{e9}\u{2603}\u{1F642}\"",
+            Some(r#""\xe9\u2603\U0001f642""#),
+        ),
+        (
+            "String",
+            "\"a\tb\u{85}c\u{2028}d\ne\"",
+            Some(r#""a\tb\x85c\u2028d\ne""#),
+        ),
+        (
+            "String",
+            "\"\\x41\\xe9\\xE9\\u00e9\\u2603\\U0001F642\"",
+            Some(r#""A\xe9\xe9\xe9\u2603\U0001f642""#),
+        ),
+        (
+            "String",
+            "\"\\101\\351\\777\\000\"",
+            Some(r#""A\xe9\u01ff\x00""#),
+        ),
+        ("Bytes", "b\"\\x00\\x0f\\xff\"", Some(r#""\x00\x0f\xff""#)),
+        ("Bytes", "b\"\u{e9}\"", Some(r#""\xc3\xa9""#)),
+        (
+            "Bytes",
+            "b\"\\u00e9\\U0001f642\"",
+            Some(r#""\xc3\xa9\xf0\x9f\x99\x82""#),
+        ),
+        (
+            "Bytes",
+            "b\"\\101\\377 q\\\"\\\\\\n\"",
+            Some(r#""A\xff q\"\\\n""#),
+        ),
+        (
+            "Name",
+            "~\u{e9}\"\\\u{1F642}",
+            Some(r#""~\xe9\"\\\U0001f642""#),
+        ),
+    ];
+    for (index, (sort, token, literal)) in accepted.into_iter().enumerate() {
+        let output = run(index, token);
+        assert!(
+            output.status.success(),
+            "{token:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let printed = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            printed
+                .bytes()
+                .all(|byte| byte == b'\n' || (b' '..=b'~').contains(&byte)),
+            "{token:?}: {printed:?}"
+        );
+        let term = in_process(sort, token).unwrap_or_else(|error| panic!("{token:?}: {error}"));
+        assert_eq!(
+            printed,
+            format!("inj{{Sort{sort}{{}}, SortPgm{{}}}}({term})\n"),
+            "{token:?}"
+        );
+        if let Some(literal) = literal {
+            assert_eq!(
+                term,
+                format!("\\dv{{Sort{sort}{{}}}}({literal})"),
+                "{token:?}"
+            );
+        }
+    }
+
+    let rejected = [
+        ("String", "\"\\q\""),
+        ("String", "\"\\x4g\""),
+        ("String", "\"\\x+1\""),
+        ("String", "\"\\u12\""),
+        ("String", "\"\\uD800\""),
+        ("String", "\"\\U00110000\""),
+        ("String", "\"\\8aa\""),
+        ("Bytes", "b\"\\777\""),
+        ("Bytes", "b\"\\uDFFF\""),
+    ];
+    for (index, (sort, token)) in rejected.into_iter().enumerate() {
+        assert!(in_process(sort, token).is_err(), "{token:?}");
+        let output = run(accepted.len() + index, token);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{token:?}: {stderr}");
+        assert!(
+            stderr.contains(&format!(
+                ":1:1:1:{}:invalid {sort} token: ",
+                token.chars().count() + 1
+            )),
+            "{token:?}: {stderr}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_token_subsort_reads_its_text_as_a_token_of_its_own_sort() {
+    // `MyStr` has no hook, so a `MyStr` token's literal is its text as written, although the
+    // phrase it covers is a `String` token whose literal decodes the escapes; `Wrapped` reads
+    // the same text through a second token subsort.
+    let source = r##"
+module TOKSUB
+  syntax String [hook(STRING.String)]
+  syntax String ::= r"[\\\"](([^\\\"\\\\])|([\\\\][^\\n]))*[\\\"]" [token]
+  syntax MyStr ::= String [token]
+  syntax Wrapped ::= MyStr [token]
+endmodule
+"##;
+    let program = "\"a\\nb\\x41\"";
+    let (root, definition) = fixture();
+    fs::write(&definition, source).unwrap();
+    let input = root.join("program.txt");
+    fs::write(&input, program).unwrap();
+    let parsed = k_rust::outer::parse("toksub.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "TOKSUB").unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&lowered).unwrap();
+    let converter = k_rust::kompile::TermConverter::new(&resolved, "TOKSUB").unwrap();
+
+    for (sort, literal) in [
+        ("String", r#""a\nbA""#),
+        ("MyStr", r#""\"a\\nb\\x41\"""#),
+        ("Wrapped", r#""\"a\\nb\\x41\"""#),
+    ] {
+        let in_process = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKSUB", "--sort", sort])
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(
+            in_process.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&in_process.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(in_process.stdout).unwrap().trim_end(),
+            format!(r#"#token("\"a\\nb\\x41\"","{sort}")"#),
+            "{sort}"
+        );
+        let term = converter
+            .convert(&k_rust::kast::Term::Token {
+                token: program.into(),
+                sort: k_rust::kast::Sort::new(sort),
+            })
+            .map(|pattern| k_rust::kore::printer::Printer::compact().print_pattern(&pattern))
+            .unwrap();
+        assert_eq!(term, format!("\\dv{{Sort{sort}{{}}}}({literal})"), "{sort}");
+
+        let parser = root.join(format!("{sort}-parser"));
+        let generated = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kast", definition.to_str().unwrap()])
+            .args(["--module", "TOKSUB", "--sort", sort, "--gen-parser"])
+            .arg(&parser)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let output = Command::new(&parser).arg(&input).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{sort}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{term}\n"),
+            "{sort}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kcompile_skips_bison_tools_when_the_configuration_has_no_pgm() {
     let (root, definition) = fixture();
@@ -11108,7 +12125,7 @@ endmodule
 
 #[cfg(unix)]
 #[test]
-fn kcompile_generates_a_bounded_left_associative_nonempty_list_parser() {
+fn kcompile_generates_a_nonempty_list_parser() {
     let (root, definition) = fixture();
     fs::write(
         &definition,
@@ -11127,21 +12144,33 @@ endmodule
     )
     .unwrap();
     let output_directory = root.join("nelists-kompiled");
-    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
-        .args([
-            "kcompile",
-            definition.to_str().unwrap(),
-            "--main-module",
-            "NELISTS",
-            "--syntax-module",
-            "NELISTS-SYNTAX",
-            "--output-directory",
-            output_directory.to_str().unwrap(),
-            "--gen-glr-bison-parser",
-            "--bison-lists",
-        ])
-        .output()
-        .unwrap();
+    let kcompile = |flags: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kcompile",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NELISTS",
+                "--syntax-module",
+                "NELISTS-SYNTAX",
+                "--output-directory",
+                output_directory.to_str().unwrap(),
+                "--gen-glr-bison-parser",
+            ])
+            .args(flags)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    // Every generated parser reads lists in a bounded stack; there is no option to ask for it.
+    let refused = kcompile(&["--bison-lists"]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("--bison-lists"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let output = kcompile(&[]);
     assert!(
         output.status.success(),
         "{}",
@@ -11161,7 +12190,7 @@ endmodule
     );
     assert_eq!(
         String::from_utf8(parsed.stdout).unwrap(),
-        "inj{SortEs{}, SortPgm{}}(Lbles{}(Lbles{}(Lbl'Stop'List'LBraQuot'es'QuotRBra'{}(),\\dv{SortE{}}(\"e\")),\\dv{SortE{}}(\"e\")))\n"
+        "inj{SortEs{}, SortPgm{}}(Lbles{}(\\dv{SortE{}}(\"e\"),Lbles{}(\\dv{SortE{}}(\"e\"),Lbl'Stop'List'LBraQuot'es'QuotRBra'{}())))\n"
     );
 
     fs::remove_dir_all(root).unwrap();

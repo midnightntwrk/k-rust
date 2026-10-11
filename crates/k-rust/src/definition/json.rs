@@ -20,6 +20,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fmt::Write as _,
     sync::Arc,
 };
 
@@ -37,7 +38,7 @@ use super::ast::{
 use crate::definition::AttributeKey;
 use crate::kast::json::{self as term_json, JsonLabel, JsonSort};
 use crate::{
-    kast::{Label, ProductionIdentity, Term, TermMetadata, TermSpan},
+    kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan},
     provenance::{
         AnchorPath, DestinationAnchor, GeneratingPass, LogicalSourceId, OriginPart, OriginRecord,
         OriginSet, ProvenanceLink, SourceId, SourceOffsetMap, SourceOffsetSegment, SourceTable,
@@ -91,6 +92,12 @@ pub enum Error {
     MissingMainModule(String),
     DuplicateMainModule(String),
     InvalidProvenance(String),
+    /// A production whose regex terminal restricts the text around its tokens.
+    UnsupportedTokenRestriction {
+        module: String,
+        production: String,
+        restrictions: TokenRestrictions,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -127,6 +134,16 @@ impl std::fmt::Display for Error {
                 write!(formatter, "main module {name:?} is not unique")
             }
             Self::InvalidProvenance(message) => formatter.write_str(message),
+            Self::UnsupportedTokenRestriction {
+                module,
+                production,
+                restrictions,
+            } => write!(
+                formatter,
+                "module {module}: production {production}: {restrictions}; krust does not \
+                 implement token restrictions, which make a token depend on the text around it, \
+                 and reads only {NO_TOKEN_RESTRICTION:?} (no restriction) in these fields"
+            ),
         }
     }
 }
@@ -1717,7 +1734,7 @@ impl JsonFlatModule<ReadSentence> {
             }
             module
                 .local_sentences
-                .push(Arc::new(sentence.decode(kind)?));
+                .push(Arc::new(sentence.decode(kind, &module.name)?));
         }
         Ok(())
     }
@@ -1821,14 +1838,10 @@ impl From<&ProductionItem> for JsonProductionItem {
                 sort: sort.into(),
                 name: name.clone(),
             },
-            ProductionItem::RegexTerminal {
-                precede_regex,
-                regex,
-                follow_regex,
-            } => Self::KRegexTerminal {
-                precede_regex: precede_regex.clone(),
+            ProductionItem::RegexTerminal { regex } => Self::KRegexTerminal {
+                precede_regex: None,
                 regex: regex.clone(),
-                follow_regex: follow_regex.clone(),
+                follow_regex: None,
             },
             ProductionItem::Terminal(value) => Self::KTerminal {
                 value: value.clone(),
@@ -1837,6 +1850,43 @@ impl From<&ProductionItem> for JsonProductionItem {
     }
 }
 
+/// The value of a `precedeRegex` or `followRegex` field that restricts nothing.
+const NO_TOKEN_RESTRICTION: &str = "#";
+
+impl JsonProductionItem {
+    /// The restrictions that a regex terminal places on the text around its tokens, which no
+    /// [`ProductionItem`] holds.
+    ///
+    /// A restriction other than [`NO_TOKEN_RESTRICTION`] makes a token's language depend on the
+    /// text before or after it: a precede regex rejects a token that starts where a match of it
+    /// ends, a follow regex one that a match of it follows. Neither parser krust builds scans
+    /// tokens that way, so a document that asks for it is refused rather than read as the
+    /// unrestricted, larger token language.
+    fn token_restrictions(&self) -> Option<TokenRestrictions> {
+        let Self::KRegexTerminal {
+            precede_regex,
+            regex,
+            follow_regex,
+        } = self
+        else {
+            return None;
+        };
+        let restriction = |value: &Option<String>| {
+            value
+                .as_ref()
+                .filter(|value| *value != NO_TOKEN_RESTRICTION)
+                .cloned()
+        };
+        let (precede, follow) = (restriction(precede_regex), restriction(follow_regex));
+        (precede.is_some() || follow.is_some()).then(|| TokenRestrictions {
+            regex: regex.clone(),
+            precede,
+            follow,
+        })
+    }
+}
+
+/// An item whose [`JsonProductionItem::token_restrictions`] are none.
 impl From<JsonProductionItem> for ProductionItem {
     fn from(item: JsonProductionItem) -> Self {
         match item {
@@ -1844,18 +1894,83 @@ impl From<JsonProductionItem> for ProductionItem {
                 sort: sort.into(),
                 name,
             },
-            JsonProductionItem::KRegexTerminal {
-                precede_regex,
-                regex,
-                follow_regex,
-            } => Self::RegexTerminal {
-                precede_regex,
-                regex,
-                follow_regex,
-            },
+            JsonProductionItem::KRegexTerminal { regex, .. } => Self::RegexTerminal { regex },
             JsonProductionItem::KTerminal { value } => Self::Terminal(value),
         }
     }
+}
+
+/// A regex terminal's precede and follow restrictions other than `#`, the one that restricts nothing.
+#[derive(Debug)]
+pub struct TokenRestrictions {
+    pub regex: String,
+    pub precede: Option<String>,
+    pub follow: Option<String>,
+}
+
+impl std::fmt::Display for TokenRestrictions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "regex terminal r{:?} has", self.regex)?;
+        if let Some(precede) = &self.precede {
+            write!(
+                formatter,
+                " precedeRegex {precede:?} (no token may start where a match of it ends)"
+            )?;
+        }
+        if self.precede.is_some() && self.follow.is_some() {
+            formatter.write_str(" and")?;
+        }
+        if let Some(follow) = &self.follow {
+            write!(
+                formatter,
+                " followRegex {follow:?} (no token may end where a match of it starts)"
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// A production as a diagnostic names it: its sort, items and label, and where it was declared.
+fn production_description(
+    label: Option<&Label>,
+    sort: &Sort,
+    items: &[JsonProductionItem],
+    attributes: &Attributes,
+) -> String {
+    let mut description = format!("syntax {sort} ::=");
+    for item in items {
+        match item {
+            JsonProductionItem::KNonTerminal { sort, name } => {
+                let sort = Sort::from(sort.clone());
+                match name {
+                    Some(name) => write!(description, " {name}:{sort}"),
+                    None => write!(description, " {sort}"),
+                }
+            }
+            JsonProductionItem::KRegexTerminal { regex, .. } => {
+                write!(description, " r{regex:?}")
+            }
+            JsonProductionItem::KTerminal { value } => write!(description, " {value:?}"),
+        }
+        .expect("writing to a string cannot fail");
+    }
+    if let Some(label) = label {
+        write!(description, " [klabel({label})]").expect("writing to a string cannot fail");
+    }
+    if let Some(source) = attributes.source() {
+        write!(description, " at {source}").expect("writing to a string cannot fail");
+    }
+    if let Some(location) = attributes.location() {
+        write!(
+            description,
+            " ({},{},{},{})",
+            location.start_line, location.start_column, location.end_line, location.end_column
+        )
+        .expect("writing to a string cannot fail");
+    } else if let Some(location) = attributes.string(AttributeKey::Location) {
+        write!(description, " {location}").expect("writing to a string cannot fail");
+    }
+    description
 }
 
 /// A sentence on the wire, whose term fields are `T`: the term's JSON text from the KAST term
@@ -2173,7 +2288,7 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for SentenceMembers<A> {
 }
 
 impl JsonSentence<TermText> {
-    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<Sentence, Error> {
+    fn decode(self, kind: DefinitionEnvelopeKind, module: &str) -> Result<Sentence, Error> {
         let sentence = self;
         Ok(match sentence {
             JsonSentence::KBadsentence => {
@@ -2209,13 +2324,33 @@ impl JsonSentence<TermText> {
                 params,
                 sort,
                 att,
-            } => Sentence::Production {
-                label: klabel.map(Into::into),
-                parameters: params.into_iter().map(Into::into).collect(),
-                sort: sort.into(),
-                items: production_items.into_iter().map(Into::into).collect(),
-                attributes: att.into(),
-            },
+            } => {
+                let label = klabel.map(Label::from);
+                let sort = Sort::from(sort);
+                let attributes = Attributes::from(att);
+                if let Some(restrictions) = production_items
+                    .iter()
+                    .find_map(JsonProductionItem::token_restrictions)
+                {
+                    return Err(Error::UnsupportedTokenRestriction {
+                        module: module.to_owned(),
+                        production: production_description(
+                            label.as_ref(),
+                            &sort,
+                            &production_items,
+                            &attributes,
+                        ),
+                        restrictions,
+                    });
+                }
+                Sentence::Production {
+                    label,
+                    parameters: params.into_iter().map(Into::into).collect(),
+                    sort,
+                    items: production_items.into_iter().map(Into::into).collect(),
+                    attributes,
+                }
+            }
             JsonSentence::KSyntaxAssociativity { assoc, tags, att } => {
                 Sentence::SyntaxAssociativity {
                     associativity: assoc.into(),

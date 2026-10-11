@@ -861,15 +861,7 @@ fn sentence_buckets_preserve_production_exceptions_and_prefix_collisions() {
         attributes: attrs(&[("org.kframework.attributes.Source", "first.k")]),
     };
     let mut equivalent = first.clone();
-    if let Sentence::Production {
-        items, attributes, ..
-    } = &mut equivalent
-    {
-        items[0] = ProductionItem::RegexTerminal {
-            precede_regex: Some("before".into()),
-            regex: "[a-z]+".into(),
-            follow_regex: Some("after".into()),
-        };
+    if let Sentence::Production { attributes, .. } = &mut equivalent {
         attributes.insert("klabel", json!("p"));
         attributes.insert("function", json!(false));
         attributes.insert("symbol", json!(17));

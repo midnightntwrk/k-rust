@@ -1,14 +1,14 @@
 //! ```toml algorithm
 //! id = "parser.bison.priorities"
 //! name = "restricted-sort expansion for Bison grammar export"
-//! sites = ["transform_priority_and_associativity", "checked_operands", "constrain_side", "restricted_sort", "derived_root_labels", "remove_rules_restriction_made_useless", "prepare_user_lists"]
-//! variable = "Q = restricted-sort and excluded-label pairs; P = productions"
+//! sites = ["transform_priority_and_associativity", "constrain_side", "restricted_sort", "derived_root_nodes", "remove_rules_restriction_made_useless", "prepare_user_lists"]
+//! variable = "Q = restricted-sort and excluded-node-set pairs; J = judged operands of source productions; P = productions"
 //! counters = []
 //! no_counter = "Bison grammar export has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one exported grammar"
-//! bound = "O(Q x P)"
+//! bound = "O((Q + J) x P)"
 //! ```
 //!
 //! ```toml algorithm
@@ -26,10 +26,13 @@
 //!
 //! Deterministic Bison grammar rendering for standalone program parsers.
 //!
-//! Restricted-sort expansion is a monotone worklist over `(sort, excluded label)` pairs,
-//! O(pairs * productions). The restricted operands of a labelled production are those its
-//! `applyPriority` names, else its first and last item when they are nonterminals. A subsort child of a restricted sort is restricted too when it derives
-//! an excluded label at its root, which one indexed DFS per child decides in O(productions);
+//! Restricted-sort expansion is a monotone worklist over `(sort, excluded nodes)` pairs,
+//! O(pairs * productions). Which operand of a node excludes which child node is the in-process
+//! parser's own judgement (`inner::Exclusions`, `inner::NodeShape`): the positions it judges,
+//! the side, and the scope, cast, priority and associativity exclusions, asked once per judged
+//! operand of each source production against every node, O(J * productions). A child
+//! of a restricted sort that a production passes through is restricted too when it derives an
+//! excluded node at its root, which one indexed DFS per child decides in O(productions);
 //! the productions that restriction leaves deriving no finite tree are then removed by two
 //! productivity worklists, linear in the exported items; a third, after rendering, decides whether
 //! the start sort derives a program at all. Reachability is a visited-set DFS, O(reachable sorts * productions).
@@ -44,6 +47,7 @@ use crate::definition::{
     compute_associativities, compute_overloads, compute_priorities, compute_subsorts,
     sentence_equivalent,
 };
+use crate::inner::{Exclusions, NodeShape};
 use crate::kast::{Label, Sort};
 use crate::kompile::{Placement, PlacementKind};
 use crate::kompile::{encode_kore_label, encode_kore_sort};
@@ -184,6 +188,51 @@ struct GrammarProduction {
     /// The unmodified production controls the semantic action after priority
     /// expansion changes only grammar-side sorts.
     source: Sentence,
+    action: Action,
+}
+
+/// What a grammar production's semantic action builds from its items.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Action {
+    /// The source production's term; its operands are the items at the source's positions.
+    Source,
+    /// One part of a user list, recognized by left recursion; its
+    /// source is the list's constructor production `L ::= E sep L`. The parts read a list's
+    /// elements into a prefix, a chain from the last element read back to the first, and build
+    /// the list's term from the prefix when the list ends, applying the constructor to each element and the list after it, so
+    /// the term is the one the constructor's own production writes.
+    List(ListPart),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ListPart {
+    /// `Ne#L ::= E`: the prefix of the first element.
+    First,
+    /// `Ne#L ::= Ne#L sep E`: a prefix followed by one more element.
+    Next,
+    /// `L ::= Ne#L L#Terminator`: the list of a prefix.
+    End,
+}
+
+/// The source positions of a list constructor's element and tail, `E sep L`.
+const LIST_ELEMENT: usize = 0;
+const LIST_TAIL: usize = 2;
+
+impl Action {
+    /// The item that stands for the source item at `source_index`, which priority and
+    /// associativity restrict. In a list part, the element item is the element; the prefix of
+    /// `Next` is the tail of the element before the new one, and the terminator of `End` the
+    /// tail of the last element. The prefix of `End` is the whole list, no operand.
+    fn item_of_source(self, source_index: usize) -> Option<usize> {
+        match (self, source_index) {
+            (Self::Source, index) => Some(index),
+            (Self::List(ListPart::First), LIST_ELEMENT) => Some(0),
+            (Self::List(ListPart::Next), LIST_ELEMENT) => Some(2),
+            (Self::List(ListPart::Next), LIST_TAIL) => Some(0),
+            (Self::List(ListPart::End), LIST_TAIL) => Some(1),
+            (Self::List(_), _) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -306,6 +355,14 @@ fn render_inner(
         writeln!(output, "%nterm {}", encode_bison_sort(sort))
             .expect("writing to a string cannot fail");
     }
+    write_list_closers(
+        &mut output,
+        &productions,
+        &reachable,
+        &sort_catalog,
+        &placements,
+        &overloads,
+    )?;
     output.push_str("%start top\n\n%%\n");
     writeln!(
         output,
@@ -400,38 +457,65 @@ fn transform_priority_and_associativity(
 ) -> Result<Vec<GrammarProduction>, GrammarError> {
     let priorities = compute_priorities(sentences.iter())
         .map_err(|cycle| GrammarError::CircularPriority(cycle.path))?;
-    let associativities = compute_associativities(sentences.iter());
-    let no_associativity = BTreeSet::new();
+    let exclusions = Exclusions::new(priorities, &compute_associativities(sentences.iter()));
+    // The combined program grammar retains formal productions alongside the concrete instances
+    // produced by lowering. Bison can consume only the latter.
+    sources.retain(|source| {
+        matches!(&source.source, Sentence::Production { parameters, .. } if parameters.is_empty())
+    });
     sources.sort_by_key(structural_key);
 
-    let mut ordinals = BTreeMap::<BTreeSet<String>, usize>::new();
-    let mut pending = BTreeSet::<(Sort, BTreeSet<String>)>::new();
-    let mut productions = Vec::new();
-    for source in sources {
-        let Sentence::Production {
-            label, parameters, ..
-        } = &source.source
-        else {
-            unreachable!()
+    // One node per source production: the parts of a user list build their constructor's.
+    let mut node_ids = BTreeMap::<String, usize>::new();
+    let mut nodes = Vec::<SourceNode>::new();
+    let mut node_of = Vec::with_capacity(sources.len());
+    for source in &sources {
+        let id = match node_ids.entry(source_structural_key(&source.source)) {
+            std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                nodes.push(SourceNode::of(&source.source)?);
+                *entry.insert(nodes.len() - 1)
+            }
         };
-        if !parameters.is_empty() {
-            // The combined program grammar retains formal productions alongside the concrete
-            // instances produced by lowering. Bison can consume only the latter.
-            continue;
-        }
+        node_of.push(id);
+    }
+    let shapes = nodes.iter().map(SourceNode::shape).collect::<Vec<_>>();
+    let children = (0..shapes.len())
+        .filter(|node| shapes[*node].judged_as_child())
+        .collect::<Vec<_>>();
+
+    let mut excluded_at = BTreeMap::<(usize, usize), BTreeSet<usize>>::new();
+    let mut ordinals = BTreeMap::<BTreeSet<usize>, usize>::new();
+    let mut pending = BTreeSet::<(Sort, BTreeSet<usize>)>::new();
+    let mut productions = Vec::new();
+    for (source, &node) in sources.into_iter().zip(&node_of) {
+        let parent = &shapes[node];
         let mut transformed = source.items.clone();
-        if let Some(label) = label {
-            for (index, side) in checked_operands(&source.source)? {
+        let operands = source_operands(&source.source);
+        for (offset, &source_index) in operands.iter().enumerate() {
+            let position = offset + 1;
+            let Some(side) = parent.judged_side(position, operands.len()) else {
+                continue;
+            };
+            let Some(index) = source.action.item_of_source(source_index) else {
+                continue;
+            };
+            let excluded = excluded_at.entry((node, position)).or_insert_with(|| {
+                children
+                    .iter()
+                    .copied()
+                    .filter(|child| {
+                        exclusions
+                            .violation(parent, &shapes[*child], side)
+                            .is_some()
+                    })
+                    .collect()
+            });
+            if !excluded.is_empty() {
                 constrain_side(
                     index,
-                    &label.name,
+                    excluded,
                     &mut transformed,
-                    &priorities,
-                    match side {
-                        OperandSide::First => &associativities.right,
-                        OperandSide::Last => &associativities.left,
-                        OperandSide::Inner => &no_associativity,
-                    },
                     &mut ordinals,
                     &mut pending,
                 );
@@ -441,18 +525,19 @@ fn transform_priority_and_associativity(
             result: source.result,
             items: transformed,
             source: source.source,
+            action: source.action,
         });
     }
 
     let base = productions.clone();
-    let mut by_result = BTreeMap::<&Sort, Vec<&GrammarProduction>>::new();
-    for production in &base {
+    let mut by_result = BTreeMap::<&Sort, Vec<(&GrammarProduction, usize)>>::new();
+    for (production, &node) in base.iter().zip(&node_of) {
         by_result
             .entry(&production.result)
             .or_default()
-            .push(production);
+            .push((production, node));
     }
-    let mut root_labels = BTreeMap::<Sort, BTreeSet<String>>::new();
+    let mut root_nodes = BTreeMap::<Sort, BTreeSet<usize>>::new();
     let mut queue = pending.iter().cloned().collect::<VecDeque<_>>();
     // Invariant: a state is queued exactly when it enters `pending` (the queue starts as its
     // elements, and the only push follows a successful insertion), so each state is expanded
@@ -460,37 +545,34 @@ fn transform_priority_and_associativity(
     while let Some((sort, excluded)) = queue.pop_front() {
         let ordinal = ordinals[&excluded];
         let restricted = restricted_sort(&sort, ordinal);
-        for production in base.iter().filter(|production| production.result == sort) {
-            if let Some(child) = grammar_subsort_child(production) {
-                // A subsort injection is not written in the program text, so a term of the
+        for &(production, node) in by_result.get(&sort).into_iter().flatten() {
+            if shapes[node].passes_child_through() {
+                // A production that passes its child through builds no node, so a node of the
                 // child sort stands at the restricted position itself: the child is restricted
-                // by the same exclusion, unless it derives no excluded production at its root.
-                let child_labels = root_labels
+                // by the same exclusion, unless it derives no excluded node at its root.
+                let mut items = production.items.clone();
+                let child = pass_through_child(&mut items);
+                let child_nodes = root_nodes
                     .entry(child.clone())
-                    .or_insert_with(|| derived_root_labels(&by_result, child));
-                let child = if child_labels.is_disjoint(&excluded) {
-                    child.clone()
-                } else {
+                    .or_insert_with(|| derived_root_nodes(&by_result, &shapes, child));
+                if !child_nodes.is_disjoint(&excluded) {
                     if pending.insert((child.clone(), excluded.clone())) {
                         queue.push_back((child.clone(), excluded.clone()));
                     }
-                    restricted_sort(child, ordinal)
-                };
+                    *child = restricted_sort(child, ordinal);
+                }
                 productions.push(GrammarProduction {
                     result: restricted.clone(),
-                    items: vec![ProductionItem::NonTerminal {
-                        sort: child,
-                        name: nonterminal_name(&production.items).map(str::to_owned),
-                    }],
+                    items,
                     source: production.source.clone(),
+                    action: production.action,
                 });
-            } else if production_label(&production.source)
-                .is_none_or(|label| !excluded.contains(&label.name))
-            {
+            } else if !excluded.contains(&node) {
                 productions.push(GrammarProduction {
                     result: restricted.clone(),
                     items: production.items.clone(),
                     source: production.source.clone(),
+                    action: production.action,
                 });
             }
         }
@@ -505,102 +587,135 @@ fn transform_priority_and_associativity(
     Ok(productions)
 }
 
-/// Where an operand restricted by priority stands, which decides the associativity relation that
-/// restricts it too.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OperandSide {
-    /// The first item: a right-associative (or non-associative) group excludes its members.
-    First,
-    /// The last item: a left-associative (or non-associative) group excludes its members.
-    Last,
-    /// Any other operand: priority alone.
-    Inner,
+/// What the relation filter reads of a source production ([`NodeShape`]), owned so that every
+/// exported production can borrow its node's shape.
+struct SourceNode {
+    parse_label: Option<String>,
+    labelled: bool,
+    token: bool,
+    bracket: bool,
+    items: usize,
+    nonterminals: usize,
+    first_nonterminal: bool,
+    last_nonterminal: bool,
+    apply_priority: Option<BTreeSet<usize>>,
 }
 
-/// The item indices of the operands of a labelled production that priority and associativity
-/// restrict, each with its side.
-///
-/// The operands are the positions (counted among the nonterminals from 1) that the production's
-/// `applyPriority` lists, and otherwise the first item and the last item when they are
-/// nonterminals: K's priority filter rejects a child of lesser priority, or of the same
-/// associativity group on the excluded side, only at those operands. Associativity is defined
-/// only for the leftmost and rightmost item, so an `applyPriority` operand elsewhere is
-/// restricted by priority alone; a listed position that names no operand restricts nothing.
-fn checked_operands(source: &Sentence) -> Result<Vec<(usize, OperandSide)>, GrammarError> {
-    let Sentence::Production {
-        label,
-        items,
-        attributes,
-        ..
-    } = source
-    else {
+impl SourceNode {
+    fn of(source: &Sentence) -> Result<Self, GrammarError> {
+        let Sentence::Production {
+            label,
+            items,
+            attributes,
+            ..
+        } = source
+        else {
+            unreachable!("grammar productions come from production sentences")
+        };
+        let bracket = attributes.has(AttributeKey::Bracket);
+        let apply_priority = attributes
+            .string(AttributeKey::ApplyPriority)
+            .map(|value| {
+                crate::inner::parse_apply_priority(value).map_err(|error| {
+                    GrammarError::InvalidApplyPriority {
+                        label: label
+                            .as_ref()
+                            .map_or_else(String::new, |label| label.name.clone()),
+                        message: error.to_string(),
+                    }
+                })
+            })
+            .transpose()?;
+        Ok(Self {
+            parse_label: label.as_ref().map(|label| label.name.clone()).or_else(|| {
+                attributes
+                    .label(AttributeKey::BracketLabel)
+                    .filter(|_| bracket)
+                    .map(|label| label.name)
+            }),
+            labelled: label.is_some(),
+            token: attributes.has(AttributeKey::Token),
+            bracket,
+            items: items.len(),
+            nonterminals: source_operands(source).len(),
+            first_nonterminal: matches!(items.first(), Some(ProductionItem::NonTerminal { .. })),
+            last_nonterminal: matches!(items.last(), Some(ProductionItem::NonTerminal { .. })),
+            apply_priority,
+        })
+    }
+
+    /// The node's shape. A bracket is transparent, as the in-process grammar declares it, and
+    /// an exported grammar has no record syntax.
+    fn shape(&self) -> NodeShape<'_> {
+        NodeShape {
+            parse_label: self.parse_label.as_ref(),
+            labelled: self.labelled,
+            token: self.token,
+            bracket: self.bracket,
+            transparent: self.bracket,
+            record: false,
+            items: self.items,
+            nonterminals: self.nonterminals,
+            first_nonterminal: self.first_nonterminal,
+            last_nonterminal: self.last_nonterminal,
+            apply_priority: self.apply_priority.as_ref(),
+        }
+    }
+}
+
+/// The item indices of a source production's nonterminals, in order: its node's children.
+fn source_operands(source: &Sentence) -> Vec<usize> {
+    let Sentence::Production { items, .. } = source else {
         unreachable!("grammar productions come from production sentences")
     };
-    let operands = items
+    items
         .iter()
         .enumerate()
         .filter(|(_, item)| matches!(item, ProductionItem::NonTerminal { .. }))
         .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    let count = operands.len();
-    let first = matches!(items.first(), Some(ProductionItem::NonTerminal { .. }));
-    let last = matches!(items.last(), Some(ProductionItem::NonTerminal { .. }));
-    let positions = match attributes.string(AttributeKey::ApplyPriority) {
-        Some(value) => crate::inner::parse_apply_priority(value).map_err(|error| {
-            GrammarError::InvalidApplyPriority {
-                label: label
-                    .as_ref()
-                    .map_or_else(String::new, |label| label.name.clone()),
-                message: error.to_string(),
-            }
-        })?,
-        None => [(first, 1), (last, count)]
-            .into_iter()
-            .filter_map(|(nonterminal, position)| nonterminal.then_some(position))
-            .collect(),
-    };
-    Ok(positions
-        .into_iter()
-        .filter(|position| (1..=count).contains(position))
-        .map(|position| {
-            let side = if position == 1 && first {
-                OperandSide::First
-            } else if position == count && last {
-                OperandSide::Last
-            } else {
-                OperandSide::Inner
-            };
-            (operands[position - 1], side)
-        })
-        .collect())
+        .collect()
 }
 
-/// The labels of the productions `sort` derives at its root: its labeled productions and those
-/// of the sorts it derives through unlabeled subsort productions. `by_result` indexes the
-/// productions by result sort, so one call reads each production at most once.
-fn derived_root_labels(
-    by_result: &BTreeMap<&Sort, Vec<&GrammarProduction>>,
+/// The sort of the one nonterminal of an exported production whose source passes its child
+/// through, to be restricted in place.
+fn pass_through_child(items: &mut [ProductionItem]) -> &mut Sort {
+    items
+        .iter_mut()
+        .find_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        })
+        .expect("a production that passes its child through has one nonterminal")
+}
+
+/// The nodes `sort` derives at its root: the source nodes of its productions that build one,
+/// and those of the sorts it derives through productions that pass their child through.
+/// `by_result` indexes the productions by result sort, so one call reads each production at
+/// most once.
+fn derived_root_nodes(
+    by_result: &BTreeMap<&Sort, Vec<(&GrammarProduction, usize)>>,
+    shapes: &[NodeShape<'_>],
     sort: &Sort,
-) -> BTreeSet<String> {
-    let mut labels = BTreeSet::new();
+) -> BTreeSet<usize> {
+    let mut nodes = BTreeSet::new();
     let mut visited = BTreeSet::new();
-    let mut pending = vec![sort];
-    // Invariant: `labels` holds the labels of the non-subsort productions of every sort in
-    // `visited`, and `pending` holds the subsort children of those sorts not yet visited; each
-    // sort is visited once.
+    let mut pending = vec![sort.clone()];
+    // Invariant: `nodes` holds the nodes built by the productions of every sort in `visited`,
+    // and `pending` holds the children of those sorts' pass-through productions not yet
+    // visited; each sort is visited once.
     while let Some(sort) = pending.pop() {
-        if !visited.insert(sort) {
+        if !visited.insert(sort.clone()) {
             continue;
         }
-        for production in by_result.get(sort).into_iter().flatten() {
-            if let Some(child) = grammar_subsort_child(production) {
-                pending.push(child);
-            } else if let Some(label) = production_label(&production.source) {
-                labels.insert(label.name.clone());
+        for &(production, node) in by_result.get(&sort).into_iter().flatten() {
+            if shapes[node].passes_child_through() {
+                pending.extend(nonterminal_sorts(&production.items).into_iter().cloned());
+            } else {
+                nodes.insert(node);
             }
         }
     }
-    labels
+    nodes
 }
 
 /// The items of a production as K syntax: terminals quoted, nonterminals by sort.
@@ -711,6 +826,7 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                 result: sort.clone(),
                 items: items.clone(),
                 source: sentence.clone(),
+                action: Action::Source,
             });
         }
     }
@@ -727,6 +843,7 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                     result: sort.clone(),
                     items: items.clone(),
                     source: sentence.clone(),
+                    action: Action::Source,
                 }
             }));
             continue;
@@ -808,6 +925,7 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
             result: terminator_sort.clone(),
             items: vec![ProductionItem::Terminal(String::new())],
             source: terminator.clone(),
+            action: Action::Source,
         });
 
         if left_associative {
@@ -815,6 +933,7 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                 result: sort.clone(),
                 items: recursive_items.clone(),
                 source: recursive.clone(),
+                action: Action::Source,
             });
             let mut attributes = recursive_attributes.clone();
             attributes.unset(AttributeKey::UserList);
@@ -843,52 +962,54 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
                 result: sort,
                 items: items.clone(),
                 source,
+                action: Action::Source,
             });
             continue;
         }
 
         let nonempty_sort =
             Sort::with_parameters(format!("Ne#{}", sort.name), sort.parameters.clone());
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
-        )]
-        let recursive_grammar_items = recursive_items
-            .iter()
-            .map(|item| match item {
-                ProductionItem::NonTerminal {
-                    sort: item_sort,
-                    name,
-                } if item_sort == &sort => ProductionItem::NonTerminal {
-                    sort: nonempty_sort.clone(),
-                    name: name.clone(),
-                },
-                item => item.clone(),
-            })
-            .collect();
-        productions.push(GrammarProduction {
-            result: nonempty_sort.clone(),
-            items: recursive_grammar_items,
-            source: recursive.clone(),
-        });
-        productions.push(GrammarProduction {
-            result: nonempty_sort.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: child,
-                    name: None,
-                },
-                ProductionItem::Terminal(String::new()),
-                ProductionItem::NonTerminal {
-                    sort: terminator_sort.clone(),
-                    name: None,
-                },
-            ],
-            source: recursive.clone(),
-        });
-        productions.push(transparent_production(sort.clone(), nonempty_sort));
+        let [
+            ProductionItem::NonTerminal { .. },
+            separator @ ProductionItem::Terminal(_),
+            ProductionItem::NonTerminal { .. },
+        ] = recursive_items.as_slice()
+        else {
+            return Err(GrammarError::InvalidUserList {
+                sort,
+                message: "a user list's constructor production must be an element, a separator and the list".into(),
+            });
+        };
+        let nonterminal = |sort: &Sort| ProductionItem::NonTerminal {
+            sort: sort.clone(),
+            name: None,
+        };
+        for (part, result, items) in [
+            (ListPart::First, &nonempty_sort, vec![nonterminal(&child)]),
+            (
+                ListPart::Next,
+                &nonempty_sort,
+                vec![
+                    nonterminal(&nonempty_sort),
+                    separator.clone(),
+                    nonterminal(&child),
+                ],
+            ),
+            (
+                ListPart::End,
+                &sort,
+                vec![nonterminal(&nonempty_sort), nonterminal(&terminator_sort)],
+            ),
+        ] {
+            productions.push(GrammarProduction {
+                result: result.clone(),
+                items,
+                source: recursive.clone(),
+                action: Action::List(part),
+            });
+        }
         if !non_empty {
-            productions.push(transparent_production(sort.clone(), terminator_sort));
+            productions.push(transparent_production(sort, terminator_sort));
         }
     }
     Ok(productions)
@@ -911,6 +1032,7 @@ fn transparent_production(result: Sort, child: Sort) -> GrammarProduction {
             items,
             attributes,
         },
+        action: Action::Source,
     }
 }
 
@@ -924,29 +1046,15 @@ fn production_nonterminal_count(sentence: &Sentence) -> usize {
         .count()
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Restrict the operand at item `index` to its sort without the nodes `excluded` names,
+/// queueing that restricted sort for expansion.
 fn constrain_side(
     index: usize,
-    parent: &str,
+    excluded: &BTreeSet<usize>,
     items: &mut [ProductionItem],
-    priorities: &crate::definition::PartialOrder<String>,
-    associativity: &BTreeSet<(String, String)>,
-    ordinals: &mut BTreeMap<BTreeSet<String>, usize>,
-    pending: &mut BTreeSet<(Sort, BTreeSet<String>)>,
+    ordinals: &mut BTreeMap<BTreeSet<usize>, usize>,
+    pending: &mut BTreeSet<(Sort, BTreeSet<usize>)>,
 ) {
-    let mut excluded = priorities
-        .relations_from(&parent.to_owned())
-        .cloned()
-        .unwrap_or_default();
-    excluded.extend(
-        associativity
-            .iter()
-            .filter(|(outer, _)| outer == parent)
-            .map(|(_, inner)| inner.clone()),
-    );
-    if excluded.is_empty() {
-        return;
-    }
     let next = ordinals.len();
     let ordinal = *ordinals.entry(excluded.clone()).or_insert(next);
     let ProductionItem::NonTerminal { sort, .. } = &mut items[index] else {
@@ -954,7 +1062,7 @@ fn constrain_side(
     };
     let original = sort.clone();
     *sort = restricted_sort(&original, ordinal);
-    pending.insert((original, excluded));
+    pending.insert((original, excluded.clone()));
 }
 
 fn restricted_sort(sort: &Sort, ordinal: usize) -> Sort {
@@ -1042,7 +1150,9 @@ fn write_production(
         ..*placements
     };
 
-    if attributes.has(AttributeKey::Token) && !is_subsort {
+    if let Action::List(part) = production.action {
+        write_list_action(output, part, sort, &nonterminals);
+    } else if attributes.has(AttributeKey::Token) && !is_subsort {
         write_token_action(output, sort, sort_catalog, has_location);
     } else if !attributes.has(AttributeKey::Token)
         && is_subsort
@@ -1051,7 +1161,7 @@ fn write_production(
     {
         write_subsort_action(output, sort, items, attributes, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
-        write_token_subsort_action(output, sort, has_location);
+        write_token_subsort_action(output, sort, sort_catalog, has_location);
     } else if is_subsort
         && (attributes.has(AttributeKey::NotInjection)
             || attributes.has(AttributeKey::BisonParsingOnlySubsort))
@@ -1063,13 +1173,18 @@ fn write_production(
         };
         writeln!(output, "{{\n  $$ = ${child};\n}}").expect("writing to a string cannot fail");
     } else if let Some(label) = label {
+        let operands = nonterminals
+            .iter()
+            .map(|rhs| format!("${rhs}.nterm"))
+            .collect::<Vec<_>>();
         write_labeled_action(
             output,
             label,
             sort,
             items,
             attributes,
-            &nonterminals,
+            &operands,
+            "$$ = value;",
             sort_catalog,
             &placements,
             overloads,
@@ -1099,25 +1214,153 @@ fn write_production(
     Ok(())
 }
 
+/// The C symbol of a list prefix node, the value of `ListPart::First` and `ListPart::Next`: it
+/// holds an element and, after the first, the prefix before it. A prefix is no term; the list's
+/// end consumes it. A node with another symbol in a prefix's place is the merge of two prefixes
+/// a GLR parser read over the same text (`mergeAmb`). A prefix node is never changed once built,
+/// since a GLR parser can continue one prefix in several readings.
+const LIST_PREFIX_SYMBOL: &str = "krust_list_prefix";
+
+/// The C function that builds the term of a list of `sort` from its prefix and terminator.
+fn list_closer(sort: &Sort) -> String {
+    format!("krust_list_{}", encode_bison_sort(sort))
+}
+
+fn write_list_action(output: &mut String, part: ListPart, sort: &Sort, nonterminals: &[usize]) {
+    // The positions are those of the part's nonterminals: a separator written as `""` is no
+    // symbol of the rendered production.
+    let (children, element, location, before) = match (part, nonterminals) {
+        (ListPart::First, &[element]) => (1, element, "@$".to_owned(), String::new()),
+        (ListPart::Next, &[prefix, element]) => (
+            2,
+            element,
+            format!("@{element}"),
+            format!("\n  n->children[1] = ${prefix}.nterm;"),
+        ),
+        (ListPart::End, &[prefix, terminator]) => {
+            writeln!(
+                output,
+                "{{\n  value_type value = {{.nterm = {}(${prefix}.nterm, ${terminator}.nterm, @$)}};\n  $$ = value;\n}}",
+                list_closer(sort)
+            )
+            .expect("writing to a string cannot fail");
+            return;
+        }
+        _ => unreachable!("a list part has the nonterminals `prepare_user_lists` gives it"),
+    };
+    // A prefix node is located at its element: the constructor applied to that element starts
+    // there (`write_list_closers`).
+    writeln!(
+        output,
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{children});\n  n->symbol = {LIST_PREFIX_SYMBOL};\n  n->sort = \"{}\";\n  n->str = false;\n  n->token = NULL;\n  n->location = {location};\n  n->hasLocation = 0;\n  n->nchildren = {children};\n  n->children[0] = ${element}.nterm;{before}\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
+        c_kore_sort(sort)
+    )
+    .expect("writing to a string cannot fail");
+}
+
+/// Writes, for each list recognized by left recursion that the start sort reaches, the
+/// function its `ListPart::End` calls. It walks the prefix from the last element and applies
+/// the list's constructor to each element and the list after it, starting from the
+/// terminator: the constructor's node is written by the action of the constructor's own
+/// production, with that production's location, from the element's start to the list's end.
+/// A merged prefix is two readings of the same elements: each is closed over the same rest, and
+/// the two lists are merged as the parser merges any two readings.
+fn write_list_closers(
+    output: &mut String,
+    productions: &[GrammarProduction],
+    reachable: &BTreeSet<Sort>,
+    sort_catalog: &SortCatalog<'_>,
+    placements: &CPlacement<'_>,
+    overloads: &crate::definition::OverloadOrder<'_>,
+) -> Result<(), GrammarError> {
+    let mut constructors = BTreeMap::<&Sort, &Sentence>::new();
+    for production in productions {
+        if production.action == Action::List(ListPart::End)
+            && reachable.contains(&production.result)
+            && let Sentence::Production { sort, .. } = &production.source
+        {
+            constructors.insert(sort, &production.source);
+        }
+    }
+    if constructors.is_empty() {
+        return Ok(());
+    }
+    writeln!(
+        output,
+        "%{{\n#include <stdlib.h>\nstatic char {LIST_PREFIX_SYMBOL}[] = \"krust#ListPrefix\";"
+    )
+    .expect("writing to a string cannot fail");
+    for (sort, constructor) in constructors {
+        let Sentence::Production {
+            label: Some(label),
+            items,
+            attributes,
+            ..
+        } = constructor
+        else {
+            unreachable!("a list part's source is the list's constructor")
+        };
+        let closer = list_closer(sort);
+        writeln!(
+            output,
+            "static node *{closer}(node *prefix, node *rest, YYLTYPE end) {{\n  while (prefix) {{\n    if (prefix->symbol != {LIST_PREFIX_SYMBOL}) {{\n      YYSTYPE first = {{.nterm = {closer}(prefix->children[0], rest, end)}};\n      YYSTYPE second = {{.nterm = {closer}(prefix->children[1], rest, end)}};\n      return mergeAmb(first, second).nterm;\n    }}\n    YYLTYPE location = prefix->location;\n    location.last_line = end.last_line;\n    location.last_column = end.last_column;"
+        )
+        .expect("writing to a string cannot fail");
+        let has_location = sort_attributes(sort_catalog, sort)
+            .value(AttributeKey::Locations)
+            .is_some();
+        let placements = CPlacement {
+            location: "location",
+            has_location: if has_location { "1" } else { "0" },
+            ..*placements
+        };
+        write_labeled_action(
+            output,
+            label,
+            sort,
+            items,
+            attributes,
+            &["prefix->children[0]".to_owned(), "rest".to_owned()],
+            "rest = value.nterm;",
+            sort_catalog,
+            &placements,
+            overloads,
+            has_location,
+        )?;
+        output.push_str(
+            "    prefix = prefix->nchildren == 2 ? prefix->children[1] : NULL;\n  }\n  return rest;\n}\n",
+        );
+    }
+    output.push_str("%}\n");
+    Ok(())
+}
+
 fn write_token_action(
     output: &mut String,
     sort: &Sort,
     sort_catalog: &SortCatalog<'_>,
     has_location: bool,
 ) {
-    let hook = sort_attributes(sort_catalog, sort).string(AttributeKey::Hook);
-    let symbol = match hook {
-        Some("STRING.String") => "$1.token",
-        Some("BYTES.Bytes") => "$1.token+1",
-        _ => "enquote($1.token)",
-    };
+    let kind = token_literal_kind(sort, sort_catalog);
+    let sort_name = escape_c_string(&sort.to_string());
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node));\n  n->symbol = {symbol};\n  n->str = true;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = krust_kore_literal($1.token, {kind}, \"{sort_name}\", &error);\n  if (!literal) {{\n    yyerror(&@$, scanner, error);\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
+}
+
+/// How the generated parser reads the code points of a token of `sort` from its text: those the
+/// in-process frontend reads from it by the sort's hook (`kompile::term_to_kore`);
+/// `krust_kore_literal` reads and writes them by the escape tables of `literals`.
+fn token_literal_kind(sort: &Sort, sort_catalog: &SortCatalog<'_>) -> &'static str {
+    match sort_attributes(sort_catalog, sort).string(AttributeKey::Hook) {
+        Some("STRING.String") => "KRUST_TOKEN_STRING",
+        Some("BYTES.Bytes") => "KRUST_TOKEN_BYTES",
+        _ => "KRUST_TOKEN_TEXT",
+    }
 }
 
 /// Describes a production from its own sort, items, source and location attributes,
@@ -1216,7 +1459,7 @@ fn write_subsort_action(
         let cons = c_kore_label(&cons);
         writeln!(
             output,
-            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
+            "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->token = NULL;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->token = NULL;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
             placements.has_location
         )
         .expect("writing to a string cannot fail");
@@ -1232,11 +1475,20 @@ fn write_subsort_action(
     Ok(())
 }
 
-fn write_token_subsort_action(output: &mut String, sort: &Sort, has_location: bool) {
+/// A token subsort (`syntax MyStr ::= String [token]`) reads its child's text as a token of its
+/// own sort, so its literal is that text decoded by its own sort's hook, not the child's literal.
+fn write_token_subsort_action(
+    output: &mut String,
+    sort: &Sort,
+    sort_catalog: &SortCatalog<'_>,
+    has_location: bool,
+) {
+    let kind = token_literal_kind(sort, sort_catalog);
+    let sort_name = escape_c_string(&sort.to_string());
     let sort = c_kore_sort(sort);
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *));\n  n->symbol = \"\\\\dv{{{sort}}}\";\n  n->sort = \"{sort}\";\n  n->str = false;\n  n->location = @$;\n  n->hasLocation = {};\n  n->nchildren = 1;\n  n->children[0] = $1.nterm->children[0];\n  value_type value = {{.nterm = n}};\n  $$ = value;\n}}",
+        "{{\n  char *error = NULL;\n  char *literal = $1.nterm->token ? krust_kore_literal($1.nterm->token, {kind}, \"{sort_name}\", &error) : NULL;\n  if (!literal) {{\n    yyerror(&@$, scanner, error ? error : \"the phrase of a token subsort of sort {sort_name} is not a token\");\n    YYABORT;\n  }}\n  node *n = malloc(sizeof(node));\n  n->symbol = literal;\n  n->str = true;\n  n->token = NULL;\n  n->location = @$;\n  n->hasLocation = 0;\n  n->nchildren = 0;\n  node *n2 = malloc(sizeof(node) + sizeof(node *));\n  n2->symbol = \"\\\\dv{{{sort}}}\";\n  n2->sort = \"{sort}\";\n  n2->str = false;\n  n2->token = $1.nterm->token;\n  n2->location = @$;\n  n2->hasLocation = {};\n  n2->nchildren = 1;\n  n2->children[0] = n;\n  value_type value = {{.nterm = n2}};\n  $$ = value;\n}}",
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
@@ -1249,7 +1501,8 @@ fn write_labeled_action(
     result: &Sort,
     items: &[ProductionItem],
     attributes: &Attributes,
-    rhs_nonterminals: &[usize],
+    operands: &[String],
+    sink: &str,
     sort_catalog: &SortCatalog<'_>,
     placements: &CPlacement<'_>,
     overloads: &crate::definition::OverloadOrder<'_>,
@@ -1257,9 +1510,10 @@ fn write_labeled_action(
 ) -> Result<(), GrammarError> {
     writeln!(
         output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->location = @$;\n  n->nchildren = {};",
-        rhs_nonterminals.len(),
-        rhs_nonterminals.len()
+        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->token = NULL;\n  n->location = {};\n  n->nchildren = {};",
+        operands.len(),
+        placements.location,
+        operands.len()
     )
     .expect("writing to a string cannot fail");
 
@@ -1308,10 +1562,10 @@ fn write_labeled_action(
         let greater_arguments = nonterminal_sorts(items);
         let lesser_arguments = nonterminal_sorts(lesser_items);
         let mut recoveries = Vec::new();
-        for ((greater, lesser), rhs) in greater_arguments
+        for ((greater, lesser), operand) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
-            .zip(rhs_nonterminals)
+            .zip(operands)
         {
             require_placement(
                 lesser_result,
@@ -1324,7 +1578,7 @@ fn write_labeled_action(
             let cases = if greater == lesser {
                 Vec::new()
             } else {
-                recovery_cases(placements, greater, lesser, &format!("${rhs}.nterm"))
+                recovery_cases(placements, greater, lesser, operand)
             };
             recoveries.push(cases);
         }
@@ -1383,15 +1637,15 @@ fn write_labeled_action(
             )
         )
         .expect("writing to a string cannot fail");
-        for (index, (((greater, lesser), rhs), cases)) in greater_arguments
+        for (index, (((greater, lesser), operand), cases)) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
-            .zip(rhs_nonterminals)
+            .zip(operands)
             .zip(&recoveries)
             .enumerate()
         {
             if greater == lesser {
-                writeln!(output, "    n->children[{index}] = ${rhs}.nterm;")
+                writeln!(output, "    n->children[{index}] = {operand};")
                     .expect("writing to a string cannot fail");
             } else {
                 for (ordinal, case) in cases.iter().enumerate() {
@@ -1401,8 +1655,8 @@ fn write_labeled_action(
                         if ordinal == 0 { "" } else { "else " },
                     )
                     .expect("writing to a string cannot fail");
-                    let location = format!("${rhs}.nterm->location");
-                    let has_location = format!("${rhs}.nterm->hasLocation");
+                    let location = format!("{operand}->location");
+                    let has_location = format!("{operand}->hasLocation");
                     let prefix = format!("recovered_{index}");
                     let emitter = CPlacement {
                         location: &location,
@@ -1419,7 +1673,7 @@ fn write_labeled_action(
         let returned = placements.write(output, &result_plan, "n");
         writeln!(
             output,
-            "    value_type value = {{.nterm = {returned}}};\n    $$ = value;\n  }} else"
+            "    value_type value = {{.nterm = {returned}}};\n    {sink}\n  }} else"
         )
         .expect("writing to a string cannot fail");
     }
@@ -1432,11 +1686,15 @@ fn write_labeled_action(
         u8::from(has_location)
     )
     .expect("writing to a string cannot fail");
-    for (index, rhs) in rhs_nonterminals.iter().enumerate() {
-        writeln!(output, "    n->children[{index}] = ${rhs}.nterm;")
+    for (index, operand) in operands.iter().enumerate() {
+        writeln!(output, "    n->children[{index}] = {operand};")
             .expect("writing to a string cannot fail");
     }
-    output.push_str("    value_type value = {.nterm = n};\n    $$ = value;\n  }\n");
+    writeln!(
+        output,
+        "    value_type value = {{.nterm = n}};\n    {sink}\n  }}"
+    )
+    .expect("writing to a string cannot fail");
     for _ in 0..overload_count {
         output.push_str("  }\n");
     }
@@ -1663,7 +1921,7 @@ fn module_sorts(sentences: &[Sentence]) -> BTreeSet<Sort> {
 fn write_prologue(output: &mut String, mode: Mode, stack_depth: u64) {
     write!(
         output,
-        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nchar *enquote(char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
+        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
         stack_depth
     )
     .expect("writing to a string cannot fail");
@@ -1758,6 +2016,7 @@ fn sort_attributes<'a>(catalog: &'a SortCatalog<'_>, sort: &Sort) -> &'a Attribu
         .unwrap_or_else(|| EMPTY.get_or_init(Attributes::default))
 }
 
+#[cfg(test)]
 fn production_label(sentence: &Sentence) -> Option<&Label> {
     match sentence {
         Sentence::Production { label, .. } => label.as_ref(),
@@ -1775,6 +2034,7 @@ fn production_label(sentence: &Sentence) -> Option<&Label> {
     }
 }
 
+#[cfg(test)]
 fn grammar_subsort_child(production: &GrammarProduction) -> Option<&Sort> {
     production_label(&production.source)
         .is_none()
@@ -1785,13 +2045,6 @@ fn grammar_subsort_child(production: &GrammarProduction) -> Option<&Sort> {
 fn subsort_child(items: &[ProductionItem]) -> Option<&Sort> {
     match items {
         [ProductionItem::NonTerminal { sort, .. }] => Some(sort),
-        _ => None,
-    }
-}
-
-fn nonterminal_name(items: &[ProductionItem]) -> Option<&str> {
-    match items {
-        [ProductionItem::NonTerminal { name, .. }] => name.as_deref(),
         _ => None,
     }
 }
@@ -1861,11 +2114,7 @@ fn items_key(items: &[ProductionItem]) -> String {
             ProductionItem::NonTerminal { sort, name } => {
                 format!("N{}{:?}", sort_key(sort), name)
             }
-            ProductionItem::RegexTerminal {
-                precede_regex,
-                regex,
-                follow_regex,
-            } => format!("R{precede_regex:?}{}{follow_regex:?}", length_prefix(regex)),
+            ProductionItem::RegexTerminal { regex } => format!("R{}", length_prefix(regex)),
             ProductionItem::Terminal(value) => format!("T{}", length_prefix(value)),
         })
         .collect::<Vec<_>>()
@@ -2371,6 +2620,62 @@ mod tests {
         );
     }
 
+    /// `parser.bison.priorities` reads the in-process filter's exclusions
+    /// (`inner::Exclusions`): a labelled production with one nonterminal and no terminal
+    /// (`wrap`) writes nothing around its child, so it judges no edge and its operand stays
+    /// unrestricted although `wrap` has greater priority than `add`; a prefix operator over the
+    /// same sort is restricted. A sequence below a labelled constructor's end is outside its
+    /// scope and is excluded there as a priority is, and a constructor its scope admits (here a
+    /// sequence's own operand) keeps it.
+    #[test]
+    fn exported_operands_are_restricted_by_the_in_process_exclusions() {
+        let exp = || nonterminal("Exp");
+        let terminal = |text: &str| ProductionItem::Terminal(text.into());
+        let sentences = vec![
+            production("Top", vec![exp()], Some("wrap"), &[]),
+            production("Exp", vec![terminal("-"), exp()], Some("neg"), &[]),
+            production("Exp", vec![exp(), terminal("+"), exp()], Some("add"), &[]),
+            production(
+                "Exp",
+                vec![exp(), terminal("~>"), exp()],
+                Some("#KSequence"),
+                &[],
+            ),
+            production("Exp", vec![terminal("1")], Some("one"), &[]),
+            Sentence::SyntaxPriority {
+                priorities: vec![vec!["wrap".into(), "neg".into()], vec!["add".into()]],
+                attributes: Attributes::default(),
+            },
+        ];
+        let productions = transform_priority_and_associativity(
+            &sentences,
+            prepare(&sentences).unwrap().productions,
+        )
+        .unwrap();
+        let labels = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(
+            operand(exported(&productions, "wrap"), 0),
+            &Sort::new("Exp")
+        );
+        assert_eq!(
+            root_labels(&productions, operand(exported(&productions, "neg"), 1)),
+            labels(&["neg", "one"])
+        );
+        let add = exported(&productions, "add");
+        assert_eq!(
+            root_labels(&productions, operand(add, 0)),
+            labels(&["add", "neg", "one"])
+        );
+        let sequence = exported(&productions, "#KSequence");
+        assert_eq!(operand(sequence, 0), &Sort::new("Exp"));
+        assert_eq!(operand(sequence, 2), &Sort::new("Exp"));
+    }
+
     /// `parser.bison.priorities`: a production that restriction leaves deriving nothing is not
     /// exported, also when it is a source production over a sort that restriction left without
     /// productions: here `q`'s last operand may not derive `add`, so it derives nothing, so `q`
@@ -2643,7 +2948,7 @@ mod tests {
     }
 
     #[test]
-    fn bison_lists_make_nonempty_lists_left_associative() {
+    fn a_list_whose_constructor_takes_the_list_first_is_read_by_that_production() {
         let sentences = vec![
             production(
                 "Exps",
@@ -2677,6 +2982,97 @@ mod tests {
         assert!(output.contains("SortExps__ TOK_"));
         assert!(output.contains("n3->children[0] = n2;"));
         assert!(output.contains("n3->children[1] = $1.nterm;"));
+    }
+
+    #[test]
+    fn left_recursion_reads_a_possibly_empty_list_and_builds_it_with_its_constructor() {
+        let sentences = vec![
+            production(
+                "Exps",
+                vec![
+                    nonterminal("Exp"),
+                    ProductionItem::Terminal(",".into()),
+                    nonterminal("Exps"),
+                ],
+                Some("cons"),
+                &[("userList", "*")],
+            ),
+            production(
+                "Exps",
+                vec![ProductionItem::Terminal(".Exps".into())],
+                Some("nil"),
+                &[("userList", "*")],
+            ),
+            production(
+                "Exp",
+                vec![ProductionItem::Terminal("x".into())],
+                Some("x"),
+                &[],
+            ),
+        ];
+        let prepared = prepare(&sentences).unwrap();
+        let scanner = Scanner::new(&prepared.scanner_sentences()).unwrap();
+
+        let output = render(&prepared, &scanner, &Sort::new("Exps"), Mode::Lr, 321).unwrap();
+
+        let list = encode_bison_sort(&Sort::new("Exps"));
+        let prefix = encode_bison_sort(&Sort::new("Ne#Exps"));
+        let terminator = encode_bison_sort(&Sort::new("Exps#Terminator"));
+        let exp = encode_bison_sort(&Sort::new("Exp"));
+        assert!(output.contains(&format!("{prefix}:\n  {exp} {{")));
+        assert!(output.contains(&format!("  |{prefix} TOK_")));
+        assert!(output.contains(&format!(
+            "{list}:\n  {terminator} {{\n  $$ = $1;\n}}\n\n  |{prefix} {terminator} {{"
+        )));
+        assert!(output.contains(&format!(
+            "static node *krust_list_{list}(node *prefix, node *rest, YYLTYPE end)"
+        )));
+        assert!(output.contains("    n->symbol = \"Lblcons{}\";"));
+        assert!(output.contains("    n->children[0] = prefix->children[0];"));
+        assert!(output.contains("    n->children[1] = rest;"));
+        assert!(output.contains(&format!("krust_list_{list}($1.nterm, $2.nterm, @$)")));
+    }
+
+    #[test]
+    fn a_list_separated_by_nothing_reads_each_element_after_its_prefix() {
+        let sentences = vec![
+            production(
+                "Exps",
+                vec![
+                    nonterminal("Exp"),
+                    ProductionItem::Terminal(String::new()),
+                    nonterminal("Exps"),
+                ],
+                Some("cons"),
+                &[("userList", "+")],
+            ),
+            production(
+                "Exps",
+                vec![ProductionItem::Terminal(String::new())],
+                Some("nil"),
+                &[("userList", "+")],
+            ),
+            production(
+                "Exp",
+                vec![ProductionItem::Terminal("x".into())],
+                Some("x"),
+                &[],
+            ),
+        ];
+        let prepared = prepare(&sentences).unwrap();
+        let scanner = Scanner::new(&prepared.scanner_sentences()).unwrap();
+
+        let output = render(&prepared, &scanner, &Sort::new("Exps"), Mode::Glr, 321).unwrap();
+
+        let prefix = encode_bison_sort(&Sort::new("Ne#Exps"));
+        let exp = encode_bison_sort(&Sort::new("Exp"));
+        assert!(
+            output.contains(&format!("  |{prefix} {exp} {{")),
+            "{output}"
+        );
+        assert!(output.contains("  n->location = @2;"));
+        assert!(output.contains("  n->children[0] = $2.nterm;\n  n->children[1] = $1.nterm;"));
+        assert!(!output.contains("$3"));
     }
 
     #[test]
@@ -3246,8 +3642,9 @@ mod tests {
     /// `parser.bison.priorities` against the priority filter K's documentation defines ("Symbol
     /// priority and associativity" in the K user manual), over random small grammars.
     ///
-    /// The filter judges a tree: at each checked operand of a labelled production (the positions
-    /// `applyPriority` lists, else the first and the last item when it is a nonterminal), the
+    /// The filter judges a tree: at each checked operand of a labelled production that is not a
+    /// syntactic subsort (the positions `applyPriority` lists, else the first and the last item
+    /// when it is a nonterminal), the
     /// child's root label, read through the subsort productions that the program text does not
     /// show, must not be of lesser priority than the parent, and associativity excludes a child
     /// of the same group at the last item (left) or the first item (right). The exported grammar
@@ -3265,6 +3662,8 @@ mod tests {
             Postfix(usize),
             Closed(usize),
             Pair(usize, usize),
+            /// A labelled production with one nonterminal and no terminal.
+            Wrap(usize),
         }
 
         #[derive(Clone, Debug)]
@@ -3294,12 +3693,15 @@ mod tests {
 
         fn random_grammar() -> impl Strategy<Value = RandomGrammar> {
             (2usize..=4).prop_flat_map(|sorts| {
+                // A wrap whose child's sort index is not above its result's becomes a prefix
+                // (below), so wraps are drawn more often than the other shapes.
                 let shape = prop_oneof![
-                    (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Infix(left, right)),
-                    (0..sorts).prop_map(Shape::Prefix),
-                    (0..sorts).prop_map(Shape::Postfix),
-                    (0..sorts).prop_map(Shape::Closed),
-                    (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Pair(left, right)),
+                    1 => (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Infix(left, right)),
+                    1 => (0..sorts).prop_map(Shape::Prefix),
+                    1 => (0..sorts).prop_map(Shape::Postfix),
+                    1 => (0..sorts).prop_map(Shape::Closed),
+                    1 => (0..sorts, 0..sorts).prop_map(|(left, right)| Shape::Pair(left, right)),
+                    3 => (0..sorts).prop_map(Shape::Wrap),
                 ];
                 let operator = (
                     0..sorts,
@@ -3311,7 +3713,17 @@ mod tests {
                 )
                     .prop_map(|(result, shape, apply_priority)| Operator {
                         result,
-                        shape,
+                        // Only a wrap from a lower to a higher index, as subsorts, so unary
+                        // chains are acyclic.
+                        shape: match shape {
+                            Shape::Wrap(child) if child <= result => Shape::Prefix(child),
+                            shape @ (Shape::Infix(..)
+                            | Shape::Prefix(_)
+                            | Shape::Postfix(_)
+                            | Shape::Closed(_)
+                            | Shape::Pair(..)
+                            | Shape::Wrap(_)) => shape,
+                        },
                         apply_priority,
                     });
                 (
@@ -3384,6 +3796,7 @@ mod tests {
                         operand(child),
                         terminal(")".into()),
                     ],
+                    Shape::Wrap(child) => vec![operand(child)],
                     Shape::Pair(left, right) => vec![
                         terminal(format!("o{index}(")),
                         operand(left),
@@ -3599,7 +4012,11 @@ mod tests {
                 else {
                     unreachable!()
                 };
-                if let Some(parent) = source_label(source) {
+                // A syntactic subsort (one nonterminal and no terminal) writes nothing around its
+                // child, so it judges no child.
+                if let Some(parent) = source_label(source)
+                    && items.len() > 1
+                {
                     let count = tree.children.len();
                     let first = matches!(items.first(), Some(ProductionItem::NonTerminal { .. }));
                     let last = matches!(items.last(), Some(ProductionItem::NonTerminal { .. }));

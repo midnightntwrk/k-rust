@@ -13,5 +13,7 @@ license; see `../kore/LICENSE.md`.
 `definition.json` is a compact reduction of the K frontend's `imp-outer-json`
 regression output. It preserves the compiled-definition envelope, flat module,
 import, sentence, production-item, typed-attribute, and nested-term shapes.
-It also retains the legacy optional `precedeRegex`/`followRegex` fields found
-in that real artifact, which current Java and Pyk models otherwise obscure.
+It also retains the optional `precedeRegex`/`followRegex` fields of a regex
+terminal, with the value `"#"` (no restriction) that most of that artifact's
+regex terminals carry; a document that states a restriction is refused (see
+`docs/compatibility.md`, "Token precede and follow restrictions").

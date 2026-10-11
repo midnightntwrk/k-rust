@@ -1,6 +1,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 mod grammar;
+mod literals;
 mod placement;
 mod scanner;
 mod toolchain;
@@ -145,6 +146,8 @@ pub fn generate_parser(
         .map_err(|error| Error::io("could not write parser runtime", error))?;
     fs::write(stage.path.join("node.h"), NODE_H)
         .map_err(|error| Error::io("could not write parser ABI header", error))?;
+    fs::write(stage.path.join("krust_literals.h"), literals::header())
+        .map_err(|error| Error::io("could not write parser literal tables", error))?;
 
     let staged_artifact = stage.path.join("parser");
     toolchain::compile(&stage.path, start_sort, &staged_artifact, options.artifact)?;

@@ -206,6 +206,7 @@ diagnostic_codes! {
     UndefinedSort => "UndefinedSort",
     UnrecognizedAttribute => "UnrecognizedAttribute",
     UnsupportedParametricSort => "UnsupportedParametricSort",
+    UnsupportedLineMarker => "UnsupportedLineMarker",
     UnusedSymbol => "UnusedSymbol",
     TermTooDeep => "TermTooDeep",
     UnjoinedCriticalPair => "UnjoinedCriticalPair",
@@ -291,6 +292,7 @@ impl DiagnosticCode {
             | Self::UndefinedSort
             | Self::UnrecognizedAttribute
             | Self::UnsupportedParametricSort
+            | Self::UnsupportedLineMarker
             | Self::TermTooDeep => None,
         }
     }

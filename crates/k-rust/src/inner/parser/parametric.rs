@@ -464,14 +464,8 @@ fn substitute_item(item: &ProductionItem, substitution: &BTreeMap<Sort, Sort>) -
             sort: substitute_sort(sort, substitution),
             name: name.clone(),
         },
-        ProductionItem::RegexTerminal {
-            precede_regex,
-            regex,
-            follow_regex,
-        } => ProductionItem::RegexTerminal {
-            precede_regex: precede_regex.clone(),
+        ProductionItem::RegexTerminal { regex } => ProductionItem::RegexTerminal {
             regex: regex.clone(),
-            follow_regex: follow_regex.clone(),
         },
         ProductionItem::Terminal(value) => ProductionItem::Terminal(value.clone()),
     }

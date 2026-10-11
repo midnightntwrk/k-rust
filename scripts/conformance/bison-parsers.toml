@@ -81,13 +81,14 @@ name = "locations3"
 artifact = "executable"
 comparison = "locations"
 inputs = ["1.test"]
-reason = "test.k declares Exps [locations] and 1.test locates foo; the two toolchains number #location lines and columns differently (docs/compatibility.md#generated-parser-locations)."
+reason = "test.k declares Exps [locations] and 1.test locates foo; the two toolchains number #location lines and columns differently (docs/compatibility.md#generated-parser-locations). Known mismatch: the reference recipe passes --bison-lists, whose list constructor takes (list, element), so the reference prints the list left-nested from nil (cons(nil, foo)) where krust prints the constructor's own (element, list) order (cons(foo, nil)), and krust wraps the terminator of the located Exps in #location as it wraps every term of a [locations] sort (docs/compatibility.md#generated-parser-list-recursion)."
 
 [[case]]
 name = "parse-c"
 artifact = "executable"
 comparison = "amb"
 inputs = ["test.c"]
+reason = "Known mismatch: the reference recipe passes --bison-lists, whose list constructors take (list, element), so the reference prints each user list of test.c, the TranslationUnit among them, left-nested from its terminator where krust prints the constructor's own (element, list) order (docs/compatibility.md#generated-parser-list-recursion)."
 
 [[case]]
 name = "parseNonPgm"

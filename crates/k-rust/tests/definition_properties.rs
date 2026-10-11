@@ -63,18 +63,7 @@ fn production_item() -> impl Strategy<Value = ProductionItem> {
             prop::option::of("[a-z][A-Za-z0-9]{0,7}".prop_map(String::from))
         )
             .prop_map(|(sort, name)| ProductionItem::NonTerminal { sort, name }),
-        (
-            prop::option::of(any::<String>()),
-            any::<String>(),
-            prop::option::of(any::<String>()),
-        )
-            .prop_map(|(precede_regex, regex, follow_regex)| {
-                ProductionItem::RegexTerminal {
-                    precede_regex,
-                    regex,
-                    follow_regex,
-                }
-            }),
+        any::<String>().prop_map(ProductionItem::regex),
         any::<String>().prop_map(ProductionItem::Terminal),
     ]
 }

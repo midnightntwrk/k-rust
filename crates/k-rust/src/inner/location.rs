@@ -17,6 +17,7 @@ use crate::definition::AttributeKey;
 use crate::definition::{Attributes, Location};
 use crate::inner::ParseError;
 use crate::kast::TermSpan;
+use crate::lines;
 
 /// Locate in `contents` every subterm an ambiguity report names by its span.
 pub(super) fn locate_ambiguity_places(
@@ -75,11 +76,12 @@ fn text_location(
     mut line: u32,
     mut column: u32,
 ) -> Option<Location> {
-    let prefix = contents.get(..start)?;
-    let through = contents.get(start..end)?;
-    advance(&mut line, &mut column, prefix);
+    if start > end || !contents.is_char_boundary(start) || !contents.is_char_boundary(end) {
+        return None;
+    }
+    let position = advance(&mut line, &mut column, contents, 0, start);
     let (start_line, start_column) = (line, column);
-    advance(&mut line, &mut column, through);
+    advance(&mut line, &mut column, contents, position, end);
     Some(Location {
         start_line,
         start_column,
@@ -88,22 +90,69 @@ fn text_location(
     })
 }
 
-fn advance(line: &mut u32, column: &mut u32, text: &str) {
-    let mut characters = text.chars().peekable();
-    while let Some(character) = characters.next() {
-        if matches!(
-            character,
-            '\r' | '\n' | '\u{000b}' | '\u{000c}' | '\u{0085}' | '\u{2028}' | '\u{2029}'
-        ) {
-            if character == '\r' && characters.peek() == Some(&'\n') {
-                characters.next();
-            }
+/// The line and column, from line 1, column 1, of each of a set of byte offsets of one text,
+/// found by one walk over the text that stops at each offset in order.
+///
+/// An offset's position depends on the bytes before it alone, so stopping at one offset and going
+/// on from there reaches every later offset where a walk from the start of the text would.
+pub(super) struct TextPositions {
+    /// Sorted and distinct, with `positions[i]` the line and column of `offsets[i]`.
+    offsets: Vec<usize>,
+    positions: Vec<(u32, u32)>,
+}
+
+impl TextPositions {
+    pub(super) fn new(text: &str, mut offsets: Vec<usize>) -> Self {
+        offsets.sort_unstable();
+        offsets.dedup();
+        let (mut line, mut column, mut position) = (1, 1, 0);
+        let positions = offsets
+            .iter()
+            .map(|&offset| {
+                position = advance(&mut line, &mut column, text, position, offset);
+                (line, column)
+            })
+            .collect();
+        Self { offsets, positions }
+    }
+
+    /// The location of bytes `start..end`, both among the offsets this was built for.
+    pub(super) fn location(&self, start: usize, end: usize) -> Option<Location> {
+        let position = |offset| {
+            self.offsets
+                .binary_search(&offset)
+                .ok()
+                .map(|index| self.positions[index])
+        };
+        let ((start_line, start_column), (end_line, end_column)) =
+            (position(start)?, position(end)?);
+        Some(Location {
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        })
+    }
+}
+
+/// Move `line`:`column` from byte `from` of `text` to byte `to`: a column per Unicode scalar
+/// value, and a line per line terminator (`crate::lines`), which sets the column back to 1.
+/// Returns where it stopped: `to`, or the end of a terminator that `to` lies inside, which has
+/// already moved the location to the next line, so that the bytes left of that terminator move it
+/// no further.
+fn advance(line: &mut u32, column: &mut u32, text: &str, from: usize, to: usize) -> usize {
+    let mut position = from;
+    while position < to {
+        if let Some(terminator) = lines::terminator_at(text, position) {
             *line = line.saturating_add(1);
             *column = 1;
+            position += terminator.len();
         } else {
             *column = column.saturating_add(1);
+            position += text[position..].chars().next().map_or(1, char::len_utf8);
         }
     }
+    position
 }
 
 #[cfg(test)]
@@ -122,9 +171,7 @@ mod tests {
             ("contentStartLine".into(), json!(4)),
             ("contentStartColumn".into(), json!(3)),
         ]));
-        for line_break in [
-            "\r\n", "\r", "\n", "\u{000b}", "\u{000c}", "\u{0085}", "\u{2028}", "\u{2029}",
-        ] {
+        for line_break in lines::LINE_TERMINATORS {
             let contents = format!("λ{line_break}bad");
             let start = contents.find("bad").unwrap();
             assert_eq!(
@@ -166,5 +213,46 @@ mod tests {
                 end_column: 6,
             })
         );
+    }
+
+    /// `\r\n` is one line terminator, so a span that starts or ends between its `\r` and its
+    /// `\n` sees one line end there, not two.
+    #[test]
+    fn a_span_boundary_inside_crlf_counts_it_once() {
+        let text = "a\r\nb";
+        let location = |start, end| text_location(text, start, end, 1, 1).unwrap();
+        let line_and_column = |location: Location| {
+            (
+                (location.start_line, location.start_column),
+                (location.end_line, location.end_column),
+            )
+        };
+        assert_eq!(line_and_column(location(2, 4)), ((2, 1), (2, 2)));
+        assert_eq!(line_and_column(location(0, 2)), ((1, 1), (2, 1)));
+        assert_eq!(line_and_column(location(0, 4)), ((1, 1), (2, 2)));
+    }
+
+    /// One walk over all offsets locates every span as a walk from the start of the text does,
+    /// also for boundaries inside `\r\n` and inside a multi-byte terminator's neighbourhood.
+    #[test]
+    fn text_positions_locate_every_span_as_a_walk_from_the_start() {
+        let text = format!(
+            "a\r\nλ{}b\u{2028}\r\rc𐐀\n",
+            lines::LINE_TERMINATORS.join("x")
+        );
+        let boundaries: Vec<usize> = (0..=text.len())
+            .filter(|&offset| text.is_char_boundary(offset))
+            .collect();
+        let positions = TextPositions::new(&text, boundaries.clone());
+        for &start in &boundaries {
+            for &end in boundaries.iter().filter(|&&end| end >= start) {
+                assert_eq!(
+                    positions.location(start, end),
+                    text_location(&text, start, end, 1, 1),
+                    "{start}..{end}"
+                );
+            }
+        }
+        assert_eq!(positions.location(0, text.len() + 1), None);
     }
 }

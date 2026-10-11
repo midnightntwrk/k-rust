@@ -1,10 +1,13 @@
 #include "node.h"
+#include "krust_literals.h"
 #include "parser.tab.h"
 #include "scanner.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,36 +81,242 @@ int buf_printf(struct string_buffer *sb, char const *format, ...) {
   }
 }
 
-static void append(char *buf, size_t *bufidx, char *str, size_t len) {
-  memcpy(buf + *bufidx, str, len);
-  *bufidx = *bufidx + len;
+/* A KORE string literal being written. */
+struct krust_literal {
+  char *text;
+  size_t length;
+  size_t capacity;
+};
+
+static void krust_literal_append(
+    struct krust_literal *literal, const char *text, size_t length) {
+  if (literal->length + length + 1 > literal->capacity) {
+    size_t capacity = literal->capacity ? literal->capacity : 16;
+    while (capacity < literal->length + length + 1)
+      capacity *= 2;
+    char *grown = realloc(literal->text, capacity);
+    if (!grown) {
+      perror("krust_kore_literal");
+      exit(1);
+    }
+    literal->text = grown;
+    literal->capacity = capacity;
+  }
+  memcpy(literal->text + literal->length, text, length);
+  literal->length += length;
+  literal->text[literal->length] = '\0';
 }
 
-char *enquote(char *str) {
-  size_t len = strlen(str);
-  size_t bufidx = 1;
-  char *res = malloc(len * 4 + 3);
-  res[0] = '"';
-  for (int idx = 0; idx < len; idx++) {
-    char c = str[idx];
-    switch (c) {
-    case '"': append(res, &bufidx, "\\\"", 2); break;
-    case '\\': append(res, &bufidx, "\\\\", 2); break;
-    case '\n': append(res, &bufidx, "\\n", 2); break;
-    case '\t': append(res, &bufidx, "\\t", 2); break;
-    case '\r': append(res, &bufidx, "\\r", 2); break;
-    default:
-      if (c >= 32 && c < 127) {
-        append(res, &bufidx, &c, 1);
-      } else {
-        char buf[5];
-        sprintf(buf, "\\x%02hhx", (unsigned char)c);
-        append(res, &bufidx, buf, 4);
-      }
+/* Writes `code_point` as a KORE literal writes it: by the escape that names it, as itself if it
+   is unescaped, and otherwise by the first hexadecimal escape whose digits hold it. */
+static void krust_literal_code_point(struct krust_literal *literal, uint32_t code_point) {
+  for (size_t index = 0; index < KRUST_ESCAPES(krust_kore_named_escapes); ++index) {
+    if (krust_kore_named_escapes[index].code_point == code_point) {
+      char escape[2] = {'\\', krust_kore_named_escapes[index].letter};
+      krust_literal_append(literal, escape, 2);
+      return;
     }
   }
-  append(res, &bufidx, "\"", 2);
-  return res;
+  if (code_point >= KRUST_KORE_UNESCAPED_FIRST && code_point <= KRUST_KORE_UNESCAPED_LAST) {
+    char character = (char)code_point;
+    krust_literal_append(literal, &character, 1);
+    return;
+  }
+  for (size_t index = 0; index < KRUST_ESCAPES(krust_kore_hex_escapes); ++index) {
+    const struct krust_hex_escape *escape = &krust_kore_hex_escapes[index];
+    if (((uint64_t)code_point >> (4 * escape->digits)) == 0) {
+      char text[16];
+      int length = snprintf(
+          text, sizeof text, "\\%c%0*" PRIx32, escape->letter, escape->digits, code_point);
+      krust_literal_append(literal, text, (size_t)length);
+      return;
+    }
+  }
+  abort(); /* the longest escape holds every code point */
+}
+
+/* The code point of the UTF-8 sequence that begins `text`, which is NUL-terminated, and its length
+   in `*length`; a byte that begins no sequence is the code point of its value, of length 1. */
+static uint32_t krust_utf8_next(const unsigned char *text, size_t *length) {
+  unsigned char lead = text[0];
+  size_t count;
+  uint32_t code_point;
+  uint32_t least;
+  *length = 1;
+  if (lead >= 0xc2 && lead <= 0xdf) {
+    count = 2, code_point = lead & 0x1f, least = 0x80;
+  } else if (lead >= 0xe0 && lead <= 0xef) {
+    count = 3, code_point = lead & 0x0f, least = 0x800;
+  } else if (lead >= 0xf0 && lead <= 0xf4) {
+    count = 4, code_point = lead & 0x07, least = 0x10000;
+  } else {
+    return lead;
+  }
+  for (size_t index = 1; index < count; ++index) {
+    if ((text[index] & 0xc0) != 0x80)
+      return lead;
+    code_point = (code_point << 6) | (text[index] & 0x3f);
+  }
+  if (code_point < least || code_point > 0x10ffff ||
+      (code_point >= 0xd800 && code_point <= 0xdfff))
+    return lead;
+  *length = count;
+  return code_point;
+}
+
+/* Writes the bytes of the UTF-8 encoding of `code_point`, each as the code point of its value. */
+static void krust_literal_utf8_bytes(struct krust_literal *literal, uint32_t code_point) {
+  if (code_point < 0x80) {
+    krust_literal_code_point(literal, code_point);
+  } else if (code_point < 0x800) {
+    krust_literal_code_point(literal, 0xc0 | (code_point >> 6));
+    krust_literal_code_point(literal, 0x80 | (code_point & 0x3f));
+  } else if (code_point < 0x10000) {
+    krust_literal_code_point(literal, 0xe0 | (code_point >> 12));
+    krust_literal_code_point(literal, 0x80 | ((code_point >> 6) & 0x3f));
+    krust_literal_code_point(literal, 0x80 | (code_point & 0x3f));
+  } else {
+    krust_literal_code_point(literal, 0xf0 | (code_point >> 18));
+    krust_literal_code_point(literal, 0x80 | ((code_point >> 12) & 0x3f));
+    krust_literal_code_point(literal, 0x80 | ((code_point >> 6) & 0x3f));
+    krust_literal_code_point(literal, 0x80 | (code_point & 0x3f));
+  }
+}
+
+static bool krust_is_scalar(uint32_t code_point) {
+  return code_point <= 0x10ffff && !(code_point >= 0xd800 && code_point <= 0xdfff);
+}
+
+/* The number of `digits` digits of `base` at `*text`, which it advances past them; false if one
+   of them is not such a digit. */
+static bool krust_read_number(
+    const unsigned char **text, int digits, int base, uint32_t *number) {
+  *number = 0;
+  for (int index = 0; index < digits; ++index) {
+    unsigned char digit = **text;
+    uint32_t value;
+    if (digit >= '0' && digit <= '9')
+      value = digit - '0';
+    else if (digit >= 'a' && digit <= 'f')
+      value = digit - 'a' + 10;
+    else if (digit >= 'A' && digit <= 'F')
+      value = digit - 'A' + 10;
+    else
+      return false;
+    if (value >= (uint32_t)base)
+      return false;
+    *number = *number * base + value;
+    ++*text;
+  }
+  return true;
+}
+
+/* Writes the code points of the body of a K String or Bytes literal, from `text` up to the closing
+   quote at `end`; returns NULL or the reason the body is not one. */
+static const char *krust_literal_k_body(
+    struct krust_literal *literal, const unsigned char *text, const unsigned char *end,
+    bool bytes) {
+  while (text < end) {
+    if (*text != '\\') {
+      size_t length;
+      uint32_t code_point = krust_utf8_next(text, &length);
+      if (bytes) {
+        for (size_t index = 0; index < length; ++index)
+          krust_literal_code_point(literal, text[index]);
+      } else {
+        krust_literal_code_point(literal, code_point);
+      }
+      text += length;
+      continue;
+    }
+    ++text;
+    if (text == end)
+      return "truncated escape";
+    unsigned char escape = *text++;
+    const struct krust_named_escape *named = NULL;
+    for (size_t index = 0; index < KRUST_ESCAPES(krust_k_named_escapes); ++index)
+      if ((unsigned char)krust_k_named_escapes[index].letter == escape)
+        named = &krust_k_named_escapes[index];
+    if (named) {
+      krust_literal_code_point(literal, (uint32_t)named->code_point);
+      continue;
+    }
+    const struct krust_hex_escape *hex = NULL;
+    for (size_t index = 0; index < KRUST_ESCAPES(krust_k_hex_escapes); ++index)
+      if ((unsigned char)krust_k_hex_escapes[index].letter == escape)
+        hex = &krust_k_hex_escapes[index];
+    uint32_t number;
+    if (hex) {
+      if (end - text < hex->digits)
+        return "truncated Unicode escape";
+      if (!krust_read_number(&text, hex->digits, 16, &number))
+        return "invalid Unicode escape";
+      if (bytes && hex->digits <= KRUST_K_BYTE_DIGITS) {
+        krust_literal_code_point(literal, number);
+      } else if (!krust_is_scalar(number)) {
+        return "invalid Unicode scalar";
+      } else if (bytes) {
+        krust_literal_utf8_bytes(literal, number);
+      } else {
+        krust_literal_code_point(literal, number);
+      }
+    } else if (escape >= '0' && escape <= '9') {
+      --text;
+      if (end - text < KRUST_K_OCTAL_DIGITS)
+        return "truncated octal escape";
+      if (!krust_read_number(&text, KRUST_K_OCTAL_DIGITS, 8, &number))
+        return "invalid octal escape";
+      if (bytes && number > 0xff)
+        return "octal byte escape out of range";
+      krust_literal_code_point(literal, number);
+    } else {
+      return "unsupported escape";
+    }
+  }
+  return NULL;
+}
+
+char *krust_kore_literal(
+    const char *token, enum krust_token_kind kind, const char *sort, char **error) {
+  struct krust_literal literal = {NULL, 0, 0};
+  krust_literal_append(&literal, "\"", 1);
+  const unsigned char *text = (const unsigned char *)token;
+  const char *reason = NULL;
+  switch (kind) {
+  case KRUST_TOKEN_TEXT:
+    while (*text) {
+      size_t length;
+      krust_literal_code_point(&literal, krust_utf8_next(text, &length));
+      text += length;
+    }
+    break;
+  case KRUST_TOKEN_BYTES:
+    if (*text != 'b') {
+      reason = "expected a leading `b`";
+      break;
+    }
+    ++text;
+    /* fall through */
+  case KRUST_TOKEN_STRING: {
+    size_t length = strlen((const char *)text);
+    if (length < 2 || text[0] != '"' || text[length - 1] != '"')
+      reason = "expected a double-quoted string";
+    else
+      reason = krust_literal_k_body(
+          &literal, text + 1, text + length - 1, kind == KRUST_TOKEN_BYTES);
+    break;
+  }
+  }
+  if (reason) {
+    free(literal.text);
+    const char *format = "invalid %s token: %s";
+    int length = snprintf(NULL, 0, format, sort, reason) + 1;
+    *error = malloc(length);
+    snprintf(*error, length, format, sort, reason);
+    return NULL;
+  }
+  krust_literal_append(&literal, "\"", 1);
+  return literal.text;
 }
 
 static bool equalsSymbol(node *x0, node *x1) {
@@ -214,6 +423,7 @@ YYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1) {
   n->symbol = symbol;
   n->sort = x0n->sort;
   n->str = false;
+  n->token = NULL;
   n->nchildren = 2;
   n->children[0] = x0n;
   n->children[1] = x1n;
@@ -244,7 +454,8 @@ void print(struct string_buffer *sb, node *current) {
         ", \\dv{SortString{}}(%s), \\dv{SortInt{}}(\"%d\"), "
         "\\dv{SortInt{}}(\"%d\"), \\dv{SortInt{}}(\"%d\"), "
         "\\dv{SortInt{}}(\"%d\"))",
-        enquote(current->location.filename), current->location.first_line,
+        krust_kore_literal(current->location.filename, KRUST_TOKEN_TEXT, "String", NULL),
+        current->location.first_line,
         current->location.first_column, current->location.last_line,
         current->location.last_column);
   }

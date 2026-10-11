@@ -18,9 +18,7 @@ Definition {
                     },
                     items: [
                         RegexTerminal {
-                            precede_regex: None,
                             regex: "[0-9]+",
-                            follow_regex: None,
                         },
                     ],
                     attributes: Attributes {

@@ -198,11 +198,7 @@ fn proof_modules_admit_only_claims_simplifications_and_existing_sort_tokens() {
         label: None,
         parameters: Vec::new(),
         sort: Sort::new("Int"),
-        items: vec![ProductionItem::RegexTerminal {
-            regex: "[0-9]+".into(),
-            precede_regex: None,
-            follow_regex: None,
-        }],
+        items: vec![ProductionItem::regex("[0-9]+")],
         attributes: attrs(&[("token", json!(""))]),
     };
     let proof = resolved_definition(
@@ -2992,11 +2988,7 @@ fn regex_token_production(sort: Sort, parameters: Vec<Sort>, regex: &str) -> Sen
         label: None,
         parameters,
         sort,
-        items: vec![ProductionItem::RegexTerminal {
-            regex: regex.into(),
-            precede_regex: None,
-            follow_regex: None,
-        }],
+        items: vec![ProductionItem::regex(regex)],
         attributes: attrs(&[("token", json!(""))]),
     }
 }

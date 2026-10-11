@@ -88,8 +88,8 @@ impl CompilationBackend {
 
     /// The options a definition compiled for this backend is loaded with: the modules marked
     /// [`Self::excluded_module_attribute`] are left out, since this backend never runs them, and
-    /// every other option is at its default. A host sets its own sources, diagnostics policy and
-    /// parser shape on top.
+    /// every other option is at its default. A host sets its own sources and diagnostics policy on
+    /// top.
     pub fn load_options(self) -> LoadOptions {
         LoadOptions {
             excluded_module_attributes: vec![self.excluded_module_attribute().into()],

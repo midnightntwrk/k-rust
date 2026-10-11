@@ -372,10 +372,6 @@ struct KcompileArgs {
     #[arg(long, default_value_t = 10_000, value_name = "SIZE")]
     bison_stack_max_depth: u64,
 
-    /// Make generated Bison list grammars left associative to bound parser stack use.
-    #[arg(long)]
-    bison_lists: bool,
-
     /// Generate the requested Bison parser as a shared library instead of an executable.
     #[arg(long)]
     bison_parser_library: bool,
@@ -1062,7 +1058,6 @@ struct KcompileOptions {
     gen_bison_parser: bool,
     gen_glr_bison_parser: bool,
     bison_stack_max_depth: u64,
-    bison_lists: bool,
     bison_parser_library: bool,
     output_directory: PathBuf,
     emit_json: bool,
@@ -1549,7 +1544,6 @@ impl From<KcompileArgs> for KcompileOptions {
             gen_bison_parser: arguments.gen_bison_parser,
             gen_glr_bison_parser: arguments.gen_glr_bison_parser,
             bison_stack_max_depth: arguments.bison_stack_max_depth,
-            bison_lists: arguments.bison_lists,
             bison_parser_library: arguments.bison_parser_library,
             output_directory: arguments.output_directory,
             emit_json: arguments.emit_json,
@@ -1775,8 +1769,7 @@ fn load_definition(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    load_definition_impl(options, backend, configuration_module, None, false)
-        .map(|(loaded, _, _)| loaded)
+    load_definition_impl(options, backend, configuration_module, None).map(|(loaded, _, _)| loaded)
 }
 
 /// Load a definition from the command line, recording entry-source resolution and every loader
@@ -1786,7 +1779,6 @@ fn load_definition_impl(
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
     compilation_syntax: Option<Option<&str>>,
-    bison_lists: bool,
 ) -> Result<
     (
         k_rust::outer::LoadedDefinition,
@@ -1819,7 +1811,6 @@ fn load_definition_impl(
                 implicit_sources,
                 configuration_module: configuration_module.map(str::to_owned),
                 diagnostics: options.diagnostics,
-                bison_lists,
                 ..backend.map_or_else(LoadOptions::default, CompilationBackend::load_options)
             };
             Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
@@ -1842,7 +1833,12 @@ fn load_definition_impl(
         Ok((loaded, Some(syntax), timings))
     } else {
         let (loaded, loader_timings) =
-            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)?;
+            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)
+                .inspect_err(|error| {
+                    if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
+                        emit_diagnostics(diagnostics);
+                    }
+                })?;
         timings.extend(loader_timings);
         timings.set_span_seconds(span_started.elapsed().as_secs_f64());
         Ok((loaded, None, timings))
@@ -1872,7 +1868,6 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             &options.common,
             configuration_module.expect("--compiled-definition requires --for-proving"),
             prepared,
-            options.bison_lists,
         )?;
         let syntax = resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         (loaded, syntax, load_timings)
@@ -1882,7 +1877,6 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             Some(options.backend),
             configuration_module,
             Some(options.syntax_module.as_deref()),
-            options.bison_lists,
         )?;
         (
             loaded,
@@ -2240,9 +2234,9 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         println!("{output}");
         return Ok(());
     }
-    let source = read_program_source(options.expression, options.program_file)?;
+    let (file, source) = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
-    let program = parser.parse_for_presentation(&sort, &source)?;
+    let program = parser.present(parser.parse_file(&sort, &source, &file)?);
     match options.output {
         OutputFormat::Text => println!("{}", program.to_kast_text()),
         OutputFormat::Json => println!("{}", program.to_kast_json_pretty()?),
@@ -2354,7 +2348,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             return Err("--main-module is required with a source definition".into());
         }
         let (mut loaded, _, load_timings) =
-            load_definition_impl(common, Some(CompilationBackend::Rust), None, None, false)?;
+            load_definition_impl(common, Some(CompilationBackend::Rust), None, None)?;
         let syntax_module =
             resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         if let Some(warning) = syntax_module.fallback_warning {
@@ -2436,10 +2430,10 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     );
     let program_bound = program_supplied || available_config_vars.contains_key("PGM");
     if program_bound {
-        let source = read_program_source(options.expression, options.program_file)?;
+        let (file, source) = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
         assembler
-            .program(&start_sort, &source)
+            .program_file(&start_sort, &source, &file)
             .map_err(krun_configuration_error)?;
     }
     let program_parse_seconds = started.elapsed().as_secs_f64();
@@ -3234,7 +3228,7 @@ fn compile_proof_source(
     prepared: Option<&Path>,
 ) -> Result<KoreDefinition, Box<dyn Error>> {
     let loaded = if let Some(prepared) = prepared {
-        load_definition_against_prepared(common, definition_module, prepared, false)?.0
+        load_definition_against_prepared(common, definition_module, prepared)?.0
     } else {
         load_definition(
             common,
@@ -3272,7 +3266,6 @@ fn load_definition_against_prepared(
     options: &CommonOptions,
     definition_module: &str,
     prepared: &Path,
-    bison_lists: bool,
 ) -> Result<(k_rust::outer::LoadedDefinition, PhaseTimings), Box<dyn Error>> {
     let span_started = Instant::now();
     let mut timings = PhaseTimings::default();
@@ -3305,7 +3298,6 @@ fn load_definition_against_prepared(
             configuration_module: Some(definition_module.into()),
             project_root: None,
             diagnostics: options.diagnostics,
-            bison_lists,
         },
         &base,
         &manifest.sources,
@@ -3719,15 +3711,21 @@ fn proof_status(status: ProofStatus) -> &'static str {
     }
 }
 
+/// The program a command reads, with the file name its locations carry: the path as given, and
+/// `UNNAMED_PROGRAM` for standard input and `--expression`.
 fn read_program_source(
     expression: Option<String>,
     program_file: Option<PathBuf>,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<(String, String), Box<dyn Error>> {
+    let unnamed = || k_rust::inner::UNNAMED_PROGRAM.to_owned();
     Ok(match (expression, program_file) {
-        (Some(source), None) => source,
-        (None, Some(path)) if path == Path::new("-") => read_stdin()?,
-        (None, Some(path)) => fs::read_to_string(path)?,
-        (None, None) => read_stdin()?,
+        (Some(source), None) => (unnamed(), source),
+        (None, Some(path)) if path == Path::new("-") => (unnamed(), read_stdin()?),
+        (None, Some(path)) => (
+            k_rust::inner::program_file_name(&path),
+            fs::read_to_string(path)?,
+        ),
+        (None, None) => (unnamed(), read_stdin()?),
         (Some(_), Some(_)) => unreachable!(),
     })
 }

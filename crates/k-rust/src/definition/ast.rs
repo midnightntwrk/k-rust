@@ -540,10 +540,9 @@ pub enum ProductionItem {
         sort: Sort,
         name: Option<String>,
     },
+    /// A token regex. Its tokens are the matches of `regex`, whatever text surrounds them.
     RegexTerminal {
-        precede_regex: Option<String>,
         regex: String,
-        follow_regex: Option<String>,
     },
     Terminal(String),
 }
@@ -551,9 +550,7 @@ pub enum ProductionItem {
 impl ProductionItem {
     pub fn regex(regex: impl Into<String>) -> Self {
         Self::RegexTerminal {
-            precede_regex: None,
             regex: regex.into(),
-            follow_regex: None,
         }
     }
 }

@@ -1664,13 +1664,7 @@ fn lowered_outline(definition: &k_rust::definition::Definition) -> String {
                                 sort,
                                 name: Some(name),
                             } => format!("{name}: {sort}"),
-                            ProductionItem::RegexTerminal {
-                                precede_regex,
-                                regex,
-                                follow_regex,
-                            } => format!(
-                                "r{regex:?} (precede {precede_regex:?}, follow {follow_regex:?})"
-                            ),
+                            ProductionItem::RegexTerminal { regex } => format!("r{regex:?}"),
                         })
                         .collect::<Vec<_>>()
                         .join(" ");

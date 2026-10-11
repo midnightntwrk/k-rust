@@ -11,6 +11,8 @@ mod rules;
 mod sort_universe;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
+#[cfg(feature = "cli")]
+pub(crate) use parser::exclusion::{Exclusions, NodeShape};
 pub use parser::{
     AmbiguityPlace, AmbiguousParse, CyclicDerivation, DiagnosticWork, Grammar, NoParseInput,
     ParseError, TokenPrecedenceDeclaration,
@@ -19,7 +21,7 @@ pub use parser::{
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions, parse_apply_priority};
 pub use programs::{
     ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
-    definition_with_named_projections, parse_program,
+    UNNAMED_PROGRAM, definition_with_named_projections, parse_program, program_file_name,
 };
 #[cfg(feature = "cli")]
 pub(crate) use programs::{prepared_bison_program_sentences, program_start_sort};

@@ -293,6 +293,81 @@ The pinned K's generated parsers number columns from 0 on the first line and fro
 A numbering that changes after the first line puts every rule that prints or compares columns off by one on that line only, and one convention for every location krust produces lets a program's locations be compared with a rule's `Location` attribute.
 The conformance driver therefore compares the four generated-parser cases whose definitions declare a `[locations]` sort, `bison-parser-library`, `locations`, `locations2` and `locations3`, with the line and column arguments of every `#location` removed on both sides (normalisation N46, `comparison = "locations"` in `scripts/conformance/bison-parsers.toml`); the located terms, their file names and the rest of the output are still compared, and krust's numbers are checked by its own CLI location test.
 
+## In-process program locations
+
+krust's in-process program parser (`kast` without `--gen-parser`, the program, `--expression` and `-c` values of `krun`, and the library's program parsing) wraps the terms of `[locations]` sorts in `#location` as its generated parsers do; the pinned K's in-process parser builds the same program without any wrapper (its `kast --output kore` prints `plus(x, ...)` for a definition whose `Exp` declares `[locations]`, where its generated parser prints `#location{Exp}(plus(...), ...)`).
+`[locations]` on a sort states that each term of that sort a program's text denotes carries where that text is, and a program denotes one term whichever of krust's two parsers reads it, so a definition's rules that match or compute on `#location` see the same configuration from `krun` as from a generated parser.
+A term is wrapped at its own sort (the result sort of its production, or a token's sort) and at the sort of its position (its parent production's argument, or the start sort) when that sort declares `[locations]`: `1` at an `Exp` argument of `Exp ::= Int` is an expression, located as one, `#location{Exp}(inj{Int,Exp}(1), ...)`, and a term located at both, its own sort `Val` inside an `Exp` position, is `#location{Exp}(inj{Val,Exp}(#location{Val}(...)), ...)`.
+The intermediate sorts of a subsort chain have no text of their own and locate nothing, so the term does not depend on which chain a parse took; a bracket locates the term inside it.
+The file name is the program path as given (a byte outside a UTF-8 sequence read as the character of its value, as a generated parser reads its path), and `-` for standard input, `--expression`, `-c` values, `kast` batch cases and library text, none of which is read from a file.
+In KAST the wrapper keeps its sort argument and the injection of a term located at its position's sort (`#location{Exp}(inj{Int,Exp}(#token("1","Int")), ...)`): the instance of `#location` is the sort the term is located at, which an inference from its argument would make the least one, `Int`.
+A definition whose main module does not import `K-LOCATIONS` while a program sort declares `[locations]` is now rejected by `krun` when it converts the program (`cannot find a production for KLabel "#location"`); before, the attribute was ignored on that route.
+krust's two parsers still place an empty term differently when layout separates it from the text after it: the in-process parser locates it at the start of the text after it (`f( )` locates its empty list at line 1, column 4), a generated parser at the end of the text before it (column 3), and a term ending with such an empty term ends there too; with no layout between, both agree (`in_process_parsing_locates_located_sorts_as_the_generated_parser` in `crates/k-rust/tests/cli.rs`).
+
+## Generated parser tokens are characters
+
+A token is a sequence of characters, and a generated parser's scanner reads the UTF-8 bytes of its input, so krust writes each character class and `.` of a token or layout regex into the Flex scanner as the UTF-8 encodings of the characters it denotes: an alternation of a class of ASCII bytes and, for the other characters, sequences of byte ranges that match exactly the encodings of those characters (`utf8_sequences` in [k-rust-regex](../crates/k-rust-regex/src/lib.rs), checked against `regex-syntax`'s).
+A class or `.` therefore matches one whole character in both scanners krust builds: `r"[^a]"` reads `é` as one token, `r"[^|]{2}"` needs two characters, not two bytes, and a byte sequence that encodes no character (a stray continuation byte, a truncated, overlong or surrogate encoding) matches none, so the generated scanner reports a syntax error there.
+A character outside a class is its encoding, grouped so that a repetition applies to all of its bytes.
+This diverges from the pinned K's generated parsers, whose Flex classes and `.` match one byte: there `r"[^a]"` reads `é` as two tokens, one per byte, and `r"."` matches a byte that encodes no character.
+The scanner's Bison token names keep each class as written (`[^a]`), since they name the token for a reader of the definition.
+(`kast_gen_parser_scanner_matches_classes_and_dot_against_whole_characters` in [cli.rs](../crates/k-rust/tests/cli.rs), `flex_printer_classes_match_whole_characters_as_the_in_process_pattern_does` and `flex_printer_classes_denote_the_characters_of_the_class` in [definition_regex.rs](../crates/k-rust/tests/definition_regex.rs).)
+
+## Generated parser token literals
+
+A generated parser prints each token as a domain value whose KORE string literal denotes the code points krust's frontend reads from the token's text, the same term the in-process route converts the token to (see [Strings and their literals](#strings-and-their-literals)): a token of a sort hooked `STRING.String` denotes the characters its K escapes write, one of a sort hooked `BYTES.Bytes` the bytes after its leading `b`, each as the code point of its value, and any other token its characters.
+A token subsort (`syntax MyStr ::= String [token]`) reads the text of its phrase as a token of its own sort, so its literal is that text read by its own sort's hook, not the literal of the phrase's sort: with `MyStr` unhooked, `"a\nb\x41"` is a `MyStr` token whose literal is its ten characters as written, where the same text read as a `String` denotes `a`, a newline, `b` and `A`.
+The literal is written as krust's KORE writers write one: printable ASCII as itself, `\" \\ \n \r \t \f`, and any other code point by the shortest of `\xhh`, `\uhhhh` and `\Uhhhhhhhh` that holds it, so the output is printable ASCII as `kore-syntax.md` requires.
+The parser runtime reads and writes these escapes from tables krust prints from the constants its own K and KORE literal codecs use (`krust_literals.h`, from `bison::literals`), so the two routes cannot read a different set of escapes.
+A `String` or `Bytes` token whose text is not such a literal (an unknown escape, a hexadecimal escape whose digits are not all hexadecimal, a surrogate or a value above U+10FFFF, an octal `Bytes` escape above 255) denotes no term on either route: the generated parser reports a syntax error located at the token (`invalid String token: unsupported escape`) and exits with a failure status.
+The pinned K's generated parsers copy a `String` token's text into the KORE output unchanged, so a raw non-ASCII or control character, or an octal escape, reaches the KORE reader as written; they copy a `Bytes` token's text after the `b` unchanged, so `b"é"` denotes the one code point U+00E9 instead of the two bytes of its encoding; and they write every other token byte by byte, so a token `é` becomes the two code points U+00C3 U+00A9.
+krust's frontend also reads a hexadecimal escape only from hexadecimal digits, so `"\x+1"` is no `String` literal; the pinned K reads the digits as a signed number there. K's `String` token regex admits only hexadecimal digits after `\x`, `\u` and `\U`, so only a definition that declares its own token regex for a hooked sort can write such a token.
+(`kast_gen_parser_writes_each_token_as_the_kore_literal_of_its_code_points` and `a_token_subsort_reads_its_text_as_a_token_of_its_own_sort` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
+## Generated parser list recursion
+
+A generated parser recognizes every user list by left recursion: each element follows the elements before it, so an LR parser reduces as it reads and a list's length does not grow its stack, and a list far longer than `--bison-stack-max-depth` is read.
+How the parser recognizes a list is not what the list is: the list's constructor keeps its signature (element, list), `syntaxDefinition.kore`, the rules, `krun`'s in-process program parser and every other artifact do not depend on it, and each program gets the term the in-process parser gives it.
+The elements are collected in reading order, and when the list ends its term is built from the last element back: the constructor applied to each element and the list after it, from the terminator, each application written and located as the constructor's own production writes and locates it, so a list `e1, ..., en` is `cons(e1, cons(..., cons(en, nil)))`.
+A list whose separator is empty (`NeList{E, ""}`) reads each element right after the one before it.
+A possibly-empty list (`List`) is read as its terminator or as a non-empty list.
+A GLR parser that reads the elements two ways merges (`Lblamb`) the two readings of the elements read so far, and prints every reading of the list.
+There is no option to choose the rendering: `kcompile --bison-lists`, which before chose this rendering over right recursion (each element followed by the rest of the list, whose LR parser holds every element of a list on its stack until the list ends), is removed, and passing it is a command-line error.
+This diverges from the pinned K in two ways: its generated parsers recognize lists by right recursion unless `--bison-lists` is given, so a long list can exceed its stack bound where krust's parser reads it; and its `--bison-lists` changes the definition: the list's constructor is declared over (list, element), its generated parser builds `cons(cons(nil, e1), e2)`, a rule written over the constructor means something else with the flag than without it, and a `List` is rejected (`Cannot use List with --bison-lists`).
+A generated parser's grammar (`parser.y`) for a definition with user lists therefore differs from the one krust wrote before: a list `L` of `E` is the productions `Ne#L ::= E | Ne#L sep E` and `L ::= Ne#L L#Terminator` (and `L ::= L#Terminator` for a `List`), in place of `Ne#L ::= E sep Ne#L | E L#Terminator` and `L ::= Ne#L`.
+(`generated_and_in_process_parsers_give_each_list_one_term` and `generated_parsers_read_long_lists_in_a_bounded_stack_and_every_reading_of_an_ambiguous_list` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
+## Generated parser disambiguation
+
+A generated parser and in-process parsing exclude the same edges: which child node may not stand at which operand of which node.
+Both read one definition of the exclusions (`inner::Exclusions` and `inner::NodeShape`): which production builds a node and which passes its child through, which operands of a node are judged (those `applyPriority` names, else the first and the last item where they are nonterminals, and none below a production with one nonterminal and no terminal, which writes nothing around its child), the side of each, and the scope, cast, priority and associativity exclusions.
+In-process parsing judges each tree with them; the exporter writes each judged operand as a copy of its sort without the excluded nodes, through the productions that pass their child through, so the generated parser never builds an excluded edge.
+So a program's acceptance under priority and associativity does not depend on which of the two parsers reads it, with one exception in grammars that hold K's own rewrite, sequence or `#let` productions:
+the generated parser excludes such a node at an end operand of a constructor outside its scope as it excludes a node of lesser priority, while in-process parsing first keeps only the readings of a phrase rooted at a rewrite, then a sequence, then a `#let`, and judges them after, so it rejects a phrase whose preferred readings all break a relation even where another reading breaks none.
+This diverges from the pinned K, whose generated parser judges the operand of a labelled production with one nonterminal and no terminal: with `syntax Top ::= Exp [symbol(wrap)]` and `syntax priority wrap > plus`, it rejects `x + x * x` as a `Top`, which its own `kast` reads as `wrap(plus(x, mul(x, x)))`; krust's generated parser and in-process parsing both read it so.
+(`generated_and_in_process_parsers_give_each_program_one_term` in [cli.rs](../crates/k-rust/tests/cli.rs); `exported_operands_are_restricted_by_the_in_process_exclusions` in [grammar.rs](../crates/k-rust/src/bison/grammar.rs).)
+
+## Line marker productions
+
+A production of sort `#LineMarker` (`syntax #LineMarker ::= r"#line [0-9]+\\n"`) declares which text is a line marker: text that is not a token and that relocates the text after it.
+The production fixes only that much: a token regex has no groups, so it does not say where the line number or a file name is in the marker, whether the number names the marker's own line or the next one, whether columns restart, or what `#location` and diagnostics then report.
+Any meaning krust gave it would be invented, and the two parsers krust builds must give each program one term, so krust rejects every `#LineMarker` production when it loads the definition, in the module that declares it or in any module the parsed one imports, with `UnsupportedLineMarker` located at the production; `kast`, `kast --gen-parser`, `kcompile --gen-bison-parser` and `krun` refuse the definition alike.
+To skip marker lines without renumbering, declare their text as `#Layout`.
+The pinned K accepts the production: its generated scanner calls a C function `line_marker` that the user links in (`--bison-file`); krust has no such option.
+(`a_line_marker_production_means_one_thing_to_both_parsers` in [cli.rs](../crates/k-rust/tests/cli.rs).)
+
+## Token precede and follow restrictions
+
+A regex terminal in a KAST JSON document (`KRegexTerminal`) may carry `precedeRegex` and `followRegex` fields.
+The value `"#"` restricts nothing, and krust reads it as no field.
+Any other value makes the token's language depend on the text around it: a precede regex rejects a token that starts where a match of it ends, and a follow regex rejects a token that a match of it follows.
+No K source syntax writes such a restriction, krust's grammar has no place for one, and neither parser krust builds scans a token by its neighbours, so the KAST JSON reader refuses a document whose regex terminal states one, with a message that names the module, the production (sort, items, label, source and location) and each restriction.
+Reading the regex alone would accept a larger token language than the document states and say nothing: with an identifier regex restricted not to follow `[A-Za-z0-9_]`, `12abc` is an error, while the unrestricted regex scans it as `12` and `abc`.
+krust writes neither field.
+The Rust library's `ProductionItem::RegexTerminal` holds only its regex, and its former `precede_regex` and `follow_regex` fields are removed, since a field nothing honours would drop a restriction without a word: a library consumer that builds regex terminals from a grammar of its own that carries such restrictions refuses one that restricts something, as the KAST JSON reader does, instead of dropping it.
+The pinned K's Python reader (`pyk`'s `KRegexTerminal`) keeps only the regex and reads such a document as unrestricted, where krust refuses it.
+(`kast_json_token_restrictions_are_refused_naming_the_production` in [definition_json.rs](../crates/k-rust/tests/definition_json.rs).)
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
@@ -498,9 +573,15 @@ Every production that mentions a literal declares its precedence, explicitly or 
 
 ## Token regex line anchors
 
-A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end. A line end is `\n`.
+A token regex `^R`, `R$` or `^R$` denotes the tokens of `R` under a condition on where the token is in the scanned text, not on what it contains. `^` holds when the token starts the text or follows a line end, and `$` holds when a line end follows the token. The line end is not part of the token and does not count when candidate tokens are compared by length, and the end of the text is not a line end.
 
-The in-process scanner and generated parsers give anchors this meaning alike (`tests/support/line_anchors.rs`).
+A line end is one of the eight line terminators that locations count (see "Generated parser locations"): `\n`, `\r`, `\r\n`, vertical tab, form feed, U+0085, U+2028 and U+2029, with `\r\n` one terminator, so no line starts or ends between its `\r` and its `\n`.
+A token regex's anchors read these lines too.
+A location says where lines start, and `^` and `$` say where a token is relative to lines; with one notion of line, a token that `^` accepts is located at column 1, and one that `$` accepts is the last on its line, whatever terminator the program uses.
+krust holds the terminators in one table (`crates/k-rust/src/lines.rs`), which the locations, both scanners' anchor checks and the C runtime of generated parsers read.
+This diverges from the pinned K's generated parsers, whose Flex `^` and `$` read only `\n` as a line end: there `r"^b"` rejects a `b` right after `\r`, U+2028 or another terminator other than `\n`, and `r"a$"` rejects an `a` right before one, where krust accepts both.
+
+The in-process scanner and generated parsers give anchors this meaning alike (`tests/support/line_anchors.rs`, and the CLI test `regex_line_anchors_hold_at_every_line_end_a_location_counts`).
 
 The pinned K's in-process `kast` reads `r"^b"` as also requiring a newline after the token and reads `r"a$"` as `r"a"`: it accepts `a` with no newline after it and rejects `b` at the end of the input; krust does neither.
 The kast manifest case `regex-anchor-local` parses [anchor.k](../crates/k-rust/tests/fixtures/reference/inner/regex/anchor.k), which declares those two tokens, with both and records the two as divergences: `regex-anchor-local:end-anchor-at-the-end-of-the-text` as `port-rejects` (krust rejects `a`, the reference accepts it) and `regex-anchor-local:start-anchor-at-the-end-of-the-text` as `port-accepts` (krust accepts `b`, the reference rejects it with `Scanner error: unexpected character sequence 'b'`).
