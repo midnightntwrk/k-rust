@@ -18,7 +18,8 @@ use k_rust::{
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, NEGATIVE_POWER,
+    UNDEFINED_STEP,
 };
 
 /// The KORE of `source` compiled for proving `spec` against `definition`, as `kprove` compiles a
@@ -193,4 +194,15 @@ fn a_claim_fails_on_the_instances_a_rule_leaves_undefined() {
     ] {
         assert_eq!(status(claim, false).status, "proven", "{claim}");
     }
+}
+
+/// `3 ^%Int B 7` is undefined for every negative `B` (no integer is `3 ^Int B`), so `gm(B)` takes
+/// the `owise` rule there: the claim that it reaches `yes` for every negative `B` is not proven,
+/// whatever value a solver's own power gives, and the claim that `-1` reaches `no` is.
+#[test]
+fn a_power_no_integer_is_the_value_of_proves_nothing() {
+    let kore = compile(NEGATIVE_POWER, "NEGPOW-SPEC", "NEGPOW");
+    let status = |claim: &str| prove(&kore, "NEGPOW-SPEC", claim, ProveRequest::default()).status;
+    assert_ne!(status("NEGPOW-SPEC.negative"), "proven");
+    assert_eq!(status("NEGPOW-SPEC.minus-one"), "proven");
 }

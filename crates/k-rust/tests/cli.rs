@@ -17,7 +17,8 @@ mod line_anchors;
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
-    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, UNDEFINED_STEP,
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, NEGATIVE_POWER,
+    UNDEFINED_STEP,
 };
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
@@ -7341,23 +7342,6 @@ fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
         fs::remove_dir_all(root).unwrap();
     }
 }
-
-const NEGATIVE_POWER: &str = r#"
-module NEGPOW
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Pgm </k>
-  syntax Pgm ::= gm(Int)
-  syntax KItem ::= "yes" | "no"
-  rule <k> gm(B) => yes </k> requires 3 ^%Int B 7 ==Int 0
-  rule <k> gm(_) => no </k> [owise]
-endmodule
-module NEGPOW-SPEC
-  imports NEGPOW
-  claim [negative]: <k> gm(B) => yes </k> requires B <Int 0
-  claim [minus-one]: <k> gm(B) => no </k> requires B ==Int -1
-endmodule
-"#;
 
 /// `3 ^%Int B 7` is undefined for every negative `B` (no integer is `3 ^Int B`), so `gm(B)` takes
 /// the `owise` rule there, and the claim that it reaches `yes` for every negative `B` is false:

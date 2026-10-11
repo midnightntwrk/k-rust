@@ -128,3 +128,20 @@ module UNDEF-SPEC
   claim [low]:       <k> low(_X, _Y) => halt </k>
 endmodule
 "#;
+
+pub const NEGATIVE_POWER: &str = r#"
+module NEGPOW
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax Pgm ::= gm(Int)
+  syntax KItem ::= "yes" | "no"
+  rule <k> gm(B) => yes </k> requires 3 ^%Int B 7 ==Int 0
+  rule <k> gm(_) => no </k> [owise]
+endmodule
+module NEGPOW-SPEC
+  imports NEGPOW
+  claim [negative]: <k> gm(B) => yes </k> requires B <Int 0
+  claim [minus-one]: <k> gm(B) => no </k> requires B ==Int -1
+endmodule
+"#;
