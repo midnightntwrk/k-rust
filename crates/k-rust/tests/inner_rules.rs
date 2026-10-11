@@ -923,6 +923,11 @@ endmodule
 /// and parentheses are the fix. Every derivation that keeps both rewrites out of the sequence
 /// makes one the right child of the other, but that violation only follows from moving a rewrite
 /// out of the place the user wrote it.
+///
+/// The portable build's rule grammar derives a rewrite's sides from the rewritten sort, so a
+/// rewrite is never a side there: the `#let` body, each of whose readings needs one rewrite as a
+/// side of another or inside the `#let`, has no derivation, and the text is reported where it
+/// ends.
 #[test]
 fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation() {
     for (rule, parent) in [
@@ -931,6 +936,15 @@ fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation()
         ("a ~> a => a => a", "#KSequence"),
         ("a => #let a = a #in a => a", "#let"),
     ] {
+        #[cfg(not(feature = "z3-inference"))]
+        if parent == "#let" {
+            let error = plain_rule_error(rule);
+            assert!(
+                matches!(error, ParseError::NoParse { position, .. } if position == rule.len()),
+                "{rule}: {error:?}"
+            );
+            continue;
+        }
         assert_eq!(
             plain_rule_error(rule),
             ParseError::Scope {
@@ -947,18 +961,26 @@ fn a_body_with_no_reading_reports_a_misplaced_rewrite_before_another_violation()
 /// where a rewrite may stand. In `g(a => a => a, a => a + a)` only the first argument has no
 /// reading; the second has a valid one (`a => (a + a)`), so its misplaced reading
 /// (`(a => a) + a`) is not what fails, and the first argument's violation is reported.
+///
+/// In the portable build's rule grammar a rewrite is never a side of another, so `a => a => a`
+/// has no derivation and is reported where it ends: the whole body, or the first argument.
 #[test]
 fn a_body_with_no_misplaced_construct_reports_its_own_violation() {
     for rule in ["a => a => a", "g(a => a => a, a => a + a)"] {
         let error = plain_rule_error(rule);
-        assert!(
-            matches!(
-                error,
-                ParseError::Associativity { ref parent, ref child, .. }
-                    if parent == "#KRewrite" && child == "#KRewrite"
-            ),
-            "{rule}: {error:?}"
+        #[cfg(feature = "z3-inference")]
+        let reported = matches!(
+            error,
+            ParseError::Associativity { ref parent, ref child, .. }
+                if parent == "#KRewrite" && child == "#KRewrite"
         );
+        #[cfg(not(feature = "z3-inference"))]
+        let reported = matches!(
+            error,
+            ParseError::NoParse { position, .. }
+                if position == rule.find(',').unwrap_or(rule.len())
+        );
+        assert!(reported, "{rule}: {error:?}");
     }
 }
 

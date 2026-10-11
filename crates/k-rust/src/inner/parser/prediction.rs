@@ -2444,16 +2444,26 @@ mod tests {
                     text
                 }
             };
-            prop_assert_eq!(
-                outcome(filtered(&passed, input), true),
-                outcome(filtered(&original, input), false),
-                "pruned"
-            );
-            prop_assert_eq!(
-                outcome(unfiltered(&passed, input), true),
-                outcome(unfiltered(&original, input), false),
-                "unfiltered"
-            );
+            // A build without Z3 declines to type an ambiguous forest outside its decision
+            // (`Z3InferenceRequired`: too many trees, or no greatest typing), which is no
+            // outcome of the parse. `P` is a sort of its own, so the forest the pair hands to
+            // sort inference can differ in those respects where the readings are the same; such
+            // a pair is not compared.
+            let declined = |result: &Result<Term, ParseError>| {
+                matches!(result, Err(ParseError::Z3InferenceRequired { .. }))
+            };
+            for (mode, recognize) in [
+                (
+                    "pruned",
+                    filtered as fn(&Grammar, &str) -> Result<Term, ParseError>,
+                ),
+                ("unfiltered", unfiltered),
+            ] {
+                let (pair, single) = (recognize(&passed, input), recognize(&original, input));
+                if !declined(&pair) && !declined(&single) {
+                    prop_assert_eq!(outcome(pair, true), outcome(single, false), "{}", mode);
+                }
+            }
         }
         Ok(Some(parse_outcome(filtered(&original, input))))
     }
@@ -2543,7 +2553,10 @@ mod tests {
     /// `S1 ::= S1 "+" S0 [o3]`, `a => a => a + a` has readings rooted at the rewrite and at
     /// `o1` and `o2`, which as syntactic subsorts judge no child, so `o3(o1(a => a => a), a)` is
     /// one of them. Writing `o3`'s left operand through `P ::= S1` changes no tree and no
-    /// entry of the report.
+    /// entry of the report. The forest has more trees than a build without Z3 types
+    /// (`PORTABLE_AMBIGUITY_TREE_LIMIT`), so the test needs the native inference
+    /// (`docs/testing.md`).
+    #[cfg(feature = "z3-inference")]
     #[test]
     fn an_ambiguity_report_does_not_depend_on_a_pass_through_above_a_rewrite() {
         let operators: Vec<GeneratedOperator> = vec![
