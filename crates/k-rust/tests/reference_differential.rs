@@ -5645,7 +5645,8 @@ fn execution_comparator_reads_a_kore_json_reference_result() {
 /// (`Var'QuesUnds'Gen0`, the instance of `rule a => ?_:Int`) and the port's mint
 /// (`Ex-hVar'QuesUnds'Gen0-b0`) compare equal. The renaming is a bijection per disjunct that keeps
 /// sorts: identifying two variables, splitting one, or changing a sort stays a difference. A `?`
-/// variable the port prints without a marker is a request variable and is compared by name.
+/// variable the port prints without a marker is a request variable and is compared by name, as
+/// is a listed search-pattern name, even when it ends in digits like a counted instance.
 /// Runs this test binary's ignored comparator.
 #[test]
 fn execution_comparator_renames_rule_existentials_without_a_search_pattern() {
@@ -5707,6 +5708,11 @@ fn execution_comparator_renames_rule_existentials_without_a_search_pattern() {
     let disjunction = write(
         r#"\or{S{}}(t{}(Var'Ques'X:SortInt{}, \dv{SortInt{}}("1")), t{}(Var'Ques'X:SortInt{}, \dv{SortInt{}}("2")))"#,
     );
+    // `?` names ending in digits, the shape of a counted rule-existential instance: a listed or
+    // request name stays fixed all the same.
+    let counted_pair = write(r"t{}(Var'Ques'X1:SortInt{}, Var'Ques'Y1:SortInt{})");
+    let counted_swapped = write(r"t{}(Var'Ques'Y1:SortInt{}, Var'Ques'X1:SortInt{})");
+    let port_counted_first = write(r"t{}(Var'Ques'X1:SortInt{}, Ex-hVar'Ques'Y-b0:SortInt{})");
     let port_disjunction = write(
         r#"\or{S{}}(t{}(Ex-hVar'Ques'X-b3:SortInt{}, \dv{SortInt{}}("2")), t{}(Ex-hVar'Ques'X-b1:SortInt{}, \dv{SortInt{}}("1")))"#,
     );
@@ -5756,6 +5762,27 @@ fn execution_comparator_renames_rule_existentials_without_a_search_pattern() {
             &port_request_first,
             Some(""),
             false,
+        ),
+        (
+            "counted request variables swapped",
+            &counted_pair,
+            &counted_swapped,
+            Some(""),
+            false,
+        ),
+        (
+            "counted search pattern variable fixed",
+            &counted_pair,
+            &port_counted_first,
+            Some("Y1"),
+            false,
+        ),
+        (
+            "counted search pattern variable kept",
+            &counted_pair,
+            &port_counted_first,
+            Some("X1"),
+            true,
         ),
         (
             "request variable moved back",
@@ -7182,13 +7209,23 @@ impl GeneratedNames {
         }
         match &self.fixed {
             Some(fixed) => !fixed.contains(&variable.name),
-            None => {
-                execution_generated_name(&variable.name)
-                    || self
-                        .pattern_existentials
-                        .as_ref()
-                        .is_some_and(|pattern| rule_existential_name(&variable.name, pattern))
-            }
+            None => match &self.pattern_existentials {
+                // A listed `?` name is the search pattern's or a request variable's, whatever its
+                // shape: `Var'Ques'X1` is fixed when `X1` is listed, not read as a counted
+                // instance of a rule's `?X`.
+                Some(pattern)
+                    if declared_existential(&variable.name)
+                        .is_some_and(|declared| pattern.contains(&declared)) =>
+                {
+                    false
+                }
+                pattern => {
+                    execution_generated_name(&variable.name)
+                        || pattern
+                            .as_ref()
+                            .is_some_and(|pattern| rule_existential_name(&variable.name, pattern))
+                }
+            },
         }
     }
 }
@@ -7203,11 +7240,17 @@ impl GeneratedNames {
 /// The only other `?` variables a result can hold are the search pattern's, which the request
 /// names, so a caller that lists them separates the two.
 fn rule_existential_name(name: &str, pattern_existentials: &BTreeSet<String>) -> bool {
+    declared_existential(name).is_some_and(|declared| !pattern_existentials.contains(&declared))
+}
+
+/// The K name without `?` of a KORE element variable that decodes to a K `?` variable
+/// (`X` for `Var'Ques'X`), `None` for any other variable.
+fn declared_existential(name: &str) -> Option<String> {
     match k_rust::kast::identifier::decode_variable(name) {
-        (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => decoded
-            .strip_prefix('?')
-            .is_some_and(|declared| !pattern_existentials.contains(declared)),
-        _ => false,
+        (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => {
+            decoded.strip_prefix('?').map(str::to_owned)
+        }
+        _ => None,
     }
 }
 
@@ -7231,14 +7274,7 @@ fn port_request_existentials(port: &Pattern) -> BTreeSet<String> {
     port.free_variables()
         .into_iter()
         .filter(|variable| !port_minted_name(&variable.name))
-        .filter_map(
-            |variable| match k_rust::kast::identifier::decode_variable(&variable.name) {
-                (k_rust::kore::ast::VariableKind::Element, Ok(decoded)) => {
-                    decoded.strip_prefix('?').map(str::to_owned)
-                }
-                _ => None,
-            },
-        )
+        .filter_map(|variable| declared_existential(&variable.name))
         .collect()
 }
 
