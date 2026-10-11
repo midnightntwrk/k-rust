@@ -14,6 +14,11 @@ use regex::Regex;
 
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
+#[path = "support/proof_sources.rs"]
+mod proof_sources;
+use proof_sources::{
+    ANYWHERE_OVERLOAD_REMAINDER, LATER_BINDING_RULE, LET_PARTIAL_CONDITION, UNDEFINED_STEP,
+};
 
 /// A `KRUST-PROVENANCE` document written by the version 7 writer (k-rust `480a0d3b`), as an
 /// artifact or prepared directory of that krust holds.
@@ -7035,35 +7040,6 @@ fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `app` on values is an `anywhere` overload of `app` on expressions, rewritten to the constructor
-/// `c` only for a positive first argument. The claim's symbolic step on `app(N, 0)` applies the
-/// priority-10 rule where `N <=Int 0`, and its remainder `N >Int 0` simplifies `app(N, 0)` to
-/// `c(N)`, which only the priority-50 `c` rule rewrites. `$NEXT` places the overloaded item at
-/// the `<k>` head (empty) or after a `mark()` head.
-const ANYWHERE_OVERLOAD_REMAINDER: &str = r#"
-module OVL-SYNTAX
-  imports INT-SYNTAX
-  syntax Val ::= Int | c(Int) | app(Val, Val) [overload(app)]
-  syntax Exp ::= Val | app(Exp, Exp) [overload(app)]
-  syntax KItem ::= done(Int) | mark()
-endmodule
-
-module OVL
-  imports OVL-SYNTAX
-  imports INT
-  imports BOOL
-  configuration <k> $PGM:Exp </k> <n> 0 </n>
-  rule app(X:Int, _:Int):Val => c(X) requires X >Int 0 [anywhere]
-  rule <k> $NEXT _:Val => done(0) ... </k> <n> X </n> requires X <=Int 0 [priority(10)]
-  rule <k> $NEXT c(X) => done(X) ... </k>
-endmodule
-
-module OVL-SPEC
-  imports OVL
-  claim <k> $NEXT app(N:Int, 0):Val => done(?_M) </k> <n> N </n>
-endmodule
-"#;
-
 /// A lower-priority rule is applied to the remainder as simplified, not to the step's subject:
 /// the `c` rule does not match `app(N, 0)` but matches the remainder's `c(N)`. The condition
 /// comes from another cell, since `app(N, 0)`, which the anywhere equation rewrites for `N > 0`,
@@ -7254,23 +7230,6 @@ module LEMMADEF-SPEC
 endmodule
 "#;
 
-const LATER_BINDING_RULE: &str = r#"
-module RULESOLVED
-  imports INT
-  imports SET
-  syntax Elem ::= a(Int) | b(Int)
-  syntax Foo ::= c(Int, Int) | f(Int) [function, total]
-  syntax KItem ::= go(Int, Set) | foo(Int, Foo, Set) | bar(Int) | done()
-  configuration <k> $PGM:K </k>
-  rule <k> go(A, S) => foo(A, f(A), S) ... </k>
-  rule <k> foo(Y, c(X, Y), SetItem(a(X)) SetItem(b(_Z))) => bar(X) ... </k>
-endmodule
-module RULESOLVED-SPEC
-  imports RULESOLVED
-  claim [main]: <k> go(A, SetItem(a(B)) SetItem(b(C))) => done() ... </k>
-endmodule
-"#;
-
 #[test]
 fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
     for (source, module) in [
@@ -7334,29 +7293,6 @@ fn kprove_rule_condition_over_a_later_binding_is_stated_under_it() {
     assert!(!stdout.contains("RuleVar"), "{stdout}");
     assert!(!stdout.contains(r"\exists"), "{stdout}");
 }
-
-/// A condition over `10 /Int A`, written directly (`PLAIN`) or through the lambda a `#let`
-/// generates (`LET`).
-const LET_PARTIAL_CONDITION: &str = r#"
-module LETDIV-SYNTAX
-  imports INT-SYNTAX
-  syntax Op ::= half(Int) [symbol(half)]
-  syntax Prog ::= "halt" [symbol(halt)] | seq(Op, Prog) [symbol(seq)]
-endmodule
-
-module LETDIV
-  imports LETDIV-SYNTAX
-  imports INT
-  configuration <k> .K </k>
-  rule [half]: seq(half(A), P) => P requires $CONDITION
-endmodule
-
-module LETDIV-SPEC
-  imports LETDIV
-  claim [symbolic]: <k> seq(half(_X:Int), halt) => halt </k>
-  claim [ground]: <k> seq(half(0), halt) => halt </k>
-endmodule
-"#;
 
 /// `10 /Int A` is undefined at `A = 0`, where the ground claim is disproved, so the symbolic
 /// claim is false and must not be proven, whether the division is bound by `#let` or not.
@@ -8721,62 +8657,6 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     }
     fs::remove_dir_all(root).unwrap();
 }
-
-/// Rules whose result is undefined on part of the instances they apply to: a false `ensures`
-/// that the step cannot decide (`apart`, `cover`, `low`), one that always has a witness
-/// (`fresh`), a refuted one beside a sibling with a disjoint `requires` (`pickpos`), and one
-/// before an unconditional sibling (`skipbot`). `cover` and `skip` declare the rule with the
-/// undefined instances first, so a one-path step tries it before the sibling that covers them;
-/// `low`'s other rule is `owise`, of lower priority, and so blocked where `lowbot` applies.
-const UNDEFINED_STEP: &str = r#"
-module UNDEF-SYNTAX
-  imports INT-SYNTAX
-  syntax Prog ::= "halt" [symbol(halt)]
-                | "done" [symbol(done)]
-                | "fresh" [symbol(fresh)]
-                | apart(Int, Int) [symbol(apart)]
-                | cover(Int, Int) [symbol(cover)]
-                | val(Int) [symbol(val)]
-                | pick(Int) [symbol(pick)]
-                | "skip" [symbol(skip)]
-                | low(Int, Int) [symbol(low)]
-endmodule
-
-module UNDEF
-  imports UNDEF-SYNTAX
-  imports BASIC-K
-  imports INT
-  configuration <k> $PGM:Prog </k>
-  rule [apart]:   <k> apart(A, B) => halt </k> ensures A =/=Int B
-  rule [cover]:   <k> cover(A, B) => halt </k> ensures A =/=Int B
-  rule [coverok]: <k> cover(A, B) => halt </k> requires A ==Int B
-  rule [fresh]:   <k> fresh => val(?X:Int) </k> ensures ?X >Int 0
-  rule [pickpos]: <k> pick(I) => halt </k> requires I >Int 0 ensures false
-  rule [pickneg]: <k> pick(I) => done </k> requires I <=Int 0
-  rule [skipbot]: <k> skip => halt </k> ensures false
-  rule [skipok]:  <k> skip => done </k>
-  rule [lowbot]:  <k> low(A, B) => halt </k> ensures A =/=Int B
-  rule [lowow]:   <k> low(_, _) => halt </k> [owise]
-endmodule
-
-module UNDEF-SPEC
-  imports UNDEF
-  claim [sym]:       <k> apart(_X, _Y) => halt </k>
-  claim [gnd]:       <k> apart(0, 0) => halt </k>
-  claim [sym-one]:   <k> apart(X, Y) => halt </k> requires X >=Int Y [one-path]
-  claim [defined]:   <k> apart(X, Y) => halt </k> requires X =/=Int Y
-  claim [cover]:     <k> cover(_X, _Y) => halt </k>
-  claim [fresh]:     <k> fresh => val(?Y:Int) </k> ensures ?Y >Int 0
-  claim [fresh-one]: <k> fresh => val(?Y:Int) </k> ensures ?Y >=Int 1 [one-path]
-  claim [pick]:      <k> pick(_I) => done </k>
-  claim [cover-one]: <k> cover(_X, _Y) => halt </k> [one-path]
-  claim [skip-one]:  <k> skip => done </k> [one-path]
-  claim [skip]:      <k> skip => done </k>
-  claim [pick-one]:  <k> pick(_I) => done </k> [one-path]
-  claim [low-one]:   <k> low(_X, _Y) => halt </k> [one-path]
-  claim [low]:       <k> low(_X, _Y) => halt </k>
-endmodule
-"#;
 
 /// A claim holds for every instance of its left-hand side, so a symbolic claim is not proven
 /// while one of its instances ends in an undefined step. `apart(X, Y)` has the undefined step
