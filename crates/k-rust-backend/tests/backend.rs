@@ -7,6 +7,8 @@ mod anywhere_matching;
 mod definedness_classes;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
+#[path = "backend/issue_4114_overload.rs"]
+mod issue_4114_overload;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/names.rs"]
