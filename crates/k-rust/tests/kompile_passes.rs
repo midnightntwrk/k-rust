@@ -8576,6 +8576,7 @@ fn rejects_a_cell_that_an_instance_a_rewrite_writes_on_one_side_only_may_hold() 
 fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() {
     let configuration = r#"<top> <k> 0 </k> <u> <ux> 0 </ux> <r multiplicity="*" type="Map"> <rid> 0 </rid> <p> <px> 0 </px> <c> 0 </c> <s> .K </s> <q> <qx> 0 </qx> <e> 0 </e> </q> </p> </r> </u> </top>"#;
     let syntax = r#"
+          syntax KItem [hook(K.KItem)]
           syntax KItem ::= "foo" | "bar" | f(Int) | g(Int)
           syntax Int ::= h(Int) [function]
           syntax PCell ::= mk(Int) [function]
@@ -8657,19 +8658,37 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
             outcome => failures.push(format!("{rule}: expected a rejection, {outcome:?}")),
         }
     }
-    // With `Int` hooked, a token denotes its integer: `05` is `5`.
+    // With `Int` hooked, a token denotes its integer: `05` is `5`. With `Bool` hooked, `true`
+    // and `false` are its two values. A rule that rewrites a token anywhere may make two tokens
+    // equal, so no tokens are apart beside it.
     let hooked = format!("{syntax}\n          syntax Int [hook(INT.Int)]");
-    for (rule, compiles) in [
+    let hooked_bool = format!(
+        "{syntax}\n          syntax Bool ::= \"true\" [token] | \"false\" [token]\n          syntax Bool [hook(BOOL.Bool)]"
+    );
+    let token_rewritten = format!("{syntax}\n          rule 7 => 8 [anywhere]");
+    for (syntax, rule, compiles) in [
         (
+            &hooked,
             "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
             true,
         ),
         (
+            &hooked,
             "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 05 </c> ... </u>",
             false,
         ),
+        (
+            &hooked_bool,
+            "<k> 0 => 1 </k> <u> V1:PCell <s> true => false </s> ... </u>",
+            true,
+        ),
+        (
+            &token_rewritten,
+            "<k> 0 => 1 </k> <u> V1:PCell <c> 5 => 6 </c> ... </u>",
+            false,
+        ),
     ] {
-        let outcome = concretized_cell_rule_in(&hooked, configuration, rule, "");
+        let outcome = concretized_cell_rule_in(syntax, configuration, rule, "");
         let as_expected = match &outcome {
             Ok(_) => compiles,
             Err(errors) => {
@@ -8680,7 +8699,7 @@ fn a_holder_kept_as_one_value_cannot_hold_a_cell_changed_between_values_apart() 
             }
         };
         if !as_expected {
-            failures.push(format!("{rule} with Int hooked: {outcome:?}"));
+            failures.push(format!("{rule} with {syntax}: {outcome:?}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

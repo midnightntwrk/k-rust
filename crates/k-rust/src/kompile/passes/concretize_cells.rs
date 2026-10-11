@@ -2842,10 +2842,12 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     /// The sort of the applications of `label` when it is a free constructor: every production
-    /// of it declares it at one sort, unhooked and not `K`, and none makes it a function, an
-    /// `assoc`, `comm`, `idem` or `unit` operation, a token, a bracket, a hook, a macro or an
-    /// overload; and no visible rule matches it ([`ReadValueFacts::rule_heads`]). Its applications
-    /// are then values that only its own arguments distinguish.
+    /// of it declares it at one sort other than `K` that is unhooked or `KItem` (whose hook
+    /// declares the sort of single sequence items and relates none of its values), and none
+    /// makes it a function, an `assoc`, `comm`, `idem` or `unit` operation, a token, a bracket,
+    /// a hook, a macro or an overload; and no visible rule matches it
+    /// ([`ReadValueFacts::rule_heads`]). Its applications are then values that only its own
+    /// arguments distinguish.
     fn free_constructor_sort(&self, label: &Label) -> Option<Sort> {
         if !label.parameters.is_empty() {
             return None;
@@ -2890,7 +2892,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         result.filter(|sort| {
             sort.parameters.is_empty()
                 && sort.name != BuiltinSort::K.k_name()
-                && !facts.hooks.contains_key(&sort.name)
+                && facts
+                    .hooks
+                    .get(&sort.name)
+                    .is_none_or(|hook| hook == "K.KItem")
         })
     }
 
