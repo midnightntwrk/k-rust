@@ -44,6 +44,12 @@
 //! or both its sides are `\bottom` there (a residual that is `\bottom` occurs in the result by the
 //! binding rule, or the step erases only a subterm defined on every instance). So both sides
 //! reach the common term's instance, and the peak's two reducts have a common reduct.
+//!
+//! The join's precision is frozen at these rules. A rule that lets more pairs join (a step, a
+//! settled shape or a refutation not stated above) keeps more claims, and a wrong one shows only
+//! as a claim that holds in no model; so a new rule comes with a definition of the class it
+//! decides in the axiom-instance harness (`tests/definedness_oracle/axioms.rs`), which judges the
+//! claims by the axioms, and a defect switch in the rule (`switches.rs`) that the harness catches.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
