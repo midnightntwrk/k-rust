@@ -3061,10 +3061,13 @@ impl ReadingSets {
                 Readings::One(term) => {
                     let hash = term_hash(term);
                     let same = terms.entry(hash).or_default();
-                    if same.iter().any(|index| match &flat[*index] {
+                    if let Some(kept) = same.iter().copied().find(|index| match &flat[*index] {
                         Readings::One(other) => other == term,
                         Readings::Several(_) => false,
                     }) {
+                        if let Readings::One(kept) = &mut flat[kept] {
+                            widen_spans(kept, term);
+                        }
                         return;
                     }
                     same.push(flat.len());
@@ -3794,6 +3797,46 @@ fn term_span(term: &Term) -> Option<TermSpan> {
     })
 }
 
+/// Make `kept`, the copy of a reading a union keeps, cover the text of `copy`, an equal
+/// reading the union drops, at its root and at each subterm. A place's span is the text its
+/// readings cover there; equal readings parsed from different text are one reading that covers
+/// the text of every copy, so whichever copy a union keeps, and however a forest packs the
+/// copies (one union of them, or unions below a node of each), a place covers them all.
+fn widen_spans(kept: &mut Term, copy: &Term) {
+    crate::stack::guarded(|| {
+        for (kept, copy) in term_arguments_mut(kept)
+            .into_iter()
+            .zip(term_arguments(copy))
+        {
+            widen_spans(kept, copy);
+        }
+        let Some(other) = term_span(copy) else {
+            return;
+        };
+        let span = match term_span(kept) {
+            None => other,
+            Some(own)
+                if own.source != other.source
+                    || (own.start <= other.start && other.end <= own.end) =>
+            {
+                return;
+            }
+            Some(own) => TermSpan {
+                source: own.source,
+                start: own.start.min(other.start),
+                end: own.end.max(other.end),
+            },
+        };
+        let widened = std::mem::replace(kept, Term::Sequence(Vec::new())).with_metadata(
+            crate::kast::TermMetadata {
+                span: Some(span),
+                ..Default::default()
+            },
+        );
+        *kept = widened;
+    })
+}
+
 /// The smallest span that covers every one of `spans`.
 fn cover(spans: impl Iterator<Item = TermSpan>) -> Option<TermSpan> {
     spans.reduce(|covered, span| TermSpan {
@@ -3952,6 +3995,23 @@ fn term_arguments(term: &Term) -> Vec<&Term> {
         Term::Apply { arguments, .. } => arguments.iter().collect(),
         Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => Vec::new(),
         Term::Annotated { .. } => unreachable!("an unannotated term"),
+    }
+}
+
+/// `term_arguments`, mutably.
+fn term_arguments_mut(term: &mut Term) -> Vec<&mut Term> {
+    let mut term = term;
+    loop {
+        match term {
+            Term::Annotated { term: inner, .. } => term = inner,
+            Term::Rewrite { left, right } => return vec![&mut **left, &mut **right],
+            Term::As { pattern, alias } => return vec![&mut **pattern, &mut **alias],
+            Term::Sequence(items) => return items.iter_mut().collect(),
+            Term::Apply { arguments, .. } => return arguments.iter_mut().collect(),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => {
+                return Vec::new();
+            }
+        }
     }
 }
 
@@ -4667,6 +4727,38 @@ mod tests {
                 ("pair(c(.KList),outer(.KList))", true),
             ]
         );
+    }
+
+    #[test]
+    fn a_place_covers_every_copy_of_an_equal_reading_however_the_trees_are_packed() {
+        let (grammar, node) = readings_fixture();
+        // `pair(a, c)` is read from two texts, `a` at 5..6 and `c` at 20..21, or `a` at 7..8
+        // and `c` at 22..23; `pair(b, d)` reads `b` at 6..7 and `d` at 21..22. The readings
+        // differ at both subterms, and each place covers the text of every copy of its readings,
+        // 5..8 and 20..23, whichever copy a union meets first: in one ambiguity over the three
+        // trees, or with either copy grouped first with `pair(b, d)` in a nested ambiguity.
+        let tree = |first: &str, at: usize, second: &str, second_at: usize| {
+            node(
+                "pair",
+                vec![node(first, vec![], at), node(second, vec![], second_at)],
+                0,
+            )
+        };
+        let near = || tree("a", 5, "c", 20);
+        let far = || tree("a", 7, "c", 22);
+        let other = || tree("b", 6, "d", 21);
+        let flat = ambiguity([near(), other(), far()]);
+        let far_first = ambiguity([ambiguity([far(), other()]), near()]);
+        let near_first = ambiguity([ambiguity([near(), other()]), far()]);
+        let report = grammar.resolve_ambiguities(flat).unwrap_err();
+        assert_eq!(grammar.resolve_ambiguities(far_first).unwrap_err(), report);
+        assert_eq!(grammar.resolve_ambiguities(near_first).unwrap_err(), report);
+        let (_, _, places) = ambiguous_parts(report);
+        let spans: Vec<_> = places
+            .iter()
+            .map(|place| place.span.map(|span| (span.start, span.end)))
+            .collect();
+        assert_eq!(spans, [Some((5, 8)), Some((20, 23))]);
     }
 
     #[test]
