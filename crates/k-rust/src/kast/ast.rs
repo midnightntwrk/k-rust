@@ -820,28 +820,31 @@ impl<'t> NodeHead<'t> {
 }
 
 impl Term {
-    /// The children of this term, its annotations removed: a rewrite's left and right sides, an
-    /// alias's pattern and alias, a sequence's items or an application's arguments, in order.
-    pub(crate) fn children(&self) -> impl Iterator<Item = &Self> {
-        let (pair, items): (Option<[&Self; 2]>, &[Self]) = match self.unannotated() {
-            Self::Rewrite { left, right } => (Some([left, right]), &[]),
-            Self::As { pattern, alias } => (Some([pattern, alias]), &[]),
-            Self::Sequence(items)
-            | Self::Apply {
-                arguments: items, ..
-            } => (None, items),
-            Self::InjectedLabel(_) | Self::Variable { .. } | Self::Token { .. } => (None, &[]),
-            Self::Annotated { .. } => unreachable!("unannotated strips annotations"),
-        };
-        pair.into_iter().flatten().chain(items)
-    }
-
     /// One level of [`Term::cmp`], which runs it with stack for one more level: the heads, then
     /// the children in order, each compared by [`Term::cmp`].
     fn cmp_level(&self, other: &Self) -> std::cmp::Ordering {
-        NodeHead::of(self)
-            .cmp(&NodeHead::of(other))
-            .then_with(|| self.children().cmp(other.children()))
+        let (left, right) = (self.unannotated(), other.unannotated());
+        NodeHead::of(left)
+            .cmp(&NodeHead::of(right))
+            .then_with(|| match (left, right) {
+                (
+                    Self::Rewrite { left: a, right: b }
+                    | Self::As {
+                        pattern: a,
+                        alias: b,
+                    },
+                    Self::Rewrite { left: c, right: d }
+                    | Self::As {
+                        pattern: c,
+                        alias: d,
+                    },
+                ) => (a, b).cmp(&(c, d)),
+                (
+                    Self::Sequence(l) | Self::Apply { arguments: l, .. },
+                    Self::Sequence(r) | Self::Apply { arguments: r, .. },
+                ) => l.cmp(r),
+                _ => std::cmp::Ordering::Equal,
+            })
     }
 }
 
