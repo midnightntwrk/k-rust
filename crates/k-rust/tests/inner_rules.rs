@@ -822,6 +822,59 @@ fn only_rule_body(definition: &k_rust::definition::Definition) -> String {
         .expect("the rule should be resolved")
 }
 
+/// A module whose user syntax reuses `=>` as an ordinary production (a match arm), with one
+/// rule over it.
+fn arrow_module(rule: &str) -> String {
+    format!(
+        r#"module MAIN
+  syntax A ::= "a" [symbol(a)]
+             | A "*" A [left, symbol(times)]
+             > A "+" A [left, symbol(plus)]
+  syntax KItem ::= A "=>" A [symbol(arrow)]
+  syntax KItem ::= f(KItem) [symbol(f)]
+  rule {rule}
+endmodule
+"#
+    )
+}
+
+/// With user syntax that reuses `=>`, a rule body has a reading through it beside the rewrite
+/// its `=>` spells. Among the readings of the whole body that denote a term, the one rooted at
+/// the rule's own rewrite is the body. The choice is made once, on the readings of the whole
+/// body, so it does not depend on an invalid reading packed beside a valid one: `a => a`, which
+/// has none (no reading puts a rewrite below `+`), reads as the rewrite like `a => a + a`.
+#[test]
+fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
+    for (rule, expected) in [
+        ("a => a", "a(.KList)=>a(.KList)"),
+        ("a => a + a", "a(.KList)=>plus(a(.KList),a(.KList))"),
+        ("a + a => a", "plus(a(.KList),a(.KList))=>a(.KList)"),
+        ("a => a * a", "a(.KList)=>times(a(.KList),a(.KList))"),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
+/// The preference is a choice among the readings of the whole body. Below its root, as in an
+/// argument (or a cell), a rewrite and another reading of the same text stay an ambiguity,
+/// whether or not an invalid reading (`(a => a) + a`, a rewrite below `+`) exists beside them.
+#[test]
+fn a_rewrite_below_the_body_root_does_not_win_over_user_syntax_reusing_its_token() {
+    for rule in ["f(a => a) => .K", "f(a => a + a) => .K"] {
+        let error = resolve_rule_bubbles(&lowered(&arrow_module(rule)))
+            .expect_err("the argument has a rewrite and an arrow reading");
+        let RuleError::Parse(ref parse) = error else {
+            panic!("{rule}: {error:?}")
+        };
+        assert!(
+            matches!(parse.error, ParseError::Ambiguous { .. }),
+            "{rule}: {error:?}"
+        );
+    }
+}
+
 /// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
 /// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
 /// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.

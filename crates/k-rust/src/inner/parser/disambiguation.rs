@@ -447,8 +447,9 @@ impl Grammar {
     /// Filter a node at its completion: a node that breaks a relation (scope, cast, priority or
     /// associativity) at one of its edges denotes nothing there, so it is dropped before any
     /// caller packs it. A rewrite, sequence or `#let` below an operator is such a violation like
-    /// any other: the reading that holds it is not a term the rule could mean, and so is not a
-    /// candidate for the preference among the readings of an ambiguity either.
+    /// any other: the reading that holds it is not a term the rule could mean. The filter only
+    /// excludes; the choice among the readings that survive it is made once, for the whole body
+    /// ([`Self::prefer_structural_body_readings`]).
     pub(super) fn filter_completed_packed_priority(
         &self,
         term: Rc<PackedTerm>,
@@ -500,28 +501,9 @@ impl Grammar {
                     }
                     PackedNode::Term(_) => Ok(Rc::clone(&term)),
                     PackedNode::Ambiguity(original_alternatives) => {
-                        let mut alternatives = original_alternatives.clone();
-                        for preferred in [
-                            InternalLabel::KRewrite,
-                            InternalLabel::KSequence,
-                            InternalLabel::Let,
-                        ]
-                        .map(InternalLabel::as_str)
-                        {
-                            let matching = alternatives
-                                .iter()
-                                .filter(|alternative| {
-                                    self.packed_top_parse_label(alternative) == Some(preferred)
-                                })
-                                .cloned()
-                                .collect::<BTreeSet<_>>();
-                            if !matching.is_empty() {
-                                alternatives = matching;
-                            }
-                        }
                         let mut retained = BTreeSet::new();
                         let mut errors = Vec::new();
-                        for alternative in alternatives {
+                        for alternative in original_alternatives.iter().cloned() {
                             match self.filter_packed_priority_memo(
                                 Rc::clone(&alternative),
                                 memo,
@@ -587,6 +569,132 @@ impl Grammar {
             memo.insert(identity, (Rc::clone(&term), filtered.clone()));
             filtered
         })
+    }
+
+    /// Among the readings of a whole rule body, keep those rooted at a rewrite, else those rooted
+    /// at a sequence, else those rooted at a `#let`; with none of them, keep every reading.
+    ///
+    /// In a rule body these three constructs are the rule's own structure, not operators of the
+    /// user's language: a reading rooted at `=>` says the body is the rewrite its `=>` spells.
+    /// When user syntax reuses one of their tokens (a match arm `A "=>" A`), the body also has a
+    /// reading through that syntax, and the rule's own construct is what a rule body means.
+    /// The choice compares readings of the same text that each denote a term, so it runs after
+    /// every relation and every application has been judged ([`Grammar::prepare_packed_forest`]):
+    /// a reading that breaks one denotes nothing and so cannot take part in it. It is made per
+    /// tree, by each tree's root, so it does not depend on where the trees share subterms or on
+    /// which sorts their readings pass through. The body is the child of a `#RuleContent`
+    /// production (`#ruleNoConditions`, `#ruleRequires`, `#ruleEnsures`,
+    /// `#ruleRequiresEnsures`); a parse of any other start sort is its own body. Below the
+    /// root, an ambiguity between a rewrite and another reading stays an ambiguity.
+    pub(super) fn prefer_structural_body_readings(&self, forest: Rc<PackedTerm>) -> Rc<PackedTerm> {
+        [
+            InternalLabel::KRewrite,
+            InternalLabel::KSequence,
+            InternalLabel::Let,
+        ]
+        .into_iter()
+        .find_map(|label| self.restrict_body_root(&forest, label.as_str()))
+        .unwrap_or(forest)
+    }
+
+    /// The trees of a parse forest whose body root is labelled `label`, or `None` when no tree's
+    /// is ([`Self::prefer_structural_body_readings`]).
+    fn restrict_body_root(&self, term: &Rc<PackedTerm>, label: &str) -> Option<Rc<PackedTerm>> {
+        match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                self.restrict_alternatives(term, alternatives, |alternative| {
+                    self.restrict_body_root(alternative, label)
+                })
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } if self.productions[*production]
+                .result
+                .is_frontend(FrontendSort::RuleContent)
+                && !children.is_empty() =>
+            {
+                let body = self.restrict_root_label(&children[0], label)?;
+                if Rc::ptr_eq(&body, &children[0]) {
+                    return Some(Rc::clone(term));
+                }
+                let mut children = children.clone();
+                children[0] = body;
+                Some(PackedTerm::production(
+                    *production,
+                    children,
+                    metadata.clone(),
+                ))
+            }
+            _ => self.restrict_root_label(term, label),
+        }
+    }
+
+    /// The trees of a packed node whose root, seen through pass-through productions as
+    /// [`Self::packed_top_parse_label`] sees it, is labelled `label`.
+    fn restrict_root_label(&self, term: &Rc<PackedTerm>, label: &str) -> Option<Rc<PackedTerm>> {
+        crate::stack::guarded(|| match &term.node {
+            PackedNode::Ambiguity(alternatives) => {
+                self.restrict_alternatives(term, alternatives, |alternative| {
+                    self.restrict_root_label(alternative, label)
+                })
+            }
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[*production];
+                match descriptor.parse_label.as_deref() {
+                    Some(own) => (own == label).then(|| Rc::clone(term)),
+                    None if descriptor.syntactic_subsort || children.len() == 1 => {
+                        let child = self.restrict_root_label(children.first()?, label)?;
+                        if Rc::ptr_eq(&child, &children[0]) {
+                            Some(Rc::clone(term))
+                        } else {
+                            let mut children = children.clone();
+                            children[0] = child;
+                            Some(PackedTerm::production(
+                                *production,
+                                children,
+                                metadata.clone(),
+                            ))
+                        }
+                    }
+                    None => None,
+                }
+            }
+            PackedNode::Term(_) | PackedNode::InstantiatedProduction { .. } => None,
+        })
+    }
+
+    /// The alternatives of an ambiguity that `restrict` keeps, the ambiguity itself when it keeps
+    /// every one unchanged, or `None` when it keeps none.
+    fn restrict_alternatives(
+        &self,
+        term: &Rc<PackedTerm>,
+        alternatives: &BTreeSet<Rc<PackedTerm>>,
+        mut restrict: impl FnMut(&Rc<PackedTerm>) -> Option<Rc<PackedTerm>>,
+    ) -> Option<Rc<PackedTerm>> {
+        let mut retained = BTreeSet::new();
+        for alternative in alternatives {
+            if let Some(kept) = restrict(alternative) {
+                match &kept.node {
+                    PackedNode::Ambiguity(nested) => retained.extend(nested.iter().cloned()),
+                    _ => {
+                        retained.insert(kept);
+                    }
+                }
+            }
+        }
+        if retained.is_empty() {
+            None
+        } else if packed_sets_share_nodes(&retained, alternatives) {
+            Some(Rc::clone(term))
+        } else {
+            Some(PackedTerm::ambiguity(retained))
+        }
     }
 
     pub(super) fn packed_top_parse_label<'a>(&'a self, term: &'a PackedTerm) -> Option<&'a str> {
@@ -706,105 +814,55 @@ impl Grammar {
     /// wrappers deliberately exempt from priority checking.
     #[cfg(test)]
     pub(super) fn filter_priority(&self, term: ParsedTerm) -> Result<ParsedTerm, ParseError> {
-        crate::stack::guarded(|| {
-            match term.into_parts() {
-                ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
-                ParsedParts::Ambiguity(mut alternatives) => {
-                    // A rule body's rewrite, sequence and `#let` scope over the user syntax around
-                    // them, so these three structural forms take precedence over every other
-                    // top-level interpretation, in this order. This is what makes
-                    // `lhs => rhs #And condition` scope as a rewrite whose RHS contains `#And`
-                    // instead of retaining the competing `#And(rewrite(lhs, rhs), condition)` tree.
-                    for preferred in ["#KRewrite", "#KSequence", "#let"] {
-                        let matching = alternatives
-                            .iter()
-                            .filter(|alternative| {
-                                self.top_parse_label(alternative) == Some(preferred)
-                            })
-                            .cloned()
-                            .collect::<BTreeSet<_>>();
-                        if !matching.is_empty() {
-                            alternatives = matching;
+        crate::stack::guarded(|| match term.into_parts() {
+            ParsedParts::Term(leaf) => Ok(ParsedTerm::Term(leaf)),
+            ParsedParts::Ambiguity(alternatives) => {
+                let mut retained = BTreeSet::new();
+                let mut first_error = None;
+                for alternative in alternatives {
+                    match self
+                        .filter_priority(alternative)
+                        .map(ParsedTerm::into_parts)
+                    {
+                        Ok(ParsedParts::Ambiguity(nested)) => retained.extend(nested),
+                        Ok(alternative) => {
+                            retained.insert(ParsedTerm::from(alternative));
                         }
-                    }
-                    let mut retained = BTreeSet::new();
-                    let mut first_error = None;
-                    for alternative in alternatives {
-                        match self
-                            .filter_priority(alternative)
-                            .map(ParsedTerm::into_parts)
-                        {
-                            Ok(ParsedParts::Ambiguity(nested)) => retained.extend(nested),
-                            Ok(alternative) => {
-                                retained.insert(ParsedTerm::from(alternative));
-                            }
-                            Err(error) => {
-                                first_error.get_or_insert(error);
-                            }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
                         }
-                    }
-                    match retained.len() {
-                        0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
-                        1 => Ok(retained.pop_first().expect("length was one")),
-                        _ => Ok(ParsedTerm::Ambiguity(retained)),
                     }
                 }
-                ParsedParts::Production {
+                match retained.len() {
+                    0 => Err(first_error.expect("an empty ambiguity had no valid alternative")),
+                    1 => Ok(retained.pop_first().expect("length was one")),
+                    _ => Ok(ParsedTerm::Ambiguity(retained)),
+                }
+            }
+            ParsedParts::Production {
+                production,
+                children,
+                metadata,
+            } => {
+                let descriptor = &self.productions[production];
+                let child_count = children.len();
+                let children = children
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        let side = descriptor.shape().judged_side(index + 1, child_count);
+                        self.filter_priority_child(descriptor, child, side)
+                    })
+                    .collect::<Result<_, _>>()?;
+                Ok(ParsedTerm::Production {
                     production,
                     children,
                     metadata,
-                } => {
-                    let descriptor = &self.productions[production];
-                    let child_count = children.len();
-                    let children = children
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, child)| {
-                            let side = descriptor.shape().judged_side(index + 1, child_count);
-                            self.filter_priority_child(descriptor, child, side)
-                        })
-                        .collect::<Result<_, _>>()?;
-                    Ok(ParsedTerm::Production {
-                        production,
-                        children,
-                        metadata,
-                    })
-                }
-                ParsedParts::InstantiatedProduction { .. } => {
-                    unreachable!("instantiated productions are created after priority filtering")
-                }
+                })
             }
-        })
-    }
-
-    #[cfg(test)]
-    fn top_parse_label<'a>(&'a self, term: &'a ParsedTerm) -> Option<&'a str> {
-        crate::stack::guarded(|| {
-            let (production, children) = match term {
-                ParsedTerm::Production {
-                    production,
-                    children,
-                    ..
-                }
-                | ParsedTerm::InstantiatedProduction {
-                    production,
-                    children,
-                    ..
-                } => (*production, children),
-                ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => return None,
-            };
-            let descriptor = &self.productions[production];
-            descriptor.parse_label.as_deref().or_else(|| {
-                if descriptor.syntactic_subsort
-                    || (descriptor.parse_label.is_none() && children.len() == 1)
-                {
-                    children
-                        .first()
-                        .and_then(|child| self.top_parse_label(child))
-                } else {
-                    None
-                }
-            })
+            ParsedParts::InstantiatedProduction { .. } => {
+                unreachable!("instantiated productions are created after priority filtering")
+            }
         })
     }
 

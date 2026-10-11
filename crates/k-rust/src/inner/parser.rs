@@ -1948,19 +1948,12 @@ impl Grammar {
             })));
         }
         // The chart can retain the whole packed forest through its states. Release it before any
-        // post-parse allocation, then apply the root priority preference while alternatives still
-        // share their descendants. In particular, do not expand losing non-rewrite parses before
-        // the root rewrite/sequence/let preference has selected the corresponding sibling.
+        // post-parse allocation, then choose among the body's readings while alternatives still
+        // share their descendants, so losing readings are never expanded.
         drop(charts);
         drop(_span);
         // Packed normalization and inference phase: preserve sharing until losing alternatives
         // are removed, then materialize exactly the retained inferred trees.
-        // A rule body's rewrite, sequence and `#let` scope over the user syntax around them, so
-        // among the readings of the root ambiguity one rooted at them is preferred. That
-        // preference compares the root's alternatives with each other, so it runs on the packed
-        // root ambiguity before descending into losing alternatives; filtering each root
-        // independently incorrectly rejects inputs whose winning interpretation is a top-level
-        // rewrite (for example a rewrite inside a competing map-item parse).
         let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
         // Checked mode compares the engines on an ambiguous forest by what each lowers to.
         #[cfg(feature = "z3-inference")]
@@ -2112,25 +2105,11 @@ impl Grammar {
             .check_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)
             .err();
         // The check at hand-off judges an edge only where the filter judges it, and in the same
-        // way, so a derivation the filter admits at every edge survives the recognition that
-        // enforces the relations. That recognition can then fail although such a derivation
-        // exists only when the preference among the readings of an ambiguity (for those rooted
-        // at a rewrite, a sequence or a `#let`) keeps readings that all fail at their edge.
+        // way, and both only exclude, so a derivation the filter admits at every edge survives
+        // the recognition that enforces the relations.
         debug_assert!(
-            violation.is_some()
-                || self.productions.iter().any(|production| {
-                    production.parse_label.as_deref().is_some_and(|label| {
-                        [
-                            InternalLabel::KRewrite,
-                            InternalLabel::KSequence,
-                            InternalLabel::Let,
-                        ]
-                        .iter()
-                        .any(|scope| scope.as_str() == label)
-                    })
-                }),
-            "a failed recognition without a preferred rewrite, sequence or #let has a \
-             derivation every edge of which the relations admit"
+            violation.is_some(),
+            "a failed recognition has a derivation every edge of which the relations admit"
         );
         Ok(violation.unwrap_or(first_violation))
     }
@@ -3187,12 +3166,15 @@ impl Grammar {
     /// alternatives share is transformed once and stays shared.
     /// Priority runs after collapse because generated record productions deliberately defer edge
     /// checks until they have exposed their original production.
+    /// The preference among a rule body's readings (`Grammar::prefer_structural_body_readings`)
+    /// runs after those checks, so it chooses only among readings that denote a term.
     fn prepare_packed_forest(
         &self,
         forest: Rc<PackedTerm>,
         priority_memos: &RefCell<PackedPriorityMemos>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let forest = self.check_packed_forest(forest, priority_memos)?;
+        let forest = self.prefer_structural_body_readings(forest);
         let forest = self.factor_pre_inference_packed_ambiguities(forest);
         let forest = self.push_top_lhs_packed_ambiguity_up(forest);
         Ok(forest)

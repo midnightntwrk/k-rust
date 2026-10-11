@@ -1404,7 +1404,8 @@ mod tests {
     /// A reading with a rewrite below an operator denotes nothing, so it is dropped when its
     /// node completes and is no candidate for the preference among the readings of the root.
     /// `Start ::= S` passes its child through, so the readings of `S` are the readings of the
-    /// root, among which the preference keeps those rooted at a rewrite. `S ::= A "=>" X` is a
+    /// root, among which the preference, once every relation has judged them, keeps those
+    /// rooted at a rewrite. `S ::= A "=>" X` is a
     /// rewrite and `S ::= A "=>" Y [imp]` an ordinary production over the same token; `X`
     /// derives only `Q "*" A [times]`, with the nested rewrite `Q ::= A "=>" A` as its first
     /// child, and `times > plus`. In `a => a => a * a + a` the only `X` is
