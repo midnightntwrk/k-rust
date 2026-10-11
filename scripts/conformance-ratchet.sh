@@ -311,8 +311,8 @@ fi
 test_binary=${CONFORMANCE_TEST_BINARY:-}
 if [[ -z "$test_binary" ]]; then
   # Release, beside the gate krust: a definition.kore mismatch report on a large definition
-  # takes minutes unoptimized (opt-level 0, the `debugging` profile) and runs into the driver's
-  # comparator timeout.
+  # took minutes with the workspace and its dependencies unoptimized (opt-level 0 throughout) and
+  # ran into the driver's comparator timeout.
   echo "[conformance] building the release reference comparison test binary"
   test_binary=$(reference_build_comparator "$workspace" --release "${krust_gate_cargo_args[@]}")
 fi
