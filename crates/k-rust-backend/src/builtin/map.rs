@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     matching::SortGraph,
-    term::{MapDefinition, Term, TermKind},
+    term::{Items, MapDefinition, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -117,10 +117,12 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     ) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut entries = left_entries.into_owned();
-    entries.extend(right_entries.iter().cloned());
+    let entries = left_entries.join(&right_entries);
     Ok(into
-        .build(entries, left_rest.clone().or_else(|| right_rest.clone()))
+        .build(
+            entries.into(),
+            left_rest.clone().or_else(|| right_rest.clone()),
+        )
         .into())
 }
 
@@ -131,8 +133,8 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
 /// `(key, value)`, and `evaluate` answers `\bottom` before a hook sees a map that binds a key
 /// twice, so the keys are strictly increasing and the order of `Term` decides both whether
 /// `key` is among them and where: a binary search finds it in `O(log n)` comparisons.
-fn place_of<K: Ord, V>(entries: &[(K, V)], key: &K) -> Result<usize, usize> {
-    entries.binary_search_by(|(existing, _)| {
+fn place_of<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Result<usize, usize> {
+    entries.search_by(|(existing, _)| {
         #[cfg(test)]
         compared_with_an_entry();
         existing.cmp(key)
@@ -152,7 +154,7 @@ fn compared_with_an_entry() {
 }
 
 /// The index of the entry of `entries` whose key is `key`, syntactically (`place_of`).
-fn bound_at<K: Ord, V>(entries: &[(K, V)], key: &K) -> Option<usize> {
+fn bound_at<K: Ord, V>(entries: &Items<(K, V)>, key: &K) -> Option<usize> {
     place_of(entries, key).ok()
 }
 
@@ -167,7 +169,7 @@ fn bound_at<K: Ord, V>(entries: &[(K, V)], key: &K) -> Option<usize> {
 fn absent(
     sorts: Option<&SortGraph>,
     key: &Term,
-    entries: &[(Term, Term)],
+    entries: &Items<(Term, Term)>,
     entries_constructor_like: bool,
     rest: &Option<Term>,
 ) -> bool {
@@ -222,9 +224,8 @@ fn update(
     };
     match place {
         Ok(index) => {
-            let mut updated = entries.into_owned();
-            updated[index] = (key, new_value);
-            Ok(into.build(updated, rest.clone()))
+            let updated = entries.replace_at(index, (key, new_value));
+            Ok(into.build(updated.into(), rest.clone()))
         }
         Err(index) => {
             if !absent(
@@ -236,11 +237,8 @@ fn update(
             ) {
                 return Ok(None);
             }
-            let mut updated = Vec::with_capacity(entries.len() + 1);
-            updated.extend_from_slice(&entries[..index]);
-            updated.push((key, new_value));
-            updated.extend_from_slice(&entries[index..]);
-            Ok(into.build(updated, None))
+            let updated = entries.insert_at(index, (key, new_value));
+            Ok(into.build(updated.into(), None))
         }
     }
 }
@@ -350,8 +348,8 @@ fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
     updated.extend(update_map);
     let updated = updated.into_iter().collect::<Vec<_>>();
     Ok(into
-        .entries(&updated, definition)
-        .and_then(|entries| into.build(entries.into_owned(), update_rest.clone())))
+        .owned_entries(updated, definition)
+        .and_then(|entries| into.build(entries, update_rest.clone())))
 }
 
 fn remove(
@@ -387,9 +385,8 @@ fn remove(
             .position(|(existing_key, _)| *existing_key == key)
     };
     if let Some(index) = index {
-        let mut updated = entries.into_owned();
-        updated.remove(index);
-        return Ok(into.build(updated, rest.clone()));
+        let (updated, _) = entries.remove_at(index);
+        return Ok(into.build(updated.into(), rest.clone()));
     }
     if !absent(
         sorts,
@@ -445,12 +442,12 @@ fn remove_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
     };
     let kept = entries
         .iter()
-        .filter(|(key, _)| elements.binary_search(key).is_err())
+        .filter(|(key, _)| elements.search(key).is_err())
         .cloned()
         .collect::<Vec<_>>();
     Ok(into
-        .entries(&kept, definition)
-        .and_then(|kept| into.build(kept.into_owned(), None)))
+        .owned_entries(kept, definition)
+        .and_then(|kept| into.build(kept, None)))
 }
 
 fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -475,7 +472,8 @@ fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinRe
         return Ok(BuiltinResult::NotApplicable);
     };
     if let Some(index) = bound_at(entries, key) {
-        return Ok(BuiltinResult::Value(entries[index].1.clone()));
+        let (_, value) = entries.get(index).expect("a bound key's entry");
+        return Ok(BuiltinResult::Value(value.clone()));
     }
     if rest.is_none()
         && (entries.is_empty()
@@ -496,7 +494,8 @@ fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResul
         return Ok(None);
     };
     if let Some(index) = bound_at(entries, key) {
-        return Ok(Some(entries[index].1.clone()));
+        let (_, value) = entries.get(index).expect("a bound key's entry");
+        return Ok(Some(value.clone()));
     }
     if !absent(sorts, key, entries, map.attributes().constructor_like, rest) {
         Ok(None)
@@ -531,7 +530,7 @@ fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<T
 /// order: the syntactic order puts `b` before `X` in `keys_list(X |-> 1 b |-> 2)`, which
 /// under `X = a` claims `ListItem(b) ListItem(a)`, while the equal concrete map gives
 /// `ListItem(a) ListItem(b)`.
-fn ordered_entries(map: &Term) -> Option<(&MapDefinition, &[(Term, Term)])> {
+fn ordered_entries(map: &Term) -> Option<(&MapDefinition, &Items<(Term, Term)>)> {
     let TermKind::Map {
         definition,
         entries,
@@ -657,8 +656,8 @@ fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
 }
 
 fn entry_inclusion(
-    left_entries: &[(Term, Term)],
-    right_entries: &[(Term, Term)],
+    left_entries: &Items<(Term, Term)>,
+    right_entries: &Items<(Term, Term)>,
     right_rest: &Option<Term>,
 ) -> HookResult<Option<Term>> {
     let mut undecided = false;
@@ -983,7 +982,7 @@ mod tests {
         };
         let entries = (1..=ENTRIES)
             .map(|index| (counted(2 * index), index))
-            .collect::<Vec<_>>();
+            .collect::<Items<_>>();
         let bound = ENTRIES.ilog2() as usize + 1;
         for (probe, expected) in [
             (2, Ok(0)),

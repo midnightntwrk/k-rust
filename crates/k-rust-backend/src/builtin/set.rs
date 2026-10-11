@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     matching::SortGraph,
-    term::{SetDefinition, Term, TermKind},
+    term::{Items, SetDefinition, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -100,8 +100,8 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     ) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut elements = left_elements.into_owned();
-    elements.extend(right_elements.iter().cloned());
+    let mut elements = left_elements;
+    elements.extend(right_elements);
     Ok(into
         .build(elements, left_rest.clone().or_else(|| right_rest.clone()))
         .into())
@@ -154,8 +154,8 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
 /// `elements` are the elements of a set argument as `Term::set` stores them, in the order of
 /// `Term`, under which two terms compare equal exactly when they are the same term, so a binary
 /// search decides whether `element` is among them in `O(log n)` comparisons.
-fn place_of(elements: &[Term], element: &Term) -> Result<usize, usize> {
-    elements.binary_search_by(|existing| {
+fn place_of(elements: &Items<Term>, element: &Term) -> Result<usize, usize> {
+    elements.search_by(|existing| {
         #[cfg(test)]
         compared_with_an_element();
         existing.cmp(element)
@@ -186,7 +186,7 @@ fn compared_with_an_element() {
 fn absent(
     sorts: Option<&SortGraph>,
     element: &Term,
-    elements: &[Term],
+    elements: &Items<Term>,
     set_constructor_like: bool,
     rest: &Option<Term>,
 ) -> bool {
@@ -204,7 +204,7 @@ fn absent(
 fn filtered(
     result: ResultCollection<'_>,
     definition: &Arc<SetDefinition>,
-    left: &[Term],
+    left: &Items<Term>,
     keep: impl Fn(&Term) -> bool,
 ) -> Option<Term> {
     let into = result.set(Some(definition))?;
@@ -232,7 +232,7 @@ fn difference(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Op
         return Ok(None);
     }
     Ok(filtered(result, definition, left_elements, |element| {
-        right_elements.binary_search(element).is_err()
+        right_elements.search(element).is_err()
     }))
 }
 
@@ -246,7 +246,7 @@ fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Optio
     };
     Ok(into
         .elements(elements, &definition.element_sort)
-        .and_then(|elements| into.build(elements.into_owned(), None)))
+        .and_then(|elements| into.build(elements, None)))
 }
 
 fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -272,7 +272,7 @@ fn intersection(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<
         return Ok(None);
     }
     Ok(filtered(result, definition, left_elements, |element| {
-        right_elements.binary_search(element).is_ok()
+        right_elements.search(element).is_ok()
     }))
 }
 
@@ -312,7 +312,7 @@ fn union(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option<
 
 /// The elements of `left` and `right`, both in the order of `Term` without a repeat, in that
 /// order and holding a term that is in both once.
-fn merged_once(left: &[Term], right: &[Term]) -> Vec<Term> {
+fn merged_once(left: &Items<Term>, right: &Items<Term>) -> Vec<Term> {
     let mut merged = Vec::with_capacity(left.len() + right.len());
     let (mut left_index, mut right_index) = (0, 0);
     while let (Some(left_element), Some(right_element)) =
@@ -334,8 +334,8 @@ fn merged_once(left: &[Term], right: &[Term]) -> Vec<Term> {
             }
         }
     }
-    merged.extend_from_slice(&left[left_index..]);
-    merged.extend_from_slice(&right[right_index..]);
+    merged.extend(left.range(left_index..).cloned());
+    merged.extend(right.range(right_index..).cloned());
     merged
 }
 
@@ -360,10 +360,9 @@ fn list_to_set(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<O
     };
     // The set of the list's elements: a list may repeat one, and the set holds it once. This
     // is not a concatenation, so the repeat is removed here (`Term::set` keeps repeats).
-    let Some(elements) = into.elements(heads, &definition.element_sort) else {
+    let Some(mut elements) = into.elements(heads, &definition.element_sort) else {
         return Ok(None);
     };
-    let mut elements = elements.into_owned();
     elements.sort();
     elements.dedup();
     Ok(into.build(elements, None))
@@ -383,12 +382,14 @@ fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
     if left_definition != right_definition {
         return Ok(None);
     }
-    Ok(Some(bool_term(left_elements.iter().all(|element| {
-        right_elements.binary_search(element).is_ok()
-    }))))
+    Ok(Some(bool_term(
+        left_elements
+            .iter()
+            .all(|element| right_elements.search(element).is_ok()),
+    )))
 }
 
-fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &[Term])> {
+fn concrete_set(term: &Term) -> Option<(&Arc<SetDefinition>, &Items<Term>)> {
     let TermKind::Set {
         definition,
         elements,
@@ -641,7 +642,7 @@ mod tests {
         let TermKind::Set { elements, rest, .. } = set.kind() else {
             return None;
         };
-        if elements.contains(element) {
+        if elements.iter().any(|existing| existing == element) {
             Some(true)
         } else if rest.is_none()
             && elements

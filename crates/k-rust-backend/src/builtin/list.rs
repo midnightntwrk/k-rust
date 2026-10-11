@@ -14,7 +14,7 @@ use super::{
 use crate::{
     allowance::Allowance,
     matching::SortGraph,
-    term::{Sort, Term, TermKind},
+    term::{Items, Sort, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -68,7 +68,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
                 return Ok(None);
             };
             let from = &left_definition.element_sort;
-            let elements = |terms| into.elements(terms, from);
+            let elements = |terms: &Items<Term>| into.elements(terms, from);
             let (Some(left_heads), Some(right_heads)) =
                 (elements(left_heads), elements(right_heads))
             else {
@@ -76,26 +76,25 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
             };
             let (heads, rest) = match (left_rest, right_rest) {
                 (None, None) | (None, Some(_)) => {
-                    let mut heads = left_heads.into_owned();
-                    heads.extend(right_heads.iter().cloned());
+                    let mut heads = left_heads;
+                    heads.extend(right_heads);
                     let rest = match right_rest {
                         Some((middle, tails)) => {
                             let Some(tails) = elements(tails) else {
                                 return Ok(None);
                             };
-                            Some((middle.clone(), tails.into_owned()))
+                            Some((middle.clone(), tails))
                         }
                         None => None,
                     };
                     (heads, rest)
                 }
                 (Some((middle, tails)), None) => {
-                    let Some(tails) = elements(tails) else {
+                    let Some(mut tails) = elements(tails) else {
                         return Ok(None);
                     };
-                    let mut tails = tails.into_owned();
-                    tails.extend(right_heads.iter().cloned());
-                    (left_heads.into_owned(), Some((middle.clone(), tails)))
+                    tails.extend(right_heads);
+                    (left_heads, Some((middle.clone(), tails)))
                 }
                 (Some(_), Some(_)) => return Ok(None),
             };
@@ -115,7 +114,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
             let Some(heads) = into.elements(heads, &definition.element_sort) else {
                 return Ok(None);
             };
-            into.build(heads.into_owned(), Some((right.clone(), Vec::new())))
+            into.build(heads, Some((right.clone(), Vec::new())))
         }
         (
             _,
@@ -131,7 +130,7 @@ fn concat(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
             let Some(heads) = into.elements(heads, &definition.element_sort) else {
                 return Ok(None);
             };
-            into.build(Vec::new(), Some((left.clone(), heads.into_owned())))
+            into.build(Vec::new(), Some((left.clone(), heads)))
         }
         _ => None,
     };
@@ -214,8 +213,12 @@ fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<
     let TermKind::List { heads, rest, .. } = list.kind() else {
         return Ok(None);
     };
-    let tails = rest.as_ref().map_or(&[][..], |(_, tails)| &tails[..]);
-    if heads.contains(element) || tails.contains(element) {
+    let tails = rest.as_ref().map(|(_, tails)| tails.iter());
+    if heads
+        .iter()
+        .chain(tails.into_iter().flatten())
+        .any(|item| item == element)
+    {
         return Ok(Some(bool_term(true)));
     }
     Ok(
@@ -339,8 +342,8 @@ fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builtin
             if front > end {
                 return Ok(BuiltinResult::Bottom);
             }
-            into.elements(&heads[front..end], from)
-                .and_then(|heads| into.build(heads.into_owned(), None))
+            into.elements(heads.range(front..end), from)
+                .and_then(|heads| into.build(heads, None))
         }
         Some((middle, tails)) => {
             let (Some(front), Some(back)) = (front, back) else {
@@ -351,13 +354,10 @@ fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builtin
             };
             let tail_end = tails.len() - back;
             match (
-                into.elements(&heads[front..], from),
-                into.elements(&tails[..tail_end], from),
+                into.elements(heads.range(front..), from),
+                into.elements(tails.range(..tail_end), from),
             ) {
-                (Some(heads), Some(tails)) => into.build(
-                    heads.into_owned(),
-                    Some((middle.clone(), tails.into_owned())),
-                ),
+                (Some(heads), Some(tails)) => into.build(heads, Some((middle.clone(), tails))),
                 _ => None,
             }
         }
@@ -423,7 +423,7 @@ fn update(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     let from = &definition.element_sort;
     let rest = match rest {
         Some((middle, tails)) => match into.elements(tails, from) {
-            Some(tails) => Some((middle.clone(), tails.into_owned())),
+            Some(tails) => Some((middle.clone(), tails)),
             None => return Ok(BuiltinResult::NotApplicable),
         },
         None => None,
@@ -432,7 +432,7 @@ fn update(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut updated = heads.into_owned();
+    let mut updated = heads;
     updated[index] = value;
     Ok(into.build(updated, rest).into())
 }
@@ -485,8 +485,8 @@ fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Bu
     else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let mut updated = original.into_owned();
-    updated.splice(index..end, updates.iter().cloned());
+    let mut updated = original;
+    updated.splice(index..end, updates);
     Ok(into.build(updated, None).into())
 }
 
