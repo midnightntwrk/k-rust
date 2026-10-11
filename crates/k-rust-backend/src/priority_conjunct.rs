@@ -7,8 +7,8 @@
 //! predicate position (`rule::has_term_in_predicate_position_with`) or is `\bottom` (nested `\or`
 //! of `\bottom`s), the empty set; an application of an alias with parameters counts as a term
 //! pattern whatever its body. It states that the rule applies only outside what `A` denotes. A
-//! negated nullary alias of a predicate, reached through any number of nullary aliases, is a
-//! condition like any other, not a priority conjunct. The *applicability pattern* `App(ρ)` of a
+//! negated nullary alias of a predicate other than `\bottom`, reached through any number of
+//! nullary aliases, is a condition like any other, not a priority conjunct. The *applicability pattern* `App(ρ)` of a
 //! rewrite axiom ρ is its written left-hand-side components (nested `\and` flattened) other than
 //! priority conjuncts and `\top`s, in written order; the requires is among them, so a
 //! configuration satisfies `App(ρ)` exactly when ρ applies to it.
