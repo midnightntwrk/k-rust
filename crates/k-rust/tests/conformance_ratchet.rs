@@ -3366,8 +3366,7 @@ print(json.dumps({
         assert_eq!(probe["copy"], expected_copy, "{backend}: {probes}");
     }
     assert_eq!(
-        probes["haskell"]["log"][0],
-        "N47 verification anywhere declarations made injective: 1",
+        probes["haskell"]["log"][0], "N47 verification anywhere declarations made injective: 1",
         "{probes}"
     );
     assert_eq!(
