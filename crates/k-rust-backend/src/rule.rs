@@ -388,9 +388,10 @@ pub struct ComputedRuleAttributes {
     /// spelling (`equation_unbound_result_variables`); empty for a rewrite rule. An instance
     /// of such an equation is not used (`ConditionIndeterminacy::UnboundResultVariables`).
     pub unbound_result_variables: Vec<String>,
-    /// The frames of the left-hand side's map patterns that nothing reads ([`unread_map_frames`]).
-    /// An equation's match leaves them unbound when the subject map is `ceil_free`
-    /// (`matching::match_equation_in_definition`).
+    /// The rests of the left-hand side's map patterns that no part of the rule reads: each
+    /// occurs once in the left-hand side and nowhere else in the rule, and no concreteness
+    /// attribute constrains it (`unread_map_frames`). An equation's match leaves them unbound
+    /// when the subject map is `ceil_free` (`matching::match_equation_in_definition`).
     pub unread_map_frames: BTreeSet<Variable>,
 }
 
